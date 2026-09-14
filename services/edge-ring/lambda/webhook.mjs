@@ -60,7 +60,7 @@ export const handler = async (event) => {
   let key;
   try {
     key = await hmacKey();
-  } catch (e) {
+  } catch {
     console.error(JSON.stringify({ level: 'error', msg: 'secret_unavailable' }));
     return { statusCode: 500, body: '' };
   }
@@ -110,7 +110,7 @@ export const handler = async (event) => {
         Detail: JSON.stringify({ ...payload, correlationId, receivedAt: Date.now() }),
       }],
     }));
-  } catch (e) {
+  } catch {
     console.error(JSON.stringify({ level: 'error', msg: 'bus_failed', correlationId }));
     return { statusCode: 500, body: '' };
   }

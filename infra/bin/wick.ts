@@ -15,8 +15,12 @@ import { WickEdgeStack } from '../lib/edge-stack.js';
 
 const app = new App();
 
+// `exactOptionalPropertyTypes` distinguishes "absent" from "present and
+// undefined", and CDK's Environment declares `account?: string`. So omit the key
+// rather than setting it to undefined — CDK then resolves it at deploy time.
+const account = process.env.CDK_DEFAULT_ACCOUNT;
 const env = {
-  account: process.env.CDK_DEFAULT_ACCOUNT,
+  ...(account ? { account } : {}),
   region: process.env.CDK_DEFAULT_REGION ?? 'us-east-1',
 };
 
