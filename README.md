@@ -81,7 +81,7 @@ household's rhythm. Full detail in [`docs/WICK-TECHNICAL.md`](docs/WICK-TECHNICA
 | **`headless-task-manager`** | Keeps the card channel alive while the app is off screen. |
 | **Ring Partner API** | Live WHEP video, snapshots, event history — and `media/audio/playback`, which lets a button on a TV remote make a voice come out of the hallway. |
 | **Strands Agents + Bedrock AgentCore** | Four cooperating agents with real long-horizon memory, not a single model call. |
-| **Alexa+ MCP add-on** (spec 2025-11-25, Streamable HTTP) | The family's endpoint. Its sub-500ms round-trip requirement is why the weekly narrative is precomputed rather than generated in-request. |
+| **MCP server** (spec 2025-11-25, Streamable HTTP) | The family's endpoint, built to Alexa+'s own published requirements — including the sub-500ms round trip, which is why the weekly narrative is precomputed rather than generated in-request. The Alexa+ add-on surface is partner-gated ([FL-001](FRICTION.md)), so it is exercised through an MCP client and a simulated Alexa+ surface, the alternative the rules permit. |
 
 ## The trust model
 
@@ -111,6 +111,7 @@ anything matching `/mock/i`.
 ```
 apps/tv-vega        Vega OS application — cards, player, break engine, headless services
 apps/tv-fireos      Fire OS companion build
+apps/sim-alexa      Simulated Alexa+ surface — a client of the real MCP server
 services/edge-ring  Ring webhook receiver — HMAC verify, idempotency, sub-5s ACK
 services/edge-device WebSocket connect/disconnect/route for the television
 services/mcp-server Alexa+ MCP add-on backend

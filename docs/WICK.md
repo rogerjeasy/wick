@@ -409,9 +409,16 @@ Every candidate feature was scored on six dimensions. The ranking is not "what's
 ### **S4 · The Family Line**
 > *"Alexa, how's Mum been this week?" — answered in prose, from anywhere.*
 
-**What it does.** A self-hosted integration registered with Alexa+ so that Sarah, on her own Echo in her own kitchen, can ask about her mother and get a truthful, narrative, unsensational answer. Not a dashboard. Not a score. A paragraph, the way a thoughtful neighbour would tell you.
+**What it does.** A self-hosted MCP server — the open standard Alexa+ itself uses — so that Sarah can ask about her mother from wherever she is and get a truthful, narrative, unsensational answer. Not a dashboard. Not a score. A paragraph, the way a thoughtful neighbour would tell you.
 
-**Why it is number four.** It is the entire reason Sarah pays. It is the cross-device proof that makes the project more than a TV app. It uses the newest, most strategically important developer surface Amazon has shipped this year, which is a direct Tech Implementation scoring input. And it is the second-best 20 seconds of the demo video.
+**Why it is number four.** It is the entire reason Sarah pays, and it is the cross-device proof that makes this more than a TV app.
+
+**What changed, and why it does not matter much.** Alexa+'s MCP Toolkit turns out to be restricted to select partners, with no published application path and no availability outside the United States (see L9). So S4 ships in two halves:
+
+- **S4a — the server, which is real.** A genuinely spec-compliant MCP server: spec 2025-11-25, Streamable HTTP, OAuth 2.1 with PKCE, sub-500ms round trips. Nothing gates building this, and it is the part that carries the engineering. Exercised through MCP Inspector and a small simulated Alexa+ surface, which the hackathon rules explicitly permit as an alternative path.
+- **S4b — the Alexa+ registration, which is gated.** Requested; the outcome is documented either way. If access opens, **no code changes** — the server already meets every published requirement.
+
+The demo must be honest about which half is which. Showing a simulated surface as though it were a real Echo would be worse than not showing it at all.
 
 | Serves | Pillar 3 — The Family |
 |---|---|
@@ -420,10 +427,10 @@ Every candidate feature was scored on six dimensions. The ranking is not "what's
 | **Judging power** | ★★★★★ — Tech Implementation, Impact |
 | **Demo power** | ★★★★★ |
 | **Effort** | Medium |
-| **Risk** | Medium — the integration is US-only and new; validate access early |
+| **Risk** | **Realised** — the Alexa+ add-on surface is partner-gated (L9). Mitigated by shipping S4a; see above. |
 | **Depends on** | The agent's weekly narrative (S6), the disclosure policy (S5) |
 
-**Build this second, not last.** It is the piece most likely to have an unpleasant surprise in it, and it is the piece that proves the whole system works end to end.
+**Build this second, not last.** It was the piece most likely to hold an unpleasant surprise — and it did. Building it early is exactly why that surprise cost a research afternoon instead of a week in October.
 
 ---
 
@@ -898,8 +905,12 @@ Motion events indicate that a human was detected, but not much more. Distinguish
 ### **L8 — Ring gives no way to replay a missed event.** *(Severity: Important)* **→ FR, → FL**
 If our service is briefly unavailable, the event is gone. There is no queue to catch up from and no test facility that emits events on demand, which makes automated testing awkward.
 
-### **L9 — The Alexa+ integration is United States only.** *(Severity: Critical for a global product)* **→ FR**
-The family pillar cannot currently be offered outside the US, despite the problem being global and the rest of the product being region-neutral.
+### **L9 — The Alexa+ MCP Toolkit is restricted to select partners, and is US-only.** *(Severity: Critical)* **→ FR, → FL**
+Verified on the Alexa+ add-ons documentation home page: *"At this time, Category SDK and MCP Toolkit are available to select partners only."* There is no published eligibility criterion, application form or waitlist. The restriction appears only on the docs home page — the Overview, QuickStart and Certification pages all describe a self-serve flow without mentioning it.
+
+**What this means:** the family pillar cannot be delivered through a real Echo. Wick ships a genuinely spec-compliant self-hosted MCP server instead (S4a), exercised through an MCP client and a simulated Alexa+ surface — a path the hackathon rules explicitly allow. Nothing about the server changes if access later opens.
+
+Written up in full as **FL-001**, with a concrete suggestion: mirror Ring's model — register, develop immediately against your own devices, and gate only publication.
 
 ### **L10 — No secure hardware key storage is documented on Vega.** *(Severity: Important)* **→ FR**
 For a product handling sensitive household information, the absence of documented hardware-backed credential storage on the device is a real gap. Wick works around it by keeping no meaningful secrets on the television at all — but not every product can.
@@ -1108,7 +1119,7 @@ Judges are not required to watch past three minutes. **Script to 2:45.**
 | **0:12–0:22** | The inversion, stated: every care product is built for the person who isn't there. | The idea, in ten seconds. |
 | **0:22–0:50** | **The Door, live.** A real doorbell press. The real card on the real Fire TV. The real description. The button pressed. The real Chime speaking in the hallway. | The money shot. Everything else supports this. |
 | **0:50–1:20** | **The Day, live.** The episode ends, the card appears, real Bee-derived items, the real message from the real daughter, the one-button reply, the phone buzzing at the other end. | The emotional centre. |
-| **1:20–1:45** | **The Family, live.** A real Echo. *"Alexa, how's Mum been this week?"* The real narrative. The timeline rendering. | The cross-device proof. |
+| **1:20–1:45** | **The Family, live.** The real MCP server answering a real question, through an MCP client and the simulated Alexa+ surface. Say on screen, in one line, that the Alexa+ add-on surface is partner-gated and this is the permitted alternative. | The cross-device proof — and the honesty is itself credibility. |
 | **1:45–1:55** | **The refusal.** Ask Alexa something the resident has marked private. Watch it decline. | Ten seconds that will be remembered. |
 | **1:55–2:25** | Architecture, fast and named: the Vega capabilities, the Ring endpoints, the agent graph. On screen, not narrated vaguely. | The Tech Implementation evidence. |
 | **2:25–2:40** | The stance, stated plainly: no indoor camera ever leaves this house. The resident sees her own week first. A word about consent. | Credibility. |

@@ -28,7 +28,7 @@ Every API claim carries a marker. This matters: a plausible-looking but invented
 ### 0.2 The three facts that shaped every decision below
 
 1. **Vega exposes no camera, microphone, Bluetooth or presence sensor to third-party apps.** ✅ V — verified against the complete dependency manifests of `vega-video-sample`, `vega-sports-app`, `vega-audio-sample`, `vega-tv-interfaces-sample`, `vega-epg-sample`. Consequence: all sensing is off-device. Ring is the eye, Bee is the ear.
-2. **Alexa+ requires MCP round-trip latency under 500ms.** ✅ V — Alexa+ MCP Toolkit quickstart. Consequence: the weekly narrative **must be precomputed**. You cannot generate it inside the tool call.
+2. **Alexa+ requires MCP round-trip latency under 500ms** ✅ V — and **the Alexa+ MCP Toolkit is restricted to select partners** ✅ V (add-ons docs home: *"At this time, Category SDK and MCP Toolkit are available to select partners only."*). Consequence: build the MCP server to the published spec regardless — including the 500ms budget, which means the weekly narrative **must be precomputed** — but demo it through an MCP client and a simulated Alexa+ surface, the alternative the rules permit. See §7.3.
 3. **Ring requires a webhook ACK inside 5 seconds and blocks browser-origin requests entirely.** ✅ V — Ring Partner API docs. Consequence: verify-and-enqueue only at the edge; the TV never holds a Ring credential.
 
 ### 0.3 Non-negotiable invariants
@@ -158,7 +158,9 @@ wick/
 │   │       ├── a11y/            # focus + screen-reader hints
 │   │       └── headless/        # service/task implementations
 │   │
-│   └── tv-fireos/               # Fire OS companion (build LAST)
+│   ├── tv-fireos/               # Fire OS companion (build LAST)
+│   └── sim-alexa/               # simulated Alexa+ surface (S4a) — a CLIENT of the
+│                                #   real MCP server; see FRICTION.md FL-001
 │
 ├── services/
 │   ├── edge-ring/               # webhook receiver (Lambda)
@@ -668,7 +670,16 @@ Everything downstream is async. Target p99 under 150ms.
 
 The 120s idle timeout will fight a long-lived SSE consumer. Expect to implement heartbeat + reconnect. That is friction-log entry material.
 
-### 7.3 Alexa+ MCP add-on (S4)
+### 7.3 MCP server (S4a) and the Alexa+ add-on (S4b)
+
+**Access reality first.** The Alexa+ MCP Toolkit is **partner-gated** ✅ V, with no published application path, and is US-only. So this splits:
+
+| | Status | What we do |
+|---|---|---|
+| **S4a — the MCP server** | **Buildable, ungated** | Build it to the full published spec. Exercise via MCP Inspector, Claude, and a small simulated Alexa+ web surface — the alternative the hackathon rules explicitly allow. |
+| **S4b — Alexa+ registration** | **Gated** | Request access; document the outcome. `addon-package/addon.json` is kept complete and valid so that if access opens, **no code changes** — only a deploy. |
+
+**Build to the published requirements anyway.** They are all good engineering independent of Alexa+, and they are what makes the claim "this is a real MCP server, not a demo prop" defensible to a judge.
 
 **Hard requirements** ✅ V (Alexa+ MCP Toolkit quickstart):
 
@@ -678,7 +689,7 @@ The 120s idle timeout will fight a long-lived SSE consumer. Expect to implement 
 - Auth is mandatory: return `401` (no `WWW-Authenticate`) when unauthenticated; host Protected Resource Metadata at `/.well-known/oauth-authorization-server`; advertise `code_challenge_methods_supported: ["S256"]`; OAuth 2.1 auth-code + PKCE; `resource` set to the server's canonical URI; Bearer token on authenticated calls.
 - Tools are discovered by **introspection at deploy time** — *"Alexa+ refreshes tool information only on deployment."* **Redeploy after any tool change.** This will bite you at least once; write it down when it does.
 
-**CLI** ✅ V
+**CLI** ✅ V — *documented, but gated; kept here for the moment access opens.*
 
 ```bash
 alexa-ai configure                       # LWA OAuth → ~/.alexa-ai/credentials
@@ -702,7 +713,7 @@ alexa-ai submit                          # certification
 | `send_note_to_tv` | Enqueues a `MessageCard` (M3) | — (inbound) |
 | `get_resident_shared_view` | Exactly what the resident sees is shared | FAMILY |
 
-**MCP Apps extension** (M6) ✅ V renders the week timeline in the conversation view. Build it after the five tools work. It is a genuine differentiator — very few submissions will touch it — but it is not the spine.
+**MCP Apps extension** (M6) ✅ V renders the week timeline in the conversation view. Since the Alexa+ surface is gated, render the equivalent panel in the simulated surface instead — the tool contract is identical, so the work transfers unchanged if access opens. Build it after the five tools work; it is a differentiator, not the spine.
 
 **Alexa+ routes by intent**, so the name "Wick" is rarely spoken. Write `examplePhrases` as natural questions (*"how's my mum been this week"*), not invocation patterns.
 
@@ -938,7 +949,7 @@ Nothing here is product code. The purpose is to find out what is impossible befo
 | **SP-1** | **Can anything render over active playback?** Run a Vega sample, start playback, attempt a lower-third overlay from the app and from a headless service. | 6h | The entire Door Card design. If no → the card waits for foreground, the demo script changes, and you write the headline feature request. **`WICK.md` R1.** |
 | **SP-2** | **Ring snapshot latency.** `POST /media/image/download` in a loop against the real doorbell. Record p50/p99. | 2h | §9.1 feasibility. If > 1.5s p99, Phase 1 ships the generic card with no image and patches the image in too. |
 | **SP-3** | **Ring WHEP on Vega.** Negotiate a session; render on the TV. Measure setup time and whether sessions are duration-limited. | 6h | M2 (Watch Live). Fallback: short clip via `media/video/download`. |
-| **SP-4** | **Alexa+ add-on access.** `alexa-ai configure`, `new mcp`, `deploy` against a stub server behind `cloudflared`. | 4h | **S4, the highest-uncertainty dependency.** Do this before any product code. |
+| **SP-4** | ~~Alexa+ add-on access~~ **RESOLVED 2026-09-14: partner-gated, no application path** (FL-001). Replacement spike: stand up a spec-2025-11-25 Streamable HTTP server behind `cloudflared` and drive it from MCP Inspector. | 3h | **S4a.** Proves the server is real without waiting on access. Re-request S4b access periodically; it costs nothing. |
 | **SP-5** | **Transport.** `mqtt.js` over WSS inside Vega RN 0.83, including a reconnect cycle. | 4h | §4.1 — IoT Core or API GW WebSocket. |
 | **SP-6** | **Bee SSE longevity.** Hold `/v1/stream` open for two hours against the 120s idle timeout. | 2h | Bridge design + a friction-log entry. |
 | **SP-7** | **Content Personalization round trip.** Publish one real playback event; confirm it lands in Continue Watching on the device. | 4h | The Rhythm pillar's device-side input. |
@@ -961,7 +972,7 @@ Order is not arbitrary. Each step de-risks the next, and each has a binary exit 
 |---|---|---|
 | **0** | Spikes SP-1…SP-8; repo, CI, CDK core stack, contracts package | Every spike has a written answer in `FRICTION.md` |
 | **1** | **S1 Door Card** — Ring webhook → EventBridge → Door agent → Phase 1 → device | A real doorbell press produces a real card on real hardware in < 3s, measured |
-| **2** | **S4 Family Line** — MCP server, add-on deployed, `get_week_narrative` over stub data | A real Echo answers a real question. **Do this second — it is the likeliest surprise.** |
+| **2** | **S4a Family Line** — spec-compliant MCP server, `get_week_narrative` over stub data, exercised from MCP Inspector | A real MCP client gets a real answer over Streamable HTTP. *(The likeliest surprise already fired — see FL-001 — which is exactly why this sat second.)* |
 | **3** | **S5 Guardian** — policy engine, egress module, lint rule, property tests | 10k property cases green; a real refusal demonstrable on a real Echo |
 | **4** | **S2 Natural-Break Engine** + Content Personalization (real events) | Deferred card provably never appears in `IN_SCENE`, on device |
 | **5** | **S6 Rhythm** — Timestream, baselines, deviation floor | A real 3-week baseline produces a true "nothing unusual this week" |
@@ -988,7 +999,7 @@ Order is not arbitrary. Each step de-risks the next, and each has a binary exit 
 | **Q5** | Is AgentCore Gateway the right MCP front door, or is a custom Streamable HTTP server simpler given the OAuth 2.1 + PRM requirements? | SP-4 | §7.3 |
 | **Q6** | Exact `keplerscript-audio-lib` ducking API and whether the duck applies to another app's audio. | Week 1 | Spoken cards |
 | **Q7** | Does the accessibility privilege expose contrast/reduced-motion preferences, or only screen-reader state? | Week 1 | §3.5; feature request L11 |
-| **Q8** | Alexa+ certification lead time — does `submit` need to complete before 23 Oct, or does dev-stage deployment suffice for judging? | SP-4 | Submission planning. **Assume dev stage suffices; confirm early.** |
+| **Q8** | ~~Alexa+ certification lead time~~ **CLOSED 2026-09-14.** Moot: the toolkit is partner-gated (FL-001). Replacement question: which MCP client makes the most legible 20 seconds of demo — Inspector, Claude, or the simulated surface? | Week 2, during filming rehearsal | Demo video §14.6 |
 
 ---
 
@@ -1072,6 +1083,9 @@ Manifest  addon-package/addon.json
           icons.light: 72,64,88,126,180,241 (ALL required) · carousel ≥1 @ 600x900
           integrations[].type = "MCP", config.endpoints.default.uri
 Region    US only
+Access    PARTNER-GATED — "Category SDK and MCP Toolkit are available to
+          select partners only." No published application path. See FL-001.
+          Build to this spec regardless; demo via MCP Inspector / simulated surface.
 Dev       cloudflared tunnel for local MCP server
 ```
 
@@ -1084,12 +1098,13 @@ Verified gaps found while researching this document. **Write each up properly th
 | **Critical** | No third-party overlay/ambient surface on Vega (Q1 / L1) |
 | **Critical** | No camera, microphone, BLE or presence API on Vega (L2) |
 | **Critical** | No documented hardware-backed keystore on Vega (L10 / Q4) |
+| **Critical** | Alexa+ MCP Toolkit partner-gated with no application path — **written up as FL-001** |
 | Important | No public Ambient Experience / presence API (L3) |
 | Important | Content Launcher and Account Login partner-gated with no sandbox (L4) |
 | Important | Ring: no two-way audio / siren / light endpoints despite hardware support (L6) |
 | Important | Ring: no webhook replay, DLQ, or synthetic-event sandbox → CI is hard (L8) |
 | Important | Ring: WHEP session duration/concurrency limits undocumented (Q2) |
-| Important | Alexa+ MCP add-on is US-only (L9) |
+| Important | Alexa+ MCP add-on is US-only, compounding the partner gate (L9) |
 | Important | No accessibility-preference API on Vega beyond screen-reader state (L11 / Q7) |
 | Nice-to-have | Ring `sub_type` taxonomy too coarse (L7) |
 | Nice-to-have | Ring blocks browser/TV origins, forcing an extra hop (L5) |

@@ -1,5 +1,10 @@
 /**
- * Alexa+ MCP add-on backend.
+ * The MCP server (S4a). This is the real artefact.
+ *
+ * The Alexa+ MCP Toolkit is partner-gated (FRICTION.md FL-001), so this server is
+ * exercised through MCP Inspector and the simulated surface in apps/sim-alexa
+ * rather than a real Echo. Build to the published spec anyway: it is good
+ * engineering independently, and if access opens, nothing here changes.
  *
  * HARD REQUIREMENTS (verified, Alexa+ MCP Toolkit quickstart, 2026-09-14):
  *   - MCP spec 2025-11-25, Streamable HTTP. Not legacy SSE.

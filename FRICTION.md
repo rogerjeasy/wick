@@ -71,3 +71,60 @@ leads, not entries — an entry requires that you actually hit it.
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-001 — Alexa+ MCP Toolkit is restricted to select partners, with no application path
+
+**Tool / API:**      Alexa+ MCP Toolkit / `alexa-ai` CLI (developer.amazon.com/docs/alexaplus/add-ons)
+
+**Task attempted:**  Register a self-hosted MCP server as an Alexa+ add-on, so a family
+                     member could ask their own Echo about a relative living alone — the
+                     cross-device half of a Fire TV project.
+
+**Steps taken:**     1. Read the MCP Toolkit Overview and QuickStart. Both describe a
+                        complete, self-serve flow: `alexa-ai configure` → `new mcp` →
+                        `deploy`, with an `addon.json` manifest schema documented in full.
+                     2. Built against those requirements: MCP spec 2025-11-25, Streamable
+                        HTTP, OAuth 2.1 + PKCE (S256), Protected Resource Metadata at
+                        `/.well-known/oauth-authorization-server`, sub-500ms round trips.
+                     3. Prepared every gating asset the manifest demands — six icon sizes,
+                        a 600x900 carousel image, live privacy and terms URLs.
+                     4. Went to obtain CLI access and found, on the add-ons documentation
+                        home page: *"At this time, Category SDK and MCP Toolkit are
+                        available to select partners only."*
+
+**Expected:**        That the QuickStart's documented flow was available to a registered
+                     Amazon developer, as its wording implies throughout. Nothing in the
+                     Overview, QuickStart, Certification or Account Linking pages mentions
+                     a restriction.
+
+**Actual:**          Both the Category SDK and the MCP Toolkit are gated to select
+                     partners. There is no published eligibility criterion, application
+                     form, waitlist, or contact address for requesting access. The
+                     restriction appears only on the docs home page, not on the pages that
+                     describe the workflow in detail.
+
+**Severity:**        Critical — it gates an entire documented developer surface, and it is
+                     discoverable only after building against the spec.
+
+**Workaround:**      Built the MCP server anyway: genuinely spec-compliant (2025-11-25,
+                     Streamable HTTP, OAuth 2.1 + PKCE), exercised through MCP Inspector
+                     and a simulated Alexa+ surface, which the hackathon rules explicitly
+                     permit as an alternative. The server is real; only the Alexa+
+                     registration is missing. If access opens, no code changes.
+
+**Suggestion:**      Three things, in order of value:
+                     1. **Put the restriction at the top of the Overview and QuickStart**,
+                        not only on the docs home page. A developer who lands on the
+                        QuickStart from search — the common path — will build for hours
+                        before discovering it.
+                     2. **Publish an eligibility criterion and a request form**, even if
+                        the answer is usually no. "Select partners only" with no door is
+                        worse than a documented queue.
+                     3. **Offer a development-stage sandbox** that accepts any registered
+                        developer and exercises the full loop against a simulator, with
+                        only production deployment gated. This is how the Ring Partner API
+                        handles the same problem, and it works well: register, develop
+                        immediately against your own devices, certify only to publish.
+
+**Also noted:**      The toolkit is documented as United States only. Combined with partner
+                     gating, a developer outside the US has no path to the surface at all.
