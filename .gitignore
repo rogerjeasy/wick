@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+cdk.out/
+.aws-sam/
+*.vpkg
+.DS_Store
+.vscode/
+.idea/
+# Real household data NEVER enters the repo. See AGENTS.md INV-3/INV-4.
+/captures/
+/fixtures/raw/
+*.har

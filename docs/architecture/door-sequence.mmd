@@ -1,0 +1,28 @@
+sequenceDiagram
+    autonumber
+    participant R as Ring
+    participant E as Edge (Lambda)
+    participant B as EventBridge
+    participant D as Door agent
+    participant N as Nova (vision)
+    participant G as Guardian
+    participant TV as Fire TV
+
+    R->>E: button_press (HMAC signed)
+    E->>E: verify + idempotency
+    E-->>R: 200 (target p99 < 150ms)
+    E->>B: PutEvents
+    B->>D: invoke
+    par fast path
+        D->>R: POST media/image/download
+        R-->>D: snapshot
+        D->>G: Phase 1 card
+        G->>TV: "Someone's at the front door."
+        Note over TV: <= 900ms from webhook
+    and slow path
+        D->>N: describe(image)
+        N-->>D: one sentence
+        D->>G: Phase 2 patch
+        G->>TV: description patched in
+        Note over TV: <= 2200ms · hard-cancel 2500ms
+    end

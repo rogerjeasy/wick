@@ -1,0 +1,171 @@
+#
+# Wick — Vega OS application manifest.
+#
+# Structure and identifiers verified against AmazonAppDev/vega-video-sample
+# (2026-09-14). See docs/WICK-TECHNICAL.md §3.1 and Appendix A.
+#
+# NOT declared, deliberately: IContentLauncherServer and IAccountLoginServer are
+# select-partner gated with no sandbox. Declaring what you cannot exercise is
+# worse than omitting it. Tracked in FRICTION.md.
+#
+schema-version = 1
+
+[package]
+id      = "com.wick.tv"
+title   = "Wick"
+version = "0.1.0"
+icon    = "@image/Wick.png"
+
+[os.version]
+min    = "1.2"
+target = "1.2"
+
+# -----------------------------------------------------------------------------
+# Components
+# -----------------------------------------------------------------------------
+[components]
+
+# Main UI — cards, player, all rendering.
+[[components.interactive]]
+id             = "com.wick.tv.main"
+runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
+categories     = ["com.amazon.category.main", "com.amazon.category.kepler.media"]
+launch-type    = "singleton"
+
+# Holds the device channel; receives cards while the app package is alive.
+[[components.service]]
+id             = "com.wick.tv.card.service"
+runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
+launch-type    = "singleton"
+
+# Serves real Watch Activity to the platform. Feeds Continue Watching AND the
+# Rhythm pillar — one integration, two purposes. See §3.3.
+[[components.service]]
+id             = "com.wick.tv.content.dataRefresh.provider"
+runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
+launch-type    = "singleton"
+
+# Nightly batch upload of local playback events.
+[[components.task]]
+id             = "com.wick.tv.rhythmSyncTask"
+runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
+
+# First-run pairing state.
+[[components.task]]
+id             = "com.wick.tv.onInstallTask"
+runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
+
+# -----------------------------------------------------------------------------
+# Processes — the card service is isolated so a UI crash cannot drop the channel.
+# -----------------------------------------------------------------------------
+[processes]
+
+[[processes.group]]
+component-ids = ["com.wick.tv.main"]
+
+[[processes.group]]
+component-ids = ["com.wick.tv.card.service"]
+
+[[processes.group]]
+component-ids = ["com.wick.tv.content.dataRefresh.provider"]
+
+# -----------------------------------------------------------------------------
+# Wants — optional capabilities. Handle graceful fallback for each.
+# -----------------------------------------------------------------------------
+[wants]
+
+[[wants.service]]
+id = "com.amazon.tv.developer.dataservice"          # personalization data service
+
+[[wants.privilege]]
+id = "com.amazon.tv.content-personalization.privilege.provide-data"
+
+[[wants.privilege]]
+id = "com.amazon.devconf.privilege.accessibility"   # screen-reader state
+
+[[wants.service]]
+id = "com.amazon.media.server"
+
+[[wants.service]]
+id = "com.amazon.media.playersession.service"       # transport controls / voice
+
+[[wants.service]]
+id = "com.amazon.mediabuffer.service"
+
+[[wants.service]]
+id = "com.amazon.mediametrics.service"
+
+[[wants.service]]
+id = "com.amazon.audio.stream"
+
+[[wants.service]]
+id = "com.amazon.audio.control"                     # ducking, never muting
+
+[[wants.service]]
+id = "com.amazon.audio.system"
+
+[[wants.service]]
+id = "com.amazon.inputd.service"                    # remote button events
+
+[[wants.service]]
+id = "com.amazon.network.service"
+
+# -----------------------------------------------------------------------------
+# Needs — required for the app to function.
+# -----------------------------------------------------------------------------
+[needs]
+
+[[needs.privilege]]
+id = "com.amazon.media.secureplayback"
+
+[[needs.privilege]]
+id = "com.amazon.network.privilege.net-info"
+
+[[needs.module]]
+id = "/com.amazon.vega.os@IVega_1_2"
+
+# -----------------------------------------------------------------------------
+# Lifecycle tasks
+# -----------------------------------------------------------------------------
+[tasks]
+
+[[tasks.work]]
+component-id = "com.wick.tv.onInstallTask"
+mode         = "install"
+
+# -----------------------------------------------------------------------------
+# Offers
+# -----------------------------------------------------------------------------
+[offers]
+
+[[offers.service]]
+id = "com.wick.tv.content.dataRefresh.provider"
+
+[[offers.interaction]]
+id = "com.wick.tv.main"
+
+[[message]]
+uri                  = "pkg://com.wick.tv.main"
+sender-privileges    = ["*"]
+receiver-privileges  = ["self"]
+
+# -----------------------------------------------------------------------------
+# Extras — Amazon feature integration declarations
+# -----------------------------------------------------------------------------
+[[extras]]
+key          = "interface.provider"
+component-id = "com.wick.tv.main"
+
+[extras.value.application]
+
+[[extras.value.application.interface]]
+interface_name    = "com.amazon.kepler.media.IContentPersonalizationServer"
+attribute_options = ["SupportedCustomerLists", "DataRefreshComponentId"]
+
+[extras.value.application.interface.static_values]
+SupportedCustomerLists = ["Watchlist"]
+DataRefreshComponentId = "com.wick.tv.content.dataRefresh.provider"
+
+[[extras.value.application.interface]]
+interface_name  = "com.amazon.kepler.media.IMediaPlaybackServer"
+command_options = ["Play", "Pause", "StartOver", "Previous", "Next"]

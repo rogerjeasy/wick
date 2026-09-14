@@ -1,0 +1,37 @@
+{
+  "name": "wick",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Wick \u2014 the television as the care surface for the person being cared for.",
+  "license": "MIT",
+  "author": "Roger Bavibidila",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "services/connectors/*",
+    "apps/tv-vega",
+    "infra"
+  ],
+  "scripts": {
+    "typecheck": "tsc -b --pretty",
+    "check:no-mocks": "node scripts/check-no-mocks.mjs",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:property": "vitest run evaluate.property NaturalBreakEngine",
+    "test:watch": "vitest",
+    "typecheck:vega": "tsc -b apps/tv-vega --pretty",
+    "verify": "npm run typecheck && npm run lint && npm run check:no-mocks && npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "fast-check": "^3.23.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^2.1.0"
+  }
+}

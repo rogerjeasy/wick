@@ -1,0 +1,7 @@
+{
+  "app": "npx tsx bin/wick.ts",
+  "context": {
+    "@aws-cdk/core:enableStackNameDuplicates": false,
+    "@aws-cdk/aws-lambda:recognizeVersionProps": true
+  }
+}

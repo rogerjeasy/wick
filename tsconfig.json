@@ -1,0 +1,21 @@
+{
+  "files": [],
+  "comment": [
+    "apps/tv-vega is deliberately NOT referenced here. Its @amazon-devices/*",
+    "dependencies arrive with the Vega CLI scaffold and are not on the public npm",
+    "registry, so a fresh clone cannot typecheck it. Run `npm run typecheck:vega`",
+    "once the Vega SDK is installed. See docs/WICK-TECHNICAL.md §13.2."
+  ],
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/vega-calm-ui" },
+    { "path": "./services/policy" },
+    { "path": "./services/agent" },
+    { "path": "./services/edge-ring" },
+    { "path": "./services/edge-device" },
+    { "path": "./services/mcp-server" },
+    { "path": "./services/connectors/ring" },
+    { "path": "./services/connectors/bee" },
+    { "path": "./infra" }
+  ]
+}

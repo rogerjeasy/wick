@@ -1,0 +1,15 @@
+name: deploy-agent
+on:
+  push:
+    branches: [main]
+    paths: ['services/agent/**', 'services/policy/**', 'services/mcp-server/**']
+permissions: { contents: read, id-token: write }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Tests-then-deploy ordering: never ship an agent whose Guardian is red.
+      - run: echo "npm run test:property && cdk deploy WickAgent WickMcp"
+      # REMEMBER: Alexa+ refreshes tool info only on deploy. Run `alexa-ai deploy`
+      # after any MCP tool change or Alexa+ will keep calling the old surface.

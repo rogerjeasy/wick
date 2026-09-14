@@ -1,0 +1,36 @@
+{
+  "name": "@wick/tv-vega",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "author": "Roger Bavibidila",
+  "main": "index.js",
+  "scripts": {
+    "build": "kepler bundle",
+    "start": "kepler run",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wick/contracts": "*",
+    "@wick/vega-calm-ui": "*"
+  },
+  "comment:dependencies": [
+    "Vega SDK packages are added by the Vega CLI on scaffold and pinned by it.",
+    "Expected set, verified against AmazonAppDev/vega-video-sample (2026-09-14):",
+    "  @amazon-devices/react-native-kepler",
+    "  @amazon-devices/react-native-w3cmedia",
+    "  @amazon-devices/headless-task-manager",
+    "  @amazon-devices/kepler-content-personalization",
+    "  @amazon-devices/kepler-media-controls",
+    "  @amazon-devices/kepler-ui-components",
+    "  @amazon-devices/kepler-file-system",
+    "  @amazon-devices/kepler-performance-api",
+    "  @amazon-devices/keplerscript-audio-lib",
+    "  @amazon-devices/keplerscript-netmgr-lib",
+    "  @amazon-devices/react-native-reanimated",
+    "  @amazon-devices/react-native-worklets",
+    "  @amazon-devices/react-native-safe-area-context",
+    "  @amazon-devices/react-native-svg",
+    "  @amazon-devices/eslint-plugin-kepler"
+  ]
+}

@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write   # OIDC to AWS. No static keys in this repository, ever.
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      # The Vega samples wire mock data into the real service path. This guard
+      # keeps that out of Wick — see docs/WICK-TECHNICAL.md §12.1.
+      - run: npm run check:no-mocks
+      - run: npm test
+
+  guardian:
+    name: guardian invariants (10k property cases)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:property

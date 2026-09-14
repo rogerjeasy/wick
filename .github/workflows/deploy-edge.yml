@@ -1,0 +1,13 @@
+name: deploy-edge
+on:
+  push:
+    branches: [main]
+    paths: ['services/edge-ring/**', 'services/edge-device/**', 'infra/**']
+permissions: { contents: read, id-token: write }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # TODO: aws-actions/configure-aws-credentials with role-to-assume (OIDC).
+      - run: echo "cdk deploy WickEdge"

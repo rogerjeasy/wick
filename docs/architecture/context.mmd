@@ -1,0 +1,35 @@
+flowchart LR
+  subgraph HOME["Margaret's house"]
+    TV["Fire TV · Vega OS<br/>Wick app"]
+    RING["Ring doorbell<br/>+ Chime"]
+    BEE["Bee bridge<br/>(local proxy)"]
+  end
+
+  subgraph CLOUD["Wick cloud"]
+    subgraph AGENT["Agent plane"]
+      DOOR["Door"]
+      DAY["Day"]
+      NARR["Narrator"]
+      GUARD{{"GUARDIAN<br/>policy gate"}}
+    end
+    subgraph MEM["Memory plane"]
+      DDB[("DynamoDB<br/>timeline")]
+      TS[("Timestream<br/>rhythm")]
+      KB[("Knowledge Base")]
+    end
+  end
+
+  ECHO["Alexa+ · Echo<br/>(Sarah, anywhere)"]
+
+  TV <-->|"WSS · cards + playback"| AGENT
+  RING -->|"webhook · ACK < 5s"| DOOR
+  DOOR -->|"snapshot · WHEP · chime"| RING
+  BEE -->|"derived facts only<br/>INV-4: no verbatim"| DAY
+
+  DOOR --> GUARD
+  DAY --> GUARD
+  NARR --> GUARD
+  GUARD -->|"egress.ts · INV-2"| TV
+  GUARD -->|"MCP · < 500ms"| ECHO
+
+  AGENT --- MEM
