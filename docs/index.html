@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wick — the television as the care surface</title>
+<meta name="description" content="Wick turns the television into the care surface for the person being cared for. Fire TV, Ring, Bee and Alexa+.">
+<link rel="icon" href="icons/light-72.png">
+<meta property="og:title" content="Wick — Still wick.">
+<meta property="og:description" content="The television as the care surface for the person being cared for.">
+<meta property="og:image" content="https://rogerjeasy.github.io/wick/carousel/wick-1.png">
+<style>
+  :root{
+    --ground:#12100E; --raised:#1E1B17; --ink:#F4F1EA; --ink-dim:#C8C2B6; --accent:#E8B75D;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font:17px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{max-width:46rem;margin:0 auto;padding:4.5rem 1.25rem 6rem}
+  header{text-align:center;margin-bottom:4rem}
+  header img{width:104px;height:104px;display:block;margin:0 auto 1.25rem}
+  h1{font-family:Georgia,"Times New Roman",serif;font-size:3.1rem;margin:0;letter-spacing:-.01em}
+  .tagline{font-family:Georgia,serif;color:var(--accent);font-size:1.25rem;margin:.35rem 0 1.4rem}
+  .lede{color:var(--ink-dim);max-width:34rem;margin:0 auto}
+  .chips{margin-top:1.5rem;color:var(--accent);font-size:.95rem;letter-spacing:.02em}
+  h2{font-size:1.05rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-dim);
+     margin:3.5rem 0 1.25rem;font-weight:600}
+  .pillars{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))}
+  .card{background:var(--raised);border-radius:12px;padding:1.4rem 1.5rem}
+  .card h3{margin:0 0 .4rem;font-size:1.05rem;color:var(--accent);font-weight:600}
+  .card p{margin:0;color:var(--ink-dim);font-size:.95rem;line-height:1.6}
+  table{width:100%;border-collapse:collapse;font-size:.93rem}
+  th,td{text-align:left;padding:.6rem .5rem;border-bottom:1px solid #2A2621}
+  th{color:var(--ink-dim);font-weight:600}
+  td.yes{color:var(--accent);font-weight:600}
+  td.no{color:#6E675D}
+  ul.promises{list-style:none;padding:0;margin:0}
+  ul.promises li{padding:.55rem 0 .55rem 1.6rem;position:relative;color:var(--ink-dim)}
+  ul.promises li::before{content:"—";position:absolute;left:0;color:var(--accent)}
+  ul.promises strong{color:var(--ink)}
+  .links{display:flex;flex-wrap:wrap;gap:.7rem;margin-top:1.25rem}
+  .links a{
+    display:inline-block;padding:.6rem 1.05rem;border-radius:8px;text-decoration:none;
+    background:var(--raised);color:var(--ink);font-size:.95rem;border:1px solid #2A2621;
+  }
+  .links a:hover{border-color:var(--accent);color:var(--accent)}
+  .links a.primary{background:var(--accent);color:var(--ground);border-color:var(--accent);font-weight:600}
+  footer{margin-top:4.5rem;padding-top:1.75rem;border-top:1px solid #2A2621;
+         color:#6E675D;font-size:.88rem;display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-between}
+  footer a{color:var(--ink-dim)}
+  @media (max-width:520px){h1{font-size:2.4rem}.wrap{padding-top:3rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img src="icons/light-241.png" alt="">
+    <h1>Wick</h1>
+    <p class="tagline">Still wick.</p>
+    <p class="lede">
+      Every product built for ageing at home is built for the <em>caregiver</em> — a phone app,
+      full of alerts, checked by a daughter three hundred miles away. Wick inverts that: it puts
+      the intelligence <strong>inside the home</strong>, on the one screen a 78-year-old already
+      looks at for seven hours a day, and asks them to install nothing, learn nothing, wear
+      nothing and change nothing.
+    </p>
+    <p class="chips">Fire TV &nbsp;·&nbsp; Ring &nbsp;·&nbsp; Bee &nbsp;·&nbsp; Alexa+</p>
+  </header>
+
+  <h2>What it does</h2>
+  <div class="pillars">
+    <div class="card">
+      <h3>The Door</h3>
+      <p>A doorbell press puts a card on the television in under three seconds — a live still and
+         one plain sentence describing who is actually there. One button plays “Just a moment”
+         out of the Ring Chime, so nobody has to rush to the door.</p>
+    </div>
+    <div class="card">
+      <h3>The Day</h3>
+      <p>Wick reads the day’s real context from a Bee wearable and surfaces at most three things
+         worth remembering — at the end of an episode, never mid-scene.</p>
+    </div>
+    <div class="card">
+      <h3>The Family</h3>
+      <p>A distant daughter asks her own Echo “how’s Mum been this week?” and gets a truthful,
+         unsensational narrative. Notes go back the other way; the resident replies with one button.</p>
+    </div>
+    <div class="card">
+      <h3>The Rhythm</h3>
+      <p>Wick learns what a normal week looks like in this house, so it can stay silent when
+         nothing is wrong — and so the weekly narrative can say “that’s up from last week” and
+         mean it.</p>
+    </div>
+  </div>
+
+  <h2>Why this needs Amazon</h2>
+  <table>
+    <tr><th></th><th>Screen</th><th>Doorbell API</th><th>Wearable context</th><th>Assistant</th></tr>
+    <tr><td><strong>Amazon</strong></td><td class="yes">Fire TV</td><td class="yes">Ring</td><td class="yes">Bee</td><td class="yes">Alexa+</td></tr>
+    <tr><td>Google</td><td>Google TV</td><td class="no">limited</td><td class="no">no conversation</td><td>Gemini</td></tr>
+    <tr><td>Apple</td><td>Apple TV</td><td class="no">—</td><td class="no">no capture</td><td>Siri</td></tr>
+    <tr><td>Roku</td><td>Roku</td><td class="no">—</td><td class="no">—</td><td class="no">—</td></tr>
+  </table>
+  <p style="color:var(--ink-dim);margin-top:1rem">
+    Wick is not an app that happens to run on Fire TV. It is an argument for why Fire TV sits at
+    the centre of the Amazon home.
+  </p>
+
+  <h2>The trust model</h2>
+  <ul class="promises">
+    <li><strong>No camera ever shows the inside of this house to anyone.</strong> Ring is used for
+        the front door and for the fact that someone arrived. Never to watch the resident.</li>
+    <li><strong>The resident can see everything the family can see</strong> — on their own
+        television, and can remove anything from it permanently with one button.</li>
+    <li><strong>Nothing about health, money or relationships leaves the house without permission.</strong>
+        Enforced by a policy engine with property-based tests, not by the good intentions of a model.</li>
+    <li><strong>Wick reports what was said and what happened, never what it thinks you felt.</strong>
+        No mood detection. No wellness scores.</li>
+  </ul>
+
+  <h2>Read more</h2>
+  <div class="links">
+    <a class="primary" href="https://github.com/rogerjeasy/wick">Source on GitHub</a>
+    <a href="WICK.md">Product definition</a>
+    <a href="WICK-TECHNICAL.md">Technical document</a>
+    <a href="https://github.com/rogerjeasy/wick/blob/main/FRICTION.md">Friction log</a>
+  </div>
+
+  <footer>
+    <span>Built for the Amazon Developer Hackathon · Fire TV track</span>
+    <span>
+      <a href="privacy.html">Privacy</a> ·
+      <a href="terms.html">Terms</a> ·
+      <a href="https://github.com/rogerjeasy/wick/blob/main/LICENSE">MIT</a>
+    </span>
+  </footer>
+
+</div>
+</body>
+</html>
