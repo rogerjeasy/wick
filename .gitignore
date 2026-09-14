@@ -16,3 +16,6 @@ cdk.out/
 /captures/
 /fixtures/raw/
 *.har
+
+# CDK deploy outputs may embed account-specific endpoints
+infra/cdk-outputs.json
