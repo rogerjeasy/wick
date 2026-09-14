@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wick — Connect your Ring account</title>
+<style>
+  :root{--ground:#12100E;--raised:#1E1B17;--ink:#F4F1EA;--ink-dim:#C8C2B6;--accent:#E8B75D}
+  body{margin:0;background:var(--ground);color:var(--ink);
+       font:17px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:38rem;margin:0 auto;padding:4rem 1.25rem 6rem}
+  img{width:88px;height:88px;display:block;margin:0 auto 1.5rem}
+  h1{font-family:Georgia,serif;font-size:2rem;text-align:center;margin:0 0 .5rem}
+  .sub{text-align:center;color:var(--ink-dim);margin:0 0 2.5rem}
+  .box{background:var(--raised);border-radius:12px;padding:1.5rem;margin-bottom:1.25rem}
+  h2{font-size:1rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-dim);margin:0 0 .85rem}
+  ul{margin:0;padding-left:1.2rem;color:var(--ink-dim)}
+  li{margin:.4rem 0}
+  li strong{color:var(--ink)}
+  .no li::marker{color:#6E675D}
+  .notice{border-left:3px solid var(--accent);padding-left:1rem;color:var(--ink-dim);font-size:.95rem}
+  a{color:var(--accent)}
+  footer{margin-top:2.5rem;text-align:center;color:#6E675D;font-size:.88rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <img src="icons/light-241.png" alt="">
+  <h1>Connect your Ring account</h1>
+  <p class="sub">Wick is asking to read events from your Ring doorbell and chime.</p>
+
+  <div class="box">
+    <h2>What Wick will be able to do</h2>
+    <ul>
+      <li><strong>See when the doorbell is pressed</strong> or the camera detects a person, so it can put a card on the television.</li>
+      <li><strong>Fetch a still image</strong> from the doorbell at that moment, to describe who is there. Images are discarded within 24 hours.</li>
+      <li><strong>Open a live view</strong> on the television, only when someone presses “Watch live”.</li>
+      <li><strong>Play a short recorded message</strong> through your Ring Chime, when someone presses “Just a moment”.</li>
+      <li><strong>Read the history of door events</strong>, to confirm whether an expected visitor actually arrived.</li>
+    </ul>
+  </div>
+
+  <div class="box">
+    <h2>What Wick will never do</h2>
+    <ul class="no">
+      <li>Stream any camera inside the home to anyone.</li>
+      <li>Record or store video.</li>
+      <li>Share what it sees with anyone the resident has not approved.</li>
+    </ul>
+  </div>
+
+  <p class="notice">
+    Wick is a private integration, used only with accounts explicitly connected to it.
+    You can disconnect at any time from the Ring app, and separately ask Wick to
+    delete everything it holds — a single action, with no negotiation.
+    See the <a href="privacy.html">privacy policy</a> and <a href="terms.html">terms</a>.
+  </p>
+
+  <footer>
+    <a href="./">Wick</a> · <a href="https://github.com/rogerjeasy/wick">Source</a>
+  </footer>
+</div>
+</body>
+</html>
