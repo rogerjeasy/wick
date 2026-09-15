@@ -625,7 +625,7 @@ Never a generic error. Never silence — silence is indistinguishable from "noth
 | Purpose | Call |
 |---|---|
 | Discovery | `GET /v1/devices?include=status,capabilities,location,configurations` |
-| Snapshot (Phase 1 + vision) | `POST /v1/devices/{id}/media/image/download` |
+| Image (Phase 1 + vision) ⚠️ **not a live snapshot** | `POST /v1/devices/{id}/media/image/download` — body `{"type":"at_timestamp","timestamp":<ms>}`, returns **303** to a presigned URL. Verified 2026-09-15. |
 | Live view (M2) | `POST /v1/devices/{id}/media/streaming/whep/sessions` (`Content-Type: application/sdp`) |
 | Live view fallback | `rtsps://video.rtsp.amazonvision.com:322/v1/devices/{id}/stream` |
 | **"Just a moment" (M1)** | `POST /v1/devices/{chimeId}/media/audio/playback` |
@@ -947,7 +947,7 @@ Nothing here is product code. The purpose is to find out what is impossible befo
 | # | Spike | Timebox | Decides |
 |---|---|---|---|
 | **SP-1** | **Can anything render over active playback?** Run a Vega sample, start playback, attempt a lower-third overlay from the app and from a headless service. | 6h | The entire Door Card design. If no → the card waits for foreground, the demo script changes, and you write the headline feature request. **`WICK.md` R1.** |
-| **SP-2** | **Ring snapshot latency.** `POST /media/image/download` in a loop against the real doorbell. Record p50/p99. | 2h | §9.1 feasibility. If > 1.5s p99, Phase 1 ships the generic card with no image and patches the image in too. |
+| ~~**SP-2**~~ **DONE** | **Ring snapshot latency.** Measured 2026-09-15, n=3: **3.15s end to end** (0.8s to the 303, ~2.3s to fetch 106KB of 1280x720 JPEG). Well over the 1.5s p99 bar — **so Phase 1 ships the card with no image and patches the image in after**, as planned. Also discovered: there is no live-capture call at all; `at_timestamp` retrieves a *recorded* frame. See FL-005. | done | §9.1 |
 | **SP-3** | **Ring WHEP on Vega.** Negotiate a session; render on the TV. Measure setup time and whether sessions are duration-limited. | 6h | M2 (Watch Live). Fallback: short clip via `media/video/download`. |
 | **SP-4** | ~~Alexa+ add-on access~~ **RESOLVED 2026-09-14: partner-gated, no application path** (FL-001). Replacement spike: stand up a spec-2025-11-25 Streamable HTTP server behind `cloudflared` and drive it from MCP Inspector. | 3h | **S4a.** Proves the server is real without waiting on access. Re-request S4b access periodically; it costs nothing. |
 | **SP-5** | **Transport.** `mqtt.js` over WSS inside Vega RN 0.83, including a reconnect cycle. | 4h | §4.1 — IoT Core or API GW WebSocket. |
@@ -1035,7 +1035,9 @@ Live      POST /v1/devices/{id}/media/streaming/whep/sessions   (Content-Type: a
           DELETE /v1/devices/{id}/media/streaming/whep/sessions/{sid}
           rtsps://video.rtsp.amazonvision.com:322/v1/devices/{id}/stream
 Media     POST /v1/devices/{id}/media/video/download            (MP4)
-          POST /v1/devices/{id}/media/image/download            (JPEG/PNG)
+          POST /v1/devices/{id}/media/image/download            (303 -> JPEG)
+          body {"type":"at_timestamp"|"latest_in_range","timestamp":<ms>}
+          historical retrieval, NOT live capture · ~3.2s end to end
 Chime     POST /v1/devices/{id}/media/audio/playback            (body: audio_ref)
 History   GET  /v1/history/devices/{id}/events
 Multi-cam append ?component_id=N
