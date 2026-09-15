@@ -74,7 +74,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         if: steps.target.outputs.ready == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
         with:
-          terraform_version: 1.9.8
+          terraform_version: 1.16.2
 
       # The agent reads its Ring token from Secrets Manager at runtime via
       # secretsManagerTokenProvider(). There is no .env in a deployed runtime,

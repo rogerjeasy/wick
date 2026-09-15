@@ -10,9 +10,14 @@
 # ---------------------------------------------------------------------------
 
 variable "github_repository" {
-  description = "owner/name of the repository allowed to assume the deploy role."
+  # GitHub's OIDC `sub` claim embeds the immutable owner/repo numeric IDs
+  # alongside the names (login@ownerId/repo@repoId), not just the names — a
+  # hardening against repo-rename/transfer hijacking. StringEquals against the
+  # name-only form never matches; this is the literal value GitHub issues for
+  # rogerjeasy/wick, confirmed 2026-09-15 by decoding the token in CI.
+  description = "owner@ownerId/name@repoId of the repository allowed to assume the deploy role."
   type        = string
-  default     = "rogerjeasy/wick"
+  default     = "rogerjeasy@58919295/wick@1370269826"
 }
 
 variable "github_deploy_ref" {

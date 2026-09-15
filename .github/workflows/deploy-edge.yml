@@ -36,20 +36,6 @@ jobs:
       # Tests-then-deploy ordering: never ship an edge whose contracts are red.
       - run: npm run verify
 
-      # TEMPORARY — remove once the OIDC trust mismatch is diagnosed.
-      # Prints the sub/aud claims GitHub actually issues, so they can be
-      # compared byte-for-byte against the role's trust condition.
-      - name: debug OIDC token claims
-        run: |
-          token=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value')
-          payload=$(echo "$token" | cut -d '.' -f2)
-          case $(( ${#payload} % 4 )) in 2) payload="${payload}==";; 3) payload="${payload}=";; esac
-          echo "$payload" | tr '_-' '/+' | base64 -d 2>/dev/null | jq '{sub, aud, iss, repository, ref, event_name}'
-        env:
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
@@ -57,7 +43,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.8
+          terraform_version: 1.16.2
 
       # Terraform, not CDK — CDK was replaced in 90d49cd and these workflows
       # still said otherwise.
