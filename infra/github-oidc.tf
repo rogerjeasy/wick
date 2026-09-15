@@ -153,6 +153,22 @@ data "aws_iam_policy_document" "github_deploy" {
     }
   }
 
+  # This resource lives in the same state as everything else CI manages, so
+  # every apply must be able to REFRESH it — but the role that can create and
+  # update every wick-* role must never be able to WRITE its own trust policy
+  # or permissions. Hence read-only, and scoped to its own ARN, not wick-*.
+  statement {
+    sid = "ReadSelfOnly"
+    actions = [
+      "iam:GetRole",
+      "iam:GetRolePolicy",
+      "iam:ListRolePolicies",
+      "iam:ListAttachedRolePolicies",
+      "iam:ListRoleTags",
+    ]
+    resources = [aws_iam_role.github_deploy.arn]
+  }
+
   statement {
     sid       = "ReadOnlyLookups"
     actions   = ["iam:ListOpenIDConnectProviders", "iam:GetOpenIDConnectProvider", "sts:GetCallerIdentity"]
