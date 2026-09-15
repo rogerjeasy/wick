@@ -62,6 +62,30 @@ From `docs/WICK.md` Part 5. The ones that most often get violated by accident:
 
 ---
 
+## Credential rules
+
+**`.env` is a local-development file and nothing else.** It is gitignored, so it
+cannot reach a deployed runtime except by being baked into an image — which is
+the thing to never do. Exactly one module reads it: `scripts/env.ts`.
+
+| Where | How a Ring token is obtained |
+|---|---|
+| Lambda / container / AgentCore | `secretsManagerTokenProvider()` — reads `wick/ring/tokens` |
+| The `wick-ring-*` lambdas | Secrets Manager directly (`RING_SECRET_ARN`, `RING_TOKEN_SECRET_ARN`) |
+| A laptop | `scripts/env.ts`, from `.env` |
+
+- **Refresh has exactly one owner:** the hourly `wick-ring-refresh` lambda. Do not
+  add a second refresh path — Ring may rotate the refresh token, and two writers
+  racing over one rotation is how an account silently unlinks.
+- **CI holds no AWS keys.** Deploy workflows authenticate by OIDC
+  (`aws-actions/configure-aws-credentials` with `vars.AWS_DEPLOY_ROLE_ARN`). A
+  role ARN is not a credential; it names a role that will only mint one for a
+  token GitHub signed for this repository.
+- **A deploy never carries Ring credentials.** They are seeded once by
+  `infra/bootstrap/put-ring-secret.sh` and read at runtime.
+
+---
+
 ## Data rules
 
 - **Runtime code uses real data.** Fixtures live under `__tests__` and never ship.

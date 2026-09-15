@@ -1,13 +1,61 @@
 name: deploy-edge
+
 on:
   push:
     branches: [main]
     paths: ['services/edge-ring/**', 'services/edge-device/**', 'infra/**']
-permissions: { contents: read, id-token: write }
+  workflow_dispatch:
+
+# OIDC only. No static AWS keys in this repository, ever — the role ARN is not
+# a credential, it is the name of a role that will only mint one for a token
+# GitHub signed for this repo.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-edge
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Without the role configured this would authenticate as nobody and fail
+    # halfway through an apply. Skipping is the honest outcome.
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
     steps:
       - uses: actions/checkout@v4
-      # TODO: aws-actions/configure-aws-credentials with role-to-assume (OIDC).
-      - run: echo "cdk deploy WickEdge"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Tests-then-deploy ordering: never ship an edge whose contracts are red.
+      - run: npm run verify
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      # Terraform, not CDK — CDK was replaced in 90d49cd and these workflows
+      # still said otherwise.
+      - run: terraform -chdir=infra init -input=false
+      - run: terraform -chdir=infra apply -input=false -auto-approve
+
+      # Ring credentials are NOT set here. They live in Secrets Manager
+      # (wick/ring/credentials, wick/ring/tokens) and are seeded once by
+      # infra/bootstrap/put-ring-secret.sh. A deploy must never carry them.
+      - name: confirm the edge answers
+        run: |
+          url=$(terraform -chdir=infra output -raw ring_authorize_url)
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
+          echo "GET $url -> $code"
+          [ "$code" = "302" ] || { echo "expected a 302 redirect to Ring"; exit 1; }

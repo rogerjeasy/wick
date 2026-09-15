@@ -1,15 +1,50 @@
 name: deploy-agent
+
 on:
   push:
     branches: [main]
     paths: ['services/agent/**', 'services/policy/**', 'services/mcp-server/**']
-permissions: { contents: read, id-token: write }
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-agent
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
       # Tests-then-deploy ordering: never ship an agent whose Guardian is red.
-      - run: echo "npm run test:property && cdk deploy WickAgent WickMcp"
-      # REMEMBER: Alexa+ refreshes tool info only on deploy. Run `alexa-ai deploy`
-      # after any MCP tool change or Alexa+ will keep calling the old surface.
+      - run: npm run test:property
+      - run: npm run verify
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      # The agent reads its Ring token from Secrets Manager at runtime via
+      # secretsManagerTokenProvider() — there is no .env in a deployed runtime,
+      # and none may be baked into an image.
+      #
+      # TODO(S5): the agent has no deployable artefact yet. Left failing loudly
+      # rather than echoing a command that did not run, which is what this
+      # workflow used to do.
+      - name: deploy the agent
+        run: |
+          echo "No agent deployment target yet — see docs/WICK-TECHNICAL.md S7.3." >&2
+          exit 1
