@@ -2,6 +2,20 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
+
+    // The Vega SDK ships raw .ts sources ALONGSIDE the matching .d.ts
+    // (KeplerBackHandler.ts and KeplerBackHandler.d.ts, 49 such files).
+    // TypeScript resolves .ts ahead of .d.ts, so the sources shadow the
+    // declarations, skipLibCheck no longer applies, and the SDK is typechecked
+    // as if it were ours — where it fails noUncheckedIndexedAccess.
+    //
+    // The SDK advertises a "react-native-strict-api" export condition for this,
+    // pointing at ./types_generated/index.d.ts — a directory it does not
+    // publish. See FRICTION.md FL-007.
+    //
+    // So this one check is off for the Vega app ONLY. Every other package in
+    // the repo keeps it, because tsconfig.base.json is untouched.
+    "noUncheckedIndexedAccess": false,
     "lib": ["ES2022", "DOM"],
     "outDir": "dist",
     "rootDir": "src",

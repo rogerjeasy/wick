@@ -10,6 +10,10 @@ data "archive_file" "edge_ring" {
   type        = "zip"
   source_dir  = "${path.module}/../services/edge-ring/lambda"
   output_path = "${path.module}/.build/edge-ring.zip"
+
+  # The lambda sources are plain .mjs and ship as written; their tests sit
+  # beside them and must not.
+  excludes = ["__tests__"]
 }
 
 # --- IAM -------------------------------------------------------------------
@@ -47,12 +51,18 @@ resource "aws_iam_role" "authorize" {
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
 }
 
+resource "aws_iam_role" "refresh" {
+  name               = "${local.prefix}-ring-refresh"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
 resource "aws_iam_role_policy_attachment" "basic" {
   for_each = {
     webhook   = aws_iam_role.webhook.name
     token     = aws_iam_role.token.name
     link      = aws_iam_role.link.name
     authorize = aws_iam_role.authorize.name
+    refresh   = aws_iam_role.refresh.name
   }
 
   role       = each.value
@@ -121,8 +131,22 @@ data "aws_iam_policy_document" "link" {
   }
 
   statement {
-    sid       = "WriteTokens"
-    actions   = ["secretsmanager:PutSecretValue"]
+    sid       = "ReadWriteTokens"
+    actions   = ["secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.ring_tokens.arn]
+  }
+}
+
+data "aws_iam_policy_document" "refresh" {
+  statement {
+    sid       = "ReadClientCredentials"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.ring_credentials.arn]
+  }
+
+  statement {
+    sid       = "ReadWriteTokens"
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"]
     resources = [aws_secretsmanager_secret.ring_tokens.arn]
   }
 }
@@ -153,6 +177,12 @@ resource "aws_iam_role_policy" "authorize" {
   policy = data.aws_iam_policy_document.authorize.json
 }
 
+resource "aws_iam_role_policy" "refresh" {
+  name   = "${local.prefix}-ring-refresh"
+  role   = aws_iam_role.refresh.id
+  policy = data.aws_iam_policy_document.refresh.json
+}
+
 # --- log groups ------------------------------------------------------------
 # Declared explicitly rather than letting Lambda create them implicitly, so
 # retention is set from the start instead of defaulting to "never expire".
@@ -174,6 +204,11 @@ resource "aws_cloudwatch_log_group" "link" {
 
 resource "aws_cloudwatch_log_group" "authorize" {
   name              = "/aws/lambda/${local.prefix}-ring-authorize"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "refresh" {
+  name              = "/aws/lambda/${local.prefix}-ring-refresh"
   retention_in_days = 14
 }
 
@@ -283,6 +318,56 @@ resource "aws_lambda_function" "authorize" {
   }
 
   depends_on = [aws_cloudwatch_log_group.authorize]
+}
+
+# --- token keep-alive ------------------------------------------------------
+# Ring access tokens live ~4h. Lazy refresh inside getAccessToken() is the
+# backstop; this schedule is what keeps a doorbell press at 3am from spending
+# its five-second budget on an OAuth round trip.
+
+resource "aws_lambda_function" "refresh" {
+  function_name = "${local.prefix}-ring-refresh"
+  role          = aws_iam_role.refresh.arn
+  handler       = "refresh.handler"
+  runtime       = "nodejs22.x"
+  architectures = ["arm64"]
+
+  filename         = data.archive_file.edge_ring.output_path
+  source_code_hash = data.archive_file.edge_ring.output_base64sha256
+
+  timeout     = 15
+  memory_size = 256
+
+  environment {
+    variables = {
+      RING_SECRET_ARN       = aws_secretsmanager_secret.ring_credentials.arn
+      RING_TOKEN_SECRET_ARN = aws_secretsmanager_secret.ring_tokens.arn
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.refresh]
+}
+
+# Hourly, not four-hourly: the handler refreshes only inside the skew window, so
+# a tick that finds nothing to do costs one Secrets Manager read. Cheap ticks
+# buy tolerance for a missed one.
+resource "aws_cloudwatch_event_rule" "ring_refresh" {
+  name                = "${local.prefix}-ring-refresh"
+  description         = "Keep the Ring access token warm"
+  schedule_expression = "rate(1 hour)"
+}
+
+resource "aws_cloudwatch_event_target" "ring_refresh" {
+  rule = aws_cloudwatch_event_rule.ring_refresh.name
+  arn  = aws_lambda_function.refresh.arn
+}
+
+resource "aws_lambda_permission" "ring_refresh" {
+  statement_id  = "AllowExecutionFromEventBridge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.refresh.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ring_refresh.arn
 }
 
 # --- HTTP API --------------------------------------------------------------

@@ -1,5 +1,16 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "jsx": "react-jsx", "lib": ["ES2022", "DOM"], "outDir": "dist", "rootDir": "src" },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM"],
+    "outDir": "dist",
+    "rootDir": "src",
+
+    // The Vega SDK ships raw .ts beside its own .d.ts, and TypeScript resolves
+    // .ts first — so the SDK gets typechecked as if it were ours and fails this
+    // check. Contained to the two packages that import the SDK; the base config
+    // is untouched, so every service still has it. See FRICTION.md FL-007.
+    "noUncheckedIndexedAccess": false
+  },
   "include": ["src/**/*"]
 }

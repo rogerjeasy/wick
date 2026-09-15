@@ -43,9 +43,30 @@ done
 
 echo
 echo "── linked? ──"
-if aws secretsmanager get-secret-value --secret-id wick/ring/tokens \
-     --query VersionId --output text >/dev/null 2>&1; then
-  echo "   YES — tokens written to wick/ring/tokens"
-else
-  echo "   no — token secret still empty"
-fi
+# Shape only. Nothing here prints a token, or any prefix of one.
+aws secretsmanager get-secret-value --secret-id wick/ring/tokens \
+  --query SecretString --output text 2>/dev/null \
+| python3 -c "
+import sys, json, time
+raw = sys.stdin.read().strip()
+if not raw or raw == 'None':
+    print('   no — token secret still empty'); raise SystemExit
+try:
+    t = json.loads(raw)
+except Exception:
+    print('   token secret present but unreadable'); raise SystemExit
+
+print('   YES — tokens written to wick/ring/tokens')
+print(f\"   access token   {'present' if t.get('access_token') else 'MISSING'}\")
+print(f\"   refresh token  {'present' if t.get('refresh_token') else 'MISSING — re-link needed within the hour'}\")
+print(f\"   account id     {'present' if t.get('accountId') else 'not resolved'}\")
+
+exp = t.get('expiresAt') or (t.get('obtainedAt', 0) + t.get('expires_in', 14400) * 1000)
+mins = int((exp - time.time() * 1000) / 60000)
+print(f'   expires in     {mins} min')
+
+# Tokens without this are valid and inert: device consents and webhooks stay
+# dormant until Ring is told the integration is completed. See FL-003.
+done = t.get('integrationCompletedAt')
+print('   integration    completed' if done else '   integration    NOT COMPLETED — webhooks will stay silent (FL-003)')
+"

@@ -6,6 +6,7 @@ export default defineConfig({
     alias: {
       '@wick/contracts': fileURLToPath(new URL('./packages/contracts/src/index.ts', import.meta.url)),
       '@wick/policy': fileURLToPath(new URL('./services/policy/src/index.ts', import.meta.url)),
+      '@wick/ring': fileURLToPath(new URL('./services/connectors/ring/src/index.ts', import.meta.url)),
       '@wick/vega-calm-ui': fileURLToPath(new URL('./packages/vega-calm-ui/src/index.ts', import.meta.url)),
     },
   },
