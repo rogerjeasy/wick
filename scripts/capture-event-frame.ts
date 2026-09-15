@@ -16,28 +16,45 @@
  * new event rather than quietly showing you a stale frame.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { RingClient, listDevices, listEvents, imageAt, selectorForEvent } from '@wick/ring';
+import { loadEnv, ringToken } from './env.js';
+import { RingClient, listDevices, listEvents, imageForEvent } from '@wick/ring';
 import type { RingHistoryEvent } from '@wick/ring';
 import { describeFrame } from '../services/agent/src/agents/door/describe.js';
 
 const WATCH = process.argv.includes('--watch');
+/** --file <path>: describe a frame already captured, no Ring call at all. */
+const FILE = (() => {
+  const i = process.argv.indexOf('--file');
+  return i >= 0 ? process.argv[i + 1] : undefined;
+})();
 const POLL_MS = 3000;
 const WATCH_TIMEOUT_MS = 5 * 60 * 1000;
-
-function token(): string {
-  if (process.env.RING_OAUTH_TOKEN) return process.env.RING_OAUTH_TOKEN;
-  const line = readFileSync(new URL('../.env', import.meta.url), 'utf8')
-    .split('\n')
-    .find((l) => /^\s*RING_OAUTH_TOKEN\s*=/.test(l));
-  if (!line) throw new Error('No RING_OAUTH_TOKEN in the environment or .env');
-  return line.split('=').slice(1).join('=').trim().replace(/^["']|["']$/g, '');
-}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const stamp = (e: RingHistoryEvent) => `${e.eventType} at ${new Date(e.start).toISOString()}`;
 
 async function main() {
-  const client = new RingClient({ getToken: token });
+  // Before any AWS client exists: .env is applied and the credential source is
+  // named, so a failure says where it looked rather than "any providers".
+  const aws = loadEnv();
+  console.log(`aws: ${aws.detail}`);
+  if (aws.source === 'none') {
+    console.log('     the vision step will be skipped — Phase 1 still works');
+  }
+
+  if (FILE) {
+    const bytes = new Uint8Array(readFileSync(FILE));
+    console.log(`describing ${FILE} (${(bytes.length / 1024).toFixed(0)}KB)`);
+    const only = await describeFrame(bytes);
+    console.log(
+      only.candidate
+        ? `\nthe card would say:\n   "${only.candidate.description}"  (${only.elapsedMs}ms)`
+        : `\nno description: ${only.reason}`,
+    );
+    return;
+  }
+
+  const client = new RingClient({ getToken: ringToken });
 
   const devices = await listDevices(client);
   const device = devices.find((d) => d.capabilities.image) ?? devices[0];
@@ -79,11 +96,15 @@ async function main() {
 
   if (!target) throw new Error('No events at all on this device.');
 
-  const image = await imageAt(client, device.id, selectorForEvent(target));
-  const bytes = new Uint8Array(await (await fetch(image.url)).arrayBuffer());
+  // Retried: the media host fails most first attempts straight after an event
+  // with GRECO_NO_VALID_KEY, then settles. See FL-008.
+  const { bytes, attempts } = await imageForEvent(client, device.id, target);
   const out = `/tmp/ring-${target.eventType}-${target.start}.jpg`;
   writeFileSync(out, bytes);
-  console.log(`\nframe: ${(bytes.length / 1024).toFixed(0)}KB -> ${out}`);
+  console.log(
+    `\nframe: ${(bytes.length / 1024).toFixed(0)}KB -> ${out}` +
+      (attempts > 1 ? `  (after ${attempts} attempts — key propagation, FL-008)` : ''),
+  );
 
   const described = await describeFrame(bytes);
   console.log(

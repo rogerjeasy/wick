@@ -8,6 +8,7 @@
   "license": "MIT",
   "author": "Roger Bavibidila",
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1132.0",
     "@wick/contracts": "*"
   }
 }

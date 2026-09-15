@@ -13,12 +13,14 @@
  * Bedrock, and if it declines or is not enabled, Phase 1 stands — which is the
  * designed behaviour, not a fallback bolted on for the script.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+import { loadEnv, ringToken } from './env.js';
 import {
   RingClient,
   listDevices,
   latestEvent,
   imageAt,
+  fetchImageBytes,
   selectorForEvent,
   type RingDevice,
 } from '@wick/ring';
@@ -31,17 +33,6 @@ import { describeFrame } from '../services/agent/src/agents/door/describe.js';
 
 const OUT_IMAGE = process.env.WICK_DEMO_IMAGE ?? '/tmp/wick-door-frame.jpg';
 
-function tokenFromEnvFile(): string {
-  if (process.env.RING_OAUTH_TOKEN) return process.env.RING_OAUTH_TOKEN;
-
-  const line = readFileSync(new URL('../.env', import.meta.url), 'utf8')
-    .split('\n')
-    .find((l) => /^\s*RING_OAUTH_TOKEN\s*=/.test(l));
-
-  if (!line) throw new Error('No RING_OAUTH_TOKEN in the environment or .env');
-  return line.split('=').slice(1).join('=').trim().replace(/^["']|["']$/g, '');
-}
-
 const ms = (n: number) => `${n.toFixed(0)}ms`;
 const rule = (s: string) => console.log(`\n\x1b[2m── ${s} ${'─'.repeat(Math.max(0, 58 - s.length))}\x1b[0m`);
 
@@ -51,7 +42,15 @@ async function timed<T>(fn: () => Promise<T>): Promise<[T, number]> {
 }
 
 async function main() {
-  const client = new RingClient({ getToken: tokenFromEnvFile });
+  // Before any AWS client exists: .env is applied and the credential source is
+  // named, so a failure says where it looked rather than "any providers".
+  const aws = loadEnv();
+  console.log(`aws: ${aws.detail}`);
+  if (aws.source === 'none') {
+    console.log('     the vision step will be skipped — Phase 1 still works');
+  }
+
+  const client = new RingClient({ getToken: ringToken });
   const correlationId = `demo-${process.pid}-${Date.now().toString(36)}`;
 
   rule('devices');
@@ -101,9 +100,9 @@ async function main() {
   console.log(`   presigned URL in ${ms(tUrl)}  (redirect not followed)`);
   console.log(`   host ${new URL(image.url).host}`);
 
-  const [bytes, tBytes] = await timed(async () =>
-    new Uint8Array(await (await fetch(image.url)).arrayBuffer()),
-  );
+  // Validated at the source: the media host answers some failures with a JSON
+  // error body that would otherwise land on disk as a .jpg.
+  const [bytes, tBytes] = await timed(() => fetchImageBytes(image, client.fetchImpl));
   writeFileSync(OUT_IMAGE, bytes);
   console.log(`   ${(bytes.length / 1024).toFixed(0)}KB downloaded in ${ms(tBytes)} -> ${OUT_IMAGE}`);
   console.log(`   total ${ms(tUrl + tBytes)} — which is why this is a patch, not Phase 1`);

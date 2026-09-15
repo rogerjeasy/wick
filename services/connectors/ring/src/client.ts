@@ -57,6 +57,17 @@ export class RingClient {
     this.#fetch = options.fetchImpl ?? fetch;
   }
 
+  /**
+   * The HTTP implementation this client was built with.
+   *
+   * Exposed so that presigned-URL fetches — which carry no Authorization
+   * header and so do not belong on a `get`/`post` method — still go through
+   * one configured path rather than silently reaching for global fetch.
+   */
+  get fetchImpl(): typeof fetch {
+    return this.#fetch;
+  }
+
   async #headers(extra: Record<string, string> = {}): Promise<Record<string, string>> {
     return { Authorization: `Bearer ${await this.#getToken()}`, ...extra };
   }

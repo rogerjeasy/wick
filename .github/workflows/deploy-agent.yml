@@ -1,15 +1,90 @@
 name: deploy-agent
+
 on:
   push:
     branches: [main]
     paths: ['services/agent/**', 'services/policy/**', 'services/mcp-server/**']
-permissions: { contents: read, id-token: write }
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-agent
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
       # Tests-then-deploy ordering: never ship an agent whose Guardian is red.
-      - run: echo "npm run test:property && cdk deploy WickAgent WickMcp"
-      # REMEMBER: Alexa+ refreshes tool info only on deploy. Run `alexa-ai deploy`
-      # after any MCP tool change or Alexa+ will keep calling the old surface.
+      # These run on every agent change whether or not there is anything to
+      # deploy yet, because that is where the value is today.
+      - run: npm run test:property
+      - run: npm run verify
+
+      # Self-correcting rather than a TODO someone has to remember: the deploy
+      # switches itself on the moment a real artefact lands, and until then the
+      # job is honestly green instead of decoratively red.
+      - name: is there anything to deploy?
+        id: target
+        run: |
+          # find, not a glob: an unmatched glob behaves differently across
+          # shells and would decide this by accident.
+          if [ -f services/agent/Dockerfile ] \
+             || [ -n "$(find infra -maxdepth 1 -name 'agent*.tf' -print -quit)" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: no deploy target yet
+        if: steps.target.outputs.ready != 'true'
+        run: |
+          echo "::notice title=Agent not deployed::Guardian property tests and verify passed. \
+          The agent has no deployable artefact yet (S5) — add services/agent/Dockerfile or \
+          infra/agent*.tf and this job starts deploying on its own."
+          {
+            echo "### Agent: tested, not deployed"
+            echo
+            echo "The Guardian property tests (10k cases) and \`npm run verify\` passed."
+            echo "There is no deployable artefact yet, so nothing was shipped."
+            echo
+            echo "This step activates automatically once either exists:"
+            echo "- \`services/agent/Dockerfile\`"
+            echo "- \`infra/agent*.tf\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.target.outputs.ready == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - uses: hashicorp/setup-terraform@v3
+        if: steps.target.outputs.ready == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
+        with:
+          terraform_version: 1.9.8
+
+      # The agent reads its Ring token from Secrets Manager at runtime via
+      # secretsManagerTokenProvider(). There is no .env in a deployed runtime,
+      # and none may be baked into an image.
+      #
+      # REMEMBER: Alexa+ refreshes tool information only on deploy. Run
+      # `alexa-ai deploy` after any MCP tool change, or Alexa+ keeps calling the
+      # old surface.
+      - name: deploy the agent
+        if: steps.target.outputs.ready == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
+        run: |
+          terraform -chdir=infra init -input=false
+          terraform -chdir=infra apply -input=false -auto-approve
