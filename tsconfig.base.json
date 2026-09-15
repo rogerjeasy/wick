@@ -19,6 +19,7 @@
     "paths": {
       "@wick/contracts": ["./packages/contracts/src/index.ts"],
       "@wick/policy": ["./services/policy/src/index.ts"],
+      "@wick/ring": ["./services/connectors/ring/src/index.ts"],
       "@wick/vega-calm-ui": ["./packages/vega-calm-ui/src/index.ts"]
     }
   }

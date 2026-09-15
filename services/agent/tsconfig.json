@@ -4,6 +4,7 @@
   "include": ["src/**/*"],
   "references": [
     { "path": "../../packages/contracts" },
-    { "path": "../policy" }
+    { "path": "../policy" },
+    { "path": "../connectors/ring" }
   ]
 }

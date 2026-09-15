@@ -10,6 +10,7 @@
   "dependencies": {
     "@wick/contracts": "*",
     "@wick/policy": "*",
-    "@strands-agents/sdk": "^1.17.0"
+    "@strands-agents/sdk": "^1.17.0",
+    "@wick/ring": "*"
   }
 }
