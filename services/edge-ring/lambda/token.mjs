@@ -7,13 +7,8 @@
  * INV-1: tokens are written to Secrets Manager and never leave the backend. The
  * television holds a device-bound JWT and nothing else.
  */
-import { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand }
-  from '@aws-sdk/client-secrets-manager';
-
-const sm = new SecretsManagerClient({});
-const SECRET_ARN = process.env.RING_SECRET_ARN;
-const TOKEN_SECRET_ARN = process.env.RING_TOKEN_SECRET_ARN;
-const TOKEN_URL = 'https://oauth.ring.com/oauth/token';
+import { readCredentials, readTokens, finishLink } from './ring-token.mjs';
+import { TOKEN_URL } from './ring-api.mjs';
 
 export const handler = async (event) => {
   const raw = event.isBase64Encoded
@@ -37,9 +32,7 @@ export const handler = async (event) => {
   const code = body.code ?? body.authorization_code;
   if (!code) return { statusCode: 400, body: JSON.stringify({ error: 'missing_code' }) };
 
-  const creds = JSON.parse(
-    (await sm.send(new GetSecretValueCommand({ SecretId: SECRET_ARN }))).SecretString,
-  );
+  const creds = await readCredentials();
 
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
@@ -59,12 +52,10 @@ export const handler = async (event) => {
     return { statusCode: 502, body: JSON.stringify({ error: 'exchange_failed' }) };
   }
 
+  // Same completion step as the partner-initiated path: tokens are not a live
+  // integration until Ring is told the link is done.
   const tokens = await res.json();
-  await sm.send(new PutSecretValueCommand({
-    SecretId: TOKEN_SECRET_ARN,
-    SecretString: JSON.stringify({ ...tokens, obtainedAt: Date.now() }),
-  }));
+  const { completed } = await finishLink(tokens, { previous: await readTokens() });
 
-  console.log(JSON.stringify({ level: 'info', msg: 'account_linked' }));
-  return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+  return { statusCode: 200, body: JSON.stringify({ ok: true, completed }) };
 };

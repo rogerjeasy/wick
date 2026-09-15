@@ -15,19 +15,15 @@
  */
 import { createHash } from 'node:crypto';
 import { DynamoDBClient, GetItemCommand, DeleteItemCommand } from '@aws-sdk/client-dynamodb';
-import { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand }
-  from '@aws-sdk/client-secrets-manager';
+import { readCredentials, readTokens, finishLink } from './ring-token.mjs';
+import { TOKEN_URL } from './ring-api.mjs';
 
 const ddb = new DynamoDBClient({});
-const sm = new SecretsManagerClient({});
 
 const TABLE = process.env.TABLE_NAME;
-const SECRET_ARN = process.env.RING_SECRET_ARN;
-const TOKEN_SECRET_ARN = process.env.RING_TOKEN_SECRET_ARN;
 const REDIRECT_URI = process.env.RING_REDIRECT_URI;
 const CONSENT_PAGE =
   process.env.CONSENT_PAGE_URL ?? 'https://rogerjeasy.github.io/wick/link.html';
-const TOKEN_URL = 'https://oauth.ring.com/oauth/token';
 
 const fingerprint = (v) =>
   createHash('sha256').update(String(v)).digest('hex').slice(0, 12);
@@ -74,9 +70,7 @@ export const handler = async (event) => {
       return page('Link expired', 'That link has expired or was already used. Start again from the beginning.', false);
     }
 
-    const creds = JSON.parse(
-      (await sm.send(new GetSecretValueCommand({ SecretId: SECRET_ARN }))).SecretString,
-    );
+    const creds = await readCredentials();
 
     const res = await fetch(TOKEN_URL, {
       method: 'POST',
@@ -106,18 +100,20 @@ export const handler = async (event) => {
       return page('Could not connect', `Ring declined the exchange (HTTP ${res.status}).`, false);
     }
 
+    // Tokens alone do not make a live integration: the completion PATCH is what
+    // wakes device consents and webhooks up. finishLink does both and reports
+    // which half succeeded, so the page can tell the truth rather than assume.
     const tokens = await res.json();
-    await sm.send(new PutSecretValueCommand({
-      SecretId: TOKEN_SECRET_ARN,
-      SecretString: JSON.stringify({ ...tokens, obtainedAt: Date.now() }),
-    }));
+    const { completed } = await finishLink(tokens, { previous: await readTokens() });
 
-    console.log(JSON.stringify({
-      level: 'info', msg: 'account_linked',
-      expiresIn: tokens.expires_in ?? null,
-      hasRefresh: Boolean(tokens.refresh_token),
-    }));
-    return page('Connected', 'Wick can now see your Ring doorbell events. You can close this window.');
+    return completed
+      ? page('Connected', 'Wick can now see your Ring doorbell events. You can close this window.')
+      : page(
+          'Almost there',
+          'Ring accepted the sign-in, but confirming the integration did not go through. '
+          + 'Nothing is lost — try this link again in a moment.',
+          false,
+        );
   }
 
   if (p.error) {
