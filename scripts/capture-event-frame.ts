@@ -16,6 +16,7 @@
  * new event rather than quietly showing you a stale frame.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { loadEnv, ringToken } from './env.js';
 import { RingClient, listDevices, listEvents, imageForEvent } from '@wick/ring';
 import type { RingHistoryEvent } from '@wick/ring';
 import { describeFrame } from '../services/agent/src/agents/door/describe.js';
@@ -29,19 +30,18 @@ const FILE = (() => {
 const POLL_MS = 3000;
 const WATCH_TIMEOUT_MS = 5 * 60 * 1000;
 
-function token(): string {
-  if (process.env.RING_OAUTH_TOKEN) return process.env.RING_OAUTH_TOKEN;
-  const line = readFileSync(new URL('../.env', import.meta.url), 'utf8')
-    .split('\n')
-    .find((l) => /^\s*RING_OAUTH_TOKEN\s*=/.test(l));
-  if (!line) throw new Error('No RING_OAUTH_TOKEN in the environment or .env');
-  return line.split('=').slice(1).join('=').trim().replace(/^["']|["']$/g, '');
-}
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const stamp = (e: RingHistoryEvent) => `${e.eventType} at ${new Date(e.start).toISOString()}`;
 
 async function main() {
+  // Before any AWS client exists: .env is applied and the credential source is
+  // named, so a failure says where it looked rather than "any providers".
+  const aws = loadEnv();
+  console.log(`aws: ${aws.detail}`);
+  if (aws.source === 'none') {
+    console.log('     the vision step will be skipped — Phase 1 still works');
+  }
+
   if (FILE) {
     const bytes = new Uint8Array(readFileSync(FILE));
     console.log(`describing ${FILE} (${(bytes.length / 1024).toFixed(0)}KB)`);
@@ -54,7 +54,7 @@ async function main() {
     return;
   }
 
-  const client = new RingClient({ getToken: token });
+  const client = new RingClient({ getToken: ringToken });
 
   const devices = await listDevices(client);
   const device = devices.find((d) => d.capabilities.image) ?? devices[0];
