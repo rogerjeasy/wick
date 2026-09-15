@@ -24,6 +24,16 @@ export const handler = async (event) => {
   try { body = raw ? JSON.parse(raw) : {}; }
   catch { body = Object.fromEntries(new URLSearchParams(raw)); }
 
+  // Diagnostic: Ring's token-exchange payload shape is not documented. Log the
+  // KEYS only — never the values, which carry the authorization code.
+  console.log(JSON.stringify({
+    level: 'info',
+    msg: 'token_exchange_received',
+    bodyKeys: Object.keys(body),
+    queryKeys: Object.keys(event.queryStringParameters ?? {}),
+    contentType: (event.headers ?? {})['content-type'] ?? null,
+  }));
+
   const code = body.code ?? body.authorization_code;
   if (!code) return { statusCode: 400, body: JSON.stringify({ error: 'missing_code' }) };
 
