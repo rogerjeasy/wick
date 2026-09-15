@@ -17,6 +17,8 @@
   ],
   "scripts": {
     "check:no-mocks": "node scripts/check-no-mocks.mjs",
+    "demo:capture": "vite-node -c vitest.config.ts scripts/capture-event-frame.ts",
+    "demo:door": "vite-node -c vitest.config.ts scripts/door-card-demo.ts",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "test:property": "vitest run evaluate.property NaturalBreakEngine",
