@@ -17,5 +17,12 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/rogerjeasy/vega-calm-ui"
+  },
+  "dependencies": {
+    "@amazon-devices/react-native-kepler": "^4.0.1",
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0"
   }
 }

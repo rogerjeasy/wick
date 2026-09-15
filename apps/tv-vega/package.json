@@ -11,19 +11,22 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@amazon-devices/headless-task-manager": "^1.2.8",
+    "@amazon-devices/kepler-content-personalization": "^1.3.3",
+    "@amazon-devices/kepler-file-system": "^0.0.7",
+    "@amazon-devices/kepler-media-controls": "^1.0.25",
+    "@amazon-devices/kepler-ui-components": "^3.2.2",
+    "@amazon-devices/react-native-kepler": "^4.0.1",
+    "@amazon-devices/react-native-w3cmedia": "^2.3.2",
     "@wick/contracts": "*",
-    "@wick/vega-calm-ui": "*"
+    "@wick/vega-calm-ui": "*",
+    "react": "^19.3.0"
   },
   "comment:dependencies": [
-    "Vega SDK packages are added by the Vega CLI on scaffold and pinned by it.",
-    "Expected set, verified against AmazonAppDev/vega-video-sample (2026-09-14):",
-    "  @amazon-devices/react-native-kepler",
-    "  @amazon-devices/react-native-w3cmedia",
-    "  @amazon-devices/headless-task-manager",
-    "  @amazon-devices/kepler-content-personalization",
-    "  @amazon-devices/kepler-media-controls",
-    "  @amazon-devices/kepler-ui-components",
-    "  @amazon-devices/kepler-file-system",
+    "Vega SDK packages install from the public npm registry as normal deps.",
+    "react-native-kepler IS the React Native fork (it ships Metro 0.83 and",
+    "@react-native/codegen 0.83) \u2014 do NOT also install `react-native`.",
+    "Not yet installed, add when the feature that needs them lands:",
     "  @amazon-devices/kepler-performance-api",
     "  @amazon-devices/keplerscript-audio-lib",
     "  @amazon-devices/keplerscript-netmgr-lib",
@@ -32,5 +35,8 @@
     "  @amazon-devices/react-native-safe-area-context",
     "  @amazon-devices/react-native-svg",
     "  @amazon-devices/eslint-plugin-kepler"
-  ]
+  ],
+  "devDependencies": {
+    "@types/react": "^19.3.0"
+  }
 }

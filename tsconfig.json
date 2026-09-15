@@ -1,10 +1,13 @@
 {
   "files": [],
   "comment": [
-    "apps/tv-vega is deliberately NOT referenced here. Its @amazon-devices/*",
-    "dependencies arrive with the Vega CLI scaffold and are not on the public npm",
-    "registry, so a fresh clone cannot typecheck it. Run `npm run typecheck:vega`",
-    "once the Vega SDK is installed. See docs/WICK-TECHNICAL.md \u00a713.2."
+    "apps/tv-vega IS referenced here, and its @amazon-devices/* dependencies ARE",
+    "on the public npm registry \u2014 contrary to what this file said until",
+    "2026-09-15. They are installed as ordinary workspace dependencies, so a",
+    "fresh clone typechecks the Vega app like anything else.",
+    "`npm run typecheck:vega` still exists for checking the app alone.",
+    "The SDK needs one tsconfig concession \u2014 see apps/tv-vega/tsconfig.json",
+    "and FRICTION.md FL-007."
   ],
   "references": [
     {
@@ -33,6 +36,9 @@
     },
     {
       "path": "./services/connectors/bee"
+    },
+    {
+      "path": "./apps/tv-vega"
     }
   ]
 }
