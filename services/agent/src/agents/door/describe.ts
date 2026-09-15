@@ -94,10 +94,16 @@ export async function describeFrame(
 
     return { candidate: { description: text, confidence: 0.9 }, reason: 'ok', elapsedMs: elapsed() };
   } catch (err) {
-    return {
-      candidate: null,
-      reason: `bedrock: ${err instanceof Error ? err.message : String(err)}`,
-      elapsedMs: elapsed(),
-    };
+    const message = err instanceof Error ? err.message : String(err);
+
+    // In Lambda the role supplies credentials; on a laptop nothing does, and
+    // the SDK's wording sends you looking at Bedrock rather than at your shell.
+    const hint = /credential/i.test(message)
+      ? ' — no AWS credentials in this shell; try AWS_PROFILE=wick-dev'
+      : /region/i.test(message)
+        ? ' — no AWS region; try AWS_REGION=us-east-1'
+        : '';
+
+    return { candidate: null, reason: `bedrock: ${message}${hint}`, elapsedMs: elapsed() };
   }
 }

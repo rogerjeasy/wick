@@ -19,6 +19,7 @@ import {
   listDevices,
   latestEvent,
   imageAt,
+  fetchImageBytes,
   selectorForEvent,
   type RingDevice,
 } from '@wick/ring';
@@ -101,9 +102,9 @@ async function main() {
   console.log(`   presigned URL in ${ms(tUrl)}  (redirect not followed)`);
   console.log(`   host ${new URL(image.url).host}`);
 
-  const [bytes, tBytes] = await timed(async () =>
-    new Uint8Array(await (await fetch(image.url)).arrayBuffer()),
-  );
+  // Validated at the source: the media host answers some failures with a JSON
+  // error body that would otherwise land on disk as a .jpg.
+  const [bytes, tBytes] = await timed(() => fetchImageBytes(image, client.fetchImpl));
   writeFileSync(OUT_IMAGE, bytes);
   console.log(`   ${(bytes.length / 1024).toFixed(0)}KB downloaded in ${ms(tBytes)} -> ${OUT_IMAGE}`);
   console.log(`   total ${ms(tUrl + tBytes)} — which is why this is a patch, not Phase 1`);
