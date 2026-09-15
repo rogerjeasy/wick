@@ -32,3 +32,9 @@ variable "snapshot_retention_days" {
   type        = number
   default     = 1
 }
+
+variable "ring_scope" {
+  description = "OAuth scope requested from Ring. ava.v1:read is currently the only supported value."
+  type        = string
+  default     = "ava.v1:read"
+}

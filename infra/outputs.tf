@@ -43,3 +43,8 @@ output "ring_credentials_secret" {
 output "ring_tokens_secret" {
   value = aws_secretsmanager_secret.ring_tokens.name
 }
+
+output "ring_authorize_url" {
+  description = "Open this in a browser to start the partner-initiated OAuth flow."
+  value       = "${aws_apigatewayv2_api.edge.api_endpoint}/ring/authorize"
+}
