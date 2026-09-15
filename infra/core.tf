@@ -219,3 +219,54 @@ resource "aws_secretsmanager_secret" "ring_tokens" {
     prevent_destroy = true
   }
 }
+
+# ---------------------------------------------------------------------------
+# Event observability.
+#
+# Until the agent plane exists, events published to the bus vanish. A catch-all
+# rule into a log group makes the whole path visible: a real doorbell press
+# should appear here within a second of the webhook returning 200.
+#
+# This is also what makes the webhook testable end to end before Ring ever sends
+# anything real.
+# ---------------------------------------------------------------------------
+resource "aws_cloudwatch_log_group" "events" {
+  name              = "/wick/events"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_event_rule" "all" {
+  name           = "${local.prefix}-all-events"
+  description    = "Catch-all: mirror every Wick event to CloudWatch Logs"
+  event_bus_name = aws_cloudwatch_event_bus.wick.name
+
+  event_pattern = jsonencode({
+    source = [{ prefix = "wick." }]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "logs" {
+  rule           = aws_cloudwatch_event_rule.all.name
+  event_bus_name = aws_cloudwatch_event_bus.wick.name
+  arn            = aws_cloudwatch_log_group.events.arn
+}
+
+# EventBridge needs an explicit resource policy to write to a log group.
+resource "aws_cloudwatch_log_resource_policy" "events" {
+  policy_name = "${local.prefix}-events-to-logs"
+
+  policy_document = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = ["events.amazonaws.com", "delivery.logs.amazonaws.com"]
+      }
+      Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+      Resource = "${aws_cloudwatch_log_group.events.arn}:*"
+      Condition = {
+        ArnEquals = { "aws:SourceArn" = aws_cloudwatch_event_rule.all.arn }
+      }
+    }]
+  })
+}
