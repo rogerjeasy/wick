@@ -13,16 +13,18 @@
     "packages/*",
     "services/*",
     "services/connectors/*",
-    "apps/tv-vega",
-    "infra"
+    "apps/tv-vega"
   ],
   "scripts": {
-    "typecheck": "tsc -b --pretty",
     "check:no-mocks": "node scripts/check-no-mocks.mjs",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "test:property": "vitest run evaluate.property NaturalBreakEngine",
     "test:watch": "vitest",
+    "tf:apply": "terraform -chdir=infra apply",
+    "tf:fmt": "terraform -chdir=infra fmt -recursive",
+    "tf:plan": "terraform -chdir=infra plan",
+    "typecheck": "tsc -b --pretty",
     "typecheck:vega": "tsc -b apps/tv-vega --pretty",
     "verify": "npm run typecheck && npm run lint && npm run check:no-mocks && npm run test"
   },

@@ -6,7 +6,6 @@ coverage/
 .env
 .env.*
 !.env.example
-cdk.out/
 .aws-sam/
 *.vpkg
 .DS_Store
@@ -18,4 +17,12 @@ cdk.out/
 *.har
 
 # CDK deploy outputs may embed account-specific endpoints
-infra/cdk-outputs.json
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+.terraform.tfstate.lock.info
+infra/.build/
