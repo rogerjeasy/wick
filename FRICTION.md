@@ -73,6 +73,68 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-008 — Image retrieval fails most first attempts after an event, with an internal error name and no documented settling time
+
+**Tool / API:**      Ring Partner API — the media host behind
+                     `POST /v1/devices/{id}/media/image/download`
+
+**Task attempted:**  Capture the still for a door event as soon as the event is visible —
+                     which is the only moment that matters for a Door Card.
+
+**Steps taken:**     1. Triggered live-view event simulations in the Developer Playground and
+                        polled `/v1/history/devices/{id}/events` for the new entry.
+                     2. On each new event, followed the 303 and fetched the presigned URL.
+                     3. Did this five times.
+
+**Expected:**        An image, or an error that says to wait.
+
+**Actual:**          **Three of five attempts returned a JSON body instead of an image:**
+
+                     ```
+                     422  GRECO_NO_VALID_KEY
+                          "No valid Greco key available for decryption"
+                     ```
+
+                     Two problems compound here.
+
+                     First, the name. "Greco" is an internal component; nothing in the
+                     published documentation mentions it, so the error is unsearchable and
+                     gives a partner no idea whether the fault is theirs, whether it is
+                     retryable, or how long to wait. The behaviour suggests the decryption
+                     key has not propagated by the time the history entry is readable — but
+                     that is inference from five samples, not something anyone documented.
+
+                     Second, the delivery. This arrives as a 201-byte JSON body from a
+                     presigned URL that a client is fetching precisely because it expects
+                     bytes. Written straight to disk it produces a file named `.jpg` that
+                     is not an image, and the failure then surfaces layers away — for us, as
+                     a vision model with nothing to describe.
+
+**Severity:**        Important — a 60% first-attempt failure rate on the single most
+                     demo-critical call, presenting as corrupt output rather than an error.
+
+**Workaround:**      `imageForEvent()` in `services/connectors/ring/src/media.ts` retries up
+                     to four times, 2s apart, on this error code alone — a 400 on the body
+                     shape or a 401 on the token will never fix itself and is not retried.
+                     Each attempt re-requests the presigned URL, which is short-lived.
+                     `fetchImageBytes()` checks the magic bytes, so a non-image is one clear
+                     error at the source instead of a corrupt file downstream.
+
+**Suggestion:**      1. **Publish the settling behaviour.** If a frame is not retrievable for
+                        N seconds after an event, say so and say N. Every partner building a
+                        doorbell feature hits this on their first event.
+                     2. **Use an error a partner can act on** — `MEDIA_NOT_READY`, ideally
+                        with `Retry-After`. `GRECO_NO_VALID_KEY` names an internal system and
+                        reads like a permanent fault.
+                     3. **Do not return a JSON error body from a media URL without making it
+                        unmistakable** — the status code is right, but any client streaming
+                        straight to a file will still write it.
+                     4. Consider holding the history entry back until its media is
+                        retrievable. The event being visible is what tells a partner to go
+                        and fetch.
+
+---
+
 ## FL-007 — The Vega SDK ships raw .ts that shadows its own .d.ts, and its strict-types escape hatch is not published
 
 **Tool / API:**      `@amazon-devices/react-native-kepler` 4.0.1 (Vega OS / Kepler)
