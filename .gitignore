@@ -26,3 +26,8 @@ tfplan
 *.tfplan
 .terraform.tfstate.lock.info
 infra/.build/
+
+# Agent-local scratch — worktrees for isolated plan execution, and the
+# subagent-driven-development skill's per-plan progress workspace.
+.worktrees/
+.superpowers/
