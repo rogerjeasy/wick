@@ -61,5 +61,5 @@ output "pairing_signing_key_secret" {
 
 output "websocket_url" {
   description = "Set as apps/tv-vega/src/config.ts DEPLOYED.websocketUrl"
-  value       = "wss://${replace(aws_apigatewayv2_api.transport.api_endpoint, "https://", "")}/${aws_apigatewayv2_stage.transport.name}"
+  value       = aws_apigatewayv2_stage.transport.invoke_url
 }

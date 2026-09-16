@@ -5,14 +5,17 @@
  *   - store the connectionId on the Device item, plus a reverse lookup so
  *     $disconnect can find it again (API Gateway hands $disconnect nothing
  *     but the connectionId)
- *   - reconcile: the client sends lastSeenCardId in the query string;
- *     anything queued after it goes out now, over this same connection
+ *
+ * Reconcile (replaying queued cards since the client's last-seen card) does
+ * NOT happen here: the client never puts that in the connect query string —
+ * it sends `{ t: 'reconcile', sinceCardId }` as a normal message once the
+ * socket is open (see apps/tv-vega/src/transport/WebSocketChannel.ts), which
+ * lands on the $default route. See route.mjs.
  *
  * See docs/WICK-TECHNICAL.md §4.1, §4.2.
  */
-import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import { verifyJwt } from './jwt.mjs';
 
 const ddb = new DynamoDBClient({});
@@ -40,6 +43,10 @@ export const handler = async (event) => {
   }
   const { deviceId, householdId } = claims;
 
+  // Fast path only: this GetItem is eventually consistent, so a denylist
+  // revocation written moments ago can be invisible here. The real
+  // enforcement is the ConditionExpression on the UpdateItem below — this
+  // check exists purely to return 403 early without attempting the write.
   const device = await ddb.send(new GetItemCommand({
     TableName: TABLE,
     Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
@@ -51,20 +58,30 @@ export const handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
   const wsEndpoint = `https://${event.requestContext.domainName}/${event.requestContext.stage}`;
 
-  await ddb.send(new PutItemCommand({
-    TableName: TABLE,
-    Item: {
-      pk: { S: `HH#${householdId}` },
-      sk: { S: `DEV#${deviceId}` },
-      deviceId: { S: deviceId },
-      householdId: { S: householdId },
-      denylisted: { BOOL: false },
-      connectionId: { S: connectionId },
-      transport: { S: 'websocket' },
-      wsEndpoint: { S: wsEndpoint },
-      connectedAt: { N: String(Date.now()) },
-    },
-  }));
+  // UpdateItem, not PutItem: a full-item replace here would silently erase
+  // `pairedAt` (set by pair-claim.mjs) and — because the GetItem above is
+  // only a fast path — could permanently overwrite a `denylisted: true`
+  // written in the gap between the read and this write. The
+  // ConditionExpression is the actual guarantee, matching how
+  // pair-claim.mjs treats its own preceding GetItem as a fast path only.
+  try {
+    await ddb.send(new UpdateItemCommand({
+      TableName: TABLE,
+      Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
+      UpdateExpression: 'SET connectionId = :c, transport = :t, wsEndpoint = :w, connectedAt = :ca',
+      ConditionExpression: 'attribute_exists(pk) AND (attribute_not_exists(denylisted) OR denylisted = :false)',
+      ExpressionAttributeValues: {
+        ':c': { S: connectionId },
+        ':t': { S: 'websocket' },
+        ':w': { S: wsEndpoint },
+        ':ca': { N: String(Date.now()) },
+        ':false': { BOOL: false },
+      },
+    }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return { statusCode: 403, body: 'revoked' };
+    throw err;
+  }
 
   await ddb.send(new PutItemCommand({
     TableName: TABLE,
@@ -77,35 +94,5 @@ export const handler = async (event) => {
     },
   }));
 
-  await reconcile({ event, householdId, connectionId, wsEndpoint });
-
   return { statusCode: 200, body: '' };
 };
-
-async function reconcile({ event, householdId, connectionId, wsEndpoint }) {
-  const sinceCardId = event.queryStringParameters?.lastSeenCardId;
-
-  const pending = await ddb.send(new QueryCommand({
-    TableName: TABLE,
-    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
-    ExpressionAttributeValues: {
-      ':pk': { S: `HH#${householdId}` },
-      ':prefix': { S: 'CARD#' },
-    },
-  }));
-
-  const mgmt = new ApiGatewayManagementApiClient({ endpoint: wsEndpoint });
-
-  for (const item of pending.Items ?? []) {
-    const card = JSON.parse(item.data.S);
-    if (sinceCardId && card.id <= sinceCardId) continue; // ULIDs sort lexicographically by creation time (INV-6)
-    try {
-      await mgmt.send(new PostToConnectionCommand({
-        ConnectionId: connectionId,
-        Data: JSON.stringify({ kind: 'card', card }),
-      }));
-    } catch (err) {
-      if (err?.name !== 'GoneException') throw err;
-    }
-  }
-}

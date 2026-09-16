@@ -20,7 +20,7 @@ export const handler = async (event) => {
     await ddb.send(new UpdateItemCommand({
       TableName: TABLE,
       Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
-      UpdateExpression: 'REMOVE connectionId, transport, wsEndpoint',
+      UpdateExpression: 'REMOVE connectionId, transport, wsEndpoint, connectedAt',
       ConditionExpression: 'connectionId = :cid',
       ExpressionAttributeValues: { ':cid': { S: connectionId } },
     }));
