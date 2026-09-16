@@ -43,11 +43,6 @@ data "aws_iam_policy_document" "ws_connect" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [aws_secretsmanager_secret.pairing_signing_key.arn]
   }
-  statement {
-    sid       = "PushReconcileCards"
-    actions   = ["execute-api:ManageConnections"]
-    resources = ["${aws_apigatewayv2_api.transport.execution_arn}/*/*"]
-  }
 }
 
 data "aws_iam_policy_document" "ws_disconnect" {
@@ -63,6 +58,11 @@ data "aws_iam_policy_document" "ws_route" {
     sid       = "ReadConnectionWriteTimeline"
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
     resources = [aws_dynamodb_table.wick.arn]
+  }
+  statement {
+    sid       = "PushReconcileCards"
+    actions   = ["execute-api:ManageConnections"]
+    resources = ["${aws_apigatewayv2_api.transport.execution_arn}/*/*"]
   }
 }
 
