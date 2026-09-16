@@ -61,6 +61,18 @@ describe('QueueStore', () => {
     expect(await store.readAll()).toEqual([]);
   });
 
+  it('lastSeenCardId is a high-water mark that survives remove()', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(doorCard('c1'));
+    await store.upsert(doorCard('c2'));
+    await store.remove('c2');
+
+    // The queue now only contains c1, but the device has already seen c2 —
+    // reconcile must not redeliver it on the next reconnect.
+    expect((await store.readAll()).map((c) => c.id)).toEqual(['c1']);
+    expect(await store.lastSeenCardId()).toBe('c2');
+  });
+
   it('queues and drains outbound device events', async () => {
     const store = new QueueStore(fakeFs());
     await store.enqueueOutbound({ t: 'card_shown', cardId: 'c1', at: 1 });

@@ -79,6 +79,7 @@ export async function onStopCardService(): Promise<void> {
   unsubscribeControl?.();
   unsubscribeCard = undefined;
   unsubscribeControl = undefined;
+  channel?.close();
   channel = undefined;
 }
 

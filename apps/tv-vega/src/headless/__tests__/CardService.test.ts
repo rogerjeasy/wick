@@ -67,6 +67,7 @@ describe('CardService', () => {
           sent.push(e);
         },
         connect: async () => undefined,
+        close: () => undefined,
       }),
     });
 
@@ -113,6 +114,7 @@ describe('CardService', () => {
           sent.push(e);
         },
         connect: async () => undefined,
+        close: () => undefined,
       }),
     });
 

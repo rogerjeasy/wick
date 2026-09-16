@@ -18,17 +18,25 @@ export interface FileSystemLike {
 
 const QUEUE_PATH = '/wick/queue.json';
 const OUTBOX_PATH = '/wick/outbox.json';
+const HIGH_WATER_MARK_PATH = '/wick/lastSeenCardId.json';
 const ENCODING = 'utf8';
 
 export class QueueStore {
   readonly #fs: FileSystemLike;
   readonly #queuePath: string;
   readonly #outboxPath: string;
+  readonly #highWaterMarkPath: string;
 
-  constructor(fs: FileSystemLike, queuePath: string = QUEUE_PATH, outboxPath: string = OUTBOX_PATH) {
+  constructor(
+    fs: FileSystemLike,
+    queuePath: string = QUEUE_PATH,
+    outboxPath: string = OUTBOX_PATH,
+    highWaterMarkPath: string = HIGH_WATER_MARK_PATH,
+  ) {
     this.#fs = fs;
     this.#queuePath = queuePath;
     this.#outboxPath = outboxPath;
+    this.#highWaterMarkPath = highWaterMarkPath;
   }
 
   async readAll(): Promise<readonly QueuedCard[]> {
@@ -39,6 +47,7 @@ export class QueueStore {
   async upsert(card: QueuedCard): Promise<void> {
     const all = await this.readAll();
     await this.#writeJson(this.#queuePath, [...all.filter((c) => c.id !== card.id), card]);
+    await this.#bumpHighWaterMark(card.id);
   }
 
   async applyPatch(patch: CardPatch): Promise<void> {
@@ -63,9 +72,25 @@ export class QueueStore {
     await this.#writeJson(this.#queuePath, all.filter((c) => c.id !== cardId));
   }
 
+  /**
+   * A monotonic high-water mark, tracked independently of the current queue
+   * contents — NOT `readAll().at(-1)?.id`. The queue shrinks on remove()
+   * (e.g. the resident dismisses a card), and reconcile's contract
+   * (route.mjs, INV-6) is "replay everything newer than the last card this
+   * device has ever seen." Deriving from the current array would make a
+   * dismissed-then-shrunk queue report an older id, causing reconcile to
+   * redeliver a card the resident already acted on.
+   */
   async lastSeenCardId(): Promise<string | undefined> {
-    const all = await this.readAll();
-    return all.at(-1)?.id;
+    if (!(await this.#fs.exists(this.#highWaterMarkPath))) return undefined;
+    const raw = await this.#fs.readFileAsString(this.#highWaterMarkPath, ENCODING);
+    return raw || undefined;
+  }
+
+  async #bumpHighWaterMark(id: string): Promise<void> {
+    const current = await this.lastSeenCardId();
+    if (current !== undefined && current >= id) return;
+    await this.#fs.writeStringToFile(this.#highWaterMarkPath, id, ENCODING);
   }
 
   async enqueueOutbound(event: DeviceEvent): Promise<void> {

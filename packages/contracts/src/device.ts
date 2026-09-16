@@ -59,6 +59,8 @@ export interface DeviceToken {
 
 export interface DeviceChannel {
   connect(token: DeviceToken): Promise<void>;
+  /** Releases the underlying transport. Idempotent — safe to call on an already-closed channel. */
+  close(): void;
   onCard(handler: (c: QueuedCard) => void): Unsubscribe;
   onControl(handler: (m: ControlMessage) => void): Unsubscribe;
   send(e: DeviceEvent): Promise<void>;

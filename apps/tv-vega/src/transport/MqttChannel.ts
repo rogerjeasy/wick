@@ -65,7 +65,19 @@ export class MqttChannel implements DeviceChannel {
     return this.#state;
   }
 
+  close(): void {
+    this.#client?.end(true);
+    this.#client = undefined;
+    this.#state = 'closed';
+  }
+
   connect(token: DeviceToken): Promise<void> {
+    // Guard against overlapping connections, same as WebSocketChannel.connect():
+    // end any existing client before opening a new one, so a second connect()
+    // can't leak the first client's socket/timers.
+    this.#client?.end(true);
+    this.#client = undefined;
+
     const topics = topicsFor(token.deviceId);
     this.#topics = topics;
     this.#state = 'connecting';
