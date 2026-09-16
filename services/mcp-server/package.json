@@ -8,6 +8,12 @@
   "license": "MIT",
   "author": "Roger Bavibidila",
   "dependencies": {
-    "@wick/contracts": "*"
+    "@wick/contracts": "*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "express": "^5.2.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0"
   }
 }
