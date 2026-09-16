@@ -25,7 +25,13 @@ export default tseslint.config(
   // The invariant.
   {
     files: ['services/**/*.ts', 'apps/**/*.ts', 'apps/**/*.tsx'],
-    ignores: ['services/agent/src/egress.ts', '**/__tests__/**'],
+    ignores: [
+      'services/agent/src/egress.ts',
+      'apps/tv-vega/src/transport/MqttChannel.ts',
+      'apps/tv-vega/src/transport/WebSocketChannel.ts',
+      'apps/tv-vega/src/transport/createDeviceChannel.ts',
+      '**/__tests__/**',
+    ],
     rules: {
       'no-restricted-imports': [
         'error',

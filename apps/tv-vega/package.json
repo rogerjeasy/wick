@@ -20,6 +20,7 @@
     "@amazon-devices/react-native-w3cmedia": "^2.3.2",
     "@wick/contracts": "*",
     "@wick/vega-calm-ui": "*",
+    "mqtt": "^5.10.0",
     "react": "^19.3.0"
   },
   "comment:dependencies": [

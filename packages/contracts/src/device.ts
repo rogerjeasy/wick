@@ -64,3 +64,13 @@ export interface DeviceChannel {
   send(e: DeviceEvent): Promise<void>;
   readonly state: ChannelState;
 }
+
+/**
+ * The wire envelope both transports use to distinguish a pushed card from a
+ * control message. MQTT keeps these on separate topics and doesn't need the
+ * envelope internally, but WebSocketChannel does — defined once here so
+ * device and backend never drift.
+ */
+export type DeviceWireMessage =
+  | { readonly kind: 'card'; readonly card: QueuedCard }
+  | { readonly kind: 'control'; readonly control: ControlMessage };
