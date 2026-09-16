@@ -16,6 +16,11 @@
  */
 import { evaluate, type Audience, type HouseholdPolicy } from '@wick/policy';
 import type { FactClass, QueuedCard } from '@wick/contracts';
+import { DynamoDBClient, PutItemCommand, QueryCommand, UpdateItemCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
+import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
+
+const ddb = new DynamoDBClient({});
+const TABLE = process.env.TABLE_NAME ?? '';
 
 export interface EgressItem {
   readonly class: FactClass;
@@ -62,8 +67,75 @@ export async function sendToFamily(
  * policy decision, not an absence of policy.
  */
 export async function sendToDevice(
-  _card: QueuedCard,
+  card: QueuedCard,
   _policy: HouseholdPolicy,
 ): Promise<void> {
-  throw new Error('not implemented');
+  const householdId = card.card.householdId;
+
+  // The Card item is the queue's source of truth — written unconditionally,
+  // before any attempt at a live push, so connect.mjs's reconcile step can
+  // always deliver it later even if the device is offline right now.
+  const item: Record<string, AttributeValue> = {
+    pk: { S: `HH#${householdId}` },
+    sk: { S: `CARD#${card.id}` },
+    data: { S: JSON.stringify(card) },
+  };
+  if (card.expiresAt !== undefined) {
+    item.ttl = { N: String(Math.floor(card.expiresAt / 1000)) };
+  }
+  await ddb.send(new PutItemCommand({ TableName: TABLE, Item: item }));
+
+  const deviceLookup = await ddb.send(new QueryCommand({
+    TableName: TABLE,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: {
+      ':pk': { S: `HH#${householdId}` },
+      ':prefix': { S: 'DEV#' },
+    },
+    Limit: 1,
+  }));
+  const deviceItem = deviceLookup.Items?.[0];
+  const connectionId = deviceItem?.connectionId?.S;
+  const transport = deviceItem?.transport?.S;
+  const wsEndpoint = deviceItem?.wsEndpoint?.S;
+
+  if (!connectionId || transport !== 'websocket' || !wsEndpoint) {
+    // Offline, or on the MQTT path — IoT Core publish isn't wired up yet
+    // (SP-5 gate, see the implementation plan's Scope decisions and
+    // FRICTION.md). The Card item above is the queue; connect.mjs's
+    // reconcile step delivers it the moment the device is next seen.
+    return;
+  }
+
+  const mgmt = new ApiGatewayManagementApiClient({ endpoint: wsEndpoint });
+  try {
+    await mgmt.send(new PostToConnectionCommand({
+      ConnectionId: connectionId,
+      Data: JSON.stringify({ kind: 'card', card }),
+    }));
+  } catch (err) {
+    if ((err as { name?: string }).name === 'GoneException') {
+      const deviceSk = deviceItem?.sk?.S;
+      if (deviceSk) {
+        // Guard on connectionId, same as disconnect.mjs: a stale
+        // PostToConnection can throw GoneException after the device has
+        // already reconnected (fresh connectionId written by connect.mjs
+        // in the gap between our earlier Query and this catch). An
+        // unconditional REMOVE here would wipe out the live connection.
+        try {
+          await ddb.send(new UpdateItemCommand({
+            TableName: TABLE,
+            Key: { pk: { S: `HH#${householdId}` }, sk: { S: deviceSk } },
+            UpdateExpression: 'REMOVE connectionId, transport, wsEndpoint, connectedAt',
+            ConditionExpression: 'connectionId = :cid',
+            ExpressionAttributeValues: { ':cid': { S: connectionId } },
+          }));
+        } catch (cleanupErr) {
+          if ((cleanupErr as { name?: string }).name !== 'ConditionalCheckFailedException') throw cleanupErr;
+        }
+      }
+      return;
+    }
+    throw err;
+  }
 }
