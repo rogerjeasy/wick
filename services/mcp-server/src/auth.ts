@@ -29,6 +29,7 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
+import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 
@@ -105,7 +106,7 @@ const provider: OAuthServerProvider = {
 
   async challengeForAuthorizationCode(_client, authorizationCode: string) {
     const pending = issuedAuthCodes.get(authorizationCode);
-    if (!pending) throw new Error('invalid_grant');
+    if (!pending) throw new InvalidGrantError('Unknown or expired authorization code');
     return pending.codeChallenge;
   },
 
@@ -114,7 +115,9 @@ const provider: OAuthServerProvider = {
     authorizationCode: string,
   ): Promise<OAuthTokens> {
     const pending = issuedAuthCodes.get(authorizationCode);
-    if (!pending || pending.clientId !== client.client_id) throw new Error('invalid_grant');
+    if (!pending || pending.clientId !== client.client_id) {
+      throw new InvalidGrantError('Unknown or expired authorization code');
+    }
     issuedAuthCodes.delete(authorizationCode);
     return issueTokens(client.client_id, pending.scopes, pending.resource);
   },
@@ -130,15 +133,15 @@ const provider: OAuthServerProvider = {
         return issueTokens(client.client_id, scopes ?? info.scopes, info.resource);
       }
     }
-    throw new Error('invalid_grant');
+    throw new InvalidGrantError('Unknown or revoked refresh token');
   },
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
     const info = issuedTokens.get(token);
-    if (!info) throw new Error('invalid_token');
+    if (!info) throw new InvalidTokenError('Unknown access token');
     if (info.expiresAt !== undefined && info.expiresAt * 1000 < Date.now()) {
       issuedTokens.delete(token);
-      throw new Error('invalid_token');
+      throw new InvalidTokenError('Access token expired');
     }
     return info;
   },

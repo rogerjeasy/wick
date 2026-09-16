@@ -74,6 +74,52 @@ describe('auth', () => {
     expect(res.headers.get('www-authenticate')).toBeNull();
   });
 
+  it('returns 401 with no WWW-Authenticate header for an unknown/invalid Bearer token', async () => {
+    const app = testApp();
+    const port = await listen(app);
+    const res = await fetch(`http://127.0.0.1:${port}/protected`, {
+      headers: { authorization: 'Bearer totally-garbage-token' },
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBeNull();
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe('invalid_token');
+  });
+
+  it('returns 400 invalid_grant for a never-issued authorization code at /token', async () => {
+    const app = testApp();
+    const port = await listen(app);
+    const base = `http://127.0.0.1:${port}`;
+
+    const regRes = await fetch(`${base}/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        redirect_uris: ['http://127.0.0.1:9999/callback'],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+      }),
+    });
+    expect(regRes.status).toBe(201);
+    const client = (await regRes.json()) as RegisteredClient;
+
+    const tokenRes = await fetch(`${base}/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: 'never-issued-authorization-code',
+        redirect_uri: client.redirect_uris[0]!,
+        client_id: client.client_id,
+        code_verifier: 'a'.repeat(64),
+      }),
+    });
+    expect(tokenRes.status).toBe(400);
+    const body = (await tokenRes.json()) as { error?: string };
+    expect(body.error).toBe('invalid_grant');
+  });
+
   it('completes the full authorization-code + PKCE flow and authenticates with the resulting token', async () => {
     const app = testApp();
     const port = await listen(app);
