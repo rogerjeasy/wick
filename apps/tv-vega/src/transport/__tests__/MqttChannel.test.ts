@@ -14,10 +14,11 @@ class FakeMqttClient extends EventEmitter {
   published: Array<{ topic: string; payload: string }> = [];
   subscribed: string[] = [];
   ended = false;
+  subscribeError: Error | undefined;
 
   subscribe(topics: string[], _opts: unknown, cb: (err?: Error) => void): void {
     this.subscribed.push(...topics);
-    cb();
+    cb(this.subscribeError);
   }
 
   publish(topic: string, payload: string, _opts: unknown, cb: (err?: Error) => void): void {
@@ -96,5 +97,26 @@ describe('MqttChannel', () => {
     await assertion;
     expect(client.ended).toBe(true);
     vi.useRealTimers();
+  });
+
+  it('rejects if subscribe fails in the connect callback', async () => {
+    const client = new FakeMqttClient();
+    client.subscribeError = new Error('subscribe_failed');
+    const channel = new MqttChannel({ wssUrl: 'wss://iot.example/mqtt' }, fakeConnector(client));
+
+    const connecting = channel.connect(TOKEN);
+    client.emit('connect');
+
+    await expect(connecting).rejects.toThrow('subscribe_failed');
+  });
+
+  it('rejects if client emits error before connect', async () => {
+    const client = new FakeMqttClient();
+    const channel = new MqttChannel({ wssUrl: 'wss://iot.example/mqtt' }, fakeConnector(client));
+
+    const connecting = channel.connect(TOKEN);
+    client.emit('error', new Error('connection_refused'));
+
+    await expect(connecting).rejects.toThrow('connection_refused');
   });
 });
