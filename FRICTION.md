@@ -73,6 +73,70 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-009 — SP-5's hardware spike is un-runnable this session, so IoT Core stays unbuilt behind a complete MQTT client
+
+**Tool / API:**      AWS IoT Core (device gateway, custom authorizer, topic rules) / Vega OS
+                     react-native-kepler 1.2 (Fire TV hardware)
+
+**Task attempted:**  Stand up the transport backend for S1 device wiring — both halves of
+                     `createDeviceChannel()`'s MQTT-first-then-WebSocket fallback
+                     (docs/WICK-TECHNICAL.md §14, SP-5).
+
+**Steps taken:**     1. Built `MqttChannel.ts` (Task 1) as a complete, real client against
+                        the documented per-device topic contract, using `mqtt.js` over WSS —
+                        no simulated transport, no mock broker.
+                     2. Went to size the IoT Core side: a custom authorizer, a per-device IAM
+                        policy scoped to that device's topics, and topic rules to route
+                        inbound messages.
+                     3. Checked docs/WICK-TECHNICAL.md §14's own decision gate for this
+                        exact question: "run `mqtt.js` over WSS on real Vega hardware for 4
+                        hours and see" — i.e. SP-1..SP-8 in FRICTION.md's Open Slots, SP-5
+                        specifically.
+                     4. No Fire TV / Vega hardware is available this session (SP-8 is also
+                        open, same root cause).
+
+**Expected:**        That MQTT-vs-WebSocket would be settled by a real 4-hour spike on
+                     device, with IoT Core built to match whichever transport the spike
+                     confirmed.
+
+**Actual:**          The spike cannot run without hardware, so there is nothing to confirm.
+                     Standing up IoT Core speculatively — a custom authorizer, per-device
+                     policies, topic rules — before anyone has confirmed `mqtt.js` even
+                     connects inside Vega's RN 0.83 fork would be exactly the kind of
+                     unverified infra this repo's own testing philosophy argues against
+                     (AGENTS.md, docs/WICK-TECHNICAL.md §12.1). This is not a platform
+                     restriction like FL-001..FL-004 — it is a resourcing gap this session
+                     cannot close — but it directly shapes what got built: Tasks 6-7 give
+                     `WebSocketChannel` a real pairing API and real WebSocket routes
+                     (`connect`/`disconnect`/`route` Lambdas, `sendToDevice()` in
+                     `services/agent/src/egress.ts`), while `infra/transport.tf`'s IoT Core
+                     stack is deliberately absent. `MqttChannel` remains real, tested client
+                     code with nothing live to point it at.
+
+**Severity:**        Important — it does not block the demo (`createDeviceChannel()` falls
+                     back to WebSocket automatically, §14, Scope decision 1), but it leaves
+                     one of the two documented transports unverified end-to-end, and the
+                     spike itself stays open (SP-5, SP-8) for the duration of this build.
+
+**Workaround:**      `createDeviceChannel()` (Task 3) implements MQTT-first-then-WebSocket as
+                     *runtime* fallback behavior rather than a static choice: `config.mqttWssUrl`
+                     is simply absent until IoT Core exists, so the factory goes straight to
+                     WebSocket. That is the honest way to satisfy "try MQTT first" without
+                     fabricating a spike result the hardware was never available to produce.
+
+**Suggestion:**      1. **Treat "no hardware available" as a first-class blocked state in the
+                        spike log**, not a silent scope cut — this entry and the two open
+                        checkboxes (SP-5, SP-8) in FRICTION.md's Open Slots are that record.
+                     2. **Sequence the follow-up explicitly**: once `infra/transport.tf`'s
+                        WebSocket half is deployed and proven (this pass), point `MqttChannel`
+                        at a real IoT Core endpoint and run the actual 4-hour spike — the
+                        natural next step, not a redesign.
+                     3. For any team in this position, a short-loan hardware program (a Fire
+                        TV Stick mailed for the hackathon's duration, per SP-8) would have
+                        turned two open spikes into closed ones.
+
+---
+
 ## FL-008 — Image retrieval fails most first attempts after an event, with an internal error name and no documented settling time
 
 **Tool / API:**      Ring Partner API — the media host behind

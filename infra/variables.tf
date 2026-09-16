@@ -38,3 +38,9 @@ variable "ring_scope" {
   type        = string
   default     = "ava.v1:read"
 }
+
+variable "pairing_url_base" {
+  description = "Short URL shown on the TV's pairing screen, e.g. https://wick.example/pair. §4.2."
+  type        = string
+  default     = "https://rogerjeasy.github.io/wick/pair"
+}

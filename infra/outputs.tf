@@ -48,3 +48,13 @@ output "ring_authorize_url" {
   description = "Open this in a browser to start the partner-initiated OAuth flow."
   value       = "${aws_apigatewayv2_api.edge.api_endpoint}/ring/authorize"
 }
+
+output "pairing_api_url" {
+  description = "Set as apps/tv-vega/src/config.ts DEPLOYED.pairingApiUrl"
+  value       = aws_apigatewayv2_api.edge.api_endpoint
+}
+
+output "pairing_signing_key_secret" {
+  description = "Populate with infra/bootstrap/generate-pairing-key.sh"
+  value       = aws_secretsmanager_secret.pairing_signing_key.name
+}
