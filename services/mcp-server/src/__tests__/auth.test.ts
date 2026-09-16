@@ -24,20 +24,6 @@ function testApp() {
   return app;
 }
 
-async function registerClient(app: express.Express) {
-  const res = await fetch(`http://127.0.0.1:${await listen(app)}/register`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      redirect_uris: ['http://127.0.0.1:9999/callback'],
-      grant_types: ['authorization_code', 'refresh_token'],
-      response_types: ['code'],
-      token_endpoint_auth_method: 'none',
-    }),
-  });
-  return res.json();
-}
-
 function listen(app: express.Express): Promise<number> {
   return new Promise((resolve) => {
     const server = app.listen(0, () => {
