@@ -443,7 +443,6 @@ git commit -m "feat(mcp-server): OAuth 2.1 + PKCE auth via official SDK router"
 
 **Files:**
 - Modify: `services/mcp-server/src/server.ts`
-- Modify: `services/mcp-server/src/index.ts`
 - Modify: `services/mcp-server/src/tools/get_resident_shared_view.ts`
 - Modify: `services/mcp-server/package.json`
 - Test: `services/mcp-server/src/__tests__/server.test.ts`
@@ -1623,7 +1622,8 @@ git commit -m "chore(scripts): seed stub household/roster/timeline/narrative dat
 ### Task 8: Local run, MCP Inspector verification, and `apps/sim-alexa`
 
 **Files:**
-- Modify: `services/mcp-server/package.json` (add a `dev` script + `@modelcontextprotocol/inspector` devDependency)
+- Modify: `services/mcp-server/src/index.ts` (replaced entirely — see Step 1)
+- Modify: `services/mcp-server/package.json` (add a `dev` script; MCP Inspector is invoked via `npx` in Step 3, no devDependency needed)
 - Create: `apps/sim-alexa/index.html`
 - Create: `apps/sim-alexa/main.js`
 - Create: `apps/sim-alexa/package.json`
