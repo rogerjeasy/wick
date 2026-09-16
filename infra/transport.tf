@@ -34,8 +34,15 @@ resource "aws_iam_role_policy_attachment" "ws_basic" {
 
 data "aws_iam_policy_document" "ws_connect" {
   statement {
-    sid       = "ReadWriteDeviceAndConnection"
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"]
+    sid = "ReadWriteDeviceAndConnection"
+    # GetItem: fast-path denylist check. UpdateItem: the device item's
+    # connection fields (connect.mjs uses UpdateItem, not PutItem, so a
+    # full-item replace can't clobber pairedAt/denylisted — see the file's
+    # own comment). PutItem: the CONN#<id>/META reverse-lookup item.
+    # dynamodb:Query is NOT needed here — reconcile moved to route.mjs's
+    # $default handler (see route.mjs and the Task 7 fix-round notes in
+    # .superpowers/sdd/2026-09-16-s1-device-wiring/progress.md).
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }
   statement {
@@ -55,8 +62,11 @@ data "aws_iam_policy_document" "ws_disconnect" {
 
 data "aws_iam_policy_document" "ws_route" {
   statement {
-    sid       = "ReadConnectionWriteTimeline"
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
+    sid = "ReadConnectionWriteTimelineAndReconcile"
+    # GetItem: CONN#<id>/META lookup. PutItem: EVT#<ts>#<uuid> timeline
+    # rows. Query: reconcile's bounded CARD# range scan (see the
+    # `sk BETWEEN :since AND :max` query in route.mjs).
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"]
     resources = [aws_dynamodb_table.wick.arn]
   }
   statement {

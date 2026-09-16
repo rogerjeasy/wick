@@ -29,8 +29,8 @@ export function resolveDeviceConfig(partial: Partial<DeviceConfig>): DeviceConfi
  * comment above.
  */
 const DEPLOYED: Partial<DeviceConfig> = {
-  // pairingApiUrl: 'https://xxxx.execute-api.us-east-1.amazonaws.com',
-  // websocketUrl: 'wss://yyyy.execute-api.us-east-1.amazonaws.com/prod',
+  pairingApiUrl: 'https://aplt2e6673.execute-api.us-east-1.amazonaws.com',
+  websocketUrl: 'wss://2ozlpzh5da.execute-api.us-east-1.amazonaws.com/prod',
 };
 
 export function loadDeviceConfig(): DeviceConfig {
