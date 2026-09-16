@@ -10,7 +10,7 @@
  * Binds deviceId <-> householdId, mints the device-bound JWT (§4.2 step 3),
  * and stores it on the pairing nonce for the TV's next poll to collect.
  */
-import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, GetItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { signJwt } from './jwt.mjs';
 import { isExpired, DEVICE_TOKEN_TTL_SEC } from './pairing-code.mjs';
@@ -52,25 +52,56 @@ export const handler = async (event) => {
   const jwt = signJwt({ deviceId, householdId }, key, { expiresInSec: DEVICE_TOKEN_TTL_SEC });
   const tokenExpiresAt = Date.now() + DEVICE_TOKEN_TTL_SEC * 1000;
 
-  await ddb.send(new PutItemCommand({
-    TableName: TABLE,
-    Item: {
-      pk: { S: `HH#${householdId}` },
-      sk: { S: `DEV#${deviceId}` },
-      deviceId: { S: deviceId },
-      householdId: { S: householdId },
-      denylisted: { BOOL: false },
-      pairedAt: { N: String(Date.now()) },
-    },
-  }));
+  // Atomically claim the pairing code BEFORE writing the device binding.
+  // This is the sole correctness guarantee against two concurrent claims of
+  // the same code (INV-1: exactly one household per device): the read above
+  // is only a fast-path/UX check (404/410 messages), not the gate. Exactly
+  // one concurrent caller can win this conditional update; the loser hits
+  // ConditionalCheckFailedException below and never writes a device binding.
+  try {
+    await ddb.send(new UpdateItemCommand({
+      TableName: TABLE,
+      Key: { pk: { S: `PAIR#${code}` }, sk: { S: 'META' } },
+      UpdateExpression: 'SET claimed = :true, deliveryToken = :tok',
+      ConditionExpression: 'attribute_exists(pk) AND claimed = :false',
+      ExpressionAttributeValues: {
+        ':true': { BOOL: true },
+        ':false': { BOOL: false },
+        ':tok': { S: JSON.stringify({ jwt, deviceId, householdId, expiresAt: tokenExpiresAt }) },
+      },
+    }));
+  } catch (err) {
+    if (err?.name !== 'ConditionalCheckFailedException') throw err;
+    // The condition is a conjunction, so DynamoDB doesn't tell us which half
+    // failed. The item existed and was unclaimed at the GetItem above a
+    // moment ago, so the overwhelmingly likely cause is a concurrent claim
+    // winning the race — 409 is the right status for that case, and the
+    // rare alternative (the item vanished entirely between the read and the
+    // write) doesn't have a code of its own in this API's contract anyway,
+    // so collapsing to 409 here is the closer match: an unauthenticated
+    // client can't tell "raced" from "expired-in-between" apart in a way
+    // that would change what it does next (re-poll status / re-request a
+    // code), and 409 doesn't falsely imply the code was never valid the way
+    // 404 would for what was, a moment ago, a real code.
+    return { statusCode: 409, body: 'already_claimed' };
+  }
 
+  // Bind deviceId <-> householdId without clobbering an existing denylist
+  // flag: this row may already exist for this device from a prior pairing
+  // that was since denylisted, and re-pairing must not silently restore
+  // access. UpdateItem + if_not_exists only initializes `denylisted` to
+  // false when the attribute is not already present; an existing `true`
+  // survives untouched.
   await ddb.send(new UpdateItemCommand({
     TableName: TABLE,
-    Key: { pk: { S: `PAIR#${code}` }, sk: { S: 'META' } },
-    UpdateExpression: 'SET claimed = :true, deliveryToken = :tok',
+    Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
+    UpdateExpression:
+      'SET deviceId = :did, householdId = :hhid, pairedAt = :pa, denylisted = if_not_exists(denylisted, :false)',
     ExpressionAttributeValues: {
-      ':true': { BOOL: true },
-      ':tok': { S: JSON.stringify({ jwt, deviceId, householdId, expiresAt: tokenExpiresAt }) },
+      ':did': { S: deviceId },
+      ':hhid': { S: householdId },
+      ':pa': { N: String(Date.now()) },
+      ':false': { BOOL: false },
     },
   }));
 
