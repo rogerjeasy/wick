@@ -122,4 +122,34 @@ describe('WebSocketChannel', () => {
 
     vi.useRealTimers();
   });
+
+  it('guards against overlapping connections: reconnect in flight + manual connect()', async () => {
+    vi.useFakeTimers();
+    FakeSocket.instances = [];
+    const channel = new WebSocketChannel({ url: 'wss://api.example/prod' }, fakeFactory());
+    const connecting = channel.connect(TOKEN);
+    FakeSocket.instances[0]!.onopen?.();
+    await connecting;
+
+    // Trigger unexpected close → enters backoff state with reconnect timer pending
+    FakeSocket.instances[0]!.onclose?.();
+    expect(channel.state).toBe('backoff');
+    expect(FakeSocket.instances.length).toBe(1);
+
+    // Call connect() again while backoff timer is in flight
+    // This should cancel the pending timer and discard the old socket
+    const reconnecting = channel.connect(TOKEN);
+    FakeSocket.instances[FakeSocket.instances.length - 1]!.onopen?.();
+    await reconnecting;
+
+    // Should have exactly 2 sockets (first + second), not 3 (no stale reconnect)
+    expect(FakeSocket.instances.length).toBe(2);
+    expect(channel.state).toBe('open');
+
+    // Advance time to verify the stale backoff timer doesn't fire
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(FakeSocket.instances.length).toBe(2); // Still 2, not 3
+
+    vi.useRealTimers();
+  });
 });

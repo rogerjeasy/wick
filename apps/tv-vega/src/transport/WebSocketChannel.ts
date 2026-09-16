@@ -49,6 +49,15 @@ export class WebSocketChannel implements DeviceChannel {
   }
 
   connect(token: DeviceToken): Promise<void> {
+    // Guard against overlapping connections: clear pending reconnect timer
+    // and close/discard any existing socket before opening a new one.
+    clearTimeout(this.#reconnectTimer);
+    // Temporarily set #closing to prevent onclose from scheduling another reconnect.
+    const wasClosing = this.#closing;
+    this.#closing = true;
+    this.#socket?.close();
+    this.#closing = wasClosing;
+
     this.#token = token;
     this.#closing = false;
     this.#backoffMs = MIN_BACKOFF_MS;
