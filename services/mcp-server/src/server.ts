@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto';
 import express from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { createAuthRouter, requireAuth } from './auth.js';
@@ -39,17 +40,59 @@ export function createApp(issuerUrl: URL): express.Express {
   app.use(express.json());
   app.use(createAuthRouter(issuerUrl));
 
+  // Session-keyed transports. StreamableHTTPServerTransport in stateful mode
+  // (`sessionIdGenerator` set) only flips its internal `_initialized` flag on the
+  // SAME transport instance that handled `initialize` — every other request routes
+  // through `validateSession()`, which 400s "Server not initialized" against a fresh
+  // instance. So the transport for a session must be created once, on `initialize`,
+  // and REUSED for every subsequent request carrying that session's `Mcp-Session-Id`
+  // header — never reconstructed per request. Pattern verified against the SDK's own
+  // shipped reference server, installed SDK 1.30.0:
+  // node_modules/@modelcontextprotocol/sdk/dist/esm/examples/server/simpleStreamableHttp.js
+  // (mcpPostHandler, ~lines 566-625: the `transports` map, `onsessioninitialized`
+  // storing the transport keyed by its generated session id, and `transport.onclose`
+  // deleting that entry). `onsessioninitialized`/`onclose` signatures confirmed against
+  // node_modules/@modelcontextprotocol/sdk/dist/esm/server/webStandardStreamableHttp.d.ts.
+  const transports: Record<string, StreamableHTTPServerTransport> = {};
+
   app.post('/mcp', requireAuth(), async (req, res) => {
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
-    res.on('close', () => void transport.close());
-    // StreamableHTTPServerTransport's onclose/onerror/onmessage accessors are typed
-    // `X | undefined` even though Transport declares them as optional `X` — under this
-    // repo's `exactOptionalPropertyTypes`, those aren't the same type. The class does
-    // structurally implement Transport (verified against the SDK's own `implements
-    // Transport` on this class, installed SDK 1.30.0); the cast just routes around the
-    // accessor-vs-optional-property mismatch.
-    await mcpServer.connect(transport as unknown as Transport);
-    await transport.handleRequest(req, res, req.body);
+    const sessionId = req.headers['mcp-session-id'];
+
+    if (typeof sessionId === 'string' && transports[sessionId]) {
+      // Existing session: reuse its already-`connect()`ed transport. Do not
+      // reconstruct or reconnect — that would recreate the exact bug being fixed.
+      await transports[sessionId].handleRequest(req, res, req.body);
+      return;
+    }
+
+    if (sessionId === undefined && isInitializeRequest(req.body)) {
+      // Genuine new session: construct exactly one transport for its lifetime.
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (sid) => {
+          transports[sid] = transport;
+        },
+      });
+      transport.onclose = () => {
+        const sid = transport.sessionId;
+        if (sid !== undefined) delete transports[sid];
+      };
+      // StreamableHTTPServerTransport's onclose/onerror/onmessage accessors are typed
+      // `X | undefined` even though Transport declares them as optional `X` — under this
+      // repo's `exactOptionalPropertyTypes`, those aren't the same type. The class does
+      // structurally implement Transport (verified against the SDK's own `implements
+      // Transport` on this class, installed SDK 1.30.0); the cast just routes around the
+      // accessor-vs-optional-property mismatch.
+      await mcpServer.connect(transport as unknown as Transport);
+      await transport.handleRequest(req, res, req.body);
+      return;
+    }
+
+    res.status(400).json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
+      id: null,
+    });
   });
 
   return app;

@@ -10,6 +10,7 @@
 import { GetItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { HouseholdPolicy } from '@wick/policy';
 import { DEFAULT_POLICY } from '@wick/policy';
+import { NEVER_TO_FAMILY } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { HOUSEHOLD_ID } from '../auth.js';
 
@@ -34,10 +35,16 @@ export function registerGetResidentSharedView(mcpServer: McpServer, ddb: DynamoD
     },
     async () => {
       const policy = await loadHouseholdPolicy(ddb, HOUSEHOLD_ID);
+      // Mirrors services/policy/src/evaluate.ts's order exactly: table rule allows it,
+      // OR it's an explicit opt-in that is not in NEVER_TO_FAMILY (the opt-in can never
+      // widen past that hard cap); resident exclusions narrow last.
       const shared = (Object.keys(policy.table) as (keyof typeof policy.table)[])
         .filter((factClass) => {
           const rule = policy.table[factClass].FAMILY;
-          return rule.allow || policy.familyPermitted.includes(factClass);
+          return (
+            rule.allow ||
+            (policy.familyPermitted.includes(factClass) && !NEVER_TO_FAMILY.includes(factClass))
+          );
         })
         .filter((factClass) => !policy.residentExclusions.includes(factClass));
       return {
