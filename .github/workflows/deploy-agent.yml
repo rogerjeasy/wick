@@ -76,6 +76,13 @@ jobs:
         with:
           terraform_version: 1.16.2
 
+      # infra/agent.tf zips services/agent/.build/door-event — gitignored,
+      # esbuild output, never committed — so it has to be built fresh in
+      # every run or archive_file has nothing to zip.
+      - name: build the agent lambda bundle
+        if: steps.target.outputs.ready == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
+        run: npm run build:lambda
+
       # The agent reads its Ring token from Secrets Manager at runtime via
       # secretsManagerTokenProvider(). There is no .env in a deployed runtime,
       # and none may be baked into an image.
