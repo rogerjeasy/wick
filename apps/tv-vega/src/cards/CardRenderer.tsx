@@ -12,6 +12,7 @@
 import * as React from 'react';
 import type { Card } from '@wick/contracts';
 import { DoorCardView } from './DoorCard.js';
+import { MessageCardView } from './MessageCard.js';
 
 export interface CardRendererProps {
   readonly card: Card;
@@ -25,14 +26,18 @@ export function CardRenderer({ card, onAction }: CardRendererProps): React.JSX.E
     case 'DOOR':
       return <DoorCardView card={card} onAction={handle} />;
 
-    // TODO(S3): DAY full-screen presentation, at most 3 items.
-    // TODO(S5): MESSAGE with audio playback and three drafted replies.
+    case 'MESSAGE':
+      return <MessageCardView card={card} onAction={handle} />;
+
+    // TODO(S3): DAY full-screen presentation, at most 3 items. Unlike
+    // MESSAGE, no agent logic builds a DayCard yet (day/index.ts is a stub),
+    // so there is nothing real to render against — building the view first
+    // would be guessing at content shape S3's agent work hasn't settled.
     //
     // Returning null is deliberate rather than lazy: an unbuilt card type must
     // show nothing at all, not a half-built surface. A card the resident cannot
     // act on is worse than silence.
     case 'DAY':
-    case 'MESSAGE':
       return null;
   }
 }
