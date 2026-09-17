@@ -20,6 +20,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import express from 'express';
+import cors from 'cors';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
@@ -63,7 +64,19 @@ export function createApp(issuerUrl: URL): express.Express {
   // node_modules/@modelcontextprotocol/sdk/dist/esm/server/webStandardStreamableHttp.d.ts.
   const transports: Record<string, StreamableHTTPServerTransport> = {};
 
-  app.post('/mcp', requireAuth(), async (req, res) => {
+  // apps/sim-alexa (and any real browser client) runs on a different origin than
+  // this server and sends custom `authorization`/`mcp-session-id` headers on every
+  // /mcp request, which triggers a browser CORS preflight (`OPTIONS /mcp`). Only
+  // this route needs it — mcpAuthRouter's own routes already call cors()
+  // internally, so this is scoped here rather than applied app-wide. The session
+  // id is read back from the response by client JS (main.js's sendMcpMessage()),
+  // so it must be explicitly exposed — browsers hide non-exposed response headers
+  // from JS under CORS by default (verified against @types/cors's CorsOptions,
+  // installed @types/cors 2.8.19: `exposedHeaders?: string | string[]`).
+  const mcpCors = cors({ exposedHeaders: ['Mcp-Session-Id'] });
+
+  app.options('/mcp', mcpCors);
+  app.post('/mcp', mcpCors, requireAuth(), async (req, res) => {
     const sessionId = req.headers['mcp-session-id'];
 
     if (typeof sessionId === 'string' && transports[sessionId]) {
