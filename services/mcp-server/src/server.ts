@@ -29,6 +29,7 @@ import { createAuthRouter, requireAuth } from './auth.js';
 import { registerGetResidentSharedView } from './tools/get_resident_shared_view.js';
 import { registerGetWeekNarrative } from './tools/get_week_narrative.js';
 import { registerGetToday } from './tools/get_today.js';
+import { registerDidVisitorCome } from './tools/did_visitor_come.js';
 
 export const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -39,6 +40,7 @@ export function createApp(issuerUrl: URL): express.Express {
   registerGetResidentSharedView(mcpServer, ddb);
   registerGetWeekNarrative(mcpServer, ddb);
   registerGetToday(mcpServer, ddb);
+  registerDidVisitorCome(mcpServer, ddb);
 
   const app = express();
   app.use(express.json());
