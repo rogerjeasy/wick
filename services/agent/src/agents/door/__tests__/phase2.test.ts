@@ -1,0 +1,100 @@
+import { describe, it, expect, vi } from 'vitest';
+import type { CardPatch } from '@wick/contracts';
+import type { RingImage } from '@wick/ring';
+import { runDoorPhase2 } from '../phase2.js';
+import type { DescribeResult } from '../describe.js';
+
+const image: RingImage = {
+  url: 'https://download-eu-south-2.prod.phoenix.devices.amazon.dev/x',
+  capturedAt: 1789455093305,
+  fetchedAt: 1789455097000,
+};
+const bytes = new Uint8Array([1, 2, 3]);
+
+const okDescribe: DescribeResult = {
+  candidate: { description: 'A man in a delivery uniform, holding a parcel.', confidence: 0.9 },
+  reason: 'ok',
+  elapsedMs: 1200,
+};
+
+describe('runDoorPhase2', () => {
+  it('sends the image patch as soon as the image arrives', async () => {
+    const sendPatch = vi.fn(async (_p: CardPatch) => {});
+    const fetchImage = vi.fn(async () => ({ image, bytes }));
+    const describeFn = vi.fn(async () => okDescribe);
+
+    await runDoorPhase2('card-1', { fetchImage, describe: describeFn, sendPatch });
+
+    expect(sendPatch).toHaveBeenCalledWith(expect.objectContaining({ cardId: 'card-1', imageRef: image.url }));
+  });
+
+  it('describes the fetched bytes and sends the description patch when it validates', async () => {
+    const sendPatch = vi.fn(async (_p: CardPatch) => {});
+    const fetchImage = vi.fn(async () => ({ image, bytes }));
+    const describeFn = vi.fn(async (b: Uint8Array) => {
+      expect(b).toBe(bytes);
+      return okDescribe;
+    });
+
+    await runDoorPhase2('card-1', { fetchImage, describe: describeFn, sendPatch });
+
+    expect(sendPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ cardId: 'card-1', description: okDescribe.candidate!.description }),
+    );
+    expect(sendPatch).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends only the image patch when the model declines — Phase 1 stands (Principle 11)', async () => {
+    const sendPatch = vi.fn(async (_p: CardPatch) => {});
+    const fetchImage = vi.fn(async () => ({ image, bytes }));
+    const declined: DescribeResult = { candidate: null, reason: 'model declined: unclear frame', elapsedMs: 400 };
+    const describeFn = vi.fn(async () => declined);
+
+    await runDoorPhase2('card-1', { fetchImage, describe: describeFn, sendPatch });
+
+    expect(sendPatch).toHaveBeenCalledTimes(1);
+    expect(sendPatch).toHaveBeenCalledWith(expect.objectContaining({ imageRef: image.url }));
+  });
+
+  it('sends only the image patch when the candidate fails validation (buildDescriptionPatch)', async () => {
+    const sendPatch = vi.fn(async (_p: CardPatch) => {});
+    const fetchImage = vi.fn(async () => ({ image, bytes }));
+    const lowConfidence: DescribeResult = {
+      candidate: { description: 'A man in a delivery uniform, holding a parcel.', confidence: 0.1 },
+      reason: 'ok',
+      elapsedMs: 900,
+    };
+    const describeFn = vi.fn(async () => lowConfidence);
+
+    await runDoorPhase2('card-1', { fetchImage, describe: describeFn, sendPatch });
+
+    expect(sendPatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends nothing and never calls describe when the image fetch fails entirely', async () => {
+    const sendPatch = vi.fn(async (_p: CardPatch) => {});
+    const fetchImage = vi.fn(async () => {
+      throw new Error('ring_api_500');
+    });
+    const describeFn = vi.fn(async () => okDescribe);
+
+    await expect(runDoorPhase2('card-1', { fetchImage, describe: describeFn, sendPatch })).resolves.toBeUndefined();
+
+    expect(describeFn).not.toHaveBeenCalled();
+    expect(sendPatch).not.toHaveBeenCalled();
+  });
+
+  it('still attempts the description patch when sending the image patch fails', async () => {
+    const sendPatch = vi.fn(async (patch: CardPatch) => {
+      if (patch.imageRef) throw new Error('ddb_down');
+    });
+    const fetchImage = vi.fn(async () => ({ image, bytes }));
+    const describeFn = vi.fn(async () => okDescribe);
+
+    await expect(
+      runDoorPhase2('card-1', { fetchImage, describe: describeFn, sendPatch }),
+    ).resolves.toBeUndefined();
+
+    expect(sendPatch).toHaveBeenCalledWith(expect.objectContaining({ description: expect.any(String) }));
+  });
+});

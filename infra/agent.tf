@@ -1,18 +1,17 @@
 # ---------------------------------------------------------------------------
-# The agent plane's Phase 1 door path. See docs/WICK-TECHNICAL.md §15 (S1).
+# The agent plane's door path, Phase 1 and Phase 2. See docs/WICK-TECHNICAL.md
+# §15 (S1).
 #
 #   webhook.mjs -> EventBridge "wick" bus (source wick.ring)
 #     -> agent-door-event (this)
-#     -> handleDoorEvent -> egress.sendToDevice -> the paired TV
+#     -> Phase 1: handleDoorEvent -> egress.sendToDevice   -> the paired TV
+#     -> Phase 2: runDoorPhase2  -> egress.sendPatchToDevice -> the paired TV
 #
 # Unlike edge-ring/edge-device's hand-written .mjs Lambdas, this one needs
 # @wick/agent, @wick/ring, @wick/policy and @wick/contracts at runtime, so it
 # ships as an esbuild bundle (`npm run build:lambda`) rather than a raw
 # source_dir zip. @aws-sdk/* stays external — the nodejs22.x runtime
 # provides it, same assumption every other Lambda here already makes.
-#
-# Phase 2 (image + description patches) is not wired here yet — egress.ts
-# has no patch-delivery path. See lambda.ts's own header comment.
 # ---------------------------------------------------------------------------
 
 data "archive_file" "agent_door_event" {
@@ -39,11 +38,11 @@ data "aws_iam_policy_document" "agent_door_event" {
   }
 
   statement {
-    sid = "QueueAndLocateTheCard"
-    # sendToDevice (egress.ts): PutItem writes the CARD#<id> queue item,
-    # unconditionally, before any push attempt — Query then finds the
-    # household's paired device to learn its live connection, if any.
-    actions   = ["dynamodb:PutItem", "dynamodb:Query"]
+    sid = "QueueLocateAndPatchTheCard"
+    # sendToDevice: PutItem writes the CARD#<id> queue item. sendPatchToDevice
+    # (Phase 2): GetItem reads it back, UpdateItem merges the patch in. Both:
+    # Query finds the household's paired device to learn its live connection.
+    actions   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Query"]
     resources = [aws_dynamodb_table.wick.arn]
   }
 
@@ -51,6 +50,13 @@ data "aws_iam_policy_document" "agent_door_event" {
     sid       = "PushToTheDevice"
     actions   = ["execute-api:ManageConnections"]
     resources = ["${aws_apigatewayv2_api.transport.execution_arn}/*/*"]
+  }
+
+  statement {
+    sid = "DescribeTheDoorFrame"
+    # describe.ts's ConverseCommand — Phase 2b, the sentence.
+    actions   = ["bedrock:InvokeModel"]
+    resources = ["arn:aws:bedrock:${local.region}::foundation-model/amazon.nova-lite-v1:0"]
   }
 }
 
@@ -75,11 +81,15 @@ resource "aws_lambda_function" "agent_door_event" {
   filename         = data.archive_file.agent_door_event.output_path
   source_code_hash = data.archive_file.agent_door_event.output_base64sha256
 
-  # Phase 1's own local budget is 900ms (index.ts); this timeout covers a
-  # cold container's device-list fetch (deviceCache.ts's single miss) with
-  # headroom, not Ring's 5s webhook budget — webhook.mjs already spent that
-  # getting the event onto the bus.
-  timeout     = 10
+  # Phase 1's own local budget is 900ms (index.ts) and already returns to the
+  # device long before this Lambda does — the handler keeps running because
+  # Lambda freezes the container the instant it returns, and Phase 2 has to
+  # finish (or hit its own internal timeout) first. Worst case: a cold
+  # device-list fetch, imageForEvent's retries (up to 4 attempts, 2s apart —
+  # FL-008's GRECO_NO_VALID_KEY settling delay), then describe.ts's
+  # DESCRIBE_TIMEOUT_MS (2.5s). None of this is Ring's 5s webhook budget —
+  # webhook.mjs already spent that getting the event onto the bus.
+  timeout     = 20
   memory_size = 256
 
   environment {

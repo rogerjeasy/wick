@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { RingDevice } from '@wick/ring';
+import type { RingDevice, RingHistoryEvent } from '@wick/ring';
 import type { QueuedCard } from '@wick/contracts';
-import { routeRingEvent } from '../lambda.js';
+import { routeRingEvent, type RouteDeps } from '../lambda.js';
 
 const device: RingDevice = {
   id: 'ava1.ring.device.ABNJQ',
@@ -19,64 +19,78 @@ const detail = {
   receivedAt: 1789455093400,
 };
 
+function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
+  return {
+    householdId: 'hh-1',
+    findDevice: vi.fn(async () => device),
+    sendToDevice: vi.fn(async (_card: QueuedCard) => {}),
+    runPhase2: vi.fn(async (_cardId: string, _event: RingHistoryEvent) => {}),
+    now: () => 1789455094000,
+    ...overrides,
+  };
+}
+
 describe('routeRingEvent', () => {
   it('a button press on a known device produces and sends a Phase 1 card', async () => {
-    const findDevice = vi.fn(async () => device);
-    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+    const deps = baseDeps();
 
-    const result = await routeRingEvent(detail, {
-      householdId: 'hh-1',
-      findDevice,
-      sendToDevice,
-      now: () => 1789455094000,
-    });
+    const result = await routeRingEvent(detail, deps);
 
     expect(result).toBe('sent');
-    expect(sendToDevice).toHaveBeenCalledTimes(1);
-    const sent = sendToDevice.mock.calls[0]![0]!;
+    expect(deps.sendToDevice).toHaveBeenCalledTimes(1);
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0]!;
     expect(sent.card.type).toBe('DOOR');
     expect(sent.card.householdId).toBe('hh-1');
   });
 
   it('skips silently — no lookup, no send — for an event that is not door-worthy', async () => {
-    const findDevice = vi.fn(async () => device);
-    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+    const deps = baseDeps();
 
-    const result = await routeRingEvent(
-      { ...detail, event_type: 'subscription_activated' },
-      { householdId: 'hh-1', findDevice, sendToDevice, now: () => 1789455094000 },
-    );
+    const result = await routeRingEvent({ ...detail, event_type: 'subscription_activated' }, deps);
 
     expect(result).toBe('skipped');
-    expect(findDevice).not.toHaveBeenCalled();
-    expect(sendToDevice).not.toHaveBeenCalled();
+    expect(deps.findDevice).not.toHaveBeenCalled();
+    expect(deps.sendToDevice).not.toHaveBeenCalled();
+    expect(deps.runPhase2).not.toHaveBeenCalled();
   });
 
   it('skips rather than guessing when the device has since been removed from the account', async () => {
-    const findDevice = vi.fn(async () => undefined);
-    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+    const deps = baseDeps({ findDevice: vi.fn(async () => undefined) });
 
-    const result = await routeRingEvent(detail, {
-      householdId: 'hh-1',
-      findDevice,
-      sendToDevice,
-      now: () => 1789455094000,
-    });
+    const result = await routeRingEvent(detail, deps);
 
     expect(result).toBe('unknown_device');
-    expect(sendToDevice).not.toHaveBeenCalled();
+    expect(deps.sendToDevice).not.toHaveBeenCalled();
+    expect(deps.runPhase2).not.toHaveBeenCalled();
   });
 
   it('propagates a malformed payload rather than sending a broken card', async () => {
-    const findDevice = vi.fn(async () => device);
-    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+    const deps = baseDeps();
 
-    await expect(
-      routeRingEvent(
-        { ...detail, device_id: undefined },
-        { householdId: 'hh-1', findDevice, sendToDevice, now: () => 1789455094000 },
-      ),
-    ).rejects.toThrow();
-    expect(sendToDevice).not.toHaveBeenCalled();
+    await expect(routeRingEvent({ ...detail, device_id: undefined }, deps)).rejects.toThrow();
+    expect(deps.sendToDevice).not.toHaveBeenCalled();
+    expect(deps.runPhase2).not.toHaveBeenCalled();
+  });
+
+  it('runs Phase 2 against the sent card and the original event, after Phase 1 is on its way', async () => {
+    const deps = baseDeps();
+
+    await routeRingEvent(detail, deps);
+
+    const sentCardId = vi.mocked(deps.sendToDevice).mock.calls[0]![0]!.id;
+    expect(deps.runPhase2).toHaveBeenCalledTimes(1);
+    const [cardId, event] = vi.mocked(deps.runPhase2).mock.calls[0]!;
+    expect(cardId).toBe(sentCardId);
+    expect(event.deviceId).toBe(device.id);
+  });
+
+  it('still reports "sent" when Phase 2 fails — Phase 1 already reached the device', async () => {
+    const deps = baseDeps({
+      runPhase2: vi.fn(async () => {
+        throw new Error('bedrock_down');
+      }),
+    });
+
+    await expect(routeRingEvent(detail, deps)).resolves.toBe('sent');
   });
 });
