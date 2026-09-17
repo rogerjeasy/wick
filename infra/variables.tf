@@ -44,3 +44,9 @@ variable "pairing_url_base" {
   type        = string
   default     = "https://rogerjeasy.github.io/wick/pair"
 }
+
+variable "household_id" {
+  description = "The one household this deployment serves. There is no Ring-device -> household registry (S1 is single-household by design — see services/agent/src/agents/door/lambda.ts); multi-household is Tier 3, docs/WICK.md §4.5."
+  type        = string
+  default     = "margaret"
+}

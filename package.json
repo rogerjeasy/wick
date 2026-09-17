@@ -17,6 +17,7 @@
   ],
   "scripts": {
     "postinstall": "simple-git-hooks",
+    "build:lambda": "node scripts/build-lambda.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
     "check:no-mocks": "node scripts/check-no-mocks.mjs",
     "demo:capture": "vite-node -c vitest.config.ts scripts/capture-event-frame.ts",
@@ -36,6 +37,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.21.5",
     "eslint": "^9.0.0",
     "fast-check": "^3.23.0",
     "simple-git-hooks": "^2.11.1",

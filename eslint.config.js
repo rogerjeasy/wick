@@ -17,7 +17,7 @@ const TRANSPORT_CLIENTS = [
 ];
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**'] },
 
   // Parse TypeScript everywhere.
   ...tseslint.configs.recommended,
