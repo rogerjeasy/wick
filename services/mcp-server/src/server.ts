@@ -27,6 +27,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { createAuthRouter, requireAuth } from './auth.js';
 import { registerGetResidentSharedView } from './tools/get_resident_shared_view.js';
+import { registerGetWeekNarrative } from './tools/get_week_narrative.js';
 
 export const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -35,6 +36,7 @@ export function createApp(issuerUrl: URL): express.Express {
   const mcpServer = new McpServer({ name: 'wick', version: '0.1.0' });
 
   registerGetResidentSharedView(mcpServer, ddb);
+  registerGetWeekNarrative(mcpServer, ddb);
 
   const app = express();
   app.use(express.json());
