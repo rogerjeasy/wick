@@ -17,6 +17,7 @@
     "sourceMap": true,
     "composite": true,
     "paths": {
+      "@wick/agent": ["./services/agent/src/index.ts"],
       "@wick/contracts": ["./packages/contracts/src/index.ts"],
       "@wick/policy": ["./services/policy/src/index.ts"],
       "@wick/ring": ["./services/connectors/ring/src/index.ts"],

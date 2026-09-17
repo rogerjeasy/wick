@@ -44,6 +44,10 @@ export const handler = async (event) => {
       TableName: TABLE,
       Item: {
         pk: { S: `HH#${householdId}` },
+        // Wire-format source of truth: packages/contracts/src/timeline.ts's
+        // `padTimestamp`. This plain .mjs Lambda can't import that TS module,
+        // so the 15-digit zero-padded-ms encoding is inlined here — keep it
+        // byte-for-byte identical to padTimestamp() if either ever changes.
         sk: { S: `EVT#${String(deviceEvent.at).padStart(15, '0')}#${randomUUID()}` },
         type: { S: deviceEvent.t },
         cardId: { S: deviceEvent.cardId },
