@@ -28,6 +28,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { createAuthRouter, requireAuth } from './auth.js';
 import { registerGetResidentSharedView } from './tools/get_resident_shared_view.js';
 import { registerGetWeekNarrative } from './tools/get_week_narrative.js';
+import { registerGetToday } from './tools/get_today.js';
 
 export const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -37,6 +38,7 @@ export function createApp(issuerUrl: URL): express.Express {
 
   registerGetResidentSharedView(mcpServer, ddb);
   registerGetWeekNarrative(mcpServer, ddb);
+  registerGetToday(mcpServer, ddb);
 
   const app = express();
   app.use(express.json());
