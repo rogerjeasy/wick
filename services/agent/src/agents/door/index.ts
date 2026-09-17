@@ -23,8 +23,10 @@ import {
   type CardAction,
   type CardPatch,
   type DoorCard,
+  type RosterEntry,
 } from '@wick/contracts';
 import type { RingDevice, RingHistoryEvent, RingImage } from '@wick/ring';
+import { matchVisitor } from './roster.js';
 
 /** Plain English, always the same, never "motion detected". docs/WICK.md §3.3. */
 export const DOOR_LINE = "Someone's at the front door.";
@@ -52,6 +54,8 @@ export interface DoorCardInput {
   readonly householdId: string;
   readonly correlationId: string;
   readonly now: number;
+  /** M4. Omitted (not just empty) is the common case — most households haven't curated one yet. */
+  readonly roster?: readonly RosterEntry[];
 }
 
 /**
@@ -97,7 +101,8 @@ function cardIdFor(eventId: string): string {
  * (INV-6: idempotent and correlated).
  */
 export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
-  const { event, device, householdId, correlationId, now } = input;
+  const { event, device, householdId, correlationId, now, roster } = input;
+  const match = roster ? matchVisitor(roster, event.start) : undefined;
 
   return {
     type: 'DOOR',
@@ -107,6 +112,7 @@ export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
     createdAt: now,
     line: DOOR_LINE,
     actions: actionsFor(device),
+    ...(match ? { match } : {}),
   };
 }
 

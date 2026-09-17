@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { RingDevice, RingHistoryEvent } from '@wick/ring';
-import type { QueuedCard } from '@wick/contracts';
+import type { QueuedCard, RosterEntry } from '@wick/contracts';
 import { routeRingEvent, type RouteDeps } from '../lambda.js';
 
 const device: RingDevice = {
@@ -23,6 +23,7 @@ function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
   return {
     householdId: 'hh-1',
     findDevice: vi.fn(async () => device),
+    listRoster: vi.fn(async () => []),
     sendToDevice: vi.fn(async (_card: QueuedCard) => {}),
     runPhase2: vi.fn(async (_cardId: string, _event: RingHistoryEvent) => {}),
     now: () => 1789455094000,
@@ -92,5 +93,28 @@ describe('routeRingEvent', () => {
     });
 
     await expect(routeRingEvent(detail, deps)).resolves.toBe('sent');
+  });
+
+  it('M4: carries a roster match onto the sent card when the event time fits an entry', async () => {
+    // detail.occurred_at is Tuesday 2026-09-15 06:51 UTC.
+    const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE 06:51±30m' };
+    const deps = baseDeps({ listRoster: vi.fn(async () => [maria]) });
+
+    await routeRingEvent(detail, deps);
+
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0]!;
+    expect(sent.card.type).toBe('DOOR');
+    if (sent.card.type !== 'DOOR') throw new Error('unreachable');
+    expect(sent.card.match).toMatchObject({ personId: 'maria', name: 'Maria' });
+  });
+
+  it('M4: no match at all is the default — most events are not a known visitor', async () => {
+    const deps = baseDeps();
+
+    await routeRingEvent(detail, deps);
+
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0]!;
+    if (sent.card.type !== 'DOOR') throw new Error('unreachable');
+    expect(sent.card.match).toBeUndefined();
   });
 });

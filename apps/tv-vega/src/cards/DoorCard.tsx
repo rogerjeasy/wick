@@ -13,6 +13,11 @@
  *     The agent decides that from the live capability payload; this component
  *     simply renders however many actions it is given.
  *
+ * The detail slot can also carry M4's schedule match ("This looks like
+ * Maria — expected around now"), available from Phase 1, before the vision
+ * description ever patches in — see doorDetail.ts for the priority between
+ * them.
+ *
  * Lower third, never full screen: it must not cover, pause or silence whatever
  * the resident is already watching.
  */
@@ -20,6 +25,7 @@ import * as React from 'react';
 import { Image, StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import type { CardAction, DoorCard as DoorCardModel } from '@wick/contracts';
 import { TwoPhaseCard, safe } from '@wick/vega-calm-ui';
+import { doorDetailText } from './doorDetail.js';
 
 export interface DoorCardProps {
   readonly card: DoorCardModel;
@@ -34,7 +40,7 @@ export function DoorCardView({ card, onAction }: DoorCardProps): React.JSX.Eleme
     <View style={styles.lowerThird}>
       <TwoPhaseCard
         headline={card.line}
-        detail={card.description}
+        detail={doorDetailText(card)}
         actions={toCalmActions(card.actions)}
         onAction={onAction}
         media={

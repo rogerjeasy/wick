@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_CARD_ACTIONS } from '@wick/contracts';
+import { MAX_CARD_ACTIONS, type RosterEntry } from '@wick/contracts';
 import type { RingDevice, RingHistoryEvent } from '@wick/ring';
 import {
   DOOR_LINE,
@@ -92,6 +92,41 @@ describe('buildPhaseOneCard', () => {
       now: 1789455094000,
     });
     expect(other.id).not.toBe(build(true).id);
+  });
+
+  it('has no match at all when no roster is given — the common, unremarkable case', () => {
+    expect(build(true).match).toBeUndefined();
+  });
+});
+
+describe('buildPhaseOneCard — M4 Known Visitors', () => {
+  const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' };
+  // Tuesday 2026-09-15 09:10 UTC — inside Maria's expected window.
+  const tuesdayEvent: RingHistoryEvent = { ...event, start: Date.UTC(2026, 8, 15, 9, 10) };
+
+  it('carries a schedule match onto the card when the roster and time line up', () => {
+    const card = buildPhaseOneCard({
+      event: tuesdayEvent,
+      device: device(true),
+      householdId: 'hh-1',
+      correlationId: 'corr-abc',
+      now: 1789455094000,
+      roster: [maria],
+    });
+    expect(card.match).toMatchObject({ personId: 'maria', name: 'Maria', basis: 'schedule' });
+  });
+
+  it('carries no match when nobody on the roster fits the event time', () => {
+    const monday: RingHistoryEvent = { ...event, start: Date.UTC(2026, 8, 14, 9, 10) };
+    const card = buildPhaseOneCard({
+      event: monday,
+      device: device(true),
+      householdId: 'hh-1',
+      correlationId: 'corr-abc',
+      now: 1789455094000,
+      roster: [maria],
+    });
+    expect(card.match).toBeUndefined();
   });
 });
 

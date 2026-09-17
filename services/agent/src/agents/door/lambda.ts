@@ -34,8 +34,9 @@ import {
   listDevices,
   secretsManagerTokenProvider,
 } from '@wick/ring';
-import type { QueuedCard } from '@wick/contracts';
+import type { QueuedCard, RosterEntry } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
+import { DynamoDBClient, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { handleDoorEvent } from './handle.js';
 import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
 import { runDoorPhase2 } from './phase2.js';
@@ -47,6 +48,8 @@ export type RouteResult = 'sent' | 'skipped' | 'unknown_device';
 export interface RouteDeps {
   readonly householdId: string;
   readonly findDevice: (deviceId: string) => Promise<RingDevice | undefined>;
+  /** M4. Most households have not curated one; an empty list is the common answer. */
+  readonly listRoster: () => Promise<readonly RosterEntry[]>;
   readonly sendToDevice: (card: QueuedCard) => Promise<void>;
   readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<void>;
   readonly now: () => number;
@@ -71,8 +74,10 @@ export async function routeRingEvent(
   const device = await deps.findDevice(event.deviceId);
   if (!device) return 'unknown_device';
 
+  const roster = await deps.listRoster();
+
   const queued = await handleDoorEvent(
-    { event, device, householdId: deps.householdId, correlationId, now: deps.now() },
+    { event, device, householdId: deps.householdId, correlationId, now: deps.now(), roster },
     { sendToDevice: deps.sendToDevice },
   );
 
@@ -94,6 +99,36 @@ interface EventBridgeEnvelope {
 
 let lookupDevice: ((deviceId: string) => Promise<RingDevice | undefined>) | undefined;
 
+const ddb = new DynamoDBClient({});
+const TABLE = process.env.TABLE_NAME ?? '';
+const ROSTER_CACHE_MS = 60_000;
+let rosterCache: { roster: readonly RosterEntry[]; fetchedAt: number } | undefined;
+
+/**
+ * M4's roster, container-cached like deviceCache.ts's device list — a
+ * household curates this rarely, and Phase 1 shouldn't pay a DynamoDB round
+ * trip on every warm invocation just to usually find nobody scheduled.
+ */
+async function fetchRoster(householdId: string): Promise<readonly RosterEntry[]> {
+  if (rosterCache && Date.now() - rosterCache.fetchedAt < ROSTER_CACHE_MS) return rosterCache.roster;
+
+  const res = await ddb.send(new QueryCommand({
+    TableName: TABLE,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: {
+      ':pk': { S: `HH#${householdId}` },
+      ':prefix': { S: 'PER#' },
+    },
+  }));
+  const roster = (res.Items ?? [])
+    .map((item) => item.data?.S)
+    .filter((s): s is string => Boolean(s))
+    .map((s) => JSON.parse(s) as RosterEntry);
+
+  rosterCache = { roster, fetchedAt: Date.now() };
+  return roster;
+}
+
 export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
   const householdId = process.env.WICK_HOUSEHOLD_ID;
   if (!householdId) throw new Error('WICK_HOUSEHOLD_ID not set');
@@ -104,6 +139,7 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
   const result = await routeRingEvent(evt.detail, {
     householdId,
     findDevice: lookupDevice,
+    listRoster: () => fetchRoster(householdId),
     sendToDevice: (card) => realSendToDevice(card, DEFAULT_POLICY),
     runPhase2: (cardId, event) =>
       runDoorPhase2(cardId, {
