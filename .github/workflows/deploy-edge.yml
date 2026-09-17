@@ -13,8 +13,13 @@ permissions:
   contents: read
   id-token: write
 
+# Same group as deploy-agent: both apply the one shared infra/ Terraform
+# root against the one S3 state, and a push can touch both workflows' path
+# filters at once (e.g. infra/agent.tf + services/agent/**). Two different
+# groups let them race for the state lock — see the incident this comment
+# was added for.
 concurrency:
-  group: deploy-edge
+  group: terraform-infra
   cancel-in-progress: false
 
 jobs:
@@ -44,6 +49,14 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.16.2
+
+      # infra/ is one shared Terraform root — this workflow's apply reconciles
+      # ALL of it, not just edge-ring/edge-device, including infra/agent.tf's
+      # archive_file which zips services/agent/.build/door-event. That's
+      # gitignored esbuild output, so it has to be built fresh here too, the
+      # same way deploy-agent.yml does — skipping it is what "Archive
+      # creation error" means.
+      - run: npm run build:lambda
 
       # Terraform, not CDK — CDK was replaced in 90d49cd and these workflows
       # still said otherwise.

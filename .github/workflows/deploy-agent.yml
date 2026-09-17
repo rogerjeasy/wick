@@ -10,8 +10,13 @@ permissions:
   contents: read
   id-token: write
 
+# Same group as deploy-edge: both apply the one shared infra/ Terraform
+# root against the one S3 state, and a push can touch both workflows' path
+# filters at once (e.g. infra/agent.tf + services/agent/**). Two different
+# groups let them race for the state lock — see the incident this comment
+# was added for.
 concurrency:
-  group: deploy-agent
+  group: terraform-infra
   cancel-in-progress: false
 
 jobs:
