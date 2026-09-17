@@ -7,8 +7,8 @@
  * This is a standalone dev script, not runtime code — see this plan's
  * Global Constraints for why it doesn't trip check:no-mocks.
  *
- * EVT# sort keys must be built exactly like
- * services/mcp-server/src/tools/get_today.ts's `padTs`/`parseTsFromSk`: the
+ * EVT# sort keys must be built exactly like packages/contracts/src/timeline.ts's
+ * `padTimestamp` (the shared source of truth, imported below as `padTs`): the
  * real production writer (services/edge-device/lambda/route.mjs) never writes
  * a separate `at` attribute, and both `get_today` and `did_visitor_come` now
  * read the timestamp only out of the sort key. An `at` attribute is written
@@ -19,26 +19,11 @@
  */
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { DEFAULT_POLICY } from '@wick/policy';
-import type { WeekNarrative, RosterEntry } from '@wick/contracts';
+import { currentIsoWeek, padTimestamp as padTs, type WeekNarrative, type RosterEntry } from '@wick/contracts';
 import { loadEnv } from './env.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 const HOUSEHOLD_ID = process.env.WICK_HOUSEHOLD_ID ?? 'dev-household';
-
-/** Zero-padded to 15 digits, matching route.mjs's EVT# sort key exactly. */
-function padTs(ms: number): string {
-  return String(ms).padStart(15, '0');
-}
-
-/** ISO 8601 week, matching services/mcp-server/src/tools/get_week_narrative.ts's own derivation. */
-function currentIsoWeek(now = new Date()): string {
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const dayNum = (d.getUTCDay() + 6) % 7;
-  d.setUTCDate(d.getUTCDate() - dayNum + 3);
-  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
-  const week = 1 + Math.round(((d.getTime() - firstThursday.getTime()) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
-}
 
 async function seedHouseholdPolicy(ddb: DynamoDBClient): Promise<void> {
   await ddb.send(new PutItemCommand({

@@ -17,6 +17,7 @@ import { DEFAULT_POLICY } from '@wick/policy';
 import { sendToDevice } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { HOUSEHOLD_ID } from '../auth.js';
+import { withFriendlyErrors } from './errors.js';
 
 const STATIC_SUGGESTED_REPLIES = ['Thanks for letting me know!', "I'll call you soon.", 'Not right now.'] as const;
 
@@ -60,7 +61,7 @@ export function registerSendNoteToTv(mcpServer: McpServer): void {
         message: z.string().min(1).max(500).describe('The note text.'),
       },
     },
-    async ({ fromName, message }) => {
+    withFriendlyErrors(async ({ fromName, message }: { fromName: string; message: string }) => {
       const card = buildMessageCard({
         householdId: HOUSEHOLD_ID,
         correlationId: randomUUID(),
@@ -70,6 +71,6 @@ export function registerSendNoteToTv(mcpServer: McpServer): void {
       });
       await sendToDevice(card, DEFAULT_POLICY);
       return { content: [{ type: 'text' as const, text: JSON.stringify({ sent: true, cardId: card.id }) }] };
-    },
+    }),
   );
 }

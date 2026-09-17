@@ -143,4 +143,81 @@ describe('createApp', () => {
     await client.close();
     await close();
   });
+
+  it('exposes exactly the five deployed tools — the registered set IS the deploy contract', async () => {
+    const app = createApp(new URL('http://127.0.0.1:4001'));
+    const { port, close } = await listen(app);
+    const base = `http://127.0.0.1:${port}`;
+    const accessToken = await obtainAccessToken(base);
+
+    const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+      requestInit: { headers: { authorization: `Bearer ${accessToken}` } },
+    });
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await client.connect(transport as unknown as Transport);
+
+    const listResult = await client.listTools();
+    const names = listResult.tools.map((t) => t.name).sort();
+    expect(names).toEqual(
+      ['did_visitor_come', 'get_resident_shared_view', 'get_today', 'get_week_narrative', 'send_note_to_tv'].sort(),
+    );
+
+    await client.close();
+    await close();
+  });
+
+  // Fix 1 (Critical): a single module-scoped McpServer, `connect()`ed once at
+  // createApp-scope and reused for every session, throws "Already connected
+  // to a transport" (Protocol.connect(), installed SDK 1.30.0) the moment a
+  // SECOND real session opens without the first ever closing — a page reload,
+  // a second tab, MCP Inspector alongside sim-alexa, a reconnect after token
+  // expiry. Every existing test before this fix used a fresh `createApp()`
+  // per test, which sidesteps the bug entirely by construction. This test
+  // deliberately reuses ONE `createApp()` / ONE server process for two fully
+  // independent client sessions, exactly reproducing the broken scenario.
+  it('supports two independent concurrent sessions on the same server process (regression for the single-McpServer bug)', async () => {
+    const app = createApp(new URL('http://127.0.0.1:4001'));
+    const { port, close } = await listen(app);
+    const base = `http://127.0.0.1:${port}`;
+
+    // Client A: a real first session — initialize, then a real tool call.
+    const tokenA = await obtainAccessToken(base);
+    const transportA = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+      requestInit: { headers: { authorization: `Bearer ${tokenA}` } },
+    });
+    const clientA = new Client({ name: 'client-a', version: '0.1.0' });
+    await clientA.connect(transportA as unknown as Transport);
+    expect(transportA.sessionId).toBeDefined();
+    const resultA = await clientA.callTool({ name: 'get_resident_shared_view', arguments: {} });
+    const contentA = resultA.content as { type: string; text: string }[];
+    expect(() => JSON.parse(contentA[0]!.text)).not.toThrow();
+
+    // Client B: WITHOUT closing Client A, a second, fully independent session
+    // — its own token, its own transport, its own `initialize`. Before the
+    // fix, mcpServer.connect() on the second transport throws inside the
+    // POST /mcp handler and this `connect()` call rejects.
+    const tokenB = await obtainAccessToken(base);
+    const transportB = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+      requestInit: { headers: { authorization: `Bearer ${tokenB}` } },
+    });
+    const clientB = new Client({ name: 'client-b', version: '0.1.0' });
+    await expect(clientB.connect(transportB as unknown as Transport)).resolves.not.toThrow();
+    expect(transportB.sessionId).toBeDefined();
+    expect(transportB.sessionId).not.toBe(transportA.sessionId);
+
+    const resultB = await clientB.callTool({ name: 'get_resident_shared_view', arguments: {} });
+    const contentB = resultB.content as { type: string; text: string }[];
+    const parsedB = JSON.parse(contentB[0]!.text) as { sharedWithFamily: string[] };
+    expect(Array.isArray(parsedB.sharedWithFamily)).toBe(true);
+
+    // Client A's session is still live and usable — proves the fix didn't
+    // just swap which session breaks.
+    const resultA2 = await clientA.callTool({ name: 'get_resident_shared_view', arguments: {} });
+    const contentA2 = resultA2.content as { type: string; text: string }[];
+    expect(() => JSON.parse(contentA2[0]!.text)).not.toThrow();
+
+    await clientA.close();
+    await clientB.close();
+    await close();
+  });
 });

@@ -17,8 +17,13 @@ permitted alternative costs three seconds and buys credibility.
 
 1. speaks to the **real** MCP server in `services/mcp-server` over Streamable
    HTTP, spec 2025-11-25 — no shortcuts, no direct database reads;
-2. renders the week timeline panel that would otherwise be an MCP Apps view (M6);
-3. takes a spoken or typed question and returns the Narrator's precomputed prose.
+2. offers four fixed buttons, one per tool it exercises (`get_week_narrative`,
+   `get_today`, `did_visitor_come`, `send_note_to_tv`) — no MCP Apps view
+   (M6 was deliberately scoped out of this plan) and no voice or free-text
+   input, just fixed inputs behind a button click;
+3. displays each tool's raw JSON (or text) response verbatim in a `<pre>`
+   block — there is no Narrator-drafted spoken rendering here, only what the
+   MCP tool call actually returned.
 
 **The point.** The server is the real artefact. This is a client. If Alexa+ access
 ever opens, this directory becomes redundant and **not one line of the server

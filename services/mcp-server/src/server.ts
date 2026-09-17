@@ -23,7 +23,7 @@ import express from 'express';
 import cors from 'cors';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { createAuthRouter, requireAuth } from './auth.js';
@@ -33,17 +33,31 @@ import { registerGetToday } from './tools/get_today.js';
 import { registerDidVisitorCome } from './tools/did_visitor_come.js';
 import { registerSendNoteToTv } from './tools/send_note_to_tv.js';
 
-export const TABLE = process.env.TABLE_NAME ?? 'wick';
-
-export function createApp(issuerUrl: URL): express.Express {
-  const ddb = new DynamoDBClient({});
+/**
+ * A fresh `McpServer` for exactly one session's lifetime.
+ *
+ * The SDK's `Protocol.connect()` throws "Already connected to a transport"
+ * if called twice on the same instance (verified against
+ * node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js) — so a
+ * single, module-scoped `McpServer` reused across sessions breaks the moment
+ * a second real session opens (a page reload, a second tab, MCP Inspector
+ * alongside sim-alexa, a reconnect after token expiry). Every new session
+ * gets its own instance instead, following the SDK's own shipped reference
+ * pattern: node_modules/@modelcontextprotocol/sdk/dist/esm/examples/server/
+ * simpleStreamableHttp.js's `getServer()`, called once per `initialize`.
+ */
+function createMcpServer(ddb: DynamoDBClient): McpServer {
   const mcpServer = new McpServer({ name: 'wick', version: '0.1.0' });
-
   registerGetResidentSharedView(mcpServer, ddb);
   registerGetWeekNarrative(mcpServer, ddb);
   registerGetToday(mcpServer, ddb);
   registerDidVisitorCome(mcpServer, ddb);
   registerSendNoteToTv(mcpServer);
+  return mcpServer;
+}
+
+export function createApp(issuerUrl: URL): express.Express {
+  const ddb = new DynamoDBClient({});
 
   const app = express();
   app.use(express.json());
@@ -77,43 +91,86 @@ export function createApp(issuerUrl: URL): express.Express {
 
   app.options('/mcp', mcpCors);
   app.post('/mcp', mcpCors, requireAuth(), async (req, res) => {
-    const sessionId = req.headers['mcp-session-id'];
+    try {
+      const sessionId = req.headers['mcp-session-id'];
 
-    if (typeof sessionId === 'string' && transports[sessionId]) {
-      // Existing session: reuse its already-`connect()`ed transport. Do not
-      // reconstruct or reconnect — that would recreate the exact bug being fixed.
-      await transports[sessionId].handleRequest(req, res, req.body);
-      return;
-    }
+      if (typeof sessionId === 'string' && transports[sessionId]) {
+        // Existing session: reuse its already-`connect()`ed transport. Do not
+        // reconstruct or reconnect — that would recreate the exact bug being fixed.
+        await transports[sessionId].handleRequest(req, res, req.body);
+        return;
+      }
 
-    if (sessionId === undefined && isInitializeRequest(req.body)) {
-      // Genuine new session: construct exactly one transport for its lifetime.
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sid) => {
-          transports[sid] = transport;
-        },
+      if (sessionId === undefined && isInitializeRequest(req.body)) {
+        // Genuine new session: a fresh McpServer AND a fresh transport, each
+        // constructed once for this session's lifetime and never reused
+        // across sessions. Reusing one shared McpServer across sessions is
+        // the exact bug this fixes — see createMcpServer's doc comment.
+        const mcpServer = createMcpServer(ddb);
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: (sid) => {
+            transports[sid] = transport;
+          },
+        });
+        transport.onclose = () => {
+          const sid = transport.sessionId;
+          if (sid !== undefined) delete transports[sid];
+          // Release this session's McpServer so a future session's `connect()`
+          // never collides with it — matches the SDK's own stateless example
+          // (simpleStatelessStreamableHttp.js), which pairs every `connect()`
+          // with a `close()` on the same instance.
+          void mcpServer.close();
+        };
+        // StreamableHTTPServerTransport's onclose/onerror/onmessage accessors are typed
+        // `X | undefined` even though Transport declares them as optional `X` — under this
+        // repo's `exactOptionalPropertyTypes`, those aren't the same type. The class does
+        // structurally implement Transport (verified against the SDK's own `implements
+        // Transport` on this class, installed SDK 1.30.0); the cast just routes around the
+        // accessor-vs-optional-property mismatch.
+        await mcpServer.connect(transport as unknown as Transport);
+        await transport.handleRequest(req, res, req.body);
+        return;
+      }
+
+      res.status(400).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
+        id: null,
       });
-      transport.onclose = () => {
-        const sid = transport.sessionId;
-        if (sid !== undefined) delete transports[sid];
-      };
-      // StreamableHTTPServerTransport's onclose/onerror/onmessage accessors are typed
-      // `X | undefined` even though Transport declares them as optional `X` — under this
-      // repo's `exactOptionalPropertyTypes`, those aren't the same type. The class does
-      // structurally implement Transport (verified against the SDK's own `implements
-      // Transport` on this class, installed SDK 1.30.0); the cast just routes around the
-      // accessor-vs-optional-property mismatch.
-      await mcpServer.connect(transport as unknown as Transport);
-      await transport.handleRequest(req, res, req.body);
+    } catch (err) {
+      // An uncaught error here (e.g. a second `connect()` on an already-connected
+      // instance, or any other transport-layer failure) must never propagate to
+      // Express's default handler, which would leak a raw stack trace as a bare
+      // 500. Match the SDK's own shipped error shape (ErrorCode.InternalError,
+      // verified in node_modules/@modelcontextprotocol/sdk/dist/esm/types.js).
+      console.error('[wick/mcp-server] Error handling POST /mcp:', err);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: ErrorCode.InternalError, message: 'Internal server error' },
+        });
+      }
+    }
+  });
+
+  // Session termination (MCP spec, Streamable HTTP transport): lets a client
+  // cleanly end a session instead of relying on a bare TCP close. This is also
+  // what makes onclose's cleanup above actually fire on a normal disconnect —
+  // without it the session map only evicts via GC of an abandoned socket.
+  app.delete('/mcp', mcpCors, requireAuth(), async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'];
+    if (typeof sessionId !== 'string' || !transports[sessionId]) {
+      res.status(400).send('Invalid or missing session ID');
       return;
     }
-
-    res.status(400).json({
-      jsonrpc: '2.0',
-      error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
-      id: null,
-    });
+    try {
+      await transports[sessionId].handleRequest(req, res);
+    } catch (err) {
+      console.error('[wick/mcp-server] Error handling DELETE /mcp:', err);
+      if (!res.headersSent) res.status(500).send('Error processing session termination');
+    }
   });
 
   return app;

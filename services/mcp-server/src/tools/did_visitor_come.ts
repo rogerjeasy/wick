@@ -18,9 +18,11 @@
  */
 import { z } from 'zod';
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { RosterEntry } from '@wick/contracts';
+import { padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk, type RosterEntry } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { HOUSEHOLD_ID } from '../auth.js';
+import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
+import { withFriendlyErrors } from './errors.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -42,17 +44,6 @@ function expectedToday(pattern: string | undefined, now: Date): boolean {
   return days.includes(todayCode);
 }
 
-/** Zero-padded to 15 digits, matching route.mjs's EVT# sort key exactly. */
-function padTs(ms: number): string {
-  return String(ms).padStart(15, '0');
-}
-
-/** Parses the ms timestamp embedded in an `EVT#<15-digit>#<uuid>` sort key. */
-function parseTsFromSk(sk: string): number {
-  const match = /^EVT#(\d{15})#/.exec(sk);
-  return match ? Number(match[1]) : 0;
-}
-
 export async function checkVisitor(
   ddb: DynamoDBClient,
   householdId: string,
@@ -68,17 +59,24 @@ export async function checkVisitor(
   const roster = JSON.parse(raw) as RosterEntry;
 
   const startOfDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const endOfDay = startOfDay + 86_400_000;
+  // Upper bound is exclusive of the next day's midnight — same off-by-one fix
+  // as get_today.ts's identical BETWEEN range (an event at exactly
+  // 00:00:00.000 tomorrow must not double-count into today's results).
+  const endOfDay = startOfDay + 86_400_000 - 1;
 
   const evtRes = await ddb.send(new QueryCommand({
     TableName: TABLE,
     KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
-    FilterExpression: 'personId = :pid',
+    // Restricts to actual presence rows carrying this personId, not any EVT#
+    // row that happens to reuse the attribute name for a different event kind.
+    FilterExpression: 'personId = :pid AND #t = :presenceType',
+    ExpressionAttributeNames: { '#t': 'type' },
     ExpressionAttributeValues: {
       ':pk': { S: `HH#${householdId}` },
       ':from': { S: `EVT#${padTs(startOfDay)}` },
       ':to': { S: `EVT#${padTs(endOfDay)}#￿` },
       ':pid': { S: personId },
+      ':presenceType': { S: 'presence' },
     },
   }));
 
@@ -99,9 +97,16 @@ export function registerDidVisitorCome(mcpServer: McpServer, ddb: DynamoDBClient
       description: 'Checks whether a specific person on the household roster visited today, and whether today was one of their expected days.',
       inputSchema: { personId: z.string().describe('The roster person id, e.g. "maria".') },
     },
-    async ({ personId }) => {
+    withFriendlyErrors(async ({ personId }: { personId: string }) => {
+      // Mirrors get_resident_shared_view.ts's disclosure check: if PRESENCE
+      // isn't shared with FAMILY under the household's policy, the whole
+      // answer is withheld rather than silently answered anyway (§6.4).
+      const policy = await loadHouseholdPolicy(ddb, HOUSEHOLD_ID);
+      if (!isSharedWithFamily('PRESENCE', policy)) {
+        return { content: [{ type: 'text' as const, text: FAMILY_REFUSAL_TEXT }] };
+      }
       const result = await checkVisitor(ddb, HOUSEHOLD_ID, personId, new Date());
       return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 }

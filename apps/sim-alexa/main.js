@@ -53,47 +53,59 @@ async function registerClient(metadata) {
 }
 
 async function connect() {
-  mcpServerUrl = document.getElementById('server-url').value.replace(/\/$/, '');
-  setStatus('Discovering authorization server…');
-  const metadata = await discoverAuthServer();
-  const client = await registerClient(metadata);
-  const { verifier, challenge } = await pkcePair();
-  sessionStorage.setItem('wick_pkce_verifier', verifier);
-  sessionStorage.setItem('wick_client_id', client.client_id);
-  sessionStorage.setItem('wick_token_endpoint', metadata.token_endpoint);
-  sessionStorage.setItem('wick_mcp_server_url', mcpServerUrl);
+  try {
+    mcpServerUrl = document.getElementById('server-url').value.replace(/\/$/, '');
+    setStatus('Discovering authorization server…');
+    const metadata = await discoverAuthServer();
+    const client = await registerClient(metadata);
+    const { verifier, challenge } = await pkcePair();
+    sessionStorage.setItem('wick_pkce_verifier', verifier);
+    sessionStorage.setItem('wick_client_id', client.client_id);
+    sessionStorage.setItem('wick_token_endpoint', metadata.token_endpoint);
+    sessionStorage.setItem('wick_mcp_server_url', mcpServerUrl);
 
-  const authorizeUrl = new URL(metadata.authorization_endpoint);
-  authorizeUrl.searchParams.set('client_id', client.client_id);
-  authorizeUrl.searchParams.set('redirect_uri', window.location.origin + window.location.pathname);
-  authorizeUrl.searchParams.set('response_type', 'code');
-  authorizeUrl.searchParams.set('code_challenge', challenge);
-  authorizeUrl.searchParams.set('code_challenge_method', 'S256');
-  window.location.href = authorizeUrl.toString();
+    const authorizeUrl = new URL(metadata.authorization_endpoint);
+    authorizeUrl.searchParams.set('client_id', client.client_id);
+    authorizeUrl.searchParams.set('redirect_uri', window.location.origin + window.location.pathname);
+    authorizeUrl.searchParams.set('response_type', 'code');
+    authorizeUrl.searchParams.set('code_challenge', challenge);
+    authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+    window.location.href = authorizeUrl.toString();
+  } catch (err) {
+    // Silence is indistinguishable from "nothing happened", which is a lie —
+    // the design principle this whole product is built on (see AGENTS.md).
+    // A failed connect must say so, not leave the page looking unchanged.
+    setStatus(`Connect failed: ${err.message}`);
+  }
 }
 
 async function completeAuthIfRedirected() {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
-  if (!code) return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (!code) return false;
 
-  mcpServerUrl = sessionStorage.getItem('wick_mcp_server_url');
-  const tokenRes = await fetch(sessionStorage.getItem('wick_token_endpoint'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: window.location.origin + window.location.pathname,
-      client_id: sessionStorage.getItem('wick_client_id'),
-      code_verifier: sessionStorage.getItem('wick_pkce_verifier'),
-    }),
-  });
-  if (!tokenRes.ok) throw new Error('token exchange failed');
-  const tokens = await tokenRes.json();
-  accessToken = tokens.access_token;
-  window.history.replaceState({}, '', window.location.pathname);
-  return true;
+    mcpServerUrl = sessionStorage.getItem('wick_mcp_server_url');
+    const tokenRes = await fetch(sessionStorage.getItem('wick_token_endpoint'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: window.location.origin + window.location.pathname,
+        client_id: sessionStorage.getItem('wick_client_id'),
+        code_verifier: sessionStorage.getItem('wick_pkce_verifier'),
+      }),
+    });
+    if (!tokenRes.ok) throw new Error('token exchange failed');
+    const tokens = await tokenRes.json();
+    accessToken = tokens.access_token;
+    window.history.replaceState({}, '', window.location.pathname);
+    return true;
+  } catch (err) {
+    setStatus(`Sign-in failed: ${err.message}`);
+    return false;
+  }
 }
 
 let mcpRequestId = 0;
@@ -186,25 +198,41 @@ async function callTool(name, args) {
 document.getElementById('connect').addEventListener('click', () => void connect());
 
 document.getElementById('ask-week').addEventListener('click', async () => {
-  const result = await callTool('get_week_narrative', {});
-  document.getElementById('week-result').textContent = result.content[0].text;
+  try {
+    const result = await callTool('get_week_narrative', {});
+    document.getElementById('week-result').textContent = result.content[0].text;
+  } catch (err) {
+    document.getElementById('week-result').textContent = `Error: ${err.message}`;
+  }
 });
 
 document.getElementById('ask-today').addEventListener('click', async () => {
-  const result = await callTool('get_today', {});
-  document.getElementById('today-result').textContent = result.content[0].text;
+  try {
+    const result = await callTool('get_today', {});
+    document.getElementById('today-result').textContent = result.content[0].text;
+  } catch (err) {
+    document.getElementById('today-result').textContent = `Error: ${err.message}`;
+  }
 });
 
 document.getElementById('ask-visitor').addEventListener('click', async () => {
-  const result = await callTool('did_visitor_come', { personId: 'maria' });
-  document.getElementById('visitor-result').textContent = result.content[0].text;
+  try {
+    const result = await callTool('did_visitor_come', { personId: 'maria' });
+    document.getElementById('visitor-result').textContent = result.content[0].text;
+  } catch (err) {
+    document.getElementById('visitor-result').textContent = `Error: ${err.message}`;
+  }
 });
 
 document.getElementById('send-note').addEventListener('click', async () => {
-  const fromName = document.getElementById('note-from').value;
-  const message = document.getElementById('note-message').value;
-  const result = await callTool('send_note_to_tv', { fromName, message });
-  document.getElementById('note-result').textContent = result.content[0].text;
+  try {
+    const fromName = document.getElementById('note-from').value;
+    const message = document.getElementById('note-message').value;
+    const result = await callTool('send_note_to_tv', { fromName, message });
+    document.getElementById('note-result').textContent = result.content[0].text;
+  } catch (err) {
+    document.getElementById('note-result').textContent = `Error: ${err.message}`;
+  }
 });
 
 completeAuthIfRedirected().then((authenticated) => {
