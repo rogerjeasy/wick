@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Wick — simulated Alexa+ surface</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 560px; margin: 48px auto; color: #1a1a1a; }
+  .notice { background: #fff3cd; border: 1px solid #ffe69c; padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-bottom: 24px; }
+  input, textarea { width: 100%; padding: 8px; margin: 4px 0 12px; box-sizing: border-box; }
+  button { padding: 10px 20px; background: #111; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+  pre { background: #f4f4f4; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+  section { margin-bottom: 32px; }
+</style>
+</head>
+<body>
+  <div class="notice">
+    This is <strong>not</strong> a real Alexa+ integration. The Alexa+ MCP Toolkit is
+    partner-gated with no published application path (FRICTION.md FL-001) — this is the
+    hackathon-sanctioned simulated alternative. It speaks to the real MCP server over
+    Streamable HTTP, spec 2025-11-25, with no shortcuts.
+  </div>
+
+  <h1>Wick</h1>
+  <p id="auth-status">Not connected.</p>
+  <label>MCP server URL <input id="server-url" value="http://127.0.0.1:3300" /></label>
+  <button id="connect">Connect</button>
+
+  <section>
+    <h2>How's the week been?</h2>
+    <button id="ask-week" disabled>Ask</button>
+    <pre id="week-result"></pre>
+  </section>
+
+  <section>
+    <h2>What happened today?</h2>
+    <button id="ask-today" disabled>Ask</button>
+    <pre id="today-result"></pre>
+  </section>
+
+  <section>
+    <h2>Did Maria come today?</h2>
+    <button id="ask-visitor" disabled>Ask</button>
+    <pre id="visitor-result"></pre>
+  </section>
+
+  <section>
+    <h2>Send a note to the television</h2>
+    <label>From <input id="note-from" value="Alex" /></label>
+    <label>Message <textarea id="note-message" rows="3">Just checking in — call me when you get a chance!</textarea></label>
+    <button id="send-note" disabled>Send</button>
+    <pre id="note-result"></pre>
+  </section>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

@@ -7,6 +7,9 @@
   "types": "./src/index.ts",
   "license": "MIT",
   "author": "Roger Bavibidila",
+  "scripts": {
+    "dev": "vite-node -c ../../vitest.config.ts src/index.ts"
+  },
   "dependencies": {
     "@wick/agent": "*",
     "@wick/contracts": "*",

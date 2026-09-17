@@ -1,0 +1,215 @@
+/**
+ * Talks to the real MCP server (services/mcp-server) over Streamable HTTP —
+ * the whole point of this file existing is that it does NOT read DynamoDB or
+ * anything else directly. See ./index.html's on-page notice and this
+ * directory's README for why this exists.
+ */
+let mcpServerUrl = document.getElementById('server-url').value;
+let accessToken = null;
+let mcpSessionId = null;
+
+function setStatus(text) {
+  document.getElementById('auth-status').textContent = text;
+}
+
+function enableToolButtons(enabled) {
+  for (const id of ['ask-week', 'ask-today', 'ask-visitor', 'send-note']) {
+    document.getElementById(id).disabled = !enabled;
+  }
+}
+
+async function discoverAuthServer() {
+  const res = await fetch(`${mcpServerUrl}/.well-known/oauth-authorization-server`);
+  if (!res.ok) throw new Error('authorization server metadata not found');
+  return res.json();
+}
+
+function base64UrlEncode(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function pkcePair() {
+  const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
+  const verifier = base64UrlEncode(verifierBytes);
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  const challenge = base64UrlEncode(new Uint8Array(digest));
+  return { verifier, challenge };
+}
+
+async function registerClient(metadata) {
+  const res = await fetch(metadata.registration_endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      redirect_uris: [window.location.origin + window.location.pathname],
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'none',
+      client_name: 'Wick sim-alexa',
+    }),
+  });
+  if (!res.ok) throw new Error('dynamic client registration failed');
+  return res.json();
+}
+
+async function connect() {
+  mcpServerUrl = document.getElementById('server-url').value.replace(/\/$/, '');
+  setStatus('Discovering authorization server…');
+  const metadata = await discoverAuthServer();
+  const client = await registerClient(metadata);
+  const { verifier, challenge } = await pkcePair();
+  sessionStorage.setItem('wick_pkce_verifier', verifier);
+  sessionStorage.setItem('wick_client_id', client.client_id);
+  sessionStorage.setItem('wick_token_endpoint', metadata.token_endpoint);
+  sessionStorage.setItem('wick_mcp_server_url', mcpServerUrl);
+
+  const authorizeUrl = new URL(metadata.authorization_endpoint);
+  authorizeUrl.searchParams.set('client_id', client.client_id);
+  authorizeUrl.searchParams.set('redirect_uri', window.location.origin + window.location.pathname);
+  authorizeUrl.searchParams.set('response_type', 'code');
+  authorizeUrl.searchParams.set('code_challenge', challenge);
+  authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+  window.location.href = authorizeUrl.toString();
+}
+
+async function completeAuthIfRedirected() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (!code) return false;
+
+  mcpServerUrl = sessionStorage.getItem('wick_mcp_server_url');
+  const tokenRes = await fetch(sessionStorage.getItem('wick_token_endpoint'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: window.location.origin + window.location.pathname,
+      client_id: sessionStorage.getItem('wick_client_id'),
+      code_verifier: sessionStorage.getItem('wick_pkce_verifier'),
+    }),
+  });
+  if (!tokenRes.ok) throw new Error('token exchange failed');
+  const tokens = await tokenRes.json();
+  accessToken = tokens.access_token;
+  window.history.replaceState({}, '', window.location.pathname);
+  return true;
+}
+
+let mcpRequestId = 0;
+
+/** Splits a Streamable HTTP SSE response body into its `data:` JSON payloads. */
+function parseSseEvents(text) {
+  return text
+    .split('\n\n')
+    .map((rawEvent) =>
+      rawEvent
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n'),
+    )
+    .filter((data) => data.length > 0)
+    .map((data) => JSON.parse(data));
+}
+
+/**
+ * A single JSON-RPC round trip over POST /mcp. Streamable HTTP is
+ * session-based (see services/mcp-server/src/server.ts): the very first
+ * request on a connection must be `initialize`, and every request after that
+ * — including `initialize`'s own required `notifications/initialized`
+ * follow-up — must carry the `Mcp-Session-Id` the server handed back on the
+ * `initialize` response, or the server 400s "No valid session ID provided".
+ * `ensureMcpSession()` below performs that handshake once per page session,
+ * lazily, before the first real tool call.
+ *
+ * The installed SDK's StreamableHTTPServerTransport (this server does not set
+ * `enableJsonResponse`) always answers POST /mcp with
+ * `content-type: text/event-stream`, one `data:` line carrying the JSON-RPC
+ * response — never a plain `application/json` body — so the response must be
+ * parsed as SSE even for a single, non-streaming reply.
+ */
+async function sendMcpMessage(message) {
+  const headers = {
+    'content-type': 'application/json',
+    accept: 'application/json, text/event-stream',
+    authorization: `Bearer ${accessToken}`,
+  };
+  if (mcpSessionId) headers['mcp-session-id'] = mcpSessionId;
+
+  const res = await fetch(`${mcpServerUrl}/mcp`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(message),
+  });
+
+  const sid = res.headers.get('mcp-session-id');
+  if (sid) mcpSessionId = sid;
+
+  // `notifications/initialized` is a notification (no `id`): the server
+  // accepts it with 202 Accepted and no JSON-RPC body to parse.
+  if (message.id === undefined) {
+    if (!res.ok) throw new Error(`MCP notification failed: ${res.status}`);
+    return undefined;
+  }
+
+  if (!res.ok) throw new Error(`MCP request failed: ${res.status}`);
+  const text = await res.text();
+  const contentType = res.headers.get('content-type') ?? '';
+  const events = contentType.includes('text/event-stream') ? parseSseEvents(text) : [JSON.parse(text)];
+  const body = events.find((event) => event.id === message.id);
+  if (!body) throw new Error('No matching JSON-RPC response in server reply');
+  if (body.error) throw new Error(body.error.message);
+  return body.result;
+}
+
+async function ensureMcpSession() {
+  if (mcpSessionId) return;
+  await sendMcpMessage({
+    jsonrpc: '2.0',
+    id: ++mcpRequestId,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'Wick sim-alexa', version: '0.1.0' },
+    },
+  });
+  await sendMcpMessage({ jsonrpc: '2.0', method: 'notifications/initialized' });
+}
+
+async function callTool(name, args) {
+  await ensureMcpSession();
+  return sendMcpMessage({ jsonrpc: '2.0', id: ++mcpRequestId, method: 'tools/call', params: { name, arguments: args } });
+}
+
+document.getElementById('connect').addEventListener('click', () => void connect());
+
+document.getElementById('ask-week').addEventListener('click', async () => {
+  const result = await callTool('get_week_narrative', {});
+  document.getElementById('week-result').textContent = result.content[0].text;
+});
+
+document.getElementById('ask-today').addEventListener('click', async () => {
+  const result = await callTool('get_today', {});
+  document.getElementById('today-result').textContent = result.content[0].text;
+});
+
+document.getElementById('ask-visitor').addEventListener('click', async () => {
+  const result = await callTool('did_visitor_come', { personId: 'maria' });
+  document.getElementById('visitor-result').textContent = result.content[0].text;
+});
+
+document.getElementById('send-note').addEventListener('click', async () => {
+  const fromName = document.getElementById('note-from').value;
+  const message = document.getElementById('note-message').value;
+  const result = await callTool('send_note_to_tv', { fromName, message });
+  document.getElementById('note-result').textContent = result.content[0].text;
+});
+
+completeAuthIfRedirected().then((authenticated) => {
+  if (authenticated) {
+    setStatus('Connected.');
+    enableToolButtons(true);
+  }
+});
