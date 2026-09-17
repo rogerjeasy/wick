@@ -8,6 +8,7 @@
   "license": "MIT",
   "author": "Roger Bavibidila",
   "dependencies": {
+    "@wick/agent": "*",
     "@wick/contracts": "*",
     "@wick/policy": "*",
     "@modelcontextprotocol/sdk": "^1.30.0",

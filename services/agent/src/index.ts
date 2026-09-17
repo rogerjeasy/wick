@@ -10,4 +10,4 @@
  * Do not let these collapse into one agent. The separation is the architecture,
  * and it is also the demo.
  */
-export {};
+export { sendToDevice } from './egress.js';

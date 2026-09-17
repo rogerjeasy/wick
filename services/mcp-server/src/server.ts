@@ -30,6 +30,7 @@ import { registerGetResidentSharedView } from './tools/get_resident_shared_view.
 import { registerGetWeekNarrative } from './tools/get_week_narrative.js';
 import { registerGetToday } from './tools/get_today.js';
 import { registerDidVisitorCome } from './tools/did_visitor_come.js';
+import { registerSendNoteToTv } from './tools/send_note_to_tv.js';
 
 export const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -41,6 +42,7 @@ export function createApp(issuerUrl: URL): express.Express {
   registerGetWeekNarrative(mcpServer, ddb);
   registerGetToday(mcpServer, ddb);
   registerDidVisitorCome(mcpServer, ddb);
+  registerSendNoteToTv(mcpServer);
 
   const app = express();
   app.use(express.json());
