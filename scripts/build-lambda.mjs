@@ -27,6 +27,11 @@ const TARGETS = [
     entry: 'services/agent/src/agents/door/lambda.ts',
     outfile: 'services/agent/.build/door-event/index.mjs',
   },
+  {
+    name: 'agent-narrator-weekly',
+    entry: 'services/agent/src/agents/narrator/lambda.ts',
+    outfile: 'services/agent/.build/narrator-weekly/index.mjs',
+  },
 ];
 
 for (const target of TARGETS) {
