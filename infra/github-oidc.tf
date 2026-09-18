@@ -91,6 +91,13 @@ data "aws_iam_policy_document" "github_deploy" {
   # The stack itself. Scoped by service rather than by resource: Terraform
   # creates and destroys these, so it needs the create verbs, and a resource
   # ARN cannot be pinned for something that does not exist yet.
+  #
+  # ecr/cloudfront/apprunner added for S4a's deployed MCP server (App
+  # Runner, pulling from ECR) and the deployed sim-alexa (S3 behind
+  # CloudFront) — infra/mcp.tf, infra/sim-alexa.tf. Both CloudFront
+  # distributions and App Runner services get an AWS-assigned ID only after
+  # creation, so — same reasoning as everything else in this statement — a
+  # resource ARN can't be pinned ahead of the first apply.
   statement {
     sid = "ManageTheStack"
     actions = [
@@ -100,6 +107,9 @@ data "aws_iam_policy_document" "github_deploy" {
       "events:*",
       "dynamodb:*",
       "s3:*",
+      "ecr:*",
+      "cloudfront:*",
+      "apprunner:*",
     ]
     resources = ["*"]
   }
@@ -140,7 +150,12 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["arn:aws:iam::${local.account_id}:role/wick-*"]
   }
 
-  # Lambda needs its execution role handed to it, and nothing else.
+  # Lambda needs its execution role handed to it, and nothing else — plus,
+  # since S4a's App Runner service, the two services App Runner itself
+  # assumes roles as (build.* to pull from ECR, tasks.* to run the
+  # container) — see infra/mcp.tf's apprunner_ecr_access/apprunner_instance
+  # roles, both wick-* and so already covered by this statement's resource
+  # scope.
   statement {
     sid       = "PassOnlyWickRoles"
     actions   = ["iam:PassRole"]
@@ -149,7 +164,11 @@ data "aws_iam_policy_document" "github_deploy" {
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"
-      values   = ["lambda.amazonaws.com"]
+      values = [
+        "lambda.amazonaws.com",
+        "build.apprunner.amazonaws.com",
+        "tasks.apprunner.amazonaws.com",
+      ]
     }
   }
 
