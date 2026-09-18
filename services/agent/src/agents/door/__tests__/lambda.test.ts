@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { RingDevice, RingHistoryEvent } from '@wick/ring';
-import type { QueuedCard, RosterEntry } from '@wick/contracts';
+import type { QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
 import { routeRingEvent, type RouteDeps } from '../lambda.js';
 
 const device: RingDevice = {
@@ -24,6 +24,7 @@ function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     householdId: 'hh-1',
     findDevice: vi.fn(async () => device),
     listRoster: vi.fn(async () => []),
+    recordPresence: vi.fn(async (_match: VisitorMatch, _at: number) => {}),
     sendToDevice: vi.fn(async (_card: QueuedCard) => {}),
     runPhase2: vi.fn(async (_cardId: string, _event: RingHistoryEvent) => {}),
     now: () => 1789455094000,
@@ -116,5 +117,37 @@ describe('routeRingEvent', () => {
     const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0]!;
     if (sent.card.type !== 'DOOR') throw new Error('unreachable');
     expect(sent.card.match).toBeUndefined();
+  });
+
+  it('M5: records presence on the timeline when the event matches the roster', async () => {
+    const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE 06:51±30m' };
+    const deps = baseDeps({ listRoster: vi.fn(async () => [maria]) });
+
+    await routeRingEvent(detail, deps);
+
+    expect(deps.recordPresence).toHaveBeenCalledTimes(1);
+    const [match, at] = vi.mocked(deps.recordPresence).mock.calls[0]!;
+    expect(match.personId).toBe('maria');
+    expect(at).toBe(1789455093305); // the event's own timestamp, not now()
+  });
+
+  it('M5: never records presence when nobody on the roster matches', async () => {
+    const deps = baseDeps();
+
+    await routeRingEvent(detail, deps);
+
+    expect(deps.recordPresence).not.toHaveBeenCalled();
+  });
+
+  it('M5: still reports "sent" when recording presence fails — the card already reached the device', async () => {
+    const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE 06:51±30m' };
+    const deps = baseDeps({
+      listRoster: vi.fn(async () => [maria]),
+      recordPresence: vi.fn(async () => {
+        throw new Error('ddb_down');
+      }),
+    });
+
+    await expect(routeRingEvent(detail, deps)).resolves.toBe('sent');
   });
 });

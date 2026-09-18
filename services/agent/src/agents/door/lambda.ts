@@ -34,11 +34,14 @@ import {
   listDevices,
   secretsManagerTokenProvider,
 } from '@wick/ring';
-import type { QueuedCard, RosterEntry } from '@wick/contracts';
+import type { QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
-import { DynamoDBClient, QueryCommand } from '@aws-sdk/client-dynamodb';
+import { randomUUID } from 'node:crypto';
+import { DynamoDBClient, PutItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { handleDoorEvent } from './handle.js';
 import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
+import { matchVisitor } from './roster.js';
+import { buildPresenceItem } from './presence.js';
 import { runDoorPhase2 } from './phase2.js';
 import { describeFrame } from './describe.js';
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
@@ -50,6 +53,8 @@ export interface RouteDeps {
   readonly findDevice: (deviceId: string) => Promise<RingDevice | undefined>;
   /** M4. Most households have not curated one; an empty list is the common answer. */
   readonly listRoster: () => Promise<readonly RosterEntry[]>;
+  /** M5. Only called when the event actually matches the roster. */
+  readonly recordPresence: (match: VisitorMatch, at: number) => Promise<void>;
   readonly sendToDevice: (card: QueuedCard) => Promise<void>;
   readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<void>;
   readonly now: () => number;
@@ -80,6 +85,18 @@ export async function routeRingEvent(
     { event, device, householdId: deps.householdId, correlationId, now: deps.now(), roster },
     { sendToDevice: deps.sendToDevice },
   );
+
+  const match = matchVisitor(roster, event.start);
+  if (match) {
+    try {
+      await deps.recordPresence(match, event.start);
+    } catch (err) {
+      console.error(JSON.stringify({
+        level: 'error', msg: 'record_presence_failed', correlationId,
+        err: err instanceof Error ? err.message : String(err),
+      }));
+    }
+  }
 
   try {
     await deps.runPhase2(queued.id, event);
@@ -129,6 +146,13 @@ async function fetchRoster(householdId: string): Promise<readonly RosterEntry[]>
   return roster;
 }
 
+async function recordPresence(householdId: string, match: VisitorMatch, at: number): Promise<void> {
+  await ddb.send(new PutItemCommand({
+    TableName: TABLE,
+    Item: buildPresenceItem(householdId, match, at, randomUUID()),
+  }));
+}
+
 export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
   const householdId = process.env.WICK_HOUSEHOLD_ID;
   if (!householdId) throw new Error('WICK_HOUSEHOLD_ID not set');
@@ -140,6 +164,7 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
     householdId,
     findDevice: lookupDevice,
     listRoster: () => fetchRoster(householdId),
+    recordPresence: (match, at) => recordPresence(householdId, match, at),
     sendToDevice: (card) => realSendToDevice(card, DEFAULT_POLICY),
     runPhase2: (cardId, event) =>
       runDoorPhase2(cardId, {
