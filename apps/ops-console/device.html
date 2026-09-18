@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Wick — Virtual Device</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%95%AF%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="device.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <h1>Wick</h1>
+      <span class="tag">ops console</span>
+    </div>
+    <nav class="tabs">
+      <a href="index.html">Dashboard</a>
+      <a href="device.html" class="active">Virtual Device</a>
+    </nav>
+  </div>
+</header>
+
+<main class="shell">
+
+  <section class="panel">
+    <div class="btn-row" style="justify-content: space-between; margin-bottom: var(--space-3);">
+      <h2 style="margin: 0;">Connection</h2>
+      <span id="conn-badge" class="badge fail">disconnected</span>
+    </div>
+    <p>
+      Stands in for a paired Fire TV — no hardware, no <code>wscat</code>.
+      One click pairs a fresh device with the household and opens the same
+      WebSocket the real app would.
+    </p>
+    <div class="btn-row">
+      <button id="pair-btn" type="button">Pair &amp; connect</button>
+      <button id="disconnect-btn" type="button" class="secondary" disabled>Disconnect</button>
+      <span id="conn-detail" class="muted mono" style="font-size: 0.85em;"></span>
+    </div>
+  </section>
+
+  <div class="device-grid">
+    <section class="panel tv-panel">
+      <h2>What the television shows</h2>
+      <div id="tv-screen" class="tv-screen">
+        <div class="tv-empty">No card yet. Trigger a real door event (see docs/PRODUCTION-TESTING-GUIDE.md §2c) or send test telemetry below.</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Device telemetry</h2>
+      <p>Sends the same <code>DeviceEvent</code> messages a real Fire TV app would — drives S2 (Natural-Break) and S6 (Rhythm) on the deployed backend.</p>
+      <div class="stack">
+        <div class="btn-row">
+          <button id="fg-btn" type="button" class="secondary" disabled>App → Foreground</button>
+          <button id="bg-btn" type="button" class="secondary" disabled>App → Background</button>
+        </div>
+        <div class="btn-row">
+          <button id="play-btn" type="button" class="secondary" disabled>Playback → Playing</button>
+          <button id="pause-btn" type="button" class="secondary" disabled>Playback → Paused</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Raw messages</h2>
+    <div id="log" class="log"><div class="line muted">Not connected yet.</div></div>
+  </section>
+
+</main>
+
+<script src="device.js"></script>
+</body>
+</html>

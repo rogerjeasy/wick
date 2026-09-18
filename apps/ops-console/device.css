@@ -1,0 +1,148 @@
+/*
+ * Virtual device page — layout + the TV screen mockup.
+ *
+ * The mockup borrows Wick's actual on-device design principles
+ * (docs/WICK.md Part 5): large type, high contrast, calm, no red, no
+ * badges, no counters, one button reachable at a time. It's a stand-in for
+ * apps/tv-vega's real rendering, not a pixel-accurate reproduction — the
+ * point is to prove the right *content* arrives, not to duplicate the Vega
+ * app.
+ */
+
+.device-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .device-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.tv-panel {
+  min-width: 0;
+}
+
+.tv-screen {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #050403;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tv-empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: var(--space-4);
+  font-size: clamp(0.9rem, 0.85rem + 0.3vw, 1.05rem);
+  max-width: 32ch;
+}
+
+/* DOOR cards: lower-third, non-blocking — never covers the whole screen,
+   matching the real product's "never interrupt a scene" principle. */
+.tv-card.urgency-door {
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: var(--space-3);
+  top: auto;
+  background: color-mix(in srgb, #050403 88%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* DEFERRED cards (DAY/MESSAGE/WEEK): full-screen at a natural break. */
+.tv-card.urgency-deferred {
+  position: absolute;
+  inset: 0;
+  background: #050403;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.tv-card {
+  padding: clamp(1rem, 0.8rem + 2vw, 2.5rem);
+  color: var(--text);
+  min-width: 0;
+}
+
+.tv-card .kicker {
+  color: var(--text-dim);
+  font-size: clamp(0.75rem, 0.7rem + 0.2vw, 0.9rem);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.5em;
+}
+
+.tv-card .headline {
+  font-size: clamp(1.15rem, 1rem + 1.8vw, 2rem);
+  font-weight: 600;
+  line-height: 1.25;
+  margin-bottom: 0.5em;
+  overflow-wrap: anywhere;
+}
+
+.tv-card .body-text {
+  font-size: clamp(0.95rem, 0.88rem + 0.6vw, 1.25rem);
+  color: var(--text-muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tv-card ul.day-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+
+.tv-card ul.day-items li {
+  font-size: clamp(0.95rem, 0.88rem + 0.6vw, 1.25rem);
+  padding-left: 1.2em;
+  position: relative;
+  overflow-wrap: anywhere;
+}
+
+.tv-card ul.day-items li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
+
+.tv-card .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em;
+  margin-top: 1em;
+}
+
+.tv-card .actions .pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45em 1.1em;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: clamp(0.8rem, 0.76rem + 0.25vw, 0.95rem);
+  white-space: nowrap;
+}
+
+.tv-card .actions .pill.primary {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: transparent;
+  font-weight: 600;
+}

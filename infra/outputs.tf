@@ -79,6 +79,21 @@ output "sim_alexa_url" {
   value       = "https://${aws_cloudfront_distribution.sim_alexa.domain_name}"
 }
 
+output "ops_console_url" {
+  description = "Wick ops console — status dashboard (/) and virtual device (/device.html)."
+  value       = "https://${aws_cloudfront_distribution.ops_console.domain_name}"
+}
+
+output "ops_console_distribution_id" {
+  description = "For `aws cloudfront create-invalidation --distribution-id` after redeploying ops-console's files."
+  value       = aws_cloudfront_distribution.ops_console.id
+}
+
+output "status_api_url" {
+  description = "GET /status — raw JSON, for curl or a browser tab."
+  value       = "${aws_apigatewayv2_api.edge.api_endpoint}/status"
+}
+
 output "sim_alexa_distribution_id" {
   description = "For `aws cloudfront create-invalidation --distribution-id` after redeploying sim-alexa's files."
   value       = aws_cloudfront_distribution.sim_alexa.id

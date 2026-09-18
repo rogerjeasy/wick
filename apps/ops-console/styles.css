@@ -1,0 +1,502 @@
+/*
+ * Wick ops console — shared design system for the status dashboard and the
+ * virtual device simulator.
+ *
+ * Rules that exist specifically to prevent overflow/overlap at any
+ * viewport, stated once here rather than re-litigated per component:
+ *   1. `box-sizing: border-box` everywhere — padding/border never add to a
+ *      declared width, which is the single most common cause of a card
+ *      quietly overflowing its grid track by a few pixels.
+ *   2. Every grid track is `minmax(0, 1fr)`, never a bare `1fr`. A bare
+ *      `1fr` track has an implicit minimum width equal to its content's
+ *      intrinsic size — one long unbroken string (a URL, a hash, an ARN)
+ *      is exactly the content this app renders constantly, and it will
+ *      blow the track wide open without the `0`.
+ *   3. Long tokens get `overflow-wrap: anywhere` — `break-word` still
+ *      refuses to break inside some scripts/sequences; `anywhere` does not.
+ *   4. Fluid type via `clamp()` instead of fixed px + media-query steps —
+ *      continuous, not discrete, so there's no viewport width where a
+ *      heading is momentarily too large for its container between steps.
+ *   5. Exactly one scroll container ever appears (`.scroll-x`, used only
+ *      for genuinely tabular data) — the page body itself never scrolls
+ *      horizontally, at any width down to 320px.
+ */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #12100e;
+  --bg-raised: #1c1815;
+  --bg-card: #221d19;
+  --border: #3a332c;
+  --text: #f4f1ea;
+  --text-muted: #c8c2b6;
+  --text-dim: #8a8377;
+  --accent: #e8b75d;
+  --accent-strong: #f4cd82;
+
+  --ok: #6fbf8b;
+  --ok-bg: rgba(111, 191, 139, 0.12);
+  --warn: #e8b75d;
+  --warn-bg: rgba(232, 183, 93, 0.12);
+  --fail: #e07a6b;
+  --fail-bg: rgba(224, 122, 107, 0.14);
+  --info: #7fb0c9;
+  --info-bg: rgba(127, 176, 201, 0.12);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+
+  --space-1: clamp(0.375rem, 0.34rem + 0.15vw, 0.5rem);
+  --space-2: clamp(0.625rem, 0.55rem + 0.3vw, 0.875rem);
+  --space-3: clamp(1rem, 0.9rem + 0.4vw, 1.375rem);
+  --space-4: clamp(1.5rem, 1.3rem + 0.8vw, 2.25rem);
+  --space-5: clamp(2.25rem, 1.9rem + 1.4vw, 3.5rem);
+
+  --content-max: 1200px;
+
+  font-size: clamp(15px, 0.9vw + 12px, 17px);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+  display: block;
+}
+
+a {
+  color: var(--accent-strong);
+}
+
+code,
+.mono {
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+/* --- Layout shell --------------------------------------------------- */
+
+.shell {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+  padding-block: var(--space-4);
+}
+
+header.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-inner {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+  padding-block: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.brand h1 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(1.15rem, 1rem + 0.7vw, 1.6rem);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.brand .tag {
+  color: var(--text-dim);
+  font-size: clamp(0.75rem, 0.7rem + 0.2vw, 0.9rem);
+  overflow-wrap: anywhere;
+}
+
+nav.tabs {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+nav.tabs a {
+  text-decoration: none;
+  color: var(--text-muted);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: clamp(0.85rem, 0.8rem + 0.15vw, 0.95rem);
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+nav.tabs a:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+nav.tabs a.active {
+  color: var(--bg);
+  background: var(--accent);
+  font-weight: 600;
+}
+
+/* --- Headings / text -------------------------------------------------- */
+
+h2 {
+  font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.35rem);
+  margin: 0 0 var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+p {
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+/* --- Buttons ------------------------------------------------------------ */
+
+button,
+.btn {
+  font: inherit;
+  font-weight: 600;
+  font-size: clamp(0.85rem, 0.8rem + 0.15vw, 0.95rem);
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 120ms ease, transform 120ms ease;
+}
+
+button:hover,
+.btn:hover {
+  background: var(--accent-strong);
+}
+
+button:active,
+.btn:active {
+  transform: scale(0.98);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.secondary,
+.btn.secondary {
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+button.secondary:hover,
+.btn.secondary:hover {
+  background: var(--bg-card);
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* --- Cards / grid --------------------------------------------------- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: var(--space-3);
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.card-label {
+  font-weight: 600;
+  font-size: clamp(0.9rem, 0.85rem + 0.15vw, 1rem);
+  overflow-wrap: anywhere;
+}
+
+.card-detail {
+  color: var(--text-muted);
+  font-size: clamp(0.8rem, 0.75rem + 0.15vw, 0.9rem);
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.2em 0.65em;
+  border-radius: 999px;
+  font-size: clamp(0.7rem, 0.68rem + 0.1vw, 0.78rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badge::before {
+  content: '';
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.badge.ok {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.badge.warn {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.badge.fail {
+  color: var(--fail);
+  background: var(--fail-bg);
+}
+
+.badge.info {
+  color: var(--info);
+  background: var(--info-bg);
+}
+
+.card.status-ok {
+  border-left: 3px solid var(--ok);
+}
+
+.card.status-warn {
+  border-left: 3px solid var(--warn);
+}
+
+.card.status-fail {
+  border-left: 3px solid var(--fail);
+}
+
+.card.status-info {
+  border-left: 3px solid var(--info);
+}
+
+/* --- Summary banner --------------------------------------------------- */
+
+.summary-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.summary-banner .headline {
+  font-size: clamp(1.05rem, 1rem + 0.4vw, 1.3rem);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.summary-counts {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: clamp(0.8rem, 0.78rem + 0.1vw, 0.9rem);
+  color: var(--text-muted);
+}
+
+/* --- Section ------------------------------------------------------- */
+
+section {
+  margin-bottom: var(--space-4);
+}
+
+.panel {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  min-width: 0;
+}
+
+/* --- Form fields ------------------------------------------------------ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.field label {
+  font-size: clamp(0.8rem, 0.78rem + 0.1vw, 0.9rem);
+  color: var(--text-muted);
+}
+
+.field input,
+.field textarea,
+.field select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- Log / console output -------------------------------------------- */
+
+.log {
+  background: #0b0a08;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: clamp(0.75rem, 0.72rem + 0.1vw, 0.85rem);
+  max-height: min(50vh, 420px);
+  overflow-y: auto;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log .line {
+  padding-block: 0.15em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.log .line:last-child {
+  border-bottom: none;
+}
+
+/* A table (or anything else genuinely wide) scrolls in its own box —
+   the page body never does. */
+.scroll-x {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* --- Utility ------------------------------------------------------- */
+
+.muted {
+  color: var(--text-dim);
+}
+
+.center {
+  text-align: center;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.spin {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: -0.15em;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 560px) {
+  .shell,
+  .topbar-inner {
+    padding-inline: var(--space-3);
+  }
+
+  .summary-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
