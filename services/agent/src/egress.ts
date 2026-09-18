@@ -38,6 +38,17 @@ export type EgressResult =
  *
  * A Guardian that throws must fail CLOSED — refuse, alarm, and never fall
  * through to sending. See §11.
+ *
+ * decision.transform names what evaluate() decided the content needs
+ * ('summarise' or 'redact_specifics') but there is no implementation of
+ * either transform yet — no product decision exists on what "summarise a
+ * RHYTHM fact" concretely does to a string. Sending item.content through
+ * untransformed in that case would silently defeat the exact policy that
+ * required it: an audience gets the raw content the household's table
+ * marked as needing narrowing first. So this refuses instead — fail
+ * closed, same as an evaluate() throw — until a real transform exists.
+ * Every class the default policy marks `allow` with no transform (most of
+ * DOOR_EVENT/PRESENCE) is unaffected and sends today.
  */
 export async function sendToFamily(
   item: EgressItem,
@@ -52,11 +63,27 @@ export async function sendToFamily(
     return { sent: false, reason: 'Unable to share that right now.' };
   }
 
-  if (!decision.allow) return { sent: false, reason: decision.reason };
+  const logDecision = (allow: boolean, reason: string): void => {
+    // §11: class, audience, allow, transform, reason — never item.content.
+    console.log(JSON.stringify({
+      level: 'info', msg: 'guardian_decision',
+      class: item.class, audience, allow, transform: decision.transform, reason,
+    }));
+  };
 
-  // TODO(S5): apply decision.transform ('summarise' | 'redact_specifics') before send.
-  // TODO(S5): log { class, audience, allow, transform, reason } — NEVER content (§11).
-  throw new Error('not implemented');
+  if (!decision.allow) {
+    logDecision(false, decision.reason);
+    return { sent: false, reason: decision.reason };
+  }
+
+  if (decision.transform) {
+    const reason = `transform "${decision.transform}" is not yet implemented`;
+    logDecision(false, reason);
+    return { sent: false, reason: 'Unable to share that right now.' };
+  }
+
+  logDecision(true, decision.reason);
+  return { sent: true, content: item.content };
 }
 
 interface DeviceConnection {
