@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseEnvFile, resolveAws } from '../env.js';
+import { parseEnvFile, resolveAws, chooseRingTokenSource } from '../env.js';
 
 describe('parseEnvFile', () => {
   it('reads the shape of a real .env, comments and blanks included', () => {
@@ -75,5 +75,20 @@ describe('resolveAws', () => {
     const r = resolveAws({ AWS_ACCESS_KEY: 'only-the-id' }, {}, ['wick-dev']);
     expect(r.source).not.toBe('env-file-keys');
     expect(r.vars.AWS_ACCESS_KEY_ID).toBeUndefined();
+  });
+});
+
+describe('chooseRingTokenSource', () => {
+  it('prefers a manually pasted .env token when one is present — that identity is the one with an actual test device', () => {
+    expect(chooseRingTokenSource(true, true)).toEqual({ kind: 'env-file' });
+    expect(chooseRingTokenSource(false, true)).toEqual({ kind: 'env-file' });
+  });
+
+  it('falls back to the permanent Secrets Manager credential only when .env has nothing — useful for API calls that need no device', () => {
+    expect(chooseRingTokenSource(true, false)).toEqual({ kind: 'secrets-manager' });
+  });
+
+  it('reports none when neither source is usable, rather than guessing', () => {
+    expect(chooseRingTokenSource(false, false)).toEqual({ kind: 'none' });
   });
 });

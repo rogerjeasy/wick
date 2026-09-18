@@ -12,6 +12,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { secretsManagerTokenProvider } from '@wick/ring';
 
 export type EnvMap = Record<string, string>;
 
@@ -140,14 +141,63 @@ export function loadEnv(): AwsResolution {
   return resolution;
 }
 
-export function ringToken(): string {
-  const token = process.env.RING_OAUTH_TOKEN ?? envFile().RING_OAUTH_TOKEN;
-  if (!token) {
-    throw new Error(
-      'No RING_OAUTH_TOKEN. Generate one at ' +
-        'https://developer.amazon.com/ring/console/playground and put it in .env ' +
-        '(they last 30 minutes).',
-    );
+export type RingTokenSource =
+  | { readonly kind: 'secrets-manager' }
+  | { readonly kind: 'env-file' }
+  | { readonly kind: 'none' };
+
+/**
+ * Which credential a local script should use, and why.
+ *
+ * `.env`'s `RING_OAUTH_TOKEN` (a Ring Developer Playground token, ~30 min,
+ * no refresh) wins whenever it's present. That is deliberately the opposite
+ * of "prefer the permanent one": the real, auto-refreshing account in
+ * Secrets Manager (`wick-ring-refresh` keeps it warm hourly) currently has
+ * zero connected Ring locations, so `listDevices()` against it returns
+ * nothing to demo against. The Playground identity is the only one with an
+ * actual device — see FRICTION.md FL-010. Secrets Manager is the fallback,
+ * useful for calls that don't need a device to exist (or once the real
+ * account has one).
+ */
+export function chooseRingTokenSource(
+  secretsManagerUsable: boolean,
+  envFileTokenPresent: boolean,
+): RingTokenSource {
+  if (envFileTokenPresent) return { kind: 'env-file' };
+  if (secretsManagerUsable) return { kind: 'secrets-manager' };
+  return { kind: 'none' };
+}
+
+let cachedSecretsManagerToken: ReturnType<typeof secretsManagerTokenProvider> | undefined;
+
+export async function ringToken(): Promise<string> {
+  const fromFile = process.env.RING_OAUTH_TOKEN ?? envFile().RING_OAUTH_TOKEN;
+
+  // Only reach for Secrets Manager when .env has nothing — no need to pay an
+  // AWS round trip, or require AWS credentials at all, when a Playground
+  // token already answers the question.
+  let fromSecretsManager: string | undefined;
+  if (!fromFile) {
+    cachedSecretsManagerToken ??= secretsManagerTokenProvider();
+    try {
+      fromSecretsManager = await cachedSecretsManagerToken();
+    } catch {
+      // Not linked, expired with no refresh path, or no AWS credentials in
+      // this shell — any of those means "fall back," not "fail here."
+      fromSecretsManager = undefined;
+    }
   }
-  return token;
+
+  const source = chooseRingTokenSource(fromSecretsManager !== undefined, Boolean(fromFile));
+
+  if (source.kind === 'env-file') return fromFile!;
+  if (source.kind === 'secrets-manager') return fromSecretsManager!;
+
+  throw new Error(
+    'No usable Ring token. Either link the real account once (the ring_authorize_url ' +
+      "Terraform output) and let the hourly wick-ring-refresh job keep it warm forever, " +
+      'or — for a quick one-off — generate a Playground token at ' +
+      'https://developer.amazon.com/ring/console/playground and put it in .env as ' +
+      'RING_OAUTH_TOKEN (lasts 30 minutes).',
+  );
 }
