@@ -376,6 +376,19 @@ resource "aws_apigatewayv2_api" "edge" {
   name          = "${local.prefix}-edge"
   description   = "Ring account linking and event ingress"
   protocol_type = "HTTP"
+
+  # Browser-facing routes on this API: GET /status (apps/ops-console's
+  # dashboard) and POST /pair/start, POST /pair/claim, GET /pair/status
+  # (apps/ops-console's virtual device — infra/pairing.tf). Everything else
+  # here is server-to-server (Ring) and never reads a CORS header — API
+  # Gateway HTTP APIs apply cors_configuration API-wide, so this is scoped
+  # to the methods those browser routes actually use, not a blanket allow.
+  cors_configuration {
+    allow_origins = ["*"]
+    allow_methods = ["GET", "POST"]
+    allow_headers = ["content-type"]
+    max_age       = 300
+  }
 }
 
 resource "aws_apigatewayv2_stage" "default" {
@@ -415,6 +428,8 @@ locals {
     "POST /ring/token"    = aws_lambda_function.token
     "GET /ring/link"      = aws_lambda_function.link
     "GET /ring/authorize" = aws_lambda_function.authorize
+    # apps/ops-console's dashboard data source. See infra/status.tf.
+    "GET /status" = aws_lambda_function.status
   }
 }
 
