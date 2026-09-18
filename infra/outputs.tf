@@ -63,3 +63,23 @@ output "websocket_url" {
   description = "Set as apps/tv-vega/src/config.ts DEPLOYED.websocketUrl"
   value       = aws_apigatewayv2_stage.transport.invoke_url
 }
+
+output "mcp_server_url" {
+  description = "The deployed MCP server (S4a). On first apply this is set from var.mcp_issuer_url's empty default — read this value, then re-apply with -var mcp_issuer_url=<this> so the app's own OAuth metadata matches its real URL. See infra/mcp.tf."
+  value       = "https://${aws_apprunner_service.mcp_server.service_url}"
+}
+
+output "mcp_service_arn" {
+  description = "For `aws apprunner describe-service --service-arn` while watching a redeploy."
+  value       = aws_apprunner_service.mcp_server.arn
+}
+
+output "sim_alexa_url" {
+  description = "The deployed simulated Alexa+ surface (apps/sim-alexa). Its 'MCP server URL' field is pre-filled with mcp_server_url at upload time."
+  value       = "https://${aws_cloudfront_distribution.sim_alexa.domain_name}"
+}
+
+output "sim_alexa_distribution_id" {
+  description = "For `aws cloudfront create-invalidation --distribution-id` after redeploying sim-alexa's files."
+  value       = aws_cloudfront_distribution.sim_alexa.id
+}

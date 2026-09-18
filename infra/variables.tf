@@ -50,3 +50,9 @@ variable "household_id" {
   type        = string
   default     = "margaret"
 }
+
+variable "mcp_issuer_url" {
+  description = "S4a. The MCP server's own public URL, baked into its OAuth metadata at startup (auth.ts's createAuthRouter). Set to the real App Runner service_url once known — see infra/mcp.tf's header comment for the two-apply reason it starts empty. Stays stable across redeploys unless the App Runner service itself is destroyed and recreated (a new service gets a new *.awsapprunner.com hostname)."
+  type        = string
+  default     = "https://tqcu7pa3ip.us-east-1.awsapprunner.com"
+}
