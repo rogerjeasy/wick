@@ -73,6 +73,107 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-010 — FL-003's own documented workaround PATCH is itself rejected, and the console's parallel "Sign in" flow doesn't reach it either
+
+**Tool / API:**      Ring Partner API — `PATCH /v1/accounts/me/app-integrations` · Ring
+                     Control Center's per-app "My apps" page ("Sign in" / "Connect Ring
+                     account")
+
+**Task attempted:**  Get `finishLink()`'s completion PATCH (the fix FL-003 already
+                     documents) to actually succeed, so real Ring webhooks start
+                     reaching `services/edge-ring/lambda/webhook.mjs` for once.
+
+**Steps taken:**     1. Re-ran the partner-initiated OAuth flow (`ring_authorize_url`)
+                        clean: PKCE exchange succeeds, `account_linked` logs
+                        `hasRefresh: true, hasAccountId: true` — the token half is fine,
+                        confirmed by `wick-ring-refresh`'s hourly logs actually rotating
+                        it (`ring_token_refreshed`, `rotatedRefreshToken: true`).
+                     2. `completeAppIntegration()`'s PATCH fires immediately after, body
+                        `{"status":"completed","account_identifier":"<id>"}`. Every single
+                        attempt (multiple, across sessions) returns the same:
+                        ```
+                        400 {"errors":[{"status":"400","title":"Invalid Status Transition",
+                                        "detail":"Status change not allowed"}]}
+                        ```
+                     3. Ring's own Control Center ("My apps" → Wick) independently showed
+                        `Pending. App sign-in required` with a `Sign in` button and `No
+                        locations are connected` — a second, human-facing signal that
+                        something about activation is incomplete, from a completely
+                        different surface than the API.
+                     4. Clicked it, expecting it to be the missing activation step.
+                        Landed on a real Ring OAuth-style consent screen ("Wick is asking
+                        to read events from your Ring doorbell and chime..."), completed
+                        it, and was redirected to `?nonce=...&time=...`.
+                     5. Checked what actually reached our backend: `GET /ring/link` *did*
+                        receive the nonce/time redirect (`account_link_received`,
+                        `paramKeys: ["nonce","time"]`) — but `link.mjs`'s own header
+                        comment already says why nothing happens with it: *"The nonce claim
+                        is not implemented: for a private app the console completes its own
+                        authorisation and this path has never fired."* Confirmed in the
+                        code (`link.mjs` lines 124–133): any request that isn't `?code&state`
+                        or `?error` just gets 302'd straight to the static consent page
+                        (`link.html`) with the query string forwarded, untouched.
+                     6. Re-ran step 1–2 again *after* completing the console "Sign in" —
+                        same PKCE success, same `Invalid Status Transition` on the PATCH,
+                        byte-for-byte. The console flow changed nothing observable on the
+                        API side.
+
+**Expected:**        Either the documented completion PATCH (FL-003) to succeed once a
+                     real OAuth link exists, or the console's own "Sign in" flow to be the
+                     thing that unblocks it — some path to `status: "completed"` actually
+                     applying.
+
+**Actual:**          Two independent activation surfaces (an API PATCH, a console consent
+                     flow) both report the integration as unfinished, and neither one's
+                     completion path affects the other's outcome. The nonce redirect the
+                     console flow produces has no server-side handler *by design*
+                     (per `link.mjs`'s own comment, written before this session even
+                     started) — it was already known to be a dead end, which this session
+                     re-confirmed empirically rather than assumed. What's genuinely new
+                     here: even knowing that, there is no remaining lever in either surface
+                     — the account is authorized (real access + refresh tokens, auto-
+                     refreshing hourly) but Ring's own account_identifier-scoped
+                     app-integration resource refuses to leave whatever internal status it
+                     starts in.
+
+**Severity:**        Important — unlike FL-003 at the time it was written, this is no
+                     longer "a workaround exists, just non-obvious." The documented
+                     workaround is now known to be blocked, with no further lever
+                     discovered from either the API or the console. Real webhook delivery
+                     from Ring stays unavailable; it does not block anything else — every
+                     Ring REST call (devices, images, history, chime) already works fine on
+                     the same token, and `RING_TEST_DEVICE_ID` on
+                     `scripts/test-ring-webhook.sh` (added this session) fully exercises
+                     the Door agent's Lambda path by simulating the webhook Ring would
+                     otherwise send.
+
+**Workaround:**      `scripts/test-ring-webhook.sh RING_TEST_DEVICE_ID=<real device id>` —
+                     posts a correctly-HMAC-signed synthetic payload straight to our own
+                     webhook endpoint, using a device id from the real linked account, so
+                     the Door agent's device lookup succeeds and a real card gets queued
+                     with real Rhythm buckets written. This proves the entire deployed
+                     pipeline end to end without depending on Ring ever actually sending a
+                     webhook. See `docs/SIMULATOR-TESTING-GUIDE.md` §2c.
+
+**Suggestion:**      1. Everything FL-003 already suggested still applies and is now more
+                        clearly warranted: **make the dormant state observable and its
+                        cause diagnosable** — a real error code (`integration_not_completed`,
+                        or the actual disallowed-transition detail: *from* what status,
+                        *to* what status) would turn two dead ends into one visible one.
+                     2. **If the console "Sign in" flow is meant to be the real activation
+                        path for private apps** (as its UI strongly implies —
+                        "pending, sign-in required"), publish that it's the required step,
+                        and wire the resulting nonce redirect to something a partner's
+                        backend can actually call — right now it carries a real,
+                        single-use credential (the nonce) to a static page with no
+                        handler on either end.
+                     3. Do not present two account-activation surfaces (API PATCH, console
+                        consent) if only one of them can ever function for a private app —
+                        the other one costs a developer a full round trip to learn it does
+                        nothing.
+
+---
+
 ## FL-009 — SP-5's hardware spike is un-runnable this session, so IoT Core stays unbuilt behind a complete MQTT client
 
 **Tool / API:**      AWS IoT Core (device gateway, custom authorizer, topic rules) / Vega OS
