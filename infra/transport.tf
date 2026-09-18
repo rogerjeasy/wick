@@ -65,8 +65,10 @@ data "aws_iam_policy_document" "ws_route" {
     sid = "ReadConnectionWriteTimelineAndReconcile"
     # GetItem: CONN#<id>/META lookup. PutItem: EVT#<ts>#<uuid> timeline
     # rows. Query: reconcile's bounded CARD# range scan (see the
-    # `sk BETWEEN :since AND :max` query in route.mjs).
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"]
+    # `sk BETWEEN :since AND :max` query in route.mjs). UpdateItem: S6's ADD
+    # counter onto RHYTHM#tv_activity bucket items (route.mjs's
+    # recordTvActivity) — same table, no separate grant needed.
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }
   statement {

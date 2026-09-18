@@ -26,6 +26,8 @@ function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     listRoster: vi.fn(async () => []),
     recordPresence: vi.fn(async (_match: VisitorMatch, _at: number) => {}),
     recordDoorEvent: vi.fn(async (_at: number) => {}),
+    recordDoorActivity: vi.fn(async (_deviceId: string, _subType: string, _measureName: 'motion' | 'button_press', _at: number) => {}),
+    recordPresenceActivity: vi.fn(async (_personId: string, _at: number) => {}),
     sendToDevice: vi.fn(async (_card: QueuedCard) => {}),
     runPhase2: vi.fn(async (_cardId: string, _event: RingHistoryEvent) => {}),
     now: () => 1789455094000,
@@ -174,6 +176,68 @@ describe('routeRingEvent', () => {
   it('D3: still reports "sent" when recording the door event fails', async () => {
     const deps = baseDeps({
       recordDoorEvent: vi.fn(async () => {
+        throw new Error('ddb_down');
+      }),
+    });
+
+    await expect(routeRingEvent(detail, deps)).resolves.toBe('sent');
+  });
+
+  it('S6: records door activity for the Rhythm baseline on every door-worthy event — button press has no sub_type, so it falls back to "button"', async () => {
+    const deps = baseDeps();
+
+    await routeRingEvent(detail, deps);
+
+    expect(deps.recordDoorActivity).toHaveBeenCalledTimes(1);
+    expect(deps.recordDoorActivity).toHaveBeenCalledWith(device.id, 'button', 'button_press', 1789455093305);
+  });
+
+  it('S6: a motion event with a detected sub_type carries it as the dimension and maps to the "motion" measure', async () => {
+    const deps = baseDeps();
+    const motionDetail = {
+      ...detail,
+      event_type: 'motion_detected',
+      sub_type: 'human',
+    };
+
+    await routeRingEvent(motionDetail, deps);
+
+    expect(deps.recordDoorActivity).toHaveBeenCalledWith(device.id, 'human', 'motion', 1789455093305);
+  });
+
+  it('S6: still reports "sent" when recording door activity fails — the card already reached the device', async () => {
+    const deps = baseDeps({
+      recordDoorActivity: vi.fn(async () => {
+        throw new Error('ddb_down');
+      }),
+    });
+
+    await expect(routeRingEvent(detail, deps)).resolves.toBe('sent');
+  });
+
+  it('S6: records presence activity for the Rhythm baseline when the event matches the roster', async () => {
+    const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE 06:51±30m' };
+    const deps = baseDeps({ listRoster: vi.fn(async () => [maria]) });
+
+    await routeRingEvent(detail, deps);
+
+    expect(deps.recordPresenceActivity).toHaveBeenCalledTimes(1);
+    expect(deps.recordPresenceActivity).toHaveBeenCalledWith('maria', 1789455093305);
+  });
+
+  it('S6: never records presence activity when nobody on the roster matches', async () => {
+    const deps = baseDeps();
+
+    await routeRingEvent(detail, deps);
+
+    expect(deps.recordPresenceActivity).not.toHaveBeenCalled();
+  });
+
+  it('S6: still reports "sent" when recording presence activity fails', async () => {
+    const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE 06:51±30m' };
+    const deps = baseDeps({
+      listRoster: vi.fn(async () => [maria]),
+      recordPresenceActivity: vi.fn(async () => {
         throw new Error('ddb_down');
       }),
     });

@@ -42,6 +42,9 @@ data "aws_iam_policy_document" "agent_door_event" {
     # sendToDevice: PutItem writes the CARD#<id> queue item. sendPatchToDevice
     # (Phase 2): GetItem reads it back, UpdateItem merges the patch in. Both:
     # Query finds the household's paired device to learn its live connection.
+    # UpdateItem is also S6's ADD counter onto RHYTHM#door_activity/presence
+    # bucket items (rhythm/writeClient.ts) — same table, same action, no
+    # separate grant needed.
     actions   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Query"]
     resources = [aws_dynamodb_table.wick.arn]
   }

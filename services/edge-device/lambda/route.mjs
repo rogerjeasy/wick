@@ -2,9 +2,32 @@
  * WebSocket `$default` — inbound DeviceEvent. §4.3.
  *
  * card_shown / card_action are persisted to the timeline now, because INV-6's
- * correlation loop closes here. playback / break_state / app_lifecycle are
- * the Rhythm pillar's input (§3.3, §8.2) and land in Timestream once S6
- * wires that pipeline — accepted and acknowledged here, not yet persisted.
+ * correlation loop closes here. playback / app_lifecycle are the Rhythm
+ * pillar's device-side input (§3.3, §8.2) and now increment atomic
+ * day-of-week/hour bucket counters in this same DynamoDB table —
+ * buildTvActivityKey (services/agent/src/rhythm/records.ts) is the
+ * canonical, tested builder; this plain .mjs Lambda can't import that TS
+ * module (same constraint timeline.ts's own comment describes for
+ * padTimestamp), so the same key shape is inlined below with a pointer back
+ * to it. This targets DynamoDB rather than Amazon Timestream — §8.2 named
+ * Timestream, but it turns out to reject `CreateDatabase` for this AWS
+ * account (`AccessDeniedException: Only existing Timestream for
+ * LiveAnalytics customers can access the service`), a platform restriction
+ * with no IAM fix. records.ts's header has the full account of why.
+ * break_state carries no Rhythm measure of its own — it is derived
+ * on-device from playback, which is what's recorded.
+ *
+ * Only `state: 'fg'` and `state: 'PLAYING'` are written. An ADD counter has
+ * no sensible "0" — `bg`/PAUSED/STOPPED/BUFFERING are silently not an
+ * occurrence, not a negative one. `session_minutes` is NOT computed here:
+ * that needs a stateful PLAYING-to-next-event duration, which belongs in a
+ * batch job over the raw occurrences, not this per-event handler — left
+ * honestly unbuilt rather than guessed at (same call narrator/index.ts makes
+ * for the baseline itself).
+ *
+ * Rhythm write failures are caught and logged, never thrown: it's a
+ * background signal, and losing one occurrence is not a reason to fail the
+ * socket route or force a client retry.
  *
  * INV-7: a card_action of `seen` on a WeekCard (id `week-<isoWeek>`,
  * services/agent/src/agents/narrator/weekCard.ts) is the one and only path
@@ -24,7 +47,7 @@
  * Anything queued after `sinceCardId` is pushed back over this same
  * connection.
  */
-import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import { randomUUID } from 'node:crypto';
 
@@ -32,6 +55,41 @@ const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME;
 
 const WEEK_CARD_ID = /^week-(\d{4}-W\d{2})$/;
+const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+/**
+ * Inlined from services/agent/src/rhythm/records.ts's dowHourBucket +
+ * buildTvActivityKey — keep byte-for-byte equivalent if either changes.
+ */
+function tvActivityKey(householdId, deviceId, measureName, at) {
+  const d = new Date(at);
+  const bucket = `${DOW[d.getUTCDay()]}-${String(d.getUTCHours()).padStart(2, '0')}`;
+  return {
+    pk: `HH#${householdId}`,
+    sk: `RHYTHM#tv_activity#${deviceId}#${measureName}#${bucket}`,
+  };
+}
+
+async function recordTvActivity(householdId, deviceId, measureName, at) {
+  const key = tvActivityKey(householdId, deviceId, measureName, at);
+  try {
+    await ddb.send(new UpdateItemCommand({
+      TableName: TABLE,
+      Key: { pk: { S: key.pk }, sk: { S: key.sk } },
+      UpdateExpression: 'ADD #count :incr SET lastSeenAt = :now',
+      ExpressionAttributeNames: { '#count': 'count' },
+      ExpressionAttributeValues: {
+        ':incr': { N: '1' },
+        ':now': { N: String(at) },
+      },
+    }));
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'error', msg: 'record_tv_activity_failed',
+      err: err instanceof Error ? err.message : String(err),
+    }));
+  }
+}
 
 /** INV-7. See this file's header comment for why it's read-check-write, not a condition. */
 async function markNarrativeSeen(householdId, isoWeek, seenAt) {
@@ -71,8 +129,24 @@ export const handler = async (event) => {
   }));
   if (!lookup.Item) return { statusCode: 401, body: 'unknown_connection' };
   const householdId = lookup.Item.householdId.S;
+  const deviceId = lookup.Item.deviceId.S;
 
-  if (deviceEvent.t === 'card_shown' || deviceEvent.t === 'card_action') {
+  if (deviceEvent.t === 'app_lifecycle') {
+    if (typeof deviceEvent.at !== 'number' || (deviceEvent.state !== 'fg' && deviceEvent.state !== 'bg')) {
+      return { statusCode: 400, body: 'bad_device_event' };
+    }
+    // See this file's header comment: 'bg' is not-an-occurrence, not a zero.
+    if (deviceEvent.state === 'fg') {
+      await recordTvActivity(householdId, deviceId, 'foreground', deviceEvent.at);
+    }
+  } else if (deviceEvent.t === 'playback') {
+    if (typeof deviceEvent.at !== 'number' || typeof deviceEvent.state !== 'string') {
+      return { statusCode: 400, body: 'bad_device_event' };
+    }
+    if (deviceEvent.state === 'PLAYING') {
+      await recordTvActivity(householdId, deviceId, 'power_on', deviceEvent.at);
+    }
+  } else if (deviceEvent.t === 'card_shown' || deviceEvent.t === 'card_action') {
     if (typeof deviceEvent.at !== 'number' || typeof deviceEvent.cardId !== 'string') {
       return { statusCode: 400, body: 'bad_device_event' };
     }

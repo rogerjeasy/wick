@@ -45,6 +45,8 @@ import { buildDoorEventItem, buildPresenceItem } from './presence.js';
 import { runDoorPhase2 } from './phase2.js';
 import { describeFrame } from './describe.js';
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
+import { createRhythmWriter } from '../../rhythm/writeClient.js';
+import { buildDoorActivityKey, buildPresenceKey } from '../../rhythm/records.js';
 
 export type RouteResult = 'sent' | 'skipped' | 'unknown_device';
 
@@ -57,6 +59,15 @@ export interface RouteDeps {
   readonly recordPresence: (match: VisitorMatch, at: number) => Promise<void>;
   /** D3. Called for every door-worthy event, matched or not. */
   readonly recordDoorEvent: (at: number) => Promise<void>;
+  /** S6. Every door-worthy event's occurrence, for the Rhythm baseline (§8.2's door_activity table). */
+  readonly recordDoorActivity: (
+    deviceId: string,
+    subType: string,
+    measureName: 'motion' | 'button_press',
+    at: number,
+  ) => Promise<void>;
+  /** S6. Written only on a roster match — an arrival occurrence for the Rhythm baseline (§8.2's presence table). */
+  readonly recordPresenceActivity: (personId: string, at: number) => Promise<void>;
   readonly sendToDevice: (card: QueuedCard) => Promise<void>;
   readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<void>;
   readonly now: () => number;
@@ -97,6 +108,21 @@ export async function routeRingEvent(
     }));
   }
 
+  try {
+    // Button presses carry no sub_type (parseEvent.ts) — 'button' is the
+    // fixed dimension value for the one door-worthy event type that isn't
+    // motion. A motion event always has one, since isDoorWorthy() already
+    // required sub_type === 'human' to get this far.
+    const subType = event.detections[0] ?? 'button';
+    const measureName = event.eventType === 'button_press' ? 'button_press' : 'motion';
+    await deps.recordDoorActivity(event.deviceId, subType, measureName, event.start);
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'error', msg: 'record_door_activity_failed', correlationId,
+      err: err instanceof Error ? err.message : String(err),
+    }));
+  }
+
   const match = matchVisitor(roster, event.start);
   if (match) {
     try {
@@ -104,6 +130,15 @@ export async function routeRingEvent(
     } catch (err) {
       console.error(JSON.stringify({
         level: 'error', msg: 'record_presence_failed', correlationId,
+        err: err instanceof Error ? err.message : String(err),
+      }));
+    }
+
+    try {
+      await deps.recordPresenceActivity(match.personId, event.start);
+    } catch (err) {
+      console.error(JSON.stringify({
+        level: 'error', msg: 'record_presence_activity_failed', correlationId,
         err: err instanceof Error ? err.message : String(err),
       }));
     }
@@ -129,6 +164,9 @@ let lookupDevice: ((deviceId: string) => Promise<RingDevice | undefined>) | unde
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
+// S6. Same table, same client — see rhythm/records.ts's header for why this
+// is DynamoDB rather than Timestream.
+const rhythmWriter = createRhythmWriter(ddb, TABLE);
 const ROSTER_CACHE_MS = 60_000;
 let rosterCache: { roster: readonly RosterEntry[]; fetchedAt: number } | undefined;
 
@@ -171,6 +209,22 @@ async function recordDoorEvent(householdId: string, at: number): Promise<void> {
   }));
 }
 
+async function recordDoorActivity(
+  householdId: string,
+  deviceId: string,
+  subType: string,
+  measureName: 'motion' | 'button_press',
+  at: number,
+): Promise<void> {
+  const key = buildDoorActivityKey({ householdId, deviceId, subType, measureName, at });
+  await rhythmWriter.increment(key, at);
+}
+
+async function recordPresenceActivity(householdId: string, personId: string, at: number): Promise<void> {
+  const key = buildPresenceKey({ householdId, personId, measureName: 'arrival', at });
+  await rhythmWriter.increment(key, at);
+}
+
 export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
   const householdId = process.env.WICK_HOUSEHOLD_ID;
   if (!householdId) throw new Error('WICK_HOUSEHOLD_ID not set');
@@ -184,6 +238,9 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
     listRoster: () => fetchRoster(householdId),
     recordPresence: (match, at) => recordPresence(householdId, match, at),
     recordDoorEvent: (at) => recordDoorEvent(householdId, at),
+    recordDoorActivity: (deviceId, subType, measureName, at) =>
+      recordDoorActivity(householdId, deviceId, subType, measureName, at),
+    recordPresenceActivity: (personId, at) => recordPresenceActivity(householdId, personId, at),
     sendToDevice: (card) => realSendToDevice(card, DEFAULT_POLICY),
     runPhase2: (cardId, event) =>
       runDoorPhase2(cardId, {
