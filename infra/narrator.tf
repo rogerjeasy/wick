@@ -49,9 +49,19 @@ data "aws_iam_policy_document" "agent_narrator_weekly" {
   statement {
     sid = "WriteTheWeek"
     # prose.ts's ConverseCommand — the model never counts, only narrates
-    # what timeline.ts already computed.
-    actions   = ["bedrock:InvokeModel"]
-    resources = ["arn:aws:bedrock:${local.region}::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0"]
+    # what timeline.ts already computed. Model id is the "us." cross-
+    # region inference profile for Claude Sonnet 5 (confirmed against
+    # this account 2026-09-18 — see prose.ts's header comment), not the
+    # bare foundation-model id: AWS requires InvokeModel granted on both
+    # the profile ARN and the underlying foundation-model ARN it can
+    # route to. The foundation-model resource uses a wildcard region
+    # because the profile — not this policy — picks which US region
+    # actually serves the request.
+    actions = ["bedrock:InvokeModel"]
+    resources = [
+      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/us.anthropic.claude-sonnet-5",
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5",
+    ]
   }
 }
 
