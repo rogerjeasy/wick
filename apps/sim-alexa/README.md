@@ -18,13 +18,18 @@ permitted alternative costs three seconds and buys credibility.
 1. speaks to the **real** MCP server in `services/mcp-server` over Streamable
    HTTP, spec 2025-11-25 — no shortcuts, no direct database reads;
 2. offers four fixed buttons, one per tool it exercises (`get_week_narrative`,
-   `get_today`, `did_visitor_come`, `send_note_to_tv`) — no MCP Apps view
-   (M6 was deliberately scoped out of this plan) and no voice or free-text
+   `get_today`, `did_visitor_come`, `send_note_to_tv`) — no voice or free-text
    *question* input; three buttons take no input at all, and the fourth
    (`send_note_to_tv`) has a plain from/message form, not a spoken query;
 3. displays each tool's raw JSON (or text) response verbatim in a `<pre>`
-   block — there is no Narrator-drafted spoken rendering here, only what the
-   MCP tool call actually returned.
+   block — **except `get_week_narrative`** (M6), which now renders as an
+   actual panel: the Narrator's prose first, then the timeline it was built
+   from, chronologically. `renderWeekPanel()` in `main.js` does the
+   rendering — client-side only, still no shortcut into the database, and
+   it falls straight back to plain text for the INV-7 refusal case (the
+   narrative exists but the resident hasn't acknowledged it on their own
+   television yet — WeekCard, `services/agent/src/agents/narrator/weekCard.ts`)
+   since that response isn't JSON-shaped at all.
 
 **The point.** The server is the real artefact. This is a client. If Alexa+ access
 ever opens, this directory becomes redundant and **not one line of the server

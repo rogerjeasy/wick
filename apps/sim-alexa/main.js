@@ -195,12 +195,64 @@ async function callTool(name, args) {
   return sendMcpMessage({ jsonrpc: '2.0', id: ++mcpRequestId, method: 'tools/call', params: { name, arguments: args } });
 }
 
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+function formatTimelineAt(atMs) {
+  return new Date(atMs).toLocaleString(undefined, {
+    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+/**
+ * M6 — get_week_narrative's response, rendered as a real panel instead of
+ * raw JSON: the prose first, then the timeline it was built from.
+ * WeekNarrative's own shape (packages/contracts/src/narrative.ts) —
+ * {text, timeline: {at, kind, summary, personId?}[], residentSeenAt?, ...}.
+ *
+ * get_week_narrative.ts's tool handler returns a plain, non-JSON refusal
+ * string ("This week's narrative isn't ready yet.") whenever there's
+ * nothing to show — including, by INV-7, a narrative that exists but the
+ * resident hasn't acknowledged on their own television yet (WeekCard,
+ * services/agent/src/agents/narrator/weekCard.ts). That case is not an
+ * error to special-case here: it's a WeekNarrative-shaped response with no
+ * `text`/`timeline` fields, so it simply falls through to the plain-text
+ * branch below.
+ */
+function renderWeekPanel(rawText) {
+  let narrative;
+  try {
+    narrative = JSON.parse(rawText);
+  } catch {
+    return `<p class="week-empty">${escapeHtml(rawText)}</p>`;
+  }
+
+  if (typeof narrative.text !== 'string' || !Array.isArray(narrative.timeline)) {
+    return `<p class="week-empty">${escapeHtml(rawText)}</p>`;
+  }
+
+  const items = narrative.timeline
+    .slice()
+    .sort((a, b) => a.at - b.at)
+    .map((e) => `<li><time>${escapeHtml(formatTimelineAt(e.at))}</time><span>${escapeHtml(e.summary)}</span></li>`)
+    .join('');
+
+  return `
+    <div class="week-panel">
+      <p class="week-prose">${escapeHtml(narrative.text)}</p>
+      ${items ? `<ul class="week-timeline">${items}</ul>` : '<p class="week-empty">No events this week.</p>'}
+      <p class="week-meta">${escapeHtml(narrative.isoWeek ?? '')} · seen by the resident on their own television first (INV-7)</p>
+    </div>
+  `;
+}
+
 document.getElementById('connect').addEventListener('click', () => void connect());
 
 document.getElementById('ask-week').addEventListener('click', async () => {
   try {
     const result = await callTool('get_week_narrative', {});
-    document.getElementById('week-result').textContent = result.content[0].text;
+    document.getElementById('week-result').innerHTML = renderWeekPanel(result.content[0].text);
   } catch (err) {
     document.getElementById('week-result').textContent = `Error: ${err.message}`;
   }

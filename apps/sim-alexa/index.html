@@ -10,6 +10,15 @@
   button { padding: 10px 20px; background: #111; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
   pre { background: #f4f4f4; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
   section { margin-bottom: 32px; }
+
+  /* M6 — the week timeline panel. See renderWeekPanel() in main.js. */
+  .week-panel { background: #f4f4f4; border-radius: 8px; padding: 16px 20px; }
+  .week-prose { margin: 0 0 16px; line-height: 1.5; }
+  .week-timeline { list-style: none; margin: 0; padding: 0; border-top: 1px solid #ddd; }
+  .week-timeline li { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid #ddd; font-size: 14px; }
+  .week-timeline time { flex: 0 0 auto; color: #666; white-space: nowrap; }
+  .week-empty { color: #666; font-style: italic; }
+  .week-meta { margin: 12px 0 0; font-size: 12px; color: #888; }
 </style>
 </head>
 <body>
@@ -28,7 +37,10 @@
   <section>
     <h2>How's the week been?</h2>
     <button id="ask-week" disabled>Ask</button>
-    <pre id="week-result"></pre>
+    <!-- M6: the one tool response that gets a real rendered panel — see
+         renderWeekPanel() in main.js. Every other tool below stays raw JSON
+         on purpose (this directory's own README). -->
+    <div id="week-result"></div>
   </section>
 
   <section>
