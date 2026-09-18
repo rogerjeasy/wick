@@ -11,11 +11,15 @@
  * irrelevant." A mid-week "how's Mum been" question reads last week's
  * completed narrative until the current week's own Sunday run.
  */
+import { randomUUID } from 'node:crypto';
 import { DynamoDBClient, PutItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { currentIsoWeek, padTimestamp } from '@wick/contracts';
+import { DEFAULT_POLICY } from '@wick/policy';
 import { computeWeekNarrative } from './index.js';
 import { writeNarrative } from './prose.js';
+import { buildWeekCard } from './weekCard.js';
 import type { WeekRange } from './isoWeek.js';
+import { sendToDevice } from '../../egress.js';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
@@ -56,6 +60,11 @@ export const handler = async (): Promise<void> => {
       data: { S: JSON.stringify(narrative) },
     },
   }));
+
+  // The resident's copy — INV-7. Pressing its one button is what actually
+  // sets residentSeenAt (route.mjs); nothing here does that directly.
+  const card = buildWeekCard(narrative, randomUUID(), Date.now());
+  await sendToDevice(card, DEFAULT_POLICY);
 
   console.log(JSON.stringify({ level: 'info', msg: 'narrative_computed', isoWeek, events: narrative.timeline.length }));
 };

@@ -55,7 +55,21 @@ export interface MessageCard extends CardBase {
   readonly suggestedReplies: readonly string[];
 }
 
-export type Card = DoorCard | DayCard | MessageCard;
+/**
+ * INV-7: the resident sees their week before any family surface can read
+ * it. This card is that surface — its `id` is always `week-<isoWeek>`
+ * (deterministic, not random, the same way DoorCard's id derives from the
+ * Ring event) so route.mjs can recover which week a `seen` action refers
+ * to without a lookup. One action only: acknowledging is the whole
+ * interaction, and pressing it is what sets WeekNarrative.residentSeenAt.
+ */
+export interface WeekCard extends CardBase {
+  readonly type: 'WEEK';
+  readonly isoWeek: string;
+  readonly text: string;
+}
+
+export type Card = DoorCard | DayCard | MessageCard | WeekCard;
 
 export interface QueuedCard {
   readonly id: string;

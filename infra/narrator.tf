@@ -31,11 +31,19 @@ resource "aws_iam_role_policy_attachment" "agent_narrator_weekly_basic" {
 
 data "aws_iam_policy_document" "agent_narrator_weekly" {
   statement {
-    sid = "ReadTimelineWriteNarrative"
-    # Query: the week's EVT# rows (timeline.ts). PutItem: the NARR#<isoWeek>
-    # item get_week_narrative.ts reads.
+    sid = "ReadTimelineQueueAndLocateTheWeekCard"
+    # Query: the week's EVT# rows (timeline.ts) and, inside sendToDevice,
+    # the household's paired-device connection. PutItem: the NARR#<isoWeek>
+    # item get_week_narrative.ts reads, and (via sendToDevice) the
+    # CARD#<id> queue item for the WeekCard itself (weekCard.ts).
     actions   = ["dynamodb:Query", "dynamodb:PutItem"]
     resources = [aws_dynamodb_table.wick.arn]
+  }
+
+  statement {
+    sid       = "PushTheWeekCardToTheDevice"
+    actions   = ["execute-api:ManageConnections"]
+    resources = ["${aws_apigatewayv2_api.transport.execution_arn}/*/*"]
   }
 
   statement {

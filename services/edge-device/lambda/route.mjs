@@ -6,6 +6,17 @@
  * the Rhythm pillar's input (§3.3, §8.2) and land in Timestream once S6
  * wires that pipeline — accepted and acknowledged here, not yet persisted.
  *
+ * INV-7: a card_action of `seen` on a WeekCard (id `week-<isoWeek>`,
+ * services/agent/src/agents/narrator/weekCard.ts) is the one and only path
+ * that sets WeekNarrative.residentSeenAt — get_week_narrative.ts's gate for
+ * the family. Read-check-write, not a DynamoDB condition expression: the
+ * narrative lives as one JSON blob (`data`), and residentSeenAt is a field
+ * inside it, not a top-level attribute a ConditionExpression can see. A
+ * near-simultaneous double press racing this is harmless — first write
+ * wins with a timestamp a few milliseconds apart from the second, and
+ * "not already set" is still checked so the resident's actual first
+ * viewing is never overwritten by a later stray press.
+ *
  * reconcile: the client sends `{ t: 'reconcile', sinceCardId }` as a normal
  * message right after `onopen` (see
  * apps/tv-vega/src/transport/WebSocketChannel.ts) — not in the $connect
@@ -19,6 +30,31 @@ import { randomUUID } from 'node:crypto';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME;
+
+const WEEK_CARD_ID = /^week-(\d{4}-W\d{2})$/;
+
+/** INV-7. See this file's header comment for why it's read-check-write, not a condition. */
+async function markNarrativeSeen(householdId, isoWeek, seenAt) {
+  const res = await ddb.send(new GetItemCommand({
+    TableName: TABLE,
+    Key: { pk: { S: `HH#${householdId}` }, sk: { S: `NARR#${isoWeek}` } },
+  }));
+  const raw = res.Item?.data?.S;
+  if (!raw) return; // no narrative stored for this week — nothing to mark
+
+  const narrative = JSON.parse(raw);
+  if (narrative.residentSeenAt !== undefined) return; // first viewing is authoritative
+
+  narrative.residentSeenAt = seenAt;
+  await ddb.send(new PutItemCommand({
+    TableName: TABLE,
+    Item: {
+      pk: { S: `HH#${householdId}` },
+      sk: { S: `NARR#${isoWeek}` },
+      data: { S: JSON.stringify(narrative) },
+    },
+  }));
+}
 
 export const handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
@@ -54,6 +90,11 @@ export const handler = async (event) => {
         ...(deviceEvent.action ? { action: { S: deviceEvent.action } } : {}),
       },
     }));
+
+    if (deviceEvent.t === 'card_action' && deviceEvent.action === 'seen') {
+      const weekMatch = WEEK_CARD_ID.exec(deviceEvent.cardId);
+      if (weekMatch) await markNarrativeSeen(householdId, weekMatch[1], deviceEvent.at);
+    }
   } else if (deviceEvent.t === 'reconcile') {
     await reconcile({ event, householdId, connectionId, sinceCardId: deviceEvent.sinceCardId });
   }

@@ -13,6 +13,7 @@ import * as React from 'react';
 import type { Card } from '@wick/contracts';
 import { DoorCardView } from './DoorCard.js';
 import { MessageCardView } from './MessageCard.js';
+import { WeekCardView } from './WeekCard.js';
 
 export interface CardRendererProps {
   readonly card: Card;
@@ -28,6 +29,9 @@ export function CardRenderer({ card, onAction }: CardRendererProps): React.JSX.E
 
     case 'MESSAGE':
       return <MessageCardView card={card} onAction={handle} />;
+
+    case 'WEEK':
+      return <WeekCardView card={card} onAction={handle} />;
 
     // TODO(S3): DAY full-screen presentation, at most 3 items. Unlike
     // MESSAGE, no agent logic builds a DayCard yet (day/index.ts is a stub),
