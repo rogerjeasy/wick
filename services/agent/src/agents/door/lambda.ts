@@ -41,7 +41,7 @@ import { DynamoDBClient, PutItemCommand, QueryCommand } from '@aws-sdk/client-dy
 import { handleDoorEvent } from './handle.js';
 import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
 import { matchVisitor } from './roster.js';
-import { buildPresenceItem } from './presence.js';
+import { buildDoorEventItem, buildPresenceItem } from './presence.js';
 import { runDoorPhase2 } from './phase2.js';
 import { describeFrame } from './describe.js';
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
@@ -55,6 +55,8 @@ export interface RouteDeps {
   readonly listRoster: () => Promise<readonly RosterEntry[]>;
   /** M5. Only called when the event actually matches the roster. */
   readonly recordPresence: (match: VisitorMatch, at: number) => Promise<void>;
+  /** D3. Called for every door-worthy event, matched or not. */
+  readonly recordDoorEvent: (at: number) => Promise<void>;
   readonly sendToDevice: (card: QueuedCard) => Promise<void>;
   readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<void>;
   readonly now: () => number;
@@ -85,6 +87,15 @@ export async function routeRingEvent(
     { event, device, householdId: deps.householdId, correlationId, now: deps.now(), roster },
     { sendToDevice: deps.sendToDevice },
   );
+
+  try {
+    await deps.recordDoorEvent(event.start);
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'error', msg: 'record_door_event_failed', correlationId,
+      err: err instanceof Error ? err.message : String(err),
+    }));
+  }
 
   const match = matchVisitor(roster, event.start);
   if (match) {
@@ -153,6 +164,13 @@ async function recordPresence(householdId: string, match: VisitorMatch, at: numb
   }));
 }
 
+async function recordDoorEvent(householdId: string, at: number): Promise<void> {
+  await ddb.send(new PutItemCommand({
+    TableName: TABLE,
+    Item: buildDoorEventItem(householdId, at, randomUUID()),
+  }));
+}
+
 export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
   const householdId = process.env.WICK_HOUSEHOLD_ID;
   if (!householdId) throw new Error('WICK_HOUSEHOLD_ID not set');
@@ -165,6 +183,7 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
     findDevice: lookupDevice,
     listRoster: () => fetchRoster(householdId),
     recordPresence: (match, at) => recordPresence(householdId, match, at),
+    recordDoorEvent: (at) => recordDoorEvent(householdId, at),
     sendToDevice: (card) => realSendToDevice(card, DEFAULT_POLICY),
     runPhase2: (cardId, event) =>
       runDoorPhase2(cardId, {

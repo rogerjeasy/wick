@@ -25,6 +25,7 @@ function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     findDevice: vi.fn(async () => device),
     listRoster: vi.fn(async () => []),
     recordPresence: vi.fn(async (_match: VisitorMatch, _at: number) => {}),
+    recordDoorEvent: vi.fn(async (_at: number) => {}),
     sendToDevice: vi.fn(async (_card: QueuedCard) => {}),
     runPhase2: vi.fn(async (_cardId: string, _event: RingHistoryEvent) => {}),
     now: () => 1789455094000,
@@ -144,6 +145,35 @@ describe('routeRingEvent', () => {
     const deps = baseDeps({
       listRoster: vi.fn(async () => [maria]),
       recordPresence: vi.fn(async () => {
+        throw new Error('ddb_down');
+      }),
+    });
+
+    await expect(routeRingEvent(detail, deps)).resolves.toBe('sent');
+  });
+
+  it('D3: records a generic door event on the timeline for every door-worthy event', async () => {
+    const deps = baseDeps();
+
+    await routeRingEvent(detail, deps);
+
+    expect(deps.recordDoorEvent).toHaveBeenCalledTimes(1);
+    expect(deps.recordDoorEvent).toHaveBeenCalledWith(1789455093305); // the event's own timestamp
+  });
+
+  it('D3: records the door event even when the same event also matches the roster — both are real, both are written', async () => {
+    const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE 06:51±30m' };
+    const deps = baseDeps({ listRoster: vi.fn(async () => [maria]) });
+
+    await routeRingEvent(detail, deps);
+
+    expect(deps.recordDoorEvent).toHaveBeenCalledTimes(1);
+    expect(deps.recordPresence).toHaveBeenCalledTimes(1);
+  });
+
+  it('D3: still reports "sent" when recording the door event fails', async () => {
+    const deps = baseDeps({
+      recordDoorEvent: vi.fn(async () => {
         throw new Error('ddb_down');
       }),
     });

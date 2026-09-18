@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { VisitorMatch } from '@wick/contracts';
-import { buildPresenceItem } from '../presence.js';
+import { buildDoorEventItem, buildPresenceItem } from '../presence.js';
 
 const maria: VisitorMatch = {
   personId: 'maria',
@@ -31,5 +31,20 @@ describe('buildPresenceItem', () => {
     expect(item.type).toEqual({ S: 'presence' });
     expect(item.personId).toEqual({ S: 'maria' });
     expect(item.personName).toEqual({ S: 'Maria' });
+  });
+});
+
+describe('buildDoorEventItem', () => {
+  it('keys and timestamps the same way as buildPresenceItem — one EVT# timeline, one encoding', () => {
+    const item = buildDoorEventItem('hh-1', 1789455093305, 'evt-id-2');
+    expect(item.pk).toEqual({ S: 'HH#hh-1' });
+    expect(item.sk).toEqual({ S: 'EVT#001789455093305#evt-id-2' });
+  });
+
+  it('carries type=door and nothing else — the generic "someone was at the door" marker get_today.ts already reads', () => {
+    const item = buildDoorEventItem('hh-1', 1789455093305, 'evt-id-2');
+    expect(item.type).toEqual({ S: 'door' });
+    expect(item.personId).toBeUndefined();
+    expect(item.personName).toBeUndefined();
   });
 });
