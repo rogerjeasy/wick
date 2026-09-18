@@ -2,11 +2,21 @@
 #
 # End-to-end test of the Ring webhook, using the real HMAC key.
 #
-# Proves the whole path before Ring ever sends anything:
+# Proves the ACK path before Ring ever sends anything:
 #   signed request -> 200 -> idempotency record -> EventBridge -> log group
 # and that an unsigned request is rejected, and a replay is absorbed.
 #
 #   ./scripts/test-ring-webhook.sh
+#
+# By default the device_id is a placeholder ('synthetic-doorbell-0001') that
+# matches no real device on the account, so the Door agent Lambda correctly
+# stops at "unknown_device" — this script proves only the ACK path in that
+# case, on purpose (see docs/SIMULATOR-TESTING-GUIDE.md).
+#
+# To also prove the Door agent path itself — a real card queued, a real
+# EVT#/RHYTHM# write — pass a real device id from your linked Ring account:
+#
+#   RING_TEST_DEVICE_ID=<real device id> ./scripts/test-ring-webhook.sh
 #
 set -uo pipefail
 export AWS_PROFILE="${AWS_PROFILE:-wick-dev}"
@@ -16,6 +26,7 @@ BASE="${WICK_EDGE_URL:-$(terraform -chdir="$ROOT/infra" output -raw ring_webhook
 
 set -a; . "$ROOT/.env"; set +a
 REQ_ID="test-$(date +%s)-$RANDOM"
+DEVICE_ID="${RING_TEST_DEVICE_ID:-synthetic-doorbell-0001}"
 
 BODY=$(python3 -c "
 import json,sys,time
@@ -23,9 +34,9 @@ print(json.dumps({
   'request_id': sys.argv[1],
   'event_type': 'motion_detected',
   'sub_type': 'human',
-  'device_id': 'synthetic-doorbell-0001',
+  'device_id': sys.argv[2],
   'occurred_at': int(time.time()*1000),
-}))" "$REQ_ID")
+}))" "$REQ_ID" "$DEVICE_ID")
 
 SIG=$(python3 -c "
 import hmac,hashlib,os,sys
@@ -73,6 +84,19 @@ n=$(aws logs filter-log-events --log-group-name /wick/events --start-time "$SINC
      --filter-pattern "\"$REQ_ID\"" --no-paginate \
      --query 'length(events)' --output text 2>/dev/null | head -1)
 check "event reached EventBridge" 1 "${n:-0}"
+
+if [ "$DEVICE_ID" != "synthetic-doorbell-0001" ]; then
+  # A real device id: the Door agent Lambda should have found it, queued a
+  # real DoorCard, and written a door_activity Rhythm bucket for it — not
+  # just reached EventBridge. Give the async Lambda invocation a moment.
+  sleep 3
+  HOUSEHOLD_ID="${WICK_HOUSEHOLD_ID:-margaret}"
+  cards=$(aws dynamodb query --table-name wick \
+           --key-condition-expression 'pk = :pk AND begins_with(sk, :prefix)' \
+           --expression-attribute-values "{\":pk\":{\"S\":\"HH#$HOUSEHOLD_ID\"},\":prefix\":{\"S\":\"CARD#\"}}" \
+           --query 'Count' --output text 2>/dev/null)
+  check "Door agent queued a real card (CARD# exists)" "true" "$([ "${cards:-0}" -ge 1 ] && echo true || echo false)"
+fi
 
 echo
 printf "  %d passed, %d failed\n" "$pass" "$fail"
