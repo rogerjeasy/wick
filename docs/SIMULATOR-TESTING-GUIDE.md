@@ -223,9 +223,16 @@ recent history event was. Every millisecond printed is real.
 
 ## 3. Simulate a Fire TV — pairing and receiving cards with no physical stick
 
-Nothing in this repo ships a device simulator script, because the point of
-`WebSocketChannel.ts` is that *any* WebSocket client is a valid device as far
-as the backend is concerned. A generic CLI client is the simulator.
+**This section now also exists as a web page.** `apps/ops-console`'s
+Virtual Device (`terraform output -raw ops_console_url` + `/device.html`)
+does everything below with one click — pairing, connecting, and rendering
+real cards as they arrive in a TV-like preview — and is the faster choice
+for a live demo. The CLI walkthrough below is what that page is built on
+top of, and is still the right tool for scripting.
+
+The point of `WebSocketChannel.ts` is that *any* WebSocket client is a valid
+device as far as the backend is concerned — a generic CLI client works just
+as well as the page above.
 
 Install a WebSocket CLI once:
 
