@@ -1,6 +1,9 @@
 # ---------------------------------------------------------------------------
-# Device pairing. §4.2. Not applied by this pass — see the plan's global
-# constraints ("code + tests only"). Reviewed for correctness, not yet run.
+# Device pairing. §4.2. Deployed and confirmed live 2026-09-19: a real Vega
+# app on the Vega Virtual Device successfully called POST /pair/start and
+# received a real code + claim URL from this stack. The claim URL points at
+# docs/pair/ (GitHub Pages) — see that page and docs/404.html for how a
+# per-code path is served with no server-side routing.
 # ---------------------------------------------------------------------------
 
 resource "aws_secretsmanager_secret" "pairing_signing_key" {

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wick</title>
+<style>
+  :root{--ground:#12100E;--ink:#F4F1EA;--ink-dim:#C8C2B6;--accent:#E8B75D}
+  body{margin:0;background:var(--ground);color:var(--ink);
+       font:17px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}
+  .wrap{max-width:28rem;padding:1.25rem}
+  h1{font-family:Georgia,serif;font-size:1.75rem;margin:0 0 .75rem}
+  p{color:var(--ink-dim)}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <h1>Page not found</h1>
+  <p>Go back to <a href="/wick/">Wick</a>.</p>
+</div>
+
+<script>
+  // GitHub Pages serves this file for any path with no matching file. The
+  // pairing screen on the TV links to /wick/pair/<6-digit-code> — a real
+  // page per code can't exist (codes are generated on demand) — so this is
+  // the only handler that ever actually sees that URL. Redirect into the
+  // one real page (docs/pair/index.html) with the code as a query param;
+  // anything else falls through to the plain "not found" message above.
+  const match = location.pathname.match(/\/pair\/(\d{6})\/?$/);
+  if (match) {
+    location.replace(`${location.pathname.slice(0, match.index)}/pair/?code=${match[1]}`);
+  }
+</script>
+</body>
+</html>
