@@ -74,21 +74,30 @@ export default function App(): React.JSX.Element {
     }
     let cancelled = false;
     (async () => {
-      const token = await pairing.loadToken();
-      if (cancelled) return;
-      if (token) {
-        setScreen({ kind: 'ready' });
-        return;
-      }
-      const info = await pairing.start(DEVICE_ID);
-      if (cancelled) return;
-      setScreen({ kind: 'pairing', info });
       try {
-        await pairing.pollUntilBound(info.code);
-        if (!cancelled) setScreen({ kind: 'ready' });
+        const token = await pairing.loadToken();
+        if (cancelled) return;
+        if (token) {
+          setScreen({ kind: 'ready' });
+          return;
+        }
+        const info = await pairing.start(DEVICE_ID);
+        if (cancelled) return;
+        setScreen({ kind: 'pairing', info });
+        try {
+          await pairing.pollUntilBound(info.code);
+          if (!cancelled) setScreen({ kind: 'ready' });
+        } catch {
+          // Left on the pairing screen; a real device would offer a retry
+          // affordance here — out of scope for this pass.
+        }
       } catch {
-        // Left on the pairing screen; a real device would offer a retry
-        // affordance here — out of scope for this pass.
+        // loadToken/start failing (e.g. no network reaching the pairing
+        // API) must not leave `screen` stuck at null forever — that
+        // renders as an empty View with zero feedback, indistinguishable
+        // from a hang. Fall through to the pairing screen with no info;
+        // PairingScreen's no-info case is already handled below.
+        if (!cancelled) setScreen({ kind: 'pairing' });
       }
     })();
     return () => {
