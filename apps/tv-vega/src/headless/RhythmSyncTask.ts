@@ -15,7 +15,9 @@ import { QueueStore } from './QueueStore.js';
 import { PlaybackEventStore, type ReportablePlaybackState } from '../personalization/PlaybackEventStore.js';
 import type { DeviceEvent, PlaybackStateName } from '@wick/contracts';
 
-const CURSOR_PATH = '/wick/rhythmSyncCursor.json';
+// Flat, directly under /data/ — see PairingFlow.ts's TOKEN_PATH comment for
+// why (/wick/... failed on-device with a bare com.amazon.kepler.io.IoError).
+const CURSOR_PATH = '/data/wick-rhythmSyncCursor.json';
 const ENCODING = 'utf8';
 
 interface TestDeps {
@@ -65,5 +67,16 @@ export default async function doRhythmSync(): Promise<void> {
   }
 
   const newest = Math.max(...events.map((e) => e.eventTimestampMs));
-  await fs.writeStringToFile(CURSOR_PATH, String(newest + 1), ENCODING);
+  // Best-effort, same as PairingFlow.pollUntilBound (FRICTION.md FL-013):
+  // the events above are already enqueued for outbound delivery, so a
+  // rejected cursor write must not undo that. Losing it just means the next
+  // run re-reads from the old cursor and re-enqueues the same events —
+  // QueueStore's outbox is not deduped, so that costs a duplicate upload,
+  // not a crash or a silent stall. Recoverable is still the right trade
+  // until the underlying /data issue is fixed.
+  try {
+    await fs.writeStringToFile(CURSOR_PATH, String(newest + 1), ENCODING);
+  } catch (err) {
+    console.error('rhythm_sync_cursor_persist_failed', err);
+  }
 }

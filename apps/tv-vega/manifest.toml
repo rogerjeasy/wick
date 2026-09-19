@@ -34,13 +34,26 @@ categories     = ["com.amazon.category.main", "com.amazon.category.kepler.media"
 launch-type    = "singleton"
 
 # Holds the device channel; receives cards while the app package is alive.
+#
+# vpt's own manifest validator suggests replacing the runtime-module below
+# with the headless loader ('/com.amazon.kepler.headless.runtime.loader_2@
+# IKeplerScript_2_0') since this component owns its own process. Tried it
+# (2026-09-19): vpt then HARD-FAILS validation instead — "all runtime
+# modules declared must use the same version" — because com.wick.tv.main is
+# a real interactive UI component and cannot run under that loader, and the
+# platform requires every component in one manifest to share one runtime
+# version. The advisory contradicts the platform's own hard constraint for
+# any manifest mixing interactive and headless-service components, which
+# this one necessarily does. See FRICTION.md.
 [[components.service]]
 id             = "com.wick.tv.card.service"
 runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
 launch-type    = "singleton"
 
 # Serves real Watch Activity to the platform. Feeds Continue Watching AND the
-# Rhythm pillar — one integration, two purposes. See §3.3.
+# Rhythm pillar — one integration, two purposes. See §3.3. Same
+# headless-runtime advisory/hard-constraint contradiction as
+# com.wick.tv.card.service above — not changed, for the same reason.
 [[components.service]]
 id             = "com.wick.tv.content.dataRefresh.provider"
 runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
@@ -176,6 +189,16 @@ mode         = "install"
 
 [[offers.service]]
 id = "com.wick.tv.content.dataRefresh.provider"
+
+# Without this, nothing tells the platform com.wick.tv.card.service exists to
+# be launched — confirmed missing 2026-09-19: the process never spawned even
+# once (vega device running-apps never listed it, no LaunchComponent request
+# for it in the device log, across every relaunch this session), so
+# onStartCardService() never ran and the device channel never opened,
+# independent of the pairing/token issue FRICTION.md FL-013 documents. See
+# FRICTION.md.
+[[offers.service]]
+id = "com.wick.tv.card.service"
 
 [[offers.interaction]]
 id = "com.wick.tv.main"

@@ -93,4 +93,25 @@ describe('doRhythmSync', () => {
       { t: 'playback', state: 'PLAYING', positionMs: 1000, durationMs: 600_000, contentId: 'ep1', at: 2000 },
     ]);
   });
+
+  it('still enqueues events even when persisting the cursor fails', async () => {
+    // Reproduces FL-013 on this task's own cursor write: a rejected
+    // /data write must not undo the enqueue that already happened.
+    const fs = fakeFs();
+    const store = new PlaybackEventStore(fs);
+    await store.append(event({ eventTimestampMs: 1000 }));
+    __setRhythmSyncTestDeps({ fs });
+    const realWrite = fs.writeStringToFile.bind(fs);
+    fs.writeStringToFile = async (path, content, encoding) => {
+      if (path === '/data/wick-rhythmSyncCursor.json') throw new Error('com.amazon.kepler.io.IoError');
+      return realWrite(path, content, encoding);
+    };
+
+    await expect(doRhythmSync()).resolves.toBeUndefined();
+
+    const queue = new QueueStore(fs);
+    expect(await queue.drainOutbound()).toEqual([
+      { t: 'playback', state: 'PLAYING', positionMs: 1000, durationMs: 600_000, contentId: 'ep1', at: 1000 },
+    ]);
+  });
 });

@@ -39,11 +39,17 @@ resource "aws_iam_role" "pair_status" {
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
 }
 
+resource "aws_iam_role" "pair_refresh" {
+  name               = "${local.prefix}-pair-refresh"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
 resource "aws_iam_role_policy_attachment" "pairing_basic" {
   for_each = {
-    start  = aws_iam_role.pair_start.name
-    claim  = aws_iam_role.pair_claim.name
-    status = aws_iam_role.pair_status.name
+    start   = aws_iam_role.pair_start.name
+    claim   = aws_iam_role.pair_claim.name
+    status  = aws_iam_role.pair_status.name
+    refresh = aws_iam_role.pair_refresh.name
   }
   role       = each.value
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -78,6 +84,19 @@ data "aws_iam_policy_document" "pair_status" {
   }
 }
 
+data "aws_iam_policy_document" "pair_refresh" {
+  statement {
+    sid       = "ReadUpdateDeviceBinding"
+    actions   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.wick.arn]
+  }
+  statement {
+    sid       = "ReadSigningKey"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.pairing_signing_key.arn]
+  }
+}
+
 resource "aws_iam_role_policy" "pair_start" {
   name   = "${local.prefix}-pair-start"
   role   = aws_iam_role.pair_start.id
@@ -96,6 +115,12 @@ resource "aws_iam_role_policy" "pair_status" {
   policy = data.aws_iam_policy_document.pair_status.json
 }
 
+resource "aws_iam_role_policy" "pair_refresh" {
+  name   = "${local.prefix}-pair-refresh"
+  role   = aws_iam_role.pair_refresh.id
+  policy = data.aws_iam_policy_document.pair_refresh.json
+}
+
 resource "aws_cloudwatch_log_group" "pair_start" {
   name              = "/aws/lambda/${local.prefix}-pair-start"
   retention_in_days = 14
@@ -108,6 +133,11 @@ resource "aws_cloudwatch_log_group" "pair_claim" {
 
 resource "aws_cloudwatch_log_group" "pair_status" {
   name              = "/aws/lambda/${local.prefix}-pair-status"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "pair_refresh" {
+  name              = "/aws/lambda/${local.prefix}-pair-refresh"
   retention_in_days = 14
 }
 
@@ -179,11 +209,35 @@ resource "aws_lambda_function" "pair_status" {
   depends_on = [aws_cloudwatch_log_group.pair_status]
 }
 
+resource "aws_lambda_function" "pair_refresh" {
+  function_name = "${local.prefix}-pair-refresh"
+  role          = aws_iam_role.pair_refresh.arn
+  handler       = "pair-refresh.handler"
+  runtime       = "nodejs22.x"
+  architectures = ["arm64"]
+
+  filename         = data.archive_file.edge_device.output_path
+  source_code_hash = data.archive_file.edge_device.output_base64sha256
+
+  timeout     = 10
+  memory_size = 256
+
+  environment {
+    variables = {
+      TABLE_NAME                     = aws_dynamodb_table.wick.name
+      PAIRING_SIGNING_KEY_SECRET_ARN = aws_secretsmanager_secret.pairing_signing_key.arn
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.pair_refresh]
+}
+
 locals {
   pairing_routes = {
-    "POST /pair/start" = aws_lambda_function.pair_start
-    "POST /pair/claim" = aws_lambda_function.pair_claim
-    "GET /pair/status" = aws_lambda_function.pair_status
+    "POST /pair/start"   = aws_lambda_function.pair_start
+    "POST /pair/claim"   = aws_lambda_function.pair_claim
+    "GET /pair/status"   = aws_lambda_function.pair_status
+    "POST /pair/refresh" = aws_lambda_function.pair_refresh
   }
 }
 

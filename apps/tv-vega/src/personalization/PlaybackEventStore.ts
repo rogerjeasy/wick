@@ -55,7 +55,9 @@ export function toStoredPlaybackEvent(
   };
 }
 
-const EVENTS_PATH = '/wick/playbackEvents.json';
+// Flat, directly under /data/ — see PairingFlow.ts's TOKEN_PATH comment for
+// why (/wick/... failed on-device with a bare com.amazon.kepler.io.IoError).
+const EVENTS_PATH = '/data/wick-playbackEvents.json';
 const ENCODING = 'utf8';
 /** On-device retention bound — this is a rolling recent-history buffer, not the timeline's system of record (that's DynamoDB, via RhythmSyncTask's nightly flush). */
 const MAX_RETAINED = 500;

@@ -58,8 +58,21 @@ describe('loadOrCreateDeviceId', () => {
 
   it('returns the existing id rather than generating a new one', async () => {
     const fs = fakeFs();
-    await fs.writeStringToFile('/wick/deviceId.json', 'existing-id', 'utf8');
+    await fs.writeStringToFile('/data/wick-deviceId.json', 'existing-id', 'utf8');
     const id = await loadOrCreateDeviceId(fs, () => 'should-not-be-used');
     expect(id).toBe('existing-id');
+  });
+
+  it('resolves with the generated id even when persisting it fails', async () => {
+    // Reproduces FL-013 on the install task's own write: the VVD's /data
+    // root rejects every write with a bare com.amazon.kepler.io.IoError, so
+    // this must degrade to "re-derive next launch", not reject outright —
+    // same fix shape as PairingFlow.pollUntilBound.
+    const fs = fakeFs();
+    fs.writeStringToFile = async () => {
+      throw new Error('com.amazon.kepler.io.IoError');
+    };
+    const id = await loadOrCreateDeviceId(fs, () => 'generated-id');
+    expect(id).toBe('generated-id');
   });
 });

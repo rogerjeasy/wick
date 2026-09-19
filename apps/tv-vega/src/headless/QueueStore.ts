@@ -16,9 +16,11 @@ export interface FileSystemLike {
   exists(path: string): Promise<boolean>;
 }
 
-const QUEUE_PATH = '/wick/queue.json';
-const OUTBOX_PATH = '/wick/outbox.json';
-const HIGH_WATER_MARK_PATH = '/wick/lastSeenCardId.json';
+// Flat, directly under /data/ — see PairingFlow.ts's TOKEN_PATH comment for
+// why (/wick/... failed on-device with a bare com.amazon.kepler.io.IoError).
+const QUEUE_PATH = '/data/wick-queue.json';
+const OUTBOX_PATH = '/data/wick-outbox.json';
+const HIGH_WATER_MARK_PATH = '/data/wick-lastSeenCardId.json';
 const ENCODING = 'utf8';
 
 export class QueueStore {

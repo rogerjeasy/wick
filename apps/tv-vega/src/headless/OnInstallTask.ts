@@ -9,7 +9,9 @@
  */
 import type { FileSystemLike } from './QueueStore.js';
 
-const DEVICE_ID_PATH = '/wick/deviceId.json';
+// Flat, directly under /data/ — see PairingFlow.ts's TOKEN_PATH comment for
+// why (/wick/... failed on-device with a bare com.amazon.kepler.io.IoError).
+const DEVICE_ID_PATH = '/data/wick-deviceId.json';
 const ENCODING = 'utf8';
 
 interface TestDeps {
@@ -41,7 +43,17 @@ export async function loadOrCreateDeviceId(fs: FileSystemLike, generateId: () =>
     if (existing) return existing;
   }
   const id = generateId();
-  await fs.writeStringToFile(DEVICE_ID_PATH, id, ENCODING);
+  // Best-effort, same as PairingFlow.pollUntilBound (FRICTION.md FL-013): a
+  // fresh id this task already generated must not be lost to the caller
+  // just because /data can't hold onto it. Losing the write means the next
+  // launch re-derives a new id instead of reusing this one — recoverable —
+  // rather than this task rejecting outright, which install-time tasks have
+  // no operator-visible way to surface.
+  try {
+    await fs.writeStringToFile(DEVICE_ID_PATH, id, ENCODING);
+  } catch (err) {
+    console.error('device_id_persist_failed', err);
+  }
   return id;
 }
 

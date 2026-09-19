@@ -30,14 +30,15 @@ afterEach(async () => {
 });
 
 describe('CardService', () => {
-  it('does nothing when unpaired (no stored token)', async () => {
+  it('does nothing when unpaired (no stored token, and the server has never heard of this device)', async () => {
     const fs = fakeFs();
     __setCardServiceTestDeps({
       fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', householdId: 'h1' },
       createChannel: async () => {
         throw new Error('should not be called when unpaired');
       },
+      fetchImpl: (async () => new Response('device_not_paired', { status: 404 })) as unknown as typeof fetch,
     });
 
     await expect(onStartCardService()).resolves.toBeUndefined();
@@ -46,7 +47,7 @@ describe('CardService', () => {
   it('connects and writes an inbound card to the QueueStore', async () => {
     const fs = fakeFs();
     await fs.writeStringToFile(
-      '/wick/token.json',
+      '/data/wick-token.json',
       JSON.stringify({ jwt: 'j', deviceId: 'd1', householdId: 'h1', expiresAt: Date.now() + 100_000 }),
       'utf8',
     );
@@ -55,7 +56,7 @@ describe('CardService', () => {
     const sent: unknown[] = [];
     __setCardServiceTestDeps({
       fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', householdId: 'h1' },
       createChannel: async () => ({
         state: 'open' as const,
         onCard: (h: (c: QueuedCard) => void) => {
@@ -95,7 +96,7 @@ describe('CardService', () => {
     vi.useFakeTimers();
     const fs = fakeFs();
     await fs.writeStringToFile(
-      '/wick/token.json',
+      '/data/wick-token.json',
       JSON.stringify({ jwt: 'j', deviceId: 'd1', householdId: 'h1', expiresAt: Date.now() + 100_000 }),
       'utf8',
     );
@@ -105,7 +106,7 @@ describe('CardService', () => {
     const sent: unknown[] = [];
     __setCardServiceTestDeps({
       fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', householdId: 'h1' },
       createChannel: async () => ({
         state: 'open' as const,
         onCard: () => () => undefined,

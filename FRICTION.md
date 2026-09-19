@@ -73,6 +73,363 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-014 — Fixing FL-013's symptom exposed the real one: `card.service` never launches as a process at all, and there is no locally-discoverable manifest field that makes it
+
+**Tool / API:**      Vega manifest schema (`[[components.service]]`, `[offers]`) /
+                     `@amazon-devices/headless-task-manager` 1.x / Vega CLI 1.3.4,
+                     SDK 0.24.12044
+
+**Task attempted:**  Prove the full demo path end to end on the paired VVD from
+                     FL-013: a real Ring doorbell event → webhook → Door
+                     agent → device channel → a card actually rendering on
+                     screen. `scripts/test-ring-webhook.sh` against a real
+                     Ring Playground device confirmed the card gets queued
+                     server-side (`CARD# exists: true`); it never appeared
+                     on the TV.
+
+**Steps taken:**     1. Traced why: `CardService.ts`'s `onStartCardService()`
+                        (a separate `card_service` process, by design, so a
+                        UI crash can't drop the channel) calls
+                        `pairing.loadToken()`, which only ever reads the
+                        same broken `/data/wick-token.json` FL-013
+                        documents — and `card_service` never calls
+                        `start()`/`pollUntilBound()` itself, so it has no
+                        in-memory fallback the way `App.tsx`'s own process
+                        does. Two genuinely separate processes with no
+                        shared JS memory means the main process reaching
+                        `'ready'` says nothing about whether `card_service`
+                        ever got a token.
+                     2. Fixed that half for real: `PairingFlow.loadToken()`
+                        now takes an optional `deviceId` and falls back to a
+                        new `POST /pair/refresh {deviceId, householdId}`
+                        endpoint when disk has nothing — using the same
+                        durable `HH#{householdId}/DEV#{deviceId}` binding
+                        `pair-claim.mjs` already writes, so the server (not
+                        this device's broken local disk) is the actual
+                        source of truth for "is this device paired." Also
+                        wrapped the disk read itself in try/catch — it was
+                        the one call in this file FL-013 never guarded,
+                        and an uncaught rejection from a headless entry
+                        point's async function is a plausible match for a
+                        native `abort()`.
+                     3. Deployed (`terraform apply`) and verified live with
+                        curl against the real endpoint: 404
+                        `device_not_paired` for an unknown device, 200 with
+                        a fresh JWT for the already-bound `wick-tv`. Rebuilt
+                        the app, reinstalled, relaunched — **confirmed**:
+                        the pairing screen no longer appears at all on
+                        relaunch; the app goes straight to `'ready'`. This
+                        part is real, tested (5 new unit tests across
+                        `PairingFlow.test.ts`/`CardService.test.ts`), and
+                        shipped. **This same fix has a security cost, fully
+                        documented and mitigated in AGENTS.md under INV-1**:
+                        `/pair/refresh` mints from `{deviceId, householdId}`
+                        alone, with no proof of possession, precisely because
+                        the broken `/data` this entry is about leaves no
+                        other way for `card_service` to prove it's the real
+                        device. A real proof-of-possession scheme is blocked
+                        by the same storage bug (nothing to persist a keypair
+                        into) — a platform bug forcing a security trade-off
+                        in application code, not just a workflow one.
+                     4. The card still didn't render. `vega device
+                        running-apps` after launch listed only
+                        `com.wick.tv.main` — `com.wick.tv.card.service`
+                        never appears, and grepping the full device log
+                        since launch shows zero `LaunchComponent` requests
+                        for it, ever, across every relaunch this session.
+                        `onStartCardService()` never runs at all; the
+                        token-loading fix above is necessary but provably
+                        not sufficient.
+                     5. Found `[offers]` only declared
+                        `com.wick.tv.content.dataRefresh.provider`, never
+                        `com.wick.tv.card.service` — added the matching
+                        `[[offers.service]]` entry (manifest validates
+                        clean, 0 errors). Rebuilt, reinstalled, relaunched:
+                        still zero `LaunchComponent` requests for
+                        `card.service`, still absent from `running-apps`.
+                        Not the (or not the only) missing piece.
+                     6. A separate, already-half-applied lead from earlier
+                        this session turned out to be a real, documented fix
+                        for something adjacent: `package.json`'s
+                        `kepler.useSystemJsBundlesForHeadlessJs: false` —
+                        Amazon's own SDK 0.24 release notes name a known
+                        issue, "headless tasks crash on React Native 0.83,"
+                        for any app with a `[[components.task]]`/
+                        `[[components.service]]` in its own process group
+                        (this manifest has four), symptoms including
+                        `ReferenceError: Property '__DEV_RUNTIME__' doesn't
+                        exist` and **"data isn't synced"** — a strong match
+                        for this session's `IoError`. It had been added to
+                        `package.json` but never verified with a clean
+                        rebuild. Cleared `build/` and ran `--reset-cache
+                        --reset-global-cache`; confirmed via the build log
+                        ("Building split bundle for index.js") that the flag
+                        now actually takes effect, where it hadn't in this
+                        session's earlier builds (2-4), which silently reused
+                        stale cached headless bundle artifacts from before
+                        the flag was set. Reinstalled, relaunched: the
+                        specific native log line this entry and FL-013 both
+                        quote, "Application data root path is not set,"
+                        no longer appears at all — but `writeStringToFile`
+                        still rejects with the same bare `IoError`
+                        (`pairing_token_persist_failed` still logs, this
+                        time from a real `/pair/refresh` fallback token),
+                        and `card.service` still never launches. A real
+                        fix for a real, named, adjacent bug — not this one.
+                     7. Looked for a working reference before guessing
+                        further: `vega project list-templates` offers
+                        `helloWorld`, `helloWorld-rn72`, `basic-turbo-module`,
+                        `idl-turbo-module`, `vegaWebview` — none include a
+                        `[[components.service]]` example. No generated
+                        reference project with a working service survived
+                        from FL-011/FL-012's session. `@amazon-devices/
+                        headless-task-manager`'s own README documents
+                        *registering* an entry point
+                        (`registerHeadlessEntryPoint2`) in full, but says
+                        nothing about what actually triggers the platform to
+                        spawn the process that entry point lives in.
+                     8. Separately, tried the *other* advisory the build
+                        surfaced for this same component
+                        (`vpt`'s own info-level suggestion to use
+                        `/com.amazon.kepler.headless.runtime.loader_2@
+                        IKeplerScript_2_0` instead of
+                        `react_native_kepler_4@IReactNativeKepler_0` for
+                        `card.service`/`dataRefresh.provider`, "for better
+                        memory optimization"). This **hard-fails**
+                        validation instead: "Inconsistent runtime module
+                        versions found... All runtime modules declared must
+                        use the same version" — `com.wick.tv.main` is a real
+                        interactive UI component and cannot run under that
+                        loader, so a manifest mixing interactive and
+                        headless-service components (which this one
+                        necessarily does) can never satisfy vpt's own
+                        advisory without violating vpt's own hard
+                        constraint. Reverted; documented inline in
+                        manifest.toml.
+
+**Expected:**        That declaring a `[[components.service]]` in its own
+                     `[[processes.group]]`, registering its headless entry
+                     points, and (per step 5) offering it under `[offers]`
+                     would be sufficient for the platform to launch it
+                     alongside — or lazily on behalf of — the package's
+                     interactive component, the same way `com.wick.tv.main`
+                     launches from its own `[[offers.module]]` +
+                     `[[message]]` pair.
+
+**Actual:**          None of that launches it. Something else — a second
+                     `[[offers.module]]`/`[[message]]` pair specifically for
+                     `card.service` (mirroring `com.wick.tv.main`'s), an
+                     explicit native "start this sibling component" call
+                     from `App.tsx`, a `[[wants.service]]` on the consuming
+                     side, or a manifest field not covered by anything
+                     locally available — is required, and none of the
+                     locally-available SDK docs, templates, or package
+                     READMEs name it.
+
+**Severity:**        Critical while open — the entire live card-delivery
+                     path (the product's actual core loop: a real doorbell
+                     event reaching the TV) is unreachable on this VVD
+                     regardless of pairing state, independent of and
+                     downstream from FL-013. The pairing-persistence fix in
+                     this same entry is real and shipped; it just isn't the
+                     last blocker it looked like from `App.tsx`'s side alone.
+
+**Workaround:**      None found. `scripts/test-ring-webhook.sh` still proves
+                     the entire server-side pipeline — webhook → Door agent →
+                     a real `CARD#` record — independent of whether any
+                     device ever receives it, so the backend and agent logic
+                     stay verified even with this open. The SP-1 spike path
+                     in `App.tsx` (`SP1_SPIKE_CONTENT_URL`) renders a card
+                     without going through `card_service` at all (it calls
+                     `store.upsert()` directly from the main process), so it
+                     is unaffected by this entry — but it is a spike
+                     harness, not the real device-channel path, and
+                     `QueueStore` has no in-memory cache either (every
+                     `upsert`/`readAll` round-trips through the same `/data`
+                     file FL-013 already documents as broken), so even that
+                     path depends on `/data` actually working.
+
+**Suggestion:**      1. **Document what actually starts a
+                        `[[components.service]]` process.** The manifest
+                        schema accepts the declaration, `vpt validate`
+                        passes it clean, and the SDK gives no error or log
+                        line explaining why it never runs — structurally the
+                        same "accepted but inert, with nothing pointing at
+                        why" shape as FL-005/FL-006/FL-011.
+                     2. **Make an offered-but-never-launched service
+                        diagnosable.** `vega device running-apps` and the
+                        device log give zero signal that `card.service` was
+                        even considered — not a rejection, not a crash, just
+                        silence indistinguishable from "correctly idle."
+                     3. **Reconcile `vpt`'s own advisory and hard
+                        constraint** for the headless-runtime-loader
+                        suggestion (step 8) — it is actively wrong for any
+                        manifest that mixes interactive and headless-service
+                        components, which is the normal shape for an app
+                        like this one (a UI plus a background channel
+                        holder), not an edge case.
+                     4. Ship the sample this session couldn't find: a
+                        minimal template or reference project with one
+                        interactive component and one real
+                        `[[components.service]]` that actually starts, the
+                        way `helloWorld` already does for the interactive-
+                        only case.
+                     5. **Say what `useSystemJsBundlesForHeadlessJs: false`
+                        does and does not fix.** It is real and it changed
+                        real, observable behavior (step 6) — but "headless
+                        tasks crash" and "a `[[components.service]]` never
+                        launches at all" read, from the release notes alone,
+                        like the same problem. They are not. A one-line note
+                        distinguishing them would have saved this session an
+                        experiment that was reasonable to try but always
+                        going to fail.
+
+---
+
+## FL-013 — `IKeplerFileSystem` never provisions a data root for this package on the VVD, so every write silently fails and stalls the pairing screen forever
+
+**Tool / API:**      `@amazon-devices/kepler-file-system` 0.0.7 / Vega Virtual Device
+                     (`vega device` CLI 1.3.4, SDK 0.24.12044)
+
+**Task attempted:**  Pair a real Vega app instance end to end: `POST /pair/start`
+                     on the TV, claim the code from `docs/pair/` in a browser
+                     (confirmed working — see the claim page's own 200 response),
+                     then watch the TV's `PairingFlow.pollUntilBound` pick up the
+                     bound token and transition `App.tsx` from the pairing screen
+                     to `'ready'`.
+
+**Steps taken:**     1. Reproduced the report ("the claim page says Connected,
+                        but the TV never finishes setting up") by relaunching
+                        `com.wick.tv.main` under `vega device start-log-stream`.
+                     2. Every launch logs, repeatedly, from both the `main` and
+                        `card_service` processes:
+                        `ERROR com.amazon.keplerscript: [KeplerScript-Native]
+                        Application data root path is not set.`
+                     3. Confirmed this is not cosmetic: `vega device run-cmd
+                        --command 'ls -la /data'` shows the app's data
+                        directory completely empty — not `wick-token.json`
+                        (`PairingFlow.ts`), not `wick-deviceId.json`
+                        (`OnInstallTask.ts`, which runs on every install and
+                        should have written one), nothing.
+                     4. Ruled out a stale/corrupt install before assuming it
+                        was environmental, same discipline as FL-012: full
+                        `vega device reboot` (device came back, `/data` still
+                        empty) and a clean `uninstall-app` + `install-app`
+                        of a same-session `npm run build` package (still
+                        empty, same repeating error from a fresh pid).
+                     5. Traced the actual failure this causes:
+                        `PairingFlow.pollUntilBound` awaits
+                        `fs.writeStringToFile(TOKEN_PATH, ...)` unguarded, on
+                        the success path, *after* the server has already
+                        confirmed the claim. When that write rejects, the
+                        whole `pollUntilBound()` promise rejects; `App.tsx`'s
+                        outer `catch` only records `debugError` — it never
+                        calls `setScreen({ kind: 'ready' })`. A real,
+                        server-confirmed pairing therefore leaves the device
+                        stuck on the pairing screen indefinitely, with no
+                        indication to the person on the TV that anything
+                        went wrong on their end (because nothing did).
+
+**Expected:**        That declaring `/com.amazon.kepler.kepler_file_system_0
+                     @IKeplerFileSystem_0` under `[needs.module]` (manifest.toml,
+                     confirmed valid by `vpt`'s own manifest validator: "0
+                     errors") is sufficient for `/data` to be a writable,
+                     package-scoped directory, per the package's own README.
+
+**Actual:**          The module loads and the calls don't throw a
+                     module-not-found error — they throw a **data-root**
+                     error, meaning the OS/package-manager side of the
+                     provisioning (whatever assigns this package a concrete
+                     backing directory under `/data`) never ran, independent
+                     of the manifest declaration being valid. Reboot and
+                     reinstall both rule out "stale state" as the cause.
+
+**Severity:**        Critical while open — no on-device state (the pairing
+                     token, the device id, the Rhythm sync cursor, the queue)
+                     can survive an app restart, and until now it silently
+                     converted a successful pairing into an infinite hang
+                     with zero operator-visible signal.
+
+**Workaround:**      Made token persistence best-effort instead of load-bearing
+                     for the pairing handshake: `PairingFlow.pollUntilBound`
+                     now wraps the `writeStringToFile` call in `try/catch`,
+                     logs (`pairing_token_persist_failed`) and still resolves
+                     with the token the server already confirmed. The device
+                     reaches `'ready'` immediately; it will just re-pair on
+                     the next relaunch until the underlying data-root issue
+                     is fixed, which is a recoverable, visible failure mode
+                     instead of a silent, permanent one. Added a regression
+                     test (`PairingFlow.test.ts`, "resolves with the token
+                     even when persisting it fails") reproducing the exact
+                     rejection observed on-device.
+
+                     **Verified live, end to end, same session:** relaunched
+                     `com.wick.tv.main` under `start-log-stream`, read the
+                     fresh pairing code (`434912`) off the VVD window, and
+                     claimed it with the exact same `POST /pair/claim` call
+                     `docs/pair/index.html` makes (`{"ok":true}`). The device
+                     log shows the claim land three seconds later —
+                     `[KeplerScript-JavaScript] 'pairing_token_persist_failed',
+                     { message: '[com.amazon.kepler.io.IoError]: ' }` logged,
+                     not thrown — immediately followed by the pairing
+                     screen's mount tearing down (`SurfaceTelemetryLogger`
+                     mutations 11→21, transactions 2→3) and the app settling
+                     on a stable `'ready'` frame with zero further
+                     `keplerscript` errors of any kind. A real,
+                     server-confirmed pairing now reaches `'ready'` on this
+                     VVD, which it did not before this fix.
+
+                     One correction to this entry's own diagnosis surfaced by
+                     that same session's diagnostic overlay (App.tsx, mount-
+                     time probe): **the failure is not `/data`-specific.**
+                     `/tmp/wick-test.json` fails with the identical bare
+                     `com.amazon.kepler.io.IoError` as `/data/wick-test.json`
+                     — whatever is unprovisioned affects every writable root
+                     this package can reach, not only the one this entry's
+                     title names. The root cause is therefore broader than
+                     "no data root" and still open; the Suggestion section
+                     below is updated to match.
+
+                     Per this entry's own Suggestion #3, applied the identical
+                     try/catch-and-log treatment to the two other on-device
+                     writes flagged as sharing this gap: `OnInstallTask.
+                     loadOrCreateDeviceId` (`device_id_persist_failed`) and
+                     `RhythmSyncTask.doRhythmSync`'s cursor write
+                     (`rhythm_sync_cursor_persist_failed`). Both keep their
+                     already-produced result on a write failure — the
+                     generated device id, the already-enqueued outbound
+                     events — rather than losing it to an unrelated /data
+                     fault. Regression tests added to both suites
+                     (`OnInstallTask.test.ts`, `RhythmSyncTask.test.ts`)
+                     reproducing the same rejection. All three call sites
+                     this entry named are now closed.
+
+**Suggestion:**      1. **Make "Application data root path is not set" a
+                        package-manager-level install/launch error, not a
+                        buried native runtime log line** — a manifest that
+                        validates with "0 errors" but still can't actually
+                        back a single writable path gives a developer nothing
+                        to act on except grep-ing device logs.
+                     2. **Document what actually provisions a package's
+                        writable storage** — it is evidently not just
+                        declaring `IKeplerFileSystem` in `[needs.module]`,
+                        and it is not scoped to `/data`: `/tmp` fails with
+                        the identical bare `com.amazon.kepler.io.IoError` on
+                        this same VVD instance. Something else (a CLI
+                        provisioning step? a VVD image limitation? a second
+                        manifest field?) is missing, and nothing in the
+                        locally-available SDK docs names it.
+                     3. ~~Treat any `KeplerFileSystem` write on a success
+                        path as untrusted in this codebase until this is
+                        resolved~~ — done. `PairingFlow`, `OnInstallTask` and
+                        `RhythmSyncTask` all now catch, log, and keep the
+                        result they already had rather than rejecting. Live-
+                        verified end to end for `PairingFlow` this session
+                        (see Workaround); the other two follow the identical,
+                        already-proven pattern.
+
+---
+
 ## FL-012 — A custom Metro `resolveRequest` silently discarded the Vega SDK's own package-redirection resolver, crashing the app on every single launch
 
 **Tool / API:**      Metro 0.83.8 / `@react-native/metro-config` 0.83.0 /

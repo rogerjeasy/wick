@@ -62,6 +62,21 @@
   "kepler": {
     "projectType": "application",
     "appName": "Wick",
-    "targets": ["tv"]
-  }
+    "targets": ["tv"],
+    "useSystemJsBundlesForHeadlessJs": false
+  },
+  "comment:kepler": [
+    "useSystemJsBundlesForHeadlessJs: false — official documented workaround",
+    "for SDK 0.24's known issue 'Headless tasks crash on React Native 0.83'",
+    "(https://developer.amazon.com/docs/vega/0.24/vega-sdk-release-notes.html):",
+    "any app with a [[components.task]] or [[components.service]] in its own",
+    "[[processes.group]] — which this manifest has four of — can crash with",
+    "ReferenceError: Property '__DEV_RUNTIME__' doesn't exist, and 'data",
+    "isn't synced'. Matches the com.amazon.kepler.io.IoError this session hit",
+    "on every KeplerFileSystem.writeStringToFile call, from both /data/ and",
+    "/tmp/ paths, confirmed 2026-09-19. Amazon's own release notes say this",
+    "workaround should NOT ship to the Appstore once the real fix lands —",
+    "remove this flag when upgrading past the SDK version that fixes it.",
+    "Requires KeplerCLIPlatform >= 0.22.14 (already satisfied)."
+  ]
 }

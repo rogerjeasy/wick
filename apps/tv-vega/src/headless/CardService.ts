@@ -13,6 +13,7 @@ import { createDeviceChannel, type DeviceChannelConfig } from '../transport/crea
 import { QueueStore, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
+import { DEVICE_ID } from '../deviceId.js';
 
 const OUTBOX_POLL_MS = 1000;
 
@@ -20,6 +21,8 @@ interface TestDeps {
   readonly fs: FileSystemLike;
   readonly config: DeviceConfig;
   readonly createChannel: (config: DeviceChannelConfig, token: Parameters<typeof createDeviceChannel>[1]) => Promise<DeviceChannel>;
+  /** Injectable so tests can stub PairingFlow's server-side refresh fallback without a real network call. */
+  readonly fetchImpl?: typeof fetch;
 }
 
 let testDeps: TestDeps | null = null;
@@ -47,10 +50,19 @@ export async function onStartCardService(): Promise<void> {
   const createChannel = testDeps?.createChannel ?? createDeviceChannel;
 
   const store = new QueueStore(fs);
-  const pairing = new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, fs);
+  const pairing = new PairingFlow(
+    { pairingApiUrl: config.pairingApiUrl, householdId: config.householdId },
+    fs,
+    testDeps?.fetchImpl,
+  );
 
-  const token = await pairing.loadToken();
-  if (!token) return; // unpaired — App.tsx shows the pairing screen; nothing to hold open yet
+  // Passing DEVICE_ID lets loadToken() fall back to a server-side refresh
+  // when disk has nothing — this process's only other option, since it
+  // never calls start()/pollUntilBound() itself and has no in-memory token
+  // from App.tsx's own pairing (separate process, no shared JS memory). See
+  // PairingFlow.loadToken's header comment and FRICTION.md.
+  const token = await pairing.loadToken(DEVICE_ID);
+  if (!token) return; // genuinely unpaired — App.tsx shows the pairing screen; nothing to hold open yet
 
   const channelConfig: DeviceChannelConfig = {
     websocket: { url: config.websocketUrl, getLastSeenCardId: () => store.lastSeenCardId() },

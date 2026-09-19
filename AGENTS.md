@@ -19,6 +19,19 @@ keystore) and scope accordingly.
 **Never** put a Ring token, Bee session, AWS key or Bedrock credential in
 `apps/tv-vega` or `apps/tv-fireos`.
 
+**Known accepted exception:** `POST /pair/refresh` (`services/edge-device/
+lambda/pair-refresh.mjs`) mints a device-bound JWT from `{deviceId,
+householdId}` alone — no proof of possession. It exists because the Vega
+Virtual Device's `/data` never actually persists a write (FRICTION.md
+FL-013/FL-014), so `CardService.ts`'s separate process has no other way to
+learn it's already paired. Real proof-of-possession would need the client to
+hold a secret, which this device can't reliably store *and* this repo can't
+keep confidential (open source). Mitigated, not eliminated: a 1-hour TTL
+(`REFRESH_TOKEN_TTL_SEC`, versus `DEVICE_TOKEN_TTL_SEC`'s 30 days) and a
+per-device cooldown (`REFRESH_MIN_INTERVAL_MS`) bound exposure and throttle
+abuse; they do not stop a single unauthenticated mint. Revisit if SP-8 (real
+Fire TV hardware) shows on-device storage actually works there.
+
 ### INV-2 — Every family-bound string passes through the Guardian
 `services/agent/src/egress.ts` is the *only* module permitted to import a
 transport client. Everything else calls `sendToFamily()` / `sendToDevice()`.

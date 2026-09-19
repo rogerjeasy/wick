@@ -29,10 +29,9 @@ import { PairingScreen } from './pairing/PairingScreen.js';
 import { QueueStore } from './headless/QueueStore.js';
 import { PlayerService } from './player/PlayerService.js';
 import { loadDeviceConfig } from './config.js';
+import { DEVICE_ID } from './deviceId.js';
 
 const QUEUE_POLL_MS = 1000;
-// TODO(S4): use the platform-assigned device id once verified — Appendix A.
-const DEVICE_ID = 'wick-tv';
 
 /**
  * SP-1 spike only (docs/WICK-TECHNICAL.md §14, FRICTION.md Open Slots).
@@ -53,7 +52,7 @@ type Screen = { readonly kind: 'pairing'; readonly info?: PairingStartResponse }
 export default function App(): React.JSX.Element {
   const config = React.useMemo(() => loadDeviceConfig(), []);
   const pairing = React.useMemo(
-    () => new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, KeplerFileSystem),
+    () => new PairingFlow({ pairingApiUrl: config.pairingApiUrl, householdId: config.householdId }, KeplerFileSystem),
     [config],
   );
   const store = React.useMemo(() => new QueueStore(KeplerFileSystem), []);
@@ -75,7 +74,7 @@ export default function App(): React.JSX.Element {
     let cancelled = false;
     (async () => {
       try {
-        const token = await pairing.loadToken();
+        const token = await pairing.loadToken(DEVICE_ID);
         if (cancelled) return;
         if (token) {
           setScreen({ kind: 'ready' });
@@ -87,9 +86,10 @@ export default function App(): React.JSX.Element {
         try {
           await pairing.pollUntilBound(info.code);
           if (!cancelled) setScreen({ kind: 'ready' });
-        } catch {
-          // Left on the pairing screen; a real device would offer a retry
-          // affordance here — out of scope for this pass.
+        } catch (e) {
+          // pairing_timed_out / pairing_code_expired — the pairing screen
+          // is already the correct fallback UI; nothing else to show.
+          console.error('pairing_poll_failed', e);
         }
       } catch {
         // loadToken/start failing (e.g. no network reaching the pairing
@@ -208,7 +208,9 @@ export default function App(): React.JSX.Element {
   if (!screen) return <View style={{ flex: 1 }} />;
   // exactOptionalPropertyTypes forbids passing `info={undefined}` explicitly —
   // PairingScreenProps.info is optional (absent), not nullable.
-  if (screen.kind === 'pairing') return screen.info ? <PairingScreen info={screen.info} /> : <PairingScreen />;
+  if (screen.kind === 'pairing') {
+    return screen.info ? <PairingScreen info={screen.info} /> : <PairingScreen />;
+  }
 
   return (
     <View style={{ flex: 1 }}>
