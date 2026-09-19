@@ -18,6 +18,30 @@ const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, '../..');
 
+const defaultConfig = getDefaultConfig(projectRoot);
+
+/**
+ * getDefaultConfig() already installs its own resolver.resolveRequest —
+ * confirmed by inspecting the returned config directly (it's a function,
+ * not undefined). That's the Vega SDK's own package-redirection logic:
+ * without it, real react-native's own internal files (e.g.
+ * Libraries/ReactNative/BridgelessUIManager.js, imported unconditionally by
+ * every app via AppContainer/renderApplication, nothing to do with this
+ * app's own code) resolve their own platform-specific requires (e.g.
+ * `import Platform from '../Utilities/Platform'`) against plain
+ * react-native's own Libraries tree, which only ships .ios.js/.android.js —
+ * never against @amazon-devices/react-native-kepler's Libraries tree, which
+ * is where the real Platform.kepler.js implementation actually lives, in a
+ * completely different node_modules subtree. Falling through to plain
+ * react-native's Platform.js (a self-referencing back-compat stub, never
+ * meant to be the real resolution) crashes at runtime with "Cannot read
+ * property 'select' of undefined" — every single launch, unconditionally,
+ * before this app's own code ever runs. Overwriting resolveRequest instead
+ * of chaining through the original is exactly what caused that: it silently
+ * discards this redirection. Capture it here and delegate to it explicitly.
+ */
+const defaultResolveRequest = defaultConfig.resolver.resolveRequest;
+
 const config = {
   watchFolders: [monorepoRoot],
   resolver: {
@@ -29,19 +53,20 @@ const config = {
     // final and never retries sourceExts — so without this override, every
     // relative import in the codebase fails to bundle.
     resolveRequest: (context, moduleName, platform) => {
+      const resolve = defaultResolveRequest ?? context.resolveRequest;
       if (moduleName.startsWith('.') && moduleName.endsWith('.js')) {
         const withoutExt = moduleName.slice(0, -3);
         for (const ext of ['.ts', '.tsx', '.js']) {
           try {
-            return context.resolveRequest(context, withoutExt + ext, platform);
+            return resolve(context, withoutExt + ext, platform);
           } catch {
             // try the next extension
           }
         }
       }
-      return context.resolveRequest(context, moduleName, platform);
+      return resolve(context, moduleName, platform);
     },
   },
 };
 
-module.exports = mergeConfig(getDefaultConfig(projectRoot), config);
+module.exports = mergeConfig(defaultConfig, config);

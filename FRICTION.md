@@ -73,6 +73,144 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-012 — A custom Metro `resolveRequest` silently discarded the Vega SDK's own package-redirection resolver, crashing the app on every single launch
+
+**Tool / API:**      Metro 0.83.8 / `@react-native/metro-config` 0.83.0 /
+                     `@amazon-devices/react-native-kepler` 4.0.1+rn0.83.0
+
+**Task attempted:**  Get the real Wick app to actually *run* on the Vega
+                     Virtual Device, not just install (FL-011 fixed the
+                     install; this is what was still crashing it on launch
+                     immediately after).
+
+**Steps taken:**     1. FL-011's icon fix made `vpm install` succeed, but
+                        `vega device is-app-running` showed `com.wick.tv.main`
+                        was never actually running after launch — no visible
+                        error on device, just silently dead.
+                     2. `vega device get-log-info` listed 23
+                        `SYSTEM_TOMBSTONE` crash reports, all
+                        `com_wick_tv.acr`, confirming it crashed on every
+                        single launch attempt, not intermittently.
+                     3. Ruled out a systemic/SDK-wide cause before assuming
+                        it was ours: launched the same known-good
+                        `helloWorld` reference project on the identical VVD
+                        instance — `is-app-running` confirmed it stayed up.
+                        Whatever was wrong was specific to this app.
+                     4. Read the raw crash report:
+                        `CrashLang:JavaScript`, `CrashReason:SIGABRT`,
+                        `TypeError: Cannot read property 'select' of
+                        undefined`, thrown deep inside a chain of
+                        `metroRequire`/`loadModuleImplementation` frames —
+                        useless on its own, since it's a hashed, minified
+                        bundle filename with matching line/column numbers
+                        that mean nothing without a source map.
+                     5. Found the matching `.bundle.map` still present next
+                        to the (already-superseded) hashed bundle in
+                        `build/lib/rn-bundles/Release/`, and ran the crash's
+                        stack trace through `metro-symbolicate` (already a
+                        transitive devDependency — no new tooling needed)
+                        against it. That produced real file paths: the crash
+                        was inside `node_modules/react-native/Libraries/
+                        ReactNative/BridgelessUIManager.js`, reached via
+                        `AppContainer`/`renderApplication` — code every
+                        registered RN app goes through unconditionally, not
+                        anything specific to this app's own source.
+                     6. Read the actual crashing line in the installed
+                        package: `Platform.select({...})`, where `Platform`
+                        was `undefined` — traced to
+                        `import Platform from '../Utilities/Platform'` at
+                        the top of that file. Confirmed plain
+                        `node_modules/react-native/Libraries/Utilities/`
+                        only ships `Platform.ios.js` / `Platform.android.js`
+                        / a generic `Platform.js` that is a **self-importing
+                        back-compat stub** (`import Platform from
+                        './Platform'` — recursing into itself, never meant
+                        to be the real resolution) — while the actual Vega
+                        implementation, `Platform.kepler.js`, exists only
+                        inside `@amazon-devices/react-native-kepler`'s own,
+                        entirely separate copy of the `Libraries/` tree.
+                     7. Root cause: `apps/tv-vega/metro.config.js` (added
+                        this session, see FL-011's predecessor commit)
+                        called `getDefaultConfig(projectRoot)` and then
+                        supplied its own `resolver.resolveRequest` to handle
+                        this codebase's TypeScript-NodeNext `.js`-extension
+                        imports — without first checking whether
+                        `getDefaultConfig()`'s own return value already had
+                        one. It did: dumping the resolved config directly
+                        (`typeof cfg.resolver.resolveRequest`) showed a real
+                        function, not `undefined` — almost certainly the
+                        Vega SDK's own logic for redirecting `react-native`
+                        package-internal requires to
+                        `react-native-kepler`'s tree. `mergeConfig` cannot
+                        merge two functions, so the custom one silently
+                        replaced it outright. The custom resolver's own
+                        fallback path called `context.resolveRequest`
+                        (Metro's generic built-in resolver, always present
+                        on the context object regardless of config) instead
+                        of the SDK's actual default — which looks identical
+                        in every case *except* this one, since Metro's
+                        generic resolver has no idea `react-native`'s own
+                        internals need redirecting to a sibling package.
+                     8. Fix: capture `getDefaultConfig(projectRoot).resolver.
+                        resolveRequest` into a variable *before* overriding
+                        it, and delegate to that captured function (falling
+                        back to `context.resolveRequest` only if it's
+                        genuinely absent) instead of always using
+                        `context.resolveRequest`. Rebuilt — bundle size
+                        dropped from ~5.8MB to ~2.6MB (real react-native's
+                        own duplicated internals were no longer being
+                        bundled wholesale) — reinstalled, and
+                        `is-app-running` confirmed the app now launches and
+                        stays running, with zero new crash reports.
+
+**Expected:**        That extending `getDefaultConfig()`'s resolver with one
+                     additional rule (via the documented `resolveRequest`
+                     override pattern) would compose with whatever the SDK
+                     already configured, the same way `mergeConfig` composes
+                     every other resolver field.
+
+**Actual:**          `resolveRequest` is a single function slot, not a list —
+                     supplying one silently discards whatever
+                     `getDefaultConfig()` already provided, with no warning
+                     at config-load time, build time, or install time. The
+                     failure surfaces only as a runtime crash deep inside
+                     React Native's own internals, symbolication required to
+                     even locate it, several build/install cycles removed
+                     from the actual mistake (a five-line metro.config.js
+                     addition from an earlier session).
+
+**Severity:**        Critical while open — it crashed the app on literally
+                     every launch, with no on-device error message a
+                     developer could act on, and the true cause (a resolver
+                     override pattern that looks correct and is
+                     copy-pasted from real-world Metro monorepo guides
+                     constantly) is nowhere near where the symptom appears.
+                     Resolved this session.
+
+**Workaround:**      N/A — root-caused and fixed.
+
+**Suggestion:**      1. **Document, in `getDefaultConfig()`'s own reference
+                        page, that its returned `resolver.resolveRequest` is
+                        load-bearing and must be captured and delegated to,
+                        not just overridden** — this is a generic Metro
+                        footgun made specifically dangerous on Vega because
+                        the default resolver is doing real platform-package
+                        redirection work, not just convenience.
+                     2. **Make the missing redirection fail loudly.** A
+                        `Platform.select is not a function` (or better, a
+                        Vega-specific "no kepler variant found for
+                        Libraries/Utilities/Platform") at bundle time, or at
+                        minimum a non-generic crash reason on device, would
+                        have turned a multi-hour investigation into a
+                        five-minute one.
+                     3. **Ship `metro-symbolicate` (or an equivalent
+                        one-command wrapper) as a documented, discoverable
+                        step in the crash-triage docs.** It already exists
+                        as a transitive dependency and did the actual work
+                        here; nothing in the Vega docs pointed at it.
+
+---
+
 ## FL-011 — First real `vega build` gets the app packaging correctly; the VVD's own installer then rejects the package with no diagnosable reason
 
 **Tool / API:**      Vega CLI 1.3.4 / SDK 0.24.12044 (`react-native build-vega`,
