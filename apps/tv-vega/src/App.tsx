@@ -2,15 +2,22 @@
  * Wick — main interactive component (com.wick.tv.main).
  *
  * The device renders and never decides. If you find yourself writing an `if`
- * about *whether* to show something, it belongs in the agent plane.
- * See docs/WICK-TECHNICAL.md §1.1.
+ * about *whether* to show something, it belongs in the agent plane. The one
+ * exception, by design (§1.1, §3.4): *when* a DEFERRED card is allowed to
+ * render is a real-time, on-device decision — that's what BreakController
+ * (wrapping NaturalBreakEngine) is for, driven here instead of the raw
+ * `urgency === 'DOOR'` filter this file used to run. See
+ * apps/tv-vega/src/break/BreakController.ts's header for why no
+ * PlayerService is attached yet (SP-1, unresolved) and why that is still a
+ * correct, tested improvement over the old DOOR-only filter rather than a
+ * placeholder.
  */
-// TODO(S2): drive NaturalBreakEngine from PlayerService snapshots.
 import * as React from 'react';
 import { View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import type { QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
+import { BreakController } from './break/BreakController.js';
 import { PairingFlow, type PairingStartResponse } from './pairing/PairingFlow.js';
 import { PairingScreen } from './pairing/PairingScreen.js';
 import { QueueStore } from './headless/QueueStore.js';
@@ -29,6 +36,7 @@ export default function App(): React.JSX.Element {
     [config],
   );
   const store = React.useMemo(() => new QueueStore(KeplerFileSystem), []);
+  const breakController = React.useMemo(() => new BreakController(), []);
 
   const [screen, setScreen] = React.useState<Screen | null>(null);
   const [card, setCard] = React.useState<QueuedCard | null>(null);
@@ -61,10 +69,29 @@ export default function App(): React.JSX.Element {
   React.useEffect(() => {
     if (screen?.kind !== 'ready') return;
     let cancelled = false;
+
+    // The app is only ever JS-alive while foregrounded (§1.1's device
+    // plane), so reaching 'ready' IS the foreground signal — no AppState
+    // listener needed for that half. §4.3: this is the entire Rhythm
+    // pillar's device-side input, batched (here: sent once on change,
+    // which is already the minimum-chatter case a 10s coalescing window
+    // would otherwise collapse multiple changes into).
+    const foregroundAt = Date.now();
+    breakController.setForeground(true, foregroundAt);
+    void store.enqueueOutbound({ t: 'app_lifecycle', state: 'fg', at: foregroundAt });
+    let lastSentBreakState: string | undefined;
+
     const tick = async () => {
+      const now = Date.now();
       const cards = await store.readAll();
-      const door = cards.find((q) => q.urgency === 'DOOR' && q.card.type === 'DOOR');
-      if (!cancelled) setCard(door ?? null);
+      const picked = breakController.pickCard(cards, now);
+      if (!cancelled) setCard(picked ?? null);
+
+      const state = breakController.breakState(now);
+      if (state !== lastSentBreakState) {
+        lastSentBreakState = state;
+        void store.enqueueOutbound({ t: 'break_state', state, at: now });
+      }
     };
     void tick();
     const interval = setInterval(() => void tick(), QUEUE_POLL_MS);
@@ -72,7 +99,7 @@ export default function App(): React.JSX.Element {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [screen, store]);
+  }, [screen, store, breakController]);
 
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {
