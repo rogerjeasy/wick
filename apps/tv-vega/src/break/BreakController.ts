@@ -6,16 +6,16 @@
  * DEFERRED) never rendered on a real device no matter how long the
  * resident sat on the home screen.
  *
- * No player is attached yet. Whether Wick can composite a card over
- * *another* app's active playback, or must own its own player screen to
- * make S2 possible at all, is SP-1 — an unresolved spike (FRICTION.md's
- * Open Slots, docs/WICK-TECHNICAL.md §14) that needs real Vega hardware to
- * answer and is not this pass's to resolve. Until a PlayerService is wired
- * to a real player, `playback` stays undefined, `classify()` only ever
- * reaches IDLE/TV_SETTLED, and that is the CORRECT behaviour, not a
- * placeholder: it already fixes the concrete bug (DEFERRED cards never
- * rendering) for the home-screen case, which is the one Wick can serve
- * regardless of how SP-1 resolves.
+ * App.tsx now attaches a real player (VideoPlayer + KeplerVideoView) behind
+ * the SP1_SPIKE_CONTENT_URL flag, so `setPlayback` can receive real
+ * snapshots. What is still open is SP-1 itself: whether a card composited
+ * on top of Wick's *own* active playback is actually visible and legible on
+ * real hardware — an unresolved spike (FRICTION.md's Open Slots,
+ * docs/WICK-TECHNICAL.md §14) that needs real Vega hardware to answer, not
+ * a code question. Until that spike is run, treat `playback`-driven states
+ * (IN_SCENE, NEAR_BREAK, AT_BREAK while playing) as unverified in practice
+ * even though the state machine itself is fully tested
+ * (NaturalBreakEngine.test.ts) and now fed by a real, wired player.
  *
  * Stateful by necessity — PAUSE_IS_BREAK_MS needs "how long has it been
  * paused", which no single snapshot carries — but the state machine itself

@@ -6,26 +6,47 @@
  * exception, by design (§1.1, §3.4): *when* a DEFERRED card is allowed to
  * render is a real-time, on-device decision — that's what BreakController
  * (wrapping NaturalBreakEngine) is for, driven here instead of the raw
- * `urgency === 'DOOR'` filter this file used to run. See
- * apps/tv-vega/src/break/BreakController.ts's header for why no
- * PlayerService is attached yet (SP-1, unresolved) and why that is still a
- * correct, tested improvement over the old DOOR-only filter rather than a
- * placeholder.
+ * `urgency === 'DOOR'` filter this file used to run.
+ *
+ * A real player is now attached (below) so BreakController.setPlayback gets
+ * real snapshots instead of never firing — closing the gap
+ * apps/tv-vega/src/break/BreakController.ts's header used to describe. What
+ * is still open is SP-1 itself: whether a card composited on top of that
+ * player's own active playback is actually visible and legible on real
+ * hardware (FRICTION.md Open Slots, docs/WICK-TECHNICAL.md §14). This file
+ * can't answer that — only a real device can. See SP1_SPIKE_CONTENT_URL
+ * below for how to run the spike.
  */
 import * as React from 'react';
-import { View } from '@amazon-devices/react-native-kepler';
+import { StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
+import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import type { QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { BreakController } from './break/BreakController.js';
 import { PairingFlow, type PairingStartResponse } from './pairing/PairingFlow.js';
 import { PairingScreen } from './pairing/PairingScreen.js';
 import { QueueStore } from './headless/QueueStore.js';
+import { PlayerService } from './player/PlayerService.js';
 import { loadDeviceConfig } from './config.js';
 
 const QUEUE_POLL_MS = 1000;
 // TODO(S4): use the platform-assigned device id once verified — Appendix A.
 const DEVICE_ID = 'wick-tv';
+
+/**
+ * SP-1 spike only (docs/WICK-TECHNICAL.md §14, FRICTION.md Open Slots).
+ * Empty in every real build and every commit. To run the spike on a real
+ * device: set this to a reachable video URL (e.g. a public-domain HLS/MP4
+ * test stream), `kepler bundle`, `kepler run`, and watch what happens ~8s
+ * after playback starts — a real DOOR card gets queued through the exact
+ * production path (QueueStore -> BreakController -> CardRenderer) and
+ * should appear in the lower third without interrupting playback. Revert
+ * to '' before committing anything else. Answer goes in FRICTION.md, either
+ * way.
+ */
+const SP1_SPIKE_CONTENT_URL = '';
+const SP1_SPIKE_CARD_DELAY_MS = 8000;
 
 type Screen = { readonly kind: 'pairing'; readonly info?: PairingStartResponse } | { readonly kind: 'ready' };
 
@@ -40,6 +61,7 @@ export default function App(): React.JSX.Element {
 
   const [screen, setScreen] = React.useState<Screen | null>(null);
   const [card, setCard] = React.useState<QueuedCard | null>(null);
+  const [videoPlayer, setVideoPlayer] = React.useState<VideoPlayer | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -101,6 +123,59 @@ export default function App(): React.JSX.Element {
     };
   }, [screen, store, breakController]);
 
+  React.useEffect(() => {
+    if (screen?.kind !== 'ready' || !SP1_SPIKE_CONTENT_URL) return;
+    let cancelled = false;
+    let playerService: PlayerService | undefined;
+    const player = new VideoPlayer();
+
+    (async () => {
+      await player.initialize();
+      if (cancelled) {
+        void player.deinitialize();
+        return;
+      }
+      player.src = SP1_SPIKE_CONTENT_URL;
+      playerService = new PlayerService(player);
+      playerService.onSnapshot((snapshot) => breakController.setPlayback(snapshot, Date.now()));
+      playerService.start();
+      playerService.load('sp1-spike-content');
+      await player.play();
+      if (cancelled) return;
+      setVideoPlayer(player);
+
+      // Rule 1: a DOOR card renders immediately regardless of break state —
+      // the minimal, fastest way to ask SP-1's actual question (is an
+      // overlay visible on top of active playback) without waiting on
+      // NaturalBreakEngine's AT_BREAK timing too.
+      setTimeout(() => {
+        if (cancelled) return;
+        void store.upsert({
+          id: 'sp1-spike-card',
+          urgency: 'DOOR',
+          card: {
+            type: 'DOOR',
+            id: 'sp1-spike-card',
+            householdId: 'sp1-spike',
+            correlationId: 'sp1-spike',
+            createdAt: Date.now(),
+            actions: [{ id: 'dismiss', kind: 'dismiss', label: 'Not now' }],
+            line: 'SP-1 spike: this card should be visible without interrupting playback.',
+          },
+          queuedAt: Date.now(),
+          shownCount: 0,
+        });
+      }, SP1_SPIKE_CARD_DELAY_MS);
+    })();
+
+    return () => {
+      cancelled = true;
+      playerService?.stop();
+      setVideoPlayer(null);
+      void player.deinitialize();
+    };
+  }, [screen, store, breakController]);
+
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {
       void store.remove(cardId);
@@ -118,5 +193,10 @@ export default function App(): React.JSX.Element {
   // PairingScreenProps.info is optional (absent), not nullable.
   if (screen.kind === 'pairing') return screen.info ? <PairingScreen info={screen.info} /> : <PairingScreen />;
 
-  return <View style={{ flex: 1 }}>{card ? <CardRenderer card={card.card} onAction={handleAction} /> : null}</View>;
+  return (
+    <View style={{ flex: 1 }}>
+      {videoPlayer ? <KeplerVideoView videoPlayer={videoPlayer} style={StyleSheet.absoluteFill} scalingmode="fill" /> : null}
+      {card ? <CardRenderer card={card.card} onAction={handleAction} /> : null}
+    </View>
+  );
 }
