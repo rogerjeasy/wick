@@ -11,10 +11,11 @@
 schema-version = 1
 
 [package]
-id      = "com.wick.tv"
-title   = "Wick"
-version = "0.1.0"
-icon    = "@image/Wick.png"
+id           = "com.wick.tv"
+title        = "Wick"
+version      = "0.1.0"
+build_number = 1
+icon         = "@image/Wick.png"
 
 [os.version]
 min    = "1.2"
@@ -61,12 +62,15 @@ runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeK
 [processes]
 
 [[processes.group]]
+id             = "main"
 component-ids = ["com.wick.tv.main"]
 
 [[processes.group]]
+id             = "card_service"
 component-ids = ["com.wick.tv.card.service"]
 
 [[processes.group]]
+id             = "data_refresh"
 component-ids = ["com.wick.tv.content.dataRefresh.provider"]
 
 # -----------------------------------------------------------------------------
@@ -127,6 +131,38 @@ id = "/com.amazon.vega.os@IVega_1_2"
 # -----------------------------------------------------------------------------
 # Lifecycle tasks
 # -----------------------------------------------------------------------------
+
+[[needs.module]]
+id = "/com.amazon.kepler.headless_task_manager_1@IHeadlessTaskManager_2"
+
+[[needs.module]]
+id = "/com.amazon.kepler.kepler_content_personalization_1@IKeplerContentPersonalization_3"
+
+[[needs.module]]
+id = "/com.amazon.kepler.kepler_epg_provider_1@IKeplerEpgProvider_9"
+
+[[needs.module]]
+id = "/com.amazon.kepler.kepler_file_system_0@IKeplerFileSystem_0"
+
+[[needs.module]]
+id = "/com.amazon.kepler.kepler_media_controls_1@IKeplerMediaControls_0"
+
+[[needs.module]]
+id = "/com.amazon.kepler.keplermediadescriptor_1@IKeplermediadescriptor_1"
+
+[[needs.module]]
+id = "/com.amazon.kepler.keplerscript_4@IKeplerScript_0"
+
+[[needs.module]]
+id = "/com.amazon.kepler.w3cmedia_2@IW3cmedia_3"
+
+
+
+
+
+
+
+
 [tasks]
 
 [[tasks.work]]
@@ -143,6 +179,14 @@ id = "com.wick.tv.content.dataRefresh.provider"
 
 [[offers.interaction]]
 id = "com.wick.tv.main"
+
+# A message URI is only usable via the Message Router when it is part of a
+# declared module (Kepler Messaging User Guide, "Author Messages" — do not
+# use a URI via Message Router unless it is part of a module). This is what
+# launches com.wick.tv.main.
+[[offers.module]]
+id                 = "/com.wick.tv.module@IMain_1"
+includes-messages  = ["pkg://com.wick.tv.main"]
 
 [[message]]
 uri                  = "pkg://com.wick.tv.main"

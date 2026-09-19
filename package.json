@@ -45,6 +45,20 @@
     "typescript-eslint": "^8.70.0",
     "vitest": "^2.1.0"
   },
+  "comment:overrides": [
+    "Several @amazon-devices/* SDK packages (headless-task-manager,",
+    "kepler-content-personalization, kepler-media-controls,",
+    "kepler-cli-platform, react-native-w3cmedia) declare a loose peer dep on",
+    "react-native that resolves to 0.87.1 (latest) on the public registry.",
+    "@amazon-devices/react-native-kepler itself — the actual Vega runtime",
+    "bridge — is explicitly built against 0.83.0 (its own version string is",
+    "4.0.1+rn0.83.0). The split produces a real build failure: 0.87.1 ships",
+    "Flow syntax Metro/Hermes 0.83's parser can't read. Force the whole tree",
+    "to 0.83.0 — verified 2026-09-19 against a real `vega build`."
+  ],
+  "overrides": {
+    "react-native": "0.83.0"
+  },
   "simple-git-hooks": {
     "pre-commit": "npm run check:secrets && npm run typecheck && npm run typecheck:scripts"
   }

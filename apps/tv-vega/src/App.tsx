@@ -64,6 +64,14 @@ export default function App(): React.JSX.Element {
   const [videoPlayer, setVideoPlayer] = React.useState<VideoPlayer | null>(null);
 
   React.useEffect(() => {
+    // SP-1 spike only: real pairing needs a browser round-trip against the
+    // deployed API, which is not what this spike is testing (overlay-over-
+    // playback, not pairing). Skip straight to 'ready' so the video/card
+    // test isn't blocked on it.
+    if (SP1_SPIKE_CONTENT_URL) {
+      setScreen({ kind: 'ready' });
+      return;
+    }
     let cancelled = false;
     (async () => {
       const token = await pairing.loadToken();

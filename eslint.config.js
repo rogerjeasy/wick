@@ -58,4 +58,13 @@ export default tseslint.config(
       ],
     },
   },
+
+  // Metro and Babel load their own config as plain CommonJS by convention —
+  // not part of the app's ESM/TS source.
+  {
+    files: ['apps/tv-vega/metro.config.js', 'apps/tv-vega/babel.config.js'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
 );

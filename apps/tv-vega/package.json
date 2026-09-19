@@ -6,8 +6,9 @@
   "author": "Roger Bavibidila",
   "main": "index.js",
   "scripts": {
-    "build": "kepler bundle",
-    "start": "kepler run",
+    "build": "react-native build-vega --build-type Release",
+    "build:debug": "react-native build-vega --build-type Debug",
+    "start": "react-native start",
     "test": "vitest run"
   },
   "dependencies": {
@@ -21,12 +22,25 @@
     "@wick/contracts": "*",
     "@wick/vega-calm-ui": "*",
     "mqtt": "^5.10.0",
-    "react": "^19.3.0"
+    "react": "^19.3.0",
+    "react-native": "0.83.0",
+    "@babel/runtime": "^7.25.0"
   },
   "comment:dependencies": [
     "Vega SDK packages install from the public npm registry as normal deps.",
-    "react-native-kepler IS the React Native fork (it ships Metro 0.83 and",
-    "@react-native/codegen 0.83) \u2014 do NOT also install `react-native`.",
+    "CORRECTION 2026-09-19: the earlier assumption here (that",
+    "react-native-kepler replaces 'react-native' entirely, so installing",
+    "'react-native' too would conflict) does not match the Vega CLI's own",
+    "generated scaffold (`vega project generate --template helloWorld`,",
+    "CLI 1.3.4 / SDK 0.24.12044) \u2014 that reference project depends on both",
+    "'react-native' 0.83.0 (core JS components: View, StyleSheet, Text, ...)",
+    "and '@amazon-devices/react-native-kepler' (Vega-specific extras like",
+    "TVFocusGuideView) side by side, and imports AppRegistry from",
+    "'react-native', not react-native-kepler. Pin the exact version",
+    "(0.83.0, not ^) \u2014 react-native-kepler's own version string",
+    "(4.0.1+rn0.83.0) encodes which RN version it's built against; drifting",
+    "off it is exactly the kind of plausible-but-wrong assumption FL-007",
+    "already cost a day on once.",
     "Not yet installed, add when the feature that needs them lands:",
     "  @amazon-devices/kepler-performance-api",
     "  @amazon-devices/keplerscript-audio-lib",
@@ -38,6 +52,16 @@
     "  @amazon-devices/eslint-plugin-kepler"
   ],
   "devDependencies": {
+    "@amazon-devices/kepler-cli-platform": "^0",
+    "@react-native-community/cli": "20.0.0",
+    "@react-native/babel-preset": "0.83.0",
+    "@react-native/metro-config": "0.83.0",
+    "@react-native/typescript-config": "0.83.0",
     "@types/react": "^19.3.0"
+  },
+  "kepler": {
+    "projectType": "application",
+    "appName": "Wick",
+    "targets": ["tv"]
   }
 }

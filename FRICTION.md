@@ -73,6 +73,136 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-011 — First real `vega build` gets the app packaging correctly; the VVD's own installer then rejects the package with no diagnosable reason
+
+**Tool / API:**      Vega CLI 1.3.4 / SDK 0.24.12044 (`react-native build-vega`,
+                     `vpt validate`, `vpm install` on the Vega Virtual Device)
+
+**Task attempted:**  Get `apps/tv-vega` actually building and running for the
+                     first time — SP-1 (render-over-playback) and SP-8
+                     (real hardware / VVD insurance) both need a working
+                     build before either can be answered. This session was the
+                     first time anyone had run this repo's app code through
+                     the real Vega CLI rather than against sample-repo docs.
+
+**Steps taken:**     1. `vega project doctor` found the manifest genuinely
+                        broken: a `[[message]]` block with no owning
+                        `[[offers.module]]` (`MessageRouterSyntaxError`) —
+                        fixed per the SDK's own
+                        `messaging-UserGuide.md`. Also found `kepler` was
+                        missing entirely from `package.json` (`projectType`
+                        required), and the build/start scripts
+                        (`kepler bundle` / `kepler run`) were the CLI's
+                        pre-rebrand alias names — `bundle` and bare `run`
+                        don't exist in the CLI surface at all.
+                     2. Generated a real reference project
+                        (`vega project generate --template helloWorld`) to
+                        get ground truth instead of guessing, and found this
+                        repo's own comment — "react-native-kepler IS the
+                        React Native fork... do NOT also install
+                        `react-native`" — is wrong. The reference project
+                        depends on both, pinned `react-native@0.83.0`
+                        alongside `@amazon-devices/react-native-kepler`, and
+                        imports `AppRegistry`/`View`/etc. from `react-native`
+                        directly.
+                     3. Fixed in order to get `react-native build-vega` to
+                        run at all: added the missing `@amazon-devices/
+                        kepler-cli-platform` devDependency (it's what
+                        registers the `build-vega` command on the
+                        `react-native` CLI — without it, `build-vega` is
+                        "unknown command"); added `@babel/runtime`; added
+                        Metro `watchFolders`/`nodeModulesPaths` (Metro's
+                        default config only looks in this package's own
+                        `node_modules`, not the npm-workspaces root, so every
+                        hoisted dependency failed to resolve); added a
+                        `resolveRequest` override so Metro would resolve this
+                        codebase's TypeScript-NodeNext-style `.js`-extension
+                        relative imports (`from './config.js'` for a real
+                        `config.ts`) to their real `.ts`/`.tsx` files — Metro
+                        treats an explicit extension as final and doesn't
+                        retry `sourceExts` the way `tsc`/Node's ESM resolver
+                        do, so every relative import in the app was affected;
+                        forced `react-native` to `0.83.0` everywhere via a
+                        root `package.json` `overrides` — several
+                        `@amazon-devices/*` packages (headless-task-manager,
+                        kepler-content-personalization, kepler-media-controls,
+                        kepler-cli-platform, react-native-w3cmedia) declare a
+                        loose peer dep that resolves to `0.87.1` on the
+                        public registry, which ships Flow syntax the pinned
+                        Hermes/Metro 0.83 toolchain can't parse, while
+                        `react-native-kepler` itself is explicitly built
+                        against `0.83.0` (`4.0.1+rn0.83.0`).
+                     4. `react-native build-vega --build-type Release` then
+                        succeeded end to end — valid `.vpkg` for all three
+                        architectures, `manifest.toml` valid, 0 errors.
+                     5. `vega run-app ... --deviceId VirtualDevice` failed:
+                        `Package is invalid`. `vpt validate <the .vpkg>`
+                        first caught a real, separate issue — `build_number
+                        must be greater than 0` (manifest.toml's own
+                        `[package].build_number` field is accepted by the
+                        parser but silently ignored by packaging; only
+                        `--build-number` on `react-native build-vega` itself
+                        actually sets it) — fixed, and `vpt validate` then
+                        passes clean ("done.", no errors).
+                     6. `vpm install <path> --force` on the VVD still fails
+                        with the identical `Package is invalid`, and
+                        `vpm print <path> --manifest` shows the correct,
+                        well-formed manifest content being read from the
+                        package. No further detail available from `vpm`'s
+                        own CLI surface (no verbose flag on `install`).
+
+**Expected:**        That a package passing `vpt validate` cleanly would
+                     install on the Vega Virtual Device — `vpt validate` is
+                     the SDK's own documented pre-flight check for exactly
+                     this.
+
+**Actual:**          `vpt validate` and `vpm install` disagree, and only one
+                     of them says why. `vpm install`'s "Package is invalid"
+                     carries no error code, no field name, no log line
+                     pointing at a cause — structurally the same failure
+                     shape as FL-005/FL-006's Ring errors (a real rejection,
+                     no way to act on it) but on Amazon's own first-party
+                     tooling this time.
+
+**Severity:**        Important — it does not (yet) block the demo: the build
+                     pipeline itself is now proven real and working for the
+                     first time (`vega project doctor`, `vpt validate`,
+                     `react-native build-vega` — a genuine, durable milestone
+                     this session reached, not a workaround), and everything
+                     fixed to get there is committed. It does block SP-1 and
+                     SP-8 specifically until resolved.
+
+**Workaround:**      None found yet. Candidates for next session: try the
+                     install against real Fire TV Stick hardware directly
+                     (the failure mode may differ or be more informative than
+                     the VVD's); ask in the hackathon Discord/office hours,
+                     since "vpt validate passes, vpm install doesn't" reads
+                     like either a version skew between the packaging tool
+                     and the installed SDK's device image, or a real product
+                     bug; try `vpm install` with `--stub` to see if a
+                     minimal package installs, isolating whether the cause is
+                     package *content* or package *format*.
+
+**Suggestion:**      1. **Make `vpm install`'s rejection as specific as
+                        `vpt validate`'s.** Two tools in the same SDK
+                        disagreeing about the same file, with only one
+                        explaining itself, turns a one-line fix into an
+                        unbounded investigation.
+                     2. **Document that `manifest.toml`'s `[package].
+                        build_number` field is not read by packaging** — the
+                        build's own warning ("Provide via --build-number CLI
+                        option or in manifest.toml [package] section")
+                        states both work; only one does.
+                     3. Same ask as FL-007: **typecheck/test the SDK's own
+                        packages under the versions they claim to require.**
+                        `@amazon-devices/react-native-kepler` at
+                        `4.0.1+rn0.83.0` alongside five sibling packages that
+                        resolve to `react-native@0.87.1` on a clean install
+                        is exactly the kind of drift CI would catch before a
+                        third-party developer does.
+
+---
+
 ## FL-010 — FL-003's own documented workaround PATCH is itself rejected, and the console's parallel "Sign in" flow doesn't reach it either
 
 **Tool / API:**      Ring Partner API — `PATCH /v1/accounts/me/app-integrations` · Ring

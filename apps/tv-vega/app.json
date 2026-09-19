@@ -1,0 +1,5 @@
+{
+  "//": "The declared app name must match the interactive component id in manifest.toml (com.wick.tv.main) to be KRL-compatible.",
+  "name": "com.wick.tv.main",
+  "displayName": "Wick"
+}
