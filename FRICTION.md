@@ -144,56 +144,79 @@ leads, not entries — an entry requires that you actually hit it.
                         `--build-number` on `react-native build-vega` itself
                         actually sets it) — fixed, and `vpt validate` then
                         passes clean ("done.", no errors).
-                     6. `vpm install <path> --force` on the VVD still fails
+                     6. `vpm install <path> --force` on the VVD still failed
                         with the identical `Package is invalid`, and
-                        `vpm print <path> --manifest` shows the correct,
+                        `vpm print <path> --manifest` showed the correct,
                         well-formed manifest content being read from the
                         package. No further detail available from `vpm`'s
                         own CLI surface (no verbose flag on `install`).
+                     7. **Isolated it empirically rather than guessing.**
+                        Installed the known-good `helloWorld` reference
+                        project on the same VVD instance — it installed and
+                        launched cleanly, proving `vpm install` itself
+                        wasn't broken; the cause was specific to this
+                        package. Then manifest-bisected: rebuilt with
+                        progressively larger slices of the real manifest
+                        (interactive-only → +services → +tasks → +second
+                        category → +needs.privilege → +wants), reinstalling
+                        after each, until the one addition that reproduced
+                        the failure was isolated — restoring the
+                        `icon = "@image/Wick.png"` line, referencing an
+                        icon file that has never existed in this repo.
 
-**Expected:**        That a package passing `vpt validate` cleanly would
-                     install on the Vega Virtual Device — `vpt validate` is
-                     the SDK's own documented pre-flight check for exactly
-                     this.
+**Expected:**        That a package passing `vpt validate` cleanly (which
+                     explicitly downgrades a missing icon to a non-enforced
+                     warning: "icon validation is not enforced, continuing
+                     packaging...") would install on the Vega Virtual
+                     Device — `vpt validate` is the SDK's own documented
+                     pre-flight check for exactly this.
 
-**Actual:**          `vpt validate` and `vpm install` disagree, and only one
-                     of them says why. `vpm install`'s "Package is invalid"
-                     carries no error code, no field name, no log line
-                     pointing at a cause — structurally the same failure
-                     shape as FL-005/FL-006's Ring errors (a real rejection,
-                     no way to act on it) but on Amazon's own first-party
-                     tooling this time.
+**Actual — root cause found and fixed:** `vpt validate` and `vpm install`
+                     disagree about the same missing-icon condition, and
+                     only one of them says why. `vpt validate` treats it as
+                     a warning; `vpm install` treats the identical condition
+                     as a hard rejection, surfaced as a generic
+                     `Package is invalid` with no error code, no field name,
+                     nothing pointing at "icon" — structurally the same
+                     failure shape as FL-005/FL-006's Ring errors (a real
+                     rejection, no way to act on it) but on Amazon's own
+                     first-party tooling this time. Fix: added a real icon
+                     asset at `apps/tv-vega/assets/image/Wick.png` (reused
+                     from the existing Alexa+ add-on brand assets in
+                     `docs/icons/`). The full, real manifest — every
+                     service, task, want, need and the extras block, none
+                     of which turned out to matter — now installs and
+                     launches cleanly on the VVD.
 
-**Severity:**        Important — it does not (yet) block the demo: the build
-                     pipeline itself is now proven real and working for the
-                     first time (`vega project doctor`, `vpt validate`,
-                     `react-native build-vega` — a genuine, durable milestone
-                     this session reached, not a workaround), and everything
-                     fixed to get there is committed. It does block SP-1 and
-                     SP-8 specifically until resolved.
+**Severity:**        Important while open; now resolved. The build pipeline
+                     is proven real and working end to end for the first
+                     time this session (`vega project doctor`,
+                     `vpt validate`, `react-native build-vega`, `vpm install`,
+                     `vega run-app` all succeeding against the real app) —
+                     SP-1 and SP-8 are unblocked at the tooling layer; what
+                     remains for both is eyes-on confirmation (GUI VVD or
+                     real hardware), which needs a human, not more CLI work.
 
-**Workaround:**      None found yet. Candidates for next session: try the
-                     install against real Fire TV Stick hardware directly
-                     (the failure mode may differ or be more informative than
-                     the VVD's); ask in the hackathon Discord/office hours,
-                     since "vpt validate passes, vpm install doesn't" reads
-                     like either a version skew between the packaging tool
-                     and the installed SDK's device image, or a real product
-                     bug; try `vpm install` with `--stub` to see if a
-                     minimal package installs, isolating whether the cause is
-                     package *content* or package *format*.
+**Workaround:**      N/A — root-caused and fixed, not worked around.
 
 **Suggestion:**      1. **Make `vpm install`'s rejection as specific as
-                        `vpt validate`'s.** Two tools in the same SDK
-                        disagreeing about the same file, with only one
-                        explaining itself, turns a one-line fix into an
-                        unbounded investigation.
-                     2. **Document that `manifest.toml`'s `[package].
+                        `vpt validate`'s, especially where they currently
+                        contradict each other.** A missing icon is a
+                        one-line fix once named; as a generic
+                        `Package is invalid` it cost a full manifest
+                        bisection to find.
+                     2. **Make `vpt validate`'s icon warning match `vpm
+                        install`'s actual enforcement.** If the installer
+                        treats a missing icon as fatal, the validator
+                        calling it non-enforced is actively misleading —
+                        worse than not checking at all, because it gives
+                        false confidence right before packaging.
+                     3. **Document that `manifest.toml`'s `[package].
                         build_number` field is not read by packaging** — the
                         build's own warning ("Provide via --build-number CLI
                         option or in manifest.toml [package] section")
                         states both work; only one does.
-                     3. Same ask as FL-007: **typecheck/test the SDK's own
+                     4. Same ask as FL-007: **typecheck/test the SDK's own
                         packages under the versions they claim to require.**
                         `@amazon-devices/react-native-kepler` at
                         `4.0.1+rn0.83.0` alongside five sibling packages that
