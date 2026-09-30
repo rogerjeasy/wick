@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { DeviceToken } from '@wick/contracts';
 import { createDeviceChannel } from '../createDeviceChannel.js';
@@ -44,7 +44,40 @@ function workingWsFactory(): WebSocketFactory {
   };
 }
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('createDeviceChannel', () => {
+  it('leaves no channel reconnecting behind when the first WebSocket connect fails', async () => {
+    // The server keeps one connectionId per device, last connect wins
+    // (connect.mjs). An orphan that the caller never got a handle to would
+    // keep reconnecting and capture this device's cards with no handler
+    // attached — every card after that silently dropped.
+    vi.useFakeTimers();
+    let opened = 0;
+    const refusingFactory: WebSocketFactory = () => {
+      opened++;
+      const socket = {
+        onopen: null,
+        onmessage: null,
+        onclose: null as (() => void) | null,
+        onerror: null,
+        send: () => undefined,
+        close: () => undefined,
+      };
+      queueMicrotask(() => socket.onclose?.());
+      return socket as unknown as WebSocket;
+    };
+
+    await expect(
+      createDeviceChannel({ websocket: { url: 'wss://ws.example' } }, TOKEN, { websocketOpen: refusingFactory }),
+    ).rejects.toThrow('websocket_closed_before_open');
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(opened).toBe(1);
+  });
+
   it('returns MqttChannel when MQTT connects', async () => {
     const channel = await createDeviceChannel(
       { mqtt: { wssUrl: 'wss://iot.example/mqtt' }, websocket: { url: 'wss://ws.example' } },

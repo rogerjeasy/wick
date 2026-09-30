@@ -5,17 +5,21 @@
  * Isolated in its own process group (manifest.toml) so a UI crash cannot drop
  * the channel.
  *
+ * FL-014: on the VVD the platform never launches this process, so it is no
+ * longer the only holder of the channel — App.tsx runs the same
+ * startCardChannel() in the main process while Wick is on screen. This stays
+ * for the background case wherever the platform does start the service.
+ *
  * NOTE: this does NOT make Wick able to draw over another app's playback. That
  * is SP-1, the project's pivot question. See docs/WICK-TECHNICAL.md §14.
  */
-import type { ControlMessage, DeviceChannel, QueuedCard } from '@wick/contracts';
+import type { DeviceChannel } from '@wick/contracts';
 import { createDeviceChannel, type DeviceChannelConfig } from '../transport/createDeviceChannel.js';
+import { startCardChannel, type RunningCardChannel } from '../transport/startCardChannel.js';
 import { QueueStore, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
 import { DEVICE_ID } from '../deviceId.js';
-
-const OUTBOX_POLL_MS = 1000;
 
 interface TestDeps {
   readonly fs: FileSystemLike;
@@ -32,10 +36,7 @@ export function __setCardServiceTestDeps(deps: TestDeps | null): void {
   testDeps = deps;
 }
 
-let channel: DeviceChannel | undefined;
-let unsubscribeCard: (() => void) | undefined;
-let unsubscribeControl: (() => void) | undefined;
-let outboxTimer: ReturnType<typeof setInterval> | undefined;
+let running: RunningCardChannel | undefined;
 
 export async function onStartCardService(): Promise<void> {
   // Imported lazily, and only on the real (non-test) path: the module's
@@ -69,40 +70,10 @@ export async function onStartCardService(): Promise<void> {
     ...(config.mqttWssUrl ? { mqtt: { wssUrl: config.mqttWssUrl } } : {}),
   };
 
-  channel = await createChannel(channelConfig, token);
-
-  unsubscribeCard = channel.onCard((card: QueuedCard) => {
-    void store.upsert(card);
-    void channel?.send({ t: 'card_shown', cardId: card.id, at: Date.now() });
-  });
-
-  unsubscribeControl = channel.onControl((msg: ControlMessage) => {
-    if (msg.t === 'patch') void store.applyPatch(msg.patch);
-    else if (msg.t === 'revoke') void store.remove(msg.cardId);
-  });
-
-  outboxTimer = setInterval(() => void flushOutbox(store), OUTBOX_POLL_MS);
+  running = startCardChannel(store, await createChannel(channelConfig, token));
 }
 
 export async function onStopCardService(): Promise<void> {
-  clearInterval(outboxTimer);
-  outboxTimer = undefined;
-  unsubscribeCard?.();
-  unsubscribeControl?.();
-  unsubscribeCard = undefined;
-  unsubscribeControl = undefined;
-  channel?.close();
-  channel = undefined;
-}
-
-async function flushOutbox(store: QueueStore): Promise<void> {
-  if (!channel || channel.state !== 'open') return;
-  const events = await store.drainOutbound();
-  for (const event of events) {
-    try {
-      await channel.send(event);
-    } catch {
-      await store.enqueueOutbound(event); // best-effort — retried next tick
-    }
-  }
+  running?.stop();
+  running = undefined;
 }

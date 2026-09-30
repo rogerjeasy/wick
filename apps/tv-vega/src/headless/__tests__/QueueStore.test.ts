@@ -82,4 +82,56 @@ describe('QueueStore', () => {
     expect(drained).toHaveLength(2);
     expect(await store.drainOutbound()).toEqual([]);
   });
+
+  it('restores what a previous launch persisted, when the disk works', async () => {
+    const fs = fakeFs();
+    const first = new QueueStore(fs);
+    await first.upsert(doorCard('c1'));
+    await first.enqueueOutbound({ t: 'card_shown', cardId: 'c1', at: 1 });
+
+    const second = new QueueStore(fs);
+    expect((await second.readAll()).map((c) => c.id)).toEqual(['c1']);
+    expect(await second.lastSeenCardId()).toBe('c1');
+    expect(await second.drainOutbound()).toHaveLength(1);
+  });
+
+  it('drains outbound events another process appended after this store loaded (RhythmSyncTask)', async () => {
+    const fs = fakeFs();
+    const holder = new QueueStore(fs);
+    await holder.drainOutbound(); // loaded, empty
+
+    await new QueueStore(fs).enqueueOutbound({ t: 'app_lifecycle', state: 'fg', at: 5 });
+
+    expect(await holder.drainOutbound()).toEqual([{ t: 'app_lifecycle', state: 'fg', at: 5 }]);
+    expect(await holder.drainOutbound()).toEqual([]);
+  });
+
+  describe('when every disk call throws — FL-013, the VVD never provisions a data root', () => {
+    // The exact rejection observed on-device: a bare IoError, no detail.
+    function brokenFs(): FileSystemLike {
+      const fail = () => Promise.reject(new Error('com.amazon.kepler.io.IoError'));
+      return { exists: fail, readFileAsString: fail, writeStringToFile: fail };
+    }
+
+    it('still holds every card it was given, in memory', async () => {
+      const store = new QueueStore(brokenFs());
+      await store.upsert(doorCard('c1'));
+      await store.upsert(doorCard('c2'));
+      await store.applyPatch({ cardId: 'c1', description: 'A courier in a blue jacket.' });
+      await store.remove('c2');
+
+      const all = await store.readAll();
+      expect(all.map((c) => c.id)).toEqual(['c1']);
+      expect((all[0]!.card as { description?: string }).description).toBe('A courier in a blue jacket.');
+      expect(await store.lastSeenCardId()).toBe('c2');
+    });
+
+    it('still queues and drains outbound device events', async () => {
+      const store = new QueueStore(brokenFs());
+      await store.enqueueOutbound({ t: 'card_action', cardId: 'c1', action: 'dismiss', at: 2 });
+
+      expect(await store.drainOutbound()).toEqual([{ t: 'card_action', cardId: 'c1', action: 'dismiss', at: 2 }]);
+      expect(await store.drainOutbound()).toEqual([]);
+    });
+  });
 });

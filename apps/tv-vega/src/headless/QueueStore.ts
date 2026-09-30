@@ -1,12 +1,24 @@
 /**
- * The on-device card queue — the hand-off between the card service process
- * and the main UI process. manifest.toml puts them in separate process
- * groups precisely so a UI crash cannot drop the channel; they share no JS
- * memory, so this persisted file is the only channel between them, in both
- * directions: inbound cards (upsert/applyPatch/remove) and outbound device
- * events (enqueueOutbound/drainOutbound, flushed by CardService).
+ * The on-device card queue — inbound cards (upsert/applyPatch/remove) and
+ * outbound device events (enqueueOutbound/drainOutbound, flushed by
+ * startCardChannel).
  *
- * Survives restart because it IS the restart state (§3.4 rule 4).
+ * FL-013: on the VVD, IKeplerFileSystem never provisions a data root for
+ * this package, so every call rejects with a bare IoError. A store that only
+ * lived on disk lost every card it was handed — the card arrived over the
+ * channel and was gone before the UI's next read. So the two halves now
+ * degrade differently, according to who shares them:
+ *
+ *   - The card queue and high-water mark are memory-first. Only the process
+ *     holding the channel writes them, and since FL-014 that is the same
+ *     process that renders (App.tsx), reading this same instance. Disk is
+ *     hydrated once and written through, so a device whose disk works still
+ *     survives a restart (§3.4 rule 4) — a disk failure costs persistence
+ *     across restarts, never a card in the running app.
+ *   - The outbox is genuinely cross-process: RhythmSyncTask runs as its own
+ *     task and appends to it for the channel holder to drain. So disk stays
+ *     its source of truth whenever disk works, re-read on every drain; only
+ *     events the disk refuses fall back to this instance's memory.
  */
 import type { CardPatch, DeviceEvent, QueuedCard } from '@wick/contracts';
 
@@ -23,11 +35,23 @@ const OUTBOX_PATH = '/data/wick-outbox.json';
 const HIGH_WATER_MARK_PATH = '/data/wick-lastSeenCardId.json';
 const ENCODING = 'utf8';
 
+interface State {
+  queue: readonly QueuedCard[];
+  highWaterMark: string | undefined;
+}
+
 export class QueueStore {
   readonly #fs: FileSystemLike;
   readonly #queuePath: string;
   readonly #outboxPath: string;
   readonly #highWaterMarkPath: string;
+  #state: Promise<State> | undefined;
+  #writes: Promise<unknown> = Promise.resolve();
+  /** Outbox read-modify-writes, one at a time, so two quick enqueues can't overwrite each other. */
+  #outboxOps: Promise<unknown> = Promise.resolve();
+  /** Events the disk refused. Always empty on a device whose disk works. */
+  #memoryOutbox: readonly DeviceEvent[] = [];
+  #diskFailureLogged = false;
 
   constructor(
     fs: FileSystemLike,
@@ -42,19 +66,20 @@ export class QueueStore {
   }
 
   async readAll(): Promise<readonly QueuedCard[]> {
-    return this.#readJson<QueuedCard>(this.#queuePath);
+    return (await this.#load()).queue;
   }
 
   /** Upsert by id — a Phase 2 patch replaces in place, it never duplicates. */
   async upsert(card: QueuedCard): Promise<void> {
-    const all = await this.readAll();
-    await this.#writeJson(this.#queuePath, [...all.filter((c) => c.id !== card.id), card]);
-    await this.#bumpHighWaterMark(card.id);
+    const state = await this.#load();
+    state.queue = [...state.queue.filter((c) => c.id !== card.id), card];
+    await this.#persist(this.#queuePath, JSON.stringify(state.queue));
+    await this.#bumpHighWaterMark(state, card.id);
   }
 
   async applyPatch(patch: CardPatch): Promise<void> {
-    const all = await this.readAll();
-    const next = all.map((q) => {
+    const state = await this.#load();
+    state.queue = state.queue.map((q) => {
       if (q.id !== patch.cardId || q.card.type !== 'DOOR') return q;
       return {
         ...q,
@@ -66,12 +91,13 @@ export class QueueStore {
         },
       };
     });
-    await this.#writeJson(this.#queuePath, next);
+    await this.#persist(this.#queuePath, JSON.stringify(state.queue));
   }
 
   async remove(cardId: string): Promise<void> {
-    const all = await this.readAll();
-    await this.#writeJson(this.#queuePath, all.filter((c) => c.id !== cardId));
+    const state = await this.#load();
+    state.queue = state.queue.filter((c) => c.id !== cardId);
+    await this.#persist(this.#queuePath, JSON.stringify(state.queue));
   }
 
   /**
@@ -84,35 +110,103 @@ export class QueueStore {
    * redeliver a card the resident already acted on.
    */
   async lastSeenCardId(): Promise<string | undefined> {
-    if (!(await this.#fs.exists(this.#highWaterMarkPath))) return undefined;
-    const raw = await this.#fs.readFileAsString(this.#highWaterMarkPath, ENCODING);
-    return raw || undefined;
+    return (await this.#load()).highWaterMark;
   }
 
-  async #bumpHighWaterMark(id: string): Promise<void> {
-    const current = await this.lastSeenCardId();
-    if (current !== undefined && current >= id) return;
-    await this.#fs.writeStringToFile(this.#highWaterMarkPath, id, ENCODING);
+  async #bumpHighWaterMark(state: State, id: string): Promise<void> {
+    if (state.highWaterMark !== undefined && state.highWaterMark >= id) return;
+    state.highWaterMark = id;
+    await this.#persist(this.#highWaterMarkPath, id);
   }
 
-  async enqueueOutbound(event: DeviceEvent): Promise<void> {
-    const all = await this.#readJson<DeviceEvent>(this.#outboxPath);
-    await this.#writeJson(this.#outboxPath, [...all, event]);
+  enqueueOutbound(event: DeviceEvent): Promise<void> {
+    return this.#outboxOp(async () => {
+      try {
+        const onDisk = await this.#readOutboxFromDisk();
+        await this.#fs.writeStringToFile(this.#outboxPath, JSON.stringify([...onDisk, event]), ENCODING);
+      } catch (err) {
+        this.#logDiskFailure('write', err);
+        this.#memoryOutbox = [...this.#memoryOutbox, event];
+      }
+    });
   }
 
-  async drainOutbound(): Promise<readonly DeviceEvent[]> {
-    const all = await this.#readJson<DeviceEvent>(this.#outboxPath);
-    await this.#writeJson(this.#outboxPath, []);
-    return all;
+  drainOutbound(): Promise<readonly DeviceEvent[]> {
+    return this.#outboxOp(async () => {
+      const fromMemory = this.#memoryOutbox;
+      this.#memoryOutbox = [];
+      let fromDisk: readonly DeviceEvent[] = [];
+      try {
+        fromDisk = await this.#readOutboxFromDisk();
+        if (fromDisk.length > 0) await this.#fs.writeStringToFile(this.#outboxPath, '[]', ENCODING);
+      } catch (err) {
+        // Read failed: nothing to take from disk. Clear failed after a good
+        // read: the events are returned now and may be sent again later — a
+        // duplicate, which beats a lost card_action.
+        this.#logDiskFailure('read', err);
+      }
+      return [...fromMemory, ...fromDisk];
+    });
   }
 
-  async #readJson<T>(path: string): Promise<readonly T[]> {
-    if (!(await this.#fs.exists(path))) return [];
-    const raw = await this.#fs.readFileAsString(path, ENCODING);
-    return raw ? (JSON.parse(raw) as readonly T[]) : [];
+  #outboxOp<T>(op: () => Promise<T>): Promise<T> {
+    const result = this.#outboxOps.then(op);
+    this.#outboxOps = result.catch(() => undefined);
+    return result;
   }
 
-  #writeJson<T>(path: string, value: readonly T[]): Promise<number> {
-    return this.#fs.writeStringToFile(path, JSON.stringify(value), ENCODING);
+  /** Unlike #readRaw, lets a disk failure throw — the outbox needs to know. */
+  async #readOutboxFromDisk(): Promise<readonly DeviceEvent[]> {
+    if (!(await this.#fs.exists(this.#outboxPath))) return [];
+    return parseJsonArray<DeviceEvent>(await this.#fs.readFileAsString(this.#outboxPath, ENCODING));
+  }
+
+  /** Hydrates once; every caller before and after shares the same in-memory state. */
+  #load(): Promise<State> {
+    this.#state ??= (async () => ({
+      queue: parseJsonArray<QueuedCard>(await this.#readRaw(this.#queuePath)),
+      highWaterMark: (await this.#readRaw(this.#highWaterMarkPath)) || undefined,
+    }))();
+    return this.#state;
+  }
+
+  async #readRaw(path: string): Promise<string> {
+    try {
+      if (!(await this.#fs.exists(path))) return '';
+      return await this.#fs.readFileAsString(path, ENCODING);
+    } catch (err) {
+      this.#logDiskFailure('read', err);
+      return '';
+    }
+  }
+
+  /**
+   * Serialized so two quick changes can't land out of order and leave an
+   * older snapshot on disk. Never rejects — see the header.
+   */
+  #persist(path: string, content: string): Promise<void> {
+    const write = this.#writes.then(() => this.#fs.writeStringToFile(path, content, ENCODING));
+    this.#writes = write.catch(() => undefined);
+    return write.then(
+      () => undefined,
+      (err: unknown) => this.#logDiskFailure('write', err),
+    );
+  }
+
+  /** Once per store: on a VVD with no data root this would otherwise log every second. */
+  #logDiskFailure(op: 'read' | 'write', err: unknown): void {
+    if (this.#diskFailureLogged) return;
+    this.#diskFailureLogged = true;
+    console.error(`queue_store_disk_${op}_failed — continuing in memory only (FL-013)`, err);
+  }
+}
+
+function parseJsonArray<T>(raw: string): readonly T[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return []; // a torn write from a previous launch is "nothing persisted", not a crash
   }
 }

@@ -1,0 +1,129 @@
+/**
+ * The card channel's working half: an already-connected DeviceChannel wired
+ * to a QueueStore. Inbound cards and controls go into the store; outbound
+ * device events the UI queued go out on a poll.
+ *
+ * Process-agnostic on purpose. It used to live inside CardService.ts, which
+ * only ever runs in the card_service process — and on the VVD that process
+ * never launches at all (FRICTION.md FL-014), so no card ever reached the
+ * screen. App.tsx now runs this in the main process, against the same
+ * QueueStore instance its render loop reads; CardService.ts still runs it
+ * for the background case, wherever the platform does start that service.
+ *
+ * startCardChannel only ever sees a channel that already opened once — the
+ * channel handles its own reconnects after that. holdCardChannel (below) is
+ * the connect-and-retry wrapper App.tsx uses to get there.
+ */
+import type { ControlMessage, DeviceChannel, DeviceToken, QueuedCard } from '@wick/contracts';
+import type { QueueStore } from '../headless/QueueStore.js';
+import type { DeviceConfig } from '../config.js';
+import type { DeviceChannelConfig } from './createDeviceChannel.js';
+
+const OUTBOX_POLL_MS = 1000;
+const FIRST_CONNECT_MIN_RETRY_MS = 2000;
+const FIRST_CONNECT_MAX_RETRY_MS = 30_000;
+
+export type ChannelFactory = (config: DeviceChannelConfig, token: DeviceToken) => Promise<DeviceChannel>;
+
+export interface RunningCardChannel {
+  /** Closes the channel and stops flushing. Idempotent. */
+  stop(): void;
+}
+
+export function startCardChannel(store: QueueStore, channel: DeviceChannel): RunningCardChannel {
+  const unsubscribeCard = channel.onCard((card: QueuedCard) => {
+    void store.upsert(card);
+    void channel.send({ t: 'card_shown', cardId: card.id, at: Date.now() }).catch(() => undefined);
+  });
+
+  const unsubscribeControl = channel.onControl((msg: ControlMessage) => {
+    if (msg.t === 'patch') void store.applyPatch(msg.patch);
+    else if (msg.t === 'revoke') void store.remove(msg.cardId);
+  });
+
+  let flushing = false;
+  const outboxTimer = setInterval(() => {
+    // One flush at a time: a slow send must not let the next tick drain the
+    // same outbox a second time and reorder events.
+    if (flushing || channel.state !== 'open') return;
+    flushing = true;
+    void flushOutbox(store, channel).finally(() => {
+      flushing = false;
+    });
+  }, OUTBOX_POLL_MS);
+
+  let stopped = false;
+  return {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(outboxTimer);
+      unsubscribeCard();
+      unsubscribeControl();
+      channel.close();
+    },
+  };
+}
+
+async function flushOutbox(store: QueueStore, channel: DeviceChannel): Promise<void> {
+  const events = await store.drainOutbound();
+  for (const event of events) {
+    try {
+      await channel.send(event);
+    } catch {
+      await store.enqueueOutbound(event); // best-effort — retried next tick
+    }
+  }
+}
+
+/**
+ * Connect, then run — App.tsx's whole side of the channel. A failed first
+ * connect (no network yet at boot, API Gateway briefly unreachable) retries
+ * with capped backoff: once the device is paired there is no screen to fall
+ * back to, so giving up would mean no cards until the next relaunch. After
+ * the first successful connect the channel's own reconnect takes over.
+ */
+export function holdCardChannel(
+  store: QueueStore,
+  token: DeviceToken,
+  createChannel: ChannelFactory,
+  config: Pick<DeviceConfig, 'websocketUrl' | 'mqttWssUrl'>,
+): RunningCardChannel {
+  const channelConfig: DeviceChannelConfig = {
+    websocket: { url: config.websocketUrl, getLastSeenCardId: () => store.lastSeenCardId() },
+    ...(config.mqttWssUrl ? { mqtt: { wssUrl: config.mqttWssUrl } } : {}),
+  };
+
+  let stopped = false;
+  let running: RunningCardChannel | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryMs = FIRST_CONNECT_MIN_RETRY_MS;
+
+  const attempt = async (): Promise<void> => {
+    let channel: DeviceChannel;
+    try {
+      channel = await createChannel(channelConfig, token);
+    } catch (err) {
+      if (stopped) return;
+      console.error('card_channel_connect_failed — retrying', { retryMs }, err);
+      retryTimer = setTimeout(() => void attempt(), retryMs);
+      retryMs = Math.min(retryMs * 2, FIRST_CONNECT_MAX_RETRY_MS);
+      return;
+    }
+    if (stopped) {
+      channel.close(); // stop() won the race — never leave it holding this device's connectionId
+      return;
+    }
+    running = startCardChannel(store, channel);
+  };
+  void attempt();
+
+  return {
+    stop() {
+      stopped = true;
+      clearTimeout(retryTimer);
+      running?.stop();
+      running = undefined;
+    },
+  };
+}

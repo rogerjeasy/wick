@@ -21,13 +21,15 @@ import * as React from 'react';
 import { StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
-import type { QueuedCard } from '@wick/contracts';
+import type { DeviceToken, QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { BreakController } from './break/BreakController.js';
 import { PairingFlow, type PairingStartResponse } from './pairing/PairingFlow.js';
 import { PairingScreen } from './pairing/PairingScreen.js';
 import { QueueStore } from './headless/QueueStore.js';
 import { PlayerService } from './player/PlayerService.js';
+import { createDeviceChannel } from './transport/createDeviceChannel.js';
+import { holdCardChannel } from './transport/startCardChannel.js';
 import { loadDeviceConfig } from './config.js';
 import { DEVICE_ID } from './deviceId.js';
 
@@ -47,7 +49,13 @@ const QUEUE_POLL_MS = 1000;
 const SP1_SPIKE_CONTENT_URL = '';
 const SP1_SPIKE_CARD_DELAY_MS = 8000;
 
-type Screen = { readonly kind: 'pairing'; readonly info?: PairingStartResponse } | { readonly kind: 'ready' };
+/**
+ * `token` is absent only in the SP-1 spike, which skips pairing and so has
+ * no channel to hold.
+ */
+type Screen =
+  | { readonly kind: 'pairing'; readonly info?: PairingStartResponse }
+  | { readonly kind: 'ready'; readonly token?: DeviceToken };
 
 export default function App(): React.JSX.Element {
   const config = React.useMemo(() => loadDeviceConfig(), []);
@@ -77,15 +85,15 @@ export default function App(): React.JSX.Element {
         const token = await pairing.loadToken(DEVICE_ID);
         if (cancelled) return;
         if (token) {
-          setScreen({ kind: 'ready' });
+          setScreen({ kind: 'ready', token });
           return;
         }
         const info = await pairing.start(DEVICE_ID);
         if (cancelled) return;
         setScreen({ kind: 'pairing', info });
         try {
-          await pairing.pollUntilBound(info.code);
-          if (!cancelled) setScreen({ kind: 'ready' });
+          const bound = await pairing.pollUntilBound(info.code);
+          if (!cancelled) setScreen({ kind: 'ready', token: bound });
         } catch (e) {
           // pairing_timed_out / pairing_code_expired — the pairing screen
           // is already the correct fallback UI; nothing else to show.
@@ -104,6 +112,18 @@ export default function App(): React.JSX.Element {
       cancelled = true;
     };
   }, [pairing]);
+
+  // FL-014: the card channel lives here, in the process that renders. The
+  // card_service process that was meant to hold it never launches on the
+  // VVD, so a card could be queued server-side and never reach the screen.
+  // Holding it here means the one QueueStore instance the render loop reads
+  // below is the one the channel writes into — no disk hand-off (FL-013).
+  const token = screen?.kind === 'ready' ? screen.token : undefined;
+  React.useEffect(() => {
+    if (!token) return;
+    const held = holdCardChannel(store, token, createDeviceChannel, config);
+    return () => held.stop();
+  }, [token, store, config]);
 
   React.useEffect(() => {
     if (screen?.kind !== 'ready') return;
@@ -197,9 +217,8 @@ export default function App(): React.JSX.Element {
     (cardId: string, actionId: string) => {
       void store.remove(cardId);
       setCard(null);
-      // The channel lives in the card service process (manifest.toml §3.1);
-      // this is how the UI process gets an action back to it — see the
-      // plan's Scope decisions.
+      // The outbox is drained by whichever process holds the channel — this
+      // one, since FL-014 (holdCardChannel above).
       void store.enqueueOutbound({ t: 'card_action', cardId, action: actionId, at: Date.now() });
     },
     [store],

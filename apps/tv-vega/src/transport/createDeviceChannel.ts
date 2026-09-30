@@ -42,6 +42,14 @@ export async function createDeviceChannel(
   const wsChannel = overrides.websocketOpen
     ? new WebSocketChannel(config.websocket, overrides.websocketOpen)
     : new WebSocketChannel(config.websocket);
-  await wsChannel.connect(token);
+  try {
+    await wsChannel.connect(token);
+  } catch (err) {
+    // The caller never gets this instance, so nothing could ever close it —
+    // and its own backoff would keep reconnecting, taking over this device's
+    // connectionId (last connect wins, connect.mjs) with no handler attached.
+    wsChannel.close();
+    throw err;
+  }
   return wsChannel;
 }
