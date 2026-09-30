@@ -226,7 +226,7 @@ leads, not entries — an entry requires that you actually hit it.
                      locally-available SDK docs, templates, or package
                      READMEs name it.
 
-**Severity:**        Critical while open — the entire live card-delivery
+**Severity:**        Critical while open (worked around 2026-09-30, see below) — the entire live card-delivery
                      path (the product's actual core loop: a real doorbell
                      event reaching the TV) is unreachable on this VVD
                      regardless of pairing state, independent of and
@@ -234,20 +234,36 @@ leads, not entries — an entry requires that you actually hit it.
                      this same entry is real and shipped; it just isn't the
                      last blocker it looked like from `App.tsx`'s side alone.
 
-**Workaround:**      None found. `scripts/test-ring-webhook.sh` still proves
-                     the entire server-side pipeline — webhook → Door agent →
-                     a real `CARD#` record — independent of whether any
-                     device ever receives it, so the backend and agent logic
-                     stay verified even with this open. The SP-1 spike path
-                     in `App.tsx` (`SP1_SPIKE_CONTENT_URL`) renders a card
-                     without going through `card_service` at all (it calls
-                     `store.upsert()` directly from the main process), so it
-                     is unaffected by this entry — but it is a spike
-                     harness, not the real device-channel path, and
-                     `QueueStore` has no in-memory cache either (every
-                     `upsert`/`readAll` round-trips through the same `/data`
-                     file FL-013 already documents as broken), so even that
-                     path depends on `/data` actually working.
+**Workaround:**      **Found and verified 2026-09-30: stop depending on the
+                     service.** The channel logic moved out of
+                     `CardService.ts` into a process-agnostic
+                     `startCardChannel()`/`holdCardChannel()`
+                     (`apps/tv-vega/src/transport/startCardChannel.ts`), and
+                     `App.tsx` now holds the channel itself once pairing
+                     reaches `'ready'`, writing into the same `QueueStore`
+                     instance its render loop reads. `QueueStore` became
+                     memory-first so FL-013's broken `/data` can no longer
+                     eat a card between arrival and render.
+                     `card_service` still runs the same code wherever the
+                     platform does launch it.
+
+                     **Verified live on the VVD, same session:** WebSocket
+                     `$connect` recorded for `wick-tv` 2s after launch (the
+                     first successful connect from this VVD); a real
+                     Message card replayed by reconcile rendered; a button
+                     press made the full round trip (`card_action` on the
+                     timeline, `actedAt` stamped on the CARD# item); and a
+                     signed webhook for the Ring Playground doorbell put
+                     **"Someone's at the front door."** on screen, device
+                     `card_shown` ~4.9s after the event (first invocation
+                     after a deploy, so including a Lambda cold start).
+
+                     **What it costs:** cards only arrive while Wick is on
+                     screen — the background half of §3.1 (a card reaching
+                     the device while another app is in front) stays
+                     unreachable until the platform launches the service.
+                     For a card that must interrupt another app that was
+                     never possible anyway (SP-1, `WICK.md` R1).
 
 **Suggestion:**      1. **Document what actually starts a
                         `[[components.service]]` process.** The manifest
