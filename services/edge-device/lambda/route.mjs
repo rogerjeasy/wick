@@ -2,7 +2,8 @@
  * WebSocket `$default` — inbound DeviceEvent. §4.3.
  *
  * card_shown / card_action are persisted to the timeline now, because INV-6's
- * correlation loop closes here. playback / app_lifecycle are the Rhythm
+ * correlation loop closes here. A card_action also stamps the CARD# item as
+ * acted on, so reconcile never replays it (card-acted.mjs). playback / app_lifecycle are the Rhythm
  * pillar's device-side input (§3.3, §8.2) and now increment atomic
  * day-of-week/hour bucket counters in this same DynamoDB table —
  * buildTvActivityKey (services/agent/src/rhythm/records.ts) is the
@@ -50,6 +51,7 @@
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import { randomUUID } from 'node:crypto';
+import { isReplayable, markCardActed } from './card-acted.mjs';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME;
@@ -165,6 +167,8 @@ export const handler = async (event) => {
       },
     }));
 
+    if (deviceEvent.t === 'card_action') await retireActedCard(householdId, deviceEvent.cardId, deviceEvent.at);
+
     if (deviceEvent.t === 'card_action' && deviceEvent.action === 'seen') {
       const weekMatch = WEEK_CARD_ID.exec(deviceEvent.cardId);
       if (weekMatch) await markNarrativeSeen(householdId, weekMatch[1], deviceEvent.at);
@@ -175,6 +179,20 @@ export const handler = async (event) => {
 
   return { statusCode: 200, body: '' };
 };
+
+/**
+ * See card-acted.mjs. Logged, never thrown: the action is already on the
+ * timeline above, and a failed stamp only means the card may be replayed
+ * once more — not a reason to fail the socket route.
+ */
+async function retireActedCard(householdId, cardId, at) {
+  try {
+    await ddb.send(new UpdateItemCommand(markCardActed({ table: TABLE, householdId, cardId, at })));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return; // not a card the server sent — nothing to retire
+    console.error('card_acted_write_failed', { householdId, cardId, err });
+  }
+}
 
 async function reconcile({ event, householdId, connectionId, sinceCardId }) {
   // Derived the same way connect.mjs derives it — API Gateway populates
@@ -214,7 +232,7 @@ async function reconcile({ event, householdId, connectionId, sinceCardId }) {
   const mgmt = new ApiGatewayManagementApiClient({ endpoint: wsEndpoint });
 
   for (const item of pending.Items ?? []) {
-    if (sinceCardId && item.sk.S === `CARD#${sinceCardId}`) continue; // exact match: client already has this one
+    if (!isReplayable(item, sinceCardId)) continue;
     const card = JSON.parse(item.data.S);
     try {
       await mgmt.send(new PostToConnectionCommand({
