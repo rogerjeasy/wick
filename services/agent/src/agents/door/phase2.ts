@@ -12,9 +12,14 @@
  * A failed image FETCH is different: no bytes means no description is
  * possible either, so that one short-circuits the rest of Phase 2 — Phase 1
  * simply stands, which the product doc is explicit is still useful.
+ *
+ * Swallowed is not the same as silent: every run returns a Phase2Outcome
+ * naming what landed and why the rest didn't, and lambda.ts logs it. It used
+ * to return nothing — a card that never got its picture (Ring's own
+ * `416 MEDIA_NOT_FOUND`, observed live) left no trace anywhere.
  */
 import type { CardPatch } from '@wick/contracts';
-import type { RingImage } from '@wick/ring';
+import { RingApiError, type RingImage } from '@wick/ring';
 import { buildDescriptionPatch, buildImagePatch } from './index.js';
 import type { DescribeResult } from './describe.js';
 
@@ -24,26 +29,45 @@ export interface Phase2Deps {
   readonly sendPatch: (patch: CardPatch) => Promise<void>;
 }
 
-async function trySend(deps: Phase2Deps, patch: CardPatch): Promise<void> {
+export interface Phase2Outcome {
+  readonly image: 'patched' | 'patch_failed' | 'unavailable';
+  /** `rejected`: the model answered, but buildDescriptionPatch refused to show it. */
+  readonly description: 'patched' | 'patch_failed' | 'declined' | 'rejected' | 'skipped';
+  readonly reason: string;
+}
+
+/** Swallowed on purpose — see module comment. Reports whether it landed. */
+async function trySend(deps: Phase2Deps, patch: CardPatch): Promise<boolean> {
   try {
     await deps.sendPatch(patch);
+    return true;
   } catch {
-    // Swallowed on purpose — see module comment.
+    return false;
   }
 }
 
-export async function runDoorPhase2(cardId: string, deps: Phase2Deps): Promise<void> {
+function describeError(err: unknown): string {
+  if (err instanceof RingApiError && err.detail) return `${err.message}: ${err.detail}`;
+  return err instanceof Error ? err.message : String(err);
+}
+
+export async function runDoorPhase2(cardId: string, deps: Phase2Deps): Promise<Phase2Outcome> {
   let image: RingImage;
   let bytes: Uint8Array;
   try {
     ({ image, bytes } = await deps.fetchImage());
-  } catch {
-    return;
+  } catch (err) {
+    return { image: 'unavailable', description: 'skipped', reason: describeError(err) };
   }
 
-  await trySend(deps, buildImagePatch(cardId, image));
+  const imageOutcome = (await trySend(deps, buildImagePatch(cardId, image))) ? 'patched' : 'patch_failed';
 
   const described = await deps.describe(bytes);
-  const patch = described.candidate ? buildDescriptionPatch(cardId, described.candidate) : null;
-  if (patch) await trySend(deps, patch);
+  if (!described.candidate) return { image: imageOutcome, description: 'declined', reason: described.reason };
+
+  const patch = buildDescriptionPatch(cardId, described.candidate);
+  if (!patch) return { image: imageOutcome, description: 'rejected', reason: described.reason };
+
+  const descriptionOutcome = (await trySend(deps, patch)) ? 'patched' : 'patch_failed';
+  return { image: imageOutcome, description: descriptionOutcome, reason: described.reason };
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { CardPatch } from '@wick/contracts';
-import type { RingImage } from '@wick/ring';
+import { RingApiError, type RingImage } from '@wick/ring';
 import { runDoorPhase2 } from '../phase2.js';
 import type { DescribeResult } from '../describe.js';
 
@@ -78,7 +78,11 @@ describe('runDoorPhase2', () => {
     });
     const describeFn = vi.fn(async () => okDescribe);
 
-    await expect(runDoorPhase2('card-1', { fetchImage, describe: describeFn, sendPatch })).resolves.toBeUndefined();
+    await expect(runDoorPhase2('card-1', { fetchImage, describe: describeFn, sendPatch })).resolves.toEqual({
+      image: 'unavailable',
+      description: 'skipped',
+      reason: 'ring_api_500',
+    });
 
     expect(describeFn).not.toHaveBeenCalled();
     expect(sendPatch).not.toHaveBeenCalled();
@@ -93,8 +97,59 @@ describe('runDoorPhase2', () => {
 
     await expect(
       runDoorPhase2('card-1', { fetchImage, describe: describeFn, sendPatch }),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ image: 'patch_failed', description: 'patched' });
 
     expect(sendPatch).toHaveBeenCalledWith(expect.objectContaining({ description: expect.any(String) }));
+  });
+
+  describe('reports what happened, so a Phase 2 that stops early is never silent', () => {
+    it('names Ring\'s own reason when there is no recorded frame for the event', async () => {
+      // Observed live: a webhook whose occurred_at has no recording behind it.
+      const fetchImage = vi.fn(async () => {
+        throw new RingApiError(416, 'MEDIA_NOT_FOUND', 'No media found in time range 1790805194905-1790805204905');
+      });
+
+      const outcome = await runDoorPhase2('card-1', { fetchImage, describe: vi.fn(), sendPatch: vi.fn() });
+
+      expect(outcome).toEqual({
+        image: 'unavailable',
+        description: 'skipped',
+        reason: 'ring_api_416_MEDIA_NOT_FOUND: No media found in time range 1790805194905-1790805204905',
+      });
+    });
+
+    it('reports both patches on the happy path', async () => {
+      const outcome = await runDoorPhase2('card-1', {
+        fetchImage: async () => ({ image, bytes }),
+        describe: async () => okDescribe,
+        sendPatch: async () => {},
+      });
+
+      expect(outcome).toEqual({ image: 'patched', description: 'patched', reason: 'ok' });
+    });
+
+    it('carries the model\'s reason when it declines', async () => {
+      const outcome = await runDoorPhase2('card-1', {
+        fetchImage: async () => ({ image, bytes }),
+        describe: async () => ({ candidate: null, reason: 'model declined: unclear frame', elapsedMs: 400 }),
+        sendPatch: async () => {},
+      });
+
+      expect(outcome).toEqual({ image: 'patched', description: 'declined', reason: 'model declined: unclear frame' });
+    });
+
+    it('says the description was not shown when the candidate fails validation', async () => {
+      const outcome = await runDoorPhase2('card-1', {
+        fetchImage: async () => ({ image, bytes }),
+        describe: async () => ({
+          candidate: { description: 'A man in a delivery uniform, holding a parcel.', confidence: 0.1 },
+          reason: 'ok',
+          elapsedMs: 900,
+        }),
+        sendPatch: async () => {},
+      });
+
+      expect(outcome).toMatchObject({ image: 'patched', description: 'rejected' });
+    });
   });
 });

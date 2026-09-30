@@ -29,7 +29,11 @@ function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     recordDoorActivity: vi.fn(async (_deviceId: string, _subType: string, _measureName: 'motion' | 'button_press', _at: number) => {}),
     recordPresenceActivity: vi.fn(async (_personId: string, _at: number) => {}),
     sendToDevice: vi.fn(async (_card: QueuedCard) => {}),
-    runPhase2: vi.fn(async (_cardId: string, _event: RingHistoryEvent) => {}),
+    runPhase2: vi.fn(async (_cardId: string, _event: RingHistoryEvent) => ({
+      image: 'patched' as const,
+      description: 'patched' as const,
+      reason: 'ok',
+    })),
     now: () => 1789455094000,
     ...overrides,
   };
@@ -87,6 +91,30 @@ describe('routeRingEvent', () => {
     const [cardId, event] = vi.mocked(deps.runPhase2).mock.calls[0]!;
     expect(cardId).toBe(sentCardId);
     expect(event.deviceId).toBe(device.id);
+  });
+
+  it('logs the Phase 2 outcome under the correlation id — a missing picture is never silent', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const deps = baseDeps({
+      runPhase2: vi.fn(async () => ({
+        image: 'unavailable' as const,
+        description: 'skipped' as const,
+        reason: 'ring_api_416_MEDIA_NOT_FOUND: No media found in time range 1-2',
+      })),
+    });
+
+    await routeRingEvent(detail, deps);
+
+    const lines = log.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+    expect(lines).toContainEqual({
+      level: 'info',
+      msg: 'phase2_outcome',
+      correlationId: 'corr-abc',
+      image: 'unavailable',
+      description: 'skipped',
+      reason: 'ring_api_416_MEDIA_NOT_FOUND: No media found in time range 1-2',
+    });
+    log.mockRestore();
   });
 
   it('still reports "sent" when Phase 2 fails — Phase 1 already reached the device', async () => {

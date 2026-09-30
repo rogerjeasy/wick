@@ -42,7 +42,7 @@ import { handleDoorEvent } from './handle.js';
 import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
 import { matchVisitor } from './roster.js';
 import { buildDoorEventItem, buildPresenceItem } from './presence.js';
-import { runDoorPhase2 } from './phase2.js';
+import { runDoorPhase2, type Phase2Outcome } from './phase2.js';
 import { describeFrame } from './describe.js';
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
 import { createRhythmWriter } from '../../rhythm/writeClient.js';
@@ -69,7 +69,7 @@ export interface RouteDeps {
   /** S6. Written only on a roster match — an arrival occurrence for the Rhythm baseline (§8.2's presence table). */
   readonly recordPresenceActivity: (personId: string, at: number) => Promise<void>;
   readonly sendToDevice: (card: QueuedCard) => Promise<void>;
-  readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<void>;
+  readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<Phase2Outcome>;
   readonly now: () => number;
 }
 
@@ -145,7 +145,8 @@ export async function routeRingEvent(
   }
 
   try {
-    await deps.runPhase2(queued.id, event);
+    const outcome = await deps.runPhase2(queued.id, event);
+    console.log(JSON.stringify({ level: 'info', msg: 'phase2_outcome', correlationId, ...outcome }));
   } catch (err) {
     console.error(JSON.stringify({
       level: 'error', msg: 'phase2_failed', correlationId,
