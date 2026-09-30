@@ -92,30 +92,60 @@ interface DeviceConnection {
   readonly deviceSk: string;
 }
 
-/** The household's paired device's live connection, if it has one right now. */
-async function findDeviceConnection(householdId: string): Promise<DeviceConnection | undefined> {
-  const deviceLookup = await ddb.send(new QueryCommand({
-    TableName: TABLE,
-    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
-    ExpressionAttributeValues: {
-      ':pk': { S: `HH#${householdId}` },
-      ':prefix': { S: 'DEV#' },
-    },
-    Limit: 1,
-  }));
-  const deviceItem = deviceLookup.Items?.[0];
-  const connectionId = deviceItem?.connectionId?.S;
-  const transport = deviceItem?.transport?.S;
-  const wsEndpoint = deviceItem?.wsEndpoint?.S;
-  const deviceSk = deviceItem?.sk?.S;
-
-  if (!connectionId || transport !== 'websocket' || !wsEndpoint || !deviceSk) {
+/**
+ * Every live WebSocket connection among a household's DEV# items. Pure, so
+ * the selection is tested without AWS.
+ *
+ * All of them, never "the first": this used to Query with `Limit: 1`, and
+ * DynamoDB returns DEV# keys in sort order — so a household that had ever
+ * paired a second device (the ops console's virtual TV, 'ops-console-…',
+ * sorts before 'wick-tv') resolved to that disconnected device, and every
+ * live push silently fell through to "offline". A door card also belongs on
+ * every television in the house, not one of them.
+ */
+export function liveDeviceConnections(items: readonly Record<string, AttributeValue>[]): DeviceConnection[] {
+  const live: DeviceConnection[] = [];
+  for (const item of items) {
+    const connectionId = item.connectionId?.S;
+    const wsEndpoint = item.wsEndpoint?.S;
+    const deviceSk = item.sk?.S;
     // Offline, or on the MQTT path — IoT Core publish isn't wired up yet
-    // (SP-5 gate, see the implementation plan's Scope decisions and
-    // FRICTION.md).
-    return undefined;
+    // (SP-5 gate, see FRICTION.md FL-009).
+    if (!connectionId || item.transport?.S !== 'websocket' || !wsEndpoint || !deviceSk) continue;
+    live.push({ connectionId, wsEndpoint, deviceSk });
   }
-  return { connectionId, wsEndpoint, deviceSk };
+  return live;
+}
+
+async function findDeviceConnections(householdId: string): Promise<DeviceConnection[]> {
+  const items: Record<string, AttributeValue>[] = [];
+  let startKey: Record<string, AttributeValue> | undefined;
+  do {
+    const page = await ddb.send(new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: {
+        ':pk': { S: `HH#${householdId}` },
+        ':prefix': { S: 'DEV#' },
+      },
+      ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+    }));
+    items.push(...(page.Items ?? []));
+    startKey = page.LastEvaluatedKey;
+  } while (startKey);
+  return liveDeviceConnections(items);
+}
+
+/**
+ * One push per live device. Every device is attempted even if another
+ * fails, then the first real failure is rethrown — one broken television
+ * must not keep a card off the others.
+ */
+async function pushToDevices(householdId: string, payload: unknown): Promise<void> {
+  const conns = await findDeviceConnections(householdId);
+  const results = await Promise.allSettled(conns.map((conn) => pushOverWebSocket(householdId, conn, payload)));
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed) throw failed.reason;
 }
 
 /**
@@ -185,10 +215,8 @@ export async function sendToDevice(
   }
   await ddb.send(new PutItemCommand({ TableName: TABLE, Item: item }));
 
-  const conn = await findDeviceConnection(householdId);
-  if (!conn) return; // reconcile delivers it the moment the device is next seen
-
-  await pushOverWebSocket(householdId, conn, { kind: 'card', card });
+  // No live device: reconcile delivers it the moment one is next seen.
+  await pushToDevices(householdId, { kind: 'card', card });
 }
 
 /**
@@ -232,8 +260,6 @@ export async function sendPatchToDevice(patch: CardPatch, householdId: string): 
     ExpressionAttributeValues: { ':data': { S: JSON.stringify(patched) } },
   }));
 
-  const conn = await findDeviceConnection(householdId);
-  if (!conn) return; // reconcile replays the patched CARD# item on next connect
-
-  await pushOverWebSocket(householdId, conn, { kind: 'control', control: { t: 'patch', patch } });
+  // No live device: reconcile replays the patched CARD# item on next connect.
+  await pushToDevices(householdId, { kind: 'control', control: { t: 'patch', patch } });
 }
