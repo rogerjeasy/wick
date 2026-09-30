@@ -18,6 +18,15 @@
 #
 #   RING_TEST_DEVICE_ID=<real device id> ./scripts/test-ring-webhook.sh
 #
+# The payload is stamped "now" by default, and nothing was recorded "now",
+# so Phase 2 finds no frame (Ring: 416 MEDIA_NOT_FOUND) and the card never
+# gets its picture or description. To exercise Phase 2 against real media,
+# press a simulation button in the Ring Developer Playground, then:
+#
+#   RING_TEST_DEVICE_ID=<id> RING_TEST_OCCURRED_AT=latest ./scripts/test-ring-webhook.sh
+#
+# (or RING_TEST_OCCURRED_AT=<epoch ms> for a specific event.)
+#
 set -uo pipefail
 export AWS_PROFILE="${AWS_PROFILE:-wick-dev}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,6 +36,11 @@ BASE="${WICK_EDGE_URL:-$(terraform -chdir="$ROOT/infra" output -raw ring_webhook
 set -a; . "$ROOT/.env"; set +a
 REQ_ID="test-$(date +%s)-$RANDOM"
 DEVICE_ID="${RING_TEST_DEVICE_ID:-synthetic-doorbell-0001}"
+OCCURRED_AT="${RING_TEST_OCCURRED_AT:-}"
+if [ "$OCCURRED_AT" = "latest" ]; then
+  OCCURRED_AT=$(cd "$ROOT" && npx --no-install vite-node -c vitest.config.ts scripts/latest-ring-event.ts "$DEVICE_ID") \
+    || { echo "cannot resolve the latest Ring event for $DEVICE_ID" >&2; exit 1; }
+fi
 
 BODY=$(python3 -c "
 import json,sys,time
@@ -35,8 +49,8 @@ print(json.dumps({
   'event_type': 'motion_detected',
   'sub_type': 'human',
   'device_id': sys.argv[2],
-  'occurred_at': int(time.time()*1000),
-}))" "$REQ_ID" "$DEVICE_ID")
+  'occurred_at': int(sys.argv[3]) if sys.argv[3] else int(time.time()*1000),
+}))" "$REQ_ID" "$DEVICE_ID" "$OCCURRED_AT")
 
 SIG=$(python3 -c "
 import hmac,hashlib,os,sys
