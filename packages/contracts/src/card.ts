@@ -93,3 +93,11 @@ export interface CardPatch {
 export const MAX_CARD_ACTIONS = 3;
 export const MAX_DAY_ITEMS = 3;
 export const MAX_CARD_SHOWS = 2;
+/**
+ * How long a DOOR card stays live: long enough to get from the sofa to the
+ * door, short enough that "someone is at the door" is still true. A stale
+ * one is worse than silence. The Door agent stamps it as expiresAt (which
+ * egress.ts also makes the CARD# item's DynamoDB ttl); the device falls back
+ * to queuedAt + this for cards sent before it did.
+ */
+export const DOOR_CARD_TTL_MS = 5 * 60 * 1000;

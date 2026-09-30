@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { MAX_CARD_SHOWS, type QueuedCard } from '@wick/contracts';
+import { DOOR_CARD_TTL_MS, MAX_CARD_SHOWS, type QueuedCard } from '@wick/contracts';
 import { allowsDeferred, classify, selectReleasable } from '../index.js';
 import type { BreakState, EngineInput } from '../types.js';
 
@@ -133,6 +133,21 @@ describe('selectReleasable', () => {
       ),
       { numRuns: RUNS },
     );
+  });
+
+  it('a DOOR card with no expiresAt still retires DOOR_CARD_TTL_MS after it was queued', () => {
+    // Cards sent before the Door agent set expiresAt carry none. Reconcile
+    // replays them on every connect while the device can't persist its
+    // high-water mark (FL-013) — without this, a doorbell from last week
+    // would be announced as someone at the door right now.
+    const legacy = card('DOOR'); // queuedAt: 0, no expiresAt
+    expect(selectReleasable([legacy], 'IN_SCENE', DOOR_CARD_TTL_MS - 1).release).toHaveLength(1);
+    expect(selectReleasable([legacy], 'IN_SCENE', DOOR_CARD_TTL_MS).retire).toHaveLength(1);
+  });
+
+  it("a DOOR card's own expiresAt wins over the queuedAt fallback", () => {
+    const short = card('DOOR', 0, 10_000);
+    expect(selectReleasable([short], 'IN_SCENE', 10_000).retire).toHaveLength(1);
   });
 
   it('DEFERRED cards never expire — Principle 9, no time limits', () => {

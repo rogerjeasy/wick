@@ -13,7 +13,7 @@
  *
  * See docs/WICK-TECHNICAL.md §3.4, docs/WICK.md Part 5 (Principles 2, 5, 8, 9).
  */
-import { MAX_CARD_SHOWS, type QueuedCard } from '@wick/contracts';
+import { DOOR_CARD_TTL_MS, MAX_CARD_SHOWS, type QueuedCard } from '@wick/contracts';
 import {
   NEAR_BREAK_WINDOW_MS,
   PAUSE_IS_BREAK_MS,
@@ -87,7 +87,9 @@ export function selectReleasable(
     if (q.urgency === 'DOOR') {
       // Rule 1. Door cards are the only immediate class, and the only class
       // that expires — a stale "someone is at the door" is worse than silence.
-      if (q.expiresAt !== undefined && now >= q.expiresAt) retire.push(q);
+      // Cards sent before the Door agent stamped expiresAt fall back to
+      // queuedAt + DOOR_CARD_TTL_MS, or a replayed one would never retire.
+      if (now >= (q.expiresAt ?? q.queuedAt + DOOR_CARD_TTL_MS)) retire.push(q);
       else release.push(q);
       continue;
     }

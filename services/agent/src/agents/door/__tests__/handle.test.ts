@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { QueuedCard } from '@wick/contracts';
+import { DOOR_CARD_TTL_MS, type QueuedCard } from '@wick/contracts';
 import type { RingDevice, RingHistoryEvent } from '@wick/ring';
 import { handleDoorEvent } from '../handle.js';
 
@@ -40,6 +40,16 @@ describe('handleDoorEvent', () => {
     expect(sent.card.id).toBe(sent.id);
     expect(sent.queuedAt).toBe(input.now);
     expect(sent.shownCount).toBe(0);
+  });
+
+  it('expires DOOR_CARD_TTL_MS after the event — a stale "someone is at the door" is worse than silence', async () => {
+    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+
+    await handleDoorEvent(input, { sendToDevice });
+
+    // Also what egress.ts turns into the CARD# item's DynamoDB ttl, so the
+    // server stops replaying it on reconcile too.
+    expect(sendToDevice.mock.calls[0]![0]!.expiresAt).toBe(input.now + DOOR_CARD_TTL_MS);
   });
 
   it('carries the plain-English line and correlationId onto the sent card', async () => {

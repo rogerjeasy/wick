@@ -15,7 +15,7 @@
  *
  * See docs/WICK-TECHNICAL.md §5.2, §15 (S1).
  */
-import type { QueuedCard } from '@wick/contracts';
+import { DOOR_CARD_TTL_MS, type QueuedCard } from '@wick/contracts';
 import { buildPhaseOneCard, type DoorCardInput } from './index.js';
 
 export interface DoorEventDeps {
@@ -32,6 +32,7 @@ export async function handleDoorEvent(
     urgency: 'DOOR',
     card,
     queuedAt: input.now,
+    expiresAt: input.now + DOOR_CARD_TTL_MS,
     shownCount: 0,
   };
 
