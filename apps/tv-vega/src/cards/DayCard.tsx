@@ -24,7 +24,7 @@ export interface DayCardProps {
 
 /**
  * One Text block, not one per item: CalmCard's slot order is
- * children-then-headline-then-detail, and `detail` is exactly the "a block
+ * headline-then-detail-then-children, and `detail` is exactly the "a block
  * of prose beneath the headline" shape the other single-string cards
  * (WeekCard) already use — bullets joined by newlines get CalmCard's own
  * 32pt/7:1 detail styling for free, with no second component to keep

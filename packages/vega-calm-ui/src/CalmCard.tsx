@@ -32,11 +32,18 @@ export interface CalmCardProps {
   readonly onAction: (id: string) => void;
   /** Which action holds focus on mount. Defaults to the first. */
   readonly initialFocusId?: string | undefined;
+  /**
+   * A photo or camera frame, beside the text on the left — never above the
+   * headline. The headline is what a slow reader reads first, and stacking
+   * media on top of it also made the card too tall for a 960x540dp screen.
+   */
+  readonly media?: React.ReactNode;
+  /** Beneath the headline and detail, inside the text column. */
   readonly children?: React.ReactNode;
 }
 
 export function CalmCard(props: CalmCardProps): React.JSX.Element {
-  const { headline, detail, actions, onAction, initialFocusId, children } = props;
+  const { headline, detail, actions, onAction, initialFocusId, media, children } = props;
 
   // Throws before anything reaches the screen.
   assertActionLimit(actions.length);
@@ -48,14 +55,19 @@ export function CalmCard(props: CalmCardProps): React.JSX.Element {
 
   return (
     <View style={styles.card}>
-      {children}
+      <View style={styles.body}>
+        {media}
+        <View style={styles.text}>
+          <Text style={styles.headline} accessibilityRole="header">
+            {headline}
+          </Text>
 
-      <Text style={styles.headline} accessibilityRole="header">
-        {headline}
-      </Text>
+          {/* No placeholder, no spinner, no "loading…". Absent means absent. */}
+          {detail ? <Text style={styles.detail}>{detail}</Text> : null}
 
-      {/* No placeholder, no spinner, no "loading…". Absent means absent. */}
-      {detail ? <Text style={styles.detail}>{detail}</Text> : null}
+          {children}
+        </View>
+      </View>
 
       <View style={styles.actions}>
         {actions.map((action) => (
@@ -83,8 +95,16 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: safe.raised,
     borderRadius: 16,
-    padding: 40,
-    gap: 16,
+    padding: 32,
+    gap: 20,
+  },
+  body: {
+    flexDirection: 'row',
+    gap: 24,
+  },
+  text: {
+    flex: 1,
+    gap: 12,
   },
   headline: {
     color: safe.ink,
@@ -96,10 +116,12 @@ const styles = StyleSheet.create({
     fontSize: fontSize('body'),
     lineHeight: fontSize('body') * 1.4,
   },
+  // Wraps rather than running off the edge: three 32pt reply labels are
+  // wider than a 960dp screen (observed on the VVD — the third was cut off).
   actions: {
     flexDirection: 'row',
-    gap: 24,
-    marginTop: 8,
+    flexWrap: 'wrap',
+    gap: 16,
   },
   action: {
     paddingVertical: 20,

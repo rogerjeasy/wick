@@ -8,7 +8,9 @@
  * The no-reflow rule is the whole point. Text that shifts under someone mid-read
  * is worse than text that arrives late, and for a reader who is slow by
  * definition it is much worse. So the detail area is reserved at mount and
- * fades its content in; the headline and the buttons never move.
+ * fades its content in, and with `mediaSize` so is the media box — the
+ * picture lands in space that was already there. The headline and the
+ * buttons never move.
  */
 import * as React from 'react';
 import { Animated, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
@@ -24,13 +26,18 @@ export interface TwoPhaseCardProps extends Omit<CalmCardProps, 'detail'> {
   readonly detail?: string | undefined;
   /** Phase 2a, independent of the text. */
   readonly media?: React.ReactNode;
+  /**
+   * Reserve the media box at mount, empty until `media` arrives. Without it,
+   * a picture patching in shoves the headline sideways mid-read.
+   */
+  readonly mediaSize?: { readonly width: number; readonly height: number };
 }
 
 /** Two lines of reserved space, so arriving text displaces nothing. */
 const RESERVED_DETAIL_HEIGHT = fontSize('body') * 1.4 * 2;
 
 export function TwoPhaseCard(props: TwoPhaseCardProps): React.JSX.Element {
-  const { detail, media, children, ...rest } = props;
+  const { detail, media, mediaSize, children, ...rest } = props;
   const opacity = React.useRef(new Animated.Value(detail ? 1 : 0)).current;
 
   React.useEffect(() => {
@@ -43,8 +50,10 @@ export function TwoPhaseCard(props: TwoPhaseCardProps): React.JSX.Element {
   }, [detail, opacity]);
 
   return (
-    <CalmCard {...rest}>
-      {media}
+    <CalmCard
+      {...rest}
+      media={mediaSize ? <View style={[styles.mediaSlot, mediaSize]}>{media}</View> : media}
+    >
       {children}
       {/* Reserved whether or not Phase 2 ever lands. Nothing below this moves. */}
       <View style={styles.detailSlot}>
@@ -57,6 +66,11 @@ export function TwoPhaseCard(props: TwoPhaseCardProps): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
+  mediaSlot: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: safe.ground,
+  },
   detailSlot: {
     minHeight: RESERVED_DETAIL_HEIGHT,
     justifyContent: 'flex-start',

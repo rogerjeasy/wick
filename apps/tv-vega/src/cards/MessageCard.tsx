@@ -30,16 +30,17 @@ export function MessageCardView({ card, onAction }: MessageCardProps): React.JSX
       detail={card.transcript}
       actions={replyActions(card.suggestedReplies)}
       onAction={onAction}
-    >
-      {card.fromPhotoRef ? (
-        <Image
-          source={{ uri: card.fromPhotoRef }}
-          style={styles.photo}
-          resizeMode="cover"
-          accessibilityLabel={`${card.fromName}'s photo`}
-        />
-      ) : null}
-    </CalmCard>
+      media={
+        card.fromPhotoRef ? (
+          <Image
+            source={{ uri: card.fromPhotoRef }}
+            style={styles.photo}
+            resizeMode="cover"
+            accessibilityLabel={`${card.fromName}'s photo`}
+          />
+        ) : null
+      }
+    />
   );
 }
 
@@ -49,6 +50,5 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: 48,
     backgroundColor: safe.ground,
-    marginBottom: 8,
   },
 });

@@ -18,13 +18,19 @@
  * description ever patches in — see doorDetail.ts for the priority between
  * them.
  *
- * Lower third, never full screen: it must not cover, pause or silence whatever
- * the resident is already watching.
+ * Bottom of the screen, never full screen: it must not cover, pause or
+ * silence whatever the resident is already watching.
+ *
+ * Sized for what the television actually reports — 960x540dp at 1080p, not
+ * 1920x1080. At the design system's 48pt headline / 32pt body floor, the
+ * earlier stacked layout (a 320dp frame above the text) ran off the top of
+ * the screen on the VVD. The frame now sits in a reserved 16:9 box beside
+ * the text, so the card fits and the picture arriving moves nothing.
  */
 import * as React from 'react';
 import { Image, StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import type { CardAction, DoorCard as DoorCardModel } from '@wick/contracts';
-import { TwoPhaseCard, safe } from '@wick/vega-calm-ui';
+import { TwoPhaseCard } from '@wick/vega-calm-ui';
 import { doorDetailText } from './doorDetail.js';
 
 export interface DoorCardProps {
@@ -43,6 +49,7 @@ export function DoorCardView({ card, onAction }: DoorCardProps): React.JSX.Eleme
         detail={doorDetailText(card)}
         actions={toCalmActions(card.actions)}
         onAction={onAction}
+        mediaSize={FRAME}
         media={
           card.imageRef ? (
             <Image
@@ -61,18 +68,20 @@ export function DoorCardView({ card, onAction }: DoorCardProps): React.JSX.Eleme
   );
 }
 
+/** 16:9, matching the doorbell's own frame. */
+const FRAME = { width: 288, height: 162 } as const;
+
 const styles = StyleSheet.create({
-  // Lower third. The programme keeps the rest of the screen.
+  // Anchored to the bottom, inside the 5% TV safe area. The programme keeps
+  // the rest of the screen.
   lowerThird: {
     position: 'absolute',
-    left: 64,
-    right: 64,
-    bottom: 64,
+    left: 48,
+    right: 48,
+    bottom: 32,
   },
   frame: {
     width: '100%',
-    height: 320,
-    borderRadius: 12,
-    backgroundColor: safe.ground,
+    height: '100%',
   },
 });
