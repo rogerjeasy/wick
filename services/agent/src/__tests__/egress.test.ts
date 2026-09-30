@@ -51,6 +51,13 @@ describe('applyCardPatch', () => {
   });
 });
 
+describe('applyCardPatch — headline correction', () => {
+  it('merges a corrected line onto the stored door card', () => {
+    const patched = applyCardPatch(door, { cardId: 'door-1', line: 'Movement at the front door.' });
+    expect(patched).toMatchObject({ line: 'Movement at the front door.' });
+  });
+});
+
 describe('liveDeviceConnections', () => {
   const WS = 'https://ws.example/prod';
   const dev = (id: string, conn?: string) => ({

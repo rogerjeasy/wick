@@ -31,6 +31,16 @@ import { matchVisitor } from './roster.js';
 /** Plain English, always the same, never "motion detected". docs/WICK.md §3.3. */
 export const DOOR_LINE = "Someone's at the front door.";
 
+/**
+ * Phase 1 says someone is there before anyone has seen the frame. When the
+ * frame then shows nobody, the headline is corrected rather than left
+ * contradicting the description beneath it (observed on the VVD: "Three
+ * cars parked in a parking lot." under "Someone's at the front door.").
+ * After a press the ring itself is certain even if nobody is in view.
+ */
+export const NOBODY_AFTER_MOTION_LINE = 'Movement at the front door.';
+export const NOBODY_AFTER_RING_LINE = 'The doorbell rang.';
+
 export const DESCRIPTION_MAX_WORDS = 14;
 
 /** Below this, say nothing at all rather than guess. Principle 11. */
@@ -143,6 +153,25 @@ export function validateDescription(text: string): boolean {
 export interface DescriptionCandidate {
   readonly description: string;
   readonly confidence: number;
+  /** From the model's PERSON line. Absent when it didn't say — never guessed. */
+  readonly personVisible?: boolean;
+}
+
+export interface DescribeReply {
+  readonly personVisible: boolean | undefined;
+  readonly sentence: string;
+}
+
+/**
+ * The model answers in two lines — `PERSON: yes|no`, then the sentence
+ * (describe.ts's SYSTEM prompt). A reply without the PERSON line is still
+ * usable as a sentence; presence just stays unknown.
+ */
+export function parseDescribeReply(text: string): DescribeReply {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const header = /^person:\s*(yes|no)$/i.exec(lines[0] ?? '');
+  if (!header) return { personVisible: undefined, sentence: lines.join(' ') };
+  return { personVisible: header[1]!.toLowerCase() === 'yes', sentence: lines.slice(1).join(' ') };
 }
 
 /**
@@ -152,11 +181,17 @@ export interface DescriptionCandidate {
 export function buildDescriptionPatch(
   cardId: string,
   candidate: DescriptionCandidate,
+  eventType?: string,
 ): CardPatch | null {
   if (candidate.confidence < MIN_DESCRIPTION_CONFIDENCE) return null;
   if (!validateDescription(candidate.description)) return null;
 
-  return { cardId, description: candidate.description.trim() };
+  const description = candidate.description.trim();
+  // Only a definite "nobody" corrects the headline. Unknown leaves Phase 1's
+  // line standing — a correction is a claim too.
+  if (candidate.personVisible !== false) return { cardId, description };
+  const line = eventType === 'button_press' ? NOBODY_AFTER_RING_LINE : NOBODY_AFTER_MOTION_LINE;
+  return { cardId, description, line };
 }
 
 /** Phase 2a. The picture, once Ring has finally handed it over. */

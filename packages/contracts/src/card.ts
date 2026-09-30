@@ -85,6 +85,8 @@ export interface QueuedCard {
 /** Phase 2 of the two-phase door card. */
 export interface CardPatch {
   readonly cardId: string;
+  /** A corrected headline — the frame showed nobody (door agent, index.ts). */
+  readonly line?: string;
   readonly description?: string;
   readonly imageRef?: string;
   readonly match?: import('./door.js').VisitorMatch;

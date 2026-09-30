@@ -248,7 +248,7 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
         fetchImage: () => imageForEvent(ringClient, event.deviceId, event),
         describe: (bytes) => describeFrame(bytes),
         sendPatch: (patch) => realSendPatchToDevice(patch, householdId),
-      }),
+      }, event.eventType),
     now: Date.now,
   });
 

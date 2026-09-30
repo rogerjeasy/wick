@@ -85,6 +85,7 @@ export class QueueStore {
         ...q,
         card: {
           ...q.card,
+          ...(patch.line === undefined ? {} : { line: patch.line }),
           ...(patch.description === undefined ? {} : { description: patch.description }),
           ...(patch.imageRef === undefined ? {} : { imageRef: patch.imageRef }),
           ...(patch.match === undefined ? {} : { match: patch.match }),

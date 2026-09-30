@@ -15,7 +15,7 @@ import {
   ConverseCommand,
   type ContentBlock,
 } from '@aws-sdk/client-bedrock-runtime';
-import { validateDescription, type DescriptionCandidate } from './index.js';
+import { parseDescribeReply, validateDescription, type DescriptionCandidate } from './index.js';
 
 /** Vision-capable, fast, cheap. §5.1. */
 export const DESCRIBE_MODEL_ID = process.env.WICK_VISION_MODEL ?? 'amazon.nova-lite-v1:0';
@@ -32,16 +32,27 @@ export const DESCRIBE_REGION = process.env.AWS_REGION ?? process.env.AWS_DEFAULT
 
 const SYSTEM = `You describe a single still frame from a doorbell camera for an older adult reading it on a television.
 
-Rules, all mandatory:
+Reply in exactly two lines:
+PERSON: yes   (or: PERSON: no) — whether any person is visible in the frame
+<the description>
+
+Rules for the description, all mandatory:
 - One sentence. Present tense. At most 14 words.
 - Only what is visibly there. Never infer intent, mood, purpose or identity.
 - Never use: seems, appears, probably, likely, might, trying, waiting for.
 - Never name anyone.
 - If the frame is unclear, empty, or you are not confident, reply with exactly: UNCLEAR
 
-Good: A man in a delivery uniform, holding a parcel.
-Good: Two people standing at the door with a large box.
-Bad:  Someone who seems to be a delivery driver waiting patiently.`;
+Good:
+PERSON: yes
+A man in a delivery uniform, holding a parcel.
+
+Good:
+PERSON: no
+An empty porch with a parcel on the step.
+
+Bad:
+Someone who seems to be a delivery driver waiting patiently.`;
 
 export interface DescribeResult {
   readonly candidate: DescriptionCandidate | null;
@@ -81,7 +92,8 @@ export async function describeFrame(
       { requestTimeout: DESCRIBE_TIMEOUT_MS },
     );
 
-    const text = res.output?.message?.content?.find((c) => 'text' in c)?.text?.trim() ?? '';
+    const raw = res.output?.message?.content?.find((c) => 'text' in c)?.text?.trim() ?? '';
+    const { personVisible, sentence: text } = parseDescribeReply(raw);
 
     if (!text) return { candidate: null, reason: 'model returned nothing', elapsedMs: elapsed() };
     if (/^UNCLEAR\b/i.test(text)) {
@@ -92,7 +104,12 @@ export async function describeFrame(
       return { candidate: null, reason: `rejected by validator: "${text}"`, elapsedMs: elapsed() };
     }
 
-    return { candidate: { description: text, confidence: 0.9 }, reason: 'ok', elapsedMs: elapsed() };
+    const candidate: DescriptionCandidate = {
+      description: text,
+      confidence: 0.9,
+      ...(personVisible === undefined ? {} : { personVisible }),
+    };
+    return { candidate, reason: 'ok', elapsedMs: elapsed() };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 

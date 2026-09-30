@@ -6,6 +6,9 @@ import {
   buildPhaseOneCard,
   buildImagePatch,
   buildDescriptionPatch,
+  parseDescribeReply,
+  NOBODY_AFTER_MOTION_LINE,
+  NOBODY_AFTER_RING_LINE,
   validateDescription,
   DESCRIPTION_MAX_WORDS,
   MIN_DESCRIPTION_CONFIDENCE,
@@ -182,6 +185,74 @@ describe('buildDescriptionPatch', () => {
         confidence: 0.99,
       }),
     ).toBeNull();
+  });
+});
+
+describe('parseDescribeReply — the model says whether anyone is in the frame', () => {
+  it('reads PERSON: no and the sentence after it', () => {
+    expect(parseDescribeReply('PERSON: no\nThree cars parked in a parking lot.')).toEqual({
+      personVisible: false,
+      sentence: 'Three cars parked in a parking lot.',
+    });
+  });
+
+  it('reads PERSON: yes', () => {
+    expect(parseDescribeReply('PERSON: yes\nA man in a delivery uniform, holding a parcel.')).toEqual({
+      personVisible: true,
+      sentence: 'A man in a delivery uniform, holding a parcel.',
+    });
+  });
+
+  it('tolerates case and spacing', () => {
+    expect(parseDescribeReply('  person:NO  \n\n  An empty porch with a potted plant. ')).toEqual({
+      personVisible: false,
+      sentence: 'An empty porch with a potted plant.',
+    });
+  });
+
+  it('leaves personVisible unknown when the model ignores the format — never guessed', () => {
+    expect(parseDescribeReply('A man holding a parcel.')).toEqual({
+      personVisible: undefined,
+      sentence: 'A man holding a parcel.',
+    });
+  });
+
+  it('passes UNCLEAR through as the sentence, for describe.ts to decline on', () => {
+    expect(parseDescribeReply('PERSON: no\nUNCLEAR').sentence).toBe('UNCLEAR');
+  });
+});
+
+describe('buildDescriptionPatch — the headline never contradicts the picture', () => {
+  // Observed on the VVD: "Three cars parked in a parking lot." rendered
+  // directly under "Someone's at the front door."
+  const nobody = { description: 'Three cars parked in a parking lot.', confidence: 0.9, personVisible: false };
+
+  it('corrects the headline after motion when nobody is in the frame', () => {
+    expect(buildDescriptionPatch('card-1', nobody, 'motion_detected')).toEqual({
+      cardId: 'card-1',
+      description: 'Three cars parked in a parking lot.',
+      line: NOBODY_AFTER_MOTION_LINE,
+    });
+  });
+
+  it('after a button press, says the doorbell rang — that part is certain, whoever is in view', () => {
+    expect(buildDescriptionPatch('card-1', nobody, 'button_press')?.line).toBe(NOBODY_AFTER_RING_LINE);
+  });
+
+  it('leaves the headline alone when someone is in the frame', () => {
+    const patch = buildDescriptionPatch('card-1', { ...nobody, personVisible: true }, 'motion_detected');
+    expect(patch).not.toHaveProperty('line');
+  });
+
+  it('leaves the headline alone when presence is unknown — a correction is a claim too', () => {
+    const { personVisible: _unknown, ...candidate } = nobody;
+    expect(buildDescriptionPatch('card-1', candidate, 'motion_detected')).not.toHaveProperty('line');
+  });
+
+  it('the corrected lines are themselves plain, observable statements', () => {
+    expect(validateDescription(NOBODY_AFTER_MOTION_LINE)).toBe(true);
+    expect(validateDescription(NOBODY_AFTER_RING_LINE)).toBe(true);
+    expect(NOBODY_AFTER_MOTION_LINE).not.toBe(DOOR_LINE);
   });
 });
 

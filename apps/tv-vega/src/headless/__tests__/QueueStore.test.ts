@@ -54,6 +54,15 @@ describe('QueueStore', () => {
     expect((card!.card as { description?: string }).description).toBe('A courier in a blue jacket.');
   });
 
+  it('applies a corrected headline from a Phase 2 patch', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(doorCard('c1'));
+    await store.applyPatch({ cardId: 'c1', line: 'Movement at the front door.' });
+
+    const [card] = await store.readAll();
+    expect((card!.card as { line: string }).line).toBe('Movement at the front door.');
+  });
+
   it('removes a card by id', async () => {
     const store = new QueueStore(fakeFs());
     await store.upsert(doorCard('c1'));
