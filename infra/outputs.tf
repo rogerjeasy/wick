@@ -113,3 +113,13 @@ output "live_origin" {
   description = "M2: HTTPS origin the TV's player loads live HLS from"
   value       = "https://${aws_cloudfront_distribution.live.domain_name}"
 }
+
+output "programmes_origin" {
+  description = "HTTPS origin the TV's player loads its programmes from. Goes in apps/tv-vega/src/catalog/catalog.ts (PROGRAMMES_ORIGIN)."
+  value       = "https://${aws_cloudfront_distribution.programmes.domain_name}"
+}
+
+output "programmes_bucket" {
+  description = "Where scripts/publish-programmes.sh uploads the transcoded films."
+  value       = aws_s3_bucket.programmes.bucket
+}

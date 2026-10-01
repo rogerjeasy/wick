@@ -6,16 +6,10 @@
  * DEFERRED) never rendered on a real device no matter how long the
  * resident sat on the home screen.
  *
- * App.tsx now attaches a real player (VideoPlayer + KeplerVideoView) behind
- * the SP1_SPIKE_CONTENT_URL flag, so `setPlayback` can receive real
- * snapshots. What is still open is SP-1 itself: whether a card composited
- * on top of Wick's *own* active playback is actually visible and legible on
- * real hardware — an unresolved spike (FRICTION.md's Open Slots,
- * docs/WICK-TECHNICAL.md §14) that needs real Vega hardware to answer, not
- * a code question. Until that spike is run, treat `playback`-driven states
- * (IN_SCENE, NEAR_BREAK, AT_BREAK while playing) as unverified in practice
- * even though the state machine itself is fully tested
- * (NaturalBreakEngine.test.ts) and now fed by a real, wired player.
+ * watch/WatchScreen.tsx feeds `setPlayback` from Wick's own player, and the
+ * playback-driven states are seen working on the Vega Virtual Device: a note
+ * sent mid-programme stayed held through IN_SCENE and appeared as the
+ * credits began (AT_BREAK), and after a pause of five seconds.
  *
  * Stateful by necessity — PAUSE_IS_BREAK_MS needs "how long has it been
  * paused", which no single snapshot carries — but the state machine itself
