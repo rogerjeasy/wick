@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { unwrap, parseDevice, parseHistoryEvent } from '../jsonapi.js';
+import { unwrap, parseDevice, parseHistoryEvent, parseChimeSlots, parsePlaybackStatus } from '../jsonapi.js';
 
 /**
  * Fixtures are the real payloads, reduced and de-identified. Recording what the
@@ -86,14 +86,35 @@ describe('parseDevice', () => {
     expect(device.capabilities.chime).toBe(false);
   });
 
-  it('reports a chime when the device actually lists audio actions', () => {
+  it('reports a chime only when supported_actions contains chime.play — Ring docs, Chimes', () => {
     const withChime = structuredClone(DEVICE_RESPONSE);
     (withChime.included[1]!.attributes as Record<string, unknown>).audio = {
-      supported_actions: ['play_sound'],
+      supported_actions: ['chime.play'],
       customizable_slots: 2,
     };
     const parsed = unwrap(withChime);
     expect(parseDevice(parsed.items[0]!, parsed.included).capabilities.chime).toBe(true);
+  });
+
+  it('does not treat some other audio action as a chime — the button would 400', () => {
+    const other = structuredClone(DEVICE_RESPONSE);
+    (other.included[1]!.attributes as Record<string, unknown>).audio = {
+      supported_actions: ['play_sound'],
+      customizable_slots: null,
+    };
+    const parsed = unwrap(other);
+    expect(parseDevice(parsed.items[0]!, parsed.included).capabilities.chime).toBe(false);
+  });
+
+  it('reads snooze from status.audio.snooze.active, and only a literal true counts', () => {
+    const snoozed = structuredClone(DEVICE_RESPONSE);
+    (snoozed.included[0]!.attributes as Record<string, unknown>).audio = {
+      snooze: { active: true, until: '2026-10-01T10:00:00Z' },
+    };
+    const a = unwrap(snoozed);
+    expect(parseDevice(a.items[0]!, a.included).snoozed).toBe(true);
+    // The live Playground camera reports no snooze at all.
+    expect(device.snoozed).toBeUndefined();
   });
 
   it('does not invent a name for a device that has none', () => {
@@ -135,5 +156,50 @@ describe('parseHistoryEvent', () => {
     const open = structuredClone(EVENT);
     delete (open.attributes as Record<string, unknown>).end;
     expect(parseHistoryEvent(open, 'd').end).toBeUndefined();
+  });
+});
+
+describe('parseChimeSlots', () => {
+  // Shape verbatim from Ring's Chimes doc (verified there against a Chime Pro).
+  const CONFIG = {
+    data: {
+      type: 'device-configurations',
+      id: 'cfg',
+      attributes: {
+        motion_detection: { enabled: null },
+        audio: {
+          customizable_slots: [
+            { event: 'ring-appstore-event-2', disabled: false, audio_ref: 'ref-2', audio_url: 'https://h/2.wav', audio_name: 'Ring Alert 3' },
+            { event: 'ring-appstore-event-1', disabled: false, audio_ref: 'ref-1', audio_url: 'https://h/1.wav', audio_name: 'Navi' },
+          ],
+          volume: 4,
+        },
+      },
+    },
+  };
+
+  it('returns the slots sorted by event, because Ring does not', () => {
+    expect(parseChimeSlots(CONFIG).map((s) => s.event)).toEqual(['ring-appstore-event-1', 'ring-appstore-event-2']);
+    expect(parseChimeSlots(CONFIG)[0]).toEqual({ event: 'ring-appstore-event-1', disabled: false, audioRef: 'ref-1', audioName: 'Navi' });
+  });
+
+  it('returns nothing for a camera, whose customizable_slots is null', () => {
+    expect(parseChimeSlots({ data: { attributes: { audio: { customizable_slots: null, volume: 11 } } } })).toEqual([]);
+  });
+
+  it('drops a slot with no audio_ref rather than playing nothing', () => {
+    const broken = structuredClone(CONFIG);
+    (broken.data.attributes.audio.customizable_slots[1] as Record<string, unknown>).audio_ref = null;
+    expect(parseChimeSlots(broken).map((s) => s.audioRef)).toEqual(['ref-2']);
+  });
+});
+
+describe('parsePlaybackStatus', () => {
+  it('reads data.attributes.status', () => {
+    expect(parsePlaybackStatus({ data: { type: 'audio', id: 'ref-1', attributes: { status: 'completed' } } })).toBe('completed');
+  });
+
+  it('is null when the shape is anything else', () => {
+    expect(parsePlaybackStatus({})).toBeNull();
   });
 });

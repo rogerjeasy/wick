@@ -68,6 +68,11 @@ export class RingClient {
     return this.#fetch;
   }
 
+  /** The API origin this client talks to — the only host a bearer token may be sent to. */
+  get baseUrl(): string {
+    return this.#base;
+  }
+
   async #headers(extra: Record<string, string> = {}): Promise<Record<string, string>> {
     return { Authorization: `Bearer ${await this.#getToken()}`, ...extra };
   }
@@ -89,6 +94,27 @@ export class RingClient {
     });
     if (!res.ok) throw await toError(res);
     return res.json();
+  }
+
+  /**
+   * A POST of a non-JSON body (WHEP's application/sdp) whose answer is text,
+   * plus the Location header the session is managed by.
+   */
+  async postText(path: string, body: string, contentType: string): Promise<{ text: string; location: string | null }> {
+    const res = await this.#fetch(`${this.#base}${path}`, {
+      method: 'POST',
+      headers: await this.#headers({ 'Content-Type': contentType }),
+      body,
+    });
+    if (!res.ok) throw await toError(res);
+    return { text: await res.text(), location: res.headers.get('location') };
+  }
+
+  /** DELETE an absolute URL Ring handed back (a WHEP session's Location). Same origin only. */
+  async deleteUrl(url: string): Promise<void> {
+    if (new URL(url).origin !== new URL(this.#base).origin) throw new Error('foreign_session_url');
+    const res = await this.#fetch(url, { method: 'DELETE', headers: await this.#headers() });
+    if (!res.ok) throw await toError(res);
   }
 
   /**

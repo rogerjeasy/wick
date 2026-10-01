@@ -6,7 +6,7 @@
  * (FL-005). Keep it that way: if a shape surprises you, add the real payload to
  * the tests rather than a guess to the parser.
  */
-import type { RingCapabilities, RingDevice, RingHistoryEvent } from './types.js';
+import type { ChimeSlot, RingCapabilities, RingDevice, RingHistoryEvent } from './types.js';
 
 export interface Resource {
   readonly type?: string;
@@ -68,10 +68,10 @@ function parseCapabilities(caps: Record<string, unknown>): RingCapabilities {
   return {
     motion: isRecord(caps.motion_detection),
     image: Array.isArray(image.configurations) && image.configurations.includes('snapshot'),
-    // A present-but-null `audio` block is the live Playground shape. Only a
-    // non-empty action list counts as a chime — anything else and the card must
-    // not offer the button. See FL-006.
-    chime: Array.isArray(actions) && actions.length > 0,
+    // Ring docs, Chimes: a chime is the device whose audio.supported_actions
+    // includes chime.play. A present-but-null block is the Playground camera
+    // (FL-006); some other action name is not something we know how to play.
+    chime: Array.isArray(actions) && actions.includes('chime.play'),
     ...(typeof maxRes === 'number' ? { maxResolution: maxRes } : {}),
   };
 }
@@ -86,6 +86,8 @@ export function parseDevice(
 
   const reportedAt =
     typeof status.reported_at === 'string' ? Date.parse(status.reported_at) : NaN;
+  const audio = isRecord(status.audio) ? status.audio : {};
+  const snooze = isRecord(audio.snooze) ? audio.snooze : {};
 
   return {
     id: res.id,
@@ -94,6 +96,7 @@ export function parseDevice(
     name: typeof attrs.name === 'string' ? attrs.name : '',
     online: status.online === true,
     ...(Number.isFinite(reportedAt) ? { reportedAt } : {}),
+    ...(snooze.active === true ? { snoozed: true } : {}),
     capabilities: parseCapabilities(caps),
   };
 }
@@ -114,4 +117,30 @@ export function parseHistoryEvent(res: Resource, deviceId: string): RingHistoryE
       .filter(isRecord)
       .map((d) => String(d.id)),
   };
+}
+
+/** `GET /v1/devices/{id}/configurations` → the chime's slots, sorted by event (Ring does not sort). */
+export function parseChimeSlots(doc: unknown): ChimeSlot[] {
+  const data = isRecord(doc) && isRecord(doc.data) ? doc.data : {};
+  const attrs = isRecord(data.attributes) ? data.attributes : {};
+  const audio = isRecord(attrs.audio) ? attrs.audio : {};
+  const slots = Array.isArray(audio.customizable_slots) ? audio.customizable_slots : [];
+
+  return slots
+    .filter(isRecord)
+    .filter((s) => typeof s.event === 'string' && typeof s.audio_ref === 'string' && s.audio_ref !== '')
+    .map((s) => ({
+      event: s.event as string,
+      disabled: s.disabled === true,
+      audioRef: s.audio_ref as string,
+      audioName: typeof s.audio_name === 'string' ? s.audio_name : '',
+    }))
+    .sort((a, b) => a.event.localeCompare(b.event));
+}
+
+/** `POST …/media/audio/playback` → `data.attributes.status` ("completed" means it played). */
+export function parsePlaybackStatus(doc: unknown): string | null {
+  const data = isRecord(doc) && isRecord(doc.data) ? doc.data : {};
+  const attrs = isRecord(data.attributes) ? data.attributes : {};
+  return typeof attrs.status === 'string' ? attrs.status : null;
 }

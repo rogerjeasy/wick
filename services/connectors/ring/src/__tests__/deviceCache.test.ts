@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { cachedDeviceLookup } from '../deviceCache.js';
+import { cachedDeviceLookup, cachedDevices } from '../deviceCache.js';
 import type { RingDevice } from '../types.js';
 
 const device = (id: string): RingDevice => ({
@@ -81,5 +81,16 @@ describe('cachedDeviceLookup', () => {
     await expect(lookup('a')).rejects.toThrow('ring_api_500');
     expect((await lookup('a'))?.id).toBe('a');
     expect(list).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('cachedDevices', () => {
+  it('serves find() and all() from one fetch — Phase 1 needs both the camera and the chime', async () => {
+    const list = vi.fn(async () => [device('cam'), device('chime')]);
+    const devices = cachedDevices({ list, now: () => 0 });
+
+    expect((await devices.find('cam'))?.id).toBe('cam');
+    expect((await devices.all()).map((d) => d.id)).toEqual(['cam', 'chime']);
+    expect(list).toHaveBeenCalledTimes(1);
   });
 });
