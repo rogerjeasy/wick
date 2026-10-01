@@ -488,6 +488,8 @@ The demo must be honest about which half is which. Showing a simulated surface a
 
 Ring's developer API can play audio only on a Chime, which is an indoor speaker, and only the audio in the app's own slot. It cannot speak through the doorbell. So M1 tells the house, not the visitor. The button is only drawn when the household has a Chime that is online and not snoozed; one press rings it once, never again for the same card, and no model is ever involved in deciding to make a sound in someone's home.
 
+**Status.** Built end to end: TV button → EventBridge → the AgentCore door-action graph (`gate → ring → notify`) → Ring's `media/audio/playback` → the card's plain sentence. It is tested against Ring's documented chime contract for every outcome: rang, snoozed, no audio in the slot, offline, failed. **It is not in the demo.** Ring's only simulator, the Developer Playground, simulates cameras and live view but no chime, and Wick does not use a physical one. The TV draws the button only when the household has a chime, so the demo never shows a button that cannot work. See FRICTION.md FL-019.
+
 **Why it is the top multiplier.** It converts Wick from *informative* to *useful*. It is a small, humane, unmistakably thoughtful feature that solves a real indignity — the scramble to the door. It uses a capability of the Ring API that, as far as can be determined, essentially nobody has used for anything. And on video it is a genuine delight moment: a judge watches a television button make a voice come out of a hallway.
 
 **Resident value** ★★★★★ · **Buyer value** ★★★☆☆ · **Judging** ★★★★☆ · **Demo** ★★★★★ · **Effort** Small · **Risk** Low
@@ -1121,7 +1123,7 @@ Judges are not required to watch past three minutes. **Script to 2:45.**
 |---|---|---|
 | **0:00–0:12** | A real living room, a real television playing. One line on screen: *"The average 78-year-old looks at this screen for seven hours a day. It has never once looked back."* | The hook. No logo, no title card, no music sting. |
 | **0:12–0:22** | The inversion, stated: every care product is built for the person who isn't there. | The idea, in ten seconds. |
-| **0:22–0:50** | **The Door, live.** A real doorbell press. The real card on the real Fire TV. The real description. The button pressed. The real Chime speaking in the hallway. | The money shot. Everything else supports this. |
+| **0:22–0:50** | **The Door, live.** A Ring event from Ring's Playground simulator. The real card on the Fire TV / Vega simulator. The real description of the real frame. **Watch live** pressed: the doorbell camera, live, full screen on the TV within about eight seconds; Back returns to the card. | The money shot. Everything else supports this. |
 | **0:50–1:20** | **The Day, live.** The episode ends, the card appears, real Bee-derived items, the real message from the real daughter, the one-button reply, the phone buzzing at the other end. | The emotional centre. |
 | **1:20–1:45** | **The Family, live.** The real MCP server answering a real question, through an MCP client and the simulated Alexa+ surface. Say on screen, in one line, that the Alexa+ add-on surface is partner-gated and this is the permitted alternative. | The cross-device proof — and the honesty is itself credibility. |
 | **1:45–1:55** | **The refusal.** Ask Alexa something the resident has marked private. Watch it decline. | Ten seconds that will be remembered. |
