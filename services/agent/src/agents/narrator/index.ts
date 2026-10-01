@@ -15,14 +15,11 @@
  *
  * residentSeenAt is never set here, on purpose. INV-7: the resident sees
  * their week on their own television before any family surface can read
- * it, and no such display surface is built yet — there is no card type or
- * UI for "show the weekly narrative" (Card is DoorCard | DayCard |
- * MessageCard). Auto-marking this seen at generation time, so
- * get_week_narrative.ts would immediately answer Sarah, would be exactly
- * the thing docs/WICK.md's trust model forbids: saying something to the
- * family before the resident has actually seen it. This writes a real,
- * computed narrative and stops there — honestly incomplete rather than
- * quietly wrong.
+ * it. lambda.ts sends a WeekCard (weekCard.ts); pressing its one button is
+ * what sets residentSeenAt (edge-device route.mjs). Auto-marking it seen at
+ * generation time, so get_week_narrative.ts would answer Sarah at once,
+ * would be exactly what docs/WICK.md's trust model forbids: saying
+ * something to the family before the resident has seen it.
  *
  * Model: Claude — runs weekly, offline, and prose quality IS the product here.
  * See docs/WICK-TECHNICAL.md §5.4.

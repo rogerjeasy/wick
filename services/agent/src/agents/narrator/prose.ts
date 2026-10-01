@@ -5,22 +5,19 @@
  * recalculating, consistent with prompts/narrator-week.md's own brief.
  *
  * Model ID is the regional cross-region inference profile for Claude
- * Sonnet 5 — confirmed against this deployment's actual Bedrock account
- * (`aws bedrock list-foundation-models`/`list-inference-profiles`,
- * 2026-09-18). The bare foundation-model id (anthropic.claude-sonnet-5) is
- * also ACTIVE in this account, but newer large Anthropic models on Bedrock
- * typically require invocation through an inference profile rather than
- * on-demand throughput on the bare id — this account has one provisioned
- * for exactly this model, which is the strong signal it's the required
- * path. infra/narrator.tf's IAM grants InvokeModel on both this profile
- * ARN and the underlying foundation-model ARN it routes to, which AWS
- * requires for cross-region inference profile invocation.
+ * Sonnet 4.5. Claude Sonnet 5 is listed in this account, with an inference
+ * profile, yet every Converse call to it is refused with
+ * AccessDeniedException "not available for this account" — so every weekly
+ * run failed until 2026-10-01 (FRICTION.md FL-020). Sonnet 4.5 answers.
+ * infra/narrator.tf sets WICK_NARRATIVE_MODEL from the same local it grants
+ * InvokeModel on, so the deployed id and the IAM grant cannot drift apart;
+ * this default only matters for local runs.
  */
 import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import type { TimelineEntry } from '@wick/contracts';
 
 export const NARRATIVE_MODEL_ID =
-  process.env.WICK_NARRATIVE_MODEL ?? 'us.anthropic.claude-sonnet-5';
+  process.env.WICK_NARRATIVE_MODEL ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
 
 export const NARRATIVE_REGION = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1';
 

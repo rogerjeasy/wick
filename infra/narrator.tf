@@ -1,8 +1,9 @@
 # ---------------------------------------------------------------------------
 # The Narrator — the weekly narrative. See docs/WICK-TECHNICAL.md §5.4 and
 # services/agent/src/agents/narrator/index.ts's own header comment for why
-# residentSeenAt is never set here (INV-7 — no TV-side display surface
-# exists yet for the resident to see it first).
+# residentSeenAt is never set here (INV-7 — the resident sees the week on
+# their own television first: the WeekCard's one button sets it, in
+# edge-device's route.mjs).
 #
 # Runs on a weekly schedule, not per-request: Alexa+ requires MCP round
 # trips under 500ms (§9.3), so get_week_narrative.ts does a single GetItem
@@ -12,6 +13,14 @@
 # @wick/contracts and the Bedrock SDK at runtime, so it ships as an esbuild
 # bundle (`npm run build:lambda`) rather than a raw source_dir zip.
 # ---------------------------------------------------------------------------
+
+locals {
+  # Claude Sonnet 4.5. Sonnet 5 is listed for this account but refuses
+  # every call as "not available for this account" (FRICTION.md FL-020).
+  # One source for both the Lambda's WICK_NARRATIVE_MODEL and its IAM grant.
+  narrative_model         = "anthropic.claude-sonnet-4-5-20250929-v1:0"
+  narrative_model_profile = "us.${local.narrative_model}"
+}
 
 data "archive_file" "agent_narrator_weekly" {
   type        = "zip"
@@ -49,18 +58,14 @@ data "aws_iam_policy_document" "agent_narrator_weekly" {
   statement {
     sid = "WriteTheWeek"
     # prose.ts's ConverseCommand — the model never counts, only narrates
-    # what timeline.ts already computed. Model id is the "us." cross-
-    # region inference profile for Claude Sonnet 5 (confirmed against
-    # this account 2026-09-18 — see prose.ts's header comment), not the
-    # bare foundation-model id: AWS requires InvokeModel granted on both
-    # the profile ARN and the underlying foundation-model ARN it can
-    # route to. The foundation-model resource uses a wildcard region
-    # because the profile — not this policy — picks which US region
-    # actually serves the request.
+    # what timeline.ts already computed. Invoked through the "us." cross-
+    # region inference profile: AWS requires InvokeModel on both the
+    # profile ARN and the foundation-model ARN it routes to, in whichever
+    # US region the profile picks — hence the wildcard region.
     actions = ["bedrock:InvokeModel"]
     resources = [
-      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/us.anthropic.claude-sonnet-5",
-      "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5",
+      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/${local.narrative_model_profile}",
+      "arn:aws:bedrock:*::foundation-model/${local.narrative_model}",
     ]
   }
 }
@@ -94,8 +99,9 @@ resource "aws_lambda_function" "agent_narrator_weekly" {
 
   environment {
     variables = {
-      TABLE_NAME        = aws_dynamodb_table.wick.name
-      WICK_HOUSEHOLD_ID = var.household_id
+      TABLE_NAME           = aws_dynamodb_table.wick.name
+      WICK_HOUSEHOLD_ID    = var.household_id
+      WICK_NARRATIVE_MODEL = local.narrative_model_profile
     }
   }
 
