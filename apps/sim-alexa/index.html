@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <title>Wick — simulated Alexa+ surface</title>
+<link rel="icon" href="data:," />
 <style>
   body { font-family: system-ui, sans-serif; max-width: 560px; margin: 48px auto; color: #1a1a1a; }
   .notice { background: #fff3cd; border: 1px solid #ffe69c; padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-bottom: 24px; }
@@ -19,6 +20,11 @@
   .week-timeline time { flex: 0 0 auto; color: #666; white-space: nowrap; }
   .week-empty { color: #666; font-style: italic; }
   .week-meta { margin: 12px 0 0; font-size: 12px; color: #888; }
+  .replies { list-style: none; margin: 0; padding: 0; }
+  .replies li { padding: 10px 0; border-bottom: 1px solid #ddd; }
+  .replies li:last-child { border-bottom: 0; }
+  .replies p { margin: 4px 0; }
+  .reply-text { font-size: 18px; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -57,10 +63,18 @@
 
   <section>
     <h2>Send a note to the television</h2>
-    <label>From <input id="note-from" value="Alex" /></label>
+    <label>From <input id="note-from" value="Sarah" /></label>
     <label>Message <textarea id="note-message" rows="3" maxlength="240">Just checking in — call me when you get a chance!</textarea></label>
     <button id="send-note" disabled>Send</button>
     <pre id="note-result"></pre>
+  </section>
+
+  <section>
+    <h2>Has Mum replied?</h2>
+    <button id="ask-replies" disabled>Ask</button>
+    <!-- M3: the resident's one-button replies, rendered like the week —
+         see renderReplies() in main.js. -->
+    <div id="replies-result"></div>
   </section>
 
   <script type="module" src="./main.js"></script>

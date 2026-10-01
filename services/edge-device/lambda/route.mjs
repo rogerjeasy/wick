@@ -41,6 +41,9 @@
  * "not already set" is still checked so the resident's actual first
  * viewing is never overwritten by a later stray press.
  *
+ * M3: a `reply_<n>` on a family note (`note-<uuid>`) records the reply on
+ * the note's CARD# item, in the words Wick offered — note-reply.mjs.
+ *
  * A card_action the agent plane must carry out (today only M1's
  * `hallway_chime`) is also published to EventBridge as `wick.device` /
  * `card.action` — see card-action-event.mjs. Door presses that keep the card
@@ -59,6 +62,7 @@ import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge
 import { randomUUID } from 'node:crypto';
 import { isReplayable, markCardActed, retiresCard } from './card-acted.mjs';
 import { buildCardActionEntry, shouldPublish } from './card-action-event.mjs';
+import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
 
 const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
@@ -184,6 +188,11 @@ export const handler = async (event) => {
       await publishCardAction({ householdId, deviceId, cardId: deviceEvent.cardId, action: deviceEvent.action, at: deviceEvent.at });
     }
 
+    if (deviceEvent.t === 'card_action') {
+      const index = replyIndex(deviceEvent.cardId, deviceEvent.action);
+      if (index !== undefined) await recordNoteReply(householdId, deviceEvent.cardId, index, deviceEvent.at);
+    }
+
     if (deviceEvent.t === 'card_action' && deviceEvent.action === 'seen') {
       const weekMatch = WEEK_CARD_ID.exec(deviceEvent.cardId);
       if (weekMatch) await markNarrativeSeen(householdId, weekMatch[1], deviceEvent.at);
@@ -206,6 +215,29 @@ async function retireActedCard(householdId, cardId, at) {
   } catch (err) {
     if (err?.name === 'ConditionalCheckFailedException') return; // not a card the server sent — nothing to retire
     console.error('card_acted_write_failed', { householdId, cardId, err });
+  }
+}
+
+/**
+ * M3 — see note-reply.mjs. The words are read back from the stored card, so
+ * only a reply Wick offered can reach the family. Logged, never thrown: the
+ * press is already on the timeline.
+ */
+async function recordNoteReply(householdId, cardId, index, at) {
+  try {
+    const res = await ddb.send(new GetItemCommand({
+      TableName: TABLE,
+      Key: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${cardId}` } },
+    }));
+    const text = replyText(res.Item, index);
+    if (text === undefined) {
+      console.error('note_reply_unknown', { householdId, cardId, index });
+      return;
+    }
+    await ddb.send(new UpdateItemCommand(markNoteReplied({ table: TABLE, householdId, cardId, text, at })));
+    console.log(JSON.stringify({ level: 'info', msg: 'note_replied', cardId, index }));
+  } catch (err) {
+    console.error('note_reply_write_failed', { householdId, cardId, err: err?.name });
   }
 }
 

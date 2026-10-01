@@ -13,7 +13,7 @@ function setStatus(text) {
 }
 
 function enableToolButtons(enabled) {
-  for (const id of ['ask-week', 'ask-today', 'ask-visitor', 'send-note']) {
+  for (const id of ['ask-week', 'ask-today', 'ask-visitor', 'send-note', 'ask-replies']) {
     document.getElementById(id).disabled = !enabled;
   }
 }
@@ -211,14 +211,12 @@ function formatTimelineAt(atMs) {
  * WeekNarrative's own shape (packages/contracts/src/narrative.ts) —
  * {text, timeline: {at, kind, summary, personId?}[], residentSeenAt?, ...}.
  *
- * get_week_narrative.ts's tool handler returns a plain, non-JSON refusal
- * string ("This week's narrative isn't ready yet.") whenever there's
- * nothing to show — including, by INV-7, a narrative that exists but the
- * resident hasn't acknowledged on their own television yet (WeekCard,
- * services/agent/src/agents/narrator/weekCard.ts). That case is not an
- * error to special-case here: it's a WeekNarrative-shaped response with no
- * `text`/`timeline` fields, so it simply falls through to the plain-text
- * branch below.
+ * get_week_narrative.ts's tool handler returns a plain, non-JSON sentence
+ * whenever there's nothing to show: no week written yet, or, by INV-7, a
+ * week the resident hasn't seen on their own television yet (WeekCard,
+ * services/agent/src/agents/narrator/weekCard.ts), which says so in so many
+ * words. Neither is an error to special-case here: both fall through to
+ * the plain-text branch below.
  */
 function renderWeekPanel(rawText) {
   let narrative;
@@ -247,7 +245,41 @@ function renderWeekPanel(rawText) {
   `;
 }
 
+/**
+ * M3 — get_replies' response: each note Sarah sent, and the resident's
+ * one-button answer under it, or "No reply yet." The tool returns a plain
+ * sentence when no notes were sent, which falls through as text.
+ */
+function renderReplies(rawText) {
+  let parsed;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    return `<p class="week-empty">${escapeHtml(rawText)}</p>`;
+  }
+  if (!Array.isArray(parsed.notes)) return `<p class="week-empty">${escapeHtml(rawText)}</p>`;
+
+  const items = parsed.notes
+    .map((n) => {
+      const answer = n.reply
+        ? `<p class="reply-text">“${escapeHtml(n.reply.text)}”</p><p class="week-meta">Replied ${escapeHtml(formatTimelineAt(n.reply.at))}</p>`
+        : '<p class="week-meta">No reply yet.</p>';
+      return `<li><p class="week-meta">${escapeHtml(n.from)}, ${escapeHtml(formatTimelineAt(n.sentAt))}</p>${n.message ? `<p>${escapeHtml(n.message)}</p>` : ""}${answer}</li>`;
+    })
+    .join('');
+  return `<div class="week-panel"><ul class="replies">${items}</ul></div>`;
+}
+
 document.getElementById('connect').addEventListener('click', () => void connect());
+
+document.getElementById('ask-replies').addEventListener('click', async () => {
+  try {
+    const result = await callTool('get_replies', {});
+    document.getElementById('replies-result').innerHTML = renderReplies(result.content[0].text);
+  } catch (err) {
+    document.getElementById('replies-result').textContent = `Error: ${err.message}`;
+  }
+});
 
 document.getElementById('ask-week').addEventListener('click', async () => {
   try {

@@ -144,7 +144,7 @@ describe('createApp', () => {
     await close();
   });
 
-  it('exposes exactly the five deployed tools — the registered set IS the deploy contract', async () => {
+  it('exposes exactly the six deployed tools — the registered set IS the deploy contract', async () => {
     const app = createApp(new URL('http://127.0.0.1:4001'));
     const { port, close } = await listen(app);
     const base = `http://127.0.0.1:${port}`;
@@ -159,7 +159,7 @@ describe('createApp', () => {
     const listResult = await client.listTools();
     const names = listResult.tools.map((t) => t.name).sort();
     expect(names).toEqual(
-      ['did_visitor_come', 'get_resident_shared_view', 'get_today', 'get_week_narrative', 'send_note_to_tv'].sort(),
+      ['did_visitor_come', 'get_replies', 'get_resident_shared_view', 'get_today', 'get_week_narrative', 'send_note_to_tv'].sort(),
     );
 
     await client.close();

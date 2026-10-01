@@ -4,7 +4,12 @@ import type { WeekNarrative } from '@wick/contracts';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { loadWeekNarrative, registerGetWeekNarrative } from '../get_week_narrative.js';
+import {
+  WEEK_AWAITING_RESIDENT_TEXT,
+  WEEK_NOT_WRITTEN_TEXT,
+  loadWeekNarrative,
+  registerGetWeekNarrative,
+} from '../get_week_narrative.js';
 
 const NARRATIVE: WeekNarrative = {
   householdId: 'hh-1',
@@ -31,13 +36,13 @@ describe('loadWeekNarrative', () => {
       send: vi.fn().mockResolvedValue({ Item: { data: { S: JSON.stringify(unseen) } } }),
     } as unknown as DynamoDBClient;
     const result = await loadWeekNarrative(ddb, 'hh-1', '2026-W38');
-    expect(result).toEqual({ status: 'not_yet_available' });
+    expect(result).toEqual({ status: 'awaiting_resident' });
   });
 
-  it('reports not_yet_available when no narrative exists for the week', async () => {
+  it('reports not_written when no narrative exists for the week', async () => {
     const ddb = { send: vi.fn().mockResolvedValue({ Item: undefined }) } as unknown as DynamoDBClient;
     const result = await loadWeekNarrative(ddb, 'hh-1', '2026-W38');
-    expect(result).toEqual({ status: 'not_yet_available' });
+    expect(result).toEqual({ status: 'not_written' });
   });
 });
 
@@ -58,9 +63,21 @@ describe('get_week_narrative INV-7 guard (end-to-end through the registered tool
     const result = await client.callTool({ name: 'get_week_narrative', arguments: { isoWeek: '2026-W38' } });
     const content = result.content as { type: string; text: string }[];
 
-    // Must read as "not ready" prose, never leak the narrative text or timeline.
+    // Says why, in the product's own voice — and never leaks the text or timeline.
     expect(content[0]!.text).not.toContain(unseen.text);
-    expect(content[0]!.text).toMatch(/isn't ready/i);
+    expect(content[0]!.text).toBe(WEEK_AWAITING_RESIDENT_TEXT);
+  });
+
+  it('says plainly when no week has been written yet', async () => {
+    const ddb = { send: vi.fn().mockResolvedValue({ Item: undefined }) } as unknown as DynamoDBClient;
+    const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
+    registerGetWeekNarrative(mcpServer, ddb);
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = await client.callTool({ name: 'get_week_narrative', arguments: { isoWeek: '2026-W38' } });
+    expect((result.content as { type: string; text: string }[])[0]!.text).toBe(WEEK_NOT_WRITTEN_TEXT);
   });
 
   it('returns the narrative JSON once residentSeenAt is set', async () => {
