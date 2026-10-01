@@ -209,12 +209,14 @@ export default function App(): React.JSX.Element {
         <HomeScreen programmes={CATALOG} onChoose={setWatching} cardVisible={card !== null} lastWatchedId={lastWatchedId} />
       )}
       {/* Over the programme, at the bottom, never instead of it. */}
-      {card ? (
+      {/* Not while live view is open: a card left underneath keeps the remote's
+          focus, and OK then presses "Watch live" again instead of Back. */}
+      {card && !liveFor ? (
         <View style={styles.cardLayer} pointerEvents="box-none">
           <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} onAction={handleAction} />
         </View>
       ) : null}
-      {/* Over the card, not instead of it: Back returns to the card as it was. */}
+      {/* Back returns to the card as it was. */}
       {liveFor ? (
         <LiveView
           pairingApiUrl={config.pairingApiUrl}
