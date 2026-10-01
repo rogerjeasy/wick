@@ -17,7 +17,10 @@ COPY scripts/build-lambda.mjs ./scripts/build-lambda.mjs
 COPY apps/tv-vega/package.json ./apps/tv-vega/package.json
 # --ignore-scripts: simple-git-hooks' postinstall expects a .git directory.
 # esbuild's own postinstall is the one script the build needs.
-RUN npm ci --ignore-scripts && node node_modules/esbuild/install.js && node scripts/build-lambda.mjs
+# Retries: one stalled registry fetch shouldn't fail a deploy (seen twice).
+RUN npm ci --ignore-scripts --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 --fetch-timeout=600000 \
+ && node node_modules/esbuild/install.js \
+ && node scripts/build-lambda.mjs
 
 FROM node:22-slim
 RUN apt-get update \
