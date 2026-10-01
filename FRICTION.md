@@ -67,6 +67,7 @@ leads, not entries — an entry requires that you actually hit it.
 | Important | Ring: WHEP session duration/concurrency limits undocumented |
 | Important | AgentCore Runtime (PUBLIC) gets no outbound UDP — no WebRTC/RTP in the agent runtime (FL-017) |
 | Important | Vega: a missing `com.amazon.mediatransform.service` declaration fails every video decode as MediaError 3, nothing at build time (FL-018) |
+| Important | Ring's Playground simulates cameras only — no chime, so a chime integration cannot be shown without buying hardware (FL-019) |
 | Important | Alexa+ MCP add-on is US-only |
 | Important | No accessibility-preference API on Vega beyond screen-reader state |
 | Nice-to-have | Ring `sub_type` taxonomy too coarse |
@@ -80,6 +81,49 @@ leads, not entries — an entry requires that you actually hit it.
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-019 — Ring's only simulator has no chime, so a chime integration can't be demonstrated without buying one
+
+**Tool / API:**      Ring Developer Playground (released 2026-05-28); Ring Partner API Chimes,
+                     `POST /v1/devices/{id}/media/audio/playback` (Chime Controls capability)
+
+**Task attempted:**  Demonstrate M1 "Ring the hallway chime": a TV-remote button that plays the
+                     app's slot audio on the household's Ring Chime.
+
+**Steps taken:**     1. Built and tested the whole path against Ring's documented chime contract
+                        (discovery by `audio.supported_actions` ∋ `chime.play`, slots from
+                        `configurations`, playback, snooze/offline handling).
+                     2. Looked for a chime to run it against without hardware. The Playground
+                        account lists one simulated camera and nothing else, and its simulation
+                        covers "Package, Vehicle, and Motion event types" and live view only
+                        (release notes). Ring publishes no local emulator or SDK.
+                     3. The only chime emulator found is a third-party project that Ring's
+                        documentation does not list. The Ring track accepts only simulators
+                        listed there, so it can't stand in for Ring in a submission.
+                     4. Separately, the real linked account shows no devices to the app (FL-010),
+                        so even a purchased chime is not certain to become visible.
+
+**Expected:**        The Playground to simulate every device class the Partner API documents, or
+                     at least those with write actions (chime playback), the way it simulates
+                     camera events and live view.
+
+**Actual:**          Chime playback, the API's only way to make a sound in the home, can be
+                     exercised only with a physical Chime on a fully linked account.
+
+**Severity:**        Important — a whole capability (Chime Controls) is untestable and
+                     undemonstrable for anyone without the hardware, and it is the capability
+                     that lets an app act in the home rather than only watch it.
+
+**Workaround:**      Wick ships M1 built and contract-tested, and the TV draws the button only
+                     when a chime exists, so a household without one never sees a dead button.
+                     The demo shows Watch live instead.
+
+**Suggestion:**      1. Add a simulated Chime to the Playground account, with the app's audio
+                        slots populated and a visible or audible "played" indication.
+                     2. Document how audio gets into an app's chime slot. The API exposes the
+                        slots read-only and does not say who fills them.
+
+---
 
 ## FL-018 — A Vega app without `com.amazon.mediatransform.service` in its manifest can't decode any video, and nothing says so until playback
 
