@@ -1,5 +1,5 @@
 /**
- * The single renderer for all three card types.
+ * The single renderer for every card type.
  *
  * Non-negotiable, from docs/WICK.md Part 5 — enforced by @wick/vega-calm-ui:
  *   - minimum 32pt type, contrast >= 7:1
@@ -14,6 +14,7 @@ import type { Card } from '@wick/contracts';
 import { DayCardView } from './DayCard.js';
 import { DoorCardView } from './DoorCard.js';
 import { MessageCardView } from './MessageCard.js';
+import { SharingCardView } from './SharingCard.js';
 import { WeekCardView } from './WeekCard.js';
 
 export interface CardRendererProps {
@@ -36,5 +37,8 @@ export function CardRenderer({ card, onAction }: CardRendererProps): React.JSX.E
 
     case 'DAY':
       return <DayCardView card={card} onAction={handle} />;
+
+    case 'SHARING':
+      return <SharingCardView card={card} onAction={handle} />;
   }
 }

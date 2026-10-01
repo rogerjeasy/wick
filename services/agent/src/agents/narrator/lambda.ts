@@ -64,7 +64,7 @@ export const handler = async (): Promise<void> => {
 
   // The resident's copy — INV-7. Pressing its one button is what actually
   // sets residentSeenAt (route.mjs); nothing here does that directly.
-  const card = buildWeekCard(narrative, randomUUID(), Date.now());
+  const card = buildWeekCard(narrative, randomUUID(), Date.now(), process.env.WICK_FAMILY_NAME || undefined);
   await sendToDevice(card, DEFAULT_POLICY);
 
   console.log(JSON.stringify({ level: 'info', msg: 'narrative_computed', isoWeek, events: narrative.timeline.length, textSource: narrative.textSource, chars: narrative.text.length }));

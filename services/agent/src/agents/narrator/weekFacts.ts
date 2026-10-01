@@ -154,30 +154,57 @@ function list(items: readonly string[]): string {
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
-/** The week from the facts alone — no model, nothing invented. Always passes checkNarrative. */
-export function fallbackNarrative(facts: WeekFacts): string {
-  const fits = (sentences: readonly string[]) => sentences.join(' ').length <= MAX_NARRATIVE_CHARS;
+/**
+ * Sentences from the facts alone, door first then who visited, each part
+ * included only if asked for, and all of it — with `tail` — inside the card.
+ */
+function compose(facts: WeekFacts, include: { door: boolean; visits: boolean }, tail: readonly string[] = []): string[] {
+  const fits = (sentences: readonly string[]) => [...sentences, ...tail].join(' ').length <= MAX_NARRATIVE_CHARS;
 
-  let door: string;
-  if (facts.doorVisits === 0) {
-    door = facts.weekComplete ? 'A quiet week. Nobody came to the front door.' : 'A quiet week so far. Nobody has come to the front door since Monday.';
-  } else {
-    door = `Someone came to the front door ${spokenTimes(facts.doorVisits)} ${facts.weekComplete ? 'this week' : 'so far this week'}.`;
+  let door: string | undefined;
+  if (include.door) {
+    if (facts.doorVisits === 0) {
+      door = facts.weekComplete ? 'A quiet week. Nobody came to the front door.' : 'A quiet week so far. Nobody has come to the front door since Monday.';
+    } else {
+      door = `Someone came to the front door ${spokenTimes(facts.doorVisits)} ${facts.weekComplete ? 'this week' : 'so far this week'}.`;
+    }
   }
 
   // Who visited matters more than when the door was busy, so names claim
   // their room first and the time-of-day breakdown gets whatever is left.
   const named: string[] = [];
-  for (const v of facts.visits) {
-    const sentence = `${v.name} visited ${spokenTimes(v.count)}.`;
-    if (fits([door, ...named, sentence])) named.push(sentence);
+  if (include.visits) {
+    for (const v of facts.visits) {
+      const sentence = `${v.name} visited ${spokenTimes(v.count)}.`;
+      if (fits([...(door ? [door] : []), ...named, sentence])) named.push(sentence);
+    }
   }
 
-  if (facts.doorTimes.length > 0) {
-    const when = facts.doorTimes.map((t) => `${spokenTimes(t.count)} on ${t.day} ${t.part}`);
-    const detailed = `${door.slice(0, -1)}: ${list(when)}.`;
+  if (door && facts.doorVisits > 0 && facts.doorTimes.length > 0) {
+    const [only] = facts.doorTimes;
+    const detailed =
+      facts.doorTimes.length === 1 && only
+        ? `${door.slice(0, -1)}, on ${only.day} ${only.part}.`
+        : `${door.slice(0, -1)}: ${list(facts.doorTimes.map((t) => `${spokenTimes(t.count)} on ${t.day} ${t.part}`))}.`;
     if (fits([detailed, ...named])) door = detailed;
   }
 
-  return [door, ...named].join(' ');
+  return [...(door ? [door] : []), ...named, ...tail];
+}
+
+/** The week from the facts alone — no model, nothing invented. Always passes checkNarrative. */
+export function fallbackNarrative(facts: WeekFacts): string {
+  return compose(facts, { door: true, visits: true }).join(' ');
+}
+
+/**
+ * The family's week when the resident keeps part of it private ("What
+ * Sarah sees"). What is hidden is left out, never reported as absent: a
+ * private door is not "nobody came". The last sentence says some of the
+ * week is private, because silence would be a lie (§6.4).
+ */
+export function privateNarrative(facts: WeekFacts, hidden: { readonly door: boolean; readonly visits: boolean }): string {
+  const include = { door: !hidden.door, visits: !hidden.visits };
+  if (!include.door && !include.visits) return 'This week is kept private.';
+  return compose(facts, include, ['Some of this week is kept private.']).join(' ');
 }

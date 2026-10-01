@@ -30,9 +30,16 @@ describe('buildWeekCard', () => {
     expect(queued.card.isoWeek).toBe('2026-W38');
   });
 
-  it('offers exactly one action — acknowledging is the whole interaction', () => {
-    const queued = buildWeekCard(narrative, 'corr-1', 2000);
-    expect(queued.card.actions).toEqual([{ id: 'seen', label: 'OK', kind: 'primary' }]);
+  it('offers OK first, and focused — acknowledging is what releases the week (INV-7) — then "What Sarah sees" (trust promise 2)', () => {
+    const queued = buildWeekCard(narrative, 'corr-1', 2000, 'Sarah');
+    expect(queued.card.actions).toEqual([
+      { id: 'seen', label: 'OK', kind: 'primary' },
+      { id: 'sharing', label: 'What Sarah sees', kind: 'secondary' },
+    ]);
+  });
+
+  it('says "your family" when the household has not named anyone', () => {
+    expect(buildWeekCard(narrative, 'corr-1', 2000).card.actions[1]).toMatchObject({ label: 'What your family sees' });
   });
 
   it('never expires — Principle 9, no time limits, and DEFERRED cards carry no expiresAt', () => {

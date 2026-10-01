@@ -14,11 +14,16 @@
 import { z } from 'zod';
 import { GetItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { currentIsoWeek, type WeekNarrative } from '@wick/contracts';
+import type { HouseholdPolicy } from '@wick/policy';
+import { isoWeekRange, privateNarrative, summariseWeek } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { HOUSEHOLD_ID } from '../auth.js';
 import { withFriendlyErrors } from './errors.js';
+import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
+/** The household's time zone, for rewriting a week with part of it private. Same default as the Narrator's. */
+const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 export type WeekNarrativeResult =
   | { readonly status: 'available'; readonly narrative: WeekNarrative }
@@ -45,6 +50,34 @@ export async function loadWeekNarrative(
   return { status: 'available', narrative };
 }
 
+export type FamilyWeekResult =
+  | { readonly status: 'available'; readonly narrative: WeekNarrative }
+  | { readonly status: 'private' };
+
+/**
+ * Sarah's copy of the week, honouring what the resident keeps private
+ * ("What Sarah sees", services/edge-device/lambda/sharing.mjs). The week's
+ * summary is itself the RHYTHM class, so keeping that private withholds the
+ * whole week. Keeping door visits or visitors private drops those entries
+ * from the timeline and rewrites the prose from the facts still shared;
+ * the stored prose may mention them, and the model is never asked again
+ * in-request (§9.3: the round trip stays a GetItem or two).
+ */
+export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, timeZone: string): FamilyWeekResult {
+  if (!isSharedWithFamily('RHYTHM', policy)) return { status: 'private' };
+
+  const hidden = { door: !isSharedWithFamily('DOOR_EVENT', policy), visits: !isSharedWithFamily('PRESENCE', policy) };
+  if (!hidden.door && !hidden.visits) return { status: 'available', narrative };
+
+  const hides = (kind: string) => (kind === 'door' && hidden.door) || ((kind === 'visit' || kind === 'presence') && hidden.visits);
+  const timeline = narrative.timeline.filter((e) => !hides(e.kind));
+  const facts = summariseWeek(timeline, { timeZone, range: isoWeekRange(narrative.isoWeek), now: narrative.generatedAt });
+  return {
+    status: 'available',
+    narrative: { ...narrative, timeline, text: privateNarrative(facts, hidden), textSource: 'facts' },
+  };
+}
+
 export function registerGetWeekNarrative(mcpServer: McpServer, ddb: DynamoDBClient): void {
   mcpServer.registerTool(
     'get_week_narrative',
@@ -62,7 +95,11 @@ export function registerGetWeekNarrative(mcpServer: McpServer, ddb: DynamoDBClie
       if (result.status === 'not_written') {
         return { content: [{ type: 'text' as const, text: WEEK_NOT_WRITTEN_TEXT }] };
       }
-      return { content: [{ type: 'text' as const, text: JSON.stringify(result.narrative) }] };
+      const family = familyWeek(result.narrative, await loadHouseholdPolicy(ddb, HOUSEHOLD_ID), HOUSEHOLD_TZ);
+      if (family.status === 'private') {
+        return { content: [{ type: 'text' as const, text: FAMILY_REFUSAL_TEXT }] };
+      }
+      return { content: [{ type: 'text' as const, text: JSON.stringify(family.narrative) }] };
     }),
   );
 }

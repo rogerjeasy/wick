@@ -61,6 +61,22 @@ describe('BreakController — without a player attached (SP-1 unresolved)', () =
     expect(bc.pickCard([earlier, latest], NOW)?.id).toBe('latest');
   });
 
+  it('puts a card the resident just asked for ahead of older DEFERRED cards', () => {
+    const bc = new BreakController();
+    bc.setForeground(true, NOW);
+    const waitingNote = { ...messageQueued(), id: 'note', queuedAt: NOW - 60_000 };
+    const asked = { ...messageQueued(), id: 'sharing', queuedAt: NOW, respondsTo: 'week-2026-W40' };
+    expect(bc.pickCard([waitingNote, asked], NOW + 20_000)?.id).toBe('sharing');
+  });
+
+  it('still holds a card the resident asked for while a scene is playing — INV-5 has no third class', () => {
+    const bc = new BreakController();
+    bc.setForeground(true, NOW);
+    bc.setPlayback({ state: 'PLAYING', positionMs: 1_000, durationMs: 3_600_000, contentId: 'ep1' }, NOW);
+    const asked = { ...messageQueued(), id: 'sharing', respondsTo: 'week-2026-W40' };
+    expect(bc.pickCard([asked], NOW + 20_000)).toBeUndefined();
+  });
+
   it('among releasable DEFERRED cards, picks the longest-waiting one', () => {
     const bc = new BreakController();
     bc.setForeground(true, NOW);

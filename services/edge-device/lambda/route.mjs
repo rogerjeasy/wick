@@ -41,6 +41,10 @@
  * "not already set" is still checked so the resident's actual first
  * viewing is never overwritten by a later stray press.
  *
+ * Trust promise 2: `sharing` on a Week card opens "What Sarah sees", and the
+ * sharing card's own presses change the resident's exclusions and turn its
+ * pages — sharing.mjs.
+ *
  * M3: a `reply_<n>` on a family note (`note-<uuid>`) records the reply on
  * the note's CARD# item, in the words Wick offered — note-reply.mjs.
  *
@@ -65,11 +69,14 @@ import { randomUUID } from 'node:crypto';
 import { isReplayable, markCardActed, retiresCard } from './card-acted.mjs';
 import { buildCardActionEntry, shouldPublish } from './card-action-event.mjs';
 import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
+import { SHARING_CARD_ID, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 
 const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
 const TABLE = process.env.TABLE_NAME;
 const BUS = process.env.EVENT_BUS_NAME;
+/** The family member as the resident knows them — "What Sarah sees". */
+const FAMILY_NAME = process.env.WICK_FAMILY_NAME || undefined;
 
 const WEEK_CARD_ID = /^week-(\d{4}-W\d{2})$/;
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -193,6 +200,12 @@ export const handler = async (event) => {
     if (deviceEvent.t === 'card_action') {
       const index = replyIndex(deviceEvent.cardId, deviceEvent.action);
       if (index !== undefined) await recordNoteReply(householdId, deviceEvent.cardId, index, deviceEvent.at);
+
+      if (deviceEvent.action === 'sharing' && WEEK_CARD_ID.test(deviceEvent.cardId)) {
+        await showSharing({ event, householdId, connectionId, page: 0, respondsTo: deviceEvent.cardId });
+      } else if (deviceEvent.cardId === SHARING_CARD_ID) {
+        await advanceSharing({ event, householdId, connectionId, action: deviceEvent.action });
+      }
     }
 
     if (deviceEvent.t === 'card_action' && deviceEvent.action === 'seen') {
@@ -240,6 +253,63 @@ async function recordNoteReply(householdId, cardId, index, at) {
     console.log(JSON.stringify({ level: 'info', msg: 'note_replied', cardId, index }));
   } catch (err) {
     console.error('note_reply_write_failed', { householdId, cardId, err: err?.name });
+  }
+}
+
+/**
+ * "What Sarah sees" — see sharing.mjs. Logged, never thrown: the press is
+ * already on the timeline, and the card stays on screen, so pressing again
+ * is the resident's retry.
+ */
+async function loadMeta(householdId) {
+  const res = await ddb.send(new GetItemCommand({
+    TableName: TABLE,
+    Key: { pk: { S: `HH#${householdId}` }, sk: { S: 'META' } },
+  }));
+  return res.Item;
+}
+
+async function showSharing({ event, householdId, connectionId, page, respondsTo }) {
+  try {
+    const meta = await loadMeta(householdId);
+    const queued = buildSharingCard({
+      householdId,
+      page,
+      policyJson: meta?.policy?.S,
+      exclusions: readExclusions(meta),
+      familyName: FAMILY_NAME,
+      now: Date.now(),
+      respondsTo,
+    });
+    if (!queued) return;
+    // PutItem, not Update: a fresh card, without the actedAt a previous Done left.
+    await ddb.send(new PutItemCommand({
+      TableName: TABLE,
+      Item: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${SHARING_CARD_ID}` }, data: { S: JSON.stringify(queued) } },
+    }));
+    const mgmt = new ApiGatewayManagementApiClient({ endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}` });
+    await mgmt.send(new PostToConnectionCommand({ ConnectionId: connectionId, Data: JSON.stringify({ kind: 'card', card: queued }) }));
+  } catch (err) {
+    console.error('sharing_show_failed', { householdId, page, err: err?.name });
+  }
+}
+
+async function advanceSharing({ event, householdId, connectionId, action }) {
+  try {
+    const [stored, meta] = await Promise.all([
+      ddb.send(new GetItemCommand({ TableName: TABLE, Key: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${SHARING_CARD_ID}` } } })),
+      loadMeta(householdId),
+    ]);
+    const storedQueued = stored.Item?.data?.S ? JSON.parse(stored.Item.data.S) : undefined;
+    const step = sharingStep(storedQueued, action, readExclusions(meta));
+    if (!step) return;
+    if (step.set) {
+      await ddb.send(new UpdateItemCommand(exclusionUpdate({ table: TABLE, householdId, ...step.set })));
+      console.log(JSON.stringify({ level: 'info', msg: 'sharing_changed', factClass: step.set.factClass, keepPrivate: step.set.keepPrivate }));
+    }
+    await showSharing({ event, householdId, connectionId, page: step.page, respondsTo: storedQueued?.respondsTo });
+  } catch (err) {
+    console.error('sharing_step_failed', { householdId, action, err: err?.name });
   }
 }
 

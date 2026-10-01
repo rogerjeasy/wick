@@ -54,11 +54,14 @@ export function isReplayable(item, now) {
 }
 
 /**
- * Door presses that leave the card on screen: the chime's answer patches onto
- * it, and the live view opens over it. Retiring those would stop reconcile
- * replaying a card the resident is still looking at.
+ * Presses that leave the card on screen: the chime's answer patches onto a
+ * door card, and the live view opens over it; "What Sarah sees" opens over
+ * the Week card; the sharing card's toggle and Next replace it in place
+ * (sharing.mjs). Retiring those would stop reconcile replaying a card the
+ * resident is still looking at — and `sharing` retiring the Week card would
+ * release nothing, but would hide the week before the resident pressed OK.
  */
-const KEEPS_CARD = new Set(['hallway_chime', 'watch_live']);
+const KEEPS_CARD = new Set(['hallway_chime', 'watch_live', 'sharing', 'toggle', 'next']);
 
 /** Whether a card_action finishes its card server-side (stamps actedAt). */
 export function retiresCard(action) {

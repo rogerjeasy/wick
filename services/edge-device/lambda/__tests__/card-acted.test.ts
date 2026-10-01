@@ -65,6 +65,13 @@ describe('retiresCard — which presses finish a card server-side', () => {
     expect(retiresCard('reply_0')).toBe(true);
   });
 
+  it('does not retire the Week card behind "What Sarah sees", nor the sharing card on toggle or Next — only Done', () => {
+    expect(retiresCard('sharing')).toBe(false);
+    expect(retiresCard('toggle')).toBe(false);
+    expect(retiresCard('next')).toBe(false);
+    expect(retiresCard('done')).toBe(true);
+  });
+
   it('does not retire a door card the resident is still looking at — chime and live view keep it', () => {
     expect(retiresCard('hallway_chime')).toBe(false);
     expect(retiresCard('watch_live')).toBe(false);

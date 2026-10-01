@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MAX_NARRATIVE_CHARS, type TimelineEntry } from '@wick/contracts';
-import { checkNarrative, factLines, fallbackNarrative, summariseWeek } from '../weekFacts.js';
+import { checkNarrative, factLines, fallbackNarrative, privateNarrative, summariseWeek } from '../weekFacts.js';
 import { isoWeekRange } from '../isoWeek.js';
 
 // 2026-W40 runs Monday 28 Sep to Sunday 4 Oct. London is on BST (UTC+1).
@@ -115,6 +115,11 @@ describe('fallbackNarrative', () => {
     expect(checkNarrative(text, facts)).toEqual({ ok: true });
   });
 
+  it('does not repeat the count when every visit fell in one part of one day', () => {
+    const facts = summariseWeek([door('2026-09-30T18:10:00Z'), door('2026-09-30T18:40:00Z')], { timeZone: LONDON, range, now: afterTheWeek });
+    expect(fallbackNarrative(facts)).toBe('Someone came to the front door twice this week, on Wednesday evening.');
+  });
+
   it('says a quiet week is a quiet week — and says "so far" mid-week', () => {
     expect(fallbackNarrative(summariseWeek([], { timeZone: LONDON, range, now: afterTheWeek }))).toBe('A quiet week. Nobody came to the front door.');
     expect(fallbackNarrative(summariseWeek([], { timeZone: LONDON, range, now: Date.parse('2026-10-01T11:00:00Z') }))).toBe(
@@ -129,5 +134,28 @@ describe('fallbackNarrative', () => {
 
     expect(text.length).toBeLessThanOrEqual(MAX_NARRATIVE_CHARS);
     expect(checkNarrative(text, facts)).toEqual({ ok: true });
+  });
+});
+
+describe('privateNarrative — the family’s week when the resident keeps part of it private', () => {
+  const facts = summariseWeek(
+    [door('2026-09-30T18:10:00Z'), door('2026-09-30T18:40:00Z'), door('2026-10-01T07:40:00Z'), visit('2026-09-29T09:00:00Z', 'Maria')],
+    { timeZone: LONDON, range, now: afterTheWeek },
+  );
+
+  it('leaves out the door, and says part of the week is private — never that nobody came', () => {
+    const text = privateNarrative(facts, { door: true, visits: false });
+    expect(text).toBe('Maria visited once. Some of this week is kept private.');
+    expect(text).not.toMatch(/door|nobody/i);
+  });
+
+  it('leaves out who visited', () => {
+    expect(privateNarrative(facts, { door: false, visits: true })).toBe(
+      'Someone came to the front door three times this week: twice on Wednesday evening and once on Thursday morning. Some of this week is kept private.',
+    );
+  });
+
+  it('says only that the week is private when nothing shared is left', () => {
+    expect(privateNarrative(facts, { door: true, visits: true })).toBe('This week is kept private.');
   });
 });

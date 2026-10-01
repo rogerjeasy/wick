@@ -6,9 +6,15 @@
  * route.mjs (services/edge-device/lambda/route.mjs), which recovers the
  * isoWeek from the card id rather than needing a lookup.
  */
-import type { QueuedCard, WeekNarrative } from '@wick/contracts';
+import { WEEK_ACTIONS, type QueuedCard, type WeekNarrative } from '@wick/contracts';
 
-export function buildWeekCard(narrative: WeekNarrative, correlationId: string, now: number): QueuedCard {
+/**
+ * `familyName` is the household's family member as the resident knows them
+ * (WICK_FAMILY_NAME). The second button opens "What Sarah sees" over this
+ * card (trust promise 2); OK stays first and focused, because only OK
+ * releases the week to the family.
+ */
+export function buildWeekCard(narrative: WeekNarrative, correlationId: string, now: number, familyName?: string): QueuedCard {
   const id = `week-${narrative.isoWeek}`;
 
   return {
@@ -20,7 +26,10 @@ export function buildWeekCard(narrative: WeekNarrative, correlationId: string, n
       householdId: narrative.householdId,
       correlationId,
       createdAt: now,
-      actions: [{ id: 'seen', label: 'OK', kind: 'primary' }],
+      actions: [
+        { id: WEEK_ACTIONS.seen, label: 'OK', kind: 'primary' },
+        { id: WEEK_ACTIONS.sharing, label: `What ${familyName ?? 'your family'} sees`, kind: 'secondary' },
+      ],
       isoWeek: narrative.isoWeek,
       text: narrative.text,
     },

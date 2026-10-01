@@ -26,13 +26,23 @@ const TABLE = process.env.TABLE_NAME ?? 'wick';
  */
 export const FAMILY_REFUSAL_TEXT = "That's something the resident is keeping to themselves. I'm not able to share it.";
 
+/**
+ * The household's policy, with the resident's own choices from their
+ * television merged in. "What Sarah sees" (services/edge-device/lambda/
+ * sharing.mjs) records those as a `residentExclusions` string set on this
+ * same META item, so the policy document itself is never rewritten by a
+ * device. Exclusions only ever narrow (services/policy).
+ */
 export async function loadHouseholdPolicy(ddb: DynamoDBClient, householdId: string): Promise<HouseholdPolicy> {
   const res = await ddb.send(new GetItemCommand({
     TableName: TABLE,
     Key: { pk: { S: `HH#${householdId}` }, sk: { S: 'META' } },
   }));
   const raw = res.Item?.policy?.S;
-  return raw ? (JSON.parse(raw) as HouseholdPolicy) : DEFAULT_POLICY;
+  const policy = raw ? (JSON.parse(raw) as HouseholdPolicy) : DEFAULT_POLICY;
+  const fromTv = (res.Item?.residentExclusions?.SS ?? []) as FactClass[];
+  if (fromTv.length === 0) return policy;
+  return { ...policy, residentExclusions: [...new Set([...policy.residentExclusions, ...fromTv])] };
 }
 
 /**

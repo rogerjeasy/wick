@@ -103,6 +103,7 @@ resource "aws_lambda_function" "agent_narrator_weekly" {
       WICK_HOUSEHOLD_ID    = var.household_id
       WICK_NARRATIVE_MODEL = local.narrative_model_profile
       WICK_HOUSEHOLD_TZ    = var.household_time_zone
+      WICK_FAMILY_NAME     = var.family_name
     }
   }
 

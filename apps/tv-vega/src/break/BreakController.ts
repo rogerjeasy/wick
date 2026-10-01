@@ -81,7 +81,8 @@ export class BreakController {
   /**
    * The single card to show right now, if any. DOOR always wins when
    * releasable (Rule 1 — it renders regardless of state); among releasable
-   * DEFERRED cards, the longest-waiting one goes first, so a card queued
+   * DEFERRED cards, one the resident just asked for (respondsTo) goes
+   * first, then the longest-waiting one, so a card queued
    * during one episode is not perpetually skipped by a newer one arriving
    * at the next break.
    */
@@ -95,6 +96,9 @@ export class BreakController {
     if (door) return door;
 
     const deferred = release.filter((q) => q.urgency !== 'DOOR');
+    // A card the resident just asked for answers their press; it goes first.
+    const asked = deferred.find((q) => q.respondsTo !== undefined);
+    if (asked) return asked;
     return [...deferred].sort((a, b) => a.queuedAt - b.queuedAt)[0];
   }
 }
