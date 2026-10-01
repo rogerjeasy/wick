@@ -1,7 +1,8 @@
 /**
  * CalmCard — the base surface.
  *
- * Enforced, not suggested: >=32pt type, >=7:1 contrast, <=3 actions, no
+ * Enforced, not suggested: >=32pt type, >=7:1 contrast, <=3 actions, <=5
+ * lines of detail (so the buttons are always on screen), no
  * auto-dismiss, no timer, no red, no badge, no sound.
  *
  * The enforcement is in constraints.ts and runs at render. A card that breaks
@@ -17,6 +18,7 @@ import {
   fontSize,
   safe,
 } from './constraints.js';
+import { layout, limits } from './tokens.js';
 
 export interface CalmAction {
   readonly id: string;
@@ -63,7 +65,11 @@ export function CalmCard(props: CalmCardProps): React.JSX.Element {
           </Text>
 
           {/* No placeholder, no spinner, no "loading…". Absent means absent. */}
-          {detail ? <Text style={styles.detail}>{detail}</Text> : null}
+          {detail ? (
+            <Text style={styles.detail} numberOfLines={limits.maxDetailLines}>
+              {detail}
+            </Text>
+          ) : null}
 
           {children}
         </View>
@@ -95,8 +101,8 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: safe.raised,
     borderRadius: 16,
-    padding: 32,
-    gap: 20,
+    padding: layout.cardPaddingDp,
+    gap: layout.sectionGapDp,
   },
   body: {
     flexDirection: 'row',
@@ -104,17 +110,17 @@ const styles = StyleSheet.create({
   },
   text: {
     flex: 1,
-    gap: 12,
+    gap: layout.textGapDp,
   },
   headline: {
     color: safe.ink,
     fontSize: fontSize('headline'),
-    lineHeight: fontSize('headline') * 1.25,
+    lineHeight: fontSize('headline') * layout.lineHeight.headline,
   },
   detail: {
     color: safe.inkDim,
     fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
+    lineHeight: fontSize('body') * layout.lineHeight.body,
   },
   // Wraps rather than running off the edge: three 32pt reply labels are
   // wider than a 960dp screen (observed on the VVD — the third was cut off).
@@ -124,7 +130,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   action: {
-    paddingVertical: 20,
+    paddingVertical: layout.actionPaddingVerticalDp,
     paddingHorizontal: 32,
     borderRadius: 12,
     borderWidth: 2,

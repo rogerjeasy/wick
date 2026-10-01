@@ -6,7 +6,7 @@
  * one here is a call that throws. The components below cannot render a card
  * that breaks them.
  */
-import { limits, palette, type } from './tokens.js';
+import { layout, limits, palette, type } from './tokens.js';
 
 export class CalmViolation extends Error {
   constructor(message: string) {
@@ -43,6 +43,18 @@ export function fontSize(role: TypeRole): number {
     throw new CalmViolation(`${role} resolves to ${size}pt, below the ${type.bodyPt}pt floor.`);
   }
   return size;
+}
+
+/**
+ * The tallest a text-only card can be: padding, a one-line headline, the
+ * detail at its line limit, and one row of actions. CalmCard's own styles
+ * are built from the same tokens, so this is the card's real height.
+ */
+export function maxCardHeightDp(): number {
+  const headline = type.headlinePt * layout.lineHeight.headline;
+  const detail = limits.maxDetailLines * type.bodyPt * layout.lineHeight.body;
+  const actionRow = layout.actionPaddingVerticalDp * 2 + type.bodyPt * layout.lineHeight.body;
+  return layout.cardPaddingDp * 2 + headline + layout.textGapDp + detail + layout.sectionGapDp + actionRow;
 }
 
 /** sRGB relative luminance, per WCAG. */

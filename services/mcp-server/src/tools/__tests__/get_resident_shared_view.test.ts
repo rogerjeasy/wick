@@ -21,6 +21,23 @@ describe('loadHouseholdPolicy', () => {
     const policy = await loadHouseholdPolicy(ddb, 'hh-1');
     expect(policy.residentExclusions).toEqual(['FINANCIAL']);
   });
+
+  it('honours what the resident chose on their own television — the META string set — with no stored policy', async () => {
+    const ddb = {
+      send: vi.fn().mockResolvedValue({ Item: { residentExclusions: { SS: ['PRESENCE'] } } }),
+    } as unknown as DynamoDBClient;
+    const policy = await loadHouseholdPolicy(ddb, 'hh-1');
+    expect(policy.table).toEqual(DEFAULT_POLICY.table);
+    expect(policy.residentExclusions).toEqual(['PRESENCE']);
+  });
+
+  it('merges the television’s choices with the stored policy’s own exclusions', async () => {
+    const stored = { ...DEFAULT_POLICY, residentExclusions: ['FINANCIAL' as const] };
+    const ddb = {
+      send: vi.fn().mockResolvedValue({ Item: { policy: { S: JSON.stringify(stored) }, residentExclusions: { SS: ['PRESENCE', 'FINANCIAL'] } } }),
+    } as unknown as DynamoDBClient;
+    expect((await loadHouseholdPolicy(ddb, 'hh-1')).residentExclusions).toEqual(['FINANCIAL', 'PRESENCE']);
+  });
 });
 
 describe('get_resident_shared_view NEVER_TO_FAMILY guard', () => {

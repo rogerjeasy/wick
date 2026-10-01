@@ -51,6 +51,18 @@ variable "household_id" {
   default     = "margaret"
 }
 
+variable "family_name" {
+  description = "The family member as the resident knows them, used on the television: \"What Sarah sees\", \"Sarah can see this.\" Empty means \"your family\"."
+  type        = string
+  default     = "Sarah"
+}
+
+variable "household_time_zone" {
+  description = "The household's IANA time zone. The weekly narrative says \"Wednesday evening\" in the resident's time, not UTC (services/agent/src/agents/narrator/weekFacts.ts). Margaret lives in England."
+  type        = string
+  default     = "Europe/London"
+}
+
 variable "mcp_issuer_url" {
   description = "S4a. The MCP server's own public URL, baked into its OAuth metadata at startup (auth.ts's createAuthRouter). Set to the real App Runner service_url once known — see infra/mcp.tf's header comment for the two-apply reason it starts empty. Stays stable across redeploys unless the App Runner service itself is destroyed and recreated (a new service gets a new *.awsapprunner.com hostname)."
   type        = string

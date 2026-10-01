@@ -41,6 +41,13 @@
  * "not already set" is still checked so the resident's actual first
  * viewing is never overwritten by a later stray press.
  *
+ * Trust promise 2: `sharing` on a Week card opens "What Sarah sees", and the
+ * sharing card's own presses change the resident's exclusions and turn its
+ * pages — sharing.mjs.
+ *
+ * M3: a `reply_<n>` on a family note (`note-<uuid>`) records the reply on
+ * the note's CARD# item, in the words Wick offered — note-reply.mjs.
+ *
  * A card_action the agent plane must carry out (today only M1's
  * `hallway_chime`) is also published to EventBridge as `wick.device` /
  * `card.action` — see card-action-event.mjs. Door presses that keep the card
@@ -50,8 +57,10 @@
  * message right after `onopen` (see
  * apps/tv-vega/src/transport/WebSocketChannel.ts) — not in the $connect
  * query string, which is why this lives here rather than in connect.mjs.
- * Anything queued after `sinceCardId` is pushed back over this same
- * connection.
+ * Every card the resident hasn't acted on (and no door card whose visitor
+ * has gone) is pushed back over this same connection. `sinceCardId` is
+ * still sent but no longer filters: card ids are not time-ordered, so it
+ * dropped cards (card-acted.mjs's isReplayable).
  */
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
@@ -59,11 +68,15 @@ import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge
 import { randomUUID } from 'node:crypto';
 import { isReplayable, markCardActed, retiresCard } from './card-acted.mjs';
 import { buildCardActionEntry, shouldPublish } from './card-action-event.mjs';
+import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
+import { SHARING_CARD_ID, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 
 const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
 const TABLE = process.env.TABLE_NAME;
 const BUS = process.env.EVENT_BUS_NAME;
+/** The family member as the resident knows them — "What Sarah sees". */
+const FAMILY_NAME = process.env.WICK_FAMILY_NAME || undefined;
 
 const WEEK_CARD_ID = /^week-(\d{4}-W\d{2})$/;
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -184,12 +197,23 @@ export const handler = async (event) => {
       await publishCardAction({ householdId, deviceId, cardId: deviceEvent.cardId, action: deviceEvent.action, at: deviceEvent.at });
     }
 
+    if (deviceEvent.t === 'card_action') {
+      const index = replyIndex(deviceEvent.cardId, deviceEvent.action);
+      if (index !== undefined) await recordNoteReply(householdId, deviceEvent.cardId, index, deviceEvent.at);
+
+      if (deviceEvent.action === 'sharing' && WEEK_CARD_ID.test(deviceEvent.cardId)) {
+        await showSharing({ event, householdId, connectionId, page: 0, respondsTo: deviceEvent.cardId });
+      } else if (deviceEvent.cardId === SHARING_CARD_ID) {
+        await advanceSharing({ event, householdId, connectionId, action: deviceEvent.action });
+      }
+    }
+
     if (deviceEvent.t === 'card_action' && deviceEvent.action === 'seen') {
       const weekMatch = WEEK_CARD_ID.exec(deviceEvent.cardId);
       if (weekMatch) await markNarrativeSeen(householdId, weekMatch[1], deviceEvent.at);
     }
   } else if (deviceEvent.t === 'reconcile') {
-    await reconcile({ event, householdId, connectionId, sinceCardId: deviceEvent.sinceCardId });
+    await reconcile({ event, householdId, connectionId });
   }
 
   return { statusCode: 200, body: '' };
@@ -210,6 +234,86 @@ async function retireActedCard(householdId, cardId, at) {
 }
 
 /**
+ * M3 — see note-reply.mjs. The words are read back from the stored card, so
+ * only a reply Wick offered can reach the family. Logged, never thrown: the
+ * press is already on the timeline.
+ */
+async function recordNoteReply(householdId, cardId, index, at) {
+  try {
+    const res = await ddb.send(new GetItemCommand({
+      TableName: TABLE,
+      Key: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${cardId}` } },
+    }));
+    const text = replyText(res.Item, index);
+    if (text === undefined) {
+      console.error('note_reply_unknown', { householdId, cardId, index });
+      return;
+    }
+    await ddb.send(new UpdateItemCommand(markNoteReplied({ table: TABLE, householdId, cardId, text, at })));
+    console.log(JSON.stringify({ level: 'info', msg: 'note_replied', cardId, index }));
+  } catch (err) {
+    console.error('note_reply_write_failed', { householdId, cardId, err: err?.name });
+  }
+}
+
+/**
+ * "What Sarah sees" — see sharing.mjs. Logged, never thrown: the press is
+ * already on the timeline, and the card stays on screen, so pressing again
+ * is the resident's retry.
+ */
+async function loadMeta(householdId) {
+  const res = await ddb.send(new GetItemCommand({
+    TableName: TABLE,
+    Key: { pk: { S: `HH#${householdId}` }, sk: { S: 'META' } },
+  }));
+  return res.Item;
+}
+
+async function showSharing({ event, householdId, connectionId, page, respondsTo }) {
+  try {
+    const meta = await loadMeta(householdId);
+    const queued = buildSharingCard({
+      householdId,
+      page,
+      policyJson: meta?.policy?.S,
+      exclusions: readExclusions(meta),
+      familyName: FAMILY_NAME,
+      now: Date.now(),
+      respondsTo,
+    });
+    if (!queued) return;
+    // PutItem, not Update: a fresh card, without the actedAt a previous Done left.
+    await ddb.send(new PutItemCommand({
+      TableName: TABLE,
+      Item: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${SHARING_CARD_ID}` }, data: { S: JSON.stringify(queued) } },
+    }));
+    const mgmt = new ApiGatewayManagementApiClient({ endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}` });
+    await mgmt.send(new PostToConnectionCommand({ ConnectionId: connectionId, Data: JSON.stringify({ kind: 'card', card: queued }) }));
+  } catch (err) {
+    console.error('sharing_show_failed', { householdId, page, err: err?.name });
+  }
+}
+
+async function advanceSharing({ event, householdId, connectionId, action }) {
+  try {
+    const [stored, meta] = await Promise.all([
+      ddb.send(new GetItemCommand({ TableName: TABLE, Key: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${SHARING_CARD_ID}` } } })),
+      loadMeta(householdId),
+    ]);
+    const storedQueued = stored.Item?.data?.S ? JSON.parse(stored.Item.data.S) : undefined;
+    const step = sharingStep(storedQueued, action, readExclusions(meta));
+    if (!step) return;
+    if (step.set) {
+      await ddb.send(new UpdateItemCommand(exclusionUpdate({ table: TABLE, householdId, ...step.set })));
+      console.log(JSON.stringify({ level: 'info', msg: 'sharing_changed', factClass: step.set.factClass, keepPrivate: step.set.keepPrivate }));
+    }
+    await showSharing({ event, householdId, connectionId, page: step.page, respondsTo: storedQueued?.respondsTo });
+  } catch (err) {
+    console.error('sharing_step_failed', { householdId, action, err: err?.name });
+  }
+}
+
+/**
  * Hand the press to the agent plane (M1). Logged, never thrown: the press is
  * already on the timeline, and the card keeps its button, so pressing again
  * is the resident's retry — the consumer's once-per-card claim makes that safe.
@@ -223,45 +327,34 @@ async function publishCardAction(detail) {
   }
 }
 
-async function reconcile({ event, householdId, connectionId, sinceCardId }) {
+async function reconcile({ event, householdId, connectionId }) {
   // Derived the same way connect.mjs derives it — API Gateway populates
   // requestContext.domainName/stage on every WebSocket route, not just
   // $connect, so no need to have stored wsEndpoint on the CONN#.../META item.
   const wsEndpoint = `https://${event.requestContext.domainName}/${event.requestContext.stage}`;
 
-  // Let DynamoDB do the filtering instead of scanning the household's whole
-  // CARD# history into memory: bound to the CARD# sort-key range (upper
-  // bound 'CARD$' — '$' sorts immediately after '#', so it's above every
-  // 'CARD#<id>' key and below 'DEV#'/'EVT#' keys sharing this pk) and capped
-  // with Limit so a large backlog can't blow the Lambda timeout or the WS
-  // frame size.
-  const pending = await ddb.send(new QueryCommand({
-    TableName: TABLE,
-    KeyConditionExpression: sinceCardId ? 'pk = :pk AND sk BETWEEN :since AND :max' : 'pk = :pk AND begins_with(sk, :prefix)',
-    ExpressionAttributeValues: sinceCardId
-      ? {
-          ':pk': { S: `HH#${householdId}` },
-          ':since': { S: `CARD#${sinceCardId}` },
-          ':max': { S: 'CARD$' },
-        }
-      : {
-          ':pk': { S: `HH#${householdId}` },
-          ':prefix': { S: 'CARD#' },
-        },
-    Limit: 50,
-  }));
-
-  if (pending.LastEvaluatedKey) {
-    // Backlog exceeds the Limit — leaving this unhandled for now (log, don't
-    // error); the device will still get everything up to the Limit and can
-    // reconcile the rest on its next reconnect.
-    console.log('reconcile: backlog truncated at Limit', { householdId, connectionId });
-  }
+  // Every CARD# item for the household, page by page: a card the resident
+  // hasn't acted on is replayed whatever its id (card-acted.mjs's
+  // isReplayable says why the device's sinceCardId is no longer used to
+  // filter). The device upserts by id, so a card it already holds is a no-op.
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const page = await ddb.send(new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':prefix': { S: 'CARD#' } },
+      ...(ExclusiveStartKey ? { ExclusiveStartKey } : {}),
+    }));
+    items.push(...(page.Items ?? []));
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
 
   const mgmt = new ApiGatewayManagementApiClient({ endpoint: wsEndpoint });
 
-  for (const item of pending.Items ?? []) {
-    if (!isReplayable(item, sinceCardId)) continue;
+  const now = Date.now();
+  for (const item of items) {
+    if (!isReplayable(item, now)) continue;
     const card = JSON.parse(item.data.S);
     try {
       await mgmt.send(new PostToConnectionCommand({

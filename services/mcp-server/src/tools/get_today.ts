@@ -1,10 +1,19 @@
 /**
  * MCP tool: get_today — bounded Query over the EVT# timeline. See §7.3.
  *
- * Reads the same EVT#<ts>#<ulid> entity route.mjs already writes for
- * card_shown/card_action (real, in production), extended with door/presence
- * kinds that only a seed script writes today. Deterministic formatting only —
- * no model call, matching §9.3's latency budget.
+ * Only what the family may see: who came to the door, and who visited, each
+ * gated by the household policy. How the resident uses their own television
+ * (card_shown, card_action — which buttons they pressed) is never the
+ * family's to see, and is left out entirely; it used to be reported verbatim
+ * ("The resident chose \"watch_live\" on a card."), a raw log, against the
+ * trust model's "rhythm as narrative, never as raw logs" (docs/WICK.md §6.2).
+ *
+ * A class the resident keeps private is left out too, timestamps and all: a
+ * refusal per event still told the family exactly when someone came. It is
+ * named once in `keptPrivate` instead, whether or not anything in it
+ * happened today, so the answer reveals nothing about the day.
+ *
+ * Deterministic formatting only, no model call, matching §9.3's latency budget.
  *
  * route.mjs (services/edge-device/lambda/route.mjs) never writes a separate
  * `at` attribute on these items — the timestamp lives ONLY in the sort key,
@@ -17,30 +26,28 @@ import { padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk } fro
 import { DEFAULT_POLICY, type HouseholdPolicy } from '@wick/policy';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { HOUSEHOLD_ID } from '../auth.js';
-import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
+import { loadHouseholdPolicy, isSharedWithFamily } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
 export interface RawTimelineEvent {
-  readonly type: 'card_shown' | 'card_action' | 'door' | 'presence';
+  /** Any EVT# type: card_shown, card_action, door, presence, or one added later. */
+  readonly type: string;
   readonly cardId?: string;
   readonly action?: string;
   readonly personName?: string;
 }
 
-export function summariseEvent(event: RawTimelineEvent): string {
+/** The family's sentence for an event, or undefined for anything that is not theirs to see. */
+export function summariseEvent(event: RawTimelineEvent): string | undefined {
   switch (event.type) {
-    case 'card_shown':
-      return 'A card was shown on the television.';
-    case 'card_action':
-      return `The resident chose "${event.action}" on a card.`;
     case 'door':
       return 'Someone was at the front door.';
     case 'presence':
       return event.personName ? `${event.personName} arrived.` : 'Someone arrived.';
     default:
-      return 'Something happened.';
+      return undefined;
   }
 }
 
@@ -49,12 +56,20 @@ export interface TodayEntry {
   readonly summary: string;
 }
 
+export interface TodayAnswer {
+  readonly events: readonly TodayEntry[];
+  /** What the resident keeps private, in plain words, named whether or not it happened. */
+  readonly keptPrivate: readonly string[];
+}
+
+const KEPT_PRIVATE = ' That is something the resident keeps to themselves.';
+
 export async function loadTodayEvents(
   ddb: DynamoDBClient,
   householdId: string,
   now: Date,
   policy: HouseholdPolicy = DEFAULT_POLICY,
-): Promise<readonly TodayEntry[]> {
+): Promise<TodayAnswer> {
   const startOfDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   // Upper bound is exclusive of the next day's midnight: an event at exactly
   // 00:00:00.000 tomorrow must appear in tomorrow's results only, not both.
@@ -70,25 +85,28 @@ export async function loadTodayEvents(
     },
   }));
 
-  // Mirrors get_resident_shared_view.ts's disclosure check independently per
-  // event class — a household could exclude PRESENCE but not DOOR_EVENT, or
-  // vice versa, so each is gated on its own rather than as an all-or-nothing
-  // response (§6.4: refusal is a feature, never silent).
+  // Gated per class, as get_resident_shared_view.ts does: a household can
+  // keep visitors private but not the door, or the other way round.
   const doorShared = isSharedWithFamily('DOOR_EVENT', policy);
   const presenceShared = isSharedWithFamily('PRESENCE', policy);
 
-  return (res.Items ?? []).map((item) => {
+  const events: TodayEntry[] = [];
+  for (const item of res.Items ?? []) {
     const event: RawTimelineEvent = {
-      type: item.type?.S as RawTimelineEvent['type'],
-      ...(item.cardId?.S !== undefined && { cardId: item.cardId.S }),
-      ...(item.action?.S !== undefined && { action: item.action.S }),
+      type: item.type?.S ?? '',
       ...(item.personName?.S !== undefined && { personName: item.personName.S }),
     };
-    const at = parseTsFromSk(item.sk?.S ?? '');
-    if (event.type === 'door' && !doorShared) return { at, summary: FAMILY_REFUSAL_TEXT };
-    if (event.type === 'presence' && !presenceShared) return { at, summary: FAMILY_REFUSAL_TEXT };
-    return { at, summary: summariseEvent(event) };
-  });
+    if (event.type === 'door' && !doorShared) continue;
+    if (event.type === 'presence' && !presenceShared) continue;
+    const summary = summariseEvent(event);
+    if (summary !== undefined) events.push({ at: parseTsFromSk(item.sk?.S ?? ''), summary });
+  }
+
+  const keptPrivate = [
+    ...(doorShared ? [] : [`When someone comes to the door.${KEPT_PRIVATE}`]),
+    ...(presenceShared ? [] : [`Who visits, by name.${KEPT_PRIVATE}`]),
+  ];
+  return { events, keptPrivate };
 }
 
 export function registerGetToday(mcpServer: McpServer, ddb: DynamoDBClient): void {
@@ -96,13 +114,13 @@ export function registerGetToday(mcpServer: McpServer, ddb: DynamoDBClient): voi
     'get_today',
     {
       title: "Today's events",
-      description: "Returns a plain-language summary of today's household events: door activity, presence, and what showed on the television.",
+      description: "Returns today's door activity and visits, in plain language, as far as the resident shares them, and names anything they keep private.",
       inputSchema: {},
     },
     withFriendlyErrors(async () => {
       const policy = await loadHouseholdPolicy(ddb, HOUSEHOLD_ID);
-      const entries = await loadTodayEvents(ddb, HOUSEHOLD_ID, new Date(), policy);
-      return { content: [{ type: 'text' as const, text: JSON.stringify(entries) }] };
+      const answer = await loadTodayEvents(ddb, HOUSEHOLD_ID, new Date(), policy);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(answer) }] };
     }),
   );
 }

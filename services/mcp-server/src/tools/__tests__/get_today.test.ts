@@ -7,16 +7,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { loadTodayEvents, registerGetToday, summariseEvent } from '../get_today.js';
 
 describe('summariseEvent', () => {
-  it('summarises a card_shown event', () => {
-    expect(summariseEvent({ type: 'card_shown', cardId: 'door-abc' })).toBe('A card was shown on the television.');
-  });
-
-  it('summarises a card_action event with its action', () => {
-    expect(summariseEvent({ type: 'card_action', cardId: 'door-abc', action: 'watch_live' })).toBe(
-      'The resident chose "watch_live" on a card.',
-    );
-  });
-
   it('summarises a door event', () => {
     expect(summariseEvent({ type: 'door' })).toBe('Someone was at the front door.');
   });
@@ -29,44 +19,41 @@ describe('summariseEvent', () => {
     expect(summariseEvent({ type: 'presence' })).toBe('Someone arrived.');
   });
 
-  it('falls back to a generic summary for an unrecognized event type', () => {
-    // An unrecognized `type` (a future 5th kind, or malformed data) must not
-    // fall through to `undefined` — JSON.stringify silently drops undefined
-    // entries, which would make an event vanish from the response with no trace.
-    expect(summariseEvent({ type: 'something-unknown' as never })).toBe('Something happened.');
+  it('never describes how the resident uses their own television — that is not the family’s to see', () => {
+    expect(summariseEvent({ type: 'card_shown', cardId: 'door-abc' })).toBeUndefined();
+    expect(summariseEvent({ type: 'card_action', cardId: 'door-abc', action: 'watch_live' })).toBeUndefined();
+  });
+
+  it('says nothing about an event it does not recognise, rather than guessing', () => {
+    expect(summariseEvent({ type: 'something-unknown' })).toBeUndefined();
   });
 });
 
 describe('loadTodayEvents', () => {
-  it('queries the EVT# range for the given day and returns summaries in order', async () => {
+  it('queries the EVT# range for the given day and returns only what the family may see, in order', async () => {
     // sk-encoded timestamps use route.mjs's own format (`EVT#<15-digit
     // zero-padded ms>#<uuid>`) — route.mjs never writes a separate `at`
-    // attribute, so the reader must derive `at` from the sort key, not from
-    // an item attribute that real production rows don't have.
+    // attribute, so the reader must derive `at` from the sort key.
     const items = [
       { sk: { S: 'EVT#001700000000000#a' }, type: { S: 'door' } },
       { sk: { S: 'EVT#001700000100000#b' }, type: { S: 'card_shown' }, cardId: { S: 'door-1' } },
+      { sk: { S: 'EVT#001700000200000#c' }, type: { S: 'card_action' }, cardId: { S: 'door-1' }, action: { S: 'watch_live' } },
     ];
     const send = vi.fn().mockResolvedValue({ Items: items });
     const ddb = { send } as unknown as DynamoDBClient;
 
     const result = await loadTodayEvents(ddb, 'hh-1', new Date('2023-11-14T00:00:00.000Z'));
 
-    expect(result).toEqual([
-      { at: 1700000000000, summary: 'Someone was at the front door.' },
-      { at: 1700000100000, summary: 'A card was shown on the television.' },
-    ]);
+    expect(result).toEqual({ events: [{ at: 1700000000000, summary: 'Someone was at the front door.' }], keptPrivate: [] });
     const call = send.mock.calls[0]![0]!.input;
     expect(call.TableName).toBeDefined();
     expect(call.KeyConditionExpression).toContain('BETWEEN');
   });
 
-  it('withholds presence-derived entries but keeps door entries when residentExclusions excludes PRESENCE', async () => {
-    // Fix 2: get_resident_shared_view already tells a family member PRESENCE
-    // is excluded via policy.residentExclusions — get_today must not answer
-    // anyway. DOOR_EVENT is untouched by this policy, so a door entry in the
-    // same batch must still come through with its real summary (independent
-    // per-class gating, not an all-or-nothing response).
+  it('leaves out what the resident keeps private — not even a timestamp — and says what is kept private', async () => {
+    // A refusal per event would still tell the family exactly when someone
+    // came. The private class is named once instead, whether or not anything
+    // in it happened today.
     const items = [
       { sk: { S: 'EVT#001700000000000#a' }, type: { S: 'door' } },
       { sk: { S: 'EVT#001700000100000#b' }, type: { S: 'presence' }, personName: { S: 'Maria' } },
@@ -77,12 +64,23 @@ describe('loadTodayEvents', () => {
 
     const result = await loadTodayEvents(ddb, 'hh-1', new Date('2023-11-14T00:00:00.000Z'), policy);
 
-    expect(result).toEqual([
-      { at: 1700000000000, summary: 'Someone was at the front door.' },
-      { at: 1700000100000, summary: "That's something the resident is keeping to themselves. I'm not able to share it." },
-    ]);
-    // Must never leak the excluded person's name into the refusal text.
-    expect(result.some((e) => e.summary.includes('Maria'))).toBe(false);
+    expect(result).toEqual({
+      events: [{ at: 1700000000000, summary: 'Someone was at the front door.' }],
+      keptPrivate: ['Who visits, by name. That is something the resident keeps to themselves.'],
+    });
+    expect(JSON.stringify(result)).not.toContain('Maria');
+    expect(JSON.stringify(result)).not.toContain('1700000100000');
+  });
+
+  it('names what is kept private even on a day nothing in it happened, so the answer reveals nothing', async () => {
+    const send = vi.fn().mockResolvedValue({ Items: [] });
+    const ddb = { send } as unknown as DynamoDBClient;
+    const policy = { ...DEFAULT_POLICY, residentExclusions: ['DOOR_EVENT' as const] };
+
+    expect(await loadTodayEvents(ddb, 'hh-1', new Date('2023-11-14T00:00:00.000Z'), policy)).toEqual({
+      events: [],
+      keptPrivate: ['When someone comes to the door. That is something the resident keeps to themselves.'],
+    });
   });
 });
 
@@ -105,9 +103,7 @@ describe('registerGetToday (registered tool handler, end to end)', () => {
 
     const result = await client.callTool({ name: 'get_today', arguments: {} });
     const content = result.content as { type: string; text: string }[];
-    const parsed = JSON.parse(content[0]!.text) as { summary: string }[];
-
-    expect(parsed).toEqual([{ at: 1700000000000, summary: 'Someone was at the front door.' }]);
+    expect(JSON.parse(content[0]!.text)).toEqual({ events: [{ at: 1700000000000, summary: 'Someone was at the front door.' }], keptPrivate: [] });
   });
 
   it('withholds presence-derived entries end to end when the stored household policy excludes PRESENCE', async () => {
@@ -133,6 +129,7 @@ describe('registerGetToday (registered tool handler, end to end)', () => {
     const content = result.content as { type: string; text: string }[];
 
     expect(content[0]!.text).not.toContain('Maria');
-    expect(content[0]!.text).toContain("keeping to themselves");
+    expect(content[0]!.text).not.toContain('1700000000000');
+    expect(content[0]!.text).toContain('keeps to themselves');
   });
 });

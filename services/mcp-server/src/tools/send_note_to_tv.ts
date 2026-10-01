@@ -12,7 +12,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { QueuedCard } from '@wick/contracts';
+import { MAX_CARD_DETAIL_CHARS, type QueuedCard } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { sendToDevice } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -58,7 +58,7 @@ export function registerSendNoteToTv(mcpServer: McpServer): void {
       description: 'Enqueues a message card on the household television, from a named family member, with three generic quick replies.',
       inputSchema: {
         fromName: z.string().min(1).describe('The sender\'s name, as it should appear on the card.'),
-        message: z.string().min(1).max(500).describe('The note text.'),
+        message: z.string().min(1).max(MAX_CARD_DETAIL_CHARS).describe(`The note text, at most ${MAX_CARD_DETAIL_CHARS} characters: it is read on a television, in large type, in full.`),
       },
     },
     withFriendlyErrors(async ({ fromName, message }: { fromName: string; message: string }) => {

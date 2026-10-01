@@ -11,3 +11,5 @@
  * and it is also the demo.
  */
 export { sendToDevice } from './egress.js';
+export { privateNarrative, summariseWeek } from './agents/narrator/weekFacts.js';
+export { isoWeekRange } from './agents/narrator/isoWeek.js';

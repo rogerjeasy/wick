@@ -71,7 +71,24 @@ export interface WeekCard extends CardBase {
   readonly text: string;
 }
 
-export type Card = DoorCard | DayCard | MessageCard | WeekCard;
+/**
+ * "What Sarah sees" — trust promise 2 on the resident's own screen. One
+ * thing the family can see per card, in plain words, with one button to
+ * keep it private or share it again. The server builds every page from the
+ * live household policy; the television only renders it. Its id is always
+ * `sharing`, so each press replaces the card in place.
+ */
+export interface SharingCard extends CardBase {
+  readonly type: 'SHARING';
+  /** The policy class this page controls. */
+  readonly factClass: import('./fact.js').FactClass;
+  readonly page: number;
+  readonly pages: number;
+  readonly headline: string;
+  readonly detail: string;
+}
+
+export type Card = DoorCard | DayCard | MessageCard | WeekCard | SharingCard;
 
 export interface QueuedCard {
   readonly id: string;
@@ -82,6 +99,13 @@ export interface QueuedCard {
   readonly expiresAt?: number;
   /** Released at most twice, ever. Then it drops to a passive home-screen row. */
   readonly shownCount: number;
+  /**
+   * The id of the card whose press opened this one ("What Sarah sees" from
+   * the Week card). The resident asked for it, so among releasable DEFERRED
+   * cards it comes first. Not a third urgency class: it is released by the
+   * same rules as every DEFERRED card (INV-5).
+   */
+  readonly respondsTo?: string;
 }
 
 /** Phase 2 of the two-phase door card. */
@@ -101,6 +125,14 @@ export interface CardPatch {
 export const MAX_CARD_ACTIONS = 3;
 
 /**
+ * The longest text a card's body may carry: five lines of about
+ * fifty-eight characters at 32pt on a 960x540dp screen, which is where
+ * vega-calm-ui's CalmCard cuts it so the buttons stay on screen. Anything
+ * that writes card text keeps under this, so nothing is ever cut.
+ */
+export const MAX_CARD_DETAIL_CHARS = 240;
+
+/**
  * A DOOR card's action ids. Only `dismiss` removes the card on press:
  * `watch_live` opens the live view over it, and `hallway_chime` waits for
  * the patch that says whether the chime rang.
@@ -110,6 +142,21 @@ export const DOOR_ACTIONS = {
   hallwayChime: 'hallway_chime',
   dismiss: 'dismiss',
 } as const;
+/** The Week card's actions. `seen` is the only one that releases the week (INV-7). */
+export const WEEK_ACTIONS = {
+  seen: 'seen',
+  sharing: 'sharing',
+} as const;
+
+/** The sharing card's actions. Stable ids: a press re-renders in place, focus stays put. */
+export const SHARING_ACTIONS = {
+  toggle: 'toggle',
+  next: 'next',
+  done: 'done',
+} as const;
+
+export const SHARING_CARD_ID = 'sharing';
+
 export const MAX_DAY_ITEMS = 3;
 export const MAX_CARD_SHOWS = 2;
 /**

@@ -7,8 +7,9 @@ import {
   assertNoAlarmColour,
   contrastRatio,
   fontSize,
+  maxCardHeightDp,
 } from '../constraints.js';
-import { palette, type } from '../tokens.js';
+import { layout, palette, type } from '../tokens.js';
 
 describe('action and item limits', () => {
   it('allows three and refuses four', () => {
@@ -16,6 +17,12 @@ describe('action and item limits', () => {
     expect(() => assertActionLimit(4)).toThrow(CalmViolation);
     expect(() => assertItemLimit(3)).not.toThrow();
     expect(() => assertItemLimit(4)).toThrow(CalmViolation);
+  });
+});
+
+describe('card height', () => {
+  it('keeps the buttons on screen: the tallest card still fits a 540dp television', () => {
+    expect(maxCardHeightDp()).toBeLessThanOrEqual(layout.screenHeightDp);
   });
 });
 
