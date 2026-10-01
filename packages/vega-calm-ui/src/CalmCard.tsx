@@ -42,10 +42,16 @@ export interface CalmCardProps {
   readonly media?: React.ReactNode;
   /** Beneath the headline and detail, inside the text column. */
   readonly children?: React.ReactNode;
+  /**
+   * For a card that sits over a programme: tighter spacing, and the headline
+   * at body size so it fits on one line. Still at the 32pt floor — compact
+   * means less card, never smaller type than the floor allows.
+   */
+  readonly compact?: boolean | undefined;
 }
 
 export function CalmCard(props: CalmCardProps): React.JSX.Element {
-  const { headline, detail, actions, onAction, initialFocusId, media, children } = props;
+  const { headline, detail, actions, onAction, initialFocusId, media, children, compact } = props;
 
   // Throws before anything reaches the screen.
   assertActionLimit(actions.length);
@@ -56,11 +62,11 @@ export function CalmCard(props: CalmCardProps): React.JSX.Element {
   const focusId = initialFocusId ?? actions[0]?.id;
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, compact && styles.cardCompact]}>
       <View style={styles.body}>
         {media}
-        <View style={styles.text}>
-          <Text style={styles.headline} accessibilityRole="header">
+        <View style={[styles.text, compact && styles.textCompact]}>
+          <Text style={[styles.headline, compact && styles.headlineCompact]} accessibilityRole="header">
             {headline}
           </Text>
 
@@ -104,9 +110,22 @@ const styles = StyleSheet.create({
     padding: layout.cardPaddingDp,
     gap: layout.sectionGapDp,
   },
+  cardCompact: {
+    padding: layout.compactPaddingDp,
+    gap: layout.compactGapDp,
+  },
   body: {
     flexDirection: 'row',
     gap: 24,
+  },
+  textCompact: {
+    gap: layout.compactTextGapDp,
+  },
+  // Body size, but heavier, so it still reads as the first thing on the card.
+  headlineCompact: {
+    fontSize: fontSize('body'),
+    lineHeight: fontSize('body') * layout.lineHeight.body,
+    fontWeight: '700',
   },
   text: {
     flex: 1,
