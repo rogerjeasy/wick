@@ -7,9 +7,8 @@ under-built.
 which is what makes it exhaustively testable — and its test suite is a demo
 artefact (`docs/WICK-TECHNICAL.md` §6.3, §12.3).
 
-**Rules first, model second.** Prompt injection is a live threat here: Bee
-captures whatever was said, and a visitor's clothing or signage lands inside a
-vision prompt. Because the deterministic policy table runs *after* generation, a
+**Rules first, model second.** Prompt injection is a live threat here: a visitor's clothing or signage lands
+inside a vision prompt, and a note from the family is free text. Because the deterministic policy table runs *after* generation, a
 model that gets talked into emitting a health fact still cannot get it past the
 gate.
 

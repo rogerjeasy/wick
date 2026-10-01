@@ -40,13 +40,6 @@ export interface DoorCard extends CardBase {
   readonly notice?: string;
 }
 
-/** At most three items. Never four. Principle 6. */
-export interface DayCard extends CardBase {
-  readonly type: 'DAY';
-  readonly greeting: string;
-  readonly items: readonly { readonly text: string; readonly factId: string }[];
-}
-
 export interface MessageCard extends CardBase {
   readonly type: 'MESSAGE';
   readonly fromName: string;
@@ -88,7 +81,7 @@ export interface SharingCard extends CardBase {
   readonly detail: string;
 }
 
-export type Card = DoorCard | DayCard | MessageCard | WeekCard | SharingCard;
+export type Card = DoorCard | MessageCard | WeekCard | SharingCard;
 
 export interface QueuedCard {
   readonly id: string;
@@ -157,7 +150,6 @@ export const SHARING_ACTIONS = {
 
 export const SHARING_CARD_ID = 'sharing';
 
-export const MAX_DAY_ITEMS = 3;
 export const MAX_CARD_SHOWS = 2;
 /**
  * How long a DOOR card stays live: long enough to get from the sofa to the

@@ -9,7 +9,7 @@
       "en-US": {
         "name": { "value": "Wick", "spokenForm": { "format": "ipa", "value": "" } },
         "shortDescription": "Ask how someone living alone has been this week, in plain language.",
-        "fullDescription": "Wick turns the television into the care surface for the person being cared for. It watches the front door through Ring, reads the day through a Bee wearable, and learns the household's ordinary rhythm — so it can tell a distant family member the truth about the week, without ever turning a living room into a surveillance feed. Nothing about health, money or relationships leaves the house without permission, and the resident sees their own week before anyone else can read it.",
+        "fullDescription": "Wick turns the television into the care surface for the person being cared for. It watches the front door through Ring and learns the household's ordinary rhythm — so it can tell a distant family member the truth about the week, without ever turning a living room into a surveillance feed. Nothing about health, money or relationships leaves the house without permission, and the resident sees their own week before anyone else can read it.",
         "examplePhrases": [
           "how has my mum been this week",
           "did the carer come today",

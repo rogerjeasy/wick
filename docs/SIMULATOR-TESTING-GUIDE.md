@@ -1,7 +1,7 @@
 # Wick — Simulator Testing Guide
 
 **Purpose.** You don't have the real hardware yet (Fire TV Stick, Ring doorbell in
-place, Bee wearable). The hackathon rules explicitly allow simulators as a
+place). The hackathon rules explicitly allow simulators as a
 substitute — Ring's own Developer Playground for doorbell events, MCP Inspector
 and a purpose-built web client for Alexa+, and a raw WebSocket connection
 standing in for the Fire TV. This guide walks every piece, in the order that

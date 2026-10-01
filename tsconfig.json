@@ -35,9 +35,6 @@
       "path": "./services/connectors/ring"
     },
     {
-      "path": "./services/connectors/bee"
-    },
-    {
       "path": "./apps/tv-vega"
     }
   ]

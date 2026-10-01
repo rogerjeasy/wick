@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { DoorCard, DayCard } from '@wick/contracts';
+import type { DoorCard, MessageCard } from '@wick/contracts';
 import { applyCardPatch, cardItem, liveDeviceConnections } from '../egress.js';
 
 const door: DoorCard = {
@@ -33,17 +33,17 @@ describe('applyCardPatch', () => {
   });
 
   it('is a no-op for a non-DOOR card — patches only ever target the door card (Phase 2, §5.2)', () => {
-    const day: DayCard = {
-      type: 'DAY',
-      id: 'day-1',
+    const note: MessageCard = {
+      type: 'MESSAGE',
+      id: 'note-1',
       householdId: 'hh-1',
       correlationId: 'corr-1',
       createdAt: 1,
-      greeting: 'A few things from today.',
+      fromName: 'Sarah',
       actions: [],
-      items: [],
+      suggestedReplies: [],
     };
-    expect(applyCardPatch(day, { cardId: 'day-1', description: 'nope' })).toBe(day);
+    expect(applyCardPatch(note, { cardId: 'note-1', description: 'nope' })).toBe(note);
   });
 
   it('is a no-op when the patch names a different card — a stale/misrouted patch must not overwrite the wrong card', () => {

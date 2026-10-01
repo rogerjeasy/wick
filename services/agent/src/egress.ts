@@ -6,9 +6,9 @@
  * no-restricted-imports rule enforces it — a rule you can run beats a convention
  * you can only remember.
  *
- * Why it matters beyond tidiness: prompt injection is a live threat here. Bee
- * captures whatever was said, and a visitor's clothing or signage lands inside a
- * vision prompt. Because the Guardian runs HERE — deterministically, after
+ * Why it matters beyond tidiness: prompt injection is a live threat here. A
+ * visitor's clothing or signage lands inside a vision prompt, and a note from
+ * the family is free text. Because the Guardian runs HERE — deterministically, after
  * generation, on typed classes — a model that gets talked into emitting a health
  * fact still cannot get it past the gate.
  *

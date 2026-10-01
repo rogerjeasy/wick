@@ -29,22 +29,20 @@ nothing, wear nothing and change nothing.
 | Pillar | What happens |
 |---|---|
 | **The Door** | A Ring doorbell press puts a card on the television in under three seconds — a live still and one plain sentence describing who is actually there. One button rings the Ring Chime in the hallway, so whoever else is home knows someone is at the door — and the card says whether it rang. *(Built and tested against Ring's chime contract; not in the demo, because Ring's only simulator has no chime — [FL-019](FRICTION.md).)* Another opens the doorbell camera live, full screen, and Back returns to the card. |
-| **The Day** | Wick reads the day's real context from a Bee wearable and surfaces at most three things worth remembering — at the end of an episode, never mid-scene. |
-| **The Family** | A distant daughter asks her own Echo *"how's Mum been this week?"* and gets a truthful, unsensational narrative. Notes go back the other way; the resident replies with one button. |
+| **The Family** | A distant daughter asks her own Echo *"how's Mum been this week?"* and gets a truthful, unsensational narrative. Notes go back the other way — at the end of an episode, never mid-scene — and the resident replies with one button. |
 | **The Rhythm** | Wick learns what a normal week looks like in this house, so it can stay silent when nothing is wrong — and so the weekly narrative can say *"that's up from last week"* and mean it. |
 
 ## Why this needs Amazon
 
 Wick requires a trusted screen in the room, eyes at the door with a real developer
-API, a record of what was actually said during the day, and a voice endpoint the
-distant family already owns.
+API, and a voice endpoint the distant family already owns.
 
-| | Screen | Doorbell API | Wearable context | Assistant | Can build Wick? |
-|---|---|---|---|---|---|
-| **Amazon** | Fire TV | **Ring** | **Bee** | **Alexa+** | **Yes** |
-| Google | Google TV | Nest (limited 3P) | Fitbit (no conversation) | Gemini | No |
-| Apple | Apple TV | — | Watch (no conversation capture) | Siri | No |
-| Roku | Roku | — | — | — | No |
+| | Screen | Doorbell API | Assistant | Can build Wick? |
+|---|---|---|---|---|
+| **Amazon** | Fire TV | **Ring** | **Alexa+** | **Yes** |
+| Google | Google TV | Nest (limited 3P) | Gemini | No |
+| Apple | Apple TV | — | Siri | No |
+| Roku | Roku | — | — | No |
 
 Wick is not an app that happens to run on Fire TV. It is an argument for why Fire
 TV sits at the centre of the Amazon home.
@@ -55,16 +53,14 @@ TV sits at the centre of the Amazon home.
    Margaret's house                                          Sarah, anywhere
  ┌────────────┐          ┌─────────────────────────┐          ┌──────────┐
  │ Fire TV    │◀──WSS───▶│  Agent plane            │◀─MCP────▶│ Alexa+   │
- │ (Vega OS)  │          │   Door · Day · Narrator │  HTTPS   │ (Echo)   │
+ │ (Vega OS)  │          │   Door · Narrator       │  HTTPS   │ (Echo)   │
  └────────────┘          │   ───────────────────   │          └──────────┘
  ┌────────────┐          │   GUARDIAN  (policy)    │
  │ Ring       │─webhook─▶│   ───────────────────   │
  │ + Chime    │◀──REST───│  Memory plane           │
  └────────────┘          │   DynamoDB · Timestream │
- ┌────────────┐          │   Knowledge Base        │
- │ Bee bridge │─facts───▶│                         │
- └────────────┘          └─────────────────────────┘
-      ▲ raw utterances never leave the house (INV-4)
+                         │   Knowledge Base        │
+                         └─────────────────────────┘
 ```
 
 Four planes with load-bearing boundaries: the **device** renders and never
@@ -99,7 +95,7 @@ inference. Reasoning in [`docs/WICK.md`](docs/WICK.md) §4.6.
 ## Real data only
 
 Every figure, event and narrative in the demo comes from a real household with a
-real Ring doorbell, a real Bee device and a real Fire TV — with the resident's
+real Ring doorbell and a real Fire TV — with the resident's
 written, informed, revocable consent. Nothing is simulated.
 
 Test fixtures exist (redacted, under `__tests__`) but no mock path is reachable at
@@ -116,7 +112,7 @@ services/edge-ring  Ring webhook receiver — HMAC verify, idempotency, sub-5s A
 services/edge-device WebSocket connect/disconnect/route for the television
 services/mcp-server Alexa+ MCP add-on backend
 services/agent      Strands agent graph + the single egress module (INV-2)
-services/connectors Ring and Bee clients
+services/connectors Ring client
 services/policy     The Guardian — pure, AWS-free, exhaustively tested
 packages/contracts  Shared types
 packages/vega-calm-ui  ← open-source extraction: accessible 10-foot components
@@ -137,7 +133,7 @@ cd apps/tv-vega && npm run build && npm run start   # Vega Virtual Device or rea
 cd infra && npx cdk deploy WickCore WickEdge
 ```
 
-Full setup, including Ring OAuth, the Bee household bridge and the Alexa+ add-on,
+Full setup, including Ring OAuth and the Alexa+ add-on,
 is in [`docs/WICK-TECHNICAL.md`](docs/WICK-TECHNICAL.md) §13.
 
 ## Security
