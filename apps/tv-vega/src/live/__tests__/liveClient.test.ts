@@ -37,6 +37,17 @@ describe('startLiveSession', () => {
     }
   });
 
+  it('counts down on the television\'s own clock: one 7 hours wrong still shows the 60 seconds Ring gives', async () => {
+    const serverNow = Date.UTC(2026, 9, 1, 8, 34, 46);
+    const tvNow = serverNow - 24_875_000;
+    const reply = res(201, { sessionId: 's1', playlistUrl: 'https://live/s1/live.m3u8', endsAt: serverNow + 60_000 });
+    Object.assign(reply, { headers: new Headers({ Date: new Date(serverNow).toUTCString() }) });
+
+    const out = await startLiveSession({ pairingApiUrl: API, jwt: TOKEN, cardId: 'c', fetchImpl: vi.fn(async () => reply), now: () => tvNow });
+
+    expect(out.ok && secondsLeft(out.session.endsAt, tvNow)).toBe(60);
+  });
+
   it('treats no network as the camera not answering — never a hang', async () => {
     const out = await startLiveSession({ pairingApiUrl: API, jwt: TOKEN, cardId: 'c', fetchImpl: vi.fn(async () => { throw new TypeError('Network request failed'); }) });
     expect(out).toEqual({ ok: false, reason: 'camera_unavailable' });

@@ -25,8 +25,10 @@ export async function startLiveSession(args: {
   readonly jwt: string;
   readonly cardId: string;
   readonly fetchImpl?: typeof fetch;
+  readonly now?: () => number;
 }): Promise<StartResult> {
   const fetchImpl = args.fetchImpl ?? fetch;
+  const now = args.now ?? Date.now;
   try {
     const res = await fetchImpl(`${args.pairingApiUrl}/live/sessions`, {
       method: 'POST',
@@ -35,13 +37,25 @@ export async function startLiveSession(args: {
     });
     const body = (await res.json().catch(() => ({}))) as Partial<LiveSessionResponse> & { error?: string };
     if (res.status === 201 && body.sessionId && body.playlistUrl && typeof body.endsAt === 'number') {
-      return { ok: true, session: { sessionId: body.sessionId, playlistUrl: body.playlistUrl, endsAt: body.endsAt } };
+      const endsAt = onOwnClock(body.endsAt, res.headers?.get?.('Date') ?? null, now());
+      return { ok: true, session: { sessionId: body.sessionId, playlistUrl: body.playlistUrl, endsAt } };
     }
     const reason = KNOWN.find((k) => k === body.error) ?? (res.status === 401 || res.status === 403 ? 'unauthorized' : 'camera_unavailable');
     return { ok: false, reason };
   } catch {
     return { ok: false, reason: 'camera_unavailable' };
   }
+}
+
+/**
+ * Ring's deadline, moved onto the television's own clock. The server says
+ * when the session ends on its clock; a TV's clock can be hours out (the VVD's
+ * was 6.9h), so the countdown is what is left by the server's Date header,
+ * counted from now here. Without the header, the server's time stands.
+ */
+function onOwnClock(serverEndsAt: number, dateHeader: string | null, localNow: number): number {
+  const serverNow = dateHeader ? Date.parse(dateHeader) : Number.NaN;
+  return Number.isFinite(serverNow) ? localNow + (serverEndsAt - serverNow) : serverEndsAt;
 }
 
 /** Back pressed: tell the bridge to stop. Never throws — Ring ends the session within a minute regardless. */

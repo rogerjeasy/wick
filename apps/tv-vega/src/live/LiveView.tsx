@@ -84,6 +84,13 @@ export function LiveView({ pairingApiUrl, jwt, cardId, onClose }: LiveViewProps)
       const p = new VideoPlayer();
       player.current = p;
       await p.initialize();
+      // The player fails silently otherwise (FL-016, FL-018): a black
+      // rectangle forever. Say it plainly instead, with Back.
+      p.addEventListener('error', () => {
+        if (cancelled) return;
+        release();
+        setPhase({ kind: 'done', outcome: 'camera_unavailable' });
+      });
       if (cancelled) return;
       p.src = started.session.playlistUrl;
       await p.play();
