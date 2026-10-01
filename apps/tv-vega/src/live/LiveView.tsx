@@ -21,7 +21,7 @@ import { BackHandler, Pressable, StyleSheet, Text, View } from '@amazon-devices/
 import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import { LIVE_FIRST_PICTURE_TIMEOUT_MS, type LiveSessionResponse } from '@wick/contracts';
 import { CalmCard, fontSize, safe } from '@wick/vega-calm-ui';
-import { liveMessage, secondsLeft, startLiveSession, stopLiveSession, waitForPlaylist, type LiveOutcome } from './liveClient.js';
+import { liveMessage, outcomeWhenPlayerStops, secondsLeft, startLiveSession, stopLiveSession, waitForPlaylist, type LiveOutcome } from './liveClient.js';
 
 export interface LiveViewProps {
   readonly pairingApiUrl: string;
@@ -86,15 +86,26 @@ export function LiveView({ pairingApiUrl, jwt, cardId, onClose }: LiveViewProps)
       await p.initialize();
       // The player fails silently otherwise (FL-016, FL-018): a black
       // rectangle forever. Say it plainly instead, with Back.
-      p.addEventListener('error', () => {
+      let hadPicture = false;
+      p.addEventListener('playing', () => {
+        hadPicture = true;
+      });
+      const stopped = () => {
         if (cancelled) return;
         release();
-        setPhase({ kind: 'done', outcome: 'camera_unavailable' });
-      });
+        setPhase({ kind: 'done', outcome: outcomeWhenPlayerStops({ hadPicture }) });
+      };
+      p.addEventListener('error', stopped);
+      p.addEventListener('ended', stopped);
       if (cancelled) return;
       p.src = started.session.playlistUrl;
       await p.play();
-      if (!cancelled) setPhase({ kind: 'live', session: started.session, player: p });
+      if (!cancelled) {
+        // The countdown's clock was last set when the view opened; without
+        // this the first live frame read ~7s high, then jumped.
+        setNow(Date.now());
+        setPhase({ kind: 'live', session: started.session, player: p });
+      }
     })().catch(() => {
       if (!cancelled) {
         release();

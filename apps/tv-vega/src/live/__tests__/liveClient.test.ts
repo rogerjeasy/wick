@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { liveMessage, secondsLeft, startLiveSession, stopLiveSession, waitForPlaylist } from '../liveClient.js';
+import { liveMessage, outcomeWhenPlayerStops, secondsLeft, startLiveSession, stopLiveSession, waitForPlaylist } from '../liveClient.js';
 
 const API = 'https://api.example';
 const TOKEN = 'jwt-abc';
@@ -107,5 +107,17 @@ describe('secondsLeft', () => {
     expect(secondsLeft(10_000, 0)).toBe(10);
     expect(secondsLeft(10_000, 9_001)).toBe(1);
     expect(secondsLeft(10_000, 12_000)).toBe(0);
+  });
+});
+
+describe('outcomeWhenPlayerStops — what the resident is told when the picture stops', () => {
+  it('says the view has ended once there was a picture — Ring closes the stream on its own', () => {
+    // Seen on the VVD: after ~40s of picture the Playground stream ended and
+    // the view said "The doorbell camera isn't answering right now."
+    expect(liveMessage(outcomeWhenPlayerStops({ hadPicture: true }))).toBe('Live view has ended.');
+  });
+
+  it('says the camera is not answering when no picture ever came', () => {
+    expect(outcomeWhenPlayerStops({ hadPicture: false })).toBe('camera_unavailable');
   });
 });

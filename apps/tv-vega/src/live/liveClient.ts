@@ -122,6 +122,16 @@ export function liveMessage(outcome: LiveOutcome): string {
   return MESSAGES[outcome];
 }
 
+/**
+ * The player stopped (an error, or the stream ran out). Once the resident has
+ * seen a picture, that is Ring ending the session — it can close a Playground
+ * or battery stream before its stated limit — so say it ended, not that the
+ * camera isn't answering.
+ */
+export function outcomeWhenPlayerStops(args: { readonly hadPicture: boolean }): LiveOutcome {
+  return args.hadPicture ? 'ended' : 'camera_unavailable';
+}
+
 export function secondsLeft(endsAt: number, now: number): number {
   return Math.max(0, Math.ceil((endsAt - now) / 1000));
 }
