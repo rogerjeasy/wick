@@ -12,7 +12,7 @@
  * real source of truth for "is this device paired", instead of that broken
  * local disk file.
  *
- * SECURITY NOTE (FRICTION.md FL-015): this endpoint has no proof of
+ * SECURITY NOTE (root cause: FRICTION.md FL-013): this endpoint has no proof of
  * possession — deviceId and householdId are the only inputs, and in this
  * app both are hardcoded public constants (apps/tv-vega/src/deviceId.ts,
  * docs/pair/index.html), readable by anyone with the repo. That means
