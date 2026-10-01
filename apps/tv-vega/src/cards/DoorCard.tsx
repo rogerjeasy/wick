@@ -28,6 +28,10 @@
  * earlier stacked layout (a 320dp frame above the text) ran off the top of
  * the screen on the VVD. The frame now sits in a reserved 16:9 box beside
  * the text, so the card fits and the picture arriving moves nothing.
+ *
+ * Compact (CalmCard's `compact`): at the full 48pt headline the card stood
+ * 390dp of the screen's 540 and hid most of the programme. With the
+ * headline on one line at body size it is a little over half the screen.
  */
 import * as React from 'react';
 import { Image, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
@@ -52,6 +56,7 @@ export function DoorCardView({ card, onAction }: DoorCardProps): React.JSX.Eleme
         actions={toCalmActions(card.actions)}
         onAction={onAction}
         mediaSize={FRAME}
+        compact
         media={
           card.imageRef ? (
             <Image
@@ -76,8 +81,11 @@ export function DoorCardView({ card, onAction }: DoorCardProps): React.JSX.Eleme
   );
 }
 
-/** 16:9, matching the doorbell's own frame. */
-const FRAME = { width: 288, height: 162 } as const;
+/**
+ * 16:9, matching the doorbell's own frame, and just tall enough for the text
+ * beside it: one line of headline and the two reserved lines of description.
+ */
+const FRAME = { width: 256, height: 144 } as const;
 
 const styles = StyleSheet.create({
   // Anchored to the bottom, inside the 5% TV safe area. The programme keeps

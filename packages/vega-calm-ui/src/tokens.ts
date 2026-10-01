@@ -37,6 +37,10 @@ export const layout = {
   sectionGapDp: 20,
   textGapDp: 12,
   actionPaddingVerticalDp: 20,
+  /** A card over a programme (CalmCard's `compact`). */
+  compactPaddingDp: 24,
+  compactGapDp: 16,
+  compactTextGapDp: 4,
   lineHeight: { headline: 1.25, body: 1.4 },
 } as const;
 
