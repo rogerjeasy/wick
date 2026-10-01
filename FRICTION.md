@@ -65,6 +65,7 @@ leads, not entries — an entry requires that you actually hit it.
 | Important | Ring: no two-way audio / siren / light endpoints |
 | Important | Ring: no webhook replay, DLQ or synthetic-event sandbox |
 | Important | Ring: WHEP session duration/concurrency limits undocumented |
+| Important | AgentCore Runtime (PUBLIC) gets no outbound UDP — no WebRTC/RTP in the agent runtime (FL-017) |
 | Important | Alexa+ MCP add-on is US-only |
 | Important | No accessibility-preference API on Vega beyond screen-reader state |
 | Nice-to-have | Ring `sub_type` taxonomy too coarse |
@@ -78,6 +79,51 @@ leads, not entries — an entry requires that you actually hit it.
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-017 — A Bedrock AgentCore Runtime in PUBLIC network mode gets no outbound UDP, so it cannot receive Ring live video
+
+**Tool / API:**      Amazon Bedrock AgentCore Runtime (container, `network_mode = "PUBLIC"`,
+                     arm64), us-east-1; Ring Partner API WHEP; werift 0.24.4
+
+**Task attempted:**  M2 "Watch live": run the WHEP-to-HLS bridge (SP-3) inside the household's
+                     AgentCore Runtime session, next to the Strands graph that gates it.
+
+**Steps taken:**     1. Deployed the runtime (`wick_agents`, image `cbd39fb`). `POST
+                        /live/sessions` from the TV path: the graph passed, Ring answered the
+                        WHEP offer `201` in ~1.5s.
+                     2. No RTP ever arrived; ffmpeg hit its 10s UDP read timeout, 0 segments.
+                     3. Logged the peer from inside the microVM: the offer held only `host`
+                        candidates, never `srflx`, and the connection sat at `connecting` for
+                        20s, then closed.
+                     4. The identical code from a laptop on the same camera, minutes apart:
+                        `host,srflx,host,srflx`, connected, 1,173 video RTP packets in 9s.
+                     5. A one-shot STUN probe (UDP to stun.l.google.com:19302) from a plain
+                        nodejs22 arm64 Lambda in the same account: answered in 202ms.
+
+**Expected:**        "PUBLIC" network mode to mean general internet egress, or the
+                     restriction to be documented (it is the deciding fact for any agent that
+                     touches WebRTC, SIP, RTP, QUIC or DNS-over-UDP to a custom resolver).
+
+**Actual:**          HTTPS out works (Ring's API, Bedrock, S3, DynamoDB all fine); UDP out gets
+                     no answer. Nothing fails loudly: the STUN request simply isn't answered, so
+                     WebRTC degrades into a connection that never leaves `connecting`. Ring's
+                     RTSP bridge is no way round it — its media is SRTP over UDP too.
+
+**Severity:**        Important — it rules out real-time media in the agent runtime, and it
+                     surfaced only as a 10-second silence two layers away from the cause.
+
+**Workaround:**      The Strands graph stays in AgentCore and keeps the decision (who may watch,
+                     one stream per household); the media bridge itself moves to a Lambda,
+                     which does get UDP (step 5) — the design's original home for it.
+
+**Suggestion:**      1. Document AgentCore Runtime's egress: which protocols and ports PUBLIC
+                        mode permits.
+                     2. If UDP is deliberately blocked, fail the socket send (EPERM/EACCES)
+                        rather than drop silently, so libraries report it.
+                     3. Offer UDP egress as an opt-in (or document VPC mode + NAT as the way
+                        to get it) for agents that handle real-time media.
+
+---
 
 ## FL-016 — Vega's media player silently refuses a cleartext HLS URL: no request, no error, a black rectangle
 
