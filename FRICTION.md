@@ -82,6 +82,46 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-021 — `useTVEventHandler` delivers different key names from the ones `HWEvent` documents
+
+**Tool / API:**      Vega OS 1.2 / @amazon-devices/react-native-kepler 4.0.1 (`useTVEventHandler`,
+                     `HWEvent` in `Libraries/TV/TVTypes.d.ts`), Vega Virtual Device, SDK 0.24.12044
+
+**Task attempted:**  Pause, resume and skip Wick's own programme from the remote: Play/Pause or
+                     OK toggles, Fast-forward and Rewind move 30 seconds.
+
+**Steps taken:**     1. Wrote the handler against the names in `HWEvent`'s own doc comment and
+                        type: `playpause`, `select`, `skip_forward`, `skip_backward`.
+                     2. On the VVD nothing happened: the programme kept playing through
+                        `inputd-cli button_press KEY_PLAYPAUSE` and `KEY_ENTER`.
+                     3. Logged every event the hook delivered. `KEY_PLAYPAUSE` arrives as
+                        `"play"`, `KEY_ENTER` as `"enter"`, `KEY_FASTFORWARD` as `"forward"`.
+                        `KEY_RIGHT` arrives as `"right"`, as documented. Each press is two
+                        events, `eventKeyAction` 0 then 1.
+
+**Expected:**        The event names in the SDK's type and doc comment to be the ones the
+                     platform sends, or the type to be a closed union so a wrong name fails to
+                     compile.
+
+**Actual:**          `eventType` is typed `... | string`, so any spelling compiles, and three of
+                     the four media keys Wick needed are sent under names the doc comment
+                     attributes to nothing (`play`, `enter`) or lists without saying which
+                     button sends them (`forward`). `play` is not in the type's list at all.
+                     The failure is silent: a remote that does nothing.
+
+**Severity:**        Important — media keys are the first thing a video app wires, and the only
+                     way to find the real names is to log them on a device.
+
+**Workaround:**      `apps/tv-vega/src/watch/remoteKeys.ts` accepts both spellings of each key,
+                     with a test naming the ones seen on the VVD.
+
+**Suggestion:**      1. Document, per remote button, the exact `eventType` each Vega device and
+                        the VVD sends, next to the `inputd-cli` key name that produces it.
+                     2. Make `eventType` a closed union of the names really sent, and drop
+                        `| string`, so a wrong name is a compile error.
+
+---
+
 ## FL-019 — Ring's only simulator has no chime, so a chime integration can't be demonstrated without buying one
 
 **Tool / API:**      Ring Developer Playground (released 2026-05-28); Ring Partner API Chimes,

@@ -94,6 +94,21 @@ describe('doRhythmSync', () => {
     ]);
   });
 
+  it('skips events the main process already sent live, so viewing is never counted twice', async () => {
+    const fs = fakeFs();
+    const store = new PlaybackEventStore(fs);
+    await store.append(event({ eventTimestampMs: 1000, sentLive: true }));
+    await store.append(event({ eventTimestampMs: 2000 }));
+    __setRhythmSyncTestDeps({ fs });
+
+    await doRhythmSync();
+
+    const queue = new QueueStore(fs);
+    expect(await queue.drainOutbound()).toEqual([
+      { t: 'playback', state: 'PLAYING', positionMs: 1000, durationMs: 600_000, contentId: 'ep1', at: 2000 },
+    ]);
+  });
+
   it('still enqueues events even when persisting the cursor fails', async () => {
     // Reproduces FL-013 on this task's own cursor write: a rejected
     // /data write must not undo the enqueue that already happened.

@@ -7,9 +7,8 @@
  *
  * File-backed, same shape and same reason as headless/QueueStore.ts: this
  * store is read by the `content.dataRefresh.provider` service process
- * (handlers.ts, via DataRefreshService.ts) and will eventually be written by
- * the `main` process's player (PlayerService.ts — not yet attached to a real
- * player; see break/BreakController.ts's header for why). They share no JS
+ * (handlers.ts, via DataRefreshService.ts) and written by
+ * the `main` process's player (watch/WatchScreen.tsx). They share no JS
  * memory, so a persisted file is the only channel between them, exactly as
  * it is for the card queue.
  */
@@ -27,6 +26,12 @@ export interface StoredPlaybackEvent {
   readonly durationMs?: number;
   readonly creditsPositionMs?: number;
   readonly eventTimestampMs: number;
+  /**
+   * Set when the main process already sent this event over its own channel
+   * as it happened (watch/WatchScreen.tsx). RhythmSyncTask skips these, so
+   * one evening's viewing is not counted twice.
+   */
+  readonly sentLive?: boolean;
 }
 
 /**
@@ -39,6 +44,7 @@ export function toStoredPlaybackEvent(
   snapshot: PlayerSnapshot,
   contentIdNamespace: string,
   eventTimestampMs: number,
+  sentLive = false,
 ): StoredPlaybackEvent | undefined {
   const playbackState: ReportablePlaybackState | undefined =
     snapshot.state === 'PLAYING' ? 'PLAYING' : snapshot.state === 'PAUSED' ? 'PAUSED' : snapshot.state === 'STOPPED' ? 'EXIT' : undefined;
@@ -52,6 +58,7 @@ export function toStoredPlaybackEvent(
     durationMs: snapshot.durationMs,
     eventTimestampMs,
     ...(snapshot.creditsPositionMs !== undefined ? { creditsPositionMs: snapshot.creditsPositionMs } : {}),
+    ...(sentLive ? { sentLive: true } : {}),
   };
 }
 

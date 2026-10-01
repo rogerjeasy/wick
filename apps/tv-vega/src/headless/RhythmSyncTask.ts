@@ -54,6 +54,7 @@ export default async function doRhythmSync(): Promise<void> {
   if (events.length === 0) return;
 
   for (const event of events) {
+    if (event.sentLive) continue;
     const deviceEvent: DeviceEvent = {
       t: 'playback',
       state: toPlaybackStateName(event.playbackState),

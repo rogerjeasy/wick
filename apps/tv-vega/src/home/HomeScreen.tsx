@@ -1,0 +1,112 @@
+/**
+ * The home screen — what would you like to watch?
+ *
+ * The same floor as every card (docs/WICK.md Part 5): 32pt and up, 7:1
+ * contrast, D-pad and OK only, three choices at most, no red, nothing that
+ * moves on its own. Focus is a ring, never colour alone.
+ *
+ * While a card is on screen the tiles give up focus, so the D-pad cannot
+ * wander off the card's buttons onto something behind it.
+ */
+import * as React from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
+import { fontSize, safe } from '@wick/vega-calm-ui';
+import type { Programme } from '../catalog/catalog.js';
+import { POSTERS } from './posters.js';
+
+export interface HomeScreenProps {
+  readonly programmes: readonly Programme[];
+  readonly onChoose: (programme: Programme) => void;
+  /** A card is on screen: it owns the remote. */
+  readonly cardVisible: boolean;
+  /** The programme to return focus to after watching it. */
+  readonly lastWatchedId?: string | undefined;
+}
+
+export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId }: HomeScreenProps): React.JSX.Element {
+  const focusId = lastWatchedId ?? programmes[0]?.id;
+
+  return (
+    <View style={styles.screen}>
+      <Text style={styles.question} accessibilityRole="header">
+        What would you like to watch?
+      </Text>
+
+      <View style={styles.row}>
+        {programmes.map((programme) => (
+          <Pressable
+            key={programme.id}
+            onPress={() => onChoose(programme)}
+            focusable={!cardVisible}
+            hasTVPreferredFocus={!cardVisible && programme.id === focusId}
+            accessibilityRole="button"
+            accessibilityLabel={`${programme.title}. ${programme.line}`}
+            style={({ focused }: { focused: boolean }) => [styles.tile, focused && styles.tileFocused]}
+          >
+            <Image source={POSTERS[programme.id]} style={styles.poster} resizeMode="cover" accessibilityLabel="" />
+            <View style={styles.caption}>
+              <Text style={styles.title} numberOfLines={1}>
+                {programme.title}
+              </Text>
+              <Text style={styles.line} numberOfLines={2}>
+                {programme.line}
+              </Text>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  // 960x540dp at 1080p; 48dp/32dp keeps everything inside the TV safe area.
+  screen: {
+    flex: 1,
+    backgroundColor: safe.ground,
+    paddingHorizontal: 48,
+    paddingVertical: 32,
+    gap: 24,
+  },
+  question: {
+    color: safe.ink,
+    fontSize: fontSize('headline'),
+    lineHeight: fontSize('headline') * 1.25,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 32,
+  },
+  tile: {
+    flex: 1,
+    borderRadius: 16,
+    borderWidth: 4,
+    borderColor: 'transparent',
+    backgroundColor: safe.raised,
+    overflow: 'hidden',
+  },
+  tileFocused: {
+    borderColor: safe.focus,
+  },
+  // A fixed height, not an aspect ratio: on the VVD `aspectRatio` with a
+  // percentage width came out nearly square and pushed the caption off the
+  // 540dp screen.
+  poster: {
+    width: '100%',
+    height: 200,
+  },
+  caption: {
+    padding: 16,
+    gap: 4,
+  },
+  title: {
+    color: safe.ink,
+    fontSize: fontSize('body'),
+    lineHeight: fontSize('body') * 1.4,
+  },
+  line: {
+    color: safe.inkDim,
+    fontSize: fontSize('body'),
+    lineHeight: fontSize('body') * 1.4,
+  },
+});

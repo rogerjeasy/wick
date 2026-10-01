@@ -8,19 +8,15 @@
  * (wrapping NaturalBreakEngine) is for, driven here instead of the raw
  * `urgency === 'DOOR'` filter this file used to run.
  *
- * A real player is now attached (below) so BreakController.setPlayback gets
- * real snapshots instead of never firing — closing the gap
- * apps/tv-vega/src/break/BreakController.ts's header used to describe. What
- * is still open is SP-1 itself: whether a card composited on top of that
- * player's own active playback is actually visible and legible on real
- * hardware (FRICTION.md Open Slots, docs/WICK-TECHNICAL.md §14). This file
- * can't answer that — only a real device can. See SP1_SPIKE_CONTENT_URL
- * below for how to run the spike.
+ * Wick plays its own programmes (home/HomeScreen.tsx, watch/WatchScreen.tsx),
+ * so BreakController gets real snapshots from a real player: a note from the
+ * family sent mid-programme waits for the credits or a long pause, and the
+ * door card comes straight through over the picture. Seen on the Vega
+ * Virtual Device — SP-1 in FRICTION.md.
  */
 import * as React from 'react';
 import { StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
-import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import type { DeviceToken, QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard } from './cards/cardActions.js';
@@ -29,7 +25,12 @@ import { BreakController } from './break/BreakController.js';
 import { PairingFlow, type PairingStartResponse } from './pairing/PairingFlow.js';
 import { PairingScreen } from './pairing/PairingScreen.js';
 import { QueueStore } from './headless/QueueStore.js';
-import { PlayerService } from './player/PlayerService.js';
+import type { PlayerSnapshot } from './player/PlayerService.js';
+import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
+import { CATALOG, type Programme } from './catalog/catalog.js';
+import { HomeScreen } from './home/HomeScreen.js';
+import { WatchScreen } from './watch/WatchScreen.js';
+import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { createDeviceChannel } from './transport/createDeviceChannel.js';
 import { holdCardChannel } from './transport/startCardChannel.js';
 import { loadDeviceConfig } from './config.js';
@@ -37,27 +38,12 @@ import { DEVICE_ID } from './deviceId.js';
 
 const QUEUE_POLL_MS = 1000;
 
-/**
- * SP-1 spike only (docs/WICK-TECHNICAL.md §14, FRICTION.md Open Slots).
- * Empty in every real build and every commit. To run the spike on a real
- * device: set this to a reachable video URL (e.g. a public-domain HLS/MP4
- * test stream), `kepler bundle`, `kepler run`, and watch what happens ~8s
- * after playback starts — a real DOOR card gets queued through the exact
- * production path (QueueStore -> BreakController -> CardRenderer) and
- * should appear in the lower third without interrupting playback. Revert
- * to '' before committing anything else. Answer goes in FRICTION.md, either
- * way.
- */
-const SP1_SPIKE_CONTENT_URL = '';
-const SP1_SPIKE_CARD_DELAY_MS = 8000;
+/** The namespace Content Personalization files Wick's own programme ids under. */
+const CONTENT_ID_NAMESPACE = 'wick';
 
-/**
- * `token` is absent only in the SP-1 spike, which skips pairing and so has
- * no channel to hold.
- */
 type Screen =
   | { readonly kind: 'pairing'; readonly info?: PairingStartResponse }
-  | { readonly kind: 'ready'; readonly token?: DeviceToken };
+  | { readonly kind: 'ready'; readonly token: DeviceToken };
 
 export default function App(): React.JSX.Element {
   const config = React.useMemo(() => loadDeviceConfig(), []);
@@ -70,7 +56,9 @@ export default function App(): React.JSX.Element {
 
   const [screen, setScreen] = React.useState<Screen | null>(null);
   const [card, setCard] = React.useState<QueuedCard | null>(null);
-  const [videoPlayer, setVideoPlayer] = React.useState<VideoPlayer | null>(null);
+  const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
+  const [watching, setWatching] = React.useState<Programme | null>(null);
+  const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
   /** M2: the door card whose live view is open over it. */
   const [liveFor, setLiveFor] = React.useState<string | null>(null);
   // Bumped on the way back from live view: remounting the card re-applies its
@@ -78,14 +66,6 @@ export default function App(): React.JSX.Element {
   const [returnedFromLive, setReturnedFromLive] = React.useState(0);
 
   React.useEffect(() => {
-    // SP-1 spike only: real pairing needs a browser round-trip against the
-    // deployed API, which is not what this spike is testing (overlay-over-
-    // playback, not pairing). Skip straight to 'ready' so the video/card
-    // test isn't blocked on it.
-    if (SP1_SPIKE_CONTENT_URL) {
-      setScreen({ kind: 'ready' });
-      return;
-    }
     let cancelled = false;
     (async () => {
       try {
@@ -167,58 +147,31 @@ export default function App(): React.JSX.Element {
     };
   }, [screen, store, breakController]);
 
-  React.useEffect(() => {
-    if (screen?.kind !== 'ready' || !SP1_SPIKE_CONTENT_URL) return;
-    let cancelled = false;
-    let playerService: PlayerService | undefined;
-    const player = new VideoPlayer();
+  const handleSnapshot = React.useCallback(
+    (snapshot: PlayerSnapshot | undefined) => breakController.setPlayback(snapshot, Date.now()),
+    [breakController],
+  );
 
-    (async () => {
-      await player.initialize();
-      if (cancelled) {
-        void player.deinitialize();
-        return;
-      }
-      player.src = SP1_SPIKE_CONTENT_URL;
-      playerService = new PlayerService(player);
-      playerService.onSnapshot((snapshot) => breakController.setPlayback(snapshot, Date.now()));
-      playerService.start();
-      playerService.load('sp1-spike-content');
-      await player.play();
-      if (cancelled) return;
-      setVideoPlayer(player);
+  // §4.3 and §3.3: the cloud hears about it now, over the channel this
+  // process holds; the platform reads it later, from the local store.
+  const handlePlaybackEvent = React.useCallback(
+    (snapshot: PlayerSnapshot) => {
+      const at = Date.now();
+      void store.enqueueOutbound(toPlaybackDeviceEvent(snapshot, at));
+      const stored = toStoredPlaybackEvent(snapshot, CONTENT_ID_NAMESPACE, at, true);
+      // Best-effort: the VVD has no data root (FL-013), and a store that
+      // cannot be written must not stop the programme.
+      if (stored) playbackStore.append(stored).catch((e) => console.error('playback_event_store_failed', e));
+    },
+    [store, playbackStore],
+  );
 
-      // Rule 1: a DOOR card renders immediately regardless of break state —
-      // the minimal, fastest way to ask SP-1's actual question (is an
-      // overlay visible on top of active playback) without waiting on
-      // NaturalBreakEngine's AT_BREAK timing too.
-      setTimeout(() => {
-        if (cancelled) return;
-        void store.upsert({
-          id: 'sp1-spike-card',
-          urgency: 'DOOR',
-          card: {
-            type: 'DOOR',
-            id: 'sp1-spike-card',
-            householdId: 'sp1-spike',
-            correlationId: 'sp1-spike',
-            createdAt: Date.now(),
-            actions: [{ id: 'dismiss', kind: 'dismiss', label: 'Not now' }],
-            line: 'SP-1 spike: this card should be visible without interrupting playback.',
-          },
-          queuedAt: Date.now(),
-          shownCount: 0,
-        });
-      }, SP1_SPIKE_CARD_DELAY_MS);
-    })();
-
-    return () => {
-      cancelled = true;
-      playerService?.stop();
-      setVideoPlayer(null);
-      void player.deinitialize();
-    };
-  }, [screen, store, breakController]);
+  const handleExitWatching = React.useCallback(() => {
+    setWatching((current) => {
+      if (current) setLastWatchedId(current.id);
+      return null;
+    });
+  }, []);
 
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {
@@ -242,11 +195,27 @@ export default function App(): React.JSX.Element {
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      {videoPlayer ? <KeplerVideoView videoPlayer={videoPlayer} style={StyleSheet.absoluteFill} scalingmode="fill" /> : null}
-      {card ? <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} onAction={handleAction} /> : null}
+    <View style={styles.screen}>
+      {watching ? (
+        <WatchScreen
+          programme={watching}
+          onSnapshot={handleSnapshot}
+          onPlaybackEvent={handlePlaybackEvent}
+          cardVisible={card !== null}
+          suspended={liveFor !== null}
+          onExit={handleExitWatching}
+        />
+      ) : (
+        <HomeScreen programmes={CATALOG} onChoose={setWatching} cardVisible={card !== null} lastWatchedId={lastWatchedId} />
+      )}
+      {/* Over the programme, at the bottom, never instead of it. */}
+      {card ? (
+        <View style={styles.cardLayer} pointerEvents="box-none">
+          <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} onAction={handleAction} />
+        </View>
+      ) : null}
       {/* Over the card, not instead of it: Back returns to the card as it was. */}
-      {liveFor && screen.token ? (
+      {liveFor ? (
         <LiveView
           pairingApiUrl={config.pairingApiUrl}
           jwt={screen.token.jwt}
@@ -260,3 +229,17 @@ export default function App(): React.JSX.Element {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  // The door card anchors itself to the same corner (DoorCard.tsx); every
+  // other card is laid out by this.
+  cardLayer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 48,
+    paddingBottom: 32,
+  },
+});
