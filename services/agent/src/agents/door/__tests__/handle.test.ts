@@ -22,6 +22,7 @@ const event: RingHistoryEvent = {
 const input = {
   event,
   device,
+  hallwayChime: false,
   householdId: 'hh-1',
   correlationId: 'corr-abc',
   now: 1789455094000,
@@ -81,6 +82,16 @@ describe('handleDoorEvent', () => {
     });
 
     await expect(handleDoorEvent(input, { sendToDevice })).rejects.toThrow('ws_down');
+  });
+
+  it('names the Ring camera alongside the card for Watch live — never inside the card the TV gets', async () => {
+    const sendToDevice = vi.fn(async (_card: QueuedCard, _ringDeviceId: string) => {});
+
+    await handleDoorEvent(input, { sendToDevice });
+
+    const [sent, ringDeviceId] = sendToDevice.mock.calls[0]!;
+    expect(ringDeviceId).toBe(device.id);
+    expect(JSON.stringify(sent)).not.toContain(device.id);
   });
 
   it('resolves with the queued card it sent, for the caller to log', async () => {

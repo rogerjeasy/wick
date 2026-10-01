@@ -6,6 +6,8 @@
 #     -> agent-door-event (this)
 #     -> Phase 1: handleDoorEvent -> egress.sendToDevice   -> the paired TV
 #     -> Phase 2: runDoorPhase2  -> egress.sendPatchToDevice -> the paired TV
+#        (2b, the sentence: the Strands describe graph in the household's
+#         AgentCore session — agentcore.tf, describeRemote.ts)
 #
 # Unlike edge-ring/edge-device's hand-written .mjs Lambdas, this one needs
 # @wick/agent, @wick/ring, @wick/policy and @wick/contracts at runtime, so it
@@ -55,12 +57,13 @@ data "aws_iam_policy_document" "agent_door_event" {
     resources = ["${aws_apigatewayv2_api.transport.execution_arn}/*/*"]
   }
 
-  statement {
-    sid = "DescribeTheDoorFrame"
-    # describe.ts's ConverseCommand — Phase 2b, the sentence.
-    actions   = ["bedrock:InvokeModel"]
-    resources = ["arn:aws:bedrock:${local.region}::foundation-model/amazon.nova-lite-v1:0"]
-  }
+}
+
+# Phase 2b runs in the agent plane now; this Lambda only invokes it.
+resource "aws_iam_role_policy" "agent_door_event_invoke_agents" {
+  name   = "${local.prefix}-agent-door-event-invoke-agents"
+  role   = aws_iam_role.agent_door_event.id
+  policy = data.aws_iam_policy_document.invoke_agents.json
 }
 
 resource "aws_iam_role_policy" "agent_door_event" {
@@ -92,14 +95,17 @@ resource "aws_lambda_function" "agent_door_event" {
   # FL-008's GRECO_NO_VALID_KEY settling delay), then describe.ts's
   # DESCRIBE_TIMEOUT_MS (2.5s). None of this is Ring's 5s webhook budget —
   # webhook.mjs already spent that getting the event onto the bus.
-  timeout     = 20
+  # Plus a possibly cold AgentCore session for 2b.
+  timeout     = 30
   memory_size = 256
 
   environment {
     variables = {
-      TABLE_NAME           = aws_dynamodb_table.wick.name
-      RING_TOKEN_SECRET_ID = aws_secretsmanager_secret.ring_tokens.name
-      WICK_HOUSEHOLD_ID    = var.household_id
+      TABLE_NAME            = aws_dynamodb_table.wick.name
+      RING_TOKEN_SECRET_ID  = aws_secretsmanager_secret.ring_tokens.name
+      WICK_HOUSEHOLD_ID     = var.household_id
+      AGENT_RUNTIME_ARN     = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
+      AGENT_RUNTIME_VERSION = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
     }
   }
 

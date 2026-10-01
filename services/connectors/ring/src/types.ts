@@ -13,10 +13,9 @@ export interface RingCapabilities {
   /** Snapshot / image enhancement support. */
   readonly image: boolean;
   /**
-   * Chime Controls — what M1 "Just a moment" needs.
-   *
-   * On the Playground device this is `audio.supported_actions: null`, which is
-   * why the Door Card has to be able to render without its middle button.
+   * This device IS a chime Wick can sound: `audio.supported_actions` contains
+   * `chime.play` (Ring docs, Chimes → Identifying a Chime). A camera's audio
+   * block is present-but-null (FL-006); a chime is a separate device.
    */
   readonly chime: boolean;
   readonly maxResolution?: number;
@@ -27,6 +26,8 @@ export interface RingDevice {
   readonly name: string;
   readonly online: boolean;
   readonly reportedAt?: number;
+  /** `status.audio.snooze.active`. Only a chime reports it; a snoozed chime must not be played. */
+  readonly snoozed?: boolean;
   readonly capabilities: RingCapabilities;
 }
 
@@ -47,3 +48,14 @@ export interface RingImage {
   readonly capturedAt: number;
   readonly fetchedAt: number;
 }
+
+/** One of the app's audio slots on a chime (`configurations.audio.customizable_slots[]`). */
+export interface ChimeSlot {
+  readonly event: string;
+  readonly disabled: boolean;
+  readonly audioRef: string;
+  readonly audioName: string;
+}
+
+/** What happened when Wick asked one chime to play. */
+export type ChimeOutcome = 'rang' | 'snoozed' | 'offline' | 'no_audio' | 'failed';

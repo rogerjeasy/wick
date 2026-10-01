@@ -53,6 +53,14 @@ describe('BreakController — without a player attached (SP-1 unresolved)', () =
     expect(picked?.id).toBe('d1');
   });
 
+  it('among DOOR cards, shows the newest visit — the earlier one is no longer at the door', () => {
+    const bc = new BreakController();
+    bc.setForeground(true, NOW);
+    const earlier = doorQueued({ id: 'earlier', card: { ...doorQueued().card, id: 'earlier', createdAt: NOW - 600_000 } as DoorCard });
+    const latest = doorQueued({ id: 'latest', card: { ...doorQueued().card, id: 'latest', createdAt: NOW - 5_000 } as DoorCard });
+    expect(bc.pickCard([earlier, latest], NOW)?.id).toBe('latest');
+  });
+
   it('among releasable DEFERRED cards, picks the longest-waiting one', () => {
     const bc = new BreakController();
     bc.setForeground(true, NOW);

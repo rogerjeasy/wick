@@ -14,12 +14,12 @@ import {
   MIN_DESCRIPTION_CONFIDENCE,
 } from '../index.js';
 
-const device = (chime: boolean): RingDevice => ({
+const device: RingDevice = {
   id: 'ava1.ring.device.ABNJQ',
   name: 'Front Door',
   online: true,
-  capabilities: { motion: true, image: true, chime },
-});
+  capabilities: { motion: true, image: true, chime: false },
+};
 
 const event: RingHistoryEvent = {
   id: 'ava1.ring.history.event.XWRR',
@@ -30,10 +30,11 @@ const event: RingHistoryEvent = {
   detections: [],
 };
 
-const build = (chime: boolean) =>
+const build = (hallwayChime: boolean) =>
   buildPhaseOneCard({
     event,
-    device: device(chime),
+    device,
+    hallwayChime,
     householdId: 'hh-1',
     correlationId: 'corr-abc',
     now: 1789455094000,
@@ -58,20 +59,19 @@ describe('buildPhaseOneCard', () => {
     expect(build(true).description).toBeUndefined();
   });
 
-  it('offers all three buttons when the device really has a chime', () => {
-    const ids = build(true).actions.map((a) => a.id);
-    expect(ids).toEqual(['watch_live', 'just_a_moment', 'dismiss']);
+  it('offers all three buttons when the household has a playable hallway chime', () => {
+    const actions = build(true).actions;
+    expect(actions.map((a) => a.id)).toEqual(['watch_live', 'hallway_chime', 'dismiss']);
+    expect(actions[1]!.label).toBe('Ring the hallway chime');
   });
 
-  it('drops "Just a moment" when the device has no chime, rather than offering a button that 400s', () => {
-    const actions = build(false).actions;
-    expect(actions.map((a) => a.id)).toEqual(['watch_live', 'dismiss']);
-    expect(actions.some((a) => a.id === 'just_a_moment')).toBe(false);
+  it('drops the chime button when there is no chime to ring, rather than offering one that fails', () => {
+    expect(build(false).actions.map((a) => a.id)).toEqual(['watch_live', 'dismiss']);
   });
 
   it('always keeps a way out, and never exceeds three actions', () => {
-    for (const chime of [true, false]) {
-      const actions = build(chime).actions;
+    for (const hallwayChime of [true, false]) {
+      const actions = build(hallwayChime).actions;
       expect(actions.length).toBeLessThanOrEqual(MAX_CARD_ACTIONS);
       expect(actions.at(-1)?.kind).toBe('dismiss');
     }
@@ -89,7 +89,8 @@ describe('buildPhaseOneCard', () => {
   it('gives different events different cards', () => {
     const other = buildPhaseOneCard({
       event: { ...event, id: 'ava1.ring.history.event.OTHER' },
-      device: device(true),
+      device,
+      hallwayChime: true,
       householdId: 'hh-1',
       correlationId: 'corr-abc',
       now: 1789455094000,
@@ -110,7 +111,8 @@ describe('buildPhaseOneCard — M4 Known Visitors', () => {
   it('carries a schedule match onto the card when the roster and time line up', () => {
     const card = buildPhaseOneCard({
       event: tuesdayEvent,
-      device: device(true),
+      device,
+      hallwayChime: true,
       householdId: 'hh-1',
       correlationId: 'corr-abc',
       now: 1789455094000,
@@ -123,7 +125,8 @@ describe('buildPhaseOneCard — M4 Known Visitors', () => {
     const monday: RingHistoryEvent = { ...event, start: Date.UTC(2026, 8, 14, 9, 10) };
     const card = buildPhaseOneCard({
       event: monday,
-      device: device(true),
+      device,
+      hallwayChime: true,
       householdId: 'hh-1',
       correlationId: 'corr-abc',
       now: 1789455094000,

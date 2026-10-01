@@ -19,6 +19,7 @@
  */
 import { createHash } from 'node:crypto';
 import {
+  DOOR_ACTIONS,
   MAX_CARD_ACTIONS,
   type CardAction,
   type CardPatch,
@@ -61,6 +62,8 @@ const SPECULATION = [
 export interface DoorCardInput {
   readonly event: RingHistoryEvent;
   readonly device: RingDevice;
+  /** Spec §4.2: a playable Ring Chime exists in the household (from the cached device list). */
+  readonly hallwayChime: boolean;
   readonly householdId: string;
   readonly correlationId: string;
   readonly now: number;
@@ -69,23 +72,22 @@ export interface DoorCardInput {
 }
 
 /**
- * The three buttons — minus any the hardware cannot actually do.
+ * The three buttons — minus any the household cannot actually do.
  *
- * "Just a moment" needs Chime Controls. Offering it on a device without one
- * produces a button that fails when pressed, which is worse than a button that
- * was never there. D6: state plainly what cannot be done; never fail silently.
+ * The middle one rings the hallway chime: Ring's API can play audio only on a
+ * Chime, an indoor speaker, so it tells the rest of the house, not the visitor
+ * (spec D1). It is only offered when a playable chime exists; a button that
+ * fails when pressed is worse than one that was never there (D6).
  */
-function actionsFor(device: RingDevice): readonly CardAction[] {
-  const actions: CardAction[] = [
-    { id: 'watch_live', label: 'Watch live', kind: 'primary' },
-  ];
+function actionsFor(hallwayChime: boolean): readonly CardAction[] {
+  const actions: CardAction[] = [{ id: DOOR_ACTIONS.watchLive, label: 'Watch live', kind: 'primary' }];
 
-  if (device.capabilities.chime) {
-    actions.push({ id: 'just_a_moment', label: '"Just a moment"', kind: 'secondary' });
+  if (hallwayChime) {
+    actions.push({ id: DOOR_ACTIONS.hallwayChime, label: 'Ring the hallway chime', kind: 'secondary' });
   }
 
   // There is always a way out, and it is always last.
-  actions.push({ id: 'dismiss', label: 'Not now', kind: 'dismiss' });
+  actions.push({ id: DOOR_ACTIONS.dismiss, label: 'Not now', kind: 'dismiss' });
 
   return actions.slice(0, MAX_CARD_ACTIONS);
 }
@@ -111,7 +113,7 @@ function cardIdFor(eventId: string): string {
  * (INV-6: idempotent and correlated).
  */
 export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
-  const { event, device, householdId, correlationId, now, roster } = input;
+  const { event, hallwayChime, householdId, correlationId, now, roster } = input;
   const match = roster ? matchVisitor(roster, event.start) : undefined;
 
   return {
@@ -121,7 +123,7 @@ export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
     correlationId,
     createdAt: now,
     line: DOOR_LINE,
-    actions: actionsFor(device),
+    actions: actionsFor(hallwayChime),
     ...(match ? { match } : {}),
   };
 }

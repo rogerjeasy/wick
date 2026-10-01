@@ -9,9 +9,11 @@
  *   - There is NO image in Phase 1. Ring's image retrieval takes ~3.1s and
  *     there is no live-capture endpoint at all (FRICTION.md FL-005), so the
  *     picture is a patch like the description.
- *   - The middle button is absent when the doorbell reports no Chime Controls.
- *     The agent decides that from the live capability payload; this component
- *     simply renders however many actions it is given.
+ *   - The middle button ("Ring the hallway chime") is absent when the
+ *     household has no playable Ring Chime — the agent decides that from the
+ *     device list; this component simply renders however many actions it is
+ *     given. Pressing it keeps the card, and a patch adds the notice saying
+ *     whether the chime rang (M1).
  *
  * The detail slot can also carry M4's schedule match ("This looks like
  * Maria — expected around now"), available from Phase 1, before the vision
@@ -28,9 +30,9 @@
  * the text, so the card fits and the picture arriving moves nothing.
  */
 import * as React from 'react';
-import { Image, StyleSheet, View } from '@amazon-devices/react-native-kepler';
+import { Image, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import type { CardAction, DoorCard as DoorCardModel } from '@wick/contracts';
-import { TwoPhaseCard } from '@wick/vega-calm-ui';
+import { TwoPhaseCard, fontSize, safe } from '@wick/vega-calm-ui';
 import { doorDetailText } from './doorDetail.js';
 
 export interface DoorCardProps {
@@ -63,7 +65,13 @@ export function DoorCardView({ card, onAction }: DoorCardProps): React.JSX.Eleme
             />
           ) : null
         }
-      />
+      >
+        {card.notice ? (
+          <Text style={styles.notice} accessibilityLiveRegion="polite">
+            {card.notice}
+          </Text>
+        ) : null}
+      </TwoPhaseCard>
     </View>
   );
 }
@@ -83,5 +91,10 @@ const styles = StyleSheet.create({
   frame: {
     width: '100%',
     height: '100%',
+  },
+  notice: {
+    color: safe.ink,
+    fontSize: fontSize('body'),
+    lineHeight: fontSize('body') * 1.4,
   },
 });

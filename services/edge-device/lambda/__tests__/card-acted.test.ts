@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   markCardActed,
   isReplayable,
+  retiresCard,
   // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 } from '../card-acted.mjs';
 
@@ -41,5 +42,18 @@ describe('isReplayable — what reconcile may push back to a reconnecting device
   it('skips the exact card the device reports it last saw', () => {
     expect(isReplayable(card('c1'), 'c1')).toBe(false);
     expect(isReplayable(card('c2'), 'c1')).toBe(true);
+  });
+});
+
+describe('retiresCard — which presses finish a card server-side', () => {
+  it('retires on Not now and on every non-door action, as before', () => {
+    expect(retiresCard('dismiss')).toBe(true);
+    expect(retiresCard('seen')).toBe(true);
+    expect(retiresCard('reply_0')).toBe(true);
+  });
+
+  it('does not retire a door card the resident is still looking at — chime and live view keep it', () => {
+    expect(retiresCard('hallway_chime')).toBe(false);
+    expect(retiresCard('watch_live')).toBe(false);
   });
 });

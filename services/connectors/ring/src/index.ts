@@ -5,4 +5,6 @@ export * from './devices.js';
 export * from './deviceCache.js';
 export * from './history.js';
 export * from './media.js';
+export * from './chime.js';
+export * from './whep.js';
 export * from './secrets.js';

@@ -19,7 +19,8 @@ import { DOOR_CARD_TTL_MS, type QueuedCard } from '@wick/contracts';
 import { buildPhaseOneCard, type DoorCardInput } from './index.js';
 
 export interface DoorEventDeps {
-  readonly sendToDevice: (card: QueuedCard) => Promise<void>;
+  /** `ringDeviceId` is stored beside the card, never in it (egress.ts ServerOnly) — Watch live needs it. */
+  readonly sendToDevice: (card: QueuedCard, ringDeviceId: string) => Promise<void>;
 }
 
 export async function handleDoorEvent(
@@ -36,7 +37,7 @@ export async function handleDoorEvent(
     shownCount: 0,
   };
 
-  await deps.sendToDevice(queued);
+  await deps.sendToDevice(queued, input.device.id);
 
   return queued;
 }

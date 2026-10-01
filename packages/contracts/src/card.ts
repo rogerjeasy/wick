@@ -36,6 +36,8 @@ export interface DoorCard extends CardBase {
   readonly imageRef?: string;
   readonly description?: string;
   readonly match?: import('./door.js').VisitorMatch;
+  /** One plain sentence about something the resident just did (M1: whether the chime rang). */
+  readonly notice?: string;
 }
 
 /** At most three items. Never four. Principle 6. */
@@ -90,9 +92,24 @@ export interface CardPatch {
   readonly description?: string;
   readonly imageRef?: string;
   readonly match?: import('./door.js').VisitorMatch;
+  /** M1 feedback. See DoorCard.notice. */
+  readonly notice?: string;
+  /** Replaces the card's actions — e.g. without the chime button once it has rung. Capped at MAX_CARD_ACTIONS on merge. */
+  readonly actions?: readonly CardAction[];
 }
 
 export const MAX_CARD_ACTIONS = 3;
+
+/**
+ * A DOOR card's action ids. Only `dismiss` removes the card on press:
+ * `watch_live` opens the live view over it, and `hallway_chime` waits for
+ * the patch that says whether the chime rang.
+ */
+export const DOOR_ACTIONS = {
+  watchLive: 'watch_live',
+  hallwayChime: 'hallway_chime',
+  dismiss: 'dismiss',
+} as const;
 export const MAX_DAY_ITEMS = 3;
 export const MAX_CARD_SHOWS = 2;
 /**

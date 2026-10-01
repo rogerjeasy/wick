@@ -120,6 +120,27 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
     }
   }
 
+  # INV-3 — M2's live HLS segments. The bridge deletes its session's prefix
+  # when the session ends (services/agent/src/live/bridge.ts); this is the
+  # backstop if it never got the chance. Versioning is on, so the delete
+  # markers' non-current versions expire too.
+  rule {
+    id     = "live-expire"
+    status = "Enabled"
+
+    filter {
+      prefix = "live/"
+    }
+
+    expiration {
+      days = var.snapshot_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.snapshot_retention_days
+    }
+  }
+
   rule {
     id     = "voice-30d"
     status = "Enabled"
@@ -171,21 +192,35 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
 resource "aws_s3_bucket_policy" "media_tls_only" {
   bucket = aws_s3_bucket.media.id
 
+  # One policy per bucket, so M2's CloudFront grant lives here too — and only
+  # for live/*: the door snapshots beside it are never reachable this way.
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid       = "DenyInsecureTransport"
-      Effect    = "Deny"
-      Principal = "*"
-      Action    = "s3:*"
-      Resource = [
-        aws_s3_bucket.media.arn,
-        "${aws_s3_bucket.media.arn}/*",
-      ]
-      Condition = {
-        Bool = { "aws:SecureTransport" = "false" }
-      }
-    }]
+    Statement = [
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          aws_s3_bucket.media.arn,
+          "${aws_s3_bucket.media.arn}/*",
+        ]
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
+      },
+      {
+        Sid       = "AllowLiveViewThroughCloudFront"
+        Effect    = "Allow"
+        Principal = { Service = "cloudfront.amazonaws.com" }
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.media.arn}/live/*"
+        Condition = {
+          StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.live.arn }
+        }
+      },
+    ]
   })
 }
 

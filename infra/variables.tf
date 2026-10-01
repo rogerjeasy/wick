@@ -56,3 +56,16 @@ variable "mcp_issuer_url" {
   type        = string
   default     = "https://tqcu7pa3ip.us-east-1.awsapprunner.com"
 }
+
+variable "agent_image_tag" {
+  # No default: a missing pin must fail the plan, not quietly roll the live
+  # bridge back to whatever `latest` was last pushed as.
+  description = "Tag of the wick-agents and wick-live-bridge images in ECR, pinned in images.auto.tfvars. scripts/push-agent-image.sh pushes the git SHA and rewrites that file."
+  type        = string
+}
+
+variable "chime_slot_event" {
+  description = "M1. Which of the app's Ring Chime audio slots the hallway chime plays (configurations.audio.customizable_slots[].event)."
+  type        = string
+  default     = "ring-appstore-event-1"
+}

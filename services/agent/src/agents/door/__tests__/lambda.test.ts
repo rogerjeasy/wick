@@ -23,6 +23,7 @@ function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
   return {
     householdId: 'hh-1',
     findDevice: vi.fn(async () => device),
+    hasHallwayChime: vi.fn(async () => false),
     listRoster: vi.fn(async () => []),
     recordPresence: vi.fn(async (_match: VisitorMatch, _at: number) => {}),
     recordDoorEvent: vi.fn(async (_at: number) => {}),
@@ -40,6 +41,20 @@ function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
 }
 
 describe('routeRingEvent', () => {
+  it('asks the household-level question for the chime button, not the doorbell', async () => {
+    const deps = baseDeps({ hasHallwayChime: vi.fn(async () => true) });
+    await routeRingEvent(detail, deps);
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0]!;
+    expect(sent.card.actions.map((a) => a.id)).toContain('hallway_chime');
+  });
+
+  it('leaves the chime button off when the chime lookup fails, and still sends the card', async () => {
+    const deps = baseDeps({ hasHallwayChime: vi.fn(async () => { throw new Error('ring down'); }) });
+    expect(await routeRingEvent(detail, deps)).toBe('sent');
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0]!;
+    expect(sent.card.actions.map((a) => a.id)).toEqual(['watch_live', 'dismiss']);
+  });
+
   it('a button press on a known device produces and sends a Phase 1 card', async () => {
     const deps = baseDeps();
 

@@ -280,9 +280,9 @@ Margaret presses the button on her remote. Sarah's voice plays. Margaret chooses
 
 > **Someone's at the front door.** *(live still from the doorbell)*
 > *A man in a delivery uniform, holding a parcel.*
-> ▶ **Watch live** · 🔔 **"Just a moment"** · ✕ **Not now**
+> ▶ **Watch live** · 🔔 **Ring the hallway chime** · ✕ **Not now**
 
-Margaret presses the middle one. Down the hall, the Ring Chime by the front door says, in a recorded voice, *"Just a moment please."* The delivery driver waits. Margaret gets up in her own time.
+Margaret presses the middle one. Down the hall, the Ring Chime rings, so Sarah, upstairs, knows someone is at the door; the card on the television now says *"The hallway chime rang."* Margaret gets up in her own time.
 
 **Sunday, 10:00.** Sarah, in her kitchen, says: *"Alexa, how's Mum been this week?"*
 
@@ -346,7 +346,7 @@ Every candidate feature was scored on six dimensions. The ranking is not "what's
 ### **S1 · The Door Card**
 > *Someone is at the door, and the television tells you who — without stopping your programme.*
 
-**What it does.** When the Ring doorbell is pressed or the front camera sees a person, a card appears in the lower third of the television. It does not pause playback, does not cover the picture, does not make a sound. It shows a still image from the doorbell and one sentence of plain English describing what is actually there — *"A man in a delivery uniform, holding a parcel"* — not "motion detected". Three large buttons: **Watch live**, **"Just a moment"**, **Not now**.
+**What it does.** When the Ring doorbell is pressed or the front camera sees a person, a card appears in the lower third of the television. It does not pause playback, does not cover the picture, does not make a sound. It shows a still image from the doorbell and one sentence of plain English describing what is actually there — *"A man in a delivery uniform, holding a parcel"* — not "motion detected". Three large buttons: **Watch live**, **Ring the hallway chime**, **Not now**.
 
 **Why it is number one.** It is the only feature that delivers value to Margaret in the first five seconds of her using the product, with zero learning. It is instantly comprehensible to a judge. It is the clearest possible demonstration of the Fire TV + Ring pairing that is the project's whole thesis. And for an older adult with a bad knee, knowing whether the trip to the door is worth making is a genuine, daily, unromantic improvement to life.
 
@@ -481,10 +481,12 @@ The demo must be honest about which half is which. Showing a simulated surface a
 
 ---
 
-### **M1 · "Just a moment"** — *the Ring Chime speaks*
-> *One button on the remote, and a voice at the front door asks the visitor to wait.*
+### **M1 · Ring the hallway chime** — *the house hears it*
+> *One button on the remote, and the chime down the hall rings.*
 
-**What it does.** The middle button on the Door Card plays a short recorded message out of the Ring Chime in the hallway: *"Just a moment please."* The visitor waits. Margaret gets up in her own time, without the pressure of someone about to walk away.
+**What it does.** The middle button on the Door Card rings the Ring Chime in the hallway, and the card then says plainly what happened: *"The hallway chime rang."*, or that it is snoozed, or that it didn't answer. Whoever else is home (a carer in the kitchen, a partner in the garden) knows someone is at the door, and Margaret gets up in her own time.
+
+Ring's developer API can play audio only on a Chime, which is an indoor speaker, and only the audio in the app's own slot. It cannot speak through the doorbell. So M1 tells the house, not the visitor. The button is only drawn when the household has a Chime that is online and not snoozed; one press rings it once, never again for the same card, and no model is ever involved in deciding to make a sound in someone's home.
 
 **Why it is the top multiplier.** It converts Wick from *informative* to *useful*. It is a small, humane, unmistakably thoughtful feature that solves a real indignity — the scramble to the door. It uses a capability of the Ring API that, as far as can be determined, essentially nobody has used for anything. And on video it is a genuine delight moment: a judge watches a television button make a voice come out of a hallway.
 
@@ -497,7 +499,9 @@ The demo must be honest about which half is which. Showing a simulated surface a
 ### **M2 · Watch Live**
 > *The doorbell camera, full screen, on the television, in one press.*
 
-**What it does.** The **Watch live** button replaces the programme with the live doorbell view, full screen. Press Back and the programme resumes exactly where it was.
+**What it does.** The **Watch live** button opens the live doorbell view, full screen, with how many seconds Ring allows (30 on a battery doorbell, 60 on a wired one). Press Back and the door card is there again, exactly as it was.
+
+**How, since the television can't do WebRTC.** Ring streams live video only over WebRTC (WHEP), and Vega has no WebRTC (its WebView crashes on the virtual device, FL-015). So the household's agent session bridges it: werift receives Ring's stream, ffmpeg repackages it as one-second HLS without re-encoding, and the television's own player plays it from CloudFront over HTTPS, about six seconds after the press. A live view is only granted while someone is plausibly at the door, which means a door card under five minutes old.
 
 **Why.** It closes the loop on the Door Card — description, then verification. For a resident with any doubt about who is outside, seeing them at 55 inches is a materially different experience from squinting at a phone. It is also technically substantive: real live video from a Ring device rendered on a Fire TV.
 
@@ -824,7 +828,7 @@ Three specific things a Tech Implementation judge will be looking for, and how t
 4. The **Door** agent looks at the image and writes one sentence about what is actually there. If the household has a visitor roster, it checks whether this is likely one of them, and whether they would be expected today.
 5. The **Guardian** checks this is permitted to be shown, and to whom.
 6. If the television is on, the card appears in the lower third within about three seconds. If the television is off, nothing happens — the event is simply recorded.
-7. If the resident presses **"Just a moment"**, our service asks Ring to play a recorded message through the Chime in the hallway.
+7. If the resident presses **Ring the hallway chime**, our service asks Ring to ring the Chime in the hallway, once, and the card says whether it rang.
 8. If the resident presses **Watch live**, our service opens a live video session with the doorbell and the television shows it full screen.
 
 **What is *not* happening:** no video is recorded, no image is kept beyond the seconds needed to describe it, and the television never holds any credential that could reach the Ring account.
@@ -895,7 +899,7 @@ All Ring API access must come from a server. This is a sound security decision t
 **What this means:** slightly more latency on **Watch live**, and a hard requirement that our service is always available. It is also, conveniently, exactly the architecture we wanted anyway.
 
 ### **L6 — Ring's API has no two-way audio, no siren and no light control.** *(Severity: Important)* **→ FR**
-The hardware supports two-way talk; the developer API does not expose it. Wick's "Just a moment" plays a pre-recorded message through a Chime instead — which works, but a resident cannot speak to a visitor from their armchair.
+The hardware supports two-way talk; the developer API does not expose it. Wick can ring an indoor Chime instead (M1), which tells the house that someone is at the door, but a resident cannot speak to a visitor from their armchair.
 
 **What this means:** a genuinely desirable feature is simply unavailable. This is one of the strongest feature requests the project can file.
 

@@ -23,6 +23,8 @@ import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import type { DeviceToken, QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
+import { opensLiveView, removesCard } from './cards/cardActions.js';
+import { LiveView } from './live/LiveView.js';
 import { BreakController } from './break/BreakController.js';
 import { PairingFlow, type PairingStartResponse } from './pairing/PairingFlow.js';
 import { PairingScreen } from './pairing/PairingScreen.js';
@@ -69,6 +71,11 @@ export default function App(): React.JSX.Element {
   const [screen, setScreen] = React.useState<Screen | null>(null);
   const [card, setCard] = React.useState<QueuedCard | null>(null);
   const [videoPlayer, setVideoPlayer] = React.useState<VideoPlayer | null>(null);
+  /** M2: the door card whose live view is open over it. */
+  const [liveFor, setLiveFor] = React.useState<string | null>(null);
+  // Bumped on the way back from live view: remounting the card re-applies its
+  // preferred focus, so OK works again at once rather than after an arrow key.
+  const [returnedFromLive, setReturnedFromLive] = React.useState(0);
 
   React.useEffect(() => {
     // SP-1 spike only: real pairing needs a browser round-trip against the
@@ -215,13 +222,16 @@ export default function App(): React.JSX.Element {
 
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {
-      void store.remove(cardId);
-      setCard(null);
+      if (card && card.id === cardId && opensLiveView(card.card, actionId)) setLiveFor(cardId);
+      if (card && card.id === cardId && removesCard(card.card, actionId)) {
+        void store.remove(cardId);
+        setCard(null);
+      }
       // The outbox is drained by whichever process holds the channel — this
       // one, since FL-014 (holdCardChannel above).
       void store.enqueueOutbound({ t: 'card_action', cardId, action: actionId, at: Date.now() });
     },
-    [store],
+    [store, card],
   );
 
   if (!screen) return <View style={{ flex: 1 }} />;
@@ -234,7 +244,19 @@ export default function App(): React.JSX.Element {
   return (
     <View style={{ flex: 1 }}>
       {videoPlayer ? <KeplerVideoView videoPlayer={videoPlayer} style={StyleSheet.absoluteFill} scalingmode="fill" /> : null}
-      {card ? <CardRenderer card={card.card} onAction={handleAction} /> : null}
+      {card ? <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} onAction={handleAction} /> : null}
+      {/* Over the card, not instead of it: Back returns to the card as it was. */}
+      {liveFor && screen.token ? (
+        <LiveView
+          pairingApiUrl={config.pairingApiUrl}
+          jwt={screen.token.jwt}
+          cardId={liveFor}
+          onClose={() => {
+            setLiveFor(null);
+            setReturnedFromLive((n) => n + 1);
+          }}
+        />
+      ) : null}
     </View>
   );
 }
