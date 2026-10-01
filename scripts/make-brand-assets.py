@@ -132,7 +132,7 @@ def make_carousel() -> Image.Image:
         "The television as the care surface",
         "for the person being cared for.",
         "",
-        "Fire TV  ·  Ring  ·  Bee  ·  Alexa+",
+        "Fire TV  ·  Ring  ·  Alexa+",
     ]
     y = h * 0.655
     for ln in lines:

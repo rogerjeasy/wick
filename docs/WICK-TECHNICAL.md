@@ -27,7 +27,7 @@ Every API claim carries a marker. This matters: a plausible-looking but invented
 
 ### 0.2 The three facts that shaped every decision below
 
-1. **Vega exposes no camera, microphone, Bluetooth or presence sensor to third-party apps.** ✅ V — verified against the complete dependency manifests of `vega-video-sample`, `vega-sports-app`, `vega-audio-sample`, `vega-tv-interfaces-sample`, `vega-epg-sample`. Consequence: all sensing is off-device. Ring is the eye, Bee is the ear.
+1. **Vega exposes no camera, microphone, Bluetooth or presence sensor to third-party apps.** ✅ V — verified against the complete dependency manifests of `vega-video-sample`, `vega-sports-app`, `vega-audio-sample`, `vega-tv-interfaces-sample`, `vega-epg-sample`. Consequence: all sensing is off-device. Ring is the eye.
 2. **Alexa+ requires MCP round-trip latency under 500ms** ✅ V — and **the Alexa+ MCP Toolkit is restricted to select partners** ✅ V (add-ons docs home: *"At this time, Category SDK and MCP Toolkit are available to select partners only."*). Consequence: build the MCP server to the published spec regardless — including the 500ms budget, which means the weekly narrative **must be precomputed** — but demo it through an MCP client and a simulated Alexa+ surface, the alternative the rules permit. See §7.3.
 3. **Ring requires a webhook ACK inside 5 seconds and blocks browser-origin requests entirely.** ✅ V — Ring Partner API docs. Consequence: verify-and-enqueue only at the edge; the TV never holds a Ring credential.
 
@@ -37,10 +37,10 @@ These are enforced by code and by test, not by convention. Violating any of them
 
 | # | Invariant |
 |---|---|
-| **INV-1** | No Ring, Bee, or AWS long-lived credential ever resides on the television. The device holds exactly one device-bound JWT. |
+| **INV-1** | No Ring or AWS long-lived credential ever resides on the television. The device holds exactly one device-bound JWT. |
 | **INV-2** | Every string that leaves the system toward the family passes through the Guardian. There is no second path. Enforced by a single egress module and a lint rule. |
 | **INV-3** | No inbound Ring video or image is persisted beyond the S3 lifecycle window (24h). Enforced by bucket lifecycle policy, not by application code. |
-| **INV-4** | No verbatim Bee utterance is ever transmitted to a family surface. Only derived, typed facts. |
+| **INV-4** | Nothing protected (health, money, relationships, location) and nothing verbatim is ever transmitted to a family surface. Enforced by the Guardian, after generation. |
 | **INV-5** | Deferred cards are never rendered during `IN_SCENE`. The only immediate class is `DOOR`. |
 | **INV-6** | Every agent tool call is idempotent and carries a correlation id that survives to CloudWatch. |
 | **INV-7** | The resident's weekly narrative is written to the TV surface before it is readable by any family tool. Ordering is enforced by the write path. |
@@ -61,17 +61,17 @@ These are enforced by code and by test, not by convention. Violating any of them
   │  Wick app  │      │      │                         │         │      └──────────┘
   └────────────┘      │      │  ┌──────────────────┐   │         │
                       │      │  │ Agent plane      │   │         │
-  ┌────────────┐      │      │  │  Door · Day      │   │         │
+  ┌────────────┐      │      │  │  Door            │   │         │
   │ Ring       │──webhook───▶│  │  Narrator        │   │         │
   │ doorbell   │◀────REST────│  │  ─────────────   │   │         │
   │ + Chime    │      │      │  │  GUARDIAN (gate) │   │         │
   └────────────┘      │      │  └──────────────────┘   │         │
                       │      │                         │         │
-  ┌────────────┐      │      │  ┌──────────────────┐   │         │
-  │ Bee        │      │      │  │ Memory plane     │   │         │
-  │ + local    │──facts only▶│  │ DDB·Timestream·KB│   │         │
-  │   proxy    │      │      │  └──────────────────┘   │         │
-  └────────────┘      │      └─────────────────────────┘         │
+                      │      │  ┌──────────────────┐   │         │
+                      │      │  │ Memory plane     │   │         │
+                      │      │  │ DDB·Timestream·KB│   │         │
+                      │      │  └──────────────────┘   │         │
+                      │      └─────────────────────────┘         │
                       └──────────────────────────────────────────┘
 ```
 
@@ -112,14 +112,13 @@ Three reasons, in order of weight:
 | Media scratch | S3 with 24h lifecycle | INV-3 |
 | Async work | SQS FIFO per household | Ordering matters for the timeline |
 
-### 1.4 The four agents
+### 1.4 The three agents
 
 Implemented as Strands agents with explicit, narrow tool sets. **Do not let these collapse into one.** The separation is the architecture and it is also the demo.
 
 | Agent | Trigger | Tools | Output |
 |---|---|---|---|
 | **Door** | `ring.event` on EventBridge | `get_snapshot`, `describe_image`, `match_roster`, `get_expected_visitors` | `DoorCard` |
-| **Day** | Bee SSE delta, or 30-min timer | `list_facts`, `list_todos`, `get_daily`, `search_neural` | `DayCard` (≤3 items) |
 | **Narrator** | Weekly cron + on-demand precompute | `query_timeline`, `query_rhythm`, `compare_baseline` | `WeekNarrative` |
 | **Guardian** | **Synchronously, on every egress** | `get_policy`, `get_resident_exclusions` | Redacted payload, or refusal |
 
@@ -167,12 +166,11 @@ wick/
 │   ├── edge-device/             # WS connect/disconnect/route
 │   ├── mcp-server/              # Alexa+ MCP add-on backend
 │   ├── agent/                   # Strands graph, AgentCore deployment
-│   │   ├── agents/{door,day,narrator,guardian}/
+│   │   ├── agents/{door,narrator,guardian}/
 │   │   ├── tools/
 │   │   └── prompts/             # versioned, tested
 │   ├── connectors/
-│   │   ├── ring/                # OAuth, devices, snapshot, WHEP, chime, history
-│   │   └── bee/                 # proxy client, SSE consumer, fact normaliser
+│   │   └── ring/                # OAuth, devices, snapshot, WHEP, chime, history
 │   └── policy/                  # Guardian engine — its own package, heavily tested
 │
 ├── packages/
@@ -384,7 +382,7 @@ type Urgency = 'DOOR' | 'DEFERRED';          // exactly two. INV-5.
 interface QueuedCard {
   id: string;                                 // idempotency key
   urgency: Urgency;
-  card: DoorCard | DayCard | MessageCard;
+  card: DoorCard | MessageCard;
   queuedAt: number;
   expiresAt?: number;                         // DOOR only; DEFERRED never expires (Principle 9)
   shownCount: number;                         // release at most twice, ever
@@ -461,7 +459,7 @@ Sarah pairs the device once, in about eight minutes. The TV never sees an accoun
 1. TV boots unpaired → displays a 6-digit code and a short URL. Code is a Lambda-generated nonce in DynamoDB, TTL 15 minutes, single use.
 2. Sarah authenticates on her own device and enters the code.
 3. Backend binds `deviceId ↔ householdId`, mints a **device-bound JWT** (RS256, 30-day expiry, rotating via refresh on each successful connect).
-4. Token stored on device via `@amazon-devices/kepler-file-system` ⚠️ C. **Because Vega documents no hardware-backed keystore (L10), assume this token is extractable and scope it accordingly:** it grants exactly the ability to receive cards for one household and post playback events. It grants nothing over Ring, Bee, or the family surfaces.
+4. Token stored on device via `@amazon-devices/kepler-file-system` ⚠️ C. **Because Vega documents no hardware-backed keystore (L10), assume this token is extractable and scope it accordingly:** it grants exactly the ability to receive cards for one household and post playback events. It grants nothing over Ring or the family surfaces.
 5. Revocation: a `deviceId` denylist checked on every WS connect. Instant.
 
 ### 4.3 Device → cloud events
@@ -484,14 +482,13 @@ type DeviceEvent =
 
 ### 5.1 Strands graph
 
-Four agents, narrow tools, explicit handoffs. Deployed to **AgentCore Runtime**; **AgentCore Memory** holds household state across weeks; **AgentCore Identity** holds Ring tokens.
+Three agents, narrow tools, explicit handoffs. Deployed to **AgentCore Runtime**; **AgentCore Memory** holds household state across weeks; **AgentCore Identity** holds Ring tokens.
 
 ```
   EventBridge ─┬─▶ Door agent ────┐
-               │                  │
-  Bee SSE ─────┼─▶ Day agent ─────┼──▶ GUARDIAN ──▶ egress
-               │                  │      (sync)      ├─▶ DeviceChannel  (TV)
-  cron ────────┴─▶ Narrator ──────┘                  └─▶ MCP tool result (Alexa+)
+               │                  ├──▶ GUARDIAN ──▶ egress
+  cron ────────┴─▶ Narrator ──────┘      (sync)      ├─▶ DeviceChannel  (TV)
+                                                     └─▶ MCP tool result (Alexa+)
 ```
 
 **Model selection** — do not use one model for everything:
@@ -525,16 +522,9 @@ The TV renders Phase 1 immediately and patches the description in when it arrive
 
 Roster matching: start **schedule-based**, not biometric (`WICK.md` decision D3) — "Maria usually comes Tuesdays at nine" delivers most of the value with none of the weight. If you later add face matching, it is opt-in, household-curated, deletable, and never applied to unknown visitors.
 
-### 5.3 Day agent
+### 5.3 (removed)
 
-Input: Bee facts/todos/daily (§7.2). Output: ≤ 3 items.
-
-Selection rubric, in priority order:
-1. **A commitment with a near deadline that nothing else has surfaced.** ("The surgery rang about Thursday.")
-2. **A self-referential health or wellbeing mention whose frequency changed.** Frequency delta is computed from Timestream, not guessed.
-3. **Anything queued from the family.**
-
-Hard rules: never more than three; never the same item twice in seven days unless its deadline moved; never a verbatim quote (INV-4); phrase as an offer, never an instruction.
+The Day agent chose up to three things from a wearable's record of the day. Wick has no such data source, so the agent and its card were removed. The section number is kept so references to §5.4 and §5.5 still hold.
 
 ### 5.4 Narrator — and why it must be precomputed
 
@@ -651,24 +641,9 @@ Everything downstream is async. Target p99 under 150ms.
 
 **Known gaps** (→ friction log, §14): no two-way audio / siren / light endpoints; no event replay or DLQ on Ring's side; no sandbox that emits synthetic events on demand — which makes CI awkward and is worth writing up properly.
 
-### 7.2 Bee
+### 7.2 (removed)
 
-**Local proxy** ✅ V — `bee login`, then `bee proxy`; binds `127.0.0.1:8787` (auto-increments), also a Unix socket at `~/.bee/proxy.sock`. Only `/v1/*` forwards. Default idle timeout 120s (`--idle-timeout`).
-
-| Purpose | Call |
-|---|---|
-| Real-time deltas | `GET /v1/stream` (SSE, optional event-type filter) |
-| Incremental sync | `GET /v1/changes` (cursor over changed entity ids) |
-| Facts / todos | `GET /v1/facts`, `GET /v1/todos` |
-| Day summary | `GET /v1/daily`, `GET /v1/daily/:id` |
-| Conversations | `GET /v1/conversations[/:id]` |
-| Recall | `POST /v1/search/conversations`, `.../neural` |
-
-**Deployment.** The proxy runs on a small always-on machine in the household — a Pi or a mini PC beside the router. A thin **Bee bridge** process next to it consumes SSE, normalises to `Fact`, classifies against `FactClass`, **drops verbatim content**, and posts only derived facts over mTLS to the cloud.
-
-> **INV-4 lives here, at the household boundary.** Raw utterances must never leave the house. Enforce it in the bridge, where it is one function, not in the cloud, where it is an ongoing act of discipline.
-
-The 120s idle timeout will fight a long-lived SSE consumer. Expect to implement heartbeat + reconnect. That is friction-log entry material.
+The wearable connector was removed with the Day agent (§5.3). The section number is kept so references to §7.3 still hold.
 
 ### 7.3 MCP server (S4a) and the Alexa+ add-on (S4b)
 
@@ -823,7 +798,6 @@ Under 500ms round trip ✅ V — non-negotiable. Every tool is a single `GetItem
 | Secret | Lives in | Reachable from device? |
 |---|---|---|
 | Ring OAuth access/refresh | **AgentCore Identity** | Never |
-| Bee session | Household bridge only, on-prem | Never |
 | Alexa+ LWA credentials | CI secret store / `~/.alexa-ai` | Never |
 | Bedrock / AWS | Task roles, no static keys anywhere | Never |
 | Device JWT | Device (`kepler-file-system`) | **Yes — and it is scoped to be worthless if stolen** |
@@ -834,7 +808,7 @@ Under 500ms round trip ✅ V — non-negotiable. Every tool is a single `GetItem
 |---|---|
 | Stolen Fire TV stick | Device JWT grants card receipt + playback posting for one household. No Ring access, no history, no family data. Revoke by `deviceId`. |
 | Forged Ring webhook | HMAC-SHA256 verify, constant-time; reject unknown `device_id`; idempotency on `request_id`. |
-| Prompt injection via Bee content or a visitor's clothing/signage | Guardian runs **after** every generation, deterministically, on typed classes. A model that is talked into emitting a health fact still cannot get it past the policy table. This is the main reason the Guardian is rules-first. |
+| Prompt injection via a family note or a visitor's clothing/signage | Guardian runs **after** every generation, deterministically, on typed classes. A model that is talked into emitting a health fact still cannot get it past the policy table. This is the main reason the Guardian is rules-first. |
 | Family over-reach | Policy table + resident exclusions; exclusions can only narrow (§6.2). |
 | Data exfil via KB retrieval | Retrieval-time `FactClass` filtering, before the prompt (§8.4). |
 | Replay of a card action | Card ids are ULIDs, single-use, server-side `shownCount` and action idempotency. |
@@ -847,7 +821,7 @@ Ship an `AGENTS.md` at the repo root encoding INV-1…INV-7 as rules for any cod
 
 ## 11. OBSERVABILITY
 
-**Correlation id** minted at the Ring webhook (or at the Bee delta, or at the MCP request) and threaded through EventBridge detail, agent context, DynamoDB writes, and the card payload. The TV echoes it back on `card_shown` and `card_action`, which closes the loop **end to end, including the device**. That closed loop is unusual and worth showing.
+**Correlation id** minted at the Ring webhook (or at the MCP request) and threaded through EventBridge detail, agent context, DynamoDB writes, and the card payload. The TV echoes it back on `card_shown` and `card_action`, which closes the loop **end to end, including the device**. That closed loop is unusual and worth showing.
 
 **Structured logs**, JSON, one line per decision. Every Guardian decision logs `{class, audience, allow, transform, reason}` — **with no content**. The Guardian's audit trail must itself be safe to read.
 
@@ -861,7 +835,6 @@ Ship an `AGENTS.md` at the repo root encoding INV-1…INV-7 as rules for any cod
 | `card.dismissed_without_action` | **The most important product metric** (`WICK.md` §13) |
 | `guardian.denials` by class | Is the policy doing anything? |
 | `mcp.roundtrip_ms` p99 | Must stay under 500ms |
-| `bee.sse_reconnects` | The 120s idle-timeout fight |
 | `device.ws_reconnects` | Transport health |
 
 **Alarms** on p99 breaches and on any `guardian.error` — a Guardian that throws must **fail closed**, and the alarm must fire.
@@ -877,7 +850,7 @@ The submission constraint is **no simulated data in the product or the demo**. T
 | Layer | Rule |
 |---|---|
 | **Unit / property tests** | Fixtures are correct and expected. Derived from real captured payloads, redacted. |
-| **The running product** | Real Ring events, real Bee data, real playback. No mock path may be reachable at runtime. |
+| **The running product** | Real Ring events, real playback. No mock path may be reachable at runtime. |
 | **The demo** | 100% real. Every frame. |
 
 Enforce it: **delete the sample's `ContentPersonalizationMocks` wiring on day one** (§3.3), and add a CI check that no module under `apps/tv-vega/src/**` imports from a path matching `mock`. Say all of this in the README — a judge who sees "mock" in the repo and no explanation will assume the worst.
@@ -951,7 +924,6 @@ Nothing here is product code. The purpose is to find out what is impossible befo
 | **SP-3** | **Ring WHEP on Vega.** Negotiate a session; render on the TV. Measure setup time and whether sessions are duration-limited. | 6h | M2 (Watch Live). Fallback: short clip via `media/video/download`. |
 | **SP-4** | ~~Alexa+ add-on access~~ **RESOLVED 2026-09-14: partner-gated, no application path** (FL-001). Replacement spike: stand up a spec-2025-11-25 Streamable HTTP server behind `cloudflared` and drive it from MCP Inspector. | 3h | **S4a.** Proves the server is real without waiting on access. Re-request S4b access periodically; it costs nothing. |
 | **SP-5** | **Transport.** `mqtt.js` over WSS inside Vega RN 0.83, including a reconnect cycle. | 4h | §4.1 — IoT Core or API GW WebSocket. |
-| **SP-6** | **Bee SSE longevity.** Hold `/v1/stream` open for two hours against the 120s idle timeout. | 2h | Bridge design + a friction-log entry. |
 | **SP-7** | **Content Personalization round trip.** Publish one real playback event; confirm it lands in Continue Watching on the device. | 4h | The Rhythm pillar's device-side input. |
 | **SP-8** | **Stage One insurance.** Get a Vega sample running on the real Fire TV Stick and **record it.** | 2h | Non-negotiable. Do it first. |
 
@@ -959,7 +931,7 @@ Nothing here is product code. The purpose is to find out what is impossible befo
 - Request the **$150 AWS credits** (form closes 21 Oct, 12:00 PT).
 - Create the repo with the licence rendering in the About panel.
 - Open `FRICTION.md` and write SP-1's result into it, whatever it is.
-- **Start real data collection in Margaret's household.** Ring events and Bee capture, running continuously. The Rhythm baseline needs ≥3 weeks and cannot be back-filled.
+- **Start real data collection in Margaret's household.** Ring events, running continuously. The Rhythm baseline needs ≥3 weeks and cannot be back-filled.
 - Generate the six Alexa+ icon sizes and stand up the privacy/terms pages (§7.3) — they gate `alexa-ai deploy`.
 
 ---
@@ -976,7 +948,6 @@ Order is not arbitrary. Each step de-risks the next, and each has a binary exit 
 | **3** | **S5 Guardian** — policy engine, egress module, lint rule, property tests | 10k property cases green; a real refusal demonstrable on a real Echo |
 | **4** | **S2 Natural-Break Engine** + Content Personalization (real events) | Deferred card provably never appears in `IN_SCENE`, on device |
 | **5** | **S6 Rhythm** — Timestream, baselines, deviation floor | A real 3-week baseline produces a true "nothing unusual this week" |
-| **6** | **S3 Day Card** — Bee bridge, SSE, fact normalisation, 3-item selection | Real Bee data produces a real card at a real break |
 | **7** | **M1 "Ring the hallway chime"** | A remote button rings a real Chime down the hall, and the card says whether it rang. Ring's API plays audio only on an indoor Chime, from the app's own slot — it tells the house, not the visitor. |
 | **8** | **M3 One-Button Reply** | Real note in, real reply out, one button |
 | **9** | **M2 Watch Live** | Live doorbell full-screen on the TV, Back restores playback |
@@ -984,7 +955,7 @@ Order is not arbitrary. Each step de-risks the next, and each has a binary exit 
 | **11** | **M6 MCP Apps timeline** | Timeline renders in the Alexa+ conversation |
 | **12** | **Film.** Then `tv-fireos`, then Tier 2, in that order | — |
 
-**Gate rule:** no Tier 1 work begins until steps 1–6 run on real hardware with real data. No Tier 2 work begins until the video is **shot**, not merely planned.
+**Gate rule:** no Tier 1 work begins until steps 1–5 run on real hardware with real data. No Tier 2 work begins until the video is **shot**, not merely planned.
 
 ---
 
@@ -1050,23 +1021,9 @@ CORS      Server-to-server only. Browser and TV origins are blocked.
 Absent    two-way audio · siren · lights · locks · event replay · event sandbox
 ```
 
-## APPENDIX C — Bee cheat sheet ✅ V
+## APPENDIX C (removed)
 
-```
-Setup     bee login   →   bee proxy        (127.0.0.1:8787, or ~/.bee/proxy.sock)
-          Only /v1/* forwards. Idle timeout 120s (--idle-timeout).
-Endpoints GET  /v1/me
-          GET  /v1/changes                  (cursor over changed entity ids)
-          GET  /v1/facts            · GET/POST/PUT/DELETE /v1/facts/:id
-          GET  /v1/todos            · GET/POST/PUT/DELETE /v1/todos/:id
-          GET  /v1/journals[/:id]
-          GET  /v1/conversations[/:id]
-          GET  /v1/daily[/:id]
-          POST /v1/search/conversations        (BM25)
-          POST /v1/search/conversations/neural
-          GET  /v1/stream                      (SSE, optional event-type filter)
-Note      Todos take ISO 8601 in, return epoch millis out.
-```
+The wearable cheat sheet was removed with the connector (§7.2).
 
 ## APPENDIX D — Alexa+ add-on cheat sheet ✅ V
 
@@ -1110,7 +1067,6 @@ Verified gaps found while researching this document. **Write each up properly th
 | Important | No accessibility-preference API on Vega beyond screen-reader state (L11 / Q7) |
 | Nice-to-have | Ring `sub_type` taxonomy too coarse (L7) |
 | Nice-to-have | Ring blocks browser/TV origins, forcing an extra hop (L5) |
-| Nice-to-have | Bee proxy 120s idle timeout fights long-lived SSE (SP-6) |
 | Nice-to-have | Amazon Kids/household profiles unavailable to third-party apps (L12) |
 | Nice-to-have | Vega samples ship mock data wired into the real service path (§3.3) |
 

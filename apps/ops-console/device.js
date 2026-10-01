@@ -207,12 +207,6 @@ function renderCard(queuedCard) {
       wrapper.insertBefore(img, wrapper.firstChild);
     }
     if (card.description) wrapper.appendChild(el('div', 'body-text', card.description));
-  } else if (card.type === 'DAY') {
-    wrapper.appendChild(el('div', 'kicker', 'A few things from today'));
-    wrapper.appendChild(el('div', 'headline', card.greeting));
-    const list = el('ul', 'day-items');
-    for (const item of card.items) list.appendChild(el('li', undefined, item.text));
-    wrapper.appendChild(list);
   } else if (card.type === 'MESSAGE') {
     wrapper.appendChild(el('div', 'kicker', `Message from ${card.fromName}`));
     wrapper.appendChild(el('div', 'headline', card.transcript ?? 'Tap to hear the message'));

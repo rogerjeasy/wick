@@ -25,7 +25,7 @@ export function assertActionLimit(count: number): void {
   }
 }
 
-/** Principle 6 again, for the Day Card's items. */
+/** Principle 6 again, for any list a card shows. */
 export function assertItemLimit(count: number): void {
   if (count > limits.maxListItems) {
     throw new CalmViolation(

@@ -23,7 +23,7 @@
  * broken /data this file's own first paragraph describes), and since this
  * repo is open source, no client-embedded secret would be confidential
  * either. Accepted, bounded trade-off instead: INV-1 already scopes what
- * this token can do (no Ring/Bee/family-surface access — see PairingFlow.ts),
+ * this token can do (no Ring/family-surface access — see PairingFlow.ts),
  * REFRESH_TOKEN_TTL_SEC below is far shorter than a real pairing's token so
  * a wrongly-minted one expires fast, and the cooldown throttles repeated
  * minting. This does not stop a single unauthenticated mint; revisit if

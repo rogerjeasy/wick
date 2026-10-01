@@ -27,25 +27,24 @@ Every product built for ageing at home is built for the *caregiver*. It is a pho
 
 Wick inverts this. It puts the intelligence **inside the home**, on the one screen an older adult already looks at for around seven hours a day, and asks them to install nothing, learn nothing, wear nothing and change nothing.
 
-It uses four things Amazon already owns and nobody else has together:
+It uses three things Amazon already owns and nobody else has together:
 
 | Amazon device | What it becomes in Wick |
 |---|---|
 | **Fire TV** | The surface. Where everything appears — calm, large, one button at a time. |
 | **Ring** | The eyes at the door. Who is here, who came, who didn't. |
-| **Bee** | The ears of the day. What was actually said, promised, worried about. |
 | **Alexa+** | The far end of the line. How a distant family asks, from anywhere, "how are they doing?" |
 
-An agent sits behind all four. It watches the door, listens to the day, learns the household's rhythm, and does two things: it tells the resident the handful of things that genuinely matter to them, **at a moment that doesn't interrupt** — and it tells the family a true, unsensational story about the week.
+An agent sits behind all three. It watches the door, learns the household's rhythm, and does two things: it tells the resident the handful of things that genuinely matter to them, **at a moment that doesn't interrupt** — and it tells the family a true, unsensational story about the week.
 
 **Why this wins the Fire TV track:**
 
-1. **It is impossible on Roku, Google TV or Apple TV.** None of them own the doorbell, the wearable and the assistant. This is the single strongest argument a Fire TV judge can be given.
+1. **It is impossible on Roku, Google TV or Apple TV.** None of them own the screen, the doorbell and the assistant together. This is the single strongest argument a Fire TV judge can be given.
 2. **It uses the parts of Vega OS nobody else will touch** — background agents and the Fire TV home-screen personalisation surface — for exactly what they were built for.
 3. **It is a genuinely new product category for the Fire TV Appstore**, with a real buyer, a real price and a real enterprise wedge.
 4. **The interaction design is the idea.** Never interrupting mid-scene, one button, no red badges, no nagging. Judges assessing "a complete, coherent product experience" will find one that could not have been designed by accident.
 
-**Why this is safe to build:** we have all four devices in hand, and a real older adult who has agreed to be the household. Every piece of data in the demo will be real.
+**Why this is safe to build:** we have every device surface available as an official simulator, and a real older adult who has agreed to be the household. Every piece of data in the demo will be real.
 
 **The one sentence for the video:** *"The average 78-year-old looks at this screen for seven hours a day. It has never once looked back."*
 
@@ -155,19 +154,18 @@ It also produces a different *emotional* product. Wick is not a monitoring syste
 
 This is the argument that should be made explicitly, on screen, in the demo video, because it is the argument a Fire TV judge most wants to hear.
 
-Wick needs four things simultaneously:
+Wick needs three things simultaneously:
 
 1. **A trusted, always-present screen in the room** — Fire TV.
 2. **Eyes at the door with a real developer API** — Ring, which now exposes live video, snapshots, event webhooks and event history to third-party developers.
-3. **A record of what was actually said and meant during the day** — Bee, a wearable that captures real conversation and distils it into facts and commitments.
-4. **A voice endpoint the distant family already owns** — Alexa+, which now accepts self-hosted third-party integrations.
+3. **A voice endpoint the distant family already owns** — Alexa+, which now accepts self-hosted third-party integrations.
 
-| Platform | Screen | Doorbell API | Wearable context | Assistant | Can build Wick? |
-|---|---|---|---|---|---|
-| **Amazon** | Fire TV | **Ring** | **Bee** | **Alexa+** | **Yes** |
-| Google | Google TV | Nest (limited 3P API) | Fitbit (no conversation) | Gemini | No |
-| Apple | Apple TV | None | Apple Watch (no conversation capture) | Siri | No |
-| Roku | Roku | Roku Cameras (no 3P API) | None | None | No |
+| Platform | Screen | Doorbell API | Assistant | Can build Wick? |
+|---|---|---|---|---|
+| **Amazon** | Fire TV | **Ring** | **Alexa+** | **Yes** |
+| Google | Google TV | Nest (limited 3P API) | Gemini | No |
+| Apple | Apple TV | None | Siri | No |
+| Roku | Roku | Roku Cameras (no 3P API) | None | No |
 | Samsung | Tizen | SmartThings (partial) | Galaxy Watch | Bixby | No |
 
 **Wick is not an app that happens to run on Fire TV. It is an argument for why Fire TV sits at the centre of the Amazon home.**
@@ -233,23 +231,20 @@ Stating this clearly is a sign of product judgement, and it protects the scope.
 
 ## 3.1 In one paragraph
 
-Wick is a Fire TV application and an agent behind it. The agent watches the household's Ring doorbell and outdoor camera, reads the conversational context captured by the resident's Bee wearable, and learns the household's rhythm from the television itself. It surfaces, on the television, the small number of things the resident actually needs — who is at the door, what the surgery said, a message from their daughter — and it does so at moments that do not interrupt. Separately, it answers the distant family's questions through their own Echo, in prose rather than dashboards. It never streams the inside of the house to anyone, and the resident is never asked to learn, wear or install anything.
+Wick is a Fire TV application and an agent behind it. The agent watches the household's Ring doorbell and outdoor camera, and learns the household's rhythm from the television itself. It surfaces, on the television, the small number of things the resident actually needs — who is at the door, a message from their daughter, their own week — and it does so at moments that do not interrupt. Separately, it answers the distant family's questions through their own Echo, in prose rather than dashboards. It never streams the inside of the house to anyone, and the resident is never asked to learn, wear or install anything.
 
-## 3.2 The four pillars
+## 3.2 The three pillars
 
 Everything in Wick belongs to exactly one of these. If a proposed feature does not belong to one of them, it does not go in.
 
 ### Pillar 1 — **The Door** *(Ring → Fire TV)*
 Who is here, and what should I do about it. The most immediately, obviously useful thing Wick does for Margaret, and the fastest to demonstrate.
 
-### Pillar 2 — **The Day** *(Bee → agent → Fire TV)*
-What happened today that you'd want to remember. The things that were said, promised, arranged or worried about, surfaced gently at a natural break — never mid-programme.
+### Pillar 2 — **The Family** *(agent → Alexa+ → anywhere)*
+The far end of the line. Sarah asks her own Echo how her mother is, and gets a truthful, unsensational, narrative answer. Messages go the other way, arriving on the television as a card Margaret can answer with one button — at a natural break, never mid-programme.
 
-### Pillar 3 — **The Family** *(agent → Alexa+ → anywhere)*
-The far end of the line. Sarah asks her own Echo how her mother is, and gets a truthful, unsensational, narrative answer. Messages go the other way, arriving on the television as a card Margaret can answer with one button.
-
-### Pillar 4 — **The Rhythm** *(Fire TV + Ring events → agent's memory)*
-The quiet, invisible pillar. Wick learns what a normal week looks like in this house — when the television comes on, when the front door opens, when the carer arrives — so that when something is genuinely different, it knows, and when nothing is different, it stays silent. **This is the pillar that makes the other three trustworthy.**
+### Pillar 3 — **The Rhythm** *(Fire TV + Ring events → agent's memory)*
+The quiet, invisible pillar. Wick learns what a normal week looks like in this house — when the television comes on, when the front door opens, when the carer arrives — so that when something is genuinely different, it knows, and when nothing is different, it stays silent. **This is the pillar that makes the other two trustworthy.**
 
 ## 3.3 A day in the life
 
@@ -259,20 +254,19 @@ The quiet, invisible pillar. Wick learns what a normal week looks like in this h
 
 **09:04.** The doorbell rings. The television is off, so nothing appears. Margaret answers the door. Wick records: *carer visit, on time, Tuesday as usual.*
 
-**11:30.** Margaret mentions to Maria, in passing, that her knee has been bad again and that the surgery rang about Thursday. Bee captures both. Wick's agent extracts two things: a **fact** worth tracking (knee pain, second mention this week) and a **commitment** that is about to be forgotten (the surgery, Thursday).
-
 **14:15.** A courier rings the bell. Margaret is in the garden. Wick notes the event and the snapshot. Later it will be able to answer, truthfully, "a parcel came at quarter past two."
 
-**16:40.** The television goes on. Wick's card is waiting, but it does not appear yet, because Margaret has just sat down and is choosing what to watch. **Wick waits.**
+**16:20.** In London, Sarah tells her Echo to put a note on her mother's television.
 
-**17:22.** The episode ends. *Now* Wick speaks — one full-screen card, very large type, three lines:
+**16:40.** The television goes on. Sarah's note is waiting, but it does not appear yet, because Margaret has just sat down and is choosing what to watch. **Wick waits.**
 
-> **A few things from today, Margaret.**
-> • *The surgery rang about Thursday. Shall I ask Sarah to call them?*
-> • *You mentioned your knee again this morning.*
-> • *Sarah's sent you a message.* ▶
+**17:22.** The episode ends. *Now* Wick speaks — one card, very large type:
 
-Margaret presses the button on her remote. Sarah's voice plays. Margaret chooses one of three replies Wick has drafted — *"Tell her I'm fine and the roses are out"* — presses OK once, and goes back to her programme. Total interaction: eleven seconds, one button, no keyboard, no phone, nothing learned.
+> **A message from Sarah.**
+> *The plumber is coming Thursday at ten. Love you.*
+> **Thanks for letting me know!** · **I'll call you soon.** · **Not right now.**
+
+Margaret chooses one of the three replies, presses OK once, and goes back to her programme. Total interaction: eleven seconds, one button, no keyboard, no phone, nothing learned.
 
 **17:24.** Sarah's phone buzzes in London. Her mother has replied.
 
@@ -286,7 +280,7 @@ Margaret presses the middle one. Down the hall, the Ring Chime rings, so Sarah, 
 
 **Sunday, 10:00.** Sarah, in her kitchen, says: *"Alexa, how's Mum been this week?"*
 
-> *"Steady week. She's been up around seven most mornings and out to the shops Tuesday and Friday. Maria came both her usual days, on time. One thing worth mentioning — she's talked about her knee twice this week, and that's up from once last week. And Thursday night she was up at two in the morning with the kitchen light on for about forty minutes. Would you like to see the week, or shall I put a note on her television to ask how she's feeling?"*
+> *"Steady week. She's been up around seven most mornings and out to the shops Tuesday and Friday. Maria came both her usual days, on time. One thing worth mentioning — a parcel came on Tuesday afternoon while she was in the garden. And Thursday night she was up at two in the morning with the kitchen light on for about forty minutes. Would you like to see the week, or shall I put a note on her television to ask how she's feeling?"*
 
 Sarah did not open an app. Margaret did not do anything at all.
 
@@ -301,8 +295,8 @@ This is not a simplification. It is the product's central and most defensible cl
 | Install an app | **No** |
 | Create an account | **No** |
 | Learn a new interface | **No** |
-| Wear a device | Only the Bee, if they choose — and that is a consenting decision they make for their own benefit |
-| Charge something extra | **No** (Bee excepted) |
+| Wear a device | **No** |
+| Charge something extra | **No** |
 | Remember to do something daily | **No** |
 | Change how they watch television | **No** |
 | Answer questions from a machine | **No** |
@@ -371,7 +365,7 @@ Every candidate feature was scored on six dimensions. The ranking is not "what's
 
 **Why it is number two.** This is the feature that makes Margaret tolerate Wick for more than a week. Every competing product interrupts, and every competing product gets muted. The entire emotional difference between "a helpful presence" and "another thing nagging me" lives here. It is also the feature that a judge assessing *"is the interaction model intuitive and well-considered for the target device"* will recognise as genuine design work rather than decoration.
 
-| Serves | All four pillars — it is the delivery mechanism for everything |
+| Serves | All three pillars — it is the delivery mechanism for everything |
 |---|---|
 | **Resident value** | ★★★★★ — invisible, and the reason the product survives contact with a real person |
 | **Buyer value** | ★★☆☆☆ |
@@ -385,24 +379,9 @@ Every candidate feature was scored on six dimensions. The ranking is not "what's
 
 ---
 
-### **S3 · The Day Card**
-> *The three things from today you'd want to remember, at the end of an episode.*
+### **S3 · (removed)**
 
-**What it does.** Wick reads the resident's real Bee data — the conversations they actually had, the facts the device distilled, the things they said they would do — and at the next natural break presents at most **three** items in very large type. Typically: a commitment about to be forgotten (*the surgery rang about Thursday*), something the resident said about themselves that is worth noticing (*you mentioned your knee again*), and anything waiting from the family.
-
-**Why it is number three.** This is the feature nobody else on earth can build, because nobody else has a wearable that captures real conversation and a television to put it on. It is the strongest single answer to "quality of the idea". It is also genuinely useful in a way that requires no imagination: the thing Margaret most needs is not monitoring, it is **a memory that isn't hers**.
-
-| Serves | Pillar 2 — The Day |
-|---|---|
-| **Resident value** | ★★★★★ |
-| **Buyer value** | ★★★☆☆ |
-| **Judging power** | ★★★★★ — Idea quality, Impact |
-| **Demo power** | ★★★★☆ |
-| **Effort** | Medium |
-| **Risk** | Medium — depends on the quality of real Bee extraction |
-| **Depends on** | Bee data access, S2 (the break engine), the disclosure policy (S5) |
-
-**Three items. Never four.** The discipline of the number is the feature. A card with seven things on it is a to-do list, and Margaret will stop reading it.
+The Day Card showed up to three things from a wearable's record of the resident's day. Wick has no such data source, so the feature was removed. The number is kept so S4–S6 keep their names.
 
 ---
 
@@ -420,7 +399,7 @@ Every candidate feature was scored on six dimensions. The ranking is not "what's
 
 The demo must be honest about which half is which. Showing a simulated surface as though it were a real Echo would be worse than not showing it at all.
 
-| Serves | Pillar 3 — The Family |
+| Serves | Pillar 2 — The Family |
 |---|---|
 | **Resident value** | ★★☆☆☆ — indirect: it reduces the number of anxious phone calls |
 | **Buyer value** | ★★★★★ |
@@ -439,7 +418,7 @@ The demo must be honest about which half is which. Showing a simulated surface a
 
 **What it does.** A component that every single outbound sentence passes through before it reaches Sarah. It holds an explicit, human-readable policy: what class of information may be shared, what must be summarised, what must never leave the house, and what Margaret has specifically asked to keep private. Health, financial and relationship content is redacted by rule, not by judgement.
 
-**Why it is number five, and why it is Tier 0.** Because Wick reads a person's actual conversations and puts the result in front of their children. Without an enforced, inspectable policy, Wick is not a care product — it is a surveillance product with good manners. This is also the component that makes the demo's central claim ("this is not surveillance") defensible rather than rhetorical, and it is the thing that distinguishes a serious engineer from an enthusiastic one in front of a judging panel.
+**Why it is number five, and why it is Tier 0.** Because Wick puts what it knows about a person's week in front of their children. Without an enforced, inspectable policy, Wick is not a care product — it is a surveillance product with good manners. This is also the component that makes the demo's central claim ("this is not surveillance") defensible rather than rhetorical, and it is the thing that distinguishes a serious engineer from an enthusiastic one in front of a judging panel.
 
 | Serves | All pillars — it is a gate, not a feature |
 |---|---|
@@ -462,7 +441,7 @@ The demo must be honest about which half is which. Showing a simulated surface a
 
 **Why it is number six, and why it is not optional.** Without it, the weekly narrative is a list of events, which is worthless. With it, the narrative contains the only sentence Sarah actually wants: *"nothing unusual this week."* A care product that can credibly say nothing is wrong is more valuable than one that lists forty things that happened.
 
-| Serves | Pillar 4 — The Rhythm |
+| Serves | Pillar 3 — The Rhythm |
 |---|---|
 | **Resident value** | ★★★★☆ — it is why Wick doesn't nag |
 | **Buyer value** | ★★★★★ |
@@ -602,7 +581,7 @@ Ring's developer API can play audio only on a Chime, which is an indoor speaker,
 | **A "wellness score"** | Reducing a human being to a number out of ten is dehumanising, statistically indefensible, and exactly what every competitor does. Wick writes sentences. |
 | **Streaks, badges, gamification** | No. |
 | **Location tracking of the resident** | Wick knows the front door opened. It does not need to know, and will not ask, where Margaret went. |
-| **An always-on microphone in the room** | Bee is a consenting, resident-owned device that the resident chooses to wear. An ambient room microphone is a different thing entirely, and Wick does not have one. |
+| **An always-on microphone in the room** | Wick does not listen to the room, and has no microphone of any kind. |
 | **Notifications to the resident's phone** | The entire product exists because that channel does not work for this user. |
 | **Mood or sentiment detection** | Inferring a person's emotional state from their conversations and reporting it to their children is a profound overreach dressed as care. Wick reports what was *said*, filtered by policy, and nothing about what it thinks was *felt*. |
 | **Any sound that could be described as a beep** | The fastest way to get a device unplugged. |
@@ -629,7 +608,7 @@ If it requires explanation, it is wrong. The product should be comprehensible to
 Wick's normal condition is saying nothing. It speaks only when it has something genuinely worth a person's attention. A quiet day should produce a quiet product.
 
 ### 6. Three things, never four.
-The Day Card holds a maximum of three items. The Door Card has three buttons. Constraint is the feature; a longer list is a worse product.
+The home screen offers three programmes. The Door Card has three buttons. Constraint is the feature; a longer list is a worse product.
 
 ### 7. Large, calm, still.
 A minimum of 32-point type. Contrast well beyond the accessibility minimum. No animation that moves quickly, flashes, or startles. No red. No badges. No counters.
@@ -679,8 +658,6 @@ These four sentences should appear, in this form, in the product, in the README,
 | Doorbell and arrival events (that someone came) | Yes | **Yes** | Own visits only |
 | Live or recorded video from the door camera | **Yes** | Only on explicit, per-event resident approval | No |
 | Any camera inside the house | **Never captured** | **Never** | **Never** |
-| Conversation content from the wearable | **Yes** | **No — never verbatim** | No |
-| Facts derived from conversation (e.g. "mentioned knee pain") | Yes | Only if the class is permitted by policy **and** the resident has not excluded it | No |
 | Commitments and appointments | Yes | Summarised only | No |
 | Household rhythm (TV on/off, door activity patterns) | Yes | As narrative, never as raw logs | No |
 | Weekly narrative | **Yes — the resident sees it first** | Yes | No |
@@ -727,8 +704,8 @@ This section names real technologies, because the build has to follow it. Every 
 The thing to understand about the shape of Wick is that it has **four layers**, and they exist for a reason:
 
 > **The television** shows things and takes button presses. It holds no secrets and makes no decisions.
-> **The agent** does the thinking — reads the door, reads the day, decides what's worth saying and when.
-> **The connectors** talk to Ring, to Bee, and to Alexa+, each in the way that service requires.
+> **The agent** does the thinking — reads the door, learns the week, decides what's worth saying and when.
+> **The connectors** talk to Ring and to Alexa+, each in the way that service requires.
 > **The memory** remembers this household: its rhythm, its people, its policy.
 
 Keeping the thinking out of the television is the single most important structural decision. It means the TV app stays small and fast, secrets never sit on a £30 device in someone's front room, and the agent can keep working while the television is off.
@@ -763,12 +740,11 @@ Keeping the thinking out of the television is the single most important structur
 | **Amazon Polly** | Turns written text into a natural speaking voice. | Wick's voice on the television. Choose one voice and never change it — consistency is part of the trust. |
 | **Amazon Transcribe** | Turns recorded speech into text. | Sarah's voice notes. |
 
-**The four specialists inside the agent:**
+**The three specialists inside the agent:**
 
 | Agent | Its one job |
 |---|---|
 | **Door** | Watch the doorbell and the front camera. Decide whether this is worth showing, and describe what is actually there. |
-| **Day** | Read the day's real conversational context. Find the handful of things worth remembering. |
 | **Narrator** | Write the weekly story for the family. Compare against the rhythm. Never sensationalise. |
 | **Guardian** | Sit between everything and the outside world. Enforce the disclosure policy. Refuse when refusal is correct. |
 
@@ -779,7 +755,6 @@ The Guardian is deliberately the last thing every message touches. That is an ar
 | Connector | What it does | Key practical constraints |
 |---|---|---|
 | **Ring** | Receives doorbell presses and motion events; fetches a still image; opens a live video session; plays a message through the hallway Chime; reads the history of who came and when. | Ring will not talk to a web page or a television directly — only to a server. Ring also expects an acknowledgement of every event within five seconds, so our receiver must acknowledge first and think afterwards. |
-| **Bee** | Provides the real conversational context: what was said, the facts distilled from it, the commitments made, the day's summary — including a live stream of new material as it arrives. | Data stays on the resident's own equipment; only derived, policy-filtered facts move. |
 | **Alexa+** | Registers Wick as something Alexa+ can call, so Sarah's Echo can reach it. Renders the weekly timeline inside the Alexa conversation. | Currently available in the United States only. Uses a specific, recent version of an open industry standard for connecting AI systems to tools. |
 | **Amazon EventBridge** | AWS's message router — takes an incoming Ring event and hands it to whoever needs it. | Lets the five-second acknowledgement happen instantly while the real work continues behind it. |
 
@@ -791,7 +766,7 @@ The Guardian is deliberately the last thing every message touches. That is an ar
 | **Amazon Timestream** | The rhythm: television on/off times, door activity, arrival times, as measurements over weeks. | Purpose-built for "what does a normal Tuesday look like in this house". |
 | **AgentCore Memory** | What the agent has learned and concluded, in its own terms. | The difference between a system that logs and a system that remembers. |
 | **Amazon S3** | Door snapshots held briefly, voice notes, generated audio. | With automatic deletion rules, so "we don't keep video" is enforced by the storage itself rather than by discipline. |
-| **Amazon Bedrock Knowledge Bases** | The accumulated facts about the household, searchable in plain language. | How "when did she last mention her knee?" gets answered truthfully rather than guessed. |
+| **Amazon Bedrock Knowledge Bases** | The accumulated facts about the household, searchable in plain language. | How "when did the carer last come on a Tuesday?" gets answered truthfully rather than guessed. |
 
 ## 7.6 What it costs to run
 
@@ -835,14 +810,12 @@ Three specific things a Tech Implementation judge will be looking for, and how t
 
 **What is *not* happening:** no video is recorded, no image is kept beyond the seconds needed to describe it, and the television never holds any credential that could reach the Ring account.
 
-## 8.2 Something worth remembering happens during the day
+## 8.2 The family sends a note
 
-1. The resident's wearable captures the day's real conversations on their own device.
-2. The **Day** agent reads the derived material — facts, commitments, the day's summary — as it arrives.
-3. It looks for three kinds of thing: a commitment about to be forgotten, something the resident said about themselves worth noticing, and anything waiting from the family.
-4. It picks at most three, writes them in short, plain sentences, and puts the card in a queue.
-5. **The card waits.** The Natural-Break Engine holds it until the television reaches a moment where showing it will not interrupt — the end of an episode, a break, or the moment the television is switched on and settled.
-6. The card appears, full screen, very large. The resident deals with it in a few seconds, or ignores it. If ignored, it waits for the next natural break. It does not escalate and it does not repeat itself more than once.
+1. Sarah asks her Echo to put a note on her mother's television.
+2. The note is checked against the disclosure policy and queued as a card.
+3. **The card waits.** The Natural-Break Engine holds it until the television reaches a moment where showing it will not interrupt — the credits of a programme, a long pause, or the moment the television is switched on and settled.
+4. The card appears, very large. The resident answers with one button, or ignores it. If ignored, it waits for the next natural break. It does not escalate and it does not repeat itself more than once.
 
 ## 8.3 The family asks how things are going
 
@@ -883,7 +856,7 @@ This is the single biggest constraint on Wick. Vega has a background task system
 ### **L2 — Vega has no camera, no microphone, no Bluetooth and no presence sensors for third-party apps.** *(Severity: Important)* **→ FR**
 Verified against the real dependency lists of every official Vega sample app. There is no way for Wick to see or hear the room from the television itself.
 
-**What this means:** Wick cannot detect who is in the room, cannot take a voice reply directly from the television, and cannot do anything camera-based on the TV. This is precisely why the product uses Ring for the door and a wearable for the day — the constraint shaped the design, and arguably improved it.
+**What this means:** Wick cannot detect who is in the room, cannot take a voice reply directly from the television, and cannot do anything camera-based on the TV. This is precisely why the product uses Ring for the door — the constraint shaped the design, and arguably improved it.
 
 ### **L3 — There is no public API for the Fire TV Ambient Experience or its presence sensors.** *(Severity: Important)* **→ FR**
 Newer Fire TV hardware has genuine presence detection and an ambient screen mode. Neither is available to third-party developers; this is an open, unanswered question on Amazon's own developer forum.
@@ -934,7 +907,6 @@ Wick must maintain its own idea of who is using the television rather than using
 | **Wick cannot tell whether the resident is all right.** | It knows the television went on and the door opened. It does not know whether Margaret is well. | Say so explicitly. Wick reduces uncertainty; it does not eliminate it, and it is not a substitute for anyone. |
 | **Wick cannot detect a fall or a medical emergency.** | This is the first thing every family will ask. | Answer it directly and repeatedly: Wick is not a medical device and makes no clinical claims. Recommend a proper alarm alongside it. |
 | **Wick is blind when the television is off.** | Most of the day, in most households. | The Rhythm pillar partly compensates — a television that *doesn't* go on at its usual time is itself information. But the limitation is real. |
-| **Wick depends on the resident wearing the Bee.** | If they don't wear it, the Day pillar is empty. | The Door, Family and Rhythm pillars still work fully. Wick degrades to three pillars rather than failing. Design for this from the start. |
 | **Wick cannot know context it was never given.** | It doesn't know the hospital appointment was cancelled if nobody said so. | Never present a derived conclusion as certainty. Principle 11. |
 | **Descriptions of visitors can be wrong.** | "A delivery driver" may be a neighbour in a coat. | Always show the actual image alongside the description. The picture is the ground truth; the sentence is a convenience. |
 | **Wick needs weeks to become good.** | The rhythm baseline is worthless on day one. | Start collecting real data immediately. Say plainly in the submission how many real weeks the demo represents. |
@@ -942,7 +914,6 @@ Wick must maintain its own idea of who is using the television rather than using
 
 ## 9.3 Data limitations
 
-- **The wearable's transcription is imperfect.** Accents, crosstalk, television noise in the background. Derived facts inherit those errors. Never present a derived fact as a quotation.
 - **Door events are not people.** A motion event is not proof anyone entered, and a doorbell press is not proof anyone was admitted. The narrative must use language that reflects this — "someone came to the door", not "Maria visited".
 - **Absence of evidence is not evidence of absence.** If the door camera saw nothing, that may mean nobody came — or that the camera was offline. Wick must know the difference between "no events" and "no data", and say which.
 - **A real demo cannot be re-shot.** Real life does not repeat. Capture generously and continuously from week one; the perfect doorbell moment will happen exactly once.
@@ -975,9 +946,8 @@ These are constraints Wick chooses. They cost features. They are the point.
 | # | Risk | Likelihood | Impact | Response |
 |---|---|---|---|---|
 | **R1** | The Door Card cannot be shown over active playback *(see L1)* | **High** | **High** | **Decide in week 1.** If it cannot be done, redefine the behaviour immediately: the card is waiting the moment the television returns to Wick. Rewrite the demo script accordingly and move on the same day. Do not spend three weeks fighting the platform — spend twenty minutes writing an excellent friction-log entry, which is worth actual points. |
-| **R2** | Scope grows and nothing is finished | **High** | **Critical** | Tier 0 is frozen on day one. Nothing from Tier 1 starts until all six Tier 0 features run on real hardware. Nothing from Tier 2 starts until Tier 1 is **filmed**, not merely working. |
+| **R2** | Scope grows and nothing is finished | **High** | **Critical** | Tier 0 is frozen on day one. Nothing from Tier 1 starts until all five Tier 0 features run on real hardware. Nothing from Tier 2 starts until Tier 1 is **filmed**, not merely working. |
 | **R3** | The Alexa+ integration proves harder or slower to obtain than expected | Medium | **High** | Validate access in week 1, before writing product code. If it is unavailable, the fallback is a genuinely functional standalone conversational surface for the family, and the submission says so honestly. |
-| **R4** | Real Bee data yields thin or uninteresting facts | Medium | Medium | Start collecting immediately. If the automatic extraction is weak, the Day agent does more of the work over raw material. Assess by end of week 2. |
 | **R5** | The product reads as surveillance despite our intentions | Medium | **Critical** | The trust model (Part 6) is not a section of the README, it is on screen in the product and spoken in the video. The "What Sarah Sees" feature exists precisely for this and should be promoted to Tier 1 if there is any doubt. |
 | **R6** | The resident withdraws consent, or circumstances change | Low–Medium | **High** | This is their absolute right and must be honoured instantly. Mitigate by capturing footage early and continuously, and by having a second consenting household identified as a backup. Never pressure. |
 | **R7** | Live video on the television is too slow to be pleasant | Medium | Medium | Measure it in week 1. If it is poor, **Watch live** becomes "show me the last few seconds" using a still or a short clip, which is nearly as useful and entirely reliable. |
@@ -985,7 +955,7 @@ These are constraints Wick chooses. They cost features. They are the point.
 | **R9** | The repository is not judge-ready | Medium | **Critical** | The licence must be visible in the repository's About panel — not merely present in a file. Setup instructions must actually work on a clean machine. Verify both a week before the deadline, not on the day. |
 | **R10** | AWS costs run away during development | Low | Medium | Billing alarms on day one. Request the $150 entrant credits before 21 October. |
 | **R11** | Copyrighted music or footage in the video | Medium | **Critical — disqualifying** | Original or properly licensed audio only. No television content visible that isn't ours to show. This disqualifies entrants every year. |
-| **R12** | Building four pillars produces four half-products | Medium | **Critical** | The pillars are not equal. Door and Family are the demo. Day is the differentiator. Rhythm is invisible infrastructure. If something must give, it is breadth within a pillar, never a whole pillar. |
+| **R12** | Building three pillars produces three half-products | Medium | **Critical** | The pillars are not equal. Door and Family are the demo. Rhythm is invisible infrastructure. If something must give, it is breadth within a pillar, never a whole pillar. |
 
 ---
 
@@ -997,7 +967,7 @@ These are constraints Wick chooses. They cost features. They are the point.
 | **Personal alarms** | Lifeline, Life Alert, pendant and watch alarms | Emergency button, fall detection | Reactive, worn, stigmatised, and in the drawer. Wick is ambient and worn by nobody. |
 | **Passive activity sensors** | Canary Care, Just Checking, Birdie, Lively | Door and motion sensors feeding a caregiver dashboard | New hardware to install; nothing at all for the resident; output is a chart. Wick uses devices already present and outputs prose. |
 | **Care coordination platforms** | CareZone, Carely, Papa | Shared calendars, task lists, notes between family members | Useful to families, invisible to the resident. Wick's primary surface is the resident's own television. |
-| **Voice-first attempts** | Alexa Together *(discontinued)*, Alexa Care Hub | Voice check-ins and activity feeds via Echo | Amazon has tried voice alone here. Wick adds the screen, the door and the day — and learns from what didn't work. |
+| **Voice-first attempts** | Alexa Together *(discontinued)*, Alexa Care Hub | Voice check-ins and activity feeds via Echo | Amazon has tried voice alone here. Wick adds the screen and the door — and learns from what didn't work. |
 | **Companion robots and tablets** | ElliQ, GrandPad, Joy | A dedicated device the older adult must adopt | Adoption is the entire problem, and a new device is the entire problem restated. Wick requires adoption of nothing. |
 | **TV-based health products** | Effectively none at meaningful scale | — | **The category is empty.** That is the opportunity. |
 
@@ -1024,7 +994,7 @@ These are constraints Wick chooses. They cost features. They are the point.
 | Tier | Price | What's included | Who buys |
 |---|---|---|---|
 | **Free** | £0 | The Door Card, on the resident's own television. No family features. | The resident, or a family trying it |
-| **Family** | **£14.99 / $16.99 per month** | Everything: the Day, the weekly narrative through Alexa+, two-way messages, carer verification | Sarah |
+| **Family** | **£14.99 / $16.99 per month** | Everything: the weekly narrative through Alexa+, two-way messages, carer verification | Sarah |
 | **Starter bundle** | ~£150 one-off + subscription | Fire TV Stick + Ring Doorbell + setup, for households that don't have them | Sarah, at the point of a crisis — which is when this is actually bought |
 | **Agency** | Per client, per month | Verified visit records across a client list, with export | Care agencies |
 
@@ -1040,7 +1010,7 @@ At £14.99 against an estimated £6–14 in running costs, early gross margin is
 2. **Ring Appstore** — the second channel, reaching exactly the households that already have the doorbell.
 3. **The crisis moment** — this product is bought in the week after a fall, a hospital admission, or a frightening phone call. Marketing should live where people look in that week: discharge information, carer forums, Age UK and AARP resources, and search.
 4. **Care agencies** — a slower, higher-value channel where verified visit evidence sells itself.
-5. **Amazon itself** — the honest ambition. A product that makes Fire TV, Ring, Alexa+ and Bee more valuable together is a product Amazon has a structural reason to want, and the prize for this track includes a meeting with the team that would decide.
+5. **Amazon itself** — the honest ambition. A product that makes Fire TV, Ring and Alexa+ more valuable together is a product Amazon has a structural reason to want, and the prize for this track includes a meeting with the team that would decide.
 
 ## 12.5 What "success beyond the hackathon" looks like
 
@@ -1124,7 +1094,7 @@ Judges are not required to watch past three minutes. **Script to 2:45.**
 | **0:00–0:12** | A real living room, a real television playing. One line on screen: *"The average 78-year-old looks at this screen for seven hours a day. It has never once looked back."* | The hook. No logo, no title card, no music sting. |
 | **0:12–0:22** | The inversion, stated: every care product is built for the person who isn't there. | The idea, in ten seconds. |
 | **0:22–0:50** | **The Door, live.** A Ring event from Ring's Playground simulator. The real card on the Fire TV / Vega simulator. The real description of the real frame. **Watch live** pressed: the doorbell camera, live, full screen on the TV within about eight seconds; Back returns to the card. | The money shot. Everything else supports this. |
-| **0:50–1:20** | **The Day, live.** The episode ends, the card appears, real Bee-derived items, the real message from the real daughter, the one-button reply, the phone buzzing at the other end. | The emotional centre. |
+| **0:50–1:20** | **The break, live.** A note from the daughter arrives mid-programme and nothing appears. The credits begin, the card appears, the one-button reply, the reply arriving at the other end. | The emotional centre. |
 | **1:20–1:45** | **The Family, live.** The real MCP server answering a real question, through an MCP client and the simulated Alexa+ surface. Say on screen, in one line, that the Alexa+ add-on surface is partner-gated and this is the permitted alternative. | The cross-device proof — and the honesty is itself credibility. |
 | **1:45–1:55** | **The refusal.** Ask Alexa something the resident has marked private. Watch it decline. | Ten seconds that will be remembered. |
 | **1:55–2:25** | Architecture, fast and named: the Vega capabilities, the Ring endpoints, the agent graph. On screen, not narrated vaguely. | The Tech Implementation evidence. |
@@ -1151,7 +1121,7 @@ The purpose of this phase is not to build. It is to **find out what is impossibl
 - [ ] Install Amazon's own Builder Tools into the coding environment — it is the hackathon's recommended tool, it genuinely helps, and **using it will generate friction-log entries**.
 - [ ] Get an official Vega sample application running on the real Fire TV Stick. **Record that footage.** This is Stage One insurance.
 - [ ] **Answer R1:** can anything be drawn over active playback? Decide the Door Card's behaviour this week, and rewrite the demo script to match whatever the answer is.
-- [ ] **Begin real data collection in the resident's home.** Ring events and Bee capture, running continuously from now. Every day of delay is a day missing from the rhythm baseline.
+- [ ] **Begin real data collection in the resident's home.** Ring events, running continuously from now. Every day of delay is a day missing from the rhythm baseline.
 - [ ] Create the repository with its licence visible in the About panel. Open `FRICTION.md`. Take the first screenshot.
 
 ## Phase 1 — The spine, in order
@@ -1198,7 +1168,6 @@ Keep the final few days genuinely free. Something will go wrong. Submitting a da
 | **D2** | **Does the resident see the weekly narrative before the family?** | Yes (stronger ethics, a genuinely novel claim, and a better story) or no (simpler). | **Yes.** It is a differentiator, it is right, and it costs almost nothing. |
 | **D3** | **Known Visitors — face-based or schedule-based?** | Face recognition on an opt-in roster, or purely "Maria usually comes at nine on Tuesdays". | **Start schedule-based.** It delivers most of the value with none of the weight, and it can be upgraded. Revisit only if the demo genuinely needs it. |
 | **D4** | ~~**What is the product called?**~~ **RESOLVED** | Screened against conflicts in home tech, care and consumer electronics. Two candidates were eliminated on direct sector collisions. | **Wick.** Locked on 14 September 2026. Use it everywhere, consistently, from today. Formal trademark clearance remains outstanding before commercial use — see Part 9.4. |
-| **D5** | **How much of the Day pillar depends on automatic extraction?** | Rely on the wearable's own derived facts, or do more interpretation ourselves. | **Assess with real data by end of week two**, then decide. Do not guess now. |
 | **D6** | **Is "What Sarah Sees" Tier 1 or Tier 2?** | Ethically it is central; by effort it is small. | **Promote to Tier 1 if week three is calm.** It is the cheapest credibility in the product. |
 | **D7** | **One household or two in the demo?** | A single real household is deeper. Two is more robust against withdrawal. | **One real household, one identified backup.** Never pressure the primary. |
 
@@ -1215,7 +1184,6 @@ Keep the final few days genuinely free. Something will go wrong. Submitting a da
 | **Alexa+** | The new, more capable version of Alexa, which for the first time can call out to third-party services like Wick. |
 | **API** | A defined way for one piece of software to ask another for something. "The Ring API" means the set of requests Ring will accept from us. |
 | **Bedrock** | Amazon's service for using large AI models without running them yourself. |
-| **Bee** | A small wearable that captures the conversations around its wearer and distils them into facts, commitments and summaries. |
 | **Chime** | A Ring accessory that plays sounds inside the house. Wick can make it speak. |
 | **Fire OS** | The older, Android-based operating system on most existing Fire TV devices. |
 | **Headless / background task** | Part of an app that keeps running when the app is not on screen. |
@@ -1243,7 +1211,7 @@ Drawn directly from the Official Rules. Every one of these has disqualified some
 - [ ] The video **shows Wick running on a real Fire TV device or the Fire TV/Vega simulator**.
 - [ ] No third-party trademarks, no copyrighted music, no copyrighted footage.
 - [ ] Product feedback completed for every tool, API and SDK used — with the AWS description inside it.
-- [ ] Primary track declared: **Fire TV**. *(Wick also qualifies for Ring, Bee and Alexa+ — but a project can win only one track prize, and Fire TV first place is the largest. Enter Fire TV only; let the other integrations be evidence of ambition inside that submission.)*
+- [ ] Primary track declared: **Fire TV**. *(Wick also qualifies for Ring and Alexa+ — but a project can win only one track prize, and Fire TV first place is the largest. Enter Fire TV only; let the other integrations be evidence of ambition inside that submission.)*
 - [ ] Both mini challenges declared, with their extra fields completed.
 - [ ] `FRICTION.md` entries submitted — the up-to-10% bonus.
 - [ ] Feature requests submitted with priority ratings.

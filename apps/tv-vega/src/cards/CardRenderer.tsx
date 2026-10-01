@@ -11,7 +11,6 @@
  */
 import * as React from 'react';
 import type { Card } from '@wick/contracts';
-import { DayCardView } from './DayCard.js';
 import { DoorCardView } from './DoorCard.js';
 import { MessageCardView } from './MessageCard.js';
 import { SharingCardView } from './SharingCard.js';
@@ -34,9 +33,6 @@ export function CardRenderer({ card, onAction }: CardRendererProps): React.JSX.E
 
     case 'WEEK':
       return <WeekCardView card={card} onAction={handle} />;
-
-    case 'DAY':
-      return <DayCardView card={card} onAction={handle} />;
 
     case 'SHARING':
       return <SharingCardView card={card} onAction={handle} />;

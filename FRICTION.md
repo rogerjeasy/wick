@@ -1,7 +1,7 @@
 # Friction Log
 
 Developer-experience friction encountered while building Wick on Amazon Devices,
-Ring, Bee, Alexa+ and AWS.
+Ring, Alexa+ and AWS.
 
 **Write entries the moment you hit the problem.** A friction log assembled at the
 end reads like one, and this is assessed during Stage One for a bonus of up to
@@ -46,7 +46,6 @@ succeeds still often surfaces a documentation or ergonomics gap.
       playlist 6.8s after the request. Cleartext HLS is refused silently (FL-016).
 - [ ] **SP-4** Alexa+ add-on onboarding (`alexa-ai configure → deploy`)
 - [ ] **SP-5** WebSocket / MQTT transport inside Vega's RN 0.83 fork
-- [ ] **SP-6** Bee proxy SSE longevity against the 120s idle timeout
 - [ ] **SP-7** Content Personalization round trip to Continue Watching
 - [ ] **SP-8** Vega sample on real Fire TV Stick hardware
 
@@ -72,7 +71,6 @@ leads, not entries — an entry requires that you actually hit it.
 | Important | No accessibility-preference API on Vega beyond screen-reader state |
 | Nice-to-have | Ring `sub_type` taxonomy too coarse |
 | Nice-to-have | Ring blocks browser/TV origins, forcing an extra hop |
-| Nice-to-have | Bee proxy 120s idle timeout fights long-lived SSE |
 | Nice-to-have | Amazon Kids / household profiles unavailable to third-party apps |
 | Nice-to-have | Vega samples ship mock data wired into the real service path |
 

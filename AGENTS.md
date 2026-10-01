@@ -12,11 +12,11 @@ Source of truth: `docs/WICK-TECHNICAL.md` §0.3.
 
 ### INV-1 — No long-lived credential ever reaches the television
 The device holds exactly one device-bound JWT, scoped to: receive cards for one
-household, post playback events. It grants nothing over Ring, Bee, AWS or any
+household, post playback events. It grants nothing over Ring, AWS or any
 family surface. Assume it is extractable (Vega documents no hardware-backed
 keystore) and scope accordingly.
 
-**Never** put a Ring token, Bee session, AWS key or Bedrock credential in
+**Never** put a Ring token, AWS key or Bedrock credential in
 `apps/tv-vega` or `apps/tv-fireos`.
 
 **Known accepted exception:** `POST /pair/refresh` (`services/edge-device/
@@ -41,17 +41,18 @@ Enforced by an ESLint `no-restricted-imports` rule. There is no second path.
 Enforced by S3 bucket lifecycle policy in `infra/`, not by application code.
 Do not add an application-level copy, cache or backup of a snapshot or clip.
 
-### INV-4 — No verbatim Bee utterance ever leaves the house
-The Bee bridge (`services/connectors/bee`) drops raw utterance content at the
-household boundary and emits only typed, derived `Fact` objects. Cloud code must
-never be in a position to leak what it never received.
+### INV-4 — Nothing protected, and nothing verbatim, reaches the family
+Health, money, relationships, location and verbatim speech are refused for a
+family audience under every policy (`NEVER_TO_FAMILY`, `packages/contracts`).
+Enforced by the Guardian's property tests in `services/policy`, after
+generation — not by the good intentions of a model.
 
 ### INV-5 — Deferred cards never render during IN_SCENE
 The only immediate urgency class is `DOOR`. Enforced by property tests in
 `apps/tv-vega/src/break/__tests__`.
 
 ### INV-6 — Every agent tool call is idempotent and correlated
-Carry `correlationId` from ingress (Ring webhook / Bee delta / MCP request)
+Carry `correlationId` from ingress (Ring webhook / MCP request)
 through EventBridge, the agent, persistence, the card payload, and back from the
 device on `card_shown` / `card_action`.
 
@@ -104,8 +105,8 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
 - **Runtime code uses real data.** Fixtures live under `__tests__` and never ship.
   `npm run check:no-mocks` fails the build if Vega runtime code imports anything
   matching `/mock/i`. Do not weaken this check.
-- **Never commit real household data.** No captures, no HAR files, no raw Bee
-  exports, no Ring snapshots. `.gitignore` covers the common cases; you are still
+- **Never commit real household data.** No captures, no HAR files, no Ring
+  snapshots. `.gitignore` covers the common cases; you are still
   responsible.
 - **Redact before using a real payload as a fixture.**
 
