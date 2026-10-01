@@ -88,7 +88,10 @@ export class BreakController {
   pickCard(queue: readonly QueuedCard[], now: number): QueuedCard | undefined {
     const state = this.breakState(now);
     const { release } = selectReleasable(queue, state, now);
-    const door = release.find((q) => q.urgency === 'DOOR');
+    // The newest visit: whoever came earlier is no longer at the door.
+    const door = release
+      .filter((q) => q.urgency === 'DOOR')
+      .sort((a, b) => b.card.createdAt - a.card.createdAt)[0];
     if (door) return door;
 
     const deferred = release.filter((q) => q.urgency !== 'DOOR');
