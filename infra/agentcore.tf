@@ -161,8 +161,9 @@ resource "aws_bedrockagentcore_agent_runtime" "agents" {
     }
   }
 
-  # Ring's API, Bedrock, and WebRTC to Ring's media servers (STUN/UDP) all
-  # leave from here — PUBLIC is the mode with internet egress.
+  # Ring's API and Bedrock leave from here over HTTPS — PUBLIC is the mode
+  # with internet egress. It carries no UDP, so WebRTC lives in the bridge
+  # Lambda instead (live.tf, FRICTION.md FL-017).
   network_configuration {
     network_mode = "PUBLIC"
   }

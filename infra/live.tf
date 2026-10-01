@@ -65,7 +65,8 @@ resource "aws_lambda_function" "agent_live" {
   filename         = data.archive_file.agent_live.output_path
   source_code_hash = data.archive_file.agent_live.output_base64sha256
 
-  # Ring's WHEP answers in ~1.5s; the live graph gives up at 10s. API
+  # The live graph claims and hands off asynchronously, so this answers in
+  # well under a second warm; a cold AgentCore session takes longer. API
   # Gateway's own integration ceiling is 30s.
   timeout     = 25
   memory_size = 256
