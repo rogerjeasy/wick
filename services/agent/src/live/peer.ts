@@ -22,9 +22,13 @@ const STUN = [{ urls: 'stun:stun.l.google.com:19302' }];
 const H264_PT = 96;
 const OPUS_PT = 111;
 
-export async function openWhepPeer(ports: RtpPorts, options: PeerOptions = {}): Promise<Peer> {
-  const pc = new RTCPeerConnection({
+export function peerConfiguration(options: PeerOptions = {}) {
+  return {
     iceServers: [...(options.iceServers ?? STUN)],
+    // A Lambda's only interface (vint_runtime) is link-local, 169.254.x.x;
+    // werift skips those by default and would gather nothing — no host
+    // candidate, so no socket to ask STUN from, so no srflx either.
+    iceUseLinkLocalAddress: true,
     codecs: {
       video: [
         new RTCRtpCodecParameters({
@@ -37,7 +41,11 @@ export async function openWhepPeer(ports: RtpPorts, options: PeerOptions = {}): 
       ],
       audio: [new RTCRtpCodecParameters({ mimeType: 'audio/opus', clockRate: 48000, channels: 2, payloadType: OPUS_PT })],
     },
-  });
+  };
+}
+
+export async function openWhepPeer(ports: RtpPorts, options: PeerOptions = {}): Promise<Peer> {
+  const pc = new RTCPeerConnection(peerConfiguration(options));
 
   const videoOut = createSocket('udp4');
   const audioOut = createSocket('udp4');

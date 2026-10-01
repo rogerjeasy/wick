@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { openWhepPeer } from '../peer.js';
+import { openWhepPeer, peerConfiguration } from '../peer.js';
 
 describe('openWhepPeer — the offer Ring receives', () => {
   it('offers receive-only H.264 video and Opus audio, as Ring\'s WHEP docs require', async () => {
@@ -24,6 +24,14 @@ describe('openWhepPeer — the offer Ring receives', () => {
     peer.close();
     await expect(peer.ended).resolves.toBeUndefined();
   }, 15_000);
+});
+
+describe('peerConfiguration — where the bridge runs', () => {
+  it('gathers host candidates from link-local addresses: a Lambda\'s only interface is 169.254.x.x', () => {
+    // Without it, werift drops vint_runtime, offers no candidate at all, and
+    // has no socket to ask STUN from — so no srflx either (FL-017 follow-up).
+    expect(peerConfiguration().iceUseLinkLocalAddress).toBe(true);
+  });
 });
 
 describe('openWhepPeer — what it reports, so a stalled stream can be diagnosed in CloudWatch', () => {
