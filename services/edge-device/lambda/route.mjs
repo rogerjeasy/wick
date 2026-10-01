@@ -53,8 +53,10 @@
  * message right after `onopen` (see
  * apps/tv-vega/src/transport/WebSocketChannel.ts) — not in the $connect
  * query string, which is why this lives here rather than in connect.mjs.
- * Anything queued after `sinceCardId` is pushed back over this same
- * connection.
+ * Every card the resident hasn't acted on (and no door card whose visitor
+ * has gone) is pushed back over this same connection. `sinceCardId` is
+ * still sent but no longer filters: card ids are not time-ordered, so it
+ * dropped cards (card-acted.mjs's isReplayable).
  */
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
@@ -198,7 +200,7 @@ export const handler = async (event) => {
       if (weekMatch) await markNarrativeSeen(householdId, weekMatch[1], deviceEvent.at);
     }
   } else if (deviceEvent.t === 'reconcile') {
-    await reconcile({ event, householdId, connectionId, sinceCardId: deviceEvent.sinceCardId });
+    await reconcile({ event, householdId, connectionId });
   }
 
   return { statusCode: 200, body: '' };
@@ -255,45 +257,34 @@ async function publishCardAction(detail) {
   }
 }
 
-async function reconcile({ event, householdId, connectionId, sinceCardId }) {
+async function reconcile({ event, householdId, connectionId }) {
   // Derived the same way connect.mjs derives it — API Gateway populates
   // requestContext.domainName/stage on every WebSocket route, not just
   // $connect, so no need to have stored wsEndpoint on the CONN#.../META item.
   const wsEndpoint = `https://${event.requestContext.domainName}/${event.requestContext.stage}`;
 
-  // Let DynamoDB do the filtering instead of scanning the household's whole
-  // CARD# history into memory: bound to the CARD# sort-key range (upper
-  // bound 'CARD$' — '$' sorts immediately after '#', so it's above every
-  // 'CARD#<id>' key and below 'DEV#'/'EVT#' keys sharing this pk) and capped
-  // with Limit so a large backlog can't blow the Lambda timeout or the WS
-  // frame size.
-  const pending = await ddb.send(new QueryCommand({
-    TableName: TABLE,
-    KeyConditionExpression: sinceCardId ? 'pk = :pk AND sk BETWEEN :since AND :max' : 'pk = :pk AND begins_with(sk, :prefix)',
-    ExpressionAttributeValues: sinceCardId
-      ? {
-          ':pk': { S: `HH#${householdId}` },
-          ':since': { S: `CARD#${sinceCardId}` },
-          ':max': { S: 'CARD$' },
-        }
-      : {
-          ':pk': { S: `HH#${householdId}` },
-          ':prefix': { S: 'CARD#' },
-        },
-    Limit: 50,
-  }));
-
-  if (pending.LastEvaluatedKey) {
-    // Backlog exceeds the Limit — leaving this unhandled for now (log, don't
-    // error); the device will still get everything up to the Limit and can
-    // reconcile the rest on its next reconnect.
-    console.log('reconcile: backlog truncated at Limit', { householdId, connectionId });
-  }
+  // Every CARD# item for the household, page by page: a card the resident
+  // hasn't acted on is replayed whatever its id (card-acted.mjs's
+  // isReplayable says why the device's sinceCardId is no longer used to
+  // filter). The device upserts by id, so a card it already holds is a no-op.
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const page = await ddb.send(new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':prefix': { S: 'CARD#' } },
+      ...(ExclusiveStartKey ? { ExclusiveStartKey } : {}),
+    }));
+    items.push(...(page.Items ?? []));
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
 
   const mgmt = new ApiGatewayManagementApiClient({ endpoint: wsEndpoint });
 
-  for (const item of pending.Items ?? []) {
-    if (!isReplayable(item, sinceCardId)) continue;
+  const now = Date.now();
+  for (const item of items) {
+    if (!isReplayable(item, now)) continue;
     const card = JSON.parse(item.data.S);
     try {
       await mgmt.send(new PostToConnectionCommand({

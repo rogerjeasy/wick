@@ -155,6 +155,16 @@ async function sendMcpMessage(message) {
     body: JSON.stringify(message),
   });
 
+  // The server keeps OAuth tokens in memory (infra/mcp.tf), so a redeploy
+  // signs everyone out. Say so, and offer Connect again, rather than a 401.
+  if (res.status === 401) {
+    accessToken = null;
+    mcpSessionId = null;
+    enableToolButtons(false);
+    setStatus('Signed out — the Wick server restarted. Press Connect to sign in again.');
+    throw new Error('Please sign in again (press Connect).');
+  }
+
   const sid = res.headers.get('mcp-session-id');
   if (sid) mcpSessionId = sid;
 

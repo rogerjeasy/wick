@@ -49,14 +49,18 @@ resource "aws_s3_object" "sim_alexa_index" {
   content      = local.sim_alexa_index_html
   etag         = md5(local.sim_alexa_index_html)
   content_type = "text/html; charset=utf-8"
+  # A browser must ask again after every deploy, or it runs a stale page
+  # against a newer server (observed: a cached main.js kept a new button off).
+  cache_control = "no-cache"
 }
 
 resource "aws_s3_object" "sim_alexa_main_js" {
-  bucket       = aws_s3_bucket.sim_alexa.id
-  key          = "main.js"
-  source       = "${path.module}/../apps/sim-alexa/main.js"
-  etag         = filemd5("${path.module}/../apps/sim-alexa/main.js")
-  content_type = "application/javascript; charset=utf-8"
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "main.js"
+  source        = "${path.module}/../apps/sim-alexa/main.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/main.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
 }
 
 resource "aws_cloudfront_origin_access_control" "sim_alexa" {

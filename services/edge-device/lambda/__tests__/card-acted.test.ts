@@ -31,17 +31,30 @@ describe('markCardActed — a resident action retires the card server-side', () 
 });
 
 describe('isReplayable — what reconcile may push back to a reconnecting device', () => {
+  const NOW = 1_790_900_000_000;
+  const queued = (id: string, q: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    pk: { S: 'HH#margaret' },
+    sk: { S: `CARD#${id}` },
+    data: { S: JSON.stringify({ id, ...q }) },
+    ...extra,
+  });
+
   it('replays a card nobody has acted on', () => {
-    expect(isReplayable(card('c1'), undefined)).toBe(true);
+    expect(isReplayable(card('c1'), NOW)).toBe(true);
   });
 
   it('never replays a card the resident already acted on — the device cannot remember it did (FL-013)', () => {
-    expect(isReplayable(card('c1', { actedAt: { N: '1700' } }), undefined)).toBe(false);
+    expect(isReplayable(card('c1', { actedAt: { N: '1700' } }), NOW)).toBe(false);
   });
 
-  it('skips the exact card the device reports it last saw', () => {
-    expect(isReplayable(card('c1'), 'c1')).toBe(false);
-    expect(isReplayable(card('c2'), 'c1')).toBe(true);
+  it('never replays a door card whose visitor has gone — a stale "someone is at the door" is worse than silence', () => {
+    expect(isReplayable(queued('door-a', { urgency: 'DOOR', queuedAt: NOW - 60_000, expiresAt: NOW - 1 }), NOW)).toBe(false);
+    expect(isReplayable(queued('door-b', { urgency: 'DOOR', queuedAt: NOW - 6 * 60_000 }), NOW)).toBe(false);
+    expect(isReplayable(queued('door-c', { urgency: 'DOOR', queuedAt: NOW - 60_000 }), NOW)).toBe(true);
+  });
+
+  it('replays deferred cards however long ago they were queued — a note waits for the resident', () => {
+    expect(isReplayable(queued('note-x', { urgency: 'DEFERRED', queuedAt: NOW - 3 * 86_400_000 }), NOW)).toBe(true);
   });
 });
 
