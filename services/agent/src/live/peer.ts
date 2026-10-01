@@ -14,6 +14,8 @@ import type { Peer, RtpPorts } from './bridge.js';
 export interface PeerOptions {
   /** Ring's docs use Google's public STUN server; tests pass none. */
   readonly iceServers?: readonly { urls: string }[];
+  /** Candidate types, connection states and first packets — never addresses. */
+  readonly log?: (line: Record<string, unknown>) => void;
 }
 
 const STUN = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -40,6 +42,14 @@ export async function openWhepPeer(ports: RtpPorts, options: PeerOptions = {}): 
   const videoOut = createSocket('udp4');
   const audioOut = createSocket('udp4');
   const timers: NodeJS.Timeout[] = [];
+  const log = options.log ?? (() => {});
+  const started = Date.now();
+  const firstPacket = { video: false, audio: false };
+  const noteFirst = (kind: 'video' | 'audio') => {
+    if (firstPacket[kind]) return;
+    firstPacket[kind] = true;
+    log({ level: 'info', msg: 'live_peer_first_rtp', kind, ms: Date.now() - started });
+  };
 
   let settle!: () => void;
   const ended = new Promise<void>((resolve) => {
@@ -52,6 +62,7 @@ export async function openWhepPeer(ports: RtpPorts, options: PeerOptions = {}): 
 
   video.onTrack.subscribe((track) => {
     track.onReceiveRtp.subscribe((rtp) => {
+      noteFirst('video');
       rtp.header.payloadType = H264_PT;
       videoOut.send(rtp.serialize(), ports.videoPort, '127.0.0.1');
     });
@@ -61,18 +72,23 @@ export async function openWhepPeer(ports: RtpPorts, options: PeerOptions = {}): 
   });
   audio.onTrack.subscribe((track) => {
     track.onReceiveRtp.subscribe((rtp) => {
+      noteFirst('audio');
       rtp.header.payloadType = OPUS_PT;
       audioOut.send(rtp.serialize(), ports.audioPort, '127.0.0.1');
     });
   });
 
   pc.connectionStateChange.subscribe((state) => {
+    log({ level: 'info', msg: 'live_peer_state', state, ms: Date.now() - started });
     if (state === 'closed' || state === 'failed') settle();
   });
 
   await pc.setLocalDescription(await pc.createOffer());
   const offer = pc.localDescription?.sdp;
   if (!offer) throw new Error('webrtc_no_local_description');
+  // Field 8 of an a=candidate line is its type: host, srflx (STUN answered over UDP), relay.
+  const candidates = [...offer.matchAll(/a=candidate:\S+ \S+ \S+ \S+ \S+ \S+ typ (\S+)/g)].map((m) => m[1]);
+  log({ level: 'info', msg: 'live_peer_offer', candidates, ms: Date.now() - started });
 
   let closed = false;
   return {

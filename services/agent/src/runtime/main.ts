@@ -56,7 +56,7 @@ const cards = cardStore((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, 
 const registry = new LiveRegistry();
 
 const bridgeDeps = (ringDeviceId: string): BridgeDeps => ({
-  openPeer: (ports) => openWhepPeer(ports),
+  openPeer: (ports) => openWhepPeer(ports, { log }),
   startWhep: (offer) => startWhepSession(ring, ringDeviceId, offer),
   stopWhep: (url) => stopWhepSession(ring, url),
   workdir: localWorkdir(LIVE_WORKDIR),

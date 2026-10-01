@@ -25,3 +25,15 @@ describe('openWhepPeer — the offer Ring receives', () => {
     await expect(peer.ended).resolves.toBeUndefined();
   }, 15_000);
 });
+
+describe('openWhepPeer — what it reports, so a stalled stream can be diagnosed in CloudWatch', () => {
+  it('logs the ICE candidate types in its offer, never addresses', async () => {
+    const lines: Record<string, unknown>[] = [];
+    const peer = await openWhepPeer({ videoPort: 15012, audioPort: 15014 }, { iceServers: [], log: (l) => lines.push(l) });
+    peer.close();
+
+    const offer = lines.find((l) => l.msg === 'live_peer_offer')!;
+    expect(offer.candidates).toEqual(expect.arrayContaining(['host']));
+    expect(JSON.stringify(lines)).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
+  }, 15_000);
+});
