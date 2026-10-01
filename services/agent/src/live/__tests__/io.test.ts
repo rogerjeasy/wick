@@ -36,6 +36,17 @@ describe('spawnProcess', () => {
     expect(await p.exited).not.toBe(0);
   });
 
+  it('kill escalates to SIGKILL when the process ignores SIGINT, so exited always settles', async () => {
+    let ready!: () => void;
+    const listening = new Promise<void>((r) => { ready = r; });
+    const p = spawnProcess(process.execPath, (line) => { if (String(line.line).includes('ready')) ready(); }, { killGraceMs: 200 })([
+      '-e', "process.on('SIGINT', () => {}); process.stderr.write('ready'); setTimeout(() => {}, 60000)",
+    ]);
+    await listening;
+    p.kill();
+    expect(await p.exited).not.toBe(0);
+  }, 5_000);
+
   it('resolves exited (not throws) when the binary is missing', async () => {
     const p = spawnProcess('/nonexistent/ffmpeg', () => {})([]);
     expect(await p.exited).toBeNull();

@@ -1,11 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
-import { RingApiError } from '@wick/ring';
+import { RingApiError, RingTokenUnavailable } from '@wick/ring';
 import { LiveStartError, startBridge, type BridgeDeps, type Peer } from '../bridge.js';
 import { PLAYLIST } from '../hls.js';
 
 const playlist = (...segs: string[]) => ['#EXTM3U', ...segs.flatMap((s) => ['#EXTINF:1.0,', s]), ''].join('\n');
 
-function harness(opts: { playlists?: (string | null)[]; whep?: () => Promise<{ answer: string; sessionUrl: string }> } = {}) {
+function harness(opts: {
+  playlists?: (string | null)[];
+  whep?: () => Promise<{ answer: string; sessionUrl: string }>;
+  /** ffmpeg outlives the kill until exitFfmpeg() — as one still flushing, or ignoring SIGINT, does. */
+  ffmpegLingers?: boolean;
+} = {}) {
   let t = 1_000_000;
   const events: string[] = [];
   let endPeer!: () => void;
@@ -18,7 +23,13 @@ function harness(opts: { playlists?: (string | null)[]; whep?: () => Promise<{ a
   let reads = 0;
   const playlists = opts.playlists ?? [playlist('live0.ts'), playlist('live0.ts', 'live1.ts')];
   let exitFfmpeg!: (code: number) => void;
-  const ffmpeg = { exited: new Promise<number | null>((r) => { exitFfmpeg = r; }), kill: vi.fn(() => { events.push('ffmpeg.kill'); }) };
+  const ffmpeg = {
+    exited: new Promise<number | null>((r) => { exitFfmpeg = (code) => { events.push('ffmpeg.exit'); r(code); }; }),
+    kill: vi.fn(() => {
+      events.push('ffmpeg.kill');
+      if (!opts.ffmpegLingers) exitFfmpeg(255);
+    }),
+  };
 
   const deps: BridgeDeps = {
     openPeer: vi.fn(async () => peer),
@@ -137,5 +148,43 @@ describe('startBridge', () => {
     });
     await (await startBridge(req, h.deps)).done;
     expect(h.events).toContain('put:live/s1/live0.ts');
+  });
+
+  it('settles only once ffmpeg has exited: a warm Lambda would thaw with it still holding the RTP ports', async () => {
+    const h = harness({ ffmpegLingers: true });
+    const running = await startBridge({ ...req, maxMs: 60_000 }, h.deps);
+    let settled = false;
+    void running.done.then(() => { settled = true; });
+
+    running.stop();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(h.events).toContain('ffmpeg.kill');
+    expect(settled).toBe(false);
+
+    h.exitFfmpeg(255);
+    expect(await running.done).toBe('stopped');
+  });
+
+  it('rejects a refused start only once ffmpeg has exited, for the same reason', async () => {
+    const h = harness({ ffmpegLingers: true, whep: async () => { throw new RingApiError(503, null, 'offline'); } });
+    let settled = false;
+    const started = startBridge(req, h.deps).catch((err: unknown) => { settled = true; return err; });
+
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(h.events).toContain('ffmpeg.kill');
+    expect(settled).toBe(false);
+
+    h.exitFfmpeg(255);
+    expect(await started).toBeInstanceOf(LiveStartError);
+  });
+
+  it('says why a start was refused — the error\'s name and reason, never its message', async () => {
+    const lines: Record<string, unknown>[] = [];
+    const h = harness({ whep: async () => { throw new RingTokenUnavailable('expired', 'token expired 1560s ago; secret detail'); } });
+
+    await expect(startBridge(req, { ...h.deps, log: (l) => lines.push(l) })).rejects.toMatchObject({ refusal: 'camera_unavailable' });
+    const refused = lines.find((l) => l.msg === 'live_start_refused')!;
+    expect(refused).toMatchObject({ err: 'RingTokenUnavailable', reason: 'expired' });
+    expect(JSON.stringify(lines)).not.toContain('secret detail');
   });
 });

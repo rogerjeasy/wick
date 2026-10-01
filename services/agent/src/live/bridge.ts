@@ -17,7 +17,7 @@
  * lifecycle is the backstop).
  */
 import type { LiveRefusal } from '@wick/contracts';
-import { RingApiError, type WhepSession } from '@wick/ring';
+import { RingApiError, RingTokenUnavailable, type WhepSession } from '@wick/ring';
 import { PLAYLIST, SDP_FILE, ffmpegArgs, rtpSdp, segmentsToUpload } from './hls.js';
 
 export interface RtpPorts {
@@ -101,6 +101,17 @@ const quietly = async (log: BridgeDeps['log'], what: string, fn: () => Promise<v
   }
 };
 
+/**
+ * Kill ffmpeg and wait until it is gone. Returning first would let Lambda
+ * freeze the environment with ffmpeg still bound to the RTP ports, and the
+ * next invocation in it would fail with "bind failed: Address in use".
+ * spawnProcess escalates to SIGKILL, so this always settles.
+ */
+async function halt(ffmpeg: FfmpegProcess): Promise<void> {
+  ffmpeg.kill();
+  await ffmpeg.exited;
+}
+
 export async function startBridge(req: BridgeRequest, deps: BridgeDeps): Promise<RunningBridge> {
   const { sessionId } = req;
   const prefix = livePrefix(sessionId);
@@ -116,10 +127,18 @@ export async function startBridge(req: BridgeRequest, deps: BridgeDeps): Promise
     whep = await deps.startWhep(peer.offer);
     await peer.accept(whep.answer);
   } catch (err) {
-    ffmpeg.kill();
+    await halt(ffmpeg);
     peer?.close();
     await quietly(deps.log, 'workdir', () => deps.workdir.remove(dir));
-    deps.log({ level: 'warn', msg: 'live_start_refused', sessionId, status: err instanceof RingApiError ? err.status : undefined });
+    // Name, status and reason only: a message can carry token detail.
+    deps.log({
+      level: 'warn',
+      msg: 'live_start_refused',
+      sessionId,
+      err: err instanceof Error ? err.name : 'unknown',
+      status: err instanceof RingApiError ? err.status : undefined,
+      reason: err instanceof RingTokenUnavailable ? err.reason : undefined,
+    });
     throw new LiveStartError(refusalFor(err));
   }
   const openPeer = peer;
@@ -174,7 +193,7 @@ export async function startBridge(req: BridgeRequest, deps: BridgeDeps): Promise
         await deps.sleep(req.pollMs);
       }
     } finally {
-      ffmpeg.kill();
+      await halt(ffmpeg);
       openPeer.close();
       await quietly(deps.log, 'whep', () => deps.stopWhep(whep.sessionUrl));
       await quietly(deps.log, 'published', () => deps.publish.removePrefix(prefix));

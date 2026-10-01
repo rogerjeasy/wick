@@ -31,7 +31,13 @@ export function localWorkdir(root: string): BridgeDeps['workdir'] {
   };
 }
 
-export function spawnProcess(bin: string, log: BridgeDeps['log']): (args: string[]) => FfmpegProcess {
+export interface SpawnOptions {
+  /** How long SIGINT gets (ffmpeg flushes its last segment on it) before SIGKILL. */
+  readonly killGraceMs?: number;
+}
+
+export function spawnProcess(bin: string, log: BridgeDeps['log'], options: SpawnOptions = {}): (args: string[]) => FfmpegProcess {
+  const graceMs = options.killGraceMs ?? 2000;
   return (args) => {
     const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     // ffmpeg's warnings, trimmed: useful in CloudWatch, never media or tokens.
@@ -40,7 +46,15 @@ export function spawnProcess(bin: string, log: BridgeDeps['log']): (args: string
       child.once('exit', (code) => resolve(code));
       child.once('error', () => resolve(null));
     });
-    return { exited, kill: () => void child.kill('SIGINT') };
+    let killed = false;
+    const kill = () => {
+      if (killed) return;
+      killed = true;
+      child.kill('SIGINT');
+      const force = setTimeout(() => child.kill('SIGKILL'), graceMs);
+      void exited.then(() => clearTimeout(force));
+    };
+    return { exited, kill };
   };
 }
 
