@@ -101,6 +101,14 @@ export interface CardPatch {
 export const MAX_CARD_ACTIONS = 3;
 
 /**
+ * The longest text a card's body may carry: five lines of about
+ * fifty-eight characters at 32pt on a 960x540dp screen, which is where
+ * vega-calm-ui's CalmCard cuts it so the buttons stay on screen. Anything
+ * that writes card text keeps under this, so nothing is ever cut.
+ */
+export const MAX_CARD_DETAIL_CHARS = 240;
+
+/**
  * A DOOR card's action ids. Only `dismiss` removes the card on press:
  * `watch_live` opens the live view over it, and `hallway_chime` waits for
  * the patch that says whether the chime rang.

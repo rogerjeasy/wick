@@ -1,8 +1,8 @@
 /**
- * The week, in prose. §5.4: "THE MODEL NEVER COUNTS." Every fact in the
- * prompt is already computed deterministically (timeline.ts, isoWeek.ts) —
- * this only asks the model to narrate a list it is forbidden from
- * recalculating, consistent with prompts/narrator-week.md's own brief.
+ * The week, in prose. §5.4: "THE MODEL NEVER COUNTS." The model sees only
+ * fact lines that weekFacts.ts already counted — never a raw timestamp —
+ * and index.ts checks what comes back. Consistent with
+ * prompts/narrator-week.md's own brief.
  *
  * Model ID is the regional cross-region inference profile for Claude
  * Sonnet 4.5. Claude Sonnet 5 is listed in this account, with an inference
@@ -14,40 +14,34 @@
  * this default only matters for local runs.
  */
 import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import type { TimelineEntry } from '@wick/contracts';
+import { MAX_NARRATIVE_CHARS } from '@wick/contracts';
 
 export const NARRATIVE_MODEL_ID =
   process.env.WICK_NARRATIVE_MODEL ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
 
 export const NARRATIVE_REGION = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1';
 
-const SYSTEM = `Write the week for a distant family member.
+const SYSTEM = `Write the week for a distant family member. The resident reads it first, on their own television.
 
 Rules, all mandatory:
-- The events listed are ALL the facts you have. Never invent, infer, count, or round a number that isn't already in the list.
-- One short paragraph. Plain, unsensational prose — a thoughtful neighbour's tone, not a report.
-- If the list is empty, say plainly that it was a quiet week. That is the most valuable sentence you can write, not a failure to find something to say.
-- Never speculate about how anyone felt. Report what happened, not what it meant.`;
-
-function describeEvents(entries: readonly TimelineEntry[]): string {
-  if (entries.length === 0) return '(no events this week)';
-  return entries
-    .slice()
-    .sort((a, b) => a.at - b.at)
-    .map((e) => `- ${new Date(e.at).toISOString()}: ${e.summary}`)
-    .join('\n');
-}
+- The facts given are ALL you know. Use only the numbers that appear in them, in digits or words. Never add a number, a clock time, or a count of your own.
+- At most two short sentences, under ${MAX_NARRATIVE_CHARS} characters in all.
+- Plain, unsensational prose: a thoughtful neighbour's tone, not a report. No "flurry", no "busy", no exclamation.
+- If the week is not over, say "so far". If nothing happened, say plainly that it was a quiet week. That is the most valuable sentence you can write.
+- Never speculate about how anyone felt, or why anyone came. Report what happened, not what it meant.`;
 
 export async function writeNarrative(
-  entries: readonly TimelineEntry[],
+  facts: readonly string[],
+  retryReason?: string,
   client: BedrockRuntimeClient = new BedrockRuntimeClient({ region: NARRATIVE_REGION }),
 ): Promise<string> {
+  const prompt = facts.map((f) => `- ${f}`).join('\n') + (retryReason ? `\n\n${retryReason}` : '');
   const res = await client.send(
     new ConverseCommand({
       modelId: NARRATIVE_MODEL_ID,
       system: [{ text: SYSTEM }],
-      messages: [{ role: 'user', content: [{ text: describeEvents(entries) }] }],
-      inferenceConfig: { maxTokens: 200, temperature: 0.3 },
+      messages: [{ role: 'user', content: [{ text: prompt }] }],
+      inferenceConfig: { maxTokens: 120, temperature: 0.3 },
     }),
   );
 

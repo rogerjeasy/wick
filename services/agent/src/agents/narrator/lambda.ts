@@ -48,8 +48,9 @@ export const handler = async (): Promise<void> => {
 
   const narrative = await computeWeekNarrative(householdId, isoWeek, {
     loadEvents: (range) => loadEvents(householdId, range),
-    writeNarrative: (entries) => writeNarrative(entries),
+    writeNarrative: (facts, retryReason) => writeNarrative(facts, retryReason),
     now: Date.now,
+    timeZone: process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London',
   });
 
   await ddb.send(new PutItemCommand({
@@ -66,5 +67,5 @@ export const handler = async (): Promise<void> => {
   const card = buildWeekCard(narrative, randomUUID(), Date.now());
   await sendToDevice(card, DEFAULT_POLICY);
 
-  console.log(JSON.stringify({ level: 'info', msg: 'narrative_computed', isoWeek, events: narrative.timeline.length }));
+  console.log(JSON.stringify({ level: 'info', msg: 'narrative_computed', isoWeek, events: narrative.timeline.length, textSource: narrative.textSource, chars: narrative.text.length }));
 };

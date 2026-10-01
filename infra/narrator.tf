@@ -102,6 +102,7 @@ resource "aws_lambda_function" "agent_narrator_weekly" {
       TABLE_NAME           = aws_dynamodb_table.wick.name
       WICK_HOUSEHOLD_ID    = var.household_id
       WICK_NARRATIVE_MODEL = local.narrative_model_profile
+      WICK_HOUSEHOLD_TZ    = var.household_time_zone
     }
   }
 

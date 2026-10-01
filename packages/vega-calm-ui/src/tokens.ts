@@ -23,6 +23,21 @@ export const contrast = {
 export const limits = {
   maxActions: 3,
   maxListItems: 3,
+  /**
+   * A card's detail text is cut at five lines, so no producer can push the
+   * card's buttons off the screen. A week narrative once did, on the VVD.
+   */
+  maxDetailLines: 5,
+} as const;
+
+/** Vega's logical screen, and the card's spacing within it. */
+export const layout = {
+  screenHeightDp: 540,
+  cardPaddingDp: 32,
+  sectionGapDp: 20,
+  textGapDp: 12,
+  actionPaddingVerticalDp: 20,
+  lineHeight: { headline: 1.25, body: 1.4 },
 } as const;
 
 /** No red anywhere. Red on a television means "something is wrong with you". */
