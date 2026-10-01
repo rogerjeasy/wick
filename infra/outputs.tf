@@ -98,3 +98,18 @@ output "sim_alexa_distribution_id" {
   description = "For `aws cloudfront create-invalidation --distribution-id` after redeploying sim-alexa's files."
   value       = aws_cloudfront_distribution.sim_alexa.id
 }
+
+output "agents_runtime_arn" {
+  description = "The wick_agents AgentCore Runtime (Strands graphs: door describe, hallway chime, live view)"
+  value       = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
+}
+
+output "agents_ecr_repository_url" {
+  description = "Push services/agent/Dockerfile here (scripts/push-agent-image.sh)"
+  value       = aws_ecr_repository.agents.repository_url
+}
+
+output "live_origin" {
+  description = "M2: HTTPS origin the TV's player loads live HLS from"
+  value       = "https://${aws_cloudfront_distribution.live.domain_name}"
+}

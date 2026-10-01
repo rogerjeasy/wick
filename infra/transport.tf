@@ -76,6 +76,13 @@ data "aws_iam_policy_document" "ws_route" {
     actions   = ["execute-api:ManageConnections"]
     resources = ["${aws_apigatewayv2_api.transport.execution_arn}/*/*"]
   }
+  statement {
+    # M1: a hallway_chime press is handed to the agent plane as
+    # wick.device / card.action (route.mjs, card-action-event.mjs).
+    sid       = "HandCardActionsToTheAgentPlane"
+    actions   = ["events:PutEvents"]
+    resources = [aws_cloudwatch_event_bus.wick.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "ws_connect" {
@@ -168,7 +175,10 @@ resource "aws_lambda_function" "ws_route" {
   memory_size = 256
 
   environment {
-    variables = { TABLE_NAME = aws_dynamodb_table.wick.name }
+    variables = {
+      TABLE_NAME     = aws_dynamodb_table.wick.name
+      EVENT_BUS_NAME = aws_cloudwatch_event_bus.wick.name
+    }
   }
 
   depends_on = [aws_cloudwatch_log_group.ws_route]

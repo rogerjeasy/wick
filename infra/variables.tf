@@ -56,3 +56,15 @@ variable "mcp_issuer_url" {
   type        = string
   default     = "https://tqcu7pa3ip.us-east-1.awsapprunner.com"
 }
+
+variable "agent_image_tag" {
+  description = "Tag of the wick-agents runtime image in ECR (services/agent/Dockerfile). scripts/push-agent-image.sh pushes the git SHA and prints it."
+  type        = string
+  default     = "latest"
+}
+
+variable "chime_slot_event" {
+  description = "M1. Which of the app's Ring Chime audio slots the hallway chime plays (configurations.audio.customizable_slots[].event)."
+  type        = string
+  default     = "ring-appstore-event-1"
+}
