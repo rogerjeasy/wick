@@ -5,6 +5,8 @@
  *   webhook.mjs -> EventBridge "wick" bus -> (this)
  *     -> Phase 1: handleDoorEvent -> sendToDevice
  *     -> Phase 2: runDoorPhase2  -> sendPatchToDevice
+ *          (2b, the sentence, runs in the household's AgentCore Runtime
+ *          session as a Strands graph — describeRemote.ts)
  *
  * `routeRingEvent` is the part worth unit testing — gating, device lookup,
  * error propagation — with every AWS/Bedrock client injected behind
@@ -26,10 +28,11 @@
  * product is built around one real household (docs/WICK.md §2). Multi-
  * household is Tier 3 (§4.5), not S1 — do not build a registry for it here.
  */
-import type { RingDevice, RingHistoryEvent } from '@wick/ring';
+import type { CachedDevices, RingDevice, RingHistoryEvent } from '@wick/ring';
 import {
   RingClient,
-  cachedDeviceLookup,
+  cachedDevices,
+  hasHallwayChime,
   imageForEvent,
   listDevices,
   secretsManagerTokenProvider,
@@ -43,7 +46,8 @@ import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
 import { matchVisitor } from './roster.js';
 import { buildDoorEventItem, buildPresenceItem } from './presence.js';
 import { runDoorPhase2, type Phase2Outcome } from './phase2.js';
-import { describeFrame } from './describe.js';
+import { describeViaRuntime } from './describeRemote.js';
+import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
 import { createRhythmWriter } from '../../rhythm/writeClient.js';
 import { buildDoorActivityKey, buildPresenceKey } from '../../rhythm/records.js';
@@ -53,6 +57,8 @@ export type RouteResult = 'sent' | 'skipped' | 'unknown_device';
 export interface RouteDeps {
   readonly householdId: string;
   readonly findDevice: (deviceId: string) => Promise<RingDevice | undefined>;
+  /** M1. A playable Ring Chime exists — from the same cached list as findDevice, so no extra Ring call. */
+  readonly hasHallwayChime: () => Promise<boolean>;
   /** M4. Most households have not curated one; an empty list is the common answer. */
   readonly listRoster: () => Promise<readonly RosterEntry[]>;
   /** M5. Only called when the event actually matches the roster. */
@@ -68,7 +74,7 @@ export interface RouteDeps {
   ) => Promise<void>;
   /** S6. Written only on a roster match — an arrival occurrence for the Rhythm baseline (§8.2's presence table). */
   readonly recordPresenceActivity: (personId: string, at: number) => Promise<void>;
-  readonly sendToDevice: (card: QueuedCard) => Promise<void>;
+  readonly sendToDevice: (card: QueuedCard, ringDeviceId: string) => Promise<void>;
   readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<Phase2Outcome>;
   readonly now: () => number;
 }
@@ -93,9 +99,11 @@ export async function routeRingEvent(
   if (!device) return 'unknown_device';
 
   const roster = await deps.listRoster();
+  // A failed lookup costs the button, never the card.
+  const hallwayChime = await deps.hasHallwayChime().catch(() => false);
 
   const queued = await handleDoorEvent(
-    { event, device, householdId: deps.householdId, correlationId, now: deps.now(), roster },
+    { event, device, hallwayChime, householdId: deps.householdId, correlationId, now: deps.now(), roster },
     { sendToDevice: deps.sendToDevice },
   );
 
@@ -161,7 +169,8 @@ interface EventBridgeEnvelope {
   readonly detail: Record<string, unknown>;
 }
 
-let lookupDevice: ((deviceId: string) => Promise<RingDevice | undefined>) | undefined;
+let devices: CachedDevices | undefined;
+let runtime: RuntimeTarget | undefined;
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
@@ -231,22 +240,25 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
   if (!householdId) throw new Error('WICK_HOUSEHOLD_ID not set');
 
   const ringClient = new RingClient({ getToken: secretsManagerTokenProvider() });
-  lookupDevice ??= cachedDeviceLookup({ list: () => listDevices(ringClient) });
+  const household = (devices ??= cachedDevices({ list: () => listDevices(ringClient) }));
+  const agents = (runtime ??= agentCoreTarget());
+  const describe = describeViaRuntime((kind, hh, payload) => invokeRuntime(agents, kind, hh, payload), householdId);
 
   const result = await routeRingEvent(evt.detail, {
     householdId,
-    findDevice: lookupDevice,
+    findDevice: household.find,
+    hasHallwayChime: async () => hasHallwayChime(await household.all()),
     listRoster: () => fetchRoster(householdId),
     recordPresence: (match, at) => recordPresence(householdId, match, at),
     recordDoorEvent: (at) => recordDoorEvent(householdId, at),
     recordDoorActivity: (deviceId, subType, measureName, at) =>
       recordDoorActivity(householdId, deviceId, subType, measureName, at),
     recordPresenceActivity: (personId, at) => recordPresenceActivity(householdId, personId, at),
-    sendToDevice: (card) => realSendToDevice(card, DEFAULT_POLICY),
+    sendToDevice: (card, ringDeviceId) => realSendToDevice(card, DEFAULT_POLICY, { ringDeviceId }),
     runPhase2: (cardId, event) =>
       runDoorPhase2(cardId, {
         fetchImage: () => imageForEvent(ringClient, event.deviceId, event),
-        describe: (bytes) => describeFrame(bytes),
+        describe,
         sendPatch: (patch) => realSendPatchToDevice(patch, householdId),
       }, event.eventType),
     now: Date.now,

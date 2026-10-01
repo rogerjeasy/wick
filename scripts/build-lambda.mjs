@@ -12,8 +12,12 @@
  *
  *   node scripts/build-lambda.mjs
  *
- * @aws-sdk/* is left external: the nodejs22.x Lambda runtime provides it,
- * the same assumption services/edge-ring/lambda/*.mjs already makes.
+ * @aws-sdk/* is left external where the nodejs22.x Lambda runtime provides
+ * it (the same assumption services/edge-ring/lambda/*.mjs makes) — except
+ * for targets that reach the agent plane: @aws-sdk/client-bedrock-agentcore
+ * is new enough that the runtime's bundled SDK can't be counted on, so those
+ * bundle everything (`bundleAll`). The AgentCore Runtime container has no
+ * SDK at all, so it bundles everything too.
  */
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +30,28 @@ const TARGETS = [
     name: 'agent-door-event',
     entry: 'services/agent/src/agents/door/lambda.ts',
     outfile: 'services/agent/.build/door-event/index.mjs',
+    bundleAll: true,
+  },
+  {
+    // M1: EventBridge card.action -> AgentCore door-action graph.
+    name: 'agent-card-action',
+    entry: 'services/agent/src/agents/door/actionLambda.ts',
+    outfile: 'services/agent/.build/card-action/index.mjs',
+    bundleAll: true,
+  },
+  {
+    // M2: POST/DELETE /live/sessions -> AgentCore live graph.
+    name: 'agent-live',
+    entry: 'services/agent/src/live/lambda.ts',
+    outfile: 'services/agent/.build/live/index.mjs',
+    bundleAll: true,
+  },
+  {
+    // The AgentCore Runtime container (services/agent/Dockerfile).
+    name: 'agent-runtime',
+    entry: 'services/agent/src/runtime/main.ts',
+    outfile: 'services/agent/.build/runtime/main.mjs',
+    bundleAll: true,
   },
   {
     name: 'agent-narrator-weekly',
@@ -42,7 +68,12 @@ for (const target of TARGETS) {
     platform: 'node',
     format: 'esm',
     target: 'node22',
-    external: ['@aws-sdk/*'],
+    external: target.bundleAll ? [] : ['@aws-sdk/*'],
+    // Bundled CommonJS dependencies (werift's, the SDK's) still call require()
+    // for Node built-ins; give the ESM bundle one.
+    banner: target.bundleAll
+      ? { js: "import { createRequire as __wickCreateRequire } from 'node:module'; const require = __wickCreateRequire(import.meta.url);" }
+      : {},
     logLevel: 'info',
   });
   console.log(`built ${target.name} -> ${target.outfile}`);

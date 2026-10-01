@@ -30,7 +30,8 @@ export const DESCRIBE_TIMEOUT_MS = 2500;
  */
 export const DESCRIBE_REGION = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1';
 
-const SYSTEM = `You describe a single still frame from a doorbell camera for an older adult reading it on a television.
+/** Shared with the Strands describe agent (graphs/doorDescribe.ts). */
+export const DESCRIBE_SYSTEM_PROMPT = `You describe a single still frame from a doorbell camera for an older adult reading it on a television.
 
 Reply in exactly two lines:
 PERSON: yes   (or: PERSON: no) — whether any person is visible in the frame
@@ -61,6 +62,27 @@ export interface DescribeResult {
 }
 
 /**
+ * What a model's raw reply is worth: a candidate to show, or a reason not to.
+ * Shared by describeFrame and the Strands describe graph, so the validator
+ * holds the same way whichever path asked the model.
+ */
+export function judgeDescribeReply(raw: string): Omit<DescribeResult, 'elapsedMs'> {
+  const { personVisible, sentence: text } = parseDescribeReply(raw.trim());
+
+  if (!text) return { candidate: null, reason: 'model returned nothing' };
+  if (/^UNCLEAR\b/i.test(text)) return { candidate: null, reason: 'model declined: unclear frame' };
+  // Worth logging loudly: it means the prompt is losing to the image.
+  if (!validateDescription(text)) return { candidate: null, reason: `rejected by validator: "${text}"` };
+
+  const candidate: DescriptionCandidate = {
+    description: text,
+    confidence: 0.9,
+    ...(personVisible === undefined ? {} : { personVisible }),
+  };
+  return { candidate, reason: 'ok' };
+}
+
+/**
  * Describe a frame, or decline to.
  *
  * Never throws: every failure path returns a null candidate with a reason,
@@ -85,7 +107,7 @@ export async function describeFrame(
     const res = await client.send(
       new ConverseCommand({
         modelId: DESCRIBE_MODEL_ID,
-        system: [{ text: SYSTEM }],
+        system: [{ text: DESCRIBE_SYSTEM_PROMPT }],
         messages: [{ role: 'user', content }],
         inferenceConfig: { maxTokens: 60, temperature: 0.2 },
       }),
@@ -93,23 +115,7 @@ export async function describeFrame(
     );
 
     const raw = res.output?.message?.content?.find((c) => 'text' in c)?.text?.trim() ?? '';
-    const { personVisible, sentence: text } = parseDescribeReply(raw);
-
-    if (!text) return { candidate: null, reason: 'model returned nothing', elapsedMs: elapsed() };
-    if (/^UNCLEAR\b/i.test(text)) {
-      return { candidate: null, reason: 'model declined: unclear frame', elapsedMs: elapsed() };
-    }
-    if (!validateDescription(text)) {
-      // Worth logging loudly: it means the prompt is losing to the image.
-      return { candidate: null, reason: `rejected by validator: "${text}"`, elapsedMs: elapsed() };
-    }
-
-    const candidate: DescriptionCandidate = {
-      description: text,
-      confidence: 0.9,
-      ...(personVisible === undefined ? {} : { personVisible }),
-    };
-    return { candidate, reason: 'ok', elapsedMs: elapsed() };
+    return { ...judgeDescribeReply(raw), elapsedMs: elapsed() };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 
