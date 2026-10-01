@@ -53,7 +53,8 @@ resource "aws_lambda_function" "agent_card_action" {
 
   environment {
     variables = {
-      AGENT_RUNTIME_ARN = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
+      AGENT_RUNTIME_ARN     = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
+      AGENT_RUNTIME_VERSION = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
     }
   }
 

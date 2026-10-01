@@ -101,10 +101,11 @@ resource "aws_lambda_function" "agent_door_event" {
 
   environment {
     variables = {
-      TABLE_NAME           = aws_dynamodb_table.wick.name
-      RING_TOKEN_SECRET_ID = aws_secretsmanager_secret.ring_tokens.name
-      WICK_HOUSEHOLD_ID    = var.household_id
-      AGENT_RUNTIME_ARN    = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
+      TABLE_NAME            = aws_dynamodb_table.wick.name
+      RING_TOKEN_SECRET_ID  = aws_secretsmanager_secret.ring_tokens.name
+      WICK_HOUSEHOLD_ID     = var.household_id
+      AGENT_RUNTIME_ARN     = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
+      AGENT_RUNTIME_VERSION = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
     }
   }
 

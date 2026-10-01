@@ -76,6 +76,7 @@ resource "aws_lambda_function" "agent_live" {
       TABLE_NAME                     = aws_dynamodb_table.wick.name
       PAIRING_SIGNING_KEY_SECRET_ARN = aws_secretsmanager_secret.pairing_signing_key.arn
       AGENT_RUNTIME_ARN              = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
+      AGENT_RUNTIME_VERSION          = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
     }
   }
 

@@ -23,7 +23,23 @@ describe('householdSessionId — session = household', () => {
   });
 });
 
+describe('householdSessionId — a deploy reaches every household at once', () => {
+  it('moves a household to a fresh session when the runtime version changes, so no one stays on the code before a deploy', () => {
+    // Seen live: margaret's warm microVM kept running the previous image for
+    // the rest of its 8h lifetime after the runtime was updated.
+    expect(householdSessionId('margaret', '6')).not.toBe(householdSessionId('margaret', '5'));
+    expect(householdSessionId('margaret', '6')).toBe(householdSessionId('margaret', '6'));
+    expect(householdSessionId('margaret', '6')).toMatch(/^[A-Za-z0-9-]+$/);
+  });
+});
+
 describe('invokeRuntime', () => {
+  it('uses the target\'s runtime version in the session', async () => {
+    const send = vi.fn<RuntimeSend>(async () => reply({}));
+    await invokeRuntime({ send, runtimeArn: ARN, version: '5' }, 'live.start', 'margaret', {});
+    expect(send.mock.calls[0]![0].runtimeSessionId).toBe(householdSessionId('margaret', '5'));
+  });
+
   it('sends the kind and payload as JSON to the runtime, on the household session', async () => {
     const send = vi.fn<RuntimeSend>(async () => reply({ result: 'rang' }));
 

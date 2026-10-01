@@ -14,11 +14,19 @@ import {
   type InvokeAgentRuntimeCommandInput,
 } from '@aws-sdk/client-bedrock-agentcore';
 
-/** AgentCore requires a runtimeSessionId of at least 33 characters. */
-export function householdSessionId(householdId: string): string {
+/**
+ * AgentCore requires a runtimeSessionId of at least 33 characters.
+ *
+ * The runtime version is part of it: a session's microVM keeps the image it
+ * started with for up to 8 hours, so without it a deploy would not reach a
+ * household until its session ended. A new version means a fresh microVM;
+ * the old one idles out on its own.
+ */
+export function householdSessionId(householdId: string, runtimeVersion?: string): string {
   const safe = householdId.replace(/[^A-Za-z0-9-]/g, '-').slice(0, 64);
   const digest = createHash('sha256').update(householdId).digest('hex').slice(0, 16);
-  return `wick-household-${safe}-${digest}`;
+  const version = runtimeVersion ? `-v${runtimeVersion.replace(/[^A-Za-z0-9]/g, '')}` : '';
+  return `wick-household-${safe}-${digest}${version}`;
 }
 
 export interface RuntimeReply {
@@ -31,6 +39,8 @@ export type RuntimeSend = (input: InvokeAgentRuntimeCommandInput & { payload: Ui
 export interface RuntimeTarget {
   readonly send: RuntimeSend;
   readonly runtimeArn: string;
+  /** The deployed runtime version (infra: agent_runtime_version). */
+  readonly version?: string;
 }
 
 export async function invokeRuntime(
@@ -41,7 +51,7 @@ export async function invokeRuntime(
 ): Promise<unknown> {
   const out = await target.send({
     agentRuntimeArn: target.runtimeArn,
-    runtimeSessionId: householdSessionId(householdId),
+    runtimeSessionId: householdSessionId(householdId, target.version),
     contentType: 'application/json',
     accept: 'application/json',
     payload: new TextEncoder().encode(JSON.stringify({ kind, householdId, ...payload })),
@@ -54,12 +64,16 @@ export async function invokeRuntime(
   return text ? JSON.parse(text) : {};
 }
 
-/** The real target, for a Lambda shim. RUNTIME_ARN comes from infra/agentcore.tf. */
-export function agentCoreTarget(runtimeArn = process.env.AGENT_RUNTIME_ARN ?? ''): RuntimeTarget {
+/** The real target, for a Lambda shim. AGENT_RUNTIME_ARN and _VERSION come from infra/agentcore.tf. */
+export function agentCoreTarget(
+  runtimeArn = process.env.AGENT_RUNTIME_ARN ?? '',
+  version = process.env.AGENT_RUNTIME_VERSION ?? '',
+): RuntimeTarget {
   if (!runtimeArn) throw new Error('AGENT_RUNTIME_ARN not set');
   const client = new BedrockAgentCoreClient({});
   return {
     runtimeArn,
+    ...(version ? { version } : {}),
     send: (input) => client.send(new InvokeAgentRuntimeCommand(input)),
   };
 }
