@@ -10,11 +10,12 @@
  * Attribution 3.0, so they can be played, and shown in the demo, with the
  * attribution below. No studio content, no trademark, nothing to clear.
  *
- * `durationMs` and `creditsPositionMs` are measured from the stream itself
- * (ffmpeg, 2026-10-02), not taken from the film's published running time —
- * each host's encode has its own lead-in. `creditsPositionMs` is the same
- * field Content Personalization reports to the platform (§3.3): the moment
- * the story is over and Wick may speak.
+ * They are served from Wick's own origin (infra/programmes.tf), from one
+ * 720p HLS encode made by scripts/publish-programmes.sh. `durationMs` and
+ * `creditsPositionMs` are measured from that encode (frame by frame,
+ * 2026-10-02), not taken from a published running time. `creditsPositionMs`
+ * is the same field Content Personalization reports to the platform (§3.3):
+ * the moment the story is over and Wick may speak.
  *
  * Three, never four (Principle 6) — the test holds the list to it.
  */
@@ -30,27 +31,40 @@ export interface Programme {
   readonly licence: 'CC BY 3.0';
 }
 
+/** `terraform output -raw programmes_origin` in infra/. */
+export const PROGRAMMES_ORIGIN = 'https://d112ix5w6an39e.cloudfront.net';
+
+const programme = (p: Omit<Programme, 'streamUrl' | 'licence'>): Programme => ({
+  ...p,
+  streamUrl: `${PROGRAMMES_ORIGIN}/${p.id}/index.m3u8`,
+  licence: 'CC BY 3.0',
+});
+
 export const CATALOG: readonly Programme[] = [
-  {
+  programme({
     id: 'big-buck-bunny',
     title: 'Big Buck Bunny',
-    line: 'A gentle giant has had enough. 10 minutes.',
-    streamUrl: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-    durationMs: 634_580,
-    creditsPositionMs: 496_000,
+    line: '10 minutes',
+    durationMs: 596_458,
+    creditsPositionMs: 490_000,
     attribution: '© Blender Foundation | peach.blender.org',
-    licence: 'CC BY 3.0',
-  },
-  {
+  }),
+  programme({
+    id: 'sintel',
+    title: 'Sintel',
+    line: '15 minutes',
+    durationMs: 888_000,
+    creditsPositionMs: 744_000,
+    attribution: '© Blender Foundation | durian.blender.org',
+  }),
+  programme({
     id: 'tears-of-steel',
     title: 'Tears of Steel',
-    line: 'Amsterdam, some years from now. 12 minutes.',
-    streamUrl: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8',
-    durationMs: 734_000,
-    creditsPositionMs: 584_000,
+    line: '12 minutes',
+    durationMs: 734_167,
+    creditsPositionMs: 588_000,
     attribution: '© Blender Foundation | mango.blender.org',
-    licence: 'CC BY 3.0',
-  },
+  }),
 ];
 
 export function programmeById(id: string): Programme | undefined {

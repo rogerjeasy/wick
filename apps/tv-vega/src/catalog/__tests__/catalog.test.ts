@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOG, programmeById } from '../catalog.js';
+import { CATALOG, PROGRAMMES_ORIGIN, programmeById } from '../catalog.js';
 
 describe('CATALOG', () => {
   it('offers at most three programmes — three, never four', () => {
@@ -9,6 +9,14 @@ describe('CATALOG', () => {
 
   it('gives every programme a unique id', () => {
     expect(new Set(CATALOG.map((p) => p.id)).size).toBe(CATALOG.length);
+  });
+
+  it('offers all three of the open films', () => {
+    expect(CATALOG.map((p) => p.id)).toEqual(['big-buck-bunny', 'sintel', 'tears-of-steel']);
+  });
+
+  it("plays every programme from Wick's own origin — no third-party demo host", () => {
+    for (const p of CATALOG) expect(p.streamUrl).toBe(`${PROGRAMMES_ORIGIN}/${p.id}/index.m3u8`);
   });
 
   it('plays only over HTTPS — the player drops cleartext HLS silently (FL-016)', () => {

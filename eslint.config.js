@@ -17,7 +17,8 @@ const TRANSPORT_CLIENTS = [
 ];
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**'] },
+  // .programmes holds HLS segments, whose .ts is MPEG transport stream, not TypeScript.
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**', '.programmes/**'] },
 
   // Parse TypeScript everywhere.
   ...tseslint.configs.recommended,

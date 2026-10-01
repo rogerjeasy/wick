@@ -48,7 +48,7 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId }:
               <Text style={styles.title} numberOfLines={1}>
                 {programme.title}
               </Text>
-              <Text style={styles.line} numberOfLines={2}>
+              <Text style={styles.line} numberOfLines={1}>
                 {programme.line}
               </Text>
             </View>
@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    gap: 32,
+    gap: 24,
   },
   tile: {
     flex: 1,

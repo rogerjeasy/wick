@@ -37,3 +37,6 @@ services/agent/.build/
 # convention than .worktrees/ above, used when the harness creates the
 # worktree itself rather than a plain `git worktree add`).
 .claude/worktrees/
+
+# Film originals and transcodes (scripts/publish-programmes.sh) — large, reproducible.
+/.programmes/
