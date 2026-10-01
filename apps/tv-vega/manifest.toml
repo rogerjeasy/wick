@@ -112,6 +112,12 @@ id = "com.amazon.mediabuffer.service"
 [[wants.service]]
 id = "com.amazon.mediametrics.service"
 
+# The video decoder itself. Without it every H.264 stream fails to decode —
+# "Missing the permissions needed to connect to the service", then
+# MediaError 3 and a black rectangle, for any HLS source (FRICTION.md FL-018).
+[[wants.service]]
+id = "com.amazon.mediatransform.service"
+
 [[wants.service]]
 id = "com.amazon.audio.stream"
 

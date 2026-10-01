@@ -66,6 +66,7 @@ leads, not entries — an entry requires that you actually hit it.
 | Important | Ring: no webhook replay, DLQ or synthetic-event sandbox |
 | Important | Ring: WHEP session duration/concurrency limits undocumented |
 | Important | AgentCore Runtime (PUBLIC) gets no outbound UDP — no WebRTC/RTP in the agent runtime (FL-017) |
+| Important | Vega: a missing `com.amazon.mediatransform.service` declaration fails every video decode as MediaError 3, nothing at build time (FL-018) |
 | Important | Alexa+ MCP add-on is US-only |
 | Important | No accessibility-preference API on Vega beyond screen-reader state |
 | Nice-to-have | Ring `sub_type` taxonomy too coarse |
@@ -79,6 +80,57 @@ leads, not entries — an entry requires that you actually hit it.
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-018 — A Vega app without `com.amazon.mediatransform.service` in its manifest can't decode any video, and nothing says so until playback
+
+**Tool / API:**      Vega OS 1.2 / @amazon-devices/react-native-w3cmedia 2.3.2 (`VideoPlayer`),
+                     Vega Virtual Device, SDK 0.24.12044; `manifest.toml`
+
+**Task attempted:**  M2 "Watch live": play the bridge's HLS (H.264 Constrained Baseline 3.1,
+                     720p30, AAC, MPEG-TS over HTTPS through CloudFront) in the app's own player.
+
+**Steps taken:**     1. The view reached its live phase (the playlist named segments), and the
+                        screen stayed black: pure #000, so the video surface was drawn but
+                        showed no frames.
+                     2. `loggingctl` through `vega device run-cmd` returns only a few dozen
+                        lines, and `journalctl` is refused in the developer shell; the full
+                        log came only through `vega device start-log-stream` on the host.
+                     3. The player emitted `loadstart`, `waiting`, then `error` (MediaError 3).
+                        GStreamer: `kepler_viddec_hw_h264` "Could not create Transform",
+                        `mediaxform_create failed`, `not-negotiated`.
+                     4. Ruled out the stream: the same segment re-encoded to High profile
+                        failed identically, as did a copy with SPS/PPS repeated on every
+                        keyframe, and so did the public mux.dev test stream that had played
+                        on this VVD in SP-1. A VVD reboot changed nothing.
+                     5. Higher up the same log: `Binder: Unable connect to
+                        'com.amazon.mediatransform.service'. Missing the permissions needed
+                        to connect to the service.`
+                     6. Added `[[wants.service]] id = "com.amazon.mediatransform.service"`:
+                        the mux stream played at once.
+
+**Expected:**        The build-time manifest validation (which runs, and reports "0 errors")
+                     to warn that a package declaring `w3cmedia` and `media.server` but not the
+                     transform service cannot decode video, or the player to report the
+                     permission failure as such.
+
+**Actual:**          Validation passes; at runtime the cause is one `err` line far above the
+                     decode failure, and the app sees only "MediaError 3: Error Occurred." —
+                     indistinguishable from a bad stream.
+
+**Severity:**        Important — it looks exactly like a codec problem, so the natural next
+                     steps (transcode, change profile, repeat headers) all waste time.
+
+**Workaround:**      Declare the service; a test (`apps/tv-vega/src/__tests__/manifest.test.ts`)
+                     now keeps it there. The live view also turns a player `error` into one
+                     plain sentence instead of a black screen.
+
+**Suggestion:**      1. Have manifest validation flag a `w3cmedia` app without
+                        `com.amazon.mediatransform.service`.
+                     2. Carry the permission failure into the MediaError message.
+                     3. List the full service set video playback needs on the `VideoPlayer`
+                        page (the vega-video-sample manifest is the only reference).
+
+---
 
 ## FL-017 — A Bedrock AgentCore Runtime in PUBLIC network mode gets no outbound UDP, so it cannot receive Ring live video
 
