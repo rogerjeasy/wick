@@ -13,8 +13,9 @@
 #
 # Deploy order (the runtime needs an image to exist):
 #   1. terraform apply -target=aws_ecr_repository.agents
-#   2. scripts/push-agent-image.sh   (builds both images, arm64)
-#   3. terraform apply -var agent_image_tag=<printed tag>
+#   2. scripts/push-agent-image.sh   (builds both images, arm64, and pins
+#                                     the tag in images.auto.tfvars)
+#   3. terraform apply
 # ---------------------------------------------------------------------------
 
 resource "aws_ecr_repository" "live_bridge" {

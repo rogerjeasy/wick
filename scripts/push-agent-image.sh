@@ -6,9 +6,9 @@
 #
 #   AWS_PROFILE=wick-dev scripts/push-agent-image.sh
 #
-# Tags the image with the current git SHA and `latest`, and prints the SHA:
-# pass it to Terraform as -var agent_image_tag=<sha> so both pick up the new
-# version (a moving `latest` tag alone doesn't change the resources).
+# Tags the images with the current git SHA and `latest`, prints the SHA, and
+# pins it in infra/images.auto.tfvars — commit that, and every apply (yours or
+# CI's on main) deploys exactly these images.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -28,5 +28,13 @@ for pair in "services/agent/Dockerfile $REPO_URL" "services/agent/bridge.Dockerf
   docker push "$2:$TAG" >&2
   docker push "$2:latest" >&2
 done
+
+# Pin it in git: CI's terraform apply on main reads this file, not your shell.
+{
+  sed -n '1,4p' infra/images.auto.tfvars
+  echo "agent_image_tag = \"$TAG\""
+} > infra/images.auto.tfvars.next
+mv infra/images.auto.tfvars.next infra/images.auto.tfvars
+echo "pinned $TAG in infra/images.auto.tfvars: commit it with the change" >&2
 
 echo "$TAG"

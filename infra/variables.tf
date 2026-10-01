@@ -58,9 +58,10 @@ variable "mcp_issuer_url" {
 }
 
 variable "agent_image_tag" {
-  description = "Tag of the wick-agents runtime image in ECR (services/agent/Dockerfile). scripts/push-agent-image.sh pushes the git SHA and prints it."
+  # No default: a missing pin must fail the plan, not quietly roll the live
+  # bridge back to whatever `latest` was last pushed as.
+  description = "Tag of the wick-agents and wick-live-bridge images in ECR, pinned in images.auto.tfvars. scripts/push-agent-image.sh pushes the git SHA and rewrites that file."
   type        = string
-  default     = "latest"
 }
 
 variable "chime_slot_event" {

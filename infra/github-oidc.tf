@@ -110,6 +110,9 @@ data "aws_iam_policy_document" "github_deploy" {
       "ecr:*",
       "cloudfront:*",
       "apprunner:*",
+      # The agent plane (infra/agentcore.tf): the runtime and the workload
+      # identity AgentCore creates with it get their IDs only on creation.
+      "bedrock-agentcore:*",
     ]
     resources = ["*"]
   }
@@ -168,6 +171,7 @@ data "aws_iam_policy_document" "github_deploy" {
         "lambda.amazonaws.com",
         "build.apprunner.amazonaws.com",
         "tasks.apprunner.amazonaws.com",
+        "bedrock-agentcore.amazonaws.com",
       ]
     }
   }
