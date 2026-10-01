@@ -20,7 +20,7 @@
  *     its source of truth whenever disk works, re-read on every drain; only
  *     events the disk refuses fall back to this instance's memory.
  */
-import type { CardPatch, DeviceEvent, QueuedCard } from '@wick/contracts';
+import { MAX_CARD_ACTIONS, type CardPatch, type DeviceEvent, type QueuedCard } from '@wick/contracts';
 
 export interface FileSystemLike {
   readFileAsString(path: string, encoding: string): Promise<string>;
@@ -89,6 +89,8 @@ export class QueueStore {
           ...(patch.description === undefined ? {} : { description: patch.description }),
           ...(patch.imageRef === undefined ? {} : { imageRef: patch.imageRef }),
           ...(patch.match === undefined ? {} : { match: patch.match }),
+          ...(patch.notice === undefined ? {} : { notice: patch.notice }),
+          ...(patch.actions === undefined ? {} : { actions: patch.actions.slice(0, MAX_CARD_ACTIONS) }),
         },
       };
     });

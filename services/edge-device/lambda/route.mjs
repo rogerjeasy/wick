@@ -41,6 +41,11 @@
  * "not already set" is still checked so the resident's actual first
  * viewing is never overwritten by a later stray press.
  *
+ * A card_action the agent plane must carry out (today only M1's
+ * `hallway_chime`) is also published to EventBridge as `wick.device` /
+ * `card.action` — see card-action-event.mjs. Door presses that keep the card
+ * on screen (the chime, Watch live) don't retire it (card-acted.mjs).
+ *
  * reconcile: the client sends `{ t: 'reconcile', sinceCardId }` as a normal
  * message right after `onopen` (see
  * apps/tv-vega/src/transport/WebSocketChannel.ts) — not in the $connect
@@ -50,11 +55,15 @@
  */
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
+import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { randomUUID } from 'node:crypto';
-import { isReplayable, markCardActed } from './card-acted.mjs';
+import { isReplayable, markCardActed, retiresCard } from './card-acted.mjs';
+import { buildCardActionEntry, shouldPublish } from './card-action-event.mjs';
 
 const ddb = new DynamoDBClient({});
+const events = new EventBridgeClient({});
 const TABLE = process.env.TABLE_NAME;
+const BUS = process.env.EVENT_BUS_NAME;
 
 const WEEK_CARD_ID = /^week-(\d{4}-W\d{2})$/;
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -167,7 +176,13 @@ export const handler = async (event) => {
       },
     }));
 
-    if (deviceEvent.t === 'card_action') await retireActedCard(householdId, deviceEvent.cardId, deviceEvent.at);
+    if (deviceEvent.t === 'card_action' && retiresCard(deviceEvent.action)) {
+      await retireActedCard(householdId, deviceEvent.cardId, deviceEvent.at);
+    }
+
+    if (deviceEvent.t === 'card_action' && typeof deviceEvent.action === 'string' && shouldPublish(deviceEvent.action)) {
+      await publishCardAction({ householdId, deviceId, cardId: deviceEvent.cardId, action: deviceEvent.action, at: deviceEvent.at });
+    }
 
     if (deviceEvent.t === 'card_action' && deviceEvent.action === 'seen') {
       const weekMatch = WEEK_CARD_ID.exec(deviceEvent.cardId);
@@ -191,6 +206,20 @@ async function retireActedCard(householdId, cardId, at) {
   } catch (err) {
     if (err?.name === 'ConditionalCheckFailedException') return; // not a card the server sent — nothing to retire
     console.error('card_acted_write_failed', { householdId, cardId, err });
+  }
+}
+
+/**
+ * Hand the press to the agent plane (M1). Logged, never thrown: the press is
+ * already on the timeline, and the card keeps its button, so pressing again
+ * is the resident's retry — the consumer's once-per-card claim makes that safe.
+ */
+async function publishCardAction(detail) {
+  try {
+    const res = await events.send(new PutEventsCommand({ Entries: [buildCardActionEntry({ busName: BUS, ...detail })] }));
+    if (res.FailedEntryCount) console.error('card_action_publish_rejected', { cardId: detail.cardId, code: res.Entries?.[0]?.ErrorCode });
+  } catch (err) {
+    console.error('card_action_publish_failed', { cardId: detail.cardId, err: err?.name });
   }
 }
 

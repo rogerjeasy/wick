@@ -15,7 +15,7 @@
  * See docs/WICK-TECHNICAL.md §6.3, §10.2.
  */
 import { evaluate, type Audience, type HouseholdPolicy } from '@wick/policy';
-import type { Card, CardPatch, FactClass, QueuedCard } from '@wick/contracts';
+import { MAX_CARD_ACTIONS, type Card, type CardPatch, type FactClass, type QueuedCard } from '@wick/contracts';
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 
@@ -190,6 +190,30 @@ async function pushOverWebSocket(
 }
 
 /**
+ * Attributes that live on the CARD# item for the agent plane's own use and
+ * are never part of the card the device receives. Today: which Ring camera
+ * the card came from, so Watch live (M2) can open that camera's stream
+ * without the television ever holding a Ring identifier.
+ */
+export interface ServerOnly {
+  readonly ringDeviceId?: string;
+}
+
+/** The CARD# queue item. Pure, so its shape is tested without AWS. */
+export function cardItem(card: QueuedCard, serverOnly: ServerOnly = {}): Record<string, AttributeValue> {
+  const item: Record<string, AttributeValue> = {
+    pk: { S: `HH#${card.card.householdId}` },
+    sk: { S: `CARD#${card.id}` },
+    data: { S: JSON.stringify(card) },
+  };
+  if (card.expiresAt !== undefined) {
+    item.ttl = { N: String(Math.floor(card.expiresAt / 1000)) };
+  }
+  if (serverOnly.ringDeviceId) item.ringDeviceId = { S: serverOnly.ringDeviceId };
+  return item;
+}
+
+/**
  * The only path to the television.
  *
  * The resident is always audience RESIDENT, so the Guardian is permissive here —
@@ -199,21 +223,14 @@ async function pushOverWebSocket(
 export async function sendToDevice(
   card: QueuedCard,
   _policy: HouseholdPolicy,
+  serverOnly: ServerOnly = {},
 ): Promise<void> {
   const householdId = card.card.householdId;
 
   // The Card item is the queue's source of truth — written unconditionally,
   // before any attempt at a live push, so connect.mjs's reconcile step can
   // always deliver it later even if the device is offline right now.
-  const item: Record<string, AttributeValue> = {
-    pk: { S: `HH#${householdId}` },
-    sk: { S: `CARD#${card.id}` },
-    data: { S: JSON.stringify(card) },
-  };
-  if (card.expiresAt !== undefined) {
-    item.ttl = { N: String(Math.floor(card.expiresAt / 1000)) };
-  }
-  await ddb.send(new PutItemCommand({ TableName: TABLE, Item: item }));
+  await ddb.send(new PutItemCommand({ TableName: TABLE, Item: cardItem(card, serverOnly) }));
 
   // No live device: reconcile delivers it the moment one is next seen.
   await pushToDevices(householdId, { kind: 'card', card });
@@ -235,6 +252,8 @@ export function applyCardPatch(card: Card, patch: CardPatch): Card {
     ...(patch.description === undefined ? {} : { description: patch.description }),
     ...(patch.imageRef === undefined ? {} : { imageRef: patch.imageRef }),
     ...(patch.match === undefined ? {} : { match: patch.match }),
+    ...(patch.notice === undefined ? {} : { notice: patch.notice }),
+    ...(patch.actions === undefined ? {} : { actions: patch.actions.slice(0, MAX_CARD_ACTIONS) }),
   };
 }
 

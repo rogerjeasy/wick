@@ -34,3 +34,15 @@ export function isReplayable(item, sinceCardId) {
   if (sinceCardId && item.sk.S === `CARD#${sinceCardId}`) return false; // exact match: client already has this one
   return true;
 }
+
+/**
+ * Door presses that leave the card on screen: the chime's answer patches onto
+ * it, and the live view opens over it. Retiring those would stop reconcile
+ * replaying a card the resident is still looking at.
+ */
+const KEEPS_CARD = new Set(['hallway_chime', 'watch_live']);
+
+/** Whether a card_action finishes its card server-side (stamps actedAt). */
+export function retiresCard(action) {
+  return !KEEPS_CARD.has(action);
+}

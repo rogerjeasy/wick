@@ -18,6 +18,7 @@ import { loadEnv, ringToken } from './env.js';
 import {
   RingClient,
   listDevices,
+  hasHallwayChime,
   latestEvent,
   imageAt,
   fetchImageBytes,
@@ -59,7 +60,7 @@ async function main() {
     console.log(
       `   ${d.online ? '●' : '○'} ${d.name || '(unnamed)'}  ` +
         `motion=${d.capabilities.motion} image=${d.capabilities.image} ` +
-        `chime=${d.capabilities.chime}${d.capabilities.maxResolution ? ` ${d.capabilities.maxResolution}p` : ''}`,
+        `chime.play=${d.capabilities.chime}${d.capabilities.maxResolution ? ` ${d.capabilities.maxResolution}p` : ''}`,
     );
   }
   console.log(`   ${devices.length} device(s) in ${ms(tDevices)}`);
@@ -73,11 +74,14 @@ async function main() {
   console.log(`   ${event.eventType}  at ${new Date(event.start).toISOString()}  (${ms(tEvent)})`);
   if (event.detections.length) console.log(`   detections: ${event.detections.join(', ')}`);
 
+  const hallwayChime = hasHallwayChime(devices);
+
   rule('PHASE 1 — what the television shows immediately');
   const [card, tCard] = await timed(async () =>
     buildPhaseOneCard({
       event,
       device,
+      hallwayChime,
       householdId: 'demo-household',
       correlationId,
       now: Date.now(),
@@ -90,9 +94,9 @@ async function main() {
   console.log(`      │${' '.repeat(52)}│`);
   console.log(`      │  ${card.actions.map((a) => a.label).join('  ·  ').padEnd(50)}│`);
   console.log(`      └${'─'.repeat(52)}┘`);
-  if (!device.capabilities.chime) {
-    console.log(`\n   "Just a moment" is absent: ${device.name || 'this device'} reports no Chime Controls.`);
-    console.log(`   The button is not drawn rather than drawn and broken.`);
+  if (!hallwayChime) {
+    console.log('\n   "Ring the hallway chime" is absent: no playable Ring Chime on this account.');
+    console.log('   The button is not drawn rather than drawn and broken.');
   }
 
   rule('PHASE 2a — the picture');

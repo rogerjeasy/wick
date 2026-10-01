@@ -63,6 +63,30 @@ describe('QueueStore', () => {
     expect((card!.card as { line: string }).line).toBe('Movement at the front door.');
   });
 
+  it('applies a notice and replaces actions, exactly as egress.applyCardPatch does', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(doorCard('c1'));
+    await store.applyPatch({
+      cardId: 'c1',
+      notice: 'The hallway chime rang.',
+      actions: [{ id: 'dismiss', label: 'Not now', kind: 'dismiss' }],
+    });
+
+    const [q] = await store.readAll();
+    expect(q!.card.type === 'DOOR' && q!.card.notice).toBe('The hallway chime rang.');
+    expect(q!.card.actions.map((a) => a.id)).toEqual(['dismiss']);
+  });
+
+  it('caps patched actions at three on the device too', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(doorCard('c1'));
+    const four = ['a', 'b', 'c', 'd'].map((id) => ({ id, label: id, kind: 'secondary' as const }));
+    await store.applyPatch({ cardId: 'c1', actions: four });
+
+    const [q] = await store.readAll();
+    expect(q!.card.actions).toHaveLength(3);
+  });
+
   it('removes a card by id', async () => {
     const store = new QueueStore(fakeFs());
     await store.upsert(doorCard('c1'));

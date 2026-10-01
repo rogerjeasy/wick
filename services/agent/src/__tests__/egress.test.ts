@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { DoorCard, DayCard } from '@wick/contracts';
-import { applyCardPatch, liveDeviceConnections } from '../egress.js';
+import { applyCardPatch, cardItem, liveDeviceConnections } from '../egress.js';
 
 const door: DoorCard = {
   type: 'DOOR',
@@ -51,6 +51,23 @@ describe('applyCardPatch', () => {
   });
 });
 
+describe('applyCardPatch — M1 feedback', () => {
+  it('merges a notice and replaces the actions', () => {
+    const patched = applyCardPatch(door, {
+      cardId: 'door-1',
+      notice: 'The hallway chime rang.',
+      actions: [{ id: 'dismiss', label: 'Not now', kind: 'dismiss' }],
+    });
+    expect(patched.type === 'DOOR' && patched.notice).toBe('The hallway chime rang.');
+    expect(patched.actions.map((a) => a.id)).toEqual(['dismiss']);
+  });
+
+  it('never lets a patch carry more than three actions onto the card', () => {
+    const four = ['a', 'b', 'c', 'd'].map((id) => ({ id, label: id, kind: 'secondary' as const }));
+    expect(applyCardPatch(door, { cardId: 'door-1', actions: four }).actions).toHaveLength(3);
+  });
+});
+
 describe('applyCardPatch — headline correction', () => {
   it('merges a corrected line onto the stored door card', () => {
     const patched = applyCardPatch(door, { cardId: 'door-1', line: 'Movement at the front door.' });
@@ -89,5 +106,23 @@ describe('liveDeviceConnections', () => {
 
   it('returns nothing when no device is connected — reconcile delivers on next connect', () => {
     expect(liveDeviceConnections([dev('wick-tv')])).toEqual([]);
+  });
+});
+
+describe('cardItem — the CARD# queue item', () => {
+  const queued = { id: 'door-1', urgency: 'DOOR' as const, card: door, queuedAt: 1, expiresAt: 300_000, shownCount: 0 };
+
+  it('stores the card as data, with a DynamoDB ttl from expiresAt', () => {
+    const item = cardItem(queued);
+    expect(item.pk).toEqual({ S: 'HH#hh-1' });
+    expect(item.sk).toEqual({ S: 'CARD#door-1' });
+    expect(JSON.parse(item.data!.S!)).toEqual(queued);
+    expect(item.ttl).toEqual({ N: '300' });
+  });
+
+  it('keeps the Ring camera id beside the card, outside the data the device is sent', () => {
+    const item = cardItem(queued, { ringDeviceId: 'ava1.ring.device.ABNJQ' });
+    expect(item.ringDeviceId).toEqual({ S: 'ava1.ring.device.ABNJQ' });
+    expect(item.data!.S).not.toContain('ava1.ring.device.ABNJQ');
   });
 });
