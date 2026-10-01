@@ -34,10 +34,16 @@ Every entry needs all six fields. Severity: `Critical` / `Important` / `Nice-to-
 Fill each in as the spike completes, **whatever the answer**. A spike that
 succeeds still often surfaces a documentation or ergonomics gap.
 
-- [ ] **SP-1** Rendering over active playback on Vega
+- [x] **SP-1** Rendering over active playback on Vega — **yes.** A DOOR card composited by
+      the app over its own `w3cmedia` HLS playback on the VVD (2026-10-01): legible, playback
+      uninterrupted. Over *another app's* playback remains unanswerable (no overlay API).
 - [x] **SP-2** Ring snapshot latency (`POST /media/image/download`) — **3.15s** end to end
       (0.8s to the 303, ~2.3s to pull 106KB). And it is not a snapshot: see FL-005.
-- [ ] **SP-3** Ring WHEP session negotiation and limits on Vega
+- [x] **SP-3** Ring WHEP session negotiation and limits on Vega — **WHEP works; Vega can't be
+      the client.** Relay-held token, Ring answers 201 in ~1.5s, 1280x720 H.264 live in desktop
+      Chromium in 5.6s. Vega has no WebRTC package and its WebView segfaults on the VVD
+      (FL-015), so Watch Live bridges WHEP to HLS in the cloud; the bridge produced its first
+      playlist 6.8s after the request. Cleartext HLS is refused silently (FL-016).
 - [ ] **SP-4** Alexa+ add-on onboarding (`alexa-ai configure → deploy`)
 - [ ] **SP-5** WebSocket / MQTT transport inside Vega's RN 0.83 fork
 - [ ] **SP-6** Bee proxy SSE longevity against the 120s idle timeout
@@ -72,6 +78,103 @@ leads, not entries — an entry requires that you actually hit it.
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-016 — Vega's media player silently refuses a cleartext HLS URL: no request, no error, a black rectangle
+
+**Tool / API:**      Vega OS 1.2 / @amazon-devices/react-native-w3cmedia 2.3.2 (`VideoPlayer`),
+                     Vega Virtual Device, SDK 0.24.12044
+
+**Task attempted:**  Play a live HLS stream produced by Wick's WHEP-to-HLS bridge (SP-3) in
+                     the app's own `VideoPlayer`, served from the development machine.
+
+**Steps taken:**     1. Confirmed `VideoPlayer` plays public HLS over **https** on the VVD
+                        (`test-streams.mux.dev`, H.264 + AAC in MPEG-TS): `timeupdate` events
+                        advance, picture on screen.
+                     2. Served the bridge's own output over **http** at `http://10.0.2.2:8790/`,
+                        then — to rule out the live edge — a fixed copy of the same segments
+                        as a VOD playlist at `http://10.0.2.2:8791/vod.m3u8`.
+                     3. `vega device run-cmd "curl http://10.0.2.2:8791/"` from the VVD itself
+                        returns 200, so the host is reachable from the device.
+                     4. Relaunched the app against each URL with request logging on the
+                        server.
+
+**Expected:**        Either playback, or an `error` event / log line naming the reason —
+                     "cleartext not permitted", as Android's network-security config says.
+
+**Actual:**          The player never makes a request. The server log shows only the
+                     developer's own curl. The device log shows `render KeplerVideoSurfaceView`
+                     and periodic `hasEnded: 0`, and nothing else from `W3CMEDIA` — no
+                     fetch, no error, no warning. The screen shows a black rectangle.
+
+**Severity:**        Important — a local development loop (a Mac serving HLS to the VVD) is the
+                     obvious first thing anyone building live video tries, and it fails with
+                     no signal at all. Blocking HTTP is a reasonable default; failing silently
+                     is not.
+
+**Workaround:**      Serve HLS over HTTPS only (the bridge ships behind TLS in AWS). Local
+                     testing needs a trusted certificate, which the VVD's trust store does not
+                     make easy either.
+
+**Suggestion:**      1. Emit a `MediaError` (and a log line) naming the policy when a URL is
+                        refused for its scheme.
+                     2. Document the cleartext policy on the `VideoPlayer` page, with a
+                        development-only manifest opt-in for `http://10.0.2.2`.
+
+---
+
+## FL-015 — `@amazon-devices/webview` 4.0.2 segfaults on mount on the Vega Virtual Device — including Amazon's own `vegaWebview` template
+
+**Tool / API:**      @amazon-devices/webview 4.0.2 (`libkeplerscript-webview-lib-2.so`),
+                     Vega Virtual Device (Apple Silicon, `sim_tv_aarch64`), SDK 0.24.12044,
+                     Vega CLI 1.3.4
+
+**Task attempted:**  SP-3 — run a WHEP (WebRTC) client inside a Vega `WebView`, since Vega has
+                     no WebRTC module for React Native, so "Watch live" could show the Ring
+                     doorbell in under a second.
+
+**Steps taken:**     1. Proved the WHEP path itself first: a page in desktop Chromium, SDP
+                        relayed through a local server holding the Ring token, played the Ring
+                        Playground camera live at 1280x720 in 5.6s.
+                     2. Added `@amazon-devices/webview@4.0.2` and
+                        `/com.amazon.kepler.webview_4@IWebview_4` to Wick, rendered a
+                        full-screen `WebView` at that page. The app crashed on launch:
+                        `SIGSEGV`, `libkeplerscript-webview-lib-2.so.2.0 + 0x2471ba`, on the
+                        JS thread, right after `applyWebEngineFlagsWebView switches applied
+                        successfully`.
+                     3. Added everything "Set Up your Vega Web App" lists (media, DRM,
+                        `com.amazon.gipc.uuid.*` wants/offers, file-sharing privilege). Same
+                        crash, same offset.
+                     4. Reduced to `<WebView source={{uri:'https://example.com/'}} />`. Same.
+                     5. Generated Amazon's own template (`vega project generate --template
+                        vegaWebview`), noticed it also declares
+                        `com.amazon.webview.renderer_service` — which the setup page never
+                        mentions — added that to Wick. Same crash.
+                     6. Built and ran the **unmodified template**. Same crash, same offset.
+
+**Expected:**        The platform's own WebView template to run on the platform's own
+                     simulator, as the release notes for 0.24 describe WebView 4.0.x (Chromium
+                     144) as shipping for RN 0.83.
+
+**Actual:**          Every WebView — Wick's or Amazon's, any URL, any props — kills the process
+                     on mount on the VVD. No JS error surfaces; the only evidence is an ACR
+                     crash dump in the device log.
+
+**Severity:**        Critical for anyone building a web app or a WebRTC feature on the
+                     simulator; Important for Wick, which moved Watch Live to a cloud bridge.
+
+**Workaround:**      Watch Live bridges Ring's WHEP stream to HLS in the cloud and plays it in
+                     the native `w3cmedia` `VideoPlayer`, which does work on the VVD (SP-1).
+                     Costs ~5s of latency against sub-second WebRTC.
+
+**Suggestion:**      1. Fix or document the VVD WebView crash; the template is the first thing
+                        a web developer runs.
+                     2. Put `com.amazon.webview.renderer_service` on the setup page — the
+                        template needs it and the docs don't say so.
+                     3. Ship a WebRTC module for Vega React Native (or confirm WebView's
+                        `RTCPeerConnection` on hardware). Ring's own live API is WebRTC; today
+                        a Fire TV app cannot show a Ring camera without a server in between.
+
+---
 
 ## FL-014 — Fixing FL-013's symptom exposed the real one: `card.service` never launches as a process at all, and there is no locally-discoverable manifest field that makes it
 
@@ -1076,6 +1179,19 @@ leads, not entries — an entry requires that you actually hit it.
                         building against the Playground will design for what it exposes, and
                         discover the gap when they reach real hardware — or, as here, design
                         around a gap that may not exist on real hardware at all.
+
+**Update 2026-10-01:** Ring's Chimes page (Early Access) now documents the body
+(`{"data":{"type":"audio","attributes":{"audio_ref":…}}}`, where `audio_ref`
+comes from the chime's own `configurations.audio.customizable_slots`) and the
+capability to branch on: `audio.supported_actions` ∋ `chime.play`. Our four
+attempts were against the Playground *camera*, which is not a chime at all; a
+chime is its own device. Wick now discovers chimes that way
+(`services/connectors/ring/src/chime.ts`), and the button was renamed to what the
+API can actually do: "Ring the hallway chime", an indoor speaker that tells the
+house rather than the visitor. Two documentation gaps remain: nothing on the camera
+side says "this endpoint is for chimes only", and the Playground has no chime to
+test against, so the playback path is contract-tested against Ring's documented
+shapes but not yet run against hardware.
 
 ---
 

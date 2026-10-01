@@ -28,7 +28,7 @@ nothing, wear nothing and change nothing.
 
 | Pillar | What happens |
 |---|---|
-| **The Door** | A Ring doorbell press puts a card on the television in under three seconds — a live still and one plain sentence describing who is actually there. One button plays *"Just a moment"* out of the Ring Chime in the hallway, so nobody has to rush to the door. |
+| **The Door** | A Ring doorbell press puts a card on the television in under three seconds — a live still and one plain sentence describing who is actually there. One button rings the Ring Chime in the hallway, so whoever else is home knows someone is at the door — and the card says whether it rang. Another opens the doorbell camera live, full screen, and Back returns to the card. |
 | **The Day** | Wick reads the day's real context from a Bee wearable and surfaces at most three things worth remembering — at the end of an episode, never mid-scene. |
 | **The Family** | A distant daughter asks her own Echo *"how's Mum been this week?"* and gets a truthful, unsensational narrative. Notes go back the other way; the resident replies with one button. |
 | **The Rhythm** | Wick learns what a normal week looks like in this house, so it can stay silent when nothing is wrong — and so the weekly narrative can say *"that's up from last week"* and mean it. |
@@ -79,8 +79,8 @@ household's rhythm. Full detail in [`docs/WICK-TECHNICAL.md`](docs/WICK-TECHNICA
 | **Vega OS** (`@amazon-devices/react-native-kepler`) | The platform Amazon is actively investing in. Wick uses two of its least-exploited surfaces — headless services and Content Personalization — for exactly what they were built for. |
 | **`kepler-content-personalization`** | Gives the platform correct Continue Watching behaviour *and* gives Wick a genuine behavioural signal with no new sensor. Its `creditsPositionMs` field is the platform's own model of "the episode is ending" — which is precisely the signal the Natural-Break Engine needs. |
 | **`headless-task-manager`** | Keeps the card channel alive while the app is off screen. |
-| **Ring Partner API** | Live WHEP video, snapshots, event history — and `media/audio/playback`, which lets a button on a TV remote make a voice come out of the hallway. |
-| **Strands Agents + Bedrock AgentCore** | Four cooperating agents with real long-horizon memory, not a single model call. |
+| **Ring Partner API** | Live WHEP video (bridged to HLS for the TV's own player), recorded frames, event history — and `media/audio/playback`, which lets a button on a TV remote ring the Chime in the hallway. |
+| **Strands Agents + Bedrock AgentCore** | The door's work runs as Strands graphs in one AgentCore Runtime: a vision Agent (Nova Lite) describes the visitor, and deterministic nodes gate the hallway chime and the live view, because no model should decide to make a sound in someone's home. Session = household, so each household's graphs run in their own microVM. |
 | **MCP server** (spec 2025-11-25, Streamable HTTP) | The family's endpoint, built to Alexa+'s own published requirements — including the sub-500ms round trip, which is why the weekly narrative is precomputed rather than generated in-request. The Alexa+ add-on surface is partner-gated ([FL-001](FRICTION.md)), so it is exercised through an MCP client and a simulated Alexa+ surface, the alternative the rules permit. |
 
 ## The trust model
@@ -143,7 +143,8 @@ is in [`docs/WICK-TECHNICAL.md`](docs/WICK-TECHNICAL.md) §13.
 ## Security
 
 No static AWS keys anywhere — CI authenticates via GitHub OIDC. Ring tokens live
-in Bedrock AgentCore Identity and never touch the television, which holds a single
+in AWS Secrets Manager, are read at runtime by the Lambdas and the AgentCore
+Runtime, and never touch the television, which holds a single
 device-bound JWT scoped to receiving cards for one household. Ring webhooks are
 HMAC-SHA256 verified with constant-time comparison and idempotency on
 `request_id`. Threat model in [`docs/WICK-TECHNICAL.md`](docs/WICK-TECHNICAL.md) §10.

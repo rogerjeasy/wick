@@ -628,7 +628,7 @@ Never a generic error. Never silence — silence is indistinguishable from "noth
 | Image (Phase 1 + vision) ⚠️ **not a live snapshot** | `POST /v1/devices/{id}/media/image/download` — body `{"type":"at_timestamp","timestamp":<ms>}`, returns **303** to a presigned URL. Verified 2026-09-15. |
 | Live view (M2) | `POST /v1/devices/{id}/media/streaming/whep/sessions` (`Content-Type: application/sdp`) |
 | Live view fallback | `rtsps://video.rtsp.amazonvision.com:322/v1/devices/{id}/stream` |
-| **"Just a moment" (M1)** | `POST /v1/devices/{chimeId}/media/audio/playback` |
+| **"Ring the hallway chime" (M1)** | `POST /v1/devices/{chimeId}/media/audio/playback` — body `{"data":{"type":"audio","attributes":{"audio_ref":…}}}`, the app's own slot; a chime is the device whose `audio.supported_actions` ∋ `chime.play` |
 | Carer verification (M5) | `GET /v1/history/devices/{id}/events` |
 | Multi-module cameras | append `?component_id=N` |
 
@@ -977,7 +977,7 @@ Order is not arbitrary. Each step de-risks the next, and each has a binary exit 
 | **4** | **S2 Natural-Break Engine** + Content Personalization (real events) | Deferred card provably never appears in `IN_SCENE`, on device |
 | **5** | **S6 Rhythm** — Timestream, baselines, deviation floor | A real 3-week baseline produces a true "nothing unusual this week" |
 | **6** | **S3 Day Card** — Bee bridge, SSE, fact normalisation, 3-item selection | Real Bee data produces a real card at a real break |
-| **7** | **M1 "Just a moment"** | A remote button makes a real Chime speak. *Build this first among the multipliers — it is small and it is the best delight moment in the video.* |
+| **7** | **M1 "Ring the hallway chime"** | A remote button rings a real Chime down the hall, and the card says whether it rang. Ring's API plays audio only on an indoor Chime, from the app's own slot — it tells the house, not the visitor. |
 | **8** | **M3 One-Button Reply** | Real note in, real reply out, one button |
 | **9** | **M2 Watch Live** | Live doorbell full-screen on the TV, Back restores playback |
 | **10** | **M5 Carer Verification** + **M4 Known Visitors** (schedule-based) | Real carer arrival verified from real history |
