@@ -8,14 +8,28 @@
 #
 # Session = household (services/agent/src/runtime/invoke.ts): AgentCore runs
 # each session in its own microVM, so the household is the isolation boundary.
-# The M2 live bridge (werift + ffmpeg) runs inside that session after
-# live.start answers; /ping says HealthyBusy until it ends.
+# The M2 live stream runs in the bridge Lambda (live.tf), not here: this
+# microVM has no outbound UDP and WebRTC needs it (FRICTION.md FL-017).
 #
 # Deploy order (the runtime needs an image to exist):
 #   1. terraform apply -target=aws_ecr_repository.agents
-#   2. scripts/push-agent-image.sh   (builds services/agent/Dockerfile, arm64)
-#   3. terraform apply
+#   2. scripts/push-agent-image.sh   (builds both images, arm64)
+#   3. terraform apply -var agent_image_tag=<printed tag>
 # ---------------------------------------------------------------------------
+
+resource "aws_ecr_repository" "live_bridge" {
+  name                 = "${local.prefix}-live-bridge"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "live_bridge" {
+  repository = aws_ecr_repository.live_bridge.name
+  policy     = aws_ecr_lifecycle_policy.agents.policy
+}
 
 resource "aws_ecr_repository" "agents" {
   name                 = "${local.prefix}-agents"
@@ -102,9 +116,11 @@ data "aws_iam_policy_document" "agents_runtime" {
   statement {
     sid = "CardsClaimsAndPatches"
     # GetItem: the CARD# a press or a live view is for. PutItem: M1's
-    # CHIME#<cardId> once-only claim. UpdateItem + Query: sendPatchToDevice's
-    # merge and its device-connection lookup.
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"]
+    # CHIME#<cardId> once-only claim and M2's LIVE#active claim. UpdateItem +
+    # Query: sendPatchToDevice's merge and its device-connection lookup, and
+    # Back's stop flag. DeleteItem: giving a live claim back when the bridge
+    # can't be started.
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:DeleteItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }
 
@@ -122,20 +138,9 @@ data "aws_iam_policy_document" "agents_runtime" {
   }
 
   statement {
-    sid       = "PublishLiveHls"
-    actions   = ["s3:PutObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.media.arn}/live/*"]
-  }
-
-  statement {
-    sid       = "ListLiveHlsForCleanup"
-    actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.media.arn]
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = ["live/*"]
-    }
+    sid       = "StartTheLiveBridge"
+    actions   = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_function.live_bridge.arn]
   }
 }
 
@@ -175,7 +180,7 @@ resource "aws_bedrockagentcore_agent_runtime" "agents" {
 
   environment_variables = {
     TABLE_NAME            = aws_dynamodb_table.wick.name
-    MEDIA_BUCKET          = aws_s3_bucket.media.id
+    LIVE_BRIDGE_FUNCTION  = aws_lambda_function.live_bridge.function_name
     LIVE_ORIGIN           = "https://${aws_cloudfront_distribution.live.domain_name}"
     RING_TOKEN_SECRET_ID  = aws_secretsmanager_secret.ring_tokens.name
     WICK_CHIME_SLOT_EVENT = var.chime_slot_event

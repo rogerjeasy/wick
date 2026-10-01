@@ -6,13 +6,13 @@
  * Deterministic, like the chime: whether a television may watch the front
  * door is policy (live/gate.ts), never a model's call. `start` starts — or
  * joins — the household's one live bridge, which then keeps streaming in
- * this AgentCore session after the graph has answered.
+ * the bridge Lambda after the graph has answered (FL-017).
  */
 import { Graph } from '@strands-agents/sdk';
 import type { LiveErrorResponse, LiveSessionResponse } from '@wick/contracts';
 import { LiveStartError } from '../live/bridge.js';
 import { gateLiveRequest, type LiveGateDeps, type LiveGateOutcome } from '../live/gate.js';
-import type { LiveSession } from '../live/registry.js';
+import type { LiveSession } from '../live/startLive.js';
 import { StepNode, assertCompleted, pathOf, when } from './step.js';
 import type { GraphRun } from './doorAction.js';
 

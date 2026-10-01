@@ -3,7 +3,6 @@ import type { CardActionDeps } from '../../agents/door/actions.js';
 import { doorActionHandler, doorDescribeHandler, liveStartHandler, liveStopHandler } from '../handlers.js';
 import { ScriptedModel } from '../../graphs/__tests__/scriptedModel.js';
 import type { LiveGraphDeps } from '../../graphs/live.js';
-import { LiveRegistry } from '../../live/registry.js';
 
 const NOW = 1_790_000_000_000;
 const detail = { householdId: 'margaret', deviceId: 'wick-tv', cardId: 'door-abc', action: 'hallway_chime', at: NOW };
@@ -63,15 +62,16 @@ describe('liveStartHandler', () => {
 });
 
 describe('liveStopHandler', () => {
-  it('stops the household\'s session by id', async () => {
-    const registry = new LiveRegistry();
-    const stop = vi.spyOn(registry, 'stop').mockReturnValue(true);
-    expect(await liveStopHandler(registry)({ kind: 'live.stop', householdId: 'margaret', sessionId: 'abc' }, { sessionId: 's' })).toEqual({ stopped: true });
-    expect(stop).toHaveBeenCalledWith('margaret', 'abc');
+  it('flags the household\'s session to stop — the bridge Lambda polls for it', async () => {
+    const requestStop = vi.fn(async () => true);
+    expect(await liveStopHandler(requestStop)({ kind: 'live.stop', householdId: 'margaret', sessionId: 'abc' }, { sessionId: 's' })).toEqual({ stopped: true });
+    expect(requestStop).toHaveBeenCalledWith('margaret', 'abc');
   });
 
-  it('answers stopped: false for a malformed stop', async () => {
-    expect(await liveStopHandler(new LiveRegistry())({ kind: 'live.stop', householdId: 'margaret' }, { sessionId: 's' })).toEqual({ stopped: false });
+  it('answers stopped: false for a malformed stop, without touching the store', async () => {
+    const requestStop = vi.fn(async () => true);
+    expect(await liveStopHandler(requestStop)({ kind: 'live.stop', householdId: 'margaret' }, { sessionId: 's' })).toEqual({ stopped: false });
+    expect(requestStop).not.toHaveBeenCalled();
   });
 });
 

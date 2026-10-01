@@ -10,7 +10,6 @@ import { runDoorActionGraph } from '../graphs/doorAction.js';
 import { runLiveGraph, type LiveGraphDeps } from '../graphs/live.js';
 import { runDescribeGraph } from '../graphs/doorDescribe.js';
 import type { Model } from '@strands-agents/sdk';
-import type { LiveRegistry } from '../live/registry.js';
 import type { RuntimeHandler } from './server.js';
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -26,7 +25,7 @@ export function doorActionHandler(depsFor: (householdId: string) => CardActionDe
   };
 }
 
-/** `live.start` — M2. Answers the live-start Lambda; the bridge keeps running here afterwards. */
+/** `live.start` — M2. Answers the live Lambda; the stream itself runs in the bridge Lambda (FL-017). */
 export function liveStartHandler(depsFor: (householdId: string) => LiveGraphDeps): RuntimeHandler {
   return async (payload) => {
     const { householdId, cardId } = payload;
@@ -35,12 +34,12 @@ export function liveStartHandler(depsFor: (householdId: string) => LiveGraphDeps
   };
 }
 
-/** `live.stop` — the resident pressed Back. Lands in the same session as the bridge it stops. */
-export function liveStopHandler(registry: LiveRegistry): RuntimeHandler {
+/** `live.stop` — the resident pressed Back. Flags LIVE#active; the bridge Lambda polls it (live/bridgeJob.ts). */
+export function liveStopHandler(requestStop: (householdId: string, sessionId: string) => Promise<boolean>): RuntimeHandler {
   return async (payload) => {
     const { householdId, sessionId } = payload;
     if (typeof householdId !== 'string' || typeof sessionId !== 'string') return { stopped: false };
-    return { stopped: registry.stop(householdId, sessionId) };
+    return { stopped: await requestStop(householdId, sessionId) };
   };
 }
 

@@ -47,6 +47,13 @@ const TARGETS = [
     bundleAll: true,
   },
   {
+    // M2: the WHEP->HLS bridge, a container-image Lambda (services/agent/bridge.Dockerfile).
+    name: 'agent-live-bridge',
+    entry: 'services/agent/src/live/bridgeLambda.ts',
+    outfile: 'services/agent/.build/live-bridge/index.mjs',
+    bundleAll: true,
+  },
+  {
     // The AgentCore Runtime container (services/agent/Dockerfile).
     name: 'agent-runtime',
     entry: 'services/agent/src/runtime/main.ts',
