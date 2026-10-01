@@ -17,7 +17,6 @@
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
-import { LIVE_MAX_MS } from '@wick/contracts';
 import { RingClient, listDevices, ringChime, secretsManagerTokenProvider } from '@wick/ring';
 import { sendPatchToDevice } from '../egress.js';
 import { describeModel } from '../graphs/doorDescribe.js';
