@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------
 # The simulated Alexa+ surface (S4a's client — see apps/sim-alexa/README.md),
-# deployed. It's two static files that only ever talk to the real MCP server
+# deployed. It's three static files that only ever talk to the real MCP server
 # over HTTPS from the browser — no server-side logic, no AWS SDK, no
 # credentials — so it needs nothing more than a bucket behind CloudFront for
 # TLS. The bucket itself stays private; CloudFront's Origin Access Control is
@@ -59,6 +59,17 @@ resource "aws_s3_object" "sim_alexa_main_js" {
   key           = "main.js"
   source        = "${path.module}/../apps/sim-alexa/main.js"
   etag          = filemd5("${path.module}/../apps/sim-alexa/main.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+# What the surface understands, says and shows — a separate module so it is
+# tested without a browser (apps/sim-alexa/__tests__/surface.test.ts).
+resource "aws_s3_object" "sim_alexa_surface_js" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "surface.js"
+  source        = "${path.module}/../apps/sim-alexa/surface.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/surface.js")
   content_type  = "application/javascript; charset=utf-8"
   cache_control = "no-cache"
 }

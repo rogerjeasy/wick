@@ -13,25 +13,28 @@ Alexa+ integration — doing so would be worse than not showing it at all. One l
 on screen stating that the add-on surface is partner-gated and this is the
 permitted alternative costs three seconds and buys credibility.
 
-**What it does.** A small web surface that:
+**What it does.** A small web surface, styled to Amazon's Alexa+ add-on design
+guide (its card and button tokens, spacing scale, radii, and the 1.6x far-field
+type scale), that:
 
 1. speaks to the **real** MCP server in `services/mcp-server` over Streamable
-   HTTP, spec 2025-11-25 — no shortcuts, no direct database reads;
-2. offers five fixed buttons, one per tool it exercises (`get_week_narrative`,
-   `get_today`, `did_visitor_come`, `send_note_to_tv`, `get_replies`) — no voice
-   or free-text *question* input; four buttons take no input at all, and
-   `send_note_to_tv` has a plain from/message form, not a spoken query;
-3. displays each tool's raw JSON (or text) response verbatim in a `<pre>`
-   block — **except two**, which render as panels:
-   - `get_week_narrative` (M6): the Narrator's prose first, then the timeline
-     it was built from (`renderWeekPanel()`). Until the resident has seen the
-     week on their own television (INV-7), the server withholds it and says
-     why, and that sentence shows as plain text.
-   - `get_replies` (M3): each note sent to the television, with the
-     resident's one-button reply under it, or "No reply yet."
-     (`renderReplies()`).
+   HTTP, spec 2025-11-25, after a real OAuth 2.1 link — no shortcuts, no direct
+   database reads;
+2. takes a question from a suggestion chip or the text field and routes it to
+   one of six tools (`get_week_narrative`, `get_today`, `did_visitor_come`,
+   `send_note_to_tv`, `get_replies`, `get_resident_shared_view`) with a
+   handful of rules — deliberately not a model, so it cannot invent an answer.
+   When nothing matches, it says what it can do;
+3. answers the way an assistant around an add-on does: **one sentence that
+   stands alone spoken** (voice-only is the guide's baseline; "Speak answers"
+   reads it aloud), then **at most one card** — a list with "See all" past
+   four rows, a confirmation, or the note form with one final action;
+4. shows a refusal as what it is. "Kept private" and "Not yet" are answers,
+   in the server's own words, never an error.
 
-   Both render client-side only, with no shortcut into the database.
+`surface.js` holds the routing and the sentence-and-card logic with no DOM and
+no network, and is tested (`__tests__/surface.test.ts`). `main.js` is the OAuth
+and MCP client and puts the result on the page.
 
 **The point.** The server is the real artefact. This is a client. If Alexa+ access
 ever opens, this directory becomes redundant and **not one line of the server

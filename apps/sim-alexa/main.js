@@ -4,18 +4,24 @@
  * anything else directly. See ./index.html's on-page notice and this
  * directory's README for why this exists.
  */
+import { HELP_TEXT, SUGGESTIONS, presentResult, routeUtterance } from './surface.js';
+
 let mcpServerUrl = document.getElementById('server-url').value;
 let accessToken = null;
 let mcpSessionId = null;
 
-function setStatus(text) {
-  document.getElementById('auth-status').textContent = text;
+const $ = (id) => document.getElementById(id);
+
+function setStatus(text, state = 'idle') {
+  const el = $('auth-status');
+  el.textContent = text;
+  el.dataset.state = state;
 }
 
+/** Everything that asks the server: the chips, the text field and its button. */
 function enableToolButtons(enabled) {
-  for (const id of ['ask-week', 'ask-today', 'ask-visitor', 'send-note', 'ask-replies']) {
-    document.getElementById(id).disabled = !enabled;
-  }
+  for (const el of document.querySelectorAll('.chip, #ask-input, #ask-send')) el.disabled = !enabled;
+  if (!enabled) $('link-card').hidden = false;
 }
 
 async function discoverAuthServer() {
@@ -161,8 +167,8 @@ async function sendMcpMessage(message) {
     accessToken = null;
     mcpSessionId = null;
     enableToolButtons(false);
-    setStatus('Signed out — the Wick server restarted. Press Connect to sign in again.');
-    throw new Error('Please sign in again (press Connect).');
+    setStatus('Signed out — the Wick server restarted. Link Wick again.');
+    throw new Error('Wick needs linking again. The server restarted.');
   }
 
   const sid = res.headers.get('mcp-session-id');
@@ -205,133 +211,247 @@ async function callTool(name, args) {
   return sendMcpMessage({ jsonrpc: '2.0', id: ++mcpRequestId, method: 'tools/call', params: { name, arguments: args } });
 }
 
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+// ---------------------------------------------------------------------------
+// The conversation. What is said and shown is decided in surface.js; this
+// only puts it on the page.
+// ---------------------------------------------------------------------------
+
+const log = $('log');
+const FLAME =
+  '<svg class="flame" viewBox="0 0 16 22" aria-hidden="true"><path d="M8 0c3 5 7 8 7 13a7 7 0 0 1-14 0C1 8 5 5 8 0z" fill="#e8b75d"/></svg>';
+const TONE_LABEL = { private: 'Kept private', waiting: 'Not yet', error: 'Something went wrong' };
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 }
 
-function formatTimelineAt(atMs) {
-  return new Date(atMs).toLocaleString(undefined, {
-    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+let lastCustomerTurn = null;
+
+/**
+ * Keep the question and the start of its answer in view: the sentence is
+ * the answer, and a long card must not push it off the top.
+ */
+function scrollToEnd() {
+  if (lastCustomerTurn) log.scrollTop = lastCustomerTurn.offsetTop - 12;
+  else log.scrollTop = log.scrollHeight;
+}
+
+function addCustomerTurn(text) {
+  lastCustomerTurn = el('div', 'turn-customer', text);
+  log.appendChild(lastCustomerTurn);
+  scrollToEnd();
+}
+
+function addThinking() {
+  const turn = el('div', 'turn-assistant');
+  const dots = el('span', 'thinking');
+  dots.setAttribute('aria-label', 'Thinking');
+  dots.append(el('i'), el('i'), el('i'));
+  turn.appendChild(dots);
+  log.appendChild(turn);
+  scrollToEnd();
+  return turn;
+}
+
+let speakAnswers = false;
+
+/** Voice is the baseline (the design guide's voice-only mode): the sentence stands alone. */
+function speak(text) {
+  if (!speakAnswers || !('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+}
+
+function cardFoot(note) {
+  const foot = el('div', 'card-foot');
+  foot.appendChild(el('span', 'note', note ?? ''));
+  const by = el('span', 'by');
+  by.innerHTML = `${FLAME} Wick`;
+  foot.appendChild(by);
+  return foot;
+}
+
+/** Four rows inline, then "See more" — the guide's list pattern. */
+const INLINE_ROWS = 4;
+
+function renderRows(card) {
+  const rows = el('ul', 'rows');
+  for (const item of card.items) {
+    const li = el('li', card.kind === 'replies' ? 'row stacked' : 'row');
+    if (card.kind === 'replies') {
+      li.appendChild(el('span', 'secondary', item.secondary));
+      li.appendChild(el('span', 'primary', item.primary));
+      li.appendChild(el('span', item.reply ? 'reply' : 'reply none', item.reply ? `“${item.reply}”` : item.replyMeta));
+      if (item.reply) li.appendChild(el('span', 'secondary', item.replyMeta));
+    } else {
+      li.appendChild(el('span', 'primary', item.primary));
+      li.appendChild(el('span', 'secondary', item.secondary));
+    }
+    rows.appendChild(li);
+  }
+  return rows;
+}
+
+function renderCard(card) {
+  const node = el('article', 'card');
+  const head = el('div', 'card-head');
+  head.appendChild(el('h2', 'card-title', card.title));
+  if (card.meta) head.appendChild(el('span', 'card-meta', card.meta));
+  node.appendChild(head);
+
+  if (card.kind === 'confirmation') {
+    const fields = el('dl', 'fields');
+    for (const [name, value] of card.fields) {
+      fields.appendChild(el('dt', undefined, name));
+      fields.appendChild(el('dd', undefined, value));
+    }
+    node.appendChild(fields);
+  } else if (card.items.length === 0) {
+    node.appendChild(el('p', 'empty', card.empty ?? 'Nothing to show.'));
+  } else {
+    const rows = renderRows(card);
+    node.appendChild(rows);
+    if (card.items.length > INLINE_ROWS) {
+      rows.dataset.collapsed = 'true';
+      const more = el('button', 'btn link', `See all ${card.items.length}`);
+      more.type = 'button';
+      more.addEventListener('click', () => {
+        const collapsed = rows.dataset.collapsed === 'true';
+        rows.dataset.collapsed = String(!collapsed);
+        more.textContent = collapsed ? 'Show fewer' : `See all ${card.items.length}`;
+      });
+      node.appendChild(more);
+    }
+  }
+
+  node.appendChild(cardFoot(card.footnote));
+  return node;
+}
+
+function fillAssistantTurn(turn, presented) {
+  turn.replaceChildren();
+  if (TONE_LABEL[presented.tone]) turn.appendChild(el('span', 'tone', TONE_LABEL[presented.tone]));
+  const say = el('p', 'say', presented.say);
+  say.dataset.tone = presented.tone;
+  turn.appendChild(say);
+  if (presented.card) turn.appendChild(renderCard(presented.card));
+  speak(presented.say);
+  scrollToEnd();
+}
+
+async function askTool(tool, args, context = {}) {
+  const turn = addThinking();
+  try {
+    const result = await callTool(tool, args);
+    const text = result.content?.[0]?.text ?? '';
+    fillAssistantTurn(turn, presentResult(tool, text, context, undefined, result.isError === true));
+  } catch (err) {
+    fillAssistantTurn(turn, { say: err.message, card: null, tone: 'error' });
+  }
+}
+
+/** The note form, as a card in the conversation: one field that matters, one final action. */
+function addComposer(prefill) {
+  const turn = el('div', 'turn-assistant');
+  turn.appendChild(el('p', 'say', 'What would you like it to say?'));
+
+  const card = el('article', 'card');
+  const head = el('div', 'card-head');
+  head.appendChild(el('h2', 'card-title', 'A note for the television'));
+  card.appendChild(head);
+
+  const form = el('form', 'form');
+  const fromLabel = el('label', undefined, 'From');
+  const from = el('input');
+  from.value = 'Sarah';
+  from.required = true;
+  fromLabel.appendChild(from);
+
+  const messageLabel = el('label', undefined, 'Message');
+  const message = el('textarea');
+  message.maxLength = 240;
+  message.required = true;
+  message.value = prefill ?? '';
+  messageLabel.appendChild(message);
+
+  const actions = el('div', 'actions');
+  const send = el('button', 'btn final', 'Send to the television');
+  send.type = 'submit';
+  const cancel = el('button', 'btn quiet', 'Not now');
+  cancel.type = 'button';
+  const counter = el('span', 'counter');
+  const count = () => {
+    counter.textContent = `${message.value.length} / 240`;
+  };
+  message.addEventListener('input', count);
+  count();
+  actions.append(send, cancel, counter);
+
+  form.append(fromLabel, messageLabel, actions);
+  card.appendChild(form);
+  card.appendChild(cardFoot('It is read on a television, in large type: keep it short.'));
+  turn.appendChild(card);
+  log.appendChild(turn);
+  scrollToEnd();
+  message.focus();
+
+  cancel.addEventListener('click', () => turn.remove());
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const context = { fromName: from.value.trim(), message: message.value.trim() };
+    if (!context.fromName || !context.message) return;
+    turn.remove();
+    addCustomerTurn(`Send: “${context.message}”`);
+    void askTool('send_note_to_tv', context, context);
   });
 }
 
-/**
- * M6 — get_week_narrative's response, rendered as a real panel instead of
- * raw JSON: the prose first, then the timeline it was built from.
- * WeekNarrative's own shape (packages/contracts/src/narrative.ts) —
- * {text, timeline: {at, kind, summary, personId?}[], residentSeenAt?, ...}.
- *
- * get_week_narrative.ts's tool handler returns a plain, non-JSON sentence
- * whenever there's nothing to show: no week written yet, or, by INV-7, a
- * week the resident hasn't seen on their own television yet (WeekCard,
- * services/agent/src/agents/narrator/weekCard.ts), which says so in so many
- * words. Neither is an error to special-case here: both fall through to
- * the plain-text branch below.
- */
-function renderWeekPanel(rawText) {
-  let narrative;
-  try {
-    narrative = JSON.parse(rawText);
-  } catch {
-    return `<p class="week-empty">${escapeHtml(rawText)}</p>`;
-  }
-
-  if (typeof narrative.text !== 'string' || !Array.isArray(narrative.timeline)) {
-    return `<p class="week-empty">${escapeHtml(rawText)}</p>`;
-  }
-
-  const items = narrative.timeline
-    .slice()
-    .sort((a, b) => a.at - b.at)
-    .map((e) => `<li><time>${escapeHtml(formatTimelineAt(e.at))}</time><span>${escapeHtml(e.summary)}</span></li>`)
-    .join('');
-
-  return `
-    <div class="week-panel">
-      <p class="week-prose">${escapeHtml(narrative.text)}</p>
-      ${items ? `<ul class="week-timeline">${items}</ul>` : '<p class="week-empty">No events this week.</p>'}
-      <p class="week-meta">${escapeHtml(narrative.isoWeek ?? '')} · seen by the resident on their own television first (INV-7)</p>
-    </div>
-  `;
+function handleUtterance(text) {
+  addCustomerTurn(text);
+  const route = routeUtterance(text);
+  if (route.kind === 'tool') return void askTool(route.tool, route.args);
+  if (route.kind === 'compose') return addComposer(route.message);
+  const turn = el('div', 'turn-assistant');
+  log.appendChild(turn);
+  fillAssistantTurn(turn, { say: HELP_TEXT, card: null, tone: 'answer' });
 }
 
-/**
- * M3 — get_replies' response: each note Sarah sent, and the resident's
- * one-button answer under it, or "No reply yet." The tool returns a plain
- * sentence when no notes were sent, which falls through as text.
- */
-function renderReplies(rawText) {
-  let parsed;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch {
-    return `<p class="week-empty">${escapeHtml(rawText)}</p>`;
-  }
-  if (!Array.isArray(parsed.notes)) return `<p class="week-empty">${escapeHtml(rawText)}</p>`;
-
-  const items = parsed.notes
-    .map((n) => {
-      const answer = n.reply
-        ? `<p class="reply-text">“${escapeHtml(n.reply.text)}”</p><p class="week-meta">Replied ${escapeHtml(formatTimelineAt(n.reply.at))}</p>`
-        : '<p class="week-meta">No reply yet.</p>';
-      return `<li><p class="week-meta">${escapeHtml(n.from)}, ${escapeHtml(formatTimelineAt(n.sentAt))}</p>${n.message ? `<p>${escapeHtml(n.message)}</p>` : ""}${answer}</li>`;
-    })
-    .join('');
-  return `<div class="week-panel"><ul class="replies">${items}</ul></div>`;
+for (const suggestion of SUGGESTIONS) {
+  const chip = el('button', 'chip', suggestion.label);
+  chip.type = 'button';
+  chip.disabled = true;
+  chip.addEventListener('click', () => handleUtterance(suggestion.utterance));
+  $('chips').appendChild(chip);
 }
 
-document.getElementById('connect').addEventListener('click', () => void connect());
-
-document.getElementById('ask-replies').addEventListener('click', async () => {
-  try {
-    const result = await callTool('get_replies', {});
-    document.getElementById('replies-result').innerHTML = renderReplies(result.content[0].text);
-  } catch (err) {
-    document.getElementById('replies-result').textContent = `Error: ${err.message}`;
-  }
+$('ask').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const input = $('ask-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  handleUtterance(text);
 });
 
-document.getElementById('ask-week').addEventListener('click', async () => {
-  try {
-    const result = await callTool('get_week_narrative', {});
-    document.getElementById('week-result').innerHTML = renderWeekPanel(result.content[0].text);
-  } catch (err) {
-    document.getElementById('week-result').textContent = `Error: ${err.message}`;
-  }
+$('speak-toggle').addEventListener('click', (event) => {
+  speakAnswers = !speakAnswers;
+  event.currentTarget.setAttribute('aria-pressed', String(speakAnswers));
+  if (!speakAnswers && 'speechSynthesis' in window) window.speechSynthesis.cancel();
 });
 
-document.getElementById('ask-today').addEventListener('click', async () => {
-  try {
-    const result = await callTool('get_today', {});
-    document.getElementById('today-result').textContent = result.content[0].text;
-  } catch (err) {
-    document.getElementById('today-result').textContent = `Error: ${err.message}`;
-  }
-});
-
-document.getElementById('ask-visitor').addEventListener('click', async () => {
-  try {
-    const result = await callTool('did_visitor_come', { personId: 'maria' });
-    document.getElementById('visitor-result').textContent = result.content[0].text;
-  } catch (err) {
-    document.getElementById('visitor-result').textContent = `Error: ${err.message}`;
-  }
-});
-
-document.getElementById('send-note').addEventListener('click', async () => {
-  try {
-    const fromName = document.getElementById('note-from').value;
-    const message = document.getElementById('note-message').value;
-    const result = await callTool('send_note_to_tv', { fromName, message });
-    document.getElementById('note-result').textContent = result.content[0].text;
-  } catch (err) {
-    document.getElementById('note-result').textContent = `Error: ${err.message}`;
-  }
-});
+$('connect').addEventListener('click', () => void connect());
 
 completeAuthIfRedirected().then((authenticated) => {
-  if (authenticated) {
-    setStatus('Connected.');
-    enableToolButtons(true);
-  }
+  if (!authenticated) return;
+  setStatus('Linked', 'connected');
+  enableToolButtons(true);
+  $('link-card').hidden = true;
+  const turn = el('div', 'turn-assistant');
+  log.appendChild(turn);
+  fillAssistantTurn(turn, { say: 'Wick is linked. What would you like to know?', card: null, tone: 'answer' });
+  $('ask-input').focus();
 });
