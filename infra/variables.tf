@@ -46,7 +46,7 @@ variable "pairing_url_base" {
 }
 
 variable "household_id" {
-  description = "The household the linked Ring account and the weekly Narrator serve. Accounts made everything else multi-household (the MCP server, pairing, the television take a household from a token, never from here), but there is still one Ring link per deployment and no Ring-device -> household registry (services/agent/src/agents/door/lambda.ts)."
+  description = "The household the linked Ring account serves. Accounts made everything else multi-household (the MCP server, pairing, the television take a household from a token, never from here; the weekly Narrator writes for every household with a television), but there is still one Ring link per deployment and no Ring-device -> household registry (services/agent/src/agents/door/lambda.ts)."
   type        = string
   default     = "margaret"
 }
