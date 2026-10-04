@@ -1,9 +1,14 @@
 # ---------------------------------------------------------------------------
 # Device pairing. §4.2. Deployed and confirmed live 2026-09-19: a real Vega
 # app on the Vega Virtual Device successfully called POST /pair/start and
-# received a real code + claim URL from this stack. The claim URL points at
-# docs/pair/ (GitHub Pages) — see that page and docs/404.html for how a
-# per-code path is served with no server-side routing.
+# received a real code + claim URL from this stack.
+#
+# The code is confirmed by the household's organiser, signed in, in the
+# family app (apps/sim-alexa -> POST /api/televisions on the MCP server ->
+# POST /pair/claim here with their own token). pair-claim.mjs checks that
+# token against the grant the MCP server stored in the wick table, so the
+# two share no secret. The link on the television opens the family app with
+# the code filled in.
 # ---------------------------------------------------------------------------
 
 resource "aws_secretsmanager_secret" "pairing_signing_key" {
@@ -156,8 +161,9 @@ resource "aws_lambda_function" "pair_start" {
 
   environment {
     variables = {
-      TABLE_NAME       = aws_dynamodb_table.wick.name
-      PAIRING_URL_BASE = var.pairing_url_base
+      TABLE_NAME = aws_dynamodb_table.wick.name
+      # The family app, unless a shorter address has been put in front of it.
+      PAIRING_URL_BASE = var.pairing_url_base != "" ? var.pairing_url_base : "https://${aws_cloudfront_distribution.sim_alexa.domain_name}"
     }
   }
 

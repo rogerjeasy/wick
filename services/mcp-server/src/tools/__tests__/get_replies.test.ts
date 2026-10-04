@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { loadNoteReplies, registerGetReplies } from '../get_replies.js';
+import { allowedContext } from './toolContext.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = 1_790_900_000_000;
@@ -59,7 +60,7 @@ describe('get_replies (end to end through the registered tool)', () => {
   it('answers with the replies as JSON, and says so plainly when no notes were sent', async () => {
     const connect = async (items: unknown[]) => {
       const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-      registerGetReplies(mcpServer, ddbReturning(items).ddb, () => NOW);
+      registerGetReplies(mcpServer, ddbReturning(items).ddb, allowedContext('hh-1'), () => NOW);
       const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
       const client = new Client({ name: 'test-client', version: '0.1.0' });
       await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);

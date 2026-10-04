@@ -45,6 +45,11 @@
  * sharing card's own presses change the resident's exclusions and turn its
  * pages — sharing.mjs.
  *
+ * INV-9: `allow` or `decline` on a Circle card (`circle-<userId>`) is the
+ * resident's answer to someone who asked to join the family circle, and the
+ * only thing that can turn a pending membership into an allowed one —
+ * circle.mjs.
+ *
  * M3: a `reply_<n>` on a family note (`note-<uuid>`) records the reply on
  * the note's CARD# item, in the words Wick offered — note-reply.mjs.
  *
@@ -67,6 +72,7 @@ import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { randomUUID } from 'node:crypto';
 import { isReplayable, markCardActed, retiresCard } from './card-acted.mjs';
+import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
 import { buildCardActionEntry, shouldPublish } from './card-action-event.mjs';
 import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
 import { SHARING_CARD_ID, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
@@ -198,6 +204,9 @@ export const handler = async (event) => {
     }
 
     if (deviceEvent.t === 'card_action') {
+      const decision = circleDecision(deviceEvent.cardId, deviceEvent.action);
+      if (decision) await recordCircleDecision(householdId, decision, deviceEvent.at);
+
       const index = replyIndex(deviceEvent.cardId, deviceEvent.action);
       if (index !== undefined) await recordNoteReply(householdId, deviceEvent.cardId, index, deviceEvent.at);
 
@@ -230,6 +239,26 @@ async function retireActedCard(householdId, cardId, at) {
   } catch (err) {
     if (err?.name === 'ConditionalCheckFailedException') return; // not a card the server sent — nothing to retire
     console.error('card_acted_write_failed', { householdId, cardId, err });
+  }
+}
+
+/**
+ * INV-9 — see circle.mjs. The household is this connection's own, so a
+ * television can only ever answer for the home it is in. Logged, never
+ * thrown: the press is already on the timeline. A failed condition means
+ * the question was no longer open (answered already, or the organiser
+ * removed the person), and the answer on record stands.
+ */
+async function recordCircleDecision(householdId, decision, at) {
+  try {
+    await ddb.send(new UpdateItemCommand(membershipDecisionUpdate({ table: TABLE, householdId, ...decision, at })));
+    console.log(JSON.stringify({ level: 'info', msg: 'circle_decision', status: decision.status }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      console.log(JSON.stringify({ level: 'info', msg: 'circle_decision_not_open' }));
+      return;
+    }
+    console.error('circle_decision_write_failed', { householdId, err: err?.name });
   }
 }
 

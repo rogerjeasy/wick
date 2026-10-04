@@ -24,3 +24,13 @@ export function generatePairingCode() {
 export function isExpired(record, now = Date.now()) {
   return !record || record.expiresAt <= now;
 }
+
+/**
+ * The link shown beside the six-digit code. It opens the family app
+ * (apps/sim-alexa) with the code filled in: connecting a television needs
+ * the organiser signed in, so there is no longer a page that can do it on
+ * its own.
+ */
+export function pairingUrl(base, code) {
+  return `${String(base).replace(/\/+$/, '')}/?pair=${code}`;
+}

@@ -12,6 +12,7 @@ import {
   loadWeekNarrative,
   registerGetWeekNarrative,
 } from '../get_week_narrative.js';
+import { allowedContext } from './toolContext.js';
 
 const NARRATIVE: WeekNarrative = {
   householdId: 'hh-1',
@@ -56,7 +57,7 @@ describe('get_week_narrative INV-7 guard (end-to-end through the registered tool
     } as unknown as DynamoDBClient;
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerGetWeekNarrative(mcpServer, ddb);
+    registerGetWeekNarrative(mcpServer, ddb, allowedContext('hh-1'));
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -73,7 +74,7 @@ describe('get_week_narrative INV-7 guard (end-to-end through the registered tool
   it('says plainly when no week has been written yet', async () => {
     const ddb = { send: vi.fn().mockResolvedValue({ Item: undefined }) } as unknown as DynamoDBClient;
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerGetWeekNarrative(mcpServer, ddb);
+    registerGetWeekNarrative(mcpServer, ddb, allowedContext('hh-1'));
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
     await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
@@ -88,7 +89,7 @@ describe('get_week_narrative INV-7 guard (end-to-end through the registered tool
     } as unknown as DynamoDBClient;
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerGetWeekNarrative(mcpServer, ddb);
+    registerGetWeekNarrative(mcpServer, ddb, allowedContext('hh-1'));
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -155,7 +156,7 @@ describe('get_week_narrative honours "What Sarah sees" (end to end through the r
       ),
     } as unknown as DynamoDBClient;
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerGetWeekNarrative(mcpServer, ddb);
+    registerGetWeekNarrative(mcpServer, ddb, allowedContext('hh-1'));
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
     await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);

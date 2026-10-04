@@ -20,7 +20,7 @@ import { z } from 'zod';
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk, type RosterEntry } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { HOUSEHOLD_ID } from '../auth.js';
+import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
 
@@ -89,7 +89,7 @@ export async function checkVisitor(
   };
 }
 
-export function registerDidVisitorCome(mcpServer: McpServer, ddb: DynamoDBClient): void {
+export function registerDidVisitorCome(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext): void {
   mcpServer.registerTool(
     'did_visitor_come',
     {
@@ -97,16 +97,16 @@ export function registerDidVisitorCome(mcpServer: McpServer, ddb: DynamoDBClient
       description: 'Checks whether a specific person on the household roster visited today, and whether today was one of their expected days.',
       inputSchema: { personId: z.string().describe('The roster person id, e.g. "maria".') },
     },
-    withFriendlyErrors(async ({ personId }: { personId: string }) => {
+    withFriendlyErrors(gated(ctx, async (_allowed, { personId }: { personId: string }) => {
       // Mirrors get_resident_shared_view.ts's disclosure check: if PRESENCE
       // isn't shared with FAMILY under the household's policy, the whole
       // answer is withheld rather than silently answered anyway (§6.4).
-      const policy = await loadHouseholdPolicy(ddb, HOUSEHOLD_ID);
+      const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
       if (!isSharedWithFamily('PRESENCE', policy)) {
         return { content: [{ type: 'text' as const, text: FAMILY_REFUSAL_TEXT }] };
       }
-      const result = await checkVisitor(ddb, HOUSEHOLD_ID, personId, new Date());
+      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date());
       return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-    }),
+    })),
   );
 }

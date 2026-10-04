@@ -1,4 +1,5 @@
 export * from './card.js';
+export * from './circle.js';
 export * from './device.js';
 export * from './door.js';
 export * from './fact.js';

@@ -8,32 +8,32 @@
 export interface DeviceConfig {
   readonly pairingApiUrl: string;
   readonly websocketUrl: string;
-  /** See deviceId.ts's HOUSEHOLD_ID — same "no account system" simplification. */
-  readonly householdId: string;
   /** Absent until infra/transport.tf's IoT Core stack exists — SP-5, see FRICTION.md. */
   readonly mqttWssUrl?: string;
 }
 
 export function resolveDeviceConfig(partial: Partial<DeviceConfig>): DeviceConfig {
-  const { pairingApiUrl, websocketUrl, householdId, mqttWssUrl } = partial;
-  if (!pairingApiUrl || !websocketUrl || !householdId) {
+  const { pairingApiUrl, websocketUrl, mqttWssUrl } = partial;
+  if (!pairingApiUrl || !websocketUrl) {
     throw new Error(
       'apps/tv-vega/src/config.ts is not populated. Run `terraform output` in infra/ ' +
         'after applying pairing.tf and transport.tf, and fill in DEPLOYED below.',
     );
   }
-  return { pairingApiUrl, websocketUrl, householdId, ...(mqttWssUrl ? { mqttWssUrl } : {}) };
+  return { pairingApiUrl, websocketUrl, ...(mqttWssUrl ? { mqttWssUrl } : {}) };
 }
 
 /**
  * Fill these in from `terraform output` once infra/pairing.tf and
  * infra/transport.tf are applied. Left blank deliberately — see the header
  * comment above.
+ *
+ * No household: the television is told whose it is when the organiser
+ * connects it, in the token it is handed (INV-8, ./deviceId.ts).
  */
 const DEPLOYED: Partial<DeviceConfig> = {
   pairingApiUrl: 'https://aplt2e6673.execute-api.us-east-1.amazonaws.com',
   websocketUrl: 'wss://2ozlpzh5da.execute-api.us-east-1.amazonaws.com/prod',
-  householdId: 'margaret',
 };
 
 export function loadDeviceConfig(): DeviceConfig {

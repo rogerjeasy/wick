@@ -11,6 +11,9 @@
  * "What Sarah sees" opens over the Week card, so Done returns to it; and the
  * sharing card's own toggle and Next are answered by the server replacing it
  * in place. Only Done finishes it.
+ *
+ * A Circle card is finished by either answer: the resident is asked once
+ * (the default below), and the server records what they said.
  */
 import { DOOR_ACTIONS, SHARING_ACTIONS, WEEK_ACTIONS, type Card } from '@wick/contracts';
 

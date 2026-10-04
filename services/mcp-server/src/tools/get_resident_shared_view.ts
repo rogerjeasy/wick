@@ -12,7 +12,7 @@ import type { HouseholdPolicy } from '@wick/policy';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { NEVER_TO_FAMILY, type FactClass } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { HOUSEHOLD_ID } from '../auth.js';
+import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
@@ -60,7 +60,7 @@ export function isSharedWithFamily(factClass: FactClass, policy: HouseholdPolicy
   return allowed && !policy.residentExclusions.includes(factClass);
 }
 
-export function registerGetResidentSharedView(mcpServer: McpServer, ddb: DynamoDBClient): void {
+export function registerGetResidentSharedView(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext): void {
   mcpServer.registerTool(
     'get_resident_shared_view',
     {
@@ -68,8 +68,8 @@ export function registerGetResidentSharedView(mcpServer: McpServer, ddb: DynamoD
       description: "Returns exactly what the resident has agreed is shared with family — the machine-readable counterpart of the television's \"What Sarah Sees\" screen.",
       inputSchema: {},
     },
-    withFriendlyErrors(async () => {
-      const policy = await loadHouseholdPolicy(ddb, HOUSEHOLD_ID);
+    withFriendlyErrors(gated(ctx, async () => {
+      const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
       const shared = (Object.keys(policy.table) as FactClass[]).filter((factClass) =>
         isSharedWithFamily(factClass, policy),
       );
@@ -81,6 +81,6 @@ export function registerGetResidentSharedView(mcpServer: McpServer, ddb: DynamoD
           },
         ],
       };
-    }),
+    })),
   );
 }

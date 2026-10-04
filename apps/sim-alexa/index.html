@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Wick — simulated Alexa+ surface</title>
+<title>Wick — family</title>
 <link rel="icon" href="data:," />
 <style>
   /*
@@ -209,7 +209,7 @@
 
   .form { display: flex; flex-direction: column; gap: var(--s-s); }
   .form label { display: flex; flex-direction: column; gap: var(--s-2xs); color: var(--ink-dim); font-size: var(--t-small); }
-  .form input, .form textarea, .ask input, details input {
+  .form input, .form textarea, .ask input, details input, input.linkbox {
     background: var(--card-inner);
     border: 1px solid var(--line);
     border-radius: var(--r-m);
@@ -221,6 +221,11 @@
   .form textarea { resize: vertical; min-height: 4.5em; }
   .form .actions { display: flex; gap: var(--s-s); align-items: center; }
   .counter { color: var(--ink-dim); font-size: var(--t-small); margin-left: auto; }
+  /* The six digits on the television: large, spaced, impossible to misread. */
+  .form input.code { font-size: var(--t-display); letter-spacing: 0.18em; max-width: 9em; }
+  input.linkbox { font-size: var(--t-small); }
+  .problem { color: #f0b8a8; font-size: var(--t-small); margin: 0; min-height: 1.2em; }
+  .row .btn.link { align-self: center; flex: none; }
 
   details { color: var(--ink-dim); font-size: var(--t-small); }
   details summary { cursor: pointer; padding: var(--s-2xs) 0; }
@@ -247,10 +252,11 @@
 </head>
 <body>
   <p class="disclosure">
-    <strong>A simulated Alexa+ surface.</strong> Amazon's Alexa+ add-on tools are open to
-    select partners only, so this page stands in for the assistant, as the hackathon
-    permits. Nothing on it is canned: every answer comes from the real Wick MCP server
-    (spec 2025-11-25, Streamable HTTP, OAuth 2.1).
+    <strong>The Wick family app, with a simulated Alexa+ conversation.</strong> Amazon's
+    Alexa+ add-on tools are open to select partners only, so this page stands in for the
+    assistant, as the hackathon permits. Nothing on it is canned: you sign in to a real
+    account, and every answer comes from the real Wick MCP server (spec 2025-11-25,
+    Streamable HTTP, OAuth 2.1).
   </p>
 
   <main class="surface">
@@ -262,19 +268,20 @@
       <span class="spacer"></span>
       <span id="auth-status" class="status" role="status">Not connected</span>
       <button id="speak-toggle" class="toggle" type="button" aria-pressed="false">Speak answers</button>
+      <button id="sign-out" class="toggle" type="button" hidden>Sign out</button>
     </header>
 
     <!-- The conversation. Customer turns on the right; the assistant's sentence,
          then at most one card from the add-on. Announced as it arrives. -->
     <section id="log" class="log" role="log" aria-live="polite" aria-label="Conversation">
       <div id="link-card" class="turn-assistant">
-        <p class="say">To ask about the house, link Wick first.</p>
+        <p id="link-say" class="say">To ask about the house, link Wick first.</p>
         <div class="card">
-          <div class="card-head"><h2 class="card-title">Link your Wick account</h2></div>
-          <p class="empty">You will be asked to approve this once. Wick then answers only what the
-            person at home has agreed to share.</p>
+          <div class="card-head"><h2 id="link-title" class="card-title">Link your Wick account</h2></div>
+          <p id="link-detail" class="empty">Sign in, or create an account with your email and a password.
+            Wick then answers only what the person at home has agreed to share.</p>
           <div class="form">
-            <div class="actions"><button id="connect" class="btn final" type="button">Link Wick</button></div>
+            <div class="actions"><button id="connect" class="btn final" type="button">Sign in or create an account</button></div>
             <details>
               <summary>Server</summary>
               <label>MCP server URL <input id="server-url" value="http://127.0.0.1:3300" autocomplete="off" spellcheck="false" /></label>

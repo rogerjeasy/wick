@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { buildMessageCard, registerSendNoteToTv } from '../send_note_to_tv.js';
+import { allowedContext } from './toolContext.js';
 
 // INV-2: services/agent/src/egress.ts is the only module allowed to touch a
 // transport client; send_note_to_tv.ts calls sendToDevice() from @wick/agent
@@ -41,36 +42,68 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
     sendToDevice.mockReset();
   });
 
-  it('calls sendToDevice with a correctly-shaped MESSAGE card and returns the expected tool result', async () => {
+  it('sends the note in the signed-in member’s own name, to the household their token is for', async () => {
     sendToDevice.mockResolvedValue(undefined);
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerSendNoteToTv(mcpServer);
+    registerSendNoteToTv(mcpServer, allowedContext('hh-9', { name: 'Tom' }));
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
     await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
 
-    const result = await client.callTool({
-      name: 'send_note_to_tv',
-      arguments: { fromName: 'Alex', message: 'Just checking in!' },
-    });
+    const result = await client.callTool({ name: 'send_note_to_tv', arguments: { message: 'Just checking in!' } });
 
     expect(sendToDevice).toHaveBeenCalledTimes(1);
-    const [card] = sendToDevice.mock.calls[0] as [{ card: { type: string; fromName: string; transcript: string } }];
-    expect(card.card).toMatchObject({ type: 'MESSAGE', fromName: 'Alex', transcript: 'Just checking in!' });
+    const [card] = sendToDevice.mock.calls[0] as [{ card: { type: string; fromName: string; transcript: string; householdId: string } }];
+    expect(card.card).toMatchObject({ type: 'MESSAGE', fromName: 'Tom', transcript: 'Just checking in!', householdId: 'hh-9' });
 
     const content = result.content as { type: string; text: string }[];
-    const parsed = JSON.parse(content[0]!.text) as { sent: boolean; cardId: string };
+    const parsed = JSON.parse(content[0]!.text) as { sent: boolean; cardId: string; fromName: string };
     expect(parsed.sent).toBe(true);
+    expect(parsed.fromName).toBe('Tom');
     expect(typeof parsed.cardId).toBe('string');
+  });
+
+  it('cannot be made to sign a note as somebody else: a name passed in is ignored', async () => {
+    sendToDevice.mockResolvedValue(undefined);
+
+    const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
+    registerSendNoteToTv(mcpServer, allowedContext('hh-9', { name: 'Tom' }));
+
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+
+    await client.callTool({ name: 'send_note_to_tv', arguments: { fromName: 'Sarah', message: 'Send money.' } });
+
+    const [card] = sendToDevice.mock.calls[0] as [{ card: { fromName: string } }];
+    expect(card.card.fromName).toBe('Tom');
+  });
+
+  it('sends nothing for someone the resident has not allowed', async () => {
+    const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
+    registerSendNoteToTv(mcpServer, {
+      householdId: 'hh-9',
+      userId: 'u_tom',
+      access: async () => ({ ok: false, reason: 'waiting', say: 'Margaret hasn’t allowed this yet.' }),
+    });
+
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = await client.callTool({ name: 'send_note_to_tv', arguments: { message: 'Hello' } });
+
+    expect(sendToDevice).not.toHaveBeenCalled();
+    expect((result.content as { text: string }[])[0]!.text).toBe('Margaret hasn’t allowed this yet.');
   });
 
   it('returns a friendly refusal, not a raw error, when sendToDevice throws', async () => {
     sendToDevice.mockRejectedValue(new Error('AccessDeniedException: arn:aws:iam::123456789012:role/wick-mcp'));
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerSendNoteToTv(mcpServer);
+    registerSendNoteToTv(mcpServer, allowedContext('hh-9'));
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -78,7 +111,7 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
 
     const result = await client.callTool({
       name: 'send_note_to_tv',
-      arguments: { fromName: 'Alex', message: 'Just checking in!' },
+      arguments: { message: 'Just checking in!' },
     });
 
     expect(result.isError).toBe(true);

@@ -34,7 +34,7 @@ import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { createDeviceChannel } from './transport/createDeviceChannel.js';
 import { holdCardChannel } from './transport/startCardChannel.js';
 import { loadDeviceConfig } from './config.js';
-import { DEVICE_ID } from './deviceId.js';
+import { resolveDeviceId } from './deviceId.js';
 
 const QUEUE_POLL_MS = 1000;
 
@@ -48,7 +48,7 @@ type Screen =
 export default function App(): React.JSX.Element {
   const config = React.useMemo(() => loadDeviceConfig(), []);
   const pairing = React.useMemo(
-    () => new PairingFlow({ pairingApiUrl: config.pairingApiUrl, householdId: config.householdId }, KeplerFileSystem),
+    () => new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, KeplerFileSystem),
     [config],
   );
   const store = React.useMemo(() => new QueueStore(KeplerFileSystem), []);
@@ -69,13 +69,14 @@ export default function App(): React.JSX.Element {
     let cancelled = false;
     (async () => {
       try {
-        const token = await pairing.loadToken(DEVICE_ID);
+        const deviceId = await resolveDeviceId(KeplerFileSystem);
+        const token = await pairing.loadToken(deviceId);
         if (cancelled) return;
         if (token) {
           setScreen({ kind: 'ready', token });
           return;
         }
-        const info = await pairing.start(DEVICE_ID);
+        const info = await pairing.start(deviceId);
         if (cancelled) return;
         setScreen({ kind: 'pairing', info });
         try {

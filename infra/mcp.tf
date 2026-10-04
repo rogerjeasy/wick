@@ -1,20 +1,21 @@
 # ---------------------------------------------------------------------------
 # S4a — the MCP server, deployed. See docs/WICK-TECHNICAL.md §7.3.
 #
-# App Runner, not Lambda: the server holds in-memory OAuth session state
-# (services/mcp-server/src/auth.ts's clients/tokens maps, and one McpServer
-# instance per MCP session) across a Streamable HTTP connection. Lambda's
-# per-invocation isolation has no guarantee two requests in the same OAuth
-# or MCP session land on the same execution environment; App Runner is one
-# long-running container, so that in-memory state actually persists across
-# the requests that need it to.
+# App Runner, not Lambda: the server holds one McpServer instance per MCP
+# session in memory, across a Streamable HTTP connection. Lambda's
+# per-invocation isolation has no guarantee two requests in the same MCP
+# session land on the same execution environment; App Runner is one
+# long-running container, so that state persists across the requests that
+# need it to.
 #
-# Exactly one instance, on purpose (max_concurrency effectively pins this to
-# a single container under hackathon-scale traffic): a second instance would
-# hold a *different* copy of that same in-memory state, and a client whose
-# requests get load-balanced across both would see registrations and tokens
-# vanish unpredictably. Horizontal scaling here needs the OAuth store moved
-# to DynamoDB first — out of scope for this pass.
+# Sign-in state is NOT in memory any more. OAuth clients, codes, tokens and
+# the sign-in cookie are in DynamoDB (services/mcp-server/src/accounts), so
+# a redeploy no longer signs anyone out — which the hackathon's "must stay
+# live through judging" ruling needs. An MCP session is still lost on
+# restart; a client opens a new one with the token it already holds.
+#
+# Still exactly one instance, on purpose: a second would hold a different
+# set of MCP sessions. Scaling out needs the SDK's stateless mode.
 #
 # The issuer URL problem: mcpAuthRouter() bakes `issuerUrl` into the OAuth
 # metadata it serves at startup (auth.ts's createAuthRouter), but App
@@ -104,8 +105,19 @@ data "aws_iam_policy_document" "apprunner_instance" {
     # GetItem + Query. send_note_to_tv -> egress.ts's sendToDevice: PutItem
     # (queue), GetItem + UpdateItem (mark delivered), Query (find the paired
     # device's live connection).
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"]
+    #
+    # Accounts (services/mcp-server/src/accounts/store.ts): the same four,
+    # plus DeleteItem — an authorization code and a refresh token are
+    # *taken*, with one atomic delete, so each works exactly once.
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query"]
     resources = [aws_dynamodb_table.wick.arn]
+  }
+
+  statement {
+    sid = "ListAPersonsHouseholds"
+    # listMemberships: gsi1 (USER#<id> -> the households they belong to).
+    actions   = ["dynamodb:Query"]
+    resources = ["${aws_dynamodb_table.wick.arn}/index/gsi1"]
   }
 
   statement {
@@ -145,8 +157,14 @@ resource "aws_apprunner_service" "mcp_server" {
         # would throw and crash the container at startup on the first apply.
         runtime_environment_variables = merge(
           {
-            TABLE_NAME        = aws_dynamodb_table.wick.name
-            WICK_HOUSEHOLD_ID = var.household_id
+            TABLE_NAME = aws_dynamodb_table.wick.name
+            # INV-8: no household here. A request's household is the one
+            # its token was approved for.
+            WICK_COGNITO_CLIENT_ID = aws_cognito_user_pool_client.wick.id
+            WICK_COGNITO_REGION    = var.region
+            # Where a television's six-digit code is confirmed (pairing.tf).
+            WICK_PAIRING_API_URL = aws_apigatewayv2_api.edge.api_endpoint
+            WICK_HOUSEHOLD_TZ    = var.household_time_zone
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
         )

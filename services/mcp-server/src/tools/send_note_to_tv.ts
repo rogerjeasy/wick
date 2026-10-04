@@ -16,7 +16,7 @@ import { MAX_CARD_DETAIL_CHARS, type QueuedCard } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { sendToDevice } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { HOUSEHOLD_ID } from '../auth.js';
+import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 
 const STATIC_SUGGESTED_REPLIES = ['Thanks for letting me know!', "I'll call you soon.", 'Not right now.'] as const;
@@ -50,27 +50,30 @@ export function buildMessageCard(input: BuildMessageCardInput): QueuedCard {
   };
 }
 
-export function registerSendNoteToTv(mcpServer: McpServer): void {
+export function registerSendNoteToTv(mcpServer: McpServer, ctx: ToolContext): void {
   mcpServer.registerTool(
     'send_note_to_tv',
     {
       title: 'Send a note to the television',
-      description: 'Enqueues a message card on the household television, from a named family member, with three generic quick replies.',
+      description: 'Enqueues a message card on the household television, in the name of the family member who is signed in, with three generic quick replies.',
       inputSchema: {
-        fromName: z.string().min(1).describe('The sender\'s name, as it should appear on the card.'),
         message: z.string().min(1).max(MAX_CARD_DETAIL_CHARS).describe(`The note text, at most ${MAX_CARD_DETAIL_CHARS} characters: it is read on a television, in large type, in full.`),
       },
     },
-    withFriendlyErrors(async ({ fromName, message }: { fromName: string; message: string }) => {
+    // The sender is never an argument. The resident trusts the name on the
+    // card, so it is the name of the person the resident allowed — a note
+    // cannot be made to say it came from somebody else.
+    withFriendlyErrors(gated(ctx, async (allowed, { message }: { message: string }) => {
+      const fromName = allowed.membership.name;
       const card = buildMessageCard({
-        householdId: HOUSEHOLD_ID,
+        householdId: ctx.householdId,
         correlationId: randomUUID(),
         fromName,
         message,
         now: Date.now(),
       });
       await sendToDevice(card, DEFAULT_POLICY);
-      return { content: [{ type: 'text' as const, text: JSON.stringify({ sent: true, cardId: card.id }) }] };
-    }),
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ sent: true, cardId: card.id, fromName }) }] };
+    })),
   );
 }
