@@ -12,7 +12,9 @@
  */
 const PAIRING_API_URL = 'PAIRING_API_URL_PLACEHOLDER';
 const WEBSOCKET_URL = 'WEBSOCKET_URL_PLACEHOLDER';
-const HOUSEHOLD_ID = 'WICK_HOUSEHOLD_ID_PLACEHOLDER';
+
+/** As long as the code itself lives (services/edge-device/lambda/pairing-code.mjs). */
+const PAIRING_WAIT_MS = 15 * 60 * 1000;
 
 const pairBtn = document.getElementById('pair-btn');
 const disconnectBtn = document.getElementById('disconnect-btn');
@@ -73,27 +75,25 @@ async function pairAndConnect() {
       body: JSON.stringify({ deviceId }),
     });
     if (!startRes.ok) throw new Error(`pair/start: HTTP ${startRes.status}`);
-    const { code } = await startRes.json();
+    const { code, url } = await startRes.json();
 
-    connDetail.textContent = `code ${code} — claiming for household "${HOUSEHOLD_ID}"…`;
-
-    const claimRes = await fetch(`${PAIRING_API_URL}/pair/claim`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, householdId: HOUSEHOLD_ID }),
-    });
-    if (!claimRes.ok) throw new Error(`pair/claim: HTTP ${claimRes.status}`);
-
-    connDetail.textContent = 'waiting for the token…';
+    // Exactly what a real television does: show the code and wait. This page
+    // used to claim its own code for a household it named itself — which is
+    // the hole accounts closed. Only a household's organiser, signed in to
+    // the family app, can connect a television now (pair-claim.mjs).
+    renderPairingCode(code, url);
+    connDetail.textContent = `showing code ${code} — enter it in the family app (“Connect a television”)`;
 
     let token;
-    for (let attempt = 0; attempt < 10 && !token; attempt++) {
+    const deadline = Date.now() + PAIRING_WAIT_MS;
+    while (!token && Date.now() < deadline) {
       const statusRes = await fetch(`${PAIRING_API_URL}/pair/status?code=${encodeURIComponent(code)}`);
+      if (statusRes.status === 404) throw new Error('the pairing code expired');
       const data = await statusRes.json();
       if (data.status === 'bound') token = data.token;
-      else await sleep(400);
+      else await sleep(2000);
     }
-    if (!token) throw new Error('pairing did not complete in time');
+    if (!token) throw new Error('nobody entered the code in time');
 
     connectWebSocket(token.jwt, deviceId);
   } catch (err) {
@@ -188,6 +188,23 @@ function renderEmpty() {
   tvScreen.appendChild(el('div', 'tv-empty', 'No card currently shown.'));
 }
 
+/** The unpaired screen: the code, and where to enter it (PairingScreen.tsx). */
+function renderPairingCode(code, url) {
+  const wrapper = el('div', 'tv-card urgency-deferred');
+  wrapper.appendChild(el('div', 'kicker', 'Set up Wick'));
+  wrapper.appendChild(el('div', 'headline', `${code.slice(0, 3)} ${code.slice(3)}`));
+  wrapper.appendChild(el('div', 'body-text', 'In the Wick family app, choose “Connect a television” and enter this code.'));
+  if (url) {
+    const link = el('a', 'body-text', url);
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    wrapper.appendChild(link);
+  }
+  clear(tvScreen);
+  tvScreen.appendChild(wrapper);
+}
+
 function renderCard(queuedCard) {
   const card = queuedCard.card;
   const urgencyClass = queuedCard.urgency === 'DOOR' ? 'urgency-door' : 'urgency-deferred';
@@ -218,6 +235,11 @@ function renderCard(queuedCard) {
   } else if (card.type === 'WEEK') {
     wrapper.appendChild(el('div', 'kicker', `Your week — ${card.isoWeek}`));
     wrapper.appendChild(el('div', 'body-text', card.text));
+  } else if (card.type === 'SHARING' || card.type === 'CIRCLE') {
+    // The server wrote every word of these (sharing.mjs, accounts/circle.ts).
+    wrapper.appendChild(el('div', 'kicker', card.type === 'CIRCLE' ? 'Your family circle' : 'What your family sees'));
+    wrapper.appendChild(el('div', 'headline', card.headline));
+    wrapper.appendChild(el('div', 'body-text', card.detail));
   } else {
     wrapper.appendChild(el('div', 'body-text', `Unrecognized card type: ${card.type}`));
   }
@@ -229,6 +251,11 @@ function renderCard(queuedCard) {
       pill.type = 'button';
       pill.addEventListener('click', () => {
         send({ t: 'card_action', cardId: card.id, action: action.id, at: Date.now() });
+        // An answer to the family circle finishes its card, as on the television (cardActions.ts).
+        if (card.type === 'CIRCLE') {
+          currentQueuedCard = null;
+          renderEmpty();
+        }
       });
       actions.appendChild(pill);
     }

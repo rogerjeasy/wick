@@ -25,6 +25,7 @@ export const SUGGESTIONS = [
   { label: 'Send a note to her television', utterance: "Put a note on Mum's television" },
   { label: 'Has Mum replied?', utterance: 'Has Mum replied?' },
   { label: 'What can I see?', utterance: 'What can I see about Mum?' },
+  { label: 'Family circle', utterance: 'Who is in the family circle?' },
 ];
 
 const tool = (name, args = {}) => ({ kind: 'tool', tool: name, args });
@@ -42,6 +43,10 @@ export function routeUtterance(text) {
   const said = (text ?? '').trim();
   if (!said) return { kind: 'help' };
   const t = said.toLowerCase();
+
+  // The circle is the app's own business, not a question for a tool. "Connect
+  // a television" is; "put a note on her television" is not.
+  if (/\bcircle\b|\binvit(e|ation)\b|\bconnect\b.*\b(television|tv)\b/.test(t)) return { kind: 'circle' };
 
   // Replies first: "has Mum replied to my note" mentions a note, and is not one.
   if (/\brepl(y|ied|ies)\b|\banswered\b|written back/.test(t)) return tool('get_replies');
@@ -61,7 +66,8 @@ export function routeUtterance(text) {
 
 export const HELP_TEXT =
   'I can tell you how the week has been, what happened today, whether Maria came, ' +
-  'put a note on the television, tell you if there is a reply, or show what you are able to see.';
+  'put a note on the television, tell you if there is a reply, show what you are able to see, ' +
+  'or open the family circle.';
 
 const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 const count = (n) => NUMBER_WORDS[n] ?? String(n);
@@ -101,13 +107,17 @@ function parseJson(raw) {
 
 /** A plain sentence from the server: said as it stands, never re-worded. */
 function plain(toolName, raw, isError) {
+  // The server's own refusals (services/mcp-server): the resident has not
+  // answered yet, or has said no. Neither is an error.
   const tone = isError
     ? 'error'
-    : /keeping to themselves/i.test(raw)
-      ? 'private'
-      : toolName === 'get_week_narrative'
-        ? 'waiting'
-        : 'answer';
+    : /hasn’t allowed this yet/.test(raw)
+      ? 'waiting'
+      : /keeping to themselves|chose not to share/i.test(raw)
+        ? 'private'
+        : toolName === 'get_week_narrative'
+          ? 'waiting'
+          : 'answer';
   return { say: raw, card: null, tone };
 }
 
@@ -163,7 +173,7 @@ function presentVisitor(v, formatTime) {
   return { say, card: null, tone: 'answer' };
 }
 
-function presentNoteSent(context) {
+function presentNoteSent(context, sent) {
   return {
     say: 'Sent. It will appear on the television at the next natural break, never in the middle of a programme.',
     tone: 'answer',
@@ -171,7 +181,8 @@ function presentNoteSent(context) {
       kind: 'confirmation',
       title: 'Note sent to the television',
       fields: [
-        ['From', context.fromName ?? ''],
+        // The server signs the note with the name the resident allowed.
+        ['From', sent.fromName ?? ''],
         ['Message', context.message ?? ''],
       ],
       footnote: 'It waits for the end of an episode or a pause. One button answers it.',
@@ -227,7 +238,7 @@ function presentSharedView(view) {
 /**
  * @param {string} toolName
  * @param {string} raw        the tool result's text content, as the server sent it
- * @param {{fromName?: string, message?: string}} context  what the customer asked for
+ * @param {{message?: string}} context  what the customer asked for
  * @param {(atMs: number) => string} formatTime
  * @param {boolean} isError   the MCP result's own isError flag
  */
@@ -240,10 +251,109 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   }
   if (toolName === 'get_today' && Array.isArray(parsed.events)) return presentToday(parsed, formatTime);
   if (toolName === 'did_visitor_come' && typeof parsed.visited === 'boolean') return presentVisitor(parsed, formatTime);
-  if (toolName === 'send_note_to_tv' && parsed.sent === true) return presentNoteSent(context);
+  if (toolName === 'send_note_to_tv' && parsed.sent === true) return presentNoteSent(context, parsed);
   if (toolName === 'get_replies' && Array.isArray(parsed.notes)) return presentReplies(parsed, formatTime);
   if (toolName === 'get_resident_shared_view' && Array.isArray(parsed.sharedWithFamily)) return presentSharedView(parsed);
 
   // A shape this surface does not know: say so, never render a guess.
   return { say: 'I got an answer I could not read.', card: null, tone: 'error' };
+}
+
+// ---------------------------------------------------------------------------
+// The family circle. These present /api/me and /api/circle (the app's own
+// business with the Wick server), not a tool result.
+// ---------------------------------------------------------------------------
+
+const people = (n) => `${count(n)} ${n === 1 ? 'person is' : 'people are'}`;
+
+/**
+ * The first thing said after linking. INV-9: someone the resident has not
+ * allowed yet is told where the answer is waiting, and what to do next.
+ *
+ * @param me           GET /api/me
+ * @param televisions  how many televisions are connected, when the app may know
+ */
+export function presentWelcome(me, televisions) {
+  const resident = me.household.residentName;
+  const { role, status } = me.membership;
+  if (status === 'allowed') {
+    return { say: `Wick is linked to ${me.household.name}. What would you like to know?`, tone: 'answer', next: null };
+  }
+  if (status === 'declined') return { say: `${resident} chose not to share this with you.`, tone: 'private', next: null };
+  if (status === 'removed') return { say: 'You are no longer part of this family circle.', tone: 'private', next: null };
+
+  if (role === 'organiser' && !televisions) {
+    return {
+      say: `Welcome, ${me.user.name}. Connect ${resident}’s television next. ${resident} will then be asked, on it, whether to allow you.`,
+      tone: 'waiting',
+      next: 'connect',
+    };
+  }
+  if (role === 'organiser') {
+    return {
+      say: `The television is connected. ${resident} is being asked whether to allow you. It appears at the end of a programme, and takes one press.`,
+      tone: 'waiting',
+      next: null,
+    };
+  }
+  return {
+    say: `You have asked to join ${me.household.name}. ${resident} will be asked on the television whether to allow you. Until then there is nothing I can show you.`,
+    tone: 'waiting',
+    next: null,
+  };
+}
+
+function memberLine(member, resident) {
+  const said =
+    member.status === 'allowed'
+      ? `allowed by ${resident}`
+      : member.status === 'pending'
+        ? `Waiting for ${resident}`
+        : `${resident} said no`;
+  if (member.role === 'organiser') return member.status === 'allowed' ? `Organiser · ${said}` : `Organiser · ${lowerFirst(said)}`;
+  return sentenceCase(said);
+}
+
+function televisionLine(televisions) {
+  if (televisions.length === 0) return 'No television is connected yet.';
+  const n = `${count(televisions.length)} ${televisions.length === 1 ? 'television' : 'televisions'} connected`;
+  return televisions.some((tv) => tv.connected) ? `${n}, and on now.` : `${n}. It is off, or showing something else.`;
+}
+
+/**
+ * @param circle  GET /api/circle
+ * @param me      GET /api/me
+ */
+export function presentCircle(circle, me) {
+  const resident = circle.household.residentName;
+  const organiser = me.membership.role === 'organiser';
+  const waiting = circle.members.filter((m) => m.status === 'pending').length;
+  const waitingSentence =
+    waiting === 0 ? '' : ` ${count(waiting)} ${waiting === 1 ? 'is' : 'are'} waiting for ${resident} to allow them.`;
+  return {
+    say: `${people(circle.members.length)} in ${resident}’s family circle.${waitingSentence}`,
+    tone: 'answer',
+    card: {
+      kind: 'circle',
+      title: `${resident}’s family circle`,
+      members: circle.members.map((m) => ({
+        userId: m.userId,
+        primary: m.you ? `${m.name} (you)` : m.name,
+        secondary: memberLine(m, resident),
+        removable: organiser && !m.you,
+      })),
+      television: televisionLine(circle.televisions),
+      organiser,
+      footnote: `${resident} allows each person on the television, one press each.`,
+    },
+  };
+}
+
+/** The link an organiser sends: this same app, with the invitation in the address. */
+export function inviteLink(here, code) {
+  const url = new URL(here);
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('invite', code);
+  return url.toString();
 }

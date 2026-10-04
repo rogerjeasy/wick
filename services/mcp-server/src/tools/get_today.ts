@@ -25,7 +25,7 @@ import { QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk } from '@wick/contracts';
 import { DEFAULT_POLICY, type HouseholdPolicy } from '@wick/policy';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { HOUSEHOLD_ID } from '../auth.js';
+import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
 
@@ -109,7 +109,7 @@ export async function loadTodayEvents(
   return { events, keptPrivate };
 }
 
-export function registerGetToday(mcpServer: McpServer, ddb: DynamoDBClient): void {
+export function registerGetToday(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext): void {
   mcpServer.registerTool(
     'get_today',
     {
@@ -117,10 +117,10 @@ export function registerGetToday(mcpServer: McpServer, ddb: DynamoDBClient): voi
       description: "Returns today's door activity and visits, in plain language, as far as the resident shares them, and names anything they keep private.",
       inputSchema: {},
     },
-    withFriendlyErrors(async () => {
-      const policy = await loadHouseholdPolicy(ddb, HOUSEHOLD_ID);
-      const answer = await loadTodayEvents(ddb, HOUSEHOLD_ID, new Date(), policy);
+    withFriendlyErrors(gated(ctx, async () => {
+      const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
+      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(), policy);
       return { content: [{ type: 'text' as const, text: JSON.stringify(answer) }] };
-    }),
+    })),
   );
 }

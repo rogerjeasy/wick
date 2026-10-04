@@ -5,6 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { loadTodayEvents, registerGetToday, summariseEvent } from '../get_today.js';
+import { allowedContext } from './toolContext.js';
 
 describe('summariseEvent', () => {
   it('summarises a door event', () => {
@@ -95,7 +96,7 @@ describe('registerGetToday (registered tool handler, end to end)', () => {
     const ddb = { send } as unknown as DynamoDBClient;
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerGetToday(mcpServer, ddb);
+    registerGetToday(mcpServer, ddb, allowedContext('hh-1'));
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -119,7 +120,7 @@ describe('registerGetToday (registered tool handler, end to end)', () => {
     const ddb = { send } as unknown as DynamoDBClient;
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerGetToday(mcpServer, ddb);
+    registerGetToday(mcpServer, ddb, allowedContext('hh-1'));
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });

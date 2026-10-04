@@ -40,13 +40,13 @@ variable "ring_scope" {
 }
 
 variable "pairing_url_base" {
-  description = "Short URL shown on the TV's pairing screen, e.g. https://wick.example/pair. §4.2."
+  description = "Address shown on the TV's pairing screen; `/?pair=<code>` is appended. Empty means the family app's own CloudFront address. Set it when a shorter domain fronts the family app. §4.2."
   type        = string
-  default     = "https://rogerjeasy.github.io/wick/pair"
+  default     = ""
 }
 
 variable "household_id" {
-  description = "The one household this deployment serves. There is no Ring-device -> household registry (S1 is single-household by design — see services/agent/src/agents/door/lambda.ts); multi-household is Tier 3, docs/WICK.md §4.5."
+  description = "The household the linked Ring account and the weekly Narrator serve. Accounts made everything else multi-household (the MCP server, pairing, the television take a household from a token, never from here), but there is still one Ring link per deployment and no Ring-device -> household registry (services/agent/src/agents/door/lambda.ts)."
   type        = string
   default     = "margaret"
 }

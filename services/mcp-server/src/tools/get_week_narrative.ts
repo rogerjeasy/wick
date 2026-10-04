@@ -17,7 +17,7 @@ import { currentIsoWeek, type WeekNarrative } from '@wick/contracts';
 import type { HouseholdPolicy } from '@wick/policy';
 import { isoWeekRange, privateNarrative, summariseWeek } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { HOUSEHOLD_ID } from '../auth.js';
+import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 
@@ -78,7 +78,7 @@ export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, ti
   };
 }
 
-export function registerGetWeekNarrative(mcpServer: McpServer, ddb: DynamoDBClient): void {
+export function registerGetWeekNarrative(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext): void {
   mcpServer.registerTool(
     'get_week_narrative',
     {
@@ -86,20 +86,20 @@ export function registerGetWeekNarrative(mcpServer: McpServer, ddb: DynamoDBClie
       description: "Returns the precomputed weekly narrative — prose and timeline — for the household's week. Withholds a narrative the resident hasn't seen on their own television yet.",
       inputSchema: { isoWeek: z.string().optional().describe('ISO 8601 week, e.g. "2026-W38". Defaults to the current week.') },
     },
-    withFriendlyErrors(async ({ isoWeek }: { isoWeek?: string | undefined }) => {
+    withFriendlyErrors(gated(ctx, async (_allowed, { isoWeek }: { isoWeek?: string | undefined }) => {
       const week = isoWeek ?? currentIsoWeek();
-      const result = await loadWeekNarrative(ddb, HOUSEHOLD_ID, week);
+      const result = await loadWeekNarrative(ddb, ctx.householdId, week);
       if (result.status === 'awaiting_resident') {
         return { content: [{ type: 'text' as const, text: WEEK_AWAITING_RESIDENT_TEXT }] };
       }
       if (result.status === 'not_written') {
         return { content: [{ type: 'text' as const, text: WEEK_NOT_WRITTEN_TEXT }] };
       }
-      const family = familyWeek(result.narrative, await loadHouseholdPolicy(ddb, HOUSEHOLD_ID), HOUSEHOLD_TZ);
+      const family = familyWeek(result.narrative, await loadHouseholdPolicy(ddb, ctx.householdId), HOUSEHOLD_TZ);
       if (family.status === 'private') {
         return { content: [{ type: 'text' as const, text: FAMILY_REFUSAL_TEXT }] };
       }
       return { content: [{ type: 'text' as const, text: JSON.stringify(family.narrative) }] };
-    }),
+    })),
   );
 }

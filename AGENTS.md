@@ -8,7 +8,7 @@ Source of truth: `docs/WICK-TECHNICAL.md` §0.3.
 
 ---
 
-## The seven invariants
+## The nine invariants
 
 ### INV-1 — No long-lived credential ever reaches the television
 The device holds exactly one device-bound JWT, scoped to: receive cards for one
@@ -20,8 +20,9 @@ keystore) and scope accordingly.
 `apps/tv-vega` or `apps/tv-fireos`.
 
 **Known accepted exception:** `POST /pair/refresh` (`services/edge-device/
-lambda/pair-refresh.mjs`) mints a device-bound JWT from `{deviceId,
-householdId}` alone — no proof of possession. It exists because the Vega
+lambda/pair-refresh.mjs`) mints a device-bound JWT from `{deviceId}` alone —
+no proof of possession. (The household is looked up from the device id; it is
+no longer taken from the request — INV-8.) It exists because the Vega
 Virtual Device's `/data` never actually persists a write (FRICTION.md
 FL-013/FL-014), so `CardService.ts`'s separate process has no other way to
 learn it's already paired. Real proof-of-possession would need the client to
@@ -59,6 +60,32 @@ device on `card_shown` / `card_action`.
 ### INV-7 — The resident sees their week before the family can read it
 `NARR#<isoWeek>.residentSeenAt` gates family readability. Ordering is enforced on
 the write path, not by convention.
+
+### INV-8 — The household comes from a verified token, never from a request
+A family request's household is the one its access token was approved for
+(`services/mcp-server/src/accounts/oauthProvider.ts`); a television's is the
+one in its device-bound JWT. No tool, route or Lambda takes a household id
+from a request body, a URL or an environment variable, so there is no request
+a person can write to reach a household that is not theirs.
+
+**Never** add a `householdId` parameter to an MCP tool, an `/api` route or a
+pairing endpoint. Enforced by `server.test.ts`, `api.test.ts`,
+`pair-claim.test.ts` and `pair-refresh.test.ts`.
+
+**Known gap:** the Door agent and the weekly Narrator still read one household
+from `WICK_HOUSEHOLD_ID` (`infra/variables.tf` `household_id`), because there
+is one Ring link per deployment and no Ring-device → household registry yet.
+
+### INV-9 — Nobody reads a household before the resident allows them
+A membership starts `pending`. The only thing that makes it `allowed` is the
+resident's press on the Circle card on their own television
+(`services/edge-device/lambda/circle.mjs`), and that press can only answer a
+question still open. Every MCP tool call asks again (`tools/context.ts`
+`gated`), so the answer — and a removal — counts on the very next question.
+
+**Never** write `status: 'allowed'` from the family side, and never answer a
+tool call without `gated`. The resident has no account: the paired television
+is their identity, and the remote is their consent.
 
 ---
 

@@ -207,8 +207,10 @@ DEVICE_ID="prodcheck-$(date +%s)"
 CODE=$(curl -s -X POST "$PAIRING_API_URL/pair/start" -H 'Content-Type: application/json' \
   -d "{\"deviceId\":\"$DEVICE_ID\"}" | python3 -c "import json,sys;print(json.load(sys.stdin)['code'])")
 
-curl -s -X POST "$PAIRING_API_URL/pair/claim" -H 'Content-Type: application/json' \
-  -d "{\"code\":\"$CODE\",\"householdId\":\"$WICK_HOUSEHOLD_ID\"}"
+# Since accounts (AGENTS.md INV-8) the code is confirmed by the organiser,
+# signed in, in the family app — `/pair/claim` refuses a caller with no token.
+echo "enter $CODE in the family app: $(cd infra && terraform output -raw sim_alexa_url)/?pair=$CODE"
+read -p "press Enter once the family app says it is connected "
 
 JWT=$(curl -s "$PAIRING_API_URL/pair/status?code=$CODE" | python3 -c "import json,sys;print(json.load(sys.stdin)['token']['jwt'])")
 

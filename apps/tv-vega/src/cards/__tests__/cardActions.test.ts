@@ -9,7 +9,17 @@ const sharing = {
   factClass: 'DOOR_EVENT', page: 0, pages: 4, headline: 'h', detail: 'd',
 } as Card;
 
+const circle = {
+  type: 'CIRCLE', id: 'circle-u_sarah', householdId: 'h', correlationId: 'c', createdAt: 0, actions: [],
+  personName: 'Sarah', role: 'organiser', headline: 'h', detail: 'd',
+} as Card;
+
 describe('removesCard', () => {
+  it('removes the Circle card on either answer: the resident is asked once', () => {
+    expect(removesCard(circle, 'allow')).toBe(true);
+    expect(removesCard(circle, 'decline')).toBe(true);
+  });
+
   it('keeps a door card on screen while the chime answer is on its way', () => {
     expect(removesCard(door, 'hallway_chime')).toBe(false);
   });

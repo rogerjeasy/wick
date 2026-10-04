@@ -4,7 +4,7 @@
  * See docs/WICK-TECHNICAL.md §4.2.
  */
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
-import { generatePairingCode, PAIRING_CODE_TTL_MS } from './pairing-code.mjs';
+import { generatePairingCode, PAIRING_CODE_TTL_MS, pairingUrl } from './pairing-code.mjs';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME;
@@ -43,7 +43,7 @@ export const handler = async (event) => {
       }));
       return {
         statusCode: 200,
-        body: JSON.stringify({ code, url: `${PAIRING_URL_BASE}/${code}`, expiresAt }),
+        body: JSON.stringify({ code, url: pairingUrl(PAIRING_URL_BASE, code), expiresAt }),
       };
     } catch (err) {
       if (err?.name !== 'ConditionalCheckFailedException') throw err;

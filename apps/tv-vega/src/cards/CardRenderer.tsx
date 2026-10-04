@@ -11,6 +11,7 @@
  */
 import * as React from 'react';
 import type { Card } from '@wick/contracts';
+import { CircleCardView } from './CircleCard.js';
 import { DoorCardView } from './DoorCard.js';
 import { MessageCardView } from './MessageCard.js';
 import { SharingCardView } from './SharingCard.js';
@@ -36,5 +37,8 @@ export function CardRenderer({ card, onAction }: CardRendererProps): React.JSX.E
 
     case 'SHARING':
       return <SharingCardView card={card} onAction={handle} />;
+
+    case 'CIRCLE':
+      return <CircleCardView card={card} onAction={handle} />;
   }
 }

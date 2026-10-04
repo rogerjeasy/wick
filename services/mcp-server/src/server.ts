@@ -25,8 +25,16 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ErrorCode, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { createAuthRouter, requireAuth } from './auth.js';
+import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import type { QueuedCard } from '@wick/contracts';
+import { createAuth } from './auth.js';
+import { createApiRouter, type ClaimTelevision } from './accounts/apiRouter.js';
+import { checkAccess, type CircleDeps } from './accounts/circle.js';
+import type { IdentityProvider } from './accounts/identity.js';
+import { grantOf } from './accounts/oauthProvider.js';
+import type { AccountStore } from './accounts/store.js';
+import { randomId } from './accounts/tokens.js';
+import type { ToolContext } from './tools/context.js';
 import { registerGetResidentSharedView } from './tools/get_resident_shared_view.js';
 import { registerGetWeekNarrative } from './tools/get_week_narrative.js';
 import { registerGetToday } from './tools/get_today.js';
@@ -47,23 +55,56 @@ import { registerGetReplies } from './tools/get_replies.js';
  * pattern: node_modules/@modelcontextprotocol/sdk/dist/esm/examples/server/
  * simpleStreamableHttp.js's `getServer()`, called once per `initialize`.
  */
-function createMcpServer(ddb: DynamoDBClient): McpServer {
-  const mcpServer = new McpServer({ name: 'wick', version: '0.1.0' });
-  registerGetResidentSharedView(mcpServer, ddb);
-  registerGetWeekNarrative(mcpServer, ddb);
-  registerGetToday(mcpServer, ddb);
-  registerDidVisitorCome(mcpServer, ddb);
-  registerSendNoteToTv(mcpServer);
-  registerGetReplies(mcpServer, ddb);
+function createMcpServer(ddb: DynamoDBClient, ctx: ToolContext): McpServer {
+  const mcpServer = new McpServer({ name: 'wick', version: '0.2.0' });
+  registerGetResidentSharedView(mcpServer, ddb, ctx);
+  registerGetWeekNarrative(mcpServer, ddb, ctx);
+  registerGetToday(mcpServer, ddb, ctx);
+  registerDidVisitorCome(mcpServer, ddb, ctx);
+  registerSendNoteToTv(mcpServer, ctx);
+  registerGetReplies(mcpServer, ddb, ctx);
   return mcpServer;
 }
 
-export function createApp(issuerUrl: URL): express.Express {
-  const ddb = new DynamoDBClient({});
+/**
+ * Everything the server reaches outside itself, injected so the whole
+ * sign-in and circle flow is tested end to end without AWS (index.ts wires
+ * the real ones).
+ */
+export interface AppDeps {
+  readonly store: AccountStore;
+  readonly identity: IdentityProvider;
+  /** services/agent/src/egress.ts's sendToDevice — the only path to the television (INV-2). */
+  readonly sendCard: (card: QueuedCard) => Promise<void>;
+  /** The household's own rows, read by the tools. */
+  readonly ddb: DynamoDBClient;
+  /** The pairing API's POST /pair/claim, called as the signed-in person. */
+  readonly claimTelevision?: ClaimTelevision;
+  readonly now?: () => number;
+  readonly newId?: () => string;
+}
+
+/** An MCP session and the person and household it was opened for. */
+interface Session {
+  readonly transport: StreamableHTTPServerTransport;
+  readonly userId: string;
+  readonly householdId: string;
+}
+
+export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
+  const { ddb } = deps;
+  const circle: CircleDeps = {
+    store: deps.store,
+    sendCard: deps.sendCard,
+    now: deps.now ?? Date.now,
+    newId: deps.newId ?? randomId,
+  };
+  const { router: authRouter, requireAuth } = createAuth(issuerUrl, circle, deps.identity);
 
   const app = express();
   app.use(express.json());
-  app.use(createAuthRouter(issuerUrl));
+  app.use(authRouter);
+  app.use(createApiRouter(circle, requireAuth, deps.claimTelevision));
 
   // Session-keyed transports. StreamableHTTPServerTransport in stateful mode
   // (`sessionIdGenerator` set) only flips its internal `_initialized` flag on the
@@ -78,7 +119,7 @@ export function createApp(issuerUrl: URL): express.Express {
   // storing the transport keyed by its generated session id, and `transport.onclose`
   // deleting that entry). `onsessioninitialized`/`onclose` signatures confirmed against
   // node_modules/@modelcontextprotocol/sdk/dist/esm/server/webStandardStreamableHttp.d.ts.
-  const transports: Record<string, StreamableHTTPServerTransport> = {};
+  const sessions: Record<string, Session> = {};
 
   // apps/sim-alexa (and any real browser client) runs on a different origin than
   // this server and sends custom `authorization`/`mcp-session-id` headers on every
@@ -95,11 +136,25 @@ export function createApp(issuerUrl: URL): express.Express {
   app.post('/mcp', mcpCors, requireAuth(), async (req, res) => {
     try {
       const sessionId = req.headers['mcp-session-id'];
+      // INV-8: who this request is for comes from its verified token.
+      const grant = grantOf(req.auth);
+      if (!grant) {
+        res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Link Wick again.' }, id: null });
+        return;
+      }
 
-      if (typeof sessionId === 'string' && transports[sessionId]) {
+      const session = typeof sessionId === 'string' ? sessions[sessionId] : undefined;
+      if (session) {
+        // A session answers only the person and household it was opened for.
+        // Its tools were built around that household, so a different token
+        // presenting this session id must not be served by them.
+        if (session.userId !== grant.userId || session.householdId !== grant.householdId) {
+          res.status(403).json({ jsonrpc: '2.0', error: { code: -32001, message: 'This session belongs to someone else.' }, id: null });
+          return;
+        }
         // Existing session: reuse its already-`connect()`ed transport. Do not
         // reconstruct or reconnect — that would recreate the exact bug being fixed.
-        await transports[sessionId].handleRequest(req, res, req.body);
+        await session.transport.handleRequest(req, res, req.body);
         return;
       }
 
@@ -108,16 +163,20 @@ export function createApp(issuerUrl: URL): express.Express {
         // constructed once for this session's lifetime and never reused
         // across sessions. Reusing one shared McpServer across sessions is
         // the exact bug this fixes — see createMcpServer's doc comment.
-        const mcpServer = createMcpServer(ddb);
+        const mcpServer = createMcpServer(ddb, {
+          householdId: grant.householdId,
+          userId: grant.userId,
+          access: () => checkAccess(deps.store, grant.householdId, grant.userId),
+        });
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid) => {
-            transports[sid] = transport;
+            sessions[sid] = { transport, userId: grant.userId, householdId: grant.householdId };
           },
         });
         transport.onclose = () => {
           const sid = transport.sessionId;
-          if (sid !== undefined) delete transports[sid];
+          if (sid !== undefined) delete sessions[sid];
           // Release this session's McpServer so a future session's `connect()`
           // never collides with it — matches the SDK's own stateless example
           // (simpleStatelessStreamableHttp.js), which pairs every `connect()`
@@ -163,12 +222,14 @@ export function createApp(issuerUrl: URL): express.Express {
   // without it the session map only evicts via GC of an abandoned socket.
   app.delete('/mcp', mcpCors, requireAuth(), async (req, res) => {
     const sessionId = req.headers['mcp-session-id'];
-    if (typeof sessionId !== 'string' || !transports[sessionId]) {
+    const session = typeof sessionId === 'string' ? sessions[sessionId] : undefined;
+    const grant = grantOf(req.auth);
+    if (!session || session.userId !== grant?.userId || session.householdId !== grant.householdId) {
       res.status(400).send('Invalid or missing session ID');
       return;
     }
     try {
-      await transports[sessionId].handleRequest(req, res);
+      await session.transport.handleRequest(req, res);
     } catch (err) {
       console.error('[wick/mcp-server] Error handling DELETE /mcp:', err);
       if (!res.headersSent) res.status(500).send('Error processing session termination');

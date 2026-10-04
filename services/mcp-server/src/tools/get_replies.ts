@@ -13,7 +13,7 @@
 import { QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { QueuedCard } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { HOUSEHOLD_ID } from '../auth.js';
+import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
@@ -55,7 +55,7 @@ export async function loadNoteReplies(ddb: DynamoDBClient, householdId: string, 
   return notes.sort((a, b) => b.sentAt - a.sentAt).slice(0, MAX_NOTES);
 }
 
-export function registerGetReplies(mcpServer: McpServer, ddb: DynamoDBClient, now: () => number = Date.now): void {
+export function registerGetReplies(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext, now: () => number = Date.now): void {
   mcpServer.registerTool(
     'get_replies',
     {
@@ -63,12 +63,12 @@ export function registerGetReplies(mcpServer: McpServer, ddb: DynamoDBClient, no
       description: "Returns this week's notes sent to the household television, newest first, each with the resident's one-button reply or null if they haven't replied yet.",
       inputSchema: {},
     },
-    withFriendlyErrors(async () => {
-      const notes = await loadNoteReplies(ddb, HOUSEHOLD_ID, now());
+    withFriendlyErrors(gated(ctx, async () => {
+      const notes = await loadNoteReplies(ddb, ctx.householdId, now());
       if (notes.length === 0) {
         return { content: [{ type: 'text' as const, text: 'No notes have been sent to the television this week.' }] };
       }
       return { content: [{ type: 'text' as const, text: JSON.stringify({ notes }) }] };
-    }),
+    })),
   );
 }

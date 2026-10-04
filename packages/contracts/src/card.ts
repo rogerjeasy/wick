@@ -81,7 +81,22 @@ export interface SharingCard extends CardBase {
   readonly detail: string;
 }
 
-export type Card = DoorCard | MessageCard | WeekCard | SharingCard;
+/**
+ * INV-9 on the resident's own screen: one person who would like to join the
+ * family circle, and one press to allow it or not. The server writes every
+ * word (services/mcp-server/src/accounts/circle.ts); the television only
+ * renders it. Its id is always `circle-<userId>` (circle.ts), so the press
+ * names the person without the television holding anything about them.
+ */
+export interface CircleCard extends CardBase {
+  readonly type: 'CIRCLE';
+  readonly personName: string;
+  readonly role: import('./circle.js').CircleRole;
+  readonly headline: string;
+  readonly detail: string;
+}
+
+export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard;
 
 export interface QueuedCard {
   readonly id: string;

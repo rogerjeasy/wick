@@ -2,24 +2,26 @@ import { describe, expect, it } from 'vitest';
 import { resolveDeviceConfig } from '../config.js';
 
 describe('resolveDeviceConfig', () => {
-  it('throws when pairingApiUrl, websocketUrl or householdId is missing', () => {
+  it('throws when pairingApiUrl or websocketUrl is missing', () => {
     expect(() => resolveDeviceConfig({})).toThrow(/not populated/);
     expect(() => resolveDeviceConfig({ pairingApiUrl: 'https://a' })).toThrow(/not populated/);
-    expect(() =>
-      resolveDeviceConfig({ pairingApiUrl: 'https://a', websocketUrl: 'wss://b' }),
-    ).toThrow(/not populated/);
+  });
+
+  it('needs no household: a television learns whose it is when it is paired', () => {
+    expect(resolveDeviceConfig({ pairingApiUrl: 'https://a', websocketUrl: 'wss://b' })).toEqual({
+      pairingApiUrl: 'https://a',
+      websocketUrl: 'wss://b',
+    });
   });
 
   it('returns the config when all required fields are present', () => {
     const config = resolveDeviceConfig({
       pairingApiUrl: 'https://pair.example',
       websocketUrl: 'wss://ws.example/prod',
-      householdId: 'margaret',
     });
     expect(config).toEqual({
       pairingApiUrl: 'https://pair.example',
       websocketUrl: 'wss://ws.example/prod',
-      householdId: 'margaret',
     });
   });
 
@@ -27,7 +29,6 @@ describe('resolveDeviceConfig', () => {
     const config = resolveDeviceConfig({
       pairingApiUrl: 'https://pair.example',
       websocketUrl: 'wss://ws.example/prod',
-      householdId: 'margaret',
       mqttWssUrl: 'wss://iot.example/mqtt',
     });
     expect(config.mqttWssUrl).toBe('wss://iot.example/mqtt');

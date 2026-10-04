@@ -4,13 +4,36 @@
  * anything else directly. See ./index.html's on-page notice and this
  * directory's README for why this exists.
  */
-import { HELP_TEXT, SUGGESTIONS, presentResult, routeUtterance } from './surface.js';
-
-let mcpServerUrl = document.getElementById('server-url').value;
-let accessToken = null;
-let mcpSessionId = null;
+import { HELP_TEXT, SUGGESTIONS, inviteLink, presentCircle, presentResult, presentWelcome, routeUtterance } from './surface.js';
 
 const $ = (id) => document.getElementById(id);
+
+/**
+ * The link to a Wick account: where the server is, and the tokens it issued.
+ * Kept in localStorage so a reload, or coming back tomorrow, does not ask
+ * for a password again. The server keeps its side in DynamoDB now, so a
+ * redeploy no longer breaks the link either.
+ */
+const LINK_KEY = 'wick_link';
+let link = null;
+let mcpSessionId = null;
+/** GET /api/me for the linked account, once known. */
+let me = null;
+
+function loadLink() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(LINK_KEY) ?? 'null');
+    return stored && stored.accessToken && stored.serverUrl ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLink(next) {
+  link = next;
+  if (next) localStorage.setItem(LINK_KEY, JSON.stringify(next));
+  else localStorage.removeItem(LINK_KEY);
+}
 
 function setStatus(text, state = 'idle') {
   const el = $('auth-status');
@@ -21,11 +44,12 @@ function setStatus(text, state = 'idle') {
 /** Everything that asks the server: the chips, the text field and its button. */
 function enableToolButtons(enabled) {
   for (const el of document.querySelectorAll('.chip, #ask-input, #ask-send')) el.disabled = !enabled;
-  if (!enabled) $('link-card').hidden = false;
+  $('link-card').hidden = enabled;
+  $('sign-out').hidden = !enabled;
 }
 
-async function discoverAuthServer() {
-  const res = await fetch(`${mcpServerUrl}/.well-known/oauth-authorization-server`);
+async function discoverAuthServer(serverUrl) {
+  const res = await fetch(`${serverUrl}/.well-known/oauth-authorization-server`);
   if (!res.ok) throw new Error('authorization server metadata not found');
   return res.json();
 }
@@ -42,76 +66,155 @@ async function pkcePair() {
   return { verifier, challenge };
 }
 
+const redirectUri = () => window.location.origin + window.location.pathname;
+
 async function registerClient(metadata) {
   const res = await fetch(metadata.registration_endpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      redirect_uris: [window.location.origin + window.location.pathname],
+      redirect_uris: [redirectUri()],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
-      client_name: 'Wick sim-alexa',
+      client_name: 'the Wick family app',
     }),
   });
   if (!res.ok) throw new Error('dynamic client registration failed');
   return res.json();
 }
 
+/**
+ * Sends the browser to the Wick server to sign in (or create an account),
+ * choose the home, and approve this app. An invitation code in this page's
+ * address rides along, so the server can offer to join that home.
+ */
 async function connect() {
   try {
-    mcpServerUrl = document.getElementById('server-url').value.replace(/\/$/, '');
-    setStatus('Discovering authorization server…');
-    const metadata = await discoverAuthServer();
+    const serverUrl = $('server-url').value.replace(/\/$/, '');
+    setStatus('Opening Wick sign-in…');
+    const metadata = await discoverAuthServer(serverUrl);
     const client = await registerClient(metadata);
     const { verifier, challenge } = await pkcePair();
-    sessionStorage.setItem('wick_pkce_verifier', verifier);
-    sessionStorage.setItem('wick_client_id', client.client_id);
-    sessionStorage.setItem('wick_token_endpoint', metadata.token_endpoint);
-    sessionStorage.setItem('wick_mcp_server_url', mcpServerUrl);
+    sessionStorage.setItem('wick_pending_link', JSON.stringify({
+      verifier,
+      clientId: client.client_id,
+      tokenEndpoint: metadata.token_endpoint,
+      serverUrl,
+    }));
 
     const authorizeUrl = new URL(metadata.authorization_endpoint);
     authorizeUrl.searchParams.set('client_id', client.client_id);
-    authorizeUrl.searchParams.set('redirect_uri', window.location.origin + window.location.pathname);
+    authorizeUrl.searchParams.set('redirect_uri', redirectUri());
     authorizeUrl.searchParams.set('response_type', 'code');
     authorizeUrl.searchParams.set('code_challenge', challenge);
     authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+    const invite = sessionStorage.getItem('wick_invite');
+    if (invite) authorizeUrl.searchParams.set('invite', invite);
     window.location.href = authorizeUrl.toString();
   } catch (err) {
     // Silence is indistinguishable from "nothing happened", which is a lie —
     // the design principle this whole product is built on (see AGENTS.md).
     // A failed connect must say so, not leave the page looking unchanged.
-    setStatus(`Connect failed: ${err.message}`);
+    setStatus(`Could not open sign-in: ${err.message}`);
   }
 }
 
-async function completeAuthIfRedirected() {
+/** Back from the Wick server with a code: exchange it for tokens. */
+async function completeAuthIfRedirected(code) {
   try {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    if (!code) return false;
-
-    mcpServerUrl = sessionStorage.getItem('wick_mcp_server_url');
-    const tokenRes = await fetch(sessionStorage.getItem('wick_token_endpoint'), {
+    const pending = JSON.parse(sessionStorage.getItem('wick_pending_link') ?? 'null');
+    if (!pending) throw new Error('this browser did not start the sign-in');
+    const tokenRes = await fetch(pending.tokenEndpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: window.location.origin + window.location.pathname,
-        client_id: sessionStorage.getItem('wick_client_id'),
-        code_verifier: sessionStorage.getItem('wick_pkce_verifier'),
+        redirect_uri: redirectUri(),
+        client_id: pending.clientId,
+        code_verifier: pending.verifier,
       }),
     });
     if (!tokenRes.ok) throw new Error('token exchange failed');
     const tokens = await tokenRes.json();
-    accessToken = tokens.access_token;
-    window.history.replaceState({}, '', window.location.pathname);
+    saveLink({
+      serverUrl: pending.serverUrl,
+      clientId: pending.clientId,
+      tokenEndpoint: pending.tokenEndpoint,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+    });
+    sessionStorage.removeItem('wick_pending_link');
+    sessionStorage.removeItem('wick_invite');
     return true;
   } catch (err) {
     setStatus(`Sign-in failed: ${err.message}`);
     return false;
   }
+}
+
+/** One refresh at a time, however many requests found the token expired. */
+let refreshing = null;
+
+async function refreshTokens() {
+  if (!link?.refreshToken) return false;
+  refreshing ??= (async () => {
+    try {
+      const res = await fetch(link.tokenEndpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: link.refreshToken, client_id: link.clientId }),
+      });
+      if (!res.ok) return false;
+      const tokens = await res.json();
+      saveLink({ ...link, accessToken: tokens.access_token, refreshToken: tokens.refresh_token });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
+function signedOut(reason) {
+  saveLink(null);
+  me = null;
+  mcpSessionId = null;
+  enableToolButtons(false);
+  setStatus(reason);
+}
+
+/**
+ * A request to the Wick server as the linked person. An expired access
+ * token is refreshed once and the request repeated; if that fails too, the
+ * link is gone and the page says so.
+ */
+async function authorizedFetch(path, init = {}) {
+  if (!link) throw new Error('Link Wick first.');
+  const send = () =>
+    fetch(`${link.serverUrl}${path}`, { ...init, headers: { ...(init.headers ?? {}), authorization: `Bearer ${link.accessToken}` } });
+  let res = await send();
+  if (res.status === 401 && (await refreshTokens())) res = await send();
+  if (res.status === 401) {
+    signedOut('Signed out. Link Wick again.');
+    throw new Error('Wick needs linking again.');
+  }
+  return res;
+}
+
+/** /api: JSON in, JSON out. A refusal's own words become the error's message. */
+async function api(path, init = {}) {
+  const res = await authorizedFetch(path, {
+    ...init,
+    headers: { ...(init.body ? { 'content-type': 'application/json' } : {}), ...(init.headers ?? {}) },
+  });
+  if (res.status === 204) return null;
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(body.message ?? `Request failed: ${res.status}`), { status: res.status, code: body.error });
+  return body;
 }
 
 let mcpRequestId = 0;
@@ -151,25 +254,10 @@ async function sendMcpMessage(message) {
   const headers = {
     'content-type': 'application/json',
     accept: 'application/json, text/event-stream',
-    authorization: `Bearer ${accessToken}`,
   };
   if (mcpSessionId) headers['mcp-session-id'] = mcpSessionId;
 
-  const res = await fetch(`${mcpServerUrl}/mcp`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(message),
-  });
-
-  // The server keeps OAuth tokens in memory (infra/mcp.tf), so a redeploy
-  // signs everyone out. Say so, and offer Connect again, rather than a 401.
-  if (res.status === 401) {
-    accessToken = null;
-    mcpSessionId = null;
-    enableToolButtons(false);
-    setStatus('Signed out — the Wick server restarted. Link Wick again.');
-    throw new Error('Wick needs linking again. The server restarted.');
-  }
+  const res = await authorizedFetch('/mcp', { method: 'POST', headers, body: JSON.stringify(message) });
 
   const sid = res.headers.get('mcp-session-id');
   if (sid) mcpSessionId = sid;
@@ -179,6 +267,14 @@ async function sendMcpMessage(message) {
   if (message.id === undefined) {
     if (!res.ok) throw new Error(`MCP notification failed: ${res.status}`);
     return undefined;
+  }
+
+  // The server restarted and forgot this MCP session (they are held in
+  // memory; the sign-in is not). Open a new one and ask again, once.
+  if ((res.status === 400 || res.status === 404) && mcpSessionId && message.method !== 'initialize') {
+    mcpSessionId = null;
+    await ensureMcpSession();
+    return sendMcpMessage(message);
   }
 
   if (!res.ok) throw new Error(`MCP request failed: ${res.status}`);
@@ -200,7 +296,7 @@ async function ensureMcpSession() {
     params: {
       protocolVersion: '2025-11-25',
       capabilities: {},
-      clientInfo: { name: 'Wick sim-alexa', version: '0.1.0' },
+      clientInfo: { name: 'Wick family app', version: '0.2.0' },
     },
   });
   await sendMcpMessage({ jsonrpc: '2.0', method: 'notifications/initialized' });
@@ -365,11 +461,6 @@ function addComposer(prefill) {
   card.appendChild(head);
 
   const form = el('form', 'form');
-  const fromLabel = el('label', undefined, 'From');
-  const from = el('input');
-  from.value = 'Sarah';
-  from.required = true;
-  fromLabel.appendChild(from);
 
   const messageLabel = el('label', undefined, 'Message');
   const message = el('textarea');
@@ -391,9 +482,10 @@ function addComposer(prefill) {
   count();
   actions.append(send, cancel, counter);
 
-  form.append(fromLabel, messageLabel, actions);
+  form.append(messageLabel, actions);
   card.appendChild(form);
-  card.appendChild(cardFoot('It is read on a television, in large type: keep it short.'));
+  // Signed by the server with the name the person at home allowed — not a field here.
+  card.appendChild(cardFoot(`From ${me?.user.name ?? 'you'}. It is read on a television, in large type: keep it short.`));
   turn.appendChild(card);
   log.appendChild(turn);
   scrollToEnd();
@@ -402,12 +494,202 @@ function addComposer(prefill) {
   cancel.addEventListener('click', () => turn.remove());
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    const context = { fromName: from.value.trim(), message: message.value.trim() };
-    if (!context.fromName || !context.message) return;
+    const context = { message: message.value.trim() };
+    if (!context.message) return;
     turn.remove();
     addCustomerTurn(`Send: “${context.message}”`);
     void askTool('send_note_to_tv', context, context);
   });
+}
+
+// ---------------------------------------------------------------------------
+// The family circle: who is in it, inviting someone, connecting a television.
+// What is said and listed is decided in surface.js; the buttons are here.
+// ---------------------------------------------------------------------------
+
+function assistantSays(presented) {
+  const turn = el('div', 'turn-assistant');
+  log.appendChild(turn);
+  fillAssistantTurn(turn, { card: null, ...presented });
+  return turn;
+}
+
+/** A card the app itself draws under a sentence: title, body, footnote. */
+function plainCard(title, footnote) {
+  const card = el('article', 'card');
+  const head = el('div', 'card-head');
+  head.appendChild(el('h2', 'card-title', title));
+  card.appendChild(head);
+  const body = el('div', 'form');
+  card.appendChild(body);
+  card.appendChild(cardFoot(footnote));
+  return { card, body };
+}
+
+/** Ask for the six digits on the television. */
+function addConnectTelevision(prefill) {
+  const resident = me?.household.residentName ?? 'their';
+  const turn = el('div', 'turn-assistant');
+  const { card, body } = plainCard('Connect a television', `${resident} is then asked, on it, whether to allow you.`);
+  body.appendChild(el('p', 'empty', 'Open Wick on the television. It shows a six-digit code.'));
+
+  const form = el('form', 'form');
+  const label = el('label', undefined, 'Code on the television');
+  const input = el('input', 'code');
+  input.inputMode = 'numeric';
+  input.autocomplete = 'off';
+  input.maxLength = 7;
+  input.placeholder = '123 456';
+  input.required = true;
+  input.value = prefill ?? '';
+  label.appendChild(input);
+  const actions = el('div', 'actions');
+  const go = el('button', 'btn final', 'Connect');
+  go.type = 'submit';
+  const cancel = el('button', 'btn quiet', 'Not now');
+  cancel.type = 'button';
+  actions.append(go, cancel);
+  const problem = el('p', 'problem');
+  problem.setAttribute('role', 'alert');
+  form.append(label, actions, problem);
+  body.appendChild(form);
+  turn.appendChild(card);
+  log.appendChild(turn);
+  scrollToEnd();
+  input.focus();
+
+  cancel.addEventListener('click', () => turn.remove());
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    go.disabled = true;
+    problem.textContent = '';
+    try {
+      await api('/api/televisions', { method: 'POST', body: JSON.stringify({ code: input.value }) });
+      turn.remove();
+      await welcome();
+    } catch (err) {
+      problem.textContent = err.message;
+      go.disabled = false;
+    }
+  });
+}
+
+/** Make an invitation and show the link to send. */
+async function addInvitation() {
+  const resident = me?.household.residentName ?? 'The person at home';
+  try {
+    const { code } = await api('/api/circle/invitations', { method: 'POST' });
+    const turn = assistantSays({ say: 'Here is a link to send them. It works for seven days.', tone: 'answer' });
+    const { card, body } = plainCard('An invitation', `They sign in, and ${resident} is asked on the television whether to allow them.`);
+    const input = el('input', 'linkbox');
+    input.readOnly = true;
+    input.value = inviteLink(window.location.href, code);
+    input.setAttribute('aria-label', 'Invitation link');
+    const actions = el('div', 'actions');
+    const copy = el('button', 'btn final', 'Copy link');
+    copy.type = 'button';
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(input.value);
+        copy.textContent = 'Copied';
+      } catch {
+        input.select();
+      }
+    });
+    actions.appendChild(copy);
+    body.append(input, actions);
+    turn.appendChild(card);
+    scrollToEnd();
+  } catch (err) {
+    assistantSays({ say: err.message, tone: 'error' });
+  }
+}
+
+function renderCircleCard(view) {
+  const { card, body } = plainCard(view.title, view.footnote);
+  const rows = el('ul', 'rows');
+  for (const member of view.members) {
+    const li = el('li', 'row');
+    li.appendChild(el('span', 'primary', member.primary));
+    const right = el('span', 'secondary', member.secondary);
+    li.appendChild(right);
+    if (member.removable) {
+      // Two presses: the first only asks.
+      const remove = el('button', 'btn link', 'Remove');
+      remove.type = 'button';
+      remove.addEventListener('click', async () => {
+        if (remove.dataset.armed !== 'true') {
+          remove.dataset.armed = 'true';
+          remove.textContent = 'Remove — sure?';
+          return;
+        }
+        try {
+          await api(`/api/circle/members/${encodeURIComponent(member.userId)}`, { method: 'DELETE' });
+          await showCircle();
+        } catch (err) {
+          assistantSays({ say: err.message, tone: 'error' });
+        }
+      });
+      li.appendChild(remove);
+    }
+    rows.appendChild(li);
+  }
+  body.appendChild(rows);
+  body.appendChild(el('p', 'empty', view.television));
+
+  if (view.organiser) {
+    const actions = el('div', 'actions');
+    const invite = el('button', 'btn', 'Invite someone');
+    invite.type = 'button';
+    invite.addEventListener('click', () => void addInvitation());
+    const connectTv = el('button', 'btn quiet', 'Connect a television');
+    connectTv.type = 'button';
+    connectTv.addEventListener('click', () => addConnectTelevision());
+    actions.append(invite, connectTv);
+    body.appendChild(actions);
+  }
+  return card;
+}
+
+async function showCircle() {
+  const turn = addThinking();
+  try {
+    me = await api('/api/me');
+    const circle = await api('/api/circle');
+    const presented = presentCircle(circle, me);
+    fillAssistantTurn(turn, { say: presented.say, card: null, tone: presented.tone });
+    turn.appendChild(renderCircleCard(presented.card));
+    scrollToEnd();
+  } catch (err) {
+    // 403 carries the server's own sentence: not allowed on the television yet.
+    fillAssistantTurn(turn, { say: err.message, card: null, tone: err.status === 403 ? 'waiting' : 'error' });
+  }
+}
+
+/**
+ * Who is linked, and what they can do next. Said after linking, after a
+ * reload, and after a television is connected.
+ */
+async function welcome() {
+  me = await api('/api/me');
+  setStatus(`${me.user.name} · ${me.household.name}`, 'connected');
+  // Only the organiser, or someone already allowed, may know about the
+  // televisions (INV-9) — so nobody else's app even asks.
+  let televisions;
+  if (me.membership.role === 'organiser' || me.membership.status === 'allowed') {
+    try {
+      televisions = (await api('/api/circle')).televisions.length;
+    } catch {
+      televisions = undefined;
+    }
+  }
+  const presented = presentWelcome(me, televisions);
+  assistantSays(presented);
+
+  const pair = sessionStorage.getItem('wick_pair');
+  sessionStorage.removeItem('wick_pair');
+  if (me.membership.role === 'organiser' && (pair || presented.next === 'connect')) addConnectTelevision(pair ?? undefined);
+  else $('ask-input').focus();
 }
 
 function handleUtterance(text) {
@@ -415,9 +697,8 @@ function handleUtterance(text) {
   const route = routeUtterance(text);
   if (route.kind === 'tool') return void askTool(route.tool, route.args);
   if (route.kind === 'compose') return addComposer(route.message);
-  const turn = el('div', 'turn-assistant');
-  log.appendChild(turn);
-  fillAssistantTurn(turn, { say: HELP_TEXT, card: null, tone: 'answer' });
+  if (route.kind === 'circle') return void showCircle();
+  assistantSays({ say: HELP_TEXT, tone: 'answer' });
 }
 
 for (const suggestion of SUGGESTIONS) {
@@ -445,13 +726,50 @@ $('speak-toggle').addEventListener('click', (event) => {
 
 $('connect').addEventListener('click', () => void connect());
 
-completeAuthIfRedirected().then((authenticated) => {
-  if (!authenticated) return;
-  setStatus('Linked', 'connected');
-  enableToolButtons(true);
-  $('link-card').hidden = true;
-  const turn = el('div', 'turn-assistant');
-  log.appendChild(turn);
-  fillAssistantTurn(turn, { say: 'Wick is linked. What would you like to know?', card: null, tone: 'answer' });
-  $('ask-input').focus();
+$('sign-out').addEventListener('click', () => {
+  signedOut('Not connected');
+  window.location.replace(redirectUri());
 });
+
+/**
+ * How the page was opened:
+ *   ?code=    back from the Wick server's sign-in
+ *   ?invite=  an invitation link somebody sent
+ *   ?pair=    the link on a television's pairing screen
+ */
+(async function start() {
+  const params = new URLSearchParams(window.location.search);
+  const invite = params.get('invite');
+  const pair = params.get('pair');
+  if (invite) sessionStorage.setItem('wick_invite', invite);
+  if (pair) sessionStorage.setItem('wick_pair', pair);
+
+  const code = params.get('code');
+  if (code) await completeAuthIfRedirected(code);
+  if (params.size > 0) window.history.replaceState({}, '', window.location.pathname);
+
+  link = loadLink();
+  if (link) $('server-url').value = link.serverUrl;
+
+  // An invitation is for a home this browser may not be linked to yet, so it
+  // goes through sign-in again even when a link exists. The server remembers
+  // the browser, so that is one press, not a password.
+  if (sessionStorage.getItem('wick_invite')) {
+    $('link-say').textContent = 'You have been invited to a family circle.';
+    $('link-title').textContent = 'Join with your Wick account';
+    $('link-detail').textContent = 'Sign in, or create an account with your email and a password. The person at home is then asked whether to allow you.';
+    $('connect').textContent = 'Continue';
+    return;
+  }
+  if (!link) {
+    if (pair) $('link-say').textContent = 'To connect that television, sign in to Wick first.';
+    return;
+  }
+
+  enableToolButtons(true);
+  try {
+    await welcome();
+  } catch (err) {
+    if (link) assistantSays({ say: err.message, tone: 'error' });
+  }
+})();

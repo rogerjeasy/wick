@@ -258,10 +258,12 @@ curl -s -X POST "$PAIRING_API_URL/pair/start" \
 CODE=$(python3 -c "import json;print(json.load(open('/tmp/pair-start.json'))['code'])")
 echo "code: $CODE"
 
-# 2. "Sarah's phone" confirms the binding
-curl -s -X POST "$PAIRING_API_URL/pair/claim" \
-  -H 'Content-Type: application/json' \
-  -d "{\"code\":\"$CODE\",\"householdId\":\"$WICK_HOUSEHOLD_ID\"}"
+# 2. The organiser confirms the binding. Since accounts (AGENTS.md INV-8)
+#    this needs them signed in: open the family app, sign in, choose
+#    "Connect a television" and enter $CODE. `/pair/claim` no longer takes a
+#    household from the request, and refuses a caller with no token.
+echo "enter $CODE in the family app: $(cd infra && terraform output -raw sim_alexa_url)/?pair=$CODE"
+read -p "press Enter once the family app says it is connected "
 
 # 3. The TV polls until it's bound, and collects its token
 curl -s "$PAIRING_API_URL/pair/status?code=$CODE" | tee /tmp/pair-status.json

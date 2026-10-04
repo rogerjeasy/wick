@@ -1,4 +1,15 @@
-# sim-alexa — the simulated Alexa+ surface
+# sim-alexa — the family app, with a simulated Alexa+ conversation
+
+**It is also the family's app now.** A person signs in (or creates an account
+with an email and a password) on the Wick server's own pages, and this page
+then holds a link to that account: who is in the family circle, an invitation
+link to send, and "Connect a television" for the six-digit code. Opened with
+`?invite=<code>` it joins a circle; with `?pair=<code>` (the link on the
+television's pairing screen) it connects that television. Someone the person
+at home has not allowed yet is told so, and shown nothing (AGENTS.md INV-9).
+
+To try the whole journey with no AWS:
+`npx vite-node -c vitest.config.ts services/mcp-server/src/__tests__/devServer.ts`
 
 **Why this exists.** The Alexa+ MCP Toolkit is restricted to select partners with
 no published application path (see `FRICTION.md` FL-001), so Wick cannot register

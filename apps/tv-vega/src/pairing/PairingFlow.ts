@@ -32,8 +32,6 @@ export type PairingStatusResponse =
 
 export interface PairingConfig {
   readonly pairingApiUrl: string;
-  /** Needed only for loadToken()'s server-side refresh fallback — see its header comment. */
-  readonly householdId?: string;
   readonly pollIntervalMs?: number;
   readonly pollTimeoutMs?: number;
 }
@@ -62,16 +60,16 @@ export class PairingFlow {
    * never actually hold a write (FRICTION.md FL-013), disk alone can never
    * tell CardService "this device is already paired," no matter how many
    * times pairing succeeds in the other process. The fallback below asks
-   * the server instead, using the same durable deviceId<->householdId
-   * binding pair-claim.mjs already writes — the server, not this device's
-   * broken local disk, is the actual source of truth for "is this device
-   * paired."
+   * the server instead, using the same durable binding pair-claim.mjs
+   * already writes — the server, not this device's broken local disk, is
+   * the actual source of truth for "is this device paired," and for which
+   * household it belongs to (INV-8: the television only says who it is).
    */
   async loadToken(deviceId?: string): Promise<DeviceToken | null> {
     const cached = await this.#loadTokenFromDisk();
     if (cached) return cached;
-    if (!deviceId || !this.#config.householdId) return null;
-    return this.#refreshToken(deviceId, this.#config.householdId);
+    if (!deviceId) return null;
+    return this.#refreshToken(deviceId);
   }
 
   async #loadTokenFromDisk(): Promise<DeviceToken | null> {
@@ -93,11 +91,11 @@ export class PairingFlow {
     }
   }
 
-  async #refreshToken(deviceId: string, householdId: string): Promise<DeviceToken | null> {
+  async #refreshToken(deviceId: string): Promise<DeviceToken | null> {
     const res = await this.#fetch(`${this.#config.pairingApiUrl}/pair/refresh`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId, householdId }),
+      body: JSON.stringify({ deviceId }),
     });
     // Never paired, denylisted, or the refresh call itself failed — the
     // pairing screen is the safe, fail-closed fallback in every case here.
@@ -128,7 +126,7 @@ export class PairingFlow {
     return (await res.json()) as PairingStartResponse;
   }
 
-  /** Polls until Sarah claims the code, or the nonce's TTL elapses. Persists the token on success. */
+  /** Polls until the organiser enters the code in the family app, or the nonce's TTL elapses. Persists the token on success. */
   async pollUntilBound(code: string): Promise<DeviceToken> {
     const interval = this.#config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     const timeout = this.#config.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;

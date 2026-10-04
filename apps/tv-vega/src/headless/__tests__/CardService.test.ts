@@ -34,7 +34,7 @@ describe('CardService', () => {
     const fs = fakeFs();
     __setCardServiceTestDeps({
       fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', householdId: 'h1' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
       createChannel: async () => {
         throw new Error('should not be called when unpaired');
       },
@@ -56,7 +56,7 @@ describe('CardService', () => {
     const sent: unknown[] = [];
     __setCardServiceTestDeps({
       fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', householdId: 'h1' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
       createChannel: async () => ({
         state: 'open' as const,
         onCard: (h: (c: QueuedCard) => void) => {
@@ -106,7 +106,7 @@ describe('CardService', () => {
     const sent: unknown[] = [];
     __setCardServiceTestDeps({
       fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', householdId: 'h1' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
       createChannel: async () => ({
         state: 'open' as const,
         onCard: () => () => undefined,

@@ -41,16 +41,12 @@ locals {
 
   ops_console_device_js = replace(
     replace(
-      replace(
-        file("${path.module}/../apps/ops-console/device.js"),
-        "PAIRING_API_URL_PLACEHOLDER",
-        aws_apigatewayv2_api.edge.api_endpoint,
-      ),
-      "WEBSOCKET_URL_PLACEHOLDER",
-      aws_apigatewayv2_stage.transport.invoke_url,
+      file("${path.module}/../apps/ops-console/device.js"),
+      "PAIRING_API_URL_PLACEHOLDER",
+      aws_apigatewayv2_api.edge.api_endpoint,
     ),
-    "WICK_HOUSEHOLD_ID_PLACEHOLDER",
-    var.household_id,
+    "WEBSOCKET_URL_PLACEHOLDER",
+    aws_apigatewayv2_stage.transport.invoke_url,
   )
 }
 

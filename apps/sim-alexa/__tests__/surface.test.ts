@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — a plain browser module, deliberately untyped (no build step).
-import { presentResult, routeUtterance, SUGGESTIONS } from '../surface.js';
+import { inviteLink, presentCircle, presentResult, presentWelcome, routeUtterance, SUGGESTIONS } from '../surface.js';
 
 const at = (ms: number) => `t${ms}`;
 
@@ -132,8 +132,8 @@ describe('presentResult — did a visitor come', () => {
 });
 
 describe('presentResult — notes and replies', () => {
-  it('confirms a note with what was sent and when it will be shown', () => {
-    const r = presentResult('send_note_to_tv', JSON.stringify({ sent: true, cardId: 'note-1' }), { fromName: 'Sarah', message: 'Call me.' }, at);
+  it('confirms a note with who the server sent it from, and when it will be shown', () => {
+    const r = presentResult('send_note_to_tv', JSON.stringify({ sent: true, cardId: 'note-1', fromName: 'Sarah' }), { message: 'Call me.' }, at);
     expect(r.say).toMatch(/never in the middle of a programme/);
     expect(r.card).toMatchObject({ kind: 'confirmation', title: 'Note sent to the television', fields: [['From', 'Sarah'], ['Message', 'Call me.']] });
   });
@@ -176,5 +176,116 @@ describe('presentResult — failures', () => {
   it('keeps the server\'s calm sentence for an error and marks it', () => {
     const r = presentResult('get_today', 'Something went wrong on my end — try again in a moment.', {}, at, true);
     expect(r).toEqual({ say: 'Something went wrong on my end — try again in a moment.', card: null, tone: 'error' });
+  });
+});
+
+describe('routeUtterance — the family circle', () => {
+  it('opens the circle for questions about who is in it, inviting, and connecting a television', () => {
+    expect(routeUtterance('Who is in the family circle?')).toEqual({ kind: 'circle' });
+    expect(routeUtterance('Invite my brother')).toEqual({ kind: 'circle' });
+    expect(routeUtterance('Connect a television')).toEqual({ kind: 'circle' });
+  });
+
+  it('still sends a note when the television is only where the note is going', () => {
+    expect(routeUtterance("Put a note on Mum's television")).toEqual({ kind: 'compose' });
+  });
+});
+
+describe('presentResult — waiting for the resident (INV-9)', () => {
+  it('marks the server’s sentence as waiting, never as an error, whichever tool was asked', () => {
+    const text = 'Margaret hasn’t allowed this yet. A card is waiting on the television, and it only takes one press.';
+    expect(presentResult('get_today', text, {}, at)).toEqual({ say: text, card: null, tone: 'waiting' });
+  });
+
+  it('marks a refusal by the resident as their choice', () => {
+    const text = 'Margaret chose not to share this with you.';
+    expect(presentResult('get_today', text, {}, at)).toEqual({ say: text, card: null, tone: 'private' });
+  });
+});
+
+const me = (role: string, status: string) => ({
+  user: { userId: 'u_sarah', name: 'Sarah', email: 'sarah@example.com' },
+  household: { householdId: 'hh_1', name: 'Margaret’s home', residentName: 'Margaret' },
+  membership: { role, status },
+});
+
+describe('presentWelcome — the first thing said after linking', () => {
+  it('invites a question from someone the resident has allowed', () => {
+    expect(presentWelcome(me('organiser', 'allowed'), 1)).toEqual({
+      say: 'Wick is linked to Margaret’s home. What would you like to know?',
+      tone: 'answer',
+      next: null,
+    });
+  });
+
+  it('tells a new organiser to connect the television first: nobody can be asked without one', () => {
+    expect(presentWelcome(me('organiser', 'pending'), 0)).toEqual({
+      say: 'Welcome, Sarah. Connect Margaret’s television next. Margaret will then be asked, on it, whether to allow you.',
+      tone: 'waiting',
+      next: 'connect',
+    });
+  });
+
+  it('tells an organiser whose television is connected that the question is on it', () => {
+    expect(presentWelcome(me('organiser', 'pending'), 1).say).toBe(
+      'The television is connected. Margaret is being asked whether to allow you. It appears at the end of a programme, and takes one press.',
+    );
+  });
+
+  it('tells an invited person they are waiting, and that nothing is visible until then', () => {
+    expect(presentWelcome(me('family', 'pending'), undefined)).toEqual({
+      say: 'You have asked to join Margaret’s home. Margaret will be asked on the television whether to allow you. Until then there is nothing I can show you.',
+      tone: 'waiting',
+      next: null,
+    });
+  });
+
+  it('says plainly when the resident said no', () => {
+    expect(presentWelcome(me('family', 'declined'), undefined).say).toBe('Margaret chose not to share this with you.');
+  });
+});
+
+describe('presentCircle', () => {
+  const circle = {
+    household: { householdId: 'hh_1', name: 'Margaret’s home', residentName: 'Margaret' },
+    members: [
+      { userId: 'u_sarah', name: 'Sarah', role: 'organiser', status: 'allowed', you: true },
+      { userId: 'u_tom', name: 'Tom', role: 'family', status: 'pending', you: false },
+      { userId: 'u_amy', name: 'Amy', role: 'family', status: 'declined', you: false },
+    ],
+    televisions: [{ deviceId: 'tv-1', pairedAt: 5, connected: true }],
+  };
+
+  it('says who is in the circle and what the resident has said about each', () => {
+    const r = presentCircle(circle, me('organiser', 'allowed'));
+
+    expect(r.say).toBe('Three people are in Margaret’s family circle. One is waiting for Margaret to allow them.');
+    expect(r.card.title).toBe('Margaret’s family circle');
+    expect(r.card.members).toEqual([
+      { userId: 'u_sarah', primary: 'Sarah (you)', secondary: 'Organiser · allowed by Margaret', removable: false },
+      { userId: 'u_tom', primary: 'Tom', secondary: 'Waiting for Margaret', removable: true },
+      { userId: 'u_amy', primary: 'Amy', secondary: 'Margaret said no', removable: true },
+    ]);
+  });
+
+  it('says whether the television is connected', () => {
+    expect(presentCircle(circle, me('organiser', 'allowed')).card.television).toBe('One television connected, and on now.');
+    expect(presentCircle({ ...circle, televisions: [{ deviceId: 'tv-1', connected: false }] }, me('organiser', 'allowed')).card.television).toBe(
+      'One television connected. It is off, or showing something else.',
+    );
+    expect(presentCircle({ ...circle, televisions: [] }, me('organiser', 'allowed')).card.television).toBe('No television is connected yet.');
+  });
+
+  it('offers inviting, connecting and removing to the organiser only', () => {
+    expect(presentCircle(circle, me('organiser', 'allowed')).card.organiser).toBe(true);
+    const family = presentCircle(circle, me('family', 'allowed'));
+    expect(family.card.organiser).toBe(false);
+    expect(family.card.members.every((m: { removable: boolean }) => !m.removable)).toBe(true);
+  });
+});
+
+describe('inviteLink', () => {
+  it('opens this same app with the invitation in the address', () => {
+    expect(inviteLink('https://family.example/?pair=123456', 'abc_DEF-123')).toBe('https://family.example/?invite=abc_DEF-123');
   });
 });

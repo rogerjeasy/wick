@@ -129,12 +129,13 @@ describe('PairingFlow', () => {
     it('falls back to /pair/refresh when disk has nothing and a deviceId is given', async () => {
       const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
         expect(url).toBe('https://pair.example/pair/refresh');
-        expect(JSON.parse(String(init?.body))).toEqual({ deviceId: 'd1', householdId: 'h1' });
+        // INV-8: the device id alone. The server knows which home the television belongs to.
+        expect(JSON.parse(String(init?.body))).toEqual({ deviceId: 'd1' });
         return new Response(JSON.stringify({ token: TOKEN }), { status: 200 });
       });
       const fs = fakeFs();
       const flow = new PairingFlow(
-        { pairingApiUrl: 'https://pair.example', householdId: 'h1' },
+        { pairingApiUrl: 'https://pair.example' },
         fs,
         fetchMock as unknown as typeof fetch,
       );
@@ -151,24 +152,12 @@ describe('PairingFlow', () => {
     it('returns null when /pair/refresh reports the device was never paired', async () => {
       const fetchMock = vi.fn(async () => new Response('device_not_paired', { status: 404 }));
       const flow = new PairingFlow(
-        { pairingApiUrl: 'https://pair.example', householdId: 'h1' },
-        fakeFs(),
-        fetchMock as unknown as typeof fetch,
-      );
-
-      expect(await flow.loadToken('d1')).toBeNull();
-    });
-
-    it('returns null without calling /pair/refresh when no householdId is configured', async () => {
-      const fetchMock = vi.fn();
-      const flow = new PairingFlow(
         { pairingApiUrl: 'https://pair.example' },
         fakeFs(),
         fetchMock as unknown as typeof fetch,
       );
 
       expect(await flow.loadToken('d1')).toBeNull();
-      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('treats a throwing disk read as "nothing cached" and still falls back to refresh', async () => {
@@ -181,7 +170,7 @@ describe('PairingFlow', () => {
         throw new Error('[com.amazon.kepler.io.IoError]: ');
       };
       const flow = new PairingFlow(
-        { pairingApiUrl: 'https://pair.example', householdId: 'h1' },
+        { pairingApiUrl: 'https://pair.example' },
         fs,
         fetchMock as unknown as typeof fetch,
       );

@@ -54,6 +54,16 @@ output "pairing_api_url" {
   value       = aws_apigatewayv2_api.edge.api_endpoint
 }
 
+output "cognito_user_pool_id" {
+  description = "Where family accounts live (infra/accounts.tf)."
+  value       = aws_cognito_user_pool.family.id
+}
+
+output "cognito_client_id" {
+  description = "Set as WICK_COGNITO_CLIENT_ID to run services/mcp-server locally."
+  value       = aws_cognito_user_pool_client.wick.id
+}
+
 output "pairing_signing_key_secret" {
   description = "Populate with infra/bootstrap/generate-pairing-key.sh"
   value       = aws_secretsmanager_secret.pairing_signing_key.name

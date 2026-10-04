@@ -5,6 +5,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { loadHouseholdPolicy, registerGetResidentSharedView } from '../get_resident_shared_view.js';
 import { DEFAULT_POLICY } from '@wick/policy';
+import { allowedContext } from './toolContext.js';
 
 describe('loadHouseholdPolicy', () => {
   it('returns DEFAULT_POLICY when the household has no stored policy', async () => {
@@ -51,7 +52,7 @@ describe('get_resident_shared_view NEVER_TO_FAMILY guard', () => {
     } as unknown as DynamoDBClient;
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerGetResidentSharedView(mcpServer, ddb);
+    registerGetResidentSharedView(mcpServer, ddb, allowedContext('hh-1'));
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });

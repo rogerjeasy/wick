@@ -44,6 +44,8 @@ These are enforced by code and by test, not by convention. Violating any of them
 | **INV-5** | Deferred cards are never rendered during `IN_SCENE`. The only immediate class is `DOOR`. |
 | **INV-6** | Every agent tool call is idempotent and carries a correlation id that survives to CloudWatch. |
 | **INV-7** | The resident's weekly narrative is written to the TV surface before it is readable by any family tool. Ordering is enforced by the write path. |
+| **INV-8** | A request's household comes from a verified token — the family member's access token, or the television's device-bound JWT — never from a request body, a URL or an environment variable. |
+| **INV-9** | Nobody reads a household before the resident has allowed them, on the television, with one press. Checked on every tool call, so the answer counts at once. |
 
 ---
 
@@ -815,7 +817,7 @@ Under 500ms round trip ✅ V — non-negotiable. Every tool is a single `GetItem
 
 ### 10.3 `AGENTS.md`
 
-Ship an `AGENTS.md` at the repo root encoding INV-1…INV-7 as rules for any coding agent working in the repo. It is genuinely useful, and it is also visible evidence to a judge that the invariants are enforced rather than aspirational.
+Ship an `AGENTS.md` at the repo root encoding INV-1…INV-9 as rules for any coding agent working in the repo. It is genuinely useful, and it is also visible evidence to a judge that the invariants are enforced rather than aspirational.
 
 ---
 

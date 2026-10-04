@@ -21,6 +21,8 @@
   .status{margin-top:1.25rem;color:var(--ink-dim);min-height:1.4em}
   .status.ok{color:var(--ok)}
   .status.err{color:var(--err)}
+  a.go{display:inline-block;font-size:1.05rem;background:var(--accent);color:#12100E;border-radius:8px;
+       padding:.85rem 1.75rem;text-decoration:none;font-weight:600}
   .notice{border-left:3px solid var(--accent);padding-left:1rem;color:var(--ink-dim);font-size:.95rem}
   a{color:var(--accent)}
   footer{margin-top:2.5rem;text-align:center;color:#6E675D;font-size:.88rem}
@@ -30,19 +32,19 @@
 <div class="wrap">
   <img src="../icons/light-241.png" alt="">
   <h1>Connect your television</h1>
-  <p class="sub">Your Fire TV is showing a 6-digit code. Confirm it matches, then connect.</p>
+  <p class="sub">Your Fire TV is showing a 6-digit code. Enter it in the Wick family app, signed in to your account.</p>
 
   <p class="code" id="code">------</p>
 
   <div class="box">
-    <button id="claim-btn" type="button">Connect this television</button>
-    <p class="status" id="status"></p>
+    <a class="go" id="open-app" href="#">Open the family app</a>
+    <p class="status" id="status">Then choose “Connect a television”.</p>
   </div>
 
   <p class="notice">
-    This links the television to your household so it can receive cards and
-    report playback activity. It never grants access to Ring or any
-    other family surface. See the <a href="../privacy.html">privacy policy</a>.
+    A television can only be connected by the person who set the home up, signed
+    in. The person at home is then asked, on that television, whether to allow
+    you. See the <a href="../privacy.html">privacy policy</a>.
   </p>
 
   <footer>
@@ -51,11 +53,14 @@
 </div>
 
 <script>
-  // Real deployed values — this is a static GitHub Pages site with no build
-  // step, so (matching apps/tv-vega/src/config.ts's own DEPLOYED pattern)
-  // these are committed directly rather than templated in at deploy time.
-  const PAIRING_API_URL = 'https://aplt2e6673.execute-api.us-east-1.amazonaws.com';
-  const HOUSEHOLD_ID = 'margaret';
+  // Real deployed value — this is a static GitHub Pages site with no build
+  // step, so (matching apps/tv-vega/src/config.ts's own DEPLOYED pattern) it
+  // is committed directly: `terraform -chdir=infra output -raw sim_alexa_url`.
+  //
+  // This page used to connect the television itself, for a household id
+  // written into it. Anyone who had the link could. Connecting now needs the
+  // household's organiser signed in, so this page only hands the code on.
+  const FAMILY_APP_URL = 'https://dmaz25jvryojp.cloudfront.net';
 
   function extractCode() {
     // Reached two ways: a direct visit to /wick/pair/819699 (no file exists
@@ -68,41 +73,14 @@
     return match ? match[1] : null;
   }
 
-  const codeEl = document.getElementById('code');
-  const btn = document.getElementById('claim-btn');
-  const statusEl = document.getElementById('status');
-
   const code = extractCode();
+  const link = document.getElementById('open-app');
   if (code && /^\d{6}$/.test(code)) {
-    codeEl.textContent = code.slice(0, 3) + ' ' + code.slice(3);
+    document.getElementById('code').textContent = code.slice(0, 3) + ' ' + code.slice(3);
+    link.href = `${FAMILY_APP_URL}/?pair=${code}`;
   } else {
-    codeEl.textContent = '------';
-    btn.disabled = true;
-    statusEl.textContent = 'No pairing code found in this link. Go back to the television and try again.';
-    statusEl.className = 'status err';
+    link.href = FAMILY_APP_URL;
   }
-
-  btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    statusEl.className = 'status';
-    statusEl.textContent = 'Connecting…';
-    try {
-      const res = await fetch(`${PAIRING_API_URL}/pair/claim`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, householdId: HOUSEHOLD_ID }),
-      });
-      if (res.status === 404) throw new Error('That code has expired or was already used.');
-      if (res.status === 409) throw new Error('That code has already been used.');
-      if (!res.ok) throw new Error(`Something went wrong (${res.status}). Try again.`);
-      statusEl.textContent = 'Connected — the television will finish setting up in a moment.';
-      statusEl.className = 'status ok';
-    } catch (err) {
-      statusEl.textContent = err.message || 'Something went wrong. Try again.';
-      statusEl.className = 'status err';
-      btn.disabled = false;
-    }
-  });
 </script>
 </body>
 </html>

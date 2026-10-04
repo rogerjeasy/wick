@@ -3,15 +3,15 @@
  * (manifest.toml `[[tasks.work]] mode = "install"`).
  *
  * The only state that must exist before pairing can ever begin is a stable
- * per-device id (PairingFlow.start(deviceId) needs one; App.tsx currently
- * hardcodes a placeholder — see its TODO(S4)). Generating and persisting it
- * here, idempotently, is exactly the "first-run" work this task exists for.
+ * per-device id (PairingFlow.start(deviceId) needs one). Generating and
+ * persisting it here, idempotently, is exactly the "first-run" work this
+ * task exists for; ../deviceId.ts reads it back on every launch.
  */
 import type { FileSystemLike } from './QueueStore.js';
 
 // Flat, directly under /data/ — see PairingFlow.ts's TOKEN_PATH comment for
 // why (/wick/... failed on-device with a bare com.amazon.kepler.io.IoError).
-const DEVICE_ID_PATH = '/data/wick-deviceId.json';
+export const DEVICE_ID_PATH = '/data/wick-deviceId.json';
 const ENCODING = 'utf8';
 
 interface TestDeps {

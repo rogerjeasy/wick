@@ -19,7 +19,7 @@ import { startCardChannel, type RunningCardChannel } from '../transport/startCar
 import { QueueStore, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
-import { DEVICE_ID } from '../deviceId.js';
+import { resolveDeviceId } from '../deviceId.js';
 
 interface TestDeps {
   readonly fs: FileSystemLike;
@@ -51,18 +51,14 @@ export async function onStartCardService(): Promise<void> {
   const createChannel = testDeps?.createChannel ?? createDeviceChannel;
 
   const store = new QueueStore(fs);
-  const pairing = new PairingFlow(
-    { pairingApiUrl: config.pairingApiUrl, householdId: config.householdId },
-    fs,
-    testDeps?.fetchImpl,
-  );
+  const pairing = new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, fs, testDeps?.fetchImpl);
 
-  // Passing DEVICE_ID lets loadToken() fall back to a server-side refresh
+  // Passing the device id lets loadToken() fall back to a server-side refresh
   // when disk has nothing — this process's only other option, since it
   // never calls start()/pollUntilBound() itself and has no in-memory token
   // from App.tsx's own pairing (separate process, no shared JS memory). See
   // PairingFlow.loadToken's header comment and FRICTION.md.
-  const token = await pairing.loadToken(DEVICE_ID);
+  const token = await pairing.loadToken(await resolveDeviceId(fs));
   if (!token) return; // genuinely unpaired — App.tsx shows the pairing screen; nothing to hold open yet
 
   const channelConfig: DeviceChannelConfig = {
