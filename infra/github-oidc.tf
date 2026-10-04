@@ -113,6 +113,11 @@ data "aws_iam_policy_document" "github_deploy" {
       # The agent plane (infra/agentcore.tf): the runtime and the workload
       # identity AgentCore creates with it get their IDs only on creation.
       "bedrock-agentcore:*",
+      # Family accounts (infra/accounts.tf): the user pool and its app client.
+      # Without this the first deploy after accounts landed failed on
+      # CreateUserPool with AccessDenied — after it had already updated the
+      # pairing Lambdas and the family app, leaving the stack half-deployed.
+      "cognito-idp:*",
     ]
     resources = ["*"]
   }
