@@ -113,13 +113,45 @@ data "aws_iam_policy_document" "github_deploy" {
       # The agent plane (infra/agentcore.tf): the runtime and the workload
       # identity AgentCore creates with it get their IDs only on creation.
       "bedrock-agentcore:*",
-      # Family accounts (infra/accounts.tf): the user pool and its app client.
-      # Without this the first deploy after accounts landed failed on
-      # CreateUserPool with AccessDenied — after it had already updated the
-      # pairing Lambdas and the family app, leaving the stack half-deployed.
-      "cognito-idp:*",
     ]
     resources = ["*"]
+  }
+
+  # Family accounts (infra/accounts.tf): the user pool and its app client.
+  # Without a grant the first deploy after accounts landed failed on
+  # CreateUserPool with AccessDenied — after it had already updated the
+  # pairing Lambdas and the family app, leaving the stack half-deployed.
+  #
+  # NOT cognito-idp:*. That would also be every Admin* and List* action on
+  # the people in the pool: anyone who can push to main could read the
+  # family's email addresses, reset a password, or delete an account. The
+  # deploy role manages the pool's shape and never its users, so it gets the
+  # verbs Terraform calls for those two resources and nothing else.
+  statement {
+    sid       = "CreateTheUserPool"
+    actions   = ["cognito-idp:CreateUserPool", "cognito-idp:ListUserPools"]
+    resources = ["*"] # no pool ARN exists before the pool does
+  }
+
+  statement {
+    sid = "ManageTheUserPoolNeverItsUsers"
+    actions = [
+      "cognito-idp:DescribeUserPool",
+      "cognito-idp:UpdateUserPool",
+      "cognito-idp:DeleteUserPool",
+      "cognito-idp:GetUserPoolMfaConfig",
+      "cognito-idp:SetUserPoolMfaConfig",
+      "cognito-idp:AddCustomAttributes",
+      "cognito-idp:ListTagsForResource",
+      "cognito-idp:TagResource",
+      "cognito-idp:UntagResource",
+      "cognito-idp:CreateUserPoolClient",
+      "cognito-idp:DescribeUserPoolClient",
+      "cognito-idp:UpdateUserPoolClient",
+      "cognito-idp:DeleteUserPoolClient",
+      "cognito-idp:ListUserPoolClients",
+    ]
+    resources = ["arn:aws:cognito-idp:${local.region}:${local.account_id}:userpool/*"]
   }
 
   # Secrets: Terraform manages the containers. It must never need the contents —
@@ -164,6 +196,14 @@ data "aws_iam_policy_document" "github_deploy" {
   # container) — see infra/mcp.tf's apprunner_ecr_access/apprunner_instance
   # roles, both wick-* and so already covered by this statement's resource
   # scope.
+  #
+  # And apprunner.amazonaws.com itself. That is the service name App Runner
+  # checks iam:PassRole against on UpdateService — it is what AWS's own
+  # AWSAppRunnerFullAccess policy grants — and without it CI could never
+  # change the MCP server's settings: the first time it tried (the demo
+  # switch) both deploys failed with "not authorized to perform iam:PassRole
+  # on wick-apprunner-ecr-access". Nothing had shown it before because every
+  # earlier change to that service was applied from a laptop.
   statement {
     sid       = "PassOnlyWickRoles"
     actions   = ["iam:PassRole"]
@@ -174,6 +214,7 @@ data "aws_iam_policy_document" "github_deploy" {
       variable = "iam:PassedToService"
       values = [
         "lambda.amazonaws.com",
+        "apprunner.amazonaws.com",
         "build.apprunner.amazonaws.com",
         "tasks.apprunner.amazonaws.com",
         "bedrock-agentcore.amazonaws.com",
