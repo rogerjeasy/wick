@@ -744,7 +744,10 @@ $('speak-toggle').addEventListener('click', (event) => {
 });
 
 $('connect').addEventListener('click', () => void connect());
-$('demo').addEventListener('click', () => void connect({ demo: true }));
+// Optional chaining, here and below: this script and its page are uploaded
+// separately, and a deploy that stopped half way once left the new script
+// running against the old page. A missing button must not stop the rest.
+$('demo')?.addEventListener('click', () => void connect({ demo: true }));
 
 /** Offer the demo button only where the server will honour it. */
 async function offerDemoIfAllowed() {
@@ -752,8 +755,8 @@ async function offerDemoIfAllowed() {
     const serverUrl = $('server-url').value.replace(/\/$/, '');
     const options = await (await fetch(`${serverUrl}/account/options`)).json();
     const allowed = options.demo === true;
-    $('demo').hidden = !allowed;
-    $('demo-hint').hidden = !allowed;
+    if ($('demo')) $('demo').hidden = !allowed;
+    if ($('demo-hint')) $('demo-hint').hidden = !allowed;
   } catch {
     // No answer means no demo. The sign-in button still says why if the server is unreachable.
   }
