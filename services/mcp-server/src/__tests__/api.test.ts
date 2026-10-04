@@ -209,3 +209,23 @@ describe('POST /api/televisions — connecting a television with its six-digit c
     expect(JSON.stringify(await res.json())).not.toContain('arn:aws');
   });
 });
+
+describe('GET /api/me — where to find a television to try it on', () => {
+  it('points at the virtual television when the deployment has one, so nobody needs a Fire TV to see the resident’s side', async () => {
+    const h = await startServer({ virtualTelevisionUrl: 'https://ops.example/device.html' });
+    closers.push(h.close);
+    const sarah = await linkNewOrganiser(h);
+
+    const body = (await (await api(h, sarah, '/api/me')).json()) as { virtualTelevisionUrl?: string; user: { guest: boolean } };
+
+    expect(body.virtualTelevisionUrl).toBe('https://ops.example/device.html');
+    expect(body.user.guest).toBe(false);
+  });
+
+  it('says nothing about one when there is none', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+
+    expect(await (await api(h, sarah, '/api/me')).json()).not.toHaveProperty('virtualTelevisionUrl');
+  });
+});

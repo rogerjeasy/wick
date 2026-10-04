@@ -80,6 +80,10 @@ export interface AppDeps {
   readonly ddb: DynamoDBClient;
   /** The pairing API's POST /pair/claim, called as the signed-in person. */
   readonly claimTelevision?: ClaimTelevision;
+  /** Let a visitor become an anonymous guest in one click (accounts/demo.ts). Off unless set. */
+  readonly demoAccounts?: boolean;
+  /** A television in a browser tab, for someone with no Fire TV to hand (apps/ops-console/device.html). */
+  readonly virtualTelevisionUrl?: string;
   readonly now?: () => number;
   readonly newId?: () => string;
 }
@@ -99,12 +103,19 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     now: deps.now ?? Date.now,
     newId: deps.newId ?? randomId,
   };
-  const { router: authRouter, requireAuth } = createAuth(issuerUrl, circle, deps.identity);
+  const { router: authRouter, requireAuth } = createAuth(issuerUrl, circle, deps.identity, { demoAccounts: deps.demoAccounts });
 
   const app = express();
+  // Deployed, the server sits behind exactly one proxy (App Runner's), and
+  // every request arrives from that proxy's address. Without this, the
+  // SDK's rate limits count the proxy — so its 20 app registrations an hour
+  // would be 20 for everyone in the world put together. One hop is trusted,
+  // no more: the address used is the one App Runner itself appended, which a
+  // caller cannot forge. Locally (http) there is no proxy, and none is trusted.
+  if (issuerUrl.protocol === 'https:') app.set('trust proxy', 1);
   app.use(express.json());
   app.use(authRouter);
-  app.use(createApiRouter(circle, requireAuth, deps.claimTelevision));
+  app.use(createApiRouter(circle, requireAuth, { claimTelevision: deps.claimTelevision, virtualTelevisionUrl: deps.virtualTelevisionUrl }));
 
   // Session-keyed transports. StreamableHTTPServerTransport in stateful mode
   // (`sessionIdGenerator` set) only flips its internal `_initialized` flag on the

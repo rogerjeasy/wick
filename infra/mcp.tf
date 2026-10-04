@@ -165,6 +165,12 @@ resource "aws_apprunner_service" "mcp_server" {
             # Where a television's six-digit code is confirmed (pairing.tf).
             WICK_PAIRING_API_URL = aws_apigatewayv2_api.edge.api_endpoint
             WICK_HOUSEHOLD_TZ    = var.household_time_zone
+            # One-click guest accounts, so nobody has to give an email
+            # address to try Wick (services/mcp-server/src/accounts/demo.ts).
+            WICK_DEMO_ACCOUNTS = var.demo_accounts ? "on" : "off"
+            # A television in a browser tab, offered to anyone with no Fire
+            # TV to hand: it pairs with a code and shows the same cards.
+            WICK_VIRTUAL_TV_URL = "https://${aws_cloudfront_distribution.ops_console.domain_name}/device.html"
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
         )

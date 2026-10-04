@@ -35,7 +35,12 @@ export interface Auth {
 /**
  * `issuerUrl` doubles as the resource server URL — this server is both.
  */
-export function createAuth(issuerUrl: URL, circle: CircleDeps, identity: IdentityProvider): Auth {
+export function createAuth(
+  issuerUrl: URL,
+  circle: CircleDeps,
+  identity: IdentityProvider,
+  options: { readonly demoAccounts?: boolean | undefined } = {},
+): Auth {
   const oauth = createWickOAuth(circle.store, circle.now);
 
   const router = express.Router();
@@ -47,7 +52,7 @@ export function createAuth(issuerUrl: URL, circle: CircleDeps, identity: Identit
       resourceName: 'Wick',
     }),
   );
-  router.use(createAccountRouter({ circle, identity, oauth, issuerUrl }));
+  router.use(createAccountRouter({ circle, identity, oauth, issuerUrl, demoAccounts: options.demoAccounts }));
 
   /**
    * §7.3 requires 401 with NO WWW-Authenticate header when unauthenticated.

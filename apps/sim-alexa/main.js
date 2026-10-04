@@ -88,8 +88,12 @@ async function registerClient(metadata) {
  * Sends the browser to the Wick server to sign in (or create an account),
  * choose the home, and approve this app. An invitation code in this page's
  * address rides along, so the server can offer to join that home.
+ *
+ * With `demo`, the server makes an anonymous guest account and a demo home
+ * instead, and comes straight back: no email, no password, no page to fill
+ * in (services/mcp-server/src/accounts/demo.ts).
  */
-async function connect() {
+async function connect({ demo = false } = {}) {
   try {
     const serverUrl = $('server-url').value.replace(/\/$/, '');
     setStatus('Opening Wick sign-in…');
@@ -111,6 +115,7 @@ async function connect() {
     authorizeUrl.searchParams.set('code_challenge_method', 'S256');
     const invite = sessionStorage.getItem('wick_invite');
     if (invite) authorizeUrl.searchParams.set('invite', invite);
+    if (demo) authorizeUrl.searchParams.set('demo', '1');
     window.location.href = authorizeUrl.toString();
   } catch (err) {
     // Silence is indistinguishable from "nothing happened", which is a lie —
@@ -185,6 +190,9 @@ function signedOut(reason) {
   mcpSessionId = null;
   enableToolButtons(false);
   setStatus(reason);
+  // The link card is back on screen, so its demo button must be decided
+  // again: a link that had expired used to leave it hidden.
+  void offerDemoIfAllowed();
 }
 
 /**
@@ -532,6 +540,17 @@ function addConnectTelevision(prefill) {
   const turn = el('div', 'turn-assistant');
   const { card, body } = plainCard('Connect a television', `${resident} is then asked, on it, whether to allow you.`);
   body.appendChild(el('p', 'empty', 'Open Wick on the television. It shows a six-digit code.'));
+  if (me?.virtualTelevisionUrl) {
+    // Nobody needs a Fire TV to see the resident's side: a television in a
+    // browser tab pairs with the same code and shows the same cards.
+    const hint = el('p', 'empty', 'No Fire TV to hand? ');
+    const tv = el('a', undefined, 'Open a virtual television');
+    tv.href = me.virtualTelevisionUrl;
+    tv.target = '_blank';
+    tv.rel = 'noopener';
+    hint.append(tv, ', press “Pair & connect” there, and enter its code here.');
+    body.appendChild(hint);
+  }
 
   const form = el('form', 'form');
   const label = el('label', undefined, 'Code on the television');
@@ -725,6 +744,20 @@ $('speak-toggle').addEventListener('click', (event) => {
 });
 
 $('connect').addEventListener('click', () => void connect());
+$('demo').addEventListener('click', () => void connect({ demo: true }));
+
+/** Offer the demo button only where the server will honour it. */
+async function offerDemoIfAllowed() {
+  try {
+    const serverUrl = $('server-url').value.replace(/\/$/, '');
+    const options = await (await fetch(`${serverUrl}/account/options`)).json();
+    const allowed = options.demo === true;
+    $('demo').hidden = !allowed;
+    $('demo-hint').hidden = !allowed;
+  } catch {
+    // No answer means no demo. The sign-in button still says why if the server is unreachable.
+  }
+}
 
 $('sign-out').addEventListener('click', () => {
   signedOut('Not connected');
@@ -763,6 +796,7 @@ $('sign-out').addEventListener('click', () => {
   }
   if (!link) {
     if (pair) $('link-say').textContent = 'To connect that television, sign in to Wick first.';
+    void offerDemoIfAllowed();
     return;
   }
 

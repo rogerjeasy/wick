@@ -8,6 +8,15 @@ link to send, and "Connect a television" for the six-digit code. Opened with
 television's pairing screen) it connects that television. Someone the person
 at home has not allowed yet is told so, and shown nothing (AGENTS.md INV-9).
 
+**Try the demo.** Where the server allows it (`demo_accounts` in
+`infra/variables.tf`, on for the hackathon), the link card has a second
+button. One click makes an anonymous guest account and a demo home — no
+email, no password, no code — and comes straight back. A guest is held to
+the same rules as anyone: they see nothing until the demo home's television
+has said Allow, and the "Connect a television" card links to a virtual
+television in a browser tab for anyone with no Fire TV to hand
+(`services/mcp-server/src/accounts/demo.ts`).
+
 To try the whole journey with no AWS:
 `npx vite-node -c vitest.config.ts services/mcp-server/src/__tests__/devServer.ts`
 

@@ -65,7 +65,7 @@ function listen(app: express.Express): Promise<{ port: number; close: () => Prom
   });
 }
 
-export async function startServer(overrides: Partial<AppDeps> = {}): Promise<Harness> {
+export async function startServer(overrides: Partial<AppDeps> = {}, issuer = 'http://127.0.0.1:4000'): Promise<Harness> {
   const cards: QueuedCard[] = [];
   const deps: AppDeps = {
     store: createMemoryStore(),
@@ -75,7 +75,7 @@ export async function startServer(overrides: Partial<AppDeps> = {}): Promise<Har
     ...overrides,
   };
   const start = async (): Promise<Harness> => {
-    const { port, close } = await listen(createApp(new URL('http://127.0.0.1:4000'), deps));
+    const { port, close } = await listen(createApp(new URL(issuer), deps));
     return { base: `http://127.0.0.1:${port}`, store: deps.store as MemoryStore, cards, deps, restart: start, close };
   };
   return start();
@@ -165,7 +165,7 @@ export async function beginAuthorize(browser: Browser, client: OAuthClient, extr
   for (const [k, v] of Object.entries(extra)) url.searchParams.set(k, v);
   const res = await browser.get(url.toString());
   const location = res.headers.get('location');
-  if (res.status !== 302 || !location) throw new Error(`authorize did not redirect: ${res.status}`);
+  if (res.status !== 302 || !location) throw new Error(`authorize did not redirect: ${res.status} ${await res.text()}`);
   const tx = new URL(location, browser.base).searchParams.get('tx');
   if (!tx) throw new Error('authorize redirect carried no tx');
   return tx;

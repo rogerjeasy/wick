@@ -43,6 +43,8 @@ export interface PendingAuthorization {
   readonly resource?: string;
   /** An invitation code the app passed along (?invite=), so the pages can offer to join. */
   readonly invite?: string;
+  /** The app's demo button (?demo=1). Honoured only where the deployment allows it (accounts/demo.ts). */
+  readonly demo?: boolean;
 }
 
 /** Who a token is for. INV-8: this is the only source of a request's household. */
@@ -113,7 +115,9 @@ export function createWickOAuth(store: AccountStore, now: () => number = Date.no
 
     async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response) {
       const tx = randomId();
-      const invite = res.req.query.invite ?? (res.req.body as { invite?: unknown } | undefined)?.invite;
+      const body = res.req.body as { invite?: unknown; demo?: unknown } | undefined;
+      const invite = res.req.query.invite ?? body?.invite;
+      const demo = (res.req.query.demo ?? body?.demo) === '1';
       const pending: PendingAuthorization = {
         clientId: client.client_id,
         codeChallenge: params.codeChallenge,
@@ -122,6 +126,7 @@ export function createWickOAuth(store: AccountStore, now: () => number = Date.no
         ...(params.state === undefined ? {} : { state: params.state }),
         ...(params.resource === undefined ? {} : { resource: params.resource.toString() }),
         ...(typeof invite === 'string' && invite ? { invite } : {}),
+        ...(demo ? { demo: true } : {}),
       };
       await store.putRecord('OAUTH#PENDING', tx, pending, now() + PENDING_TTL_MS);
       // Relative: the pages are on this origin, whatever scheme the proxy in

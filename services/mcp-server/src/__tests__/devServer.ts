@@ -9,7 +9,9 @@
  *
  *   - the television's code is always 123456
  *   - GET http://127.0.0.1:3300/dev/allow presses Allow, as the resident,
- *     for everyone who is waiting
+ *     for everyone who is waiting (it is also what the family app's
+ *     "virtual television" link opens here)
+ *   - the demo button is on
  *
  * Nothing here ships: the deployed entrypoint is ../index.ts.
  */
@@ -33,6 +35,8 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
   identity: createFakeIdentity(),
   sendCard: async (card) => void cards.push(card),
   ddb: { send: async () => ({ Items: [] }) } as unknown as DynamoDBClient,
+  demoAccounts: true,
+  virtualTelevisionUrl: `http://127.0.0.1:${API_PORT}/dev/allow`,
   claimTelevision: async (accessToken, code) => {
     if (code !== '123456') return { status: 404, body: 'unknown_or_expired_code' };
     const me = (await (await fetch(`http://127.0.0.1:${API_PORT}/api/me`, { headers: { authorization: `Bearer ${accessToken}` } })).json()) as {

@@ -14,12 +14,15 @@
  * Only Approve issues a code, and only for a household the signed-in
  * person belongs to (INV-8).
  */
+import cors from 'cors';
 import express, { type Request, type Response } from 'express';
 import { acceptInvitation, CircleError, createHousehold, describeInvitation, invitationNeedsAnswer, type CircleDeps } from './circle.js';
+import { createDemoLimiter, DEMO_HOME_NAME, DEMO_RESIDENT_NAME, isGuest, newGuest } from './demo.js';
 import { IdentityError, type Identity, type IdentityErrorCode, type IdentityProvider } from './identity.js';
 import type { PendingAuthorization, WickOAuth } from './oauthProvider.js';
 import {
   consentPage,
+  demoBusyPage,
   expiredPage,
   forgotPage,
   householdPage,
@@ -57,6 +60,8 @@ export interface AccountRouterDeps {
   readonly oauth: WickOAuth;
   /** Decides whether the cookie is marked Secure. */
   readonly issuerUrl: URL;
+  /** Whether a visitor may become an anonymous guest in one click (demo.ts). Off unless set. */
+  readonly demoAccounts?: boolean | undefined;
 }
 
 function readCookie(req: Request, name: string): string | undefined {
@@ -76,6 +81,8 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
   const { circle, identity, oauth } = deps;
   const { store, now } = circle;
   const secure = deps.issuerUrl.protocol === 'https:';
+  const demo = deps.demoAccounts === true;
+  const demoLimiter = createDemoLimiter(now);
   const router = express.Router();
   router.use('/account', express.urlencoded({ extended: false }));
 
@@ -84,7 +91,31 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     res.setHeader('cache-control', 'no-store');
     res.end(page);
   };
-  const back = (res: Response, tx: string): void => res.redirect(303, `/account?tx=${encodeURIComponent(tx)}`);
+  /**
+   * Back to the page for this request. `home` names a household the person
+   * has just joined or set up: the index that lists a person's homes lags a
+   * write by a moment, and the page must not ask "Who is this for?" twice.
+   * It is only a hint — the page checks the membership itself.
+   */
+  const back = (res: Response, tx: string, home?: string): void =>
+    res.redirect(303, `/account?tx=${encodeURIComponent(tx)}${home ? `&home=${encodeURIComponent(home)}` : ''}`);
+
+  /**
+   * One click, one guest: an account Wick names itself and a demo home of
+   * their own, waiting for its resident like any other (demo.ts). Returns
+   * undefined, having said so, when the hour's guests have all been made.
+   */
+  const startDemo = async (res: Response, tx: string): Promise<{ guest: Identity; householdId: string } | undefined> => {
+    if (!demoLimiter.take()) {
+      html(res, demoBusyPage(tx), 429);
+      return undefined;
+    }
+    const guest = newGuest(circle.newId());
+    await store.putUser({ ...guest, createdAt: now() });
+    const household = await createHousehold(circle, guest, { residentName: DEMO_RESIDENT_NAME, name: DEMO_HOME_NAME });
+    await setSession(res, guest);
+    return { guest, householdId: household.householdId };
+  };
 
   const setSession = async (res: Response, who: Identity): Promise<void> => {
     const token = randomToken();
@@ -113,7 +144,7 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     tx: string,
     pending: PendingAuthorization,
     user: Identity,
-    opts: { newHome?: boolean; error?: string } = {},
+    opts: { newHome?: boolean; error?: string; home?: string | undefined } = {},
   ): Promise<void> => {
     let invitedTo: string | undefined;
     if (pending.invite) {
@@ -134,6 +165,13 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     }
 
     const memberships = (await store.listMemberships(user.userId)).filter((m) => m.status !== 'removed');
+    // A home the index has not caught up with yet. Read directly, and for
+    // this person: a `home` they do not belong to finds nothing.
+    const hinted = opts.home ?? invitedTo;
+    if (hinted && !memberships.some((m) => m.householdId === hinted)) {
+      const direct = await store.getMembership(hinted, user.userId);
+      if (direct && direct.status !== 'removed') memberships.push(direct);
+    }
     if (memberships.length === 0 || opts.newHome) {
       return html(res, householdPage({ tx, userName: user.name, canGoBack: memberships.length > 0, error: opts.error }));
     }
@@ -149,7 +187,7 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
       userName: user.name,
       clientName: client?.client_name ?? 'this app',
       households,
-      selected: invitedTo,
+      selected: opts.home ?? invitedTo,
       error: opts.error,
     }));
   };
@@ -159,11 +197,44 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     const pending = await pendingFor(res, tx);
     if (!pending) return;
     const view = req.query.view;
+    const home = typeof req.query.home === 'string' ? req.query.home : undefined;
     const user = await currentUser(req);
-    if (user) return renderSignedIn(res, tx, pending, user, { newHome: view === 'new-home' });
+
+    // The app's demo button. It acts only for a browser nobody is signed in
+    // on, or one a guest is: a real account is never approved without its
+    // owner pressing Approve.
+    if (demo && pending.demo && (!user || isGuest(user.userId))) {
+      let guest = user;
+      let householdId: string | undefined;
+      if (!guest) {
+        const started = await startDemo(res, tx);
+        if (!started) return;
+        ({ guest, householdId } = started);
+      } else {
+        householdId = (await store.listMemberships(guest.userId)).find((m) => m.status !== 'removed')?.householdId;
+      }
+      if (householdId) return res.redirect(302, await oauth.approve(tx, pending, guest.userId, householdId));
+      return renderSignedIn(res, tx, pending, guest);
+    }
+
+    if (user) return renderSignedIn(res, tx, pending, user, { newHome: view === 'new-home', home });
     if (view === 'sign-up') return html(res, signUpPage({ tx }));
     if (view === 'forgot') return html(res, forgotPage({ tx }));
-    html(res, signInPage({ tx }));
+    html(res, signInPage({ tx, demo }));
+  });
+
+  /** Whether the family app should offer its demo button. Nothing here is private. */
+  router.get('/account/options', cors(), (_req, res) => {
+    res.json({ demo });
+  });
+
+  /** The demo button on the sign-in page. It ends on the ordinary Approve page. */
+  router.post('/account/demo', async (req, res) => {
+    if (!demo) return html(res, refusedPage('There is no demo here. Sign in, or create an account.'), 404);
+    const tx = field(req, 'tx');
+    if (!(await pendingFor(res, tx))) return;
+    const started = await startDemo(res, tx);
+    if (started) back(res, tx, started.householdId);
   });
 
   router.post('/account/sign-in', async (req, res) => {
@@ -180,7 +251,7 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
         await identity.resendCode({ email }).catch(() => undefined);
         return html(res, verifyPage({ tx, email, notice: IDENTITY_MESSAGES.not_confirmed }));
       }
-      html(res, signInPage({ tx, email, error: messageFor(err) }));
+      html(res, signInPage({ tx, email, demo, error: messageFor(err) }));
     }
   });
 
@@ -207,7 +278,7 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     const email = field(req, 'email');
     try {
       await identity.confirmSignUp({ email, code: field(req, 'code') });
-      html(res, signInPage({ tx, email, notice: 'Your email is confirmed. Sign in to continue.' }));
+      html(res, signInPage({ tx, email, demo, notice: 'Your email is confirmed. Sign in to continue.' }));
     } catch (err) {
       html(res, verifyPage({ tx, email, error: messageFor(err) }));
     }
@@ -249,7 +320,7 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     if (password.length < MIN_PASSWORD_CHARS) return html(res, resetPage({ tx, email, error: IDENTITY_MESSAGES.weak_password }));
     try {
       await identity.resetPassword({ email, code: field(req, 'code'), password });
-      html(res, signInPage({ tx, email, notice: 'Your password is changed. Sign in with the new one.' }));
+      html(res, signInPage({ tx, email, demo, notice: 'Your password is changed. Sign in with the new one.' }));
     } catch (err) {
       html(res, resetPage({ tx, email, error: messageFor(err) }));
     }
@@ -270,8 +341,8 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     const user = await currentUser(req);
     if (!user) return back(res, tx);
     try {
-      await createHousehold(circle, user, { residentName: field(req, 'residentName') });
-      back(res, tx);
+      const household = await createHousehold(circle, user, { residentName: field(req, 'residentName') });
+      back(res, tx, household.householdId);
     } catch (err) {
       if (err instanceof CircleError && err.code === 'name_required') {
         return renderSignedIn(res, tx, pending, user, { newHome: true, error: 'Tell us what you call them.' });
@@ -287,8 +358,8 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     const user = await currentUser(req);
     if (!user) return back(res, tx);
     try {
-      await acceptInvitation(circle, user, pending.invite ?? '');
-      back(res, tx);
+      const membership = await acceptInvitation(circle, user, pending.invite ?? '');
+      back(res, tx, membership.householdId);
     } catch (err) {
       if (err instanceof CircleError) return html(res, refusedPage('That invitation has expired. Ask for a new one.'), 400);
       throw err;
