@@ -1,9 +1,11 @@
 /**
  * Weekly schedule entrypoint — computes and writes the current ISO week's
- * narrative. Thin composition, matches services/agent/src/agents/door/
- * lambda.ts's own convention: the logic worth testing lives in
- * computeWeekNarrative (index.ts), this only wires real AWS/Bedrock clients
- * to it and is left untested the same way door/lambda.ts's handler is.
+ * narrative for every household with a television. Thin composition,
+ * matches services/agent/src/agents/door/lambda.ts's own convention: the
+ * logic worth testing lives in narrateEveryHousehold (everyHousehold.ts)
+ * and computeWeekNarrative (index.ts), this only wires real AWS/Bedrock
+ * clients to them and is left untested the same way door/lambda.ts's
+ * handler is.
  *
  * Runs weekly (Sunday evening UTC, infra/narrator.tf) against the week
  * that's ending, not a rolling window — matches
@@ -12,12 +14,11 @@
  * completed narrative until the current week's own Sunday run.
  */
 import { randomUUID } from 'node:crypto';
-import { DynamoDBClient, PutItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
-import { currentIsoWeek, padTimestamp } from '@wick/contracts';
+import { DynamoDBClient, PutItemCommand, QueryCommand, ScanCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
+import { currentIsoWeek, padTimestamp, type WeekNarrative } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
-import { computeWeekNarrative } from './index.js';
+import { householdsWithTelevision, narrateEveryHousehold } from './everyHousehold.js';
 import { writeNarrative } from './prose.js';
-import { buildWeekCard } from './weekCard.js';
 import type { WeekRange } from './isoWeek.js';
 import { sendToDevice } from '../../egress.js';
 
@@ -40,32 +41,55 @@ async function loadEvents(householdId: string, range: WeekRange) {
   return res.Items ?? [];
 }
 
-export const handler = async (): Promise<void> => {
-  const householdId = process.env.WICK_HOUSEHOLD_ID;
-  if (!householdId) throw new Error('WICK_HOUSEHOLD_ID not set');
+/**
+ * A Scan, filtered to paired televisions. There is no index of households,
+ * and this runs once a week, offline, where a full read of the table is
+ * cheap; a sparse index over DEV# rows is the answer once it is not.
+ */
+async function listHouseholds(): Promise<string[]> {
+  const items: Record<string, AttributeValue>[] = [];
+  let startKey: Record<string, AttributeValue> | undefined;
+  do {
+    const page = await ddb.send(new ScanCommand({
+      TableName: TABLE,
+      FilterExpression: 'begins_with(pk, :hh) AND begins_with(sk, :dev)',
+      ExpressionAttributeValues: { ':hh': { S: 'HH#' }, ':dev': { S: 'DEV#' } },
+      ProjectionExpression: 'pk, sk',
+      ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+    }));
+    items.push(...(page.Items ?? []));
+    startKey = page.LastEvaluatedKey;
+  } while (startKey);
+  return householdsWithTelevision(items);
+}
 
-  const isoWeek = currentIsoWeek(new Date());
-
-  const narrative = await computeWeekNarrative(householdId, isoWeek, {
-    loadEvents: (range) => loadEvents(householdId, range),
-    writeNarrative: (facts, retryReason) => writeNarrative(facts, retryReason),
-    now: Date.now,
-    timeZone: process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London',
-  });
-
+async function saveNarrative(narrative: WeekNarrative): Promise<void> {
   await ddb.send(new PutItemCommand({
     TableName: TABLE,
     Item: {
-      pk: { S: `HH#${householdId}` },
-      sk: { S: `NARR#${isoWeek}` },
+      pk: { S: `HH#${narrative.householdId}` },
+      sk: { S: `NARR#${narrative.isoWeek}` },
       data: { S: JSON.stringify(narrative) },
     },
   }));
+}
 
-  // The resident's copy — INV-7. Pressing its one button is what actually
-  // sets residentSeenAt (route.mjs); nothing here does that directly.
-  const card = buildWeekCard(narrative, randomUUID(), Date.now(), process.env.WICK_FAMILY_NAME || undefined);
-  await sendToDevice(card, DEFAULT_POLICY);
+export const handler = async (): Promise<void> => {
+  const isoWeek = currentIsoWeek(new Date());
 
-  console.log(JSON.stringify({ level: 'info', msg: 'narrative_computed', isoWeek, events: narrative.timeline.length, textSource: narrative.textSource, chars: narrative.text.length }));
+  const run = await narrateEveryHousehold(isoWeek, {
+    listHouseholds,
+    loadEvents,
+    writeNarrative: (facts, retryReason) => writeNarrative(facts, retryReason),
+    saveNarrative,
+    sendWeekCard: (card) => sendToDevice(card, DEFAULT_POLICY),
+    now: Date.now,
+    newCorrelationId: randomUUID,
+    timeZone: process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London',
+    ...(process.env.WICK_FAMILY_NAME ? { familyName: process.env.WICK_FAMILY_NAME } : {}),
+  });
+
+  // A failed household is logged by name above and not rethrown: a thrown
+  // handler makes EventBridge run the whole week again for every home.
+  console.log(JSON.stringify({ level: run.failed.length ? 'warn' : 'info', msg: 'narrator_run', isoWeek, written: run.written.length, failed: run.failed.length }));
 };

@@ -41,11 +41,13 @@ resource "aws_iam_role_policy_attachment" "agent_narrator_weekly_basic" {
 data "aws_iam_policy_document" "agent_narrator_weekly" {
   statement {
     sid = "ReadTimelineQueueAndLocateTheWeekCard"
-    # Query: the week's EVT# rows (timeline.ts) and, inside sendToDevice,
-    # the household's paired-device connection. PutItem: the NARR#<isoWeek>
-    # item get_week_narrative.ts reads, and (via sendToDevice) the
-    # CARD#<id> queue item for the WeekCard itself (weekCard.ts).
-    actions   = ["dynamodb:Query", "dynamodb:PutItem"]
+    # Scan: which households have a paired television (lambda.ts's
+    # listHouseholds) — there is no index of households. Query: the week's
+    # EVT# rows (timeline.ts) and, inside sendToDevice, the household's
+    # paired-device connection. PutItem: the NARR#<isoWeek> item
+    # get_week_narrative.ts reads, and (via sendToDevice) the CARD#<id>
+    # queue item for the WeekCard itself (weekCard.ts).
+    actions   = ["dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }
 
@@ -91,16 +93,16 @@ resource "aws_lambda_function" "agent_narrator_weekly" {
   filename         = data.archive_file.agent_narrator_weekly.output_path
   source_code_hash = data.archive_file.agent_narrator_weekly.output_base64sha256
 
-  # Not latency-sensitive at all — this runs offline, once a week. The
-  # budget here is generous headroom for a full-week Query plus one Claude
-  # call, not a number anyone is watching.
-  timeout     = 60
+  # Not latency-sensitive at all — this runs offline, once a week, one
+  # household after another: a full-week Query plus one Claude call each.
+  # The Lambda maximum, so the number of households it can serve in one
+  # run is as large as a single function allows.
+  timeout     = 900
   memory_size = 256
 
   environment {
     variables = {
       TABLE_NAME           = aws_dynamodb_table.wick.name
-      WICK_HOUSEHOLD_ID    = var.household_id
       WICK_NARRATIVE_MODEL = local.narrative_model_profile
       WICK_HOUSEHOLD_TZ    = var.household_time_zone
       WICK_FAMILY_NAME     = var.family_name

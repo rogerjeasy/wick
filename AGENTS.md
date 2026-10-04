@@ -72,9 +72,11 @@ a person can write to reach a household that is not theirs.
 pairing endpoint. Enforced by `server.test.ts`, `api.test.ts`,
 `pair-claim.test.ts` and `pair-refresh.test.ts`.
 
-**Known gap:** the Door agent and the weekly Narrator still read one household
-from `WICK_HOUSEHOLD_ID` (`infra/variables.tf` `household_id`), because there
-is one Ring link per deployment and no Ring-device → household registry yet.
+**Known gap:** the Door agent still reads one household from
+`WICK_HOUSEHOLD_ID` (`infra/variables.tf` `household_id`), because there is
+one Ring link per deployment and no Ring-device → household registry yet. The
+weekly Narrator no longer does: it writes for every household with a paired
+television (`services/agent/src/agents/narrator/everyHousehold.ts`).
 
 ### INV-9 — Nobody reads a household before the resident allows them
 A membership starts `pending`. The only thing that makes it `allowed` is the
