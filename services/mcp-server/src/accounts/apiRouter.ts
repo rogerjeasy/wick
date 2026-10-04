@@ -15,6 +15,7 @@
 import cors from 'cors';
 import express, { type Request, type RequestHandler, type Response } from 'express';
 import { CircleError, createInvitation, describeCircle, removeMember, type CircleDeps, type CircleErrorCode } from './circle.js';
+import { isGuest } from './demo.js';
 import { grantOf } from './oauthProvider.js';
 
 const CIRCLE_ERRORS: Readonly<Record<CircleErrorCode, { status: number; message: string }>> = {
@@ -39,12 +40,15 @@ const PAIRING_REFUSALS: Readonly<Record<string, string>> = {
   invalid_token: 'Link Wick again.',
 };
 
-export function createApiRouter(
-  circle: CircleDeps,
-  requireAuth: () => RequestHandler,
-  claimTelevision?: ClaimTelevision,
-): express.Router {
+export interface ApiOptions {
+  readonly claimTelevision?: ClaimTelevision | undefined;
+  /** A television in a browser tab, offered to anyone with no Fire TV to hand. */
+  readonly virtualTelevisionUrl?: string | undefined;
+}
+
+export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHandler, options: ApiOptions = {}): express.Router {
   const { store } = circle;
+  const { claimTelevision, virtualTelevisionUrl } = options;
   const router = express.Router();
   // Any origin: nothing here uses a cookie, and a token is only ever sent by
   // the page that holds it.
@@ -80,9 +84,10 @@ export function createApiRouter(
     ]);
     if (!user || !household || !membership) throw new CircleError('not_a_member');
     res.json({
-      user: { userId: user.userId, name: user.name, email: user.email },
+      user: { userId: user.userId, name: user.name, email: user.email, guest: isGuest(user.userId) },
       household: { householdId: household.householdId, name: household.name, residentName: household.residentName },
       membership: { role: membership.role, status: membership.status },
+      ...(virtualTelevisionUrl ? { virtualTelevisionUrl } : {}),
     });
   }));
 

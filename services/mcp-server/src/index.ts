@@ -36,6 +36,10 @@ if (!PAIRING_API_URL) {
   process.exit(1);
 }
 
+// One-click guest accounts (accounts/demo.ts). A deployment says yes; nothing else does.
+const DEMO_ACCOUNTS = process.env.WICK_DEMO_ACCOUNTS === 'on';
+const VIRTUAL_TELEVISION_URL = process.env.WICK_VIRTUAL_TV_URL || undefined;
+
 const PORT = Number(process.env.PORT ?? 3300);
 const ISSUER_URL = new URL(process.env.MCP_ISSUER_URL ?? `http://127.0.0.1:${PORT}`);
 
@@ -57,6 +61,8 @@ const app = createApp(ISSUER_URL, {
     });
     return { status: res.status, body: await res.text() };
   },
+  demoAccounts: DEMO_ACCOUNTS,
+  ...(VIRTUAL_TELEVISION_URL ? { virtualTelevisionUrl: VIRTUAL_TELEVISION_URL } : {}),
 });
 
 app.listen(PORT, () => {

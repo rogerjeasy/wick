@@ -226,6 +226,7 @@
   input.linkbox { font-size: var(--t-small); }
   .problem { color: #f0b8a8; font-size: var(--t-small); margin: 0; min-height: 1.2em; }
   .row .btn.link { align-self: center; flex: none; }
+  .card a { color: var(--wick); }
 
   details { color: var(--ink-dim); font-size: var(--t-small); }
   details summary { cursor: pointer; padding: var(--s-2xs) 0; }
@@ -281,7 +282,12 @@
           <p id="link-detail" class="empty">Sign in, or create an account with your email and a password.
             Wick then answers only what the person at home has agreed to share.</p>
           <div class="form">
-            <div class="actions"><button id="connect" class="btn final" type="button">Sign in or create an account</button></div>
+            <div class="actions">
+              <button id="connect" class="btn final" type="button">Sign in or create an account</button>
+              <button id="demo" class="btn quiet" type="button" hidden>Try the demo</button>
+            </div>
+            <p id="demo-hint" class="empty" hidden>The demo needs no email and no password: you get a guest
+              account and a demo home of your own.</p>
             <details>
               <summary>Server</summary>
               <label>MCP server URL <input id="server-url" value="http://127.0.0.1:3300" autocomplete="off" spellcheck="false" /></label>

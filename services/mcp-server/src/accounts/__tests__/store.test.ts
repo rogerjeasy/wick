@@ -99,6 +99,17 @@ describe('people', () => {
     expect(user).toEqual({ userId: 'u_sarah', email: 'sarah@example.com', name: 'Sarah', createdAt: 7 });
   });
 
+  it('files a guest under no email at all: they have none, and must not be findable by an empty one', async () => {
+    const { sent, store } = recorder();
+
+    await store.putUser({ userId: 'guest_abc', email: '', name: 'Guest', createdAt: NOW });
+
+    const update = (sent[0] as UpdateItemCommand).input;
+    expect(update.Key).toEqual({ pk: { S: 'USER#guest_abc' }, sk: { S: 'PROFILE' } });
+    expect(JSON.stringify(update)).not.toContain('EMAIL#');
+    expect(update.UpdateExpression).not.toContain('gsi1pk');
+  });
+
   it('is undefined for an email nobody signed up with', async () => {
     const { store } = recorder([{ Items: [] }]);
 

@@ -357,3 +357,81 @@ describe('a forgotten password', () => {
     expect(await signedIn.text()).toContain('Who is this for?');
   });
 });
+
+describe('the index that lists a person’s homes is allowed to lag', () => {
+  // DynamoDB's index is eventually consistent: a membership written a moment
+  // ago may not be listed yet. The pages must not ask "Who is this for?" a
+  // second time, which would make a second household.
+  async function serverWithLaggingIndex(): Promise<Harness> {
+    const real = await startServer();
+    await real.close();
+    const lagging = { ...real.deps, store: { ...real.deps.store, listMemberships: async () => [] } };
+    const h = await startServer(lagging);
+    closers.push(h.close);
+    return h;
+  }
+
+  it('offers the home just set up, even before the index lists it', async () => {
+    const h = await serverWithLaggingIndex();
+    const browser = new Browser(h.base);
+    const tx = await beginAuthorize(browser, await registerClient(h.base));
+    await signUp(browser, tx, SARAH);
+
+    const page = await browser.follow(await browser.post('/account/household', { tx, residentName: 'Margaret' }));
+
+    const html = await page.text();
+    expect(html).not.toContain('Who is this for?');
+    expect(html).toContain('Margaret’s home');
+    expect(html).toContain('Approve');
+  });
+
+  it('will not offer a home the person does not belong to, whatever the address says', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+    const browser = new Browser(h.base);
+    const tx = await beginAuthorize(browser, await registerClient(h.base));
+    await signUp(browser, tx, TOM);
+
+    const page = await browser.get(`/account?tx=${tx}&home=${sarah.householdId}`);
+
+    const html = await page.text();
+    expect(html).toContain('Who is this for?');
+    expect(html).not.toContain('Margaret’s home');
+  });
+});
+
+describe('rate limits count the visitor, not the proxy in front of the server', () => {
+  // Deployed, every request arrives from App Runner's own address. Counted
+  // by that address, the SDK's limit of 20 app registrations an hour would be
+  // 20 for the whole world: the twenty-first person to press "Sign in" in an
+  // hour would be refused, whoever they were.
+  const register = (base: string, visitor: string) =>
+    fetch(`${base}/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': visitor },
+      body: JSON.stringify({
+        redirect_uris: ['https://family.example/'],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+      }),
+    });
+
+  it('lets many different visitors register the app in the same hour', async () => {
+    const h = await startServer({}, 'https://wick.example');
+    closers.push(h.close);
+
+    for (let i = 0; i < 25; i++) expect((await register(h.base, `203.0.113.${i}`)).status).toBe(201);
+  });
+
+  it('still stops one visitor who keeps registering', async () => {
+    const h = await startServer({}, 'https://wick.example');
+    closers.push(h.close);
+
+    const statuses = [];
+    for (let i = 0; i < 22; i++) statuses.push((await register(h.base, '203.0.113.7')).status);
+
+    expect(statuses.slice(0, 20).every((s) => s === 201)).toBe(true);
+    expect(statuses[21]).toBe(429);
+  });
+});

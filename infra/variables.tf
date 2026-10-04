@@ -63,6 +63,12 @@ variable "household_time_zone" {
   default     = "Europe/London"
 }
 
+variable "demo_accounts" {
+  description = "Offer a \"Try the demo\" button that makes an anonymous guest account and a demo home in one click: no email, no password. On for the hackathon, so a judge can try Wick without signing up. A guest is held to the same rules as anyone (AGENTS.md INV-8, INV-9) and guests are made at a bounded rate; turn it off for a deployment that is not a demo."
+  type        = bool
+  default     = true
+}
+
 variable "mcp_issuer_url" {
   description = "S4a. The MCP server's own public URL, baked into its OAuth metadata at startup (auth.ts's createAuthRouter). Set to the real App Runner service_url once known — see infra/mcp.tf's header comment for the two-apply reason it starts empty. Stays stable across redeploys unless the App Runner service itself is destroyed and recreated (a new service gets a new *.awsapprunner.com hostname)."
   type        = string

@@ -34,6 +34,7 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
       return users.get(userId);
     },
     async findUserByEmail(email) {
+      if (!email.trim()) return undefined;
       return [...users.values()].find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
     },
     async createHousehold(household) {

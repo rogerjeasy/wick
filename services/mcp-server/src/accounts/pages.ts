@@ -29,6 +29,8 @@ const STYLE = `
   input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
   button{font:inherit;font-weight:600;border:0;border-radius:9px;padding:.8rem 1.2rem;cursor:pointer;background:var(--accent);color:var(--accent-ink)}
   button.quiet{background:none;color:var(--ink-dim);font-weight:400;text-decoration:underline;padding:.25rem 0;align-self:flex-start}
+  button.second{background:none;color:var(--ink);border:1px solid var(--line)}
+  form.demo{margin-top:1.25rem;gap:.6rem}
   .hint{font-size:.88rem;color:var(--ink-dim);margin:0}
   .error,.notice{border-radius:9px;padding:.7rem .9rem;margin:0 0 1rem;font-size:.95rem}
   .error{background:#3A211B;color:var(--warn)}
@@ -77,7 +79,7 @@ export interface PageMessage {
   readonly notice?: string | undefined;
 }
 
-export function signInPage(p: { tx: string; email?: string | undefined } & PageMessage): string {
+export function signInPage(p: { tx: string; email?: string | undefined; demo?: boolean | undefined } & PageMessage): string {
   return layout('Sign in', `
 <h1>Sign in to Wick</h1>
 <p class="lead">Use the email and password you chose for Wick.</p>
@@ -88,7 +90,19 @@ ${message('notice', p.notice)}${message('error', p.error)}
   <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
   <button type="submit">Sign in</button>
 </form>
-<div class="links">${link(p.tx, 'sign-up', 'Create an account')}${link(p.tx, 'forgot', 'Forgot your password?')}</div>`);
+<div class="links">${link(p.tx, 'sign-up', 'Create an account')}${link(p.tx, 'forgot', 'Forgot your password?')}</div>
+${p.demo ? `<form class="demo" method="post" action="/account/demo">
+  ${hidden('tx', p.tx)}
+  <button class="second" type="submit">Try the demo</button>
+  <p class="hint">No email and no password. You get a guest account and a demo home of your own.</p>
+</form>` : ''}`);
+}
+
+export function demoBusyPage(tx: string): string {
+  return layout('The demo is busy', `
+<h1>The demo is busy</h1>
+<p class="lead">A lot of people tried it in the last hour. Come back a little later, or create an account now: it takes a minute.</p>
+<div class="links">${link(tx, 'sign-up', 'Create an account')}${link(tx, '', 'Sign in')}</div>`);
 }
 
 export function signUpPage(p: { tx: string; name?: string | undefined; email?: string | undefined } & PageMessage): string {

@@ -109,29 +109,33 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
   return {
     async putUser(user) {
       // An update, so signing in again refreshes the name without resetting createdAt.
+      // A guest (accounts/demo.ts) has no email, so is filed under none:
+      // every guest sharing one empty index key would make them findable by it.
+      const byEmail = user.email !== '';
       await send(new UpdateItemCommand({
         TableName: table,
         Key: { pk: userPk(user.userId), sk: { S: 'PROFILE' } },
         UpdateExpression:
-          'SET email = :email, #name = :name, gsi1pk = :gpk, gsi1sk = :gsk, createdAt = if_not_exists(createdAt, :at)',
+          `SET email = :email, #name = :name, createdAt = if_not_exists(createdAt, :at)${byEmail ? ', gsi1pk = :gpk, gsi1sk = :gsk' : ''}`,
         ExpressionAttributeNames: { '#name': 'name' },
         ExpressionAttributeValues: {
           ':email': { S: user.email },
           ':name': { S: user.name },
-          ':gpk': { S: `EMAIL#${user.email.toLowerCase()}` },
-          ':gsk': userPk(user.userId),
           ':at': num(user.createdAt),
+          ...(byEmail ? { ':gpk': { S: `EMAIL#${user.email.toLowerCase()}` }, ':gsk': userPk(user.userId) } : {}),
         },
       }));
     },
 
     async getUser(userId) {
       const item = (await send(new GetItemCommand({ TableName: table, Key: { pk: userPk(userId), sk: { S: 'PROFILE' } } }))).Item;
-      if (!item?.email?.S || !item.name?.S) return undefined;
+      // A guest's email is the empty string, which is still a person.
+      if (item?.email?.S === undefined || !item.name?.S) return undefined;
       return { userId, email: item.email.S, name: item.name.S, createdAt: Number(item.createdAt?.N ?? 0) };
     },
 
     async findUserByEmail(email) {
+      if (!email.trim()) return undefined;
       const [item] = await queryAll({
         IndexName: 'gsi1',
         KeyConditionExpression: 'gsi1pk = :pk',
