@@ -63,7 +63,11 @@ end and a demo home made for the run:
 - **Watch live** shows that camera's live picture with the countdown, and Back
   returns to the card with the film still there;
 - after the app is replaced and reopened it is still paired, as the same
-  television.
+  television;
+- the television is on the MQTT channel (the server's row for it says so): a
+  card comes down it and a reply goes back up it; with MQTT refused — a build
+  whose address names an authorizer that does not exist — it is on the
+  WebSocket instead.
 
 The door card was sent to the test home from a laptop with the Door agent's
 own code, because Ring's webhook only ever resolves to the operator's

@@ -46,7 +46,11 @@ succeeds still often surfaces a documentation or ergonomics gap.
       (FL-015), so Watch Live bridges WHEP to HLS in the cloud; the bridge produced its first
       playlist 6.8s after the request. Cleartext HLS is refused silently (FL-016).
 - [ ] **SP-4** Alexa+ add-on onboarding (`alexa-ai configure → deploy`)
-- [ ] **SP-5** WebSocket / MQTT transport inside Vega's RN 0.83 fork
+- [x] **SP-5** WebSocket / MQTT transport inside Vega's RN 0.83 fork — **both work, on the
+      simulator.** `mqtt.js` 5.16 over WSS connects to IoT Core from the Vega Virtual Device
+      with no change to the library; cards come down and replies go up; with MQTT refused
+      the app is on the WebSocket instead (2026-10-11). The four-hour run on hardware was
+      never possible: FL-009, and its update.
 - [ ] **SP-7** Content Personalization round trip to Continue Watching
 - [ ] **SP-8** Vega sample on real Fire TV Stick hardware
 
@@ -1423,6 +1427,42 @@ leads, not entries — an entry requires that you actually hit it.
                      3. For any team in this position, a short-loan hardware program (a Fire
                         TV Stick mailed for the hackathon's duration, per SP-8) would have
                         turned two open spikes into closed ones.
+
+
+**Update 2026-10-11 — run, on simulators.** IoT Core was built (`infra/iot.tf`; what it
+took to authenticate is FL-024) and the television's build was given the address. On the
+Vega Virtual Device (SDK 0.24.12044, React Native 0.83, release build, `mqtt.js` 5.16):
+
+- `mqtt.js` connected over WSS from Vega's runtime at the first attempt, with no change to
+  the library, the bundler or the manifest. The server's row for the television read
+  `mqtt`. Question Q3 of the technical document is answered: yes.
+- A family note arrived over MQTT and was shown; the reply pressed on the remote went back
+  up the events topic and was read back through `get_replies`.
+- Pressing Home closed the connection and IoT Core's presence event cleared the row within
+  eight seconds; a door card sent then went to the background service and came up as the
+  system toast (FL-022). Opening Wick again reconnected over MQTT and the door card was on
+  screen.
+- With the address naming an authorizer that does not exist, the app was on the WebSocket
+  instead (the row read `websocket`).
+
+On the Android TV emulator, with the Fire OS build: connected over MQTT, a card down and a
+reply up, and the same fallback.
+
+Not run: four hours, a network drop and recovery (only leaving and reopening the app, and
+killing and restarting it), and any hardware.
+
+One thing the run found that the documentation does not say. A client that reconnects
+into its persistent session keeps its `sessionIdentifier` — the television's was the same
+before and after every reconnect. The lifecycle-events page says connect and disconnect
+events "might be sent out of order", and the natural guard — clear the row only if it
+still names the session that ended — does nothing when both connections carry one id.
+The field that does tell them apart is `versionNumber`: a connection's connect and its
+disconnect carry the same one. It is described as a way "to infer the order" of events,
+not as the connection's identity, it starts again at 0 after an hour offline, and
+`timestamp` is "an approximation" — so a correct presence table needs the session, the
+version and the time together (`iot-policy.mjs`, `presenceConnected` /
+`presenceDisconnected`). **Suggestion:** on the lifecycle-events page, say which field
+identifies a connection as opposed to a session, and show the rule a presence table needs.
 
 ---
 

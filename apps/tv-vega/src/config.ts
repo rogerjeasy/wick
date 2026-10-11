@@ -24,9 +24,7 @@ export function resolveDeviceConfig(partial: Partial<DeviceConfig>): DeviceConfi
 }
 
 /**
- * Fill these in from `terraform output` once infra/pairing.tf and
- * infra/transport.tf are applied. Left blank deliberately — see the header
- * comment above.
+ * From `terraform output`, for the stack this build talks to.
  *
  * No household: the television is told whose it is when the organiser
  * connects it, in the token it is handed (INV-8, ./deviceId.ts).
