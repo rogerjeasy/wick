@@ -24,8 +24,7 @@ import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
 import { READS, data, say } from './result.js';
-import { DAY_ARGUMENT, resolveDay } from './when.js';
-import { DAY_NOT_A_DATE_TEXT } from './get_today.js';
+import { DAY_ARGUMENT, resolveRecentDay } from './when.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -121,10 +120,11 @@ export function registerDidVisitorCome(
       if (!isSharedWithFamily('PRESENCE', policy)) {
         return say(FAMILY_REFUSAL_TEXT);
       }
-      const resolved = resolveDay({ day, date }, now());
-      if (!resolved) return say(DAY_NOT_A_DATE_TEXT);
-      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date(resolved.start));
-      return data({ ...result, date: resolved.date, dayInWords: resolved.inWords });
+      // The same days get_today answers for, by the same rule (when.ts).
+      const resolved = resolveRecentDay({ day, date }, now());
+      if (!resolved.ok) return say(resolved.say);
+      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date(resolved.day.start));
+      return data({ ...result, date: resolved.day.date, dayInWords: resolved.day.inWords });
     })),
   );
 }

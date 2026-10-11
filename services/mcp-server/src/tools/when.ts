@@ -79,3 +79,28 @@ export function resolveDay(input: { readonly date?: string | undefined; readonly
 
 /** What a tool's `day` argument accepts, for its schema. */
 export const DAY_ARGUMENT = 'One of "today", "yesterday", or a weekday name ("tuesday"): the most recent such day, today included.';
+
+/** As far back as a day can be asked about: the weeks a usual week is drawn from (rhythm/baseline.ts). */
+export const DAYS_BACK = 42;
+
+export const DAY_NOT_A_DATE_TEXT = 'I need the day as a date for that.';
+export const DAY_NOT_YET_TEXT = 'That day has not come yet.';
+export const DAY_TOO_OLD_TEXT = 'That is further back than I keep day by day. I can tell you about the last six weeks.';
+
+/**
+ * The day a question means, if it is one Wick answers for: a real day, not
+ * in the future, and within the last six weeks. Otherwise the sentence to
+ * say instead. One rule for every tool that takes a day — a bound on one
+ * and not on its sibling is a bound on neither.
+ */
+export function resolveRecentDay(
+  asked: { readonly date?: string | undefined; readonly day?: string | undefined },
+  now: Date,
+): { readonly ok: true; readonly day: ResolvedDay } | { readonly ok: false; readonly say: string } {
+  const today = now.getTime() - (now.getTime() % DAY_MS);
+  const day = resolveDay(asked, now);
+  if (!day) return { ok: false, say: DAY_NOT_A_DATE_TEXT };
+  if (day.start > today) return { ok: false, say: DAY_NOT_YET_TEXT };
+  if (day.start < today - DAYS_BACK * DAY_MS) return { ok: false, say: DAY_TOO_OLD_TEXT };
+  return { ok: true, day };
+}

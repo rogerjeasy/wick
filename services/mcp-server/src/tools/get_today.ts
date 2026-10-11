@@ -29,7 +29,9 @@ import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
 import { READS, data, say } from './result.js';
-import { DAY_ARGUMENT, resolveDay } from './when.js';
+import { DAY_ARGUMENT, resolveRecentDay } from './when.js';
+
+export { DAY_NOT_A_DATE_TEXT, DAY_NOT_YET_TEXT, DAY_TOO_OLD_TEXT } from './when.js';
 import { z } from 'zod';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
@@ -116,14 +118,6 @@ export async function loadTodayEvents(
   return { events, keptPrivate };
 }
 
-const DAY_MS = 86_400_000;
-/** As far back as a day can be asked about: the weeks a usual week is drawn from (rhythm/baseline.ts). */
-const DAYS_BACK = 42;
-
-export const DAY_NOT_A_DATE_TEXT = 'I need the day as a date for that.';
-export const DAY_NOT_YET_TEXT = 'That day has not come yet.';
-export const DAY_TOO_OLD_TEXT = 'That is further back than I keep day by day. I can tell you about the last six weeks.';
-
 export function registerGetToday(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -145,16 +139,12 @@ export function registerGetToday(
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (_allowed, asked: { date?: string | undefined; day?: string | undefined }) => {
-      const today = now();
-      const todayStart = today.getTime() - (today.getTime() % DAY_MS);
-      const resolved = resolveDay(asked, today);
-      if (!resolved) return say(DAY_NOT_A_DATE_TEXT);
-      if (resolved.start > todayStart) return say(DAY_NOT_YET_TEXT);
-      if (resolved.start < todayStart - DAYS_BACK * DAY_MS) return say(DAY_TOO_OLD_TEXT);
+      const resolved = resolveRecentDay(asked, now());
+      if (!resolved.ok) return say(resolved.say);
 
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
-      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(resolved.start), policy);
-      return data({ date: resolved.date, dayInWords: resolved.inWords, ...answer });
+      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(resolved.day.start), policy);
+      return data({ date: resolved.day.date, dayInWords: resolved.day.inWords, ...answer });
     })),
   );
 }

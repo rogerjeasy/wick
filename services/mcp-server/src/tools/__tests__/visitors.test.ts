@@ -264,6 +264,17 @@ describe('the day tools take a day by name', () => {
     expect(monday.structuredContent).toMatchObject({ visited: false, expectedToday: false, dayInWords: 'Monday 12 October 2026' });
   });
 
+  it('did_visitor_come keeps to the same six weeks as get_today, and to days that have come', async () => {
+    const table = createMemoryTable();
+    person(table, 'PER#maria', MARIA);
+    const client = await connect(table, (s) => registerDidVisitorCome(s, table.ddb, allowedContext(HH), () => NOW));
+    const ask = async (date: string) => textOf(await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria', date } }));
+
+    expect(await ask('2026-10-14')).toBe(DAY_NOT_YET_TEXT);
+    expect(await ask('2020-01-01')).toBe(DAY_TOO_OLD_TEXT);
+    expect(await ask('whenever')).toBe(DAY_NOT_A_DATE_TEXT);
+  });
+
   it('did_visitor_come still answers for today when no day is named', async () => {
     const table = createMemoryTable();
     person(table, 'PER#maria', MARIA);
