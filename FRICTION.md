@@ -157,7 +157,9 @@ leads, not entries — an entry requires that you actually hit it.
 **Workaround:**      Wick starts `com.wick.tv.card.service` each time it comes on
                      screen (`src/headless/launchCardService.ts`). The service holds a
                      second, background connection, and for a door card posts a toast
-                     with an "Open Wick" button (`src/notify/doorToast.ts`). The app
+                     with an "Open Wick" button (`src/notify/doorToast.ts`) — and a
+                     second one, with the picture from the door and what was seen
+                     there, when the door agent's description arrives. The app
                      closes its own connection on `background`, so the server knows to
                      send to the service instead.
 
