@@ -44,20 +44,32 @@ describe('CardService', () => {
     await expect(onStartCardService()).resolves.toBeUndefined();
   });
 
-  it('connects and writes an inbound card to the QueueStore', async () => {
+  const pairedFs = async (): Promise<FileSystemLike> => {
     const fs = fakeFs();
     await fs.writeStringToFile(
       '/data/wick-token.json',
       JSON.stringify({ jwt: 'j', deviceId: 'd1', householdId: 'h1', expiresAt: Date.now() + 100_000 }),
       'utf8',
     );
+    return fs;
+  };
 
-    let cardHandler: ((c: QueuedCard) => void) | undefined;
+  const doorCard: QueuedCard = {
+    id: 'c1',
+    urgency: 'DOOR',
+    card: { type: 'DOOR', id: 'c1', householdId: 'h1', correlationId: 'x', createdAt: 0, actions: [], line: "Someone's at the front door." },
+    queuedAt: 0,
+    shownCount: 0,
+  };
+
+  /** A channel that hands the test its card handler and records what is sent on it. */
+  function listeningChannel() {
     const sent: unknown[] = [];
-    __setCardServiceTestDeps({
-      fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
-      createChannel: async () => ({
+    const asked: unknown[] = [];
+    let cardHandler: ((c: QueuedCard) => void) | undefined;
+    const createChannel = async (config: unknown) => {
+      asked.push(config);
+      return {
         state: 'open' as const,
         onCard: (h: (c: QueuedCard) => void) => {
           cardHandler = h;
@@ -69,59 +81,80 @@ describe('CardService', () => {
         },
         connect: async () => undefined,
         close: () => undefined,
-      }),
-    });
-
-    await onStartCardService();
-
-    const card: QueuedCard = {
-      id: 'c1',
-      urgency: 'DOOR',
-      card: { type: 'DOOR', id: 'c1', householdId: 'h1', correlationId: 'x', createdAt: 0, actions: [], line: 'hi' },
-      queuedAt: 0,
-      shownCount: 0,
+      };
     };
-    cardHandler?.(card);
-    // The fire-and-forget store.upsert() chains several awaits internally
-    // (exists -> writeStringToFile); a single microtask tick isn't enough to
-    // drain it. A macrotask boundary flushes the whole microtask queue first.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { sent, asked, createChannel, push: (c: QueuedCard) => cardHandler?.(c) };
+  }
 
-    const store = new QueueStore(fs);
-    expect((await store.readAll()).map((c) => c.id)).toEqual(['c1']);
-    expect(sent).toEqual([{ t: 'card_shown', cardId: 'c1', at: expect.any(Number) }]);
-  });
+  // The fire-and-forget store.upsert() chains several awaits internally; a
+  // macrotask boundary flushes the whole microtask queue first.
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-  it('flushes queued outbound events on its poll interval', async () => {
-    vi.useFakeTimers();
-    const fs = fakeFs();
-    await fs.writeStringToFile(
-      '/data/wick-token.json',
-      JSON.stringify({ jwt: 'j', deviceId: 'd1', householdId: 'h1', expiresAt: Date.now() + 100_000 }),
-      'utf8',
-    );
-    const store = new QueueStore(fs);
-    await store.enqueueOutbound({ t: 'card_action', cardId: 'c1', action: 'answer', at: 1 });
-
-    const sent: unknown[] = [];
+  it('holds the background connection, and puts up a toast for a door card', async () => {
+    const fs = await pairedFs();
+    const channel = listeningChannel();
+    const toasts: unknown[] = [];
     __setCardServiceTestDeps({
       fs,
       config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
-      createChannel: async () => ({
-        state: 'open' as const,
-        onCard: () => () => undefined,
-        onControl: () => () => undefined,
-        send: async (e: unknown) => {
-          sent.push(e);
-        },
-        connect: async () => undefined,
-        close: () => undefined,
-      }),
+      createChannel: channel.createChannel,
+      postToast: async (toast) => {
+        toasts.push(toast);
+      },
     });
 
     await onStartCardService();
-    await vi.advanceTimersByTimeAsync(1100);
+    await settle();
+    channel.push(doorCard);
+    await settle();
 
-    expect(sent).toEqual([{ t: 'card_action', cardId: 'c1', action: 'answer', at: 1 }]);
+    expect(channel.asked).toEqual([{ websocket: { url: 'wss://ws.example', role: 'background' } }]);
+    expect(toasts).toEqual([expect.objectContaining({ mTitle: "Someone's at the front door." })]);
+  });
+
+  it('keeps the card for the app, and does not say it was shown — it has not been', async () => {
+    const fs = await pairedFs();
+    const channel = listeningChannel();
+    __setCardServiceTestDeps({
+      fs,
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      createChannel: channel.createChannel,
+      postToast: async () => undefined,
+    });
+
+    await onStartCardService();
+    await settle();
+    channel.push(doorCard);
+    await settle();
+
+    expect((await new QueueStore(fs).readAll()).map((c) => c.id)).toEqual(['c1']);
+    expect(channel.sent).toEqual([]);
+  });
+
+  it('puts up nothing for a note from family — it waits for a natural break', async () => {
+    const fs = await pairedFs();
+    const channel = listeningChannel();
+    const toasts: unknown[] = [];
+    __setCardServiceTestDeps({
+      fs,
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      createChannel: channel.createChannel,
+      postToast: async (toast) => {
+        toasts.push(toast);
+      },
+    });
+
+    await onStartCardService();
+    await settle();
+    channel.push({
+      id: 'n1',
+      urgency: 'DEFERRED',
+      card: { type: 'MESSAGE', id: 'n1', householdId: 'h1', correlationId: 'x', createdAt: 0, actions: [], fromName: 'Sarah', suggestedReplies: [] },
+      queuedAt: 0,
+      shownCount: 0,
+    });
+    await settle();
+
+    expect(toasts).toEqual([]);
   });
 });

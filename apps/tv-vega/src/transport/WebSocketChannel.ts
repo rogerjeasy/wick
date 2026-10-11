@@ -3,8 +3,9 @@
  * WebSocket. Auth travels in the connect URL's query string (`?token=`)
  * because RN's WebSocket cannot set arbitrary connect-time headers.
  *
- * Reconnect: exponential backoff 1s -> 30s, full jitter. On open, always
- * reconcile: send lastSeenCardId, receive everything after it.
+ * Reconnect: exponential backoff 1s -> 30s, full jitter. On open, reconcile:
+ * send lastSeenCardId, receive everything after it — except on the card
+ * service's background connection, which only listens (see `role`).
  */
 import type {
   ChannelState,
@@ -22,6 +23,14 @@ export type WebSocketFactory = (url: string) => WebSocket;
 export interface WebSocketChannelConfig {
   readonly url: string;
   readonly getLastSeenCardId?: () => string | undefined | Promise<string | undefined>;
+  /**
+   * 'background' for the card service's connection: the server keeps it
+   * apart from the app's own (edge-device connection-slot.mjs) and sends to
+   * it only while the app is not on screen. It never reconciles — a replay
+   * is for a screen that can show cards, and the service would announce
+   * every card still waiting as if somebody had just rung.
+   */
+  readonly role?: 'background';
 }
 
 const MIN_BACKOFF_MS = 1000;
@@ -89,7 +98,8 @@ export class WebSocketChannel implements DeviceChannel {
   #openSocket(): Promise<void> {
     this.#state = 'connecting';
     const token = this.#token!;
-    const url = `${this.#config.url}?token=${encodeURIComponent(token.jwt)}`;
+    const role = this.#config.role ? `&role=${this.#config.role}` : '';
+    const url = `${this.#config.url}?token=${encodeURIComponent(token.jwt)}${role}`;
 
     return new Promise((resolve, reject) => {
       const socket = this.#open(url);
@@ -100,8 +110,10 @@ export class WebSocketChannel implements DeviceChannel {
         void (async () => {
           this.#state = 'open';
           this.#backoffMs = MIN_BACKOFF_MS;
-          const sinceCardId = await this.#config.getLastSeenCardId?.();
-          socket.send(JSON.stringify({ t: 'reconcile', sinceCardId }));
+          if (this.#config.role !== 'background') {
+            const sinceCardId = await this.#config.getLastSeenCardId?.();
+            socket.send(JSON.stringify({ t: 'reconcile', sinceCardId }));
+          }
           if (!settled) {
             settled = true;
             resolve();

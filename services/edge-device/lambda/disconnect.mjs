@@ -1,6 +1,8 @@
 /** WebSocket $disconnect — clears the connection, only if it is still ours. */
 import { DynamoDBClient, GetItemCommand, DeleteItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 
+import { clearExpressions, slotForRole } from './connection-slot.mjs';
+
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME;
 
@@ -20,8 +22,7 @@ export const handler = async (event) => {
     await ddb.send(new UpdateItemCommand({
       TableName: TABLE,
       Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
-      UpdateExpression: 'REMOVE connectionId, transport, wsEndpoint, connectedAt',
-      ConditionExpression: 'connectionId = :cid',
+      ...clearExpressions(slotForRole(lookup.Item.role?.S)),
       ExpressionAttributeValues: { ':cid': { S: connectionId } },
     }));
   } catch (err) {

@@ -22,3 +22,13 @@ describe('manifest.toml — what the player needs to show a picture', () => {
     );
   });
 });
+
+describe('manifest.toml — what the door needs to be announced outside Wick', () => {
+  it('asks to post notifications: the toast is refused without it', () => {
+    expect(manifest).toMatch(/\[\[wants\.privilege\]\]\s*\nid\s*=\s*"com\.amazon\.notification\.privilege\.post"/);
+  });
+
+  it("declares Wick a client of its own card service, the service the app starts", () => {
+    expect(declaredServices(manifest)).toContain('com.wick.tv.card.service');
+  });
+});
