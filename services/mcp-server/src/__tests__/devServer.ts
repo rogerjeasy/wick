@@ -19,22 +19,28 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { QueuedCard } from '@wick/contracts';
 import { createApp } from '../server.js';
 import { createMemoryStore } from '../accounts/__tests__/memoryStore.js';
 import { createFakeIdentity } from './harness.js';
+import { createMemoryTable } from './memoryTable.js';
 
 const API_PORT = 3300;
 const APP_PORT = 4173;
 const store = createMemoryStore();
+const table = createMemoryTable();
 const cards: QueuedCard[] = [];
 
 const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
   store,
   identity: createFakeIdentity(),
-  sendCard: async (card) => void cards.push(card),
-  ddb: { send: async () => ({ Items: [] }) } as unknown as DynamoDBClient,
+  sendCard: async (card) => {
+    cards.push(card);
+    // As egress.ts files it, so "has Mum replied?" finds the note.
+    table.put({ pk: { S: `HH#${card.card.householdId}` }, sk: { S: `CARD#${card.id}` }, data: { S: JSON.stringify(card) } });
+  },
+  // A real table's worth of answers: the demo home's history is written here and read back by the tools.
+  ddb: table.ddb,
   demoAccounts: true,
   virtualTelevisionUrl: `http://127.0.0.1:${API_PORT}/dev/allow`,
   claimTelevision: async (accessToken, code) => {

@@ -129,6 +129,21 @@ describe('households', () => {
     expect(update.ConditionExpression).toBe('attribute_not_exists(createdBy)');
   });
 
+  it('keeps the mark on a simulated household, and puts none on a real one', async () => {
+    const { sent, store } = recorder([
+      {},
+      { Item: { pk: { S: 'HH#hh_demo' }, sk: { S: 'META' }, name: { S: 'Demo home' }, residentName: { S: 'Margaret' }, createdBy: { S: 'guest_1' }, createdAt: { N: '1' }, simulated: { BOOL: true } } },
+      {},
+    ]);
+
+    await store.createHousehold({ householdId: 'hh_demo', name: 'Demo home', residentName: 'Margaret', createdBy: 'guest_1', createdAt: NOW, simulated: true });
+    expect((sent[0] as UpdateItemCommand).input.ExpressionAttributeValues).toMatchObject({ ':simulated': { BOOL: true } });
+    expect((await store.getHousehold('hh_demo'))?.simulated).toBe(true);
+
+    await store.createHousehold({ householdId: 'hh_1', name: 'Mum’s house', residentName: 'Margaret', createdBy: 'u_sarah', createdAt: NOW });
+    expect((sent[2] as UpdateItemCommand).input.UpdateExpression).not.toContain('simulated');
+  });
+
   it('refuses to take over a household somebody already created', async () => {
     const { store } = recorder([conditionFailed()]);
 

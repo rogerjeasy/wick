@@ -119,7 +119,7 @@ async function askResident(deps: CircleDeps, household: Household, membership: M
 export function createHousehold(
   deps: CircleDeps,
   person: Identity,
-  input: { readonly residentName: string; readonly name?: string | undefined },
+  input: { readonly residentName: string; readonly name?: string | undefined; readonly simulated?: boolean },
 ): Promise<Household> {
   return establishHousehold(deps, person, { ...input, householdId: `hh_${deps.newId()}` });
 }
@@ -143,7 +143,7 @@ export function adoptHousehold(
 async function establishHousehold(
   deps: CircleDeps,
   person: Identity,
-  input: { readonly householdId: string; readonly residentName: string; readonly name?: string | undefined },
+  input: { readonly householdId: string; readonly residentName: string; readonly name?: string | undefined; readonly simulated?: boolean },
 ): Promise<Household> {
   const residentName = cleanName(input.residentName);
   if (!residentName) throw new CircleError('name_required');
@@ -155,6 +155,7 @@ async function establishHousehold(
     residentName,
     createdBy: person.userId,
     createdAt: now,
+    ...(input.simulated ? { simulated: true } : {}),
   };
   await deps.store.createHousehold(household);
   await askResident(deps, household, {

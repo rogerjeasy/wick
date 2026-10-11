@@ -25,11 +25,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ErrorCode, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { QueuedCard } from '@wick/contracts';
 import { createAuth } from './auth.js';
 import { createApiRouter, type ClaimTelevision } from './accounts/apiRouter.js';
 import { checkAccess, type CircleDeps } from './accounts/circle.js';
+import { seedDemoHome } from './accounts/demoHome.js';
 import type { IdentityProvider } from './accounts/identity.js';
 import { grantOf } from './accounts/oauthProvider.js';
 import type { AccountStore } from './accounts/store.js';
@@ -55,6 +56,10 @@ import { registerGetReplies } from './tools/get_replies.js';
  * pattern: node_modules/@modelcontextprotocol/sdk/dist/esm/examples/server/
  * simpleStreamableHttp.js's `getServer()`, called once per `initialize`.
  */
+const TABLE = process.env.TABLE_NAME ?? 'wick';
+/** The same default as the Narrator's and get_week_narrative.ts's. */
+const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
+
 function createMcpServer(ddb: DynamoDBClient, ctx: ToolContext): McpServer {
   const mcpServer = new McpServer({ name: 'wick', version: '0.2.0' });
   registerGetResidentSharedView(mcpServer, ddb, ctx);
@@ -103,7 +108,12 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     now: deps.now ?? Date.now,
     newId: deps.newId ?? randomId,
   };
-  const { router: authRouter, requireAuth } = createAuth(issuerUrl, circle, deps.identity, { demoAccounts: deps.demoAccounts });
+  const { router: authRouter, requireAuth } = createAuth(issuerUrl, circle, deps.identity, {
+    demoAccounts: deps.demoAccounts,
+    // A guest's home starts with six weeks to ask about, marked simulated (accounts/demoHome.ts).
+    seedDemoHome: (householdId) =>
+      seedDemoHome((item) => ddb.send(new PutItemCommand({ TableName: TABLE, Item: item })), householdId, circle.now(), HOUSEHOLD_TZ),
+  });
 
   const app = express();
   // Deployed, the server sits behind exactly one proxy (App Runner's), and

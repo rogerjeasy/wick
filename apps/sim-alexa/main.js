@@ -691,7 +691,8 @@ async function showCircle() {
  */
 async function welcome() {
   me = await api('/api/me');
-  setStatus(`${me.user.name} · ${me.household.name}`, 'connected');
+  // A demo home says what it is wherever it is named: its history was written, not lived.
+  setStatus(`${me.user.name} · ${me.household.name}${me.household.simulated ? ' · simulated history' : ''}`, 'connected');
   // Only the organiser, or someone already allowed, may know about the
   // televisions (INV-9) — so nobody else's app even asks.
   let televisions;

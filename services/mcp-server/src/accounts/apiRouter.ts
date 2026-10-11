@@ -85,7 +85,13 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
     if (!user || !household || !membership) throw new CircleError('not_a_member');
     res.json({
       user: { userId: user.userId, name: user.name, email: user.email, guest: isGuest(user.userId) },
-      household: { householdId: household.householdId, name: household.name, residentName: household.residentName },
+      household: {
+        householdId: household.householdId,
+        name: household.name,
+        residentName: household.residentName,
+        // A demo home's history is written, not lived: the app says so (demoHome.ts).
+        ...(household.simulated ? { simulated: true } : {}),
+      },
       membership: { role: membership.role, status: membership.status },
       ...(virtualTelevisionUrl ? { virtualTelevisionUrl } : {}),
     });

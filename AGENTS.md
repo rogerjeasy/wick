@@ -138,6 +138,14 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
 - **Runtime code uses real data.** Fixtures live under `__tests__` and never ship.
   `npm run check:no-mocks` fails the build if Vega runtime code imports anything
   matching `/mock/i`. Do not weaken this check.
+- **One exception, and it is marked: the demo home.** A guest's demo home
+  (`services/mcp-server/src/accounts/demo.ts`) starts with a simulated history,
+  written by `accounts/demoHome.ts` — six weeks of the Door agent's own event
+  rows, and each week counted from them by the Narrator's own code. A product
+  about the shape of a week cannot be tried on a home with no weeks. Every such
+  row, week and household carries `simulated`, and the family app says so
+  wherever it names the home. **Never** write simulated rows to a household a
+  person set up, and never show a simulated week without saying it is one.
 - **Never commit real household data.** No captures, no HAR files, no Ring
   snapshots. `.gitignore` covers the common cases; you are still
   responsible.

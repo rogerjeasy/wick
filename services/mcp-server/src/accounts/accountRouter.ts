@@ -62,6 +62,8 @@ export interface AccountRouterDeps {
   readonly issuerUrl: URL;
   /** Whether a visitor may become an anonymous guest in one click (demo.ts). Off unless set. */
   readonly demoAccounts?: boolean | undefined;
+  /** Writes a new demo home its simulated history (demoHome.ts). Never called for any other home. */
+  readonly seedDemoHome?: ((householdId: string) => Promise<void>) | undefined;
 }
 
 function readCookie(req: Request, name: string): string | undefined {
@@ -112,7 +114,11 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     }
     const guest = newGuest(circle.newId());
     await store.putUser({ ...guest, createdAt: now() });
-    const household = await createHousehold(circle, guest, { residentName: DEMO_RESIDENT_NAME, name: DEMO_HOME_NAME });
+    const household = await createHousehold(circle, guest, { residentName: DEMO_RESIDENT_NAME, name: DEMO_HOME_NAME, simulated: true });
+    // An empty demo home is a poorer demo, not a failed one: the guest is made either way.
+    await deps.seedDemoHome?.(household.householdId).catch((err: unknown) => {
+      console.warn(JSON.stringify({ level: 'warn', msg: 'demo_home_not_seeded', householdId: household.householdId, error: (err as Error).name || String(err) }));
+    });
     await setSession(res, guest);
     return { guest, householdId: household.householdId };
   };

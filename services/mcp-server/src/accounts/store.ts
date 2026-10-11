@@ -153,7 +153,7 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         await send(new UpdateItemCommand({
           TableName: table,
           Key: { pk: householdPk(household.householdId), sk: { S: 'META' } },
-          UpdateExpression: 'SET #name = :name, residentName = :resident, createdBy = :by, createdAt = :at',
+          UpdateExpression: `SET #name = :name, residentName = :resident, createdBy = :by, createdAt = :at${household.simulated ? ', simulated = :simulated' : ''}`,
           ConditionExpression: 'attribute_not_exists(createdBy)',
           ExpressionAttributeNames: { '#name': 'name' },
           ExpressionAttributeValues: {
@@ -161,6 +161,7 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
             ':resident': { S: household.residentName },
             ':by': { S: household.createdBy },
             ':at': num(household.createdAt),
+            ...(household.simulated ? { ':simulated': { BOOL: true } } : {}),
           },
         }));
       } catch (err) {
@@ -179,6 +180,7 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         residentName: item.residentName.S,
         createdBy: item.createdBy.S,
         createdAt: Number(item.createdAt?.N ?? 0),
+        ...(item.simulated?.BOOL ? { simulated: true } : {}),
       };
     },
 
