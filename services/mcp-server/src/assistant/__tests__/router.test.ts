@@ -159,6 +159,20 @@ describe('createStepLimiter — a guest account is free, and a model is not', ()
     expect(take('guest_new')).toBe(false);
   });
 
+  it('keeps guests and people with accounts in separate budgets: a flood of guests cannot shut the others out', () => {
+    const take = createStepLimiter(() => 0);
+
+    // Guest after guest, each using all they are allowed, until the guests' budget is gone.
+    let spent = false;
+    for (let guest = 0; !spent; guest += 1) {
+      for (let i = 0; i < STEPS_PER_PERSON && !spent; i += 1) spent = !take(`guest_${guest}`);
+    }
+    // The guests' ten minutes are spent...
+    expect(take('guest_another')).toBe(false);
+    // ...and someone who signed up is answered as if nothing had happened.
+    expect(take('u_sarah')).toBe(true);
+  });
+
   it('caps the day as well: the worst a day can cost is a known number', () => {
     let at = 0;
     const take = createStepLimiter(() => at);

@@ -28,6 +28,7 @@
 import cors from 'cors';
 import express, { type RequestHandler } from 'express';
 import { checkAccess } from '../accounts/circle.js';
+import { isGuest } from '../accounts/demo.js';
 import { grantOf } from '../accounts/oauthProvider.js';
 import type { AccountStore } from '../accounts/store.js';
 import { nextStep, readTurns, type Converse, type ToolSpec } from './brain.js';
@@ -51,40 +52,53 @@ const WINDOW_MS = 10 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
 /** One person, in ten minutes: a dozen questions of three steps each. */
 export const STEPS_PER_PERSON = 40;
-/** Everyone together, in ten minutes. */
-export const STEPS_PER_WINDOW = 300;
-/** Everyone together, in a day. */
-export const STEPS_PER_DAY = 3_000;
+/** Everyone in one budget together — guests, or people with accounts — in ten minutes. */
+export const STEPS_PER_WINDOW = 200;
+/** The same, in a day: the worst a day can cost is twice this many steps. */
+export const STEPS_PER_DAY = 2_000;
+
+interface Budget {
+  windowStart: number;
+  windowTaken: number;
+  dayStart: number;
+  dayTaken: number;
+  readonly people: Map<string, number>;
+}
 
 /**
  * Whether one more step may be taken now, counting it if so. Fixed windows
  * held in this process — one instance serves the deployment (infra/mcp.tf).
- * Everyone's ten minutes start together, so what is remembered is never
- * more than one window's worth of people.
+ *
+ * Guests and people with accounts are counted apart, each against the same
+ * caps. A guest account costs one click, so a flood of them can spend the
+ * guests' budget; it must not also be able to silence the person who
+ * signed up to look after their mother. And a spent budget silences only
+ * the model: the app answers by its rules until the window turns.
+ *
+ * Within a budget everyone's ten minutes start together, so what is
+ * remembered is never more than one window's worth of people.
  */
 export function createStepLimiter(now: () => number): (userId: string) => boolean {
-  let windowStart = now();
-  let windowTaken = 0;
-  let dayStart = windowStart;
-  let dayTaken = 0;
-  const people = new Map<string, number>();
+  const fresh = (): Budget => ({ windowStart: now(), windowTaken: 0, dayStart: now(), dayTaken: 0, people: new Map() });
+  const budgets = { guest: fresh(), account: fresh() };
 
   return (userId) => {
+    const budget = isGuest(userId) ? budgets.guest : budgets.account;
     const at = now();
-    if (at - windowStart >= WINDOW_MS) {
-      windowStart = at;
-      windowTaken = 0;
-      people.clear();
+    if (at - budget.windowStart >= WINDOW_MS) {
+      budget.windowStart = at;
+      budget.windowTaken = 0;
+      budget.people.clear();
     }
-    if (at - dayStart >= DAY_MS) {
-      dayStart = at;
-      dayTaken = 0;
+    if (at - budget.dayStart >= DAY_MS) {
+      budget.dayStart = at;
+      budget.dayTaken = 0;
     }
-    const mine = people.get(userId) ?? 0;
-    if (dayTaken >= STEPS_PER_DAY || windowTaken >= STEPS_PER_WINDOW || mine >= STEPS_PER_PERSON) return false;
-    people.set(userId, mine + 1);
-    windowTaken += 1;
-    dayTaken += 1;
+    const mine = budget.people.get(userId) ?? 0;
+    if (budget.dayTaken >= STEPS_PER_DAY || budget.windowTaken >= STEPS_PER_WINDOW || mine >= STEPS_PER_PERSON) return false;
+    budget.people.set(userId, mine + 1);
+    budget.windowTaken += 1;
+    budget.dayTaken += 1;
     return true;
   };
 }
