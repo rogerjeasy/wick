@@ -159,6 +159,22 @@ describe('households', () => {
   });
 });
 
+describe('announced visits', () => {
+  it('forgets every visit a person announced to a household, and nobody else’s', async () => {
+    const { sent, store } = recorder([
+      { Items: [{ pk: { S: 'HH#hh_1' }, sk: { S: 'PER#member-u_tom#2026-10-17' } }, { pk: { S: 'HH#hh_1' }, sk: { S: 'PER#member-u_tom#2026-10-24' } }] },
+    ]);
+
+    await store.forgetAnnouncedVisits('hh_1', 'u_tom');
+
+    expect((sent[0] as QueryCommand).input.ExpressionAttributeValues).toEqual({ ':pk': { S: 'HH#hh_1' }, ':prefix': { S: 'PER#member-u_tom#' } });
+    expect(sent.slice(1).map((c) => (c as DeleteItemCommand).input.Key)).toEqual([
+      { pk: { S: 'HH#hh_1' }, sk: { S: 'PER#member-u_tom#2026-10-17' } },
+      { pk: { S: 'HH#hh_1' }, sk: { S: 'PER#member-u_tom#2026-10-24' } },
+    ]);
+  });
+});
+
 describe('televisions', () => {
   it('lists the household’s paired televisions and says which are connected now', async () => {
     const { store } = recorder([

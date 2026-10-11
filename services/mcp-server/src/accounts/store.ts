@@ -20,6 +20,7 @@ import {
   type AttributeValue,
 } from '@aws-sdk/client-dynamodb';
 import type { CircleRole, MemberStatus } from '@wick/contracts';
+import { announcedVisitPrefix } from './announcedVisits.js';
 import type { Household, Membership, RecordKind, Television, User } from './types.js';
 
 type Item = Record<string, AttributeValue>;
@@ -54,6 +55,9 @@ export interface AccountStore {
   setMemberStatus(householdId: string, userId: string, status: MemberStatus, at: number): Promise<void>;
 
   listTelevisions(householdId: string): Promise<Television[]>;
+
+  /** Takes every visit a person announced off the household's roster (announcedVisits.ts). */
+  forgetAnnouncedVisits(householdId: string, userId: string): Promise<void>;
 
   putRecord<T>(kind: RecordKind, id: string, value: T, expiresAt?: number): Promise<void>;
   /** Undefined once past its expiry, whether or not DynamoDB has deleted it yet. */
@@ -238,6 +242,16 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         ExpressionAttributeNames: { '#status': 'status' },
         ExpressionAttributeValues: { ':status': { S: status }, ':at': num(at) },
       }));
+    },
+
+    async forgetAnnouncedVisits(householdId, userId) {
+      const rows = await queryAll({
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+        ExpressionAttributeValues: { ':pk': householdPk(householdId), ':prefix': { S: announcedVisitPrefix(userId) } },
+      });
+      for (const row of rows) {
+        await send(new DeleteItemCommand({ TableName: table, Key: { pk: householdPk(householdId), sk: row.sk! } }));
+      }
     },
 
     async listTelevisions(householdId) {

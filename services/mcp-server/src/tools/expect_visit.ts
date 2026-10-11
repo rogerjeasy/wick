@@ -22,7 +22,9 @@ import type { RosterEntry } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
+import { isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { loadRoster } from './list_regular_visitors.js';
+import { announcedVisitSk, memberPersonId } from '../accounts/announcedVisits.js';
 import { WRITES, data, say } from './result.js';
 import { localToUtc } from './when.js';
 
@@ -49,7 +51,7 @@ export interface ExpectedVisitAnswer {
   readonly name: string;
   readonly at: number;
   readonly windowMinutes: number;
-  /** Regular visitors whose usual days include that one. */
+  /** Regular visitors whose usual days include that one — empty when the resident keeps who visits private. */
   readonly alsoExpectedThatDay: readonly string[];
 }
 
@@ -66,7 +68,7 @@ export function registerExpectVisit(
       description:
         'Tells the house that the family member who is signed in will visit at a given day and time (the household’s local time). ' +
         'When the doorbell rings within an hour of it, the card on the resident’s television says it looks like them. ' +
-        'Returns who else usually comes that day. It does not tell the resident: use send_note_to_tv as well if they should know.',
+        'Returns who else usually comes that day, where the resident shares that. It does not tell the resident: use send_note_to_tv as well if they should know.',
       inputSchema: {
         date: z.string().describe('The day of the visit, YYYY-MM-DD.'),
         time: z.string().describe('The time of the visit in 24-hour HH:MM, in the household’s local time.'),
@@ -81,22 +83,28 @@ export function registerExpectVisit(
       if (at > nowMs + MAX_DAYS_AHEAD * DAY_MS) return say(EXPECT_VISIT_TOO_FAR_TEXT);
 
       const entry: RosterEntry = {
-        personId: `member-${ctx.userId}`,
+        personId: memberPersonId(ctx.userId),
         name: allowed.membership.name,
         expectedOnce: { at, windowMin: EXPECTED_WINDOW_MIN },
       };
-      // Read before the write, so the answer never lists the visit just announced.
+      // Who else comes that day is who visits, by name — the PRESENCE class,
+      // gated exactly as list_regular_visitors and did_visitor_come gate it.
+      // A resident who keeps that private still lets this member announce
+      // their own visit; they are just not told who else is due.
       const dayCode = DAY_CODES[new Date(at).getUTCDay()]!;
-      const alsoExpectedThatDay = (await loadRoster(ddb, ctx.householdId))
-        .filter((p) => !p.expectedOnce && (p.expectedPattern?.split(' ')[0]?.split(',') ?? []).includes(dayCode))
-        .map((p) => p.name);
+      const namesShared = isSharedWithFamily('PRESENCE', await loadHouseholdPolicy(ddb, ctx.householdId));
+      const alsoExpectedThatDay = namesShared
+        ? (await loadRoster(ddb, ctx.householdId))
+            .filter((p) => !p.expectedOnce && (p.expectedPattern?.split(' ')[0]?.split(',') ?? []).includes(dayCode))
+            .map((p) => p.name)
+        : [];
 
       await ddb.send(new PutItemCommand({
         TableName: TABLE,
         Item: {
           pk: { S: `HH#${ctx.householdId}` },
           // One visit a day each: saying it again for the same day moves it.
-          sk: { S: `PER#${entry.personId}#${date}` },
+          sk: { S: announcedVisitSk(ctx.userId, date) },
           data: { S: JSON.stringify(entry) },
           ttl: { N: String(Math.floor((at + FORGET_AFTER_MS) / 1000)) },
         },

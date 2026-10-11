@@ -133,6 +133,18 @@ describe('expect_visit — "tell the door I am coming on Saturday at three"', ()
     expect(result.structuredContent).toMatchObject({ alsoExpectedThatDay: ['Maria'] });
   });
 
+  it('does not name the regular visitors to someone the resident keeps them from', async () => {
+    const table = createMemoryTable();
+    person(table, 'PER#maria', MARIA);
+    table.put({ pk: { S: `HH#${HH}` }, sk: { S: 'META' }, residentExclusions: { SS: ['PRESENCE'] } });
+
+    const result = await call(table, { date: '2026-10-16', time: '11:00' });
+
+    // The visit is still announced: that is the member's own news. Who else comes is not theirs to be told.
+    expect(result.structuredContent).toMatchObject({ expected: true, alsoExpectedThatDay: [] });
+    expect(textOf(result)).not.toContain('Maria');
+  });
+
   it('takes no name from the request: nobody can announce a visit as somebody else', async () => {
     const table = createMemoryTable();
 

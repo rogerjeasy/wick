@@ -252,6 +252,10 @@ export async function removeMember(deps: CircleDeps, actor: { householdId: strin
   const target = await deps.store.getMembership(actor.householdId, userId);
   if (!target) throw new CircleError('not_a_member');
   await deps.store.setMemberStatus(actor.householdId, userId, 'removed', deps.now());
+  // After the status, so a failure here cannot leave them a member. A visit
+  // they announced must not have the door go on saying a caller looks like
+  // them (tools/expect_visit.ts).
+  await deps.store.forgetAnnouncedVisits(actor.householdId, userId);
 }
 
 export interface CircleView {
