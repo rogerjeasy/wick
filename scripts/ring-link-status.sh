@@ -42,9 +42,9 @@ done
 [ "$found" -eq 0 ] && echo "   nothing"
 
 echo
-echo "── linked? ──"
+echo "── linked? (household ${WICK_HOUSEHOLD_ID:-margaret}) ──"
 # Shape only. Nothing here prints a token, or any prefix of one.
-aws secretsmanager get-secret-value --secret-id wick/ring/tokens \
+aws secretsmanager get-secret-value --secret-id "wick/ring/tokens/${WICK_HOUSEHOLD_ID:-margaret}" \
   --query SecretString --output text 2>/dev/null \
 | python3 -c "
 import sys, json, time
@@ -56,7 +56,7 @@ try:
 except Exception:
     print('   token secret present but unreadable'); raise SystemExit
 
-print('   YES — tokens written to wick/ring/tokens')
+print('   YES — this household has a Ring link (wick/ring/tokens/<householdId>)')
 print(f\"   access token   {'present' if t.get('access_token') else 'MISSING'}\")
 print(f\"   refresh token  {'present' if t.get('refresh_token') else 'MISSING — re-link needed within the hour'}\")
 print(f\"   account id     {'present' if t.get('accountId') else 'not resolved'}\")

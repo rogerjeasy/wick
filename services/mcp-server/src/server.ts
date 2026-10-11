@@ -29,7 +29,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { QueuedCard } from '@wick/contracts';
 import { createAuth } from './auth.js';
-import { createApiRouter, type ClaimTelevision } from './accounts/apiRouter.js';
+import { createApiRouter, type ClaimTelevision, type RingLinks } from './accounts/apiRouter.js';
 import { checkAccess, type CircleDeps } from './accounts/circle.js';
 import { seedDemoHome } from './accounts/demoHome.js';
 import { createAssistantRouter, type AssistantDeps } from './assistant/router.js';
@@ -116,6 +116,8 @@ export interface AppDeps {
   readonly ddb: DynamoDBClient;
   /** The pairing API's POST /pair/claim, called as the signed-in person. */
   readonly claimTelevision?: ClaimTelevision;
+  /** The home's own Ring link (accounts/apiRouter.ts `/api/ring`). Absent, those routes say Ring cannot be reached. */
+  readonly ringLinks?: RingLinks;
   /** Let a visitor become an anonymous guest in one click (accounts/demo.ts). Off unless set. */
   readonly demoAccounts?: boolean;
   /** The model behind the family app's conversation (assistant/brain.ts). Without one the app answers by its rules. */
@@ -153,6 +155,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   app.use(authRouter);
   app.use(createApiRouter(circle, requireAuth, {
     claimTelevision: deps.claimTelevision,
+    ringLinks: deps.ringLinks,
     virtualTelevisionUrl: deps.virtualTelevisionUrl,
     timeZone: HOUSEHOLD_TZ,
   }));

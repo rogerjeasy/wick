@@ -17,11 +17,14 @@ import { createHash } from 'node:crypto';
 import { DynamoDBClient, GetItemCommand, DeleteItemCommand } from '@aws-sdk/client-dynamodb';
 import { readCredentials, readTokens, finishLink } from './ring-token.mjs';
 import { TOKEN_URL } from './ring-api.mjs';
+import { linkService } from './household-link.mjs';
 
 const ddb = new DynamoDBClient({});
 
 const TABLE = process.env.TABLE_NAME;
 const REDIRECT_URI = process.env.RING_REDIRECT_URI;
+/** The household this deployment was set up around: the only one a link with no household can belong to. */
+const OPERATOR_HOUSEHOLD = process.env.WICK_HOUSEHOLD_ID;
 const CONSENT_PAGE =
   process.env.CONSENT_PAGE_URL ?? 'https://rogerjeasy.github.io/wick/link.html';
 
@@ -103,11 +106,17 @@ export const handler = async (event) => {
     // Tokens alone do not make a live integration: the completion PATCH is what
     // wakes device consents and webhooks up. finishLink does both and reports
     // which half succeeded, so the page can tell the truth rather than assume.
+    // The household is the one the sign-in was started for (authorization.mjs
+    // wrote it into the state row) — never anything in this address. A state
+    // row from before households had their own links names none, and can
+    // only be the operator's.
+    const householdId = row.Item.householdId?.S || OPERATOR_HOUSEHOLD;
     const tokens = await res.json();
-    const { completed } = await finishLink(tokens, { previous: await readTokens() });
+    const { record, completed } = await finishLink(householdId, tokens, { previous: await readTokens(householdId) });
+    await linkService.recordLink(householdId, record, row.Item.userId?.S);
 
     return completed
-      ? page('Connected', 'Wick can now see your Ring doorbell events. You can close this window.')
+      ? page('Connected', 'Wick can now see your Ring doorbell events. You can close this window and go back to the Wick family app.')
       : page(
           'Almost there',
           'Ring accepted the sign-in, but confirming the integration did not go through. '

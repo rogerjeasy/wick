@@ -152,7 +152,8 @@ export type RingTokenSource =
  * `.env`'s `RING_OAUTH_TOKEN` (a Ring Developer Playground token, ~30 min,
  * no refresh) wins whenever it's present. That is deliberately the opposite
  * of "prefer the permanent one": the real, auto-refreshing account in
- * Secrets Manager (`wick-ring-refresh` keeps it warm hourly) currently has
+ * Secrets Manager (the link of the household in `.env`'s WICK_HOUSEHOLD_ID,
+ * which `wick-ring-refresh` keeps warm hourly) currently has
  * zero connected Ring locations, so `listDevices()` against it returns
  * nothing to demo against. The Playground identity is the only one with an
  * actual device — see FRICTION.md FL-010. Secrets Manager is the fallback,
@@ -177,8 +178,12 @@ export async function ringToken(): Promise<string> {
   // AWS round trip, or require AWS credentials at all, when a Playground
   // token already answers the question.
   let fromSecretsManager: string | undefined;
-  if (!fromFile) {
-    cachedSecretsManagerToken ??= secretsManagerTokenProvider();
+  // A link is a household's own, so the fallback is the link of the household
+  // this laptop is set up for (.env WICK_HOUSEHOLD_ID). With none named there
+  // is no household to ask for, and so no fallback.
+  const householdId = process.env.WICK_HOUSEHOLD_ID ?? envFile().WICK_HOUSEHOLD_ID;
+  if (!fromFile && householdId) {
+    cachedSecretsManagerToken ??= secretsManagerTokenProvider(householdId);
     try {
       fromSecretsManager = await cachedSecretsManagerToken();
     } catch {
@@ -194,8 +199,9 @@ export async function ringToken(): Promise<string> {
   if (source.kind === 'secrets-manager') return fromSecretsManager!;
 
   throw new Error(
-    'No usable Ring token. Either link the real account once (the ring_authorize_url ' +
-      "Terraform output) and let the hourly wick-ring-refresh job keep it warm forever, " +
+    'No usable Ring token. Either connect Ring for the household in WICK_HOUSEHOLD_ID ' +
+      "(the family app, or the ring_authorize_url Terraform output for the operator's own) " +
+      'and let the hourly wick-ring-refresh job keep it warm, ' +
       'or — for a quick one-off — generate a Playground token at ' +
       'https://developer.amazon.com/ring/console/playground and put it in .env as ' +
       'RING_OAUTH_TOKEN (lasts 30 minutes).',

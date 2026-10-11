@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 #
-# Load a Ring Developer Playground token into wick/ring/tokens.
+# Load a Ring Developer Playground token into one household's Ring secret,
+# wick/ring/tokens/<householdId> — the household in WICK_HOUSEHOLD_ID
+# (default: margaret, the one this deployment was set up around).
 #
 #   ./scripts/set-ring-token.sh
+#   WICK_HOUSEHOLD_ID=hh_abc ./scripts/set-ring-token.sh
+#
+# This is the operator's shortcut. A home's organiser does the same thing —
+# and has the camera claimed for the home and the link shown in the app —
+# from the family app's Doorbell card. This script writes the secret only: it
+# claims no camera and writes no status row.
 #
 # The Playground (https://developer.amazon.com/ring/console/playground) issues a
 # ~30-minute access token that works against every Ring API with no OAuth, no
@@ -16,7 +24,11 @@
 set -euo pipefail
 export AWS_PROFILE="${AWS_PROFILE:-wick-dev}"
 
-SECRET_ID="${RING_TOKEN_SECRET:-wick/ring/tokens}"
+HOUSEHOLD_ID="${WICK_HOUSEHOLD_ID:-margaret}"
+case "$HOUSEHOLD_ID" in
+  *[!A-Za-z0-9_-]*|"") echo "WICK_HOUSEHOLD_ID is not a household id: '$HOUSEHOLD_ID'" >&2; exit 1 ;;
+esac
+SECRET_ID="${RING_TOKEN_SECRET:-wick/ring/tokens/$HOUSEHOLD_ID}"
 API="https://api.amazonvision.com"
 
 # Prefer RING_OAUTH_TOKEN from .env — the Playground hands you a token to paste
@@ -67,6 +79,10 @@ echo "   HTTP 200 — token is live${account:+ (account ${account})}"
 # will say no, and the caller gets 'refresh_expired' rather than a silent 401.
 echo
 echo "── writing $SECRET_ID ──"
+# Held in a private temporary file for the two commands below, then removed.
+RECORD_FILE=$(mktemp)
+chmod 600 "$RECORD_FILE"
+trap 'rm -f "$RECORD_FILE"' EXIT
 python3 -c "
 import json, sys, time, base64
 tok, acct = sys.argv[1], sys.argv[2]
@@ -90,10 +106,19 @@ print(json.dumps({
     'expiresAt': exp_ms,
     'source': 'playground',
 }))
-" "$TOKEN" "$account" \
-| aws secretsmanager put-secret-value \
-    --secret-id "$SECRET_ID" --secret-string file:///dev/stdin \
-    --query VersionId --output text >/dev/null
+" "$TOKEN" "$account" > "$RECORD_FILE"
+
+# A household that has never been linked has no secret yet.
+if aws secretsmanager describe-secret --secret-id "$SECRET_ID" >/dev/null 2>&1; then
+  aws secretsmanager put-secret-value \
+      --secret-id "$SECRET_ID" --secret-string "file://$RECORD_FILE" \
+      --query VersionId --output text >/dev/null
+else
+  aws secretsmanager create-secret \
+      --name "$SECRET_ID" --secret-string "file://$RECORD_FILE" \
+      --description "Ring tokens for household $HOUSEHOLD_ID." \
+      --query ARN --output text >/dev/null
+fi
 
 echo "   stored — no refresh token (Playground tokens carry none)"
 echo

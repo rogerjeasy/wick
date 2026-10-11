@@ -104,6 +104,9 @@ export function routeUtterance(text, now = Date.now()) {
   // a television" is; "put a note on her television" is not.
   if (/\bcircle\b|\binvit(e|ation)\b|\bconnect\b.*\b(television|tv)\b/.test(t)) return { kind: 'circle' };
 
+  // The doorbell is the app's own business too: connecting Ring is something the organiser does here.
+  if (/\b(connect|disconnect|link|unlink)\b.*\b(doorbell|ring)\b|\bdoorbell\b.*\bconnected\b/.test(t)) return { kind: 'doorbell' };
+
   // Replies first: "has Mum replied to my note" mentions a note, and is not one.
   if (/\brepl(y|ied|ies)\b|\banswered\b|written back/.test(t)) return tool('get_replies');
 
@@ -711,6 +714,75 @@ export function presentCircle(circle, me) {
 }
 
 /** The link an organiser sends: this same app, with the invitation in the address. */
+/**
+ * The home's doorbell, for its organiser: whether Ring is connected, how,
+ * and what can be done about it. `link` is GET /api/ring's answer.
+ *
+ * Two ways a home is connected, and they are never passed off as each other:
+ * through a Ring account, which keeps itself going, or to Ring's Developer
+ * Playground — Ring's simulator — with a pasted token that stops after about
+ * half an hour. The second is said to be the simulator wherever it is named.
+ *
+ * @param {object} link
+ * @param {{ household: { residentName: string } }} me
+ * @param {(atMs: number) => string} formatTime
+ */
+export function presentDoorbell(link, me, formatTime = defaultFormatTime) {
+  const resident = me.household.residentName;
+  const title = `${resident}’s doorbell`;
+  const offers = { ring: true, playground: link.playgroundAllowed === true };
+
+  if (!link.linked) {
+    return {
+      say: `No doorbell is connected to ${resident}’s home yet.`,
+      tone: 'answer',
+      card: {
+        title,
+        rows: [],
+        footnote: offers.playground
+          ? 'Connect a Ring account, or try it with Ring’s simulator, the Developer Playground.'
+          : 'Connect the Ring account the doorbell belongs to.',
+        actions: { connectRing: offers.ring, playground: offers.playground, disconnect: false },
+      },
+    };
+  }
+
+  const cameras = link.cameras ?? [];
+  const rows = cameras.map((name) => ({ primary: name, secondary: link.simulated ? 'Simulated camera' : 'Ring' }));
+  const elsewhere = link.heldElsewhere > 0
+    ? ` ${count(link.heldElsewhere)} of its devices ${link.heldElsewhere === 1 ? 'belongs' : 'belong'} to another home and ${link.heldElsewhere === 1 ? 'was' : 'were'} left alone.`
+    : '';
+  const none = cameras.length === 0 ? ' Ring listed no camera for it.' : '';
+
+  if (link.simulated) {
+    const ended = link.expired === true;
+    const until = link.expiresAt === undefined ? '' : ended ? ` Its token stopped working ${formatTime(link.expiresAt)}.` : ` Its token works until ${formatTime(link.expiresAt)}.`;
+    return {
+      say: ended
+        ? `${resident}’s home was connected to Ring’s simulator, and that link has ended.`
+        : `${resident}’s home is connected to Ring’s simulator, not to a real doorbell.`,
+      tone: ended ? 'waiting' : 'answer',
+      card: {
+        title,
+        rows,
+        footnote: `Ring’s Developer Playground is a simulated doorbell.${until}${none}${elsewhere} Paste a new token to carry on.`,
+        actions: { connectRing: offers.ring, playground: offers.playground, disconnect: true },
+      },
+    };
+  }
+
+  return {
+    say: `${resident}’s doorbell is connected through Ring.`,
+    tone: 'answer',
+    card: {
+      title,
+      rows,
+      footnote: `Wick keeps this link going by itself.${none}${elsewhere}`,
+      actions: { connectRing: false, playground: false, disconnect: true },
+    },
+  };
+}
+
 export function inviteLink(here, code) {
   const url = new URL(here);
   url.search = '';

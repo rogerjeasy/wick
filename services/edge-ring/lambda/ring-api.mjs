@@ -96,4 +96,23 @@ export async function completeAppIntegration({ accessToken, accountIdentifier, f
   return true;
 }
 
+/**
+ * The devices this token can see: ids and names, nothing more. A token Ring
+ * refuses throws — which is how a pasted token is checked before it is kept.
+ */
+export async function listDevices({ accessToken, fetchImpl = fetch }) {
+  const res = await fetchImpl(`${API_BASE}/v1/devices`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    throw new RingError('devices_failed', { status: res.status, detail: await readError(res) });
+  }
+
+  const doc = await res.json();
+  return (Array.isArray(doc?.data) ? doc.data : [])
+    .filter((d) => typeof d?.id === 'string' && d.id)
+    .map((d) => ({ id: d.id, name: typeof d.attributes?.name === 'string' ? d.attributes.name : null }));
+}
+
 export { RingError };

@@ -13,6 +13,7 @@ import {
   inviteLink,
   needsConfirmation,
   presentCircle,
+  presentDoorbell,
   presentResult,
   presentTurn,
   presentWelcome,
@@ -897,10 +898,144 @@ function renderCircleCard(view) {
     const connectTv = el('button', 'btn quiet', 'Connect a television');
     connectTv.type = 'button';
     connectTv.addEventListener('click', () => addConnectTelevision());
-    actions.append(invite, connectTv);
+    const doorbell = el('button', 'btn quiet', 'Doorbell');
+    doorbell.type = 'button';
+    doorbell.addEventListener('click', () => void showDoorbell());
+    actions.append(invite, connectTv, doorbell);
     body.appendChild(actions);
   }
   return card;
+}
+
+// ---------------------------------------------------------------------------
+// The home's doorbell: its own Ring link, connected by its organiser. What is
+// said and shown is decided in surface.js (presentDoorbell); the server
+// decides who may ask, and keeps the tokens (GET/POST/DELETE /api/ring).
+
+/** Paste a token from Ring's Developer Playground. The token goes to the Wick server and is never shown again. */
+function addPlaygroundToken() {
+  const turn = assistantSays({ say: 'Paste a token from Ring’s Developer Playground.', tone: 'answer' });
+  const { card, body } = plainCard(
+    'Ring’s simulator',
+    'The Playground is Ring’s simulated doorbell. Its token works for about half an hour, and Wick keeps it on its server, not in this browser.',
+  );
+  const form = el('form');
+  form.autocomplete = 'off';
+  const label = el('label', '', 'Playground token');
+  const input = el('textarea');
+  input.rows = 3;
+  input.required = true;
+  input.spellcheck = false;
+  input.setAttribute('autocapitalize', 'off');
+  label.appendChild(input);
+  const actions = el('div', 'actions');
+  const go = el('button', 'btn final', 'Connect');
+  go.type = 'submit';
+  const cancel = el('button', 'btn quiet', 'Not now');
+  cancel.type = 'button';
+  actions.append(go, cancel);
+  const problem = el('p', 'problem');
+  problem.setAttribute('role', 'alert');
+  form.append(label, actions, problem);
+  body.appendChild(form);
+  turn.appendChild(card);
+  scrollToEnd();
+  input.focus();
+
+  cancel.addEventListener('click', () => turn.remove());
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    go.disabled = true;
+    problem.textContent = '';
+    try {
+      const link = await api('/api/ring/playground', { method: 'POST', body: JSON.stringify({ token: input.value.trim() }) });
+      turn.remove();
+      showDoorbellLink(link);
+    } catch (err) {
+      problem.textContent = err.message;
+      go.disabled = false;
+    }
+  });
+}
+
+function renderDoorbellCard(view) {
+  const { card, body } = plainCard(view.title, view.footnote);
+  if (view.rows.length > 0) {
+    const rows = el('ul', 'rows');
+    for (const row of view.rows) {
+      const li = el('li', 'row');
+      li.append(el('span', 'primary', row.primary), el('span', 'secondary', row.secondary));
+      rows.appendChild(li);
+    }
+    body.appendChild(rows);
+  }
+
+  const actions = el('div', 'actions');
+  if (view.actions.connectRing) {
+    const ring = el('button', 'btn', 'Connect a Ring account');
+    ring.type = 'button';
+    ring.addEventListener('click', async () => {
+      ring.disabled = true;
+      try {
+        // Ring's own sign-in, in its own tab; it comes back to a Wick page that says how it went.
+        const { url } = await api('/api/ring/link', { method: 'POST' });
+        window.open(url, '_blank', 'noopener');
+        assistantSays({ say: 'Ring’s sign-in is open in another tab. When it says Connected, ask me about the doorbell again.', tone: 'answer' });
+      } catch (err) {
+        assistantSays({ say: err.message, tone: 'error' });
+      }
+      ring.disabled = false;
+    });
+    actions.appendChild(ring);
+  }
+  if (view.actions.playground) {
+    const simulator = el('button', 'btn quiet', 'Use Ring’s simulator');
+    simulator.type = 'button';
+    simulator.addEventListener('click', () => addPlaygroundToken());
+    actions.appendChild(simulator);
+  }
+  if (view.actions.disconnect) {
+    // Two presses: the first only asks.
+    const disconnect = el('button', 'btn link', 'Disconnect');
+    disconnect.type = 'button';
+    disconnect.addEventListener('click', async () => {
+      if (disconnect.dataset.armed !== 'true') {
+        disconnect.dataset.armed = 'true';
+        disconnect.textContent = 'Disconnect — sure?';
+        return;
+      }
+      try {
+        showDoorbellLink(await api('/api/ring', { method: 'DELETE' }));
+      } catch (err) {
+        assistantSays({ say: err.message, tone: 'error' });
+      }
+    });
+    actions.appendChild(disconnect);
+  }
+  if (actions.childElementCount > 0) body.appendChild(actions);
+  return card;
+}
+
+/** Say and show a link the server has just described. */
+function showDoorbellLink(link) {
+  const presented = presentDoorbell(link, me, formatTime);
+  const turn = assistantSays({ say: presented.say, tone: presented.tone });
+  turn.appendChild(renderDoorbellCard(presented.card));
+  scrollToEnd();
+}
+
+async function showDoorbell() {
+  const turn = addThinking();
+  try {
+    me = await api('/api/me');
+    const presented = presentDoorbell(await api('/api/ring'), me, formatTime);
+    fillAssistantTurn(turn, { say: presented.say, card: null, tone: presented.tone });
+    turn.appendChild(renderDoorbellCard(presented.card));
+    scrollToEnd();
+  } catch (err) {
+    // 403 carries the server's own sentence: only the organiser connects a doorbell.
+    fillAssistantTurn(turn, { say: err.message, card: null, tone: err.status === 403 ? 'waiting' : 'error' });
+  }
 }
 
 async function showCircle() {
@@ -952,6 +1087,7 @@ function answerByRules(text) {
   if (route.kind === 'tool') return void askTool(route.tool, route.args, { now: Date.now() });
   if (route.kind === 'compose') return addComposer(route.message);
   if (route.kind === 'circle') return void showCircle();
+  if (route.kind === 'doorbell') return void showDoorbell();
   assistantSays({ say: HELP_TEXT, tone: 'answer' });
 }
 
@@ -965,6 +1101,7 @@ async function handleUtterance(text) {
   addCustomerTurn(text);
   // The circle is this app's own business with the server, not a question for a tool.
   if (routeUtterance(text).kind === 'circle') return void showCircle();
+  if (routeUtterance(text).kind === 'doorbell') return void showDoorbell();
   if (noAssistant) return answerByRules(text);
 
   answering = true;
