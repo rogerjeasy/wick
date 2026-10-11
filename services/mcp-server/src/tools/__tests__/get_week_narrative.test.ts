@@ -144,6 +144,40 @@ describe('familyWeek — Sarah’s copy honours what Margaret keeps private ("Wh
   it('withholds the whole week when the resident keeps the summary of their week private', () => {
     expect(familyWeek(WEEK, policy(['RHYTHM']), 'Europe/London')).toEqual({ status: 'private' });
   });
+
+  describe('with a Rhythm baseline', () => {
+    // A week the door was as usual, and Maria — who usually comes twice — did not come.
+    const COMPARED: WeekNarrative = {
+      ...WEEK,
+      text: 'Someone came to the front door twice. Maria did not visit, and usually comes about twice a week.',
+      timeline: WEEK.timeline.filter((e) => e.kind === 'door'),
+      deltas: [
+        { metric: 'door', label: 'the front door', thisWeek: 2, lastWeek: 2, baseline: 2, zScore: 0, baselineWeeks: 4, verdict: 'usual' },
+        { metric: 'visit:maria', label: 'Maria', thisWeek: 0, lastWeek: 2, baseline: 2, zScore: -2, baselineWeeks: 4, verdict: 'fewer' },
+      ],
+    };
+
+    it('hands the family the comparisons as written when nothing is kept private', () => {
+      expect(familyWeek(COMPARED, policy([]), 'Europe/London')).toEqual({ status: 'available', narrative: COMPARED });
+    });
+
+    it('says nothing of a visitor who stayed away when visitors are kept private — an absence is still a fact about them', () => {
+      const result = familyWeek(COMPARED, policy(['PRESENCE']), 'Europe/London');
+      if (result.status !== 'available') throw new Error('expected available');
+
+      expect(result.narrative.deltas.map((d) => d.metric)).toEqual(['door']);
+      expect(JSON.stringify(result.narrative)).not.toContain('Maria');
+      expect(result.narrative.text).toBe('Someone came to the front door twice this week, on Wednesday evening. Some of this week is kept private.');
+    });
+
+    it('keeps the door\'s comparison back with the door, and still says who did not come', () => {
+      const result = familyWeek(COMPARED, policy(['DOOR_EVENT']), 'Europe/London');
+      if (result.status !== 'available') throw new Error('expected available');
+
+      expect(result.narrative.deltas.map((d) => d.metric)).toEqual(['visit:maria']);
+      expect(result.narrative.text).toBe('Maria did not visit, and usually comes about twice a week. Some of this week is kept private.');
+    });
+  });
 });
 
 describe('get_week_narrative honours "What Sarah sees" (end to end through the registered tool)', () => {

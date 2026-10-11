@@ -27,6 +27,7 @@ function run(over: Partial<EveryHouseholdDeps>): Run {
     deps: {
       listHouseholds: async () => [],
       loadEvents: async () => [],
+      firstEventAt: async () => undefined,
       writeNarrative: async () => 'A quiet week.',
       saveNarrative: async (narrative) => { saved.push(narrative); },
       sendWeekCard: async (card) => { cards.push(card); },
@@ -39,6 +40,28 @@ function run(over: Partial<EveryHouseholdDeps>): Run {
 }
 
 describe('narrateEveryHousehold', () => {
+  it('measures each household against its own history, never another home\'s', async () => {
+    const WEEK = 7 * 86_400_000;
+    const start = Date.UTC(2026, 8, 14);
+    const asked: string[] = [];
+    const { deps, saved } = run({
+      listHouseholds: async () => ['hh-a', 'hh-b'],
+      loadEvents: async (householdId) => (householdId === 'hh-a' ? [doorItem('hh-a', start - WEEK + 3_600_000, 'a0')] : []),
+      firstEventAt: async (householdId) => {
+        asked.push(householdId);
+        return householdId === 'hh-a' ? start - 2 * WEEK : undefined;
+      },
+    });
+
+    await narrateEveryHousehold('2026-W38', deps);
+
+    expect(asked).toEqual(['hh-a', 'hh-b']);
+    expect(saved.map((n) => [n.householdId, n.deltas[0]!.baselineWeeks, n.deltas[0]!.lastWeek])).toEqual([
+      ['hh-a', 2, 1],
+      ['hh-b', 0, undefined],
+    ]);
+  });
+
   it('gives each household its own week, from its own events, on its own television', async () => {
     const events: Record<string, Record<string, AttributeValue>[]> = {
       'hh-a': [doorItem('hh-a', Date.UTC(2026, 8, 16, 9), 'a1'), doorItem('hh-a', Date.UTC(2026, 8, 16, 10), 'a2')],

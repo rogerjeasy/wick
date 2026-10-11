@@ -20,12 +20,21 @@ import { MAX_CARD_DETAIL_CHARS } from './card.js';
 export const MAX_NARRATIVE_CHARS = MAX_CARD_DETAIL_CHARS;
 
 export interface RhythmDelta {
+  /** `door`, or `visit:<personId>`. */
   readonly metric: string;
+  /** What a person would call it: "the front door", "Maria". */
+  readonly label?: string;
   readonly thisWeek: number;
+  /** The same stretch of last week. Absent when last week was not observed. */
+  readonly lastWeek?: number;
+  /** The mean of the observed weeks before this one — at most six. */
   readonly baseline: number;
+  /** 0 below three weeks of baseline. */
   readonly zScore: number;
   /** Deviations are suppressed below three weeks of baseline. See §8.2. */
   readonly baselineWeeks: number;
+  /** Absent below three weeks of baseline: there is no usual week yet. */
+  readonly verdict?: 'usual' | 'more' | 'fewer';
 }
 
 export interface WeekNarrative {

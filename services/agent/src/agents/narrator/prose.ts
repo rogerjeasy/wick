@@ -1,6 +1,7 @@
 /**
  * The week, in prose. §5.4: "THE MODEL NEVER COUNTS." The model sees only
  * fact lines that weekFacts.ts already counted — never a raw timestamp —
+ * with the Rhythm baseline's comparisons already drawn (comparisons.ts),
  * and index.ts checks what comes back. Consistent with
  * prompts/narrator-week.md's own brief.
  *
@@ -27,7 +28,9 @@ Rules, all mandatory:
 - The facts given are ALL you know. Use only the numbers that appear in them, in digits or words. Never add a number, a clock time, or a count of your own.
 - At most two short sentences, under ${MAX_NARRATIVE_CHARS} characters in all.
 - Plain, unsensational prose: a thoughtful neighbour's tone, not a report. No "flurry", no "busy", no exclamation.
-- If the week is not over, say "so far". If nothing happened, say plainly that it was a quiet week. That is the most valuable sentence you can write.
+- If the week is not over, say "so far". If nothing happened, say plainly that it was a quiet week.
+- Compare with last week, or with a usual week, only where the facts do, and only the way they do. If the facts say nothing was unusual, say so plainly: that is the most valuable sentence you can write. If they say there is not enough history, call nothing usual or unusual.
+- If the facts say someone who usually visits did not, say so plainly and without alarm.
 - Never speculate about how anyone felt, or why anyone came. Report what happened, not what it meant.`;
 
 export async function writeNarrative(
