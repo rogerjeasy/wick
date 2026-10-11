@@ -110,7 +110,10 @@ data "aws_iam_policy_document" "apprunner_instance" {
     # Accounts (services/mcp-server/src/accounts/store.ts): the same four,
     # plus DeleteItem — an authorization code and a refresh token are
     # *taken*, with one atomic delete, so each works exactly once.
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query"]
+    # ConditionCheckItem: add_regular_visitor's one transaction checks, at the
+    # moment it writes, that an entry it is clearing away still belongs to
+    # someone the resident no longer allows.
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:ConditionCheckItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }
 

@@ -35,12 +35,28 @@
  *     else's entry — another member's, or one the household's operator
  *     made — is not this caller's to rewrite or take over.
  *
- * Those rules are checked against every entry the roster really holds,
- * and the write is one transaction guarded by the roster's version: two
- * people adding at once cannot both pass a check the other has just made
- * untrue. An entry whose author the resident no longer allows counts for
- * nothing — it is not on the roster — and is cleared away by the same
- * write, so it cannot come back later on top of someone added since.
+ * Those rules are checked against every entry the table really holds, and
+ * then written as one transaction in which each thing the checks relied on
+ * is checked again:
+ *
+ *   - the roster's version, which every write here bumps — so two people
+ *     adding at once cannot both pass a check the other has just made
+ *     untrue;
+ *   - the row being written: created only if it is still not there,
+ *     replaced only if it is still exactly the entry that was read — so a
+ *     row somebody else made in between, by any route, is never written
+ *     over;
+ *   - each entry being cleared away, and that its author is still not
+ *     allowed. An entry whose author the resident no longer allows is not
+ *     on the roster and counts for nothing, and is cleared by the same
+ *     write so that it cannot come back later on top of someone added
+ *     since; but if the resident let that person back in a moment ago, it
+ *     is theirs again and the whole write is refused.
+ *
+ * The caller's own standing is not re-checked at the write. It does not
+ * need to be: an entry stands only while its author is allowed, so one
+ * written in the instant after its author was removed is never on the
+ * roster at all.
  */
 import { z } from 'zod';
 import { GetItemCommand, QueryCommand, TransactWriteItemsCommand, type DynamoDBClient, type TransactWriteItem } from '@aws-sdk/client-dynamodb';
@@ -137,6 +153,8 @@ interface Regulars {
   readonly live: readonly RosterEntry[];
   /** Still in the table, but not on the roster: their author is no longer allowed. */
   readonly dead: readonly RosterEntry[];
+  /** Each entry exactly as stored, by personId — what a write is conditioned on. */
+  readonly stored: ReadonlyMap<string, string>;
   readonly version: number;
 }
 
@@ -153,11 +171,17 @@ async function loadRegulars(ddb: DynamoDBClient, householdId: string): Promise<R
     rows('MEM#'),
     ddb.send(new GetItemCommand({ TableName: TABLE, Key: { pk, sk: { S: ROSTER_VERSION_SK } }, ConsistentRead: true })),
   ]);
-  const all = (people.Items ?? [])
-    .flatMap((item) => (item.data?.S ? [JSON.parse(item.data.S) as RosterEntry] : []))
-    .filter((p) => !p.expectedOnce);
+  const stored = new Map<string, string>();
+  const all: RosterEntry[] = [];
+  for (const item of people.Items ?? []) {
+    if (!item.data?.S) continue;
+    const entry = JSON.parse(item.data.S) as RosterEntry;
+    if (entry.expectedOnce) continue;
+    all.push(entry);
+    stored.set(entry.personId, item.data.S);
+  }
   const live = stillWelcome(all, members.Items ?? []);
-  return { live, dead: all.filter((p) => !live.includes(p)), version: Number(versionRow.Item?.version?.N ?? 0) };
+  return { live, dead: all.filter((p) => !live.includes(p)), stored, version: Number(versionRow.Item?.version?.N ?? 0) };
 }
 
 export interface RegularVisitorAnswer {
@@ -201,7 +225,7 @@ export function registerAddRegularVisitor(
       const expectedPattern = regularPattern(asked.days, asked.time, HOUSEHOLD_TZ, now());
       if (!expectedPattern) return say(VISITOR_BAD_TIME_TEXT);
 
-      const { live, dead, version } = await loadRegulars(ddb, ctx.householdId);
+      const { live, dead, stored, version } = await loadRegulars(ddb, ctx.householdId);
       const existing = live.find((p) => p.personId === personId);
       // Somebody else's entry — another member's, or the operator's — is not this caller's to rewrite.
       if (existing && existing.addedBy !== ctx.userId) {
@@ -216,9 +240,18 @@ export function registerAddRegularVisitor(
       const pk = { S: `HH#${ctx.householdId}` };
       const entry: RosterEntry = { personId, name, expectedPattern, addedBy: ctx.userId };
       const cleared = dead.filter((p) => p.personId !== personId).slice(0, MAX_CLEARED);
+      /** The row as it was read, or that there was none: the write holds only if that is still so. */
+      const unchanged = (id: string) => {
+        const seen = stored.get(id);
+        return seen === undefined
+          ? { ConditionExpression: 'attribute_not_exists(pk)' }
+          : { ConditionExpression: '#d = :seen', ExpressionAttributeNames: { '#d': 'data' }, ExpressionAttributeValues: { ':seen': { S: seen } } };
+      };
+      // Whoever's entries are being cleared, or written over, as no longer allowed.
+      const gone = new Set(dead.filter((p) => p.personId === personId || cleared.includes(p)).flatMap((p) => (p.addedBy ? [p.addedBy] : [])));
       const writes: TransactWriteItem[] = [
         {
-          // The guard: this write happens only if nobody else has written since the roster was read.
+          // The guard: this write happens only if nobody else has written here since the roster was read.
           Update: {
             TableName: TABLE,
             Key: { pk, sk: { S: ROSTER_VERSION_SK } },
@@ -234,9 +267,19 @@ export function registerAddRegularVisitor(
           Put: {
             TableName: TABLE,
             Item: { pk, sk: { S: `PER#${personId}` }, data: { S: JSON.stringify(entry) }, addedAt: { N: String(now().getTime()) } },
+            ...unchanged(personId),
           },
         },
-        ...cleared.map((p) => ({ Delete: { TableName: TABLE, Key: { pk, sk: { S: `PER#${p.personId}` } } } })),
+        ...cleared.map((p) => ({ Delete: { TableName: TABLE, Key: { pk, sk: { S: `PER#${p.personId}` } }, ...unchanged(p.personId) } })),
+        ...[...gone].map((userId) => ({
+          ConditionCheck: {
+            TableName: TABLE,
+            Key: { pk, sk: { S: `MEM#${userId}` } },
+            ConditionExpression: 'attribute_not_exists(pk) OR #s <> :allowed',
+            ExpressionAttributeNames: { '#s': 'status' },
+            ExpressionAttributeValues: { ':allowed': { S: 'allowed' } },
+          },
+        })),
       ];
       try {
         await ddb.send(new TransactWriteItemsCommand({ TransactItems: writes }));

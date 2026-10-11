@@ -82,18 +82,28 @@ export function createMemoryTable(): MemoryTable {
         return query(input);
       case 'TransactWriteItemsCommand': {
         // All or nothing, as DynamoDB does it. Only the conditions the server uses are understood.
-        const writes = (input as unknown as { TransactItems: { Put?: { Item: Item }; Delete?: { Key: Item }; Update?: { Key: Item; ConditionExpression?: string; ExpressionAttributeValues?: Record<string, AttributeValue> } }[] }).TransactItems;
-        for (const { Update } of writes) {
-          if (!Update) continue;
-          const held = items.get(keyOf(Update.Key))?.version?.N;
-          const seen = Update.ExpressionAttributeValues?.[':seen']?.N;
-          const ok = Update.ConditionExpression === 'attribute_not_exists(version)' ? held === undefined : held === seen;
-          if (!ok) throw Object.assign(new Error('Transaction cancelled'), { name: 'TransactionCanceledException' });
+        type Guarded = { Key?: Item; Item?: Item; ConditionExpression?: string; ExpressionAttributeValues?: Record<string, AttributeValue> };
+        const writes = (input as unknown as { TransactItems: { Put?: Guarded; Delete?: Guarded; Update?: Guarded; ConditionCheck?: Guarded }[] }).TransactItems;
+        const holds = (op: Guarded): boolean => {
+          const held = items.get(keyOf(op.Key ?? op.Item!));
+          const values = op.ExpressionAttributeValues ?? {};
+          switch (op.ConditionExpression) {
+            case undefined: return true;
+            case 'attribute_not_exists(pk)': return held === undefined;
+            case 'attribute_not_exists(version)': return held?.version === undefined;
+            case 'version = :seen': return held?.version?.N === values[':seen']?.N;
+            case '#d = :seen': return held?.data?.S === values[':seen']?.S;
+            case 'attribute_not_exists(pk) OR #s <> :allowed': return held === undefined || held.status?.S !== values[':allowed']?.S;
+            default: throw new Error(`memoryTable: unsupported condition "${op.ConditionExpression}"`);
+          }
+        };
+        if (!writes.every((w) => holds((w.Put ?? w.Delete ?? w.Update ?? w.ConditionCheck)!))) {
+          throw Object.assign(new Error('Transaction cancelled'), { name: 'TransactionCanceledException' });
         }
         for (const { Put, Delete, Update } of writes) {
-          if (Put) items.set(keyOf(Put.Item), Put.Item);
-          if (Delete) items.delete(keyOf(Delete.Key));
-          if (Update) items.set(keyOf(Update.Key), { ...Update.Key, version: Update.ExpressionAttributeValues![':next']! });
+          if (Put) items.set(keyOf(Put.Item!), Put.Item!);
+          if (Delete) items.delete(keyOf(Delete.Key!));
+          if (Update) items.set(keyOf(Update.Key!), { ...Update.Key!, version: Update.ExpressionAttributeValues![':next']! });
         }
         return {};
       }

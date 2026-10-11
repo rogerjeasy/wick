@@ -62,7 +62,8 @@ describe('regularPattern', () => {
 });
 
 type Item = Record<string, AttributeValue>;
-type Write = { Put?: { Item: Item }; Delete?: { Key: Item }; Update?: { ConditionExpression?: string; ExpressionAttributeValues?: Record<string, AttributeValue> } };
+type Guard = { ConditionExpression?: string; ExpressionAttributeValues?: Record<string, AttributeValue> };
+type Write = { Put?: Guard & { Item: Item }; Delete?: Guard & { Key: Item }; Update?: Guard; ConditionCheck?: Guard & { Key: Item } };
 
 const member = (userId: string, status = 'allowed'): Item => ({ sk: { S: `MEM#${userId}` }, status: { S: status } });
 
@@ -157,6 +158,25 @@ describe('add_regular_visitor', () => {
     expect(transactions[0]![0]!.Update!.ConditionExpression).toBe('attribute_not_exists(version)');
   });
 
+  it('creates a visitor only if that row is still not there — never over one somebody made in between', async () => {
+    const { ddb, transactions } = table();
+
+    await call(ddb, MARIA);
+
+    expect(transactions[0]!.find((w) => w.Put)!.Put!.ConditionExpression).toBe('attribute_not_exists(pk)');
+  });
+
+  it('changes its own visitor only if the row is still exactly the one it read', async () => {
+    const mine = person('maria', 'Maria', 'MON 10:00±30m', 'u_sarah');
+    const { ddb, transactions } = table([mine]);
+
+    await call(ddb, MARIA);
+
+    const put = transactions[0]!.find((w) => w.Put)!.Put!;
+    expect(put.ConditionExpression).toBe('#d = :seen');
+    expect(put.ExpressionAttributeValues).toEqual({ ':seen': mine.data });
+  });
+
   it('says to ask again when somebody else changed the roster in between', async () => {
     const { ddb } = table([], { conflict: true });
 
@@ -229,6 +249,21 @@ describe('add_regular_visitor', () => {
       await call(ddb, MARIA);
 
       expect(deletes()).toEqual(['PER#dave']);
+    });
+
+    it('clears it only if it is still that entry, and its author is still not allowed, at the moment of the write', async () => {
+      const { ddb, transactions } = table([davesRow], circle);
+
+      await call(ddb, MARIA);
+
+      const [write] = transactions;
+      const cleared = write!.find((w) => w.Delete)!.Delete!;
+      expect(cleared.ConditionExpression).toBe('#d = :seen');
+      expect(cleared.ExpressionAttributeValues).toEqual({ ':seen': davesRow.data });
+      // If the resident let Tom back in a moment ago, Dave is Tom's again, and nothing is written.
+      const standing = write!.find((w) => w.ConditionCheck)!.ConditionCheck!;
+      expect(standing.Key.sk).toEqual({ S: 'MEM#u_tom' });
+      expect(standing.ConditionExpression).toBe('attribute_not_exists(pk) OR #s <> :allowed');
     });
 
     it('can be replaced under the same name, as a new entry on this member’s word', async () => {
