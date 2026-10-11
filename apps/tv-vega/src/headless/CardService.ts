@@ -43,7 +43,11 @@ export function __setCardServiceTestDeps(deps: TestDeps | null): void {
   testDeps = deps;
 }
 
+const START_BUDGET_MS = 3000;
+
 let running: RunningCardChannel | undefined;
+/** Counts starts and stops, so a start that was still waiting for its token knows it was overtaken. */
+let starts = 0;
 
 export async function onStartCardService(): Promise<void> {
   // Imported lazily, and only on the real (non-test) path: the module's
@@ -65,17 +69,45 @@ export async function onStartCardService(): Promise<void> {
   // never calls start()/pollUntilBound() itself and has no in-memory token
   // from App.tsx's own pairing (separate process, no shared JS memory). See
   // PairingFlow.loadToken's header comment and FRICTION.md.
-  const token = await pairing.loadToken(await resolveDeviceId(fs));
-  if (!token) return; // genuinely unpaired — App.tsx shows the pairing screen; nothing to hold open yet
-
+  //
+  // The app asks for the same refresh a second before it starts this
+  // process, and the server allows one in 30 seconds — so this one may wait
+  // and ask again. There is no screen here to fall back to.
+  const starting = ++starts;
   const announce = testDeps?.postToast ?? postToast;
-  running = holdCardChannel(store, token, createChannel, config, (card) => {
-    const toast = doorToast(card);
-    if (toast) void announce(toast);
+  let late = false;
+  const holding = (async () => {
+    const token = await pairing.loadToken(await resolveDeviceId(fs), { waitIfRefreshedJustNow: true });
+    if (!token) return; // genuinely unpaired — App.tsx shows the pairing screen; nothing to hold open yet
+    if (starting !== starts) return; // stopped, or started again, while waiting
+    running = holdCardChannel(store, token, createChannel, config, (card) => {
+      const toast = doorToast(card);
+      if (toast) void announce(toast);
+    });
+  })().catch((err: unknown) => {
+    if (!late) throw err;
+    console.error('card_service_token_failed', err);
   });
+
+  // The system ends a service whose start has not returned in about eight
+  // seconds (Vega simulator, 2026-10-11: "START transition timed out",
+  // AppNotResponding). The wait for a token is far longer, so the start
+  // returns without it and the connection is taken up when it comes.
+  let budget: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    holding,
+    new Promise<void>((resolve) => {
+      budget = setTimeout(() => {
+        late = true;
+        resolve();
+      }, START_BUDGET_MS);
+    }),
+  ]);
+  clearTimeout(budget);
 }
 
 export async function onStopCardService(): Promise<void> {
+  starts += 1;
   running?.stop();
   running = undefined;
 }

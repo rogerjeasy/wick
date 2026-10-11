@@ -11,11 +11,30 @@ export const DEVICE_TOKEN_TTL_SEC = 30 * 24 * 60 * 60;
 // identifiers, not physical access to the paired device.
 export const REFRESH_TOKEN_TTL_SEC = 60 * 60;
 
-// Throttle on pair-refresh.mjs: legitimate callers (App.tsx, CardService.ts)
-// each refresh once per launch, not in a loop. This is not a defense against
-// a determined attacker — one call is enough to mint a token — but it blunts
-// automated/repeated abuse and gives an operator a signal to notice.
-export const REFRESH_MIN_INTERVAL_MS = 30 * 1000;
+// Throttle on pair-refresh.mjs. One launch of Wick is two refreshes where
+// the television's disk keeps nothing (FRICTION.md FL-013): the app, then
+// the card service it starts a second later. So the allowance is two
+// launches' worth in half a minute — one a launch refused the card service
+// every time, and a refusal reads as "not paired". This is not a defense
+// against a determined attacker — one call is enough to mint a token — but
+// it blunts automated/repeated abuse and gives an operator a signal to
+// notice.
+export const REFRESH_WINDOW_MS = 30 * 1000;
+export const REFRESH_MAX_PER_WINDOW = 4;
+
+/**
+ * One more refresh for the television this binding row is for: the window
+ * and count the row should hold afterwards, or null when it has had its
+ * share. The window runs from its first refresh, so a television that keeps
+ * asking does not keep pushing its own limit out of reach.
+ */
+export function nextRefreshWindow(item, now) {
+  const at = Number(item?.refreshWindowAt?.N ?? 0);
+  const count = Number(item?.refreshCount?.N ?? 0);
+  if (!at || now - at >= REFRESH_WINDOW_MS) return { at: now, count: 1 };
+  if (count >= REFRESH_MAX_PER_WINDOW) return null;
+  return { at, count: count + 1 };
+}
 
 export function generatePairingCode() {
   return String(randomInt(0, 1_000_000)).padStart(6, '0');
