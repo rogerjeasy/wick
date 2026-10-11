@@ -117,6 +117,35 @@ describe('liveDeviceConnections', () => {
     expect(liveDeviceConnections(items).map((c) => [c.connectionId, c.background ?? false])).toEqual([['bg-2', true], ['conn-1', false]]);
   });
 
+  it('sends nothing to a television that has been revoked, on either connection', () => {
+    // connect.mjs refuses a revoked television a *new* connection. One it
+    // already holds stays open — the card service's for hours — so the
+    // sender has to refuse it too, or revoking would not stop the pictures.
+    const revoked = { denylisted: { BOOL: true } };
+    const onScreen = { ...dev('wick-tv', 'conn-1'), ...revoked };
+    const behind = { ...dev('bedroom'), bgConnectionId: { S: 'bg-1' }, bgTransport: { S: 'websocket' }, bgWsEndpoint: { S: WS }, ...revoked };
+
+    expect(liveDeviceConnections([onScreen, behind])).toEqual([]);
+  });
+
+  it('still sends to a television whose revocation was lifted', () => {
+    const restored = { ...dev('wick-tv', 'conn-1'), denylisted: { BOOL: false } };
+
+    expect(liveDeviceConnections([restored]).map((c) => c.connectionId)).toEqual(['conn-1']);
+  });
+
+  it('does not fall back to the card service while the app holds a connection it cannot be reached on', () => {
+    const mqttOnScreen = {
+      ...dev('wick-tv', 'conn-1'),
+      transport: { S: 'mqtt' },
+      bgConnectionId: { S: 'bg-1' },
+      bgTransport: { S: 'websocket' },
+      bgWsEndpoint: { S: WS },
+    };
+
+    expect(liveDeviceConnections([mqttOnScreen])).toEqual([]);
+  });
+
   it('skips a device on the MQTT path — IoT Core publish is not wired up yet', () => {
     const mqtt = { ...dev('wick-tv', 'conn-1'), transport: { S: 'mqtt' } };
 

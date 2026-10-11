@@ -115,6 +115,8 @@ const BACKGROUND_ATTRIBUTES = ['bgConnectionId', 'bgTransport', 'bgWsEndpoint', 
  * connection-slot.mjs). Never both — the app closes its connection when it
  * leaves the screen, so a foreground connection means the card itself will
  * be seen and a toast over it would say the same thing twice.
+ *
+ * And none at all for a television that has been revoked.
  */
 export function liveDeviceConnections(items: readonly Record<string, AttributeValue>[]): DeviceConnection[] {
   const live: DeviceConnection[] = [];
@@ -122,11 +124,16 @@ export function liveDeviceConnections(items: readonly Record<string, AttributeVa
     const connectionId = item.connectionId?.S;
     const wsEndpoint = item.wsEndpoint?.S;
     const deviceSk = item.sk?.S;
-    // Offline, or on the MQTT path — IoT Core publish isn't wired up yet
-    // (SP-5 gate, see FRICTION.md FL-009).
     if (!deviceSk) continue;
-    if (connectionId && item.transport?.S === 'websocket' && wsEndpoint) {
-      live.push({ connectionId, wsEndpoint, deviceSk });
+    // Revoked. connect.mjs refuses a revoked television a new connection,
+    // but one it already holds stays open — the card service's for hours —
+    // so it is refused here as well, on both.
+    if (item.denylisted?.BOOL === true) continue;
+    if (connectionId) {
+      // The app is on screen. On the MQTT path it cannot be reached yet —
+      // IoT Core publish isn't wired up (SP-5 gate, FRICTION.md FL-009) —
+      // and the card service is not a second way to it.
+      if (item.transport?.S === 'websocket' && wsEndpoint) live.push({ connectionId, wsEndpoint, deviceSk });
       continue;
     }
     const bgConnectionId = item.bgConnectionId?.S;
