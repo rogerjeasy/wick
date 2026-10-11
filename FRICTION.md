@@ -81,6 +81,52 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-023 — The add-on docs name two MCP protocol versions, and only one of them is the one the client is shown sending
+
+**Tool / API:**      Alexa+ MCP Toolkit docs — "Create an MCP Add-on" (quickstart) and "Alexa+ MCP
+                     Client and App Lifecycle" (developer.amazon.com/docs/alexaplus/add-ons), read
+                     2026-10-11
+
+**Task attempted:**  Confirm which MCP protocol version an add-on's server must answer, so a
+                     preflight could check Wick's server the way a deploy would meet it.
+
+**Steps taken:**     1. Read the quickstart's hard requirements: MCP spec 2025-11-25, Streamable
+                        HTTP. The hackathon rules name the same version.
+                     2. Read the client lifecycle page for the exact `initialize` the Alexa+ client
+                        sends. Its example request carries `"protocolVersion": "2025-03-26"`,
+                        `capabilities: {"roots": {"listChanged": true}}` and
+                        `clientInfo.name: "Alexa+ MCP Client"`; its example response echoes
+                        `2025-03-26` and lists `tools` and `resources` capabilities.
+                     3. Ran both against Wick's deployed server (`npm run addon:check -- --live
+                        --demo`): it answers `2025-11-25` to a `2025-11-25` hello and `2025-03-26`
+                        to a `2025-03-26` one, so either reading works here.
+
+**Expected:**        One stated version, or a sentence saying the client negotiates down and which
+                     versions a server must accept.
+
+**Actual:**          Two pages, two versions, no sentence connecting them. A server built to the
+                     letter of the quickstart on a framework that accepts only the newest version
+                     would be told nothing was wrong until its first real `initialize`. The same
+                     example response lists a `resources` capability with no statement of whether
+                     a server that has no resources must advertise it.
+
+**Severity:**        Important — it is the first message of every session, and the page that
+                     shows it disagrees with the page that specifies it.
+
+**Workaround:**      Answer both. Wick's server negotiates the version through the MCP SDK, and the
+                     preflight says hello both ways and reports what came back
+                     (`scripts/addon/preflight.ts`).
+
+**Suggestion:**      1. State on both pages which protocol versions the Alexa+ client sends today
+                        and which it accepts in reply.
+                     2. Say whether `resources` (and any other capability in the example response)
+                        is required or merely shown.
+                     3. Publish the client's real `initialize` as a fixture developers can replay
+                        against their own server — the web simulator does this for partners; a
+                        JSON file would do it for everyone else.
+
+---
+
 ## FL-022 — A Vega app can announce something while another app is in front, but every step of how is undocumented, and two of the documents say it cannot
 
 **Tool / API:**      Vega SDK 0.24.12044 / Vega CLI 1.3.4 / Vega Virtual Device;
@@ -1774,3 +1820,13 @@ shapes but not yet run against hardware.
 
 **Also noted:**      The toolkit is documented as United States only. Combined with partner
                      gating, a developer outside the US has no path to the surface at all.
+
+**Follow-up, 2026-10-11:** Amazon staff confirmed in the hackathon forum (topic 45262, and again
+                     in the week of 2026-10-05 in topic 45482) that access "will not be granted to hackathon
+                     participants". The add-on package is therefore finished as far as it can be
+                     without Amazon: the manifest is held to the quickstart's field table in CI,
+                     `npm run addon:check -- --live` runs the checks a deploy is documented to
+                     need against the deployed stack, and the simulated surface draws Wick's
+                     listing from the same `addon.json`. It also removed one thing a real deploy
+                     would have tripped on: the manifest carried `_comment` keys, which are not
+                     manifest fields.

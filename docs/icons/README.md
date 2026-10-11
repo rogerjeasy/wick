@@ -9,6 +9,13 @@ Served from GitHub Pages at `https://rogerjeasy.github.io/wick/icons/…`.
 
 Exact pixel dimensions matter; `alexa-ai deploy` rejects the manifest otherwise.
 
+## Optional — the same six for the dark theme
+
+`dark-72.png` · `dark-64.png` · `dark-88.png` · `dark-126.png` ·
+`dark-180.png` · `dark-241.png`
+
+If any dark icon is listed, all six must be.
+
 ## Also required
 
 `../carousel/wick-1.png` at **600×900**.

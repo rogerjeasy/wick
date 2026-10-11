@@ -77,7 +77,7 @@ household's rhythm. Full detail in [`docs/WICK-TECHNICAL.md`](docs/WICK-TECHNICA
 | **`headless-task-manager`** | Keeps the card channel alive while the app is off screen. |
 | **Ring Partner API** | Live WHEP video (bridged to HLS for the TV's own player), recorded frames, event history — and `media/audio/playback`, which lets a button on a TV remote ring the Chime in the hallway (built and contract-tested; the Playground simulates cameras only, so it is not demonstrated — FL-019). |
 | **Strands Agents + Bedrock AgentCore** | The door's work runs as Strands graphs in one AgentCore Runtime: a vision Agent (Nova Lite) describes the visitor, and deterministic nodes gate the hallway chime and the live view, because no model should decide to make a sound in someone's home. Session = household, so each household's graphs run in their own microVM. |
-| **MCP server** (spec 2025-11-25, Streamable HTTP) | The family's endpoint, built to Alexa+'s own published requirements — including the sub-500ms round trip, which is why the weekly narrative is precomputed rather than generated in-request. The Alexa+ add-on surface is partner-gated ([FL-001](FRICTION.md)), so it is exercised through an MCP client and a simulated Alexa+ surface, the alternative the rules permit. |
+| **MCP server** (spec 2025-11-25, Streamable HTTP) | The family's endpoint, built to Alexa+'s own published requirements — including the sub-500ms round trip, which is why the weekly narrative is precomputed rather than generated in-request. The Alexa+ add-on surface is partner-gated ([FL-001](FRICTION.md)), so it is exercised through an MCP client and a simulated Alexa+ surface, the alternative the rules permit. The add-on package itself is complete: `npm run addon:check -- --live` runs what Amazon documents a deploy to need (manifest fields, image sizes, the 401, PKCE, the tool list, the round trip) against the deployed stack. It has not been uploaded to Amazon, and cannot be. |
 
 ## The trust model
 
@@ -117,7 +117,7 @@ services/policy     The Guardian — pure, AWS-free, exhaustively tested
 packages/contracts  Shared types
 packages/vega-calm-ui  ← open-source extraction: accessible 10-foot components
 infra               AWS CDK
-addon-package       Alexa+ addon.json + media assets
+addon-package       Alexa+ add-on manifest; the family app draws Wick's listing from it
 ```
 
 ## Getting started
