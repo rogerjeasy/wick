@@ -20,6 +20,27 @@
  * one title, glanceable rows and nothing the sentence did not earn.
  */
 
+/**
+ * The replies a note can be sent with, as the server keeps them
+ * (services/mcp-server/src/tools/send_note_to_tv.ts REPLY_CHOICES) — here
+ * so the note can be shown with its replies before it is sent. A test
+ * holds the two lists equal. An assistant passes keys; it cannot write one.
+ */
+export const REPLY_CHOICES = {
+  yes_please: 'Yes, please do.',
+  yes_fine: "Yes, that's fine.",
+  love_to: "I'd love that.",
+  another_day: 'Another day would be better.',
+  a_bit_later: 'A bit later would be better.',
+  no_thank_you: 'No, thank you.',
+  thank_you: 'Thank you!',
+  call_soon: "I'll call you soon.",
+  please_call: 'Please call me.',
+  im_fine: "I'm fine, thank you.",
+  you_too: 'Thinking of you too.',
+  lovely: "That's lovely to hear.",
+};
+
 /** The chips under the conversation. Each must route to a tool (tested). */
 export const SUGGESTIONS = [
   { label: 'How’s Mum been this week?', utterance: "How's Mum been this week?" },
@@ -526,6 +547,13 @@ const otherFields = (args, shown) =>
  * @param {object} args
  * @param {string} [title]  the tool's title from tools/list
  */
+/** The sentences for two keys from the list, or null when that is not what was passed. */
+function chosenReplies(keys) {
+  if (!Array.isArray(keys)) return null;
+  const texts = [...new Set(keys)].filter((k) => typeof k === 'string' && Object.hasOwn(REPLY_CHOICES, k)).map((k) => REPLY_CHOICES[k]);
+  return texts.length >= 2 ? texts.slice(0, 2) : null;
+}
+
 export function confirmWrite(toolName, args = {}, title) {
   if (toolName === 'expect_visit') {
     return {
@@ -553,8 +581,9 @@ export function confirmWrite(toolName, args = {}, title) {
       title: 'Send this note to the television?',
       fields: [
         ['Message', String(args.message ?? '')],
-        // What the resident will be offered to answer with: seen before it is sent.
-        ...(Array.isArray(args.replies) && args.replies.length ? [['Replies offered', [...args.replies.map(String), 'Not right now.'].join(' · ')]] : []),
+        // What the resident will be offered to answer with: seen before it is
+        // sent. Two keys from the list, or the server uses its standing three.
+        ...(chosenReplies(args.replies) ? [['Replies offered', [...chosenReplies(args.replies), 'Not right now.'].join(' · ')]] : []),
         ...otherFields(args, ['message', 'replies']),
       ],
       confirmLabel: 'Send',

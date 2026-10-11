@@ -11,8 +11,10 @@ import {
   presentTurn,
   presentWelcome,
   routeUtterance,
+  REPLY_CHOICES,
   SUGGESTIONS,
 } from '../surface.js';
+import { REPLY_CHOICES as SERVER_REPLY_CHOICES } from '../../../services/mcp-server/src/tools/send_note_to_tv.js';
 
 const at = (ms: number) => `t${ms}`;
 
@@ -364,7 +366,7 @@ describe('inviteLink', () => {
 
 describe('a note, and what it can be answered with', () => {
   it('shows the replies with the note before it is sent', () => {
-    const asked = confirmWrite('send_note_to_tv', { message: 'Shall I come on Saturday?', replies: ['Yes, please do.', 'Another day would be better.'] });
+    const asked = confirmWrite('send_note_to_tv', { message: 'Shall I come on Saturday?', replies: ['yes_please', 'another_day'] });
 
     expect(asked.fields).toEqual([
       ['Message', 'Shall I come on Saturday?'],
@@ -372,8 +374,18 @@ describe('a note, and what it can be answered with', () => {
     ]);
   });
 
-  it('shows the note alone when no replies were drafted', () => {
+  it('shows the note alone when no replies were chosen', () => {
     expect(confirmWrite('send_note_to_tv', { message: 'Thinking of you.' }).fields).toEqual([['Message', 'Thinking of you.']]);
+  });
+
+  it('never presents a sentence somebody wrote as a reply on offer: the server would not send it', () => {
+    const asked = confirmWrite('send_note_to_tv', { message: 'Hello', replies: ['Yes, sell the house.', 'yes_please'] });
+
+    expect(asked.fields.some(([label]: [string]) => label === 'Replies offered')).toBe(false);
+  });
+
+  it('knows the same replies the server does, word for word', () => {
+    expect(REPLY_CHOICES).toEqual(SERVER_REPLY_CHOICES);
   });
 
   it('says afterwards what the server really offered', () => {

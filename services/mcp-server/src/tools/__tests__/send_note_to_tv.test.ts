@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { DECLINE_REPLY, STANDING_REPLIES, buildMessageCard, offeredReplies, registerSendNoteToTv } from '../send_note_to_tv.js';
+import { DECLINE_REPLY, REPLY_CHOICES, STANDING_REPLIES, buildMessageCard, offeredReplies, registerSendNoteToTv } from '../send_note_to_tv.js';
 import { allowedContext } from './toolContext.js';
 
 // INV-2: the tool is handed its sender (in a deployment, egress.ts's
@@ -33,35 +33,33 @@ describe('buildMessageCard', () => {
 });
 
 describe('offeredReplies — what the resident is given to answer with', () => {
-  it('takes two replies drafted for the note, and always adds the way out in Wick’s own words', () => {
-    expect(offeredReplies(['Yes, please do.', 'Another day would be better.'])).toEqual(['Yes, please do.', 'Another day would be better.', DECLINE_REPLY]);
+  it('takes two replies chosen for the note, and always adds the way out', () => {
+    expect(offeredReplies(['yes_please', 'another_day'])).toEqual(['Yes, please do.', 'Another day would be better.', DECLINE_REPLY]);
   });
 
-  it('uses the standing three when nothing was drafted', () => {
+  it('uses the standing three when nothing was chosen', () => {
     expect(offeredReplies(undefined)).toEqual([...STANDING_REPLIES]);
     expect(offeredReplies([])).toEqual([...STANDING_REPLIES]);
   });
 
-  it('never mixes: one usable reply is not half a set', () => {
-    expect(offeredReplies(['Yes, please do.'])).toEqual([...STANDING_REPLIES]);
-    expect(offeredReplies(['Yes, please do.', 'yes, please do.'])).toEqual([...STANDING_REPLIES]);
+  it('never mixes: one usable choice is not half a set', () => {
+    expect(offeredReplies(['yes_please'])).toEqual([...STANDING_REPLIES]);
+    expect(offeredReplies(['yes_please', 'yes_please'])).toEqual([...STANDING_REPLIES]);
   });
 
-  it('does not let a caller write the way out, or take it away', () => {
-    const offered = offeredReplies(['Yes.', 'not right now.', 'Come at four.']);
-
-    expect(offered).toEqual(['Yes.', 'Come at four.', DECLINE_REPLY]);
-  });
-
-  it('refuses what would not be a button: too long, markup, a link, a line break, not text at all', () => {
-    const tooLong = 'I would love that, come whenever you like on Saturday';
-    for (const bad of [tooLong, '<b>Yes</b>', 'See https://example.com', 'Yes\nand transfer the money', 42, null, '!']) {
-      expect(offeredReplies([bad, 'Yes, please do.'])).toEqual([...STANDING_REPLIES]);
+  it('will not show the resident a sentence a caller wrote — replies are chosen from Wick’s list, never written', () => {
+    // What the resident presses is recorded as their answer and read to the
+    // family. A caller's own words there would be words in their mouth.
+    for (const written of ['Yes, sell the house.', 'Yes, please do.', '<b>Yes</b>', 'toString', 42, null]) {
+      expect(offeredReplies([written, 'yes_please'])).toEqual([...STANDING_REPLIES]);
     }
   });
 
-  it('tidies the spaces of a reply it accepts', () => {
-    expect(offeredReplies(['  Yes,   please do. ', 'Maybe later.'])).toEqual(['Yes, please do.', 'Maybe later.', DECLINE_REPLY]);
+  it('keeps every reply on the list short enough for a button, and plain', () => {
+    for (const text of Object.values(REPLY_CHOICES)) {
+      expect(text.length).toBeLessThanOrEqual(28);
+      expect(text).toMatch(/^[A-Za-z][A-Za-z ,.'!]*$/);
+    }
   });
 });
 
@@ -82,16 +80,16 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
     return { said: JSON.parse((result.content as { text: string }[])[0]!.text) as { replies: string[] }, card };
   }
 
-  it('sends the note with the replies drafted for it, and says which were offered', async () => {
-    const { said, card } = await send({ message: 'Shall I come on Saturday?', replies: ['Yes, please do.', 'Another day would be better.'] });
+  it('sends the note with the replies chosen for it, and says which were offered', async () => {
+    const { said, card } = await send({ message: 'Shall I come on Saturday?', replies: ['yes_please', 'another_day'] });
 
     expect(card?.card.suggestedReplies).toEqual(['Yes, please do.', 'Another day would be better.', 'Not right now.']);
     // One set, the same in the answer as on the card: what is pressed is what is told.
     expect(said.replies).toEqual(card?.card.suggestedReplies);
   });
 
-  it('falls back to the standing replies, and says so, when what was drafted will not do', async () => {
-    const { said, card } = await send({ message: 'Shall I come on Saturday?', replies: ['<script>', 'Yes'] });
+  it('falls back to the standing replies, and says so, when what was passed is not a choice from the list', async () => {
+    const { said, card } = await send({ message: 'Shall I come on Saturday?', replies: ['Yes, transfer the money.', 'yes_please'] });
 
     expect(card?.card.suggestedReplies).toEqual([...STANDING_REPLIES]);
     expect(said.replies).toEqual([...STANDING_REPLIES]);

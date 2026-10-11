@@ -11,26 +11,25 @@
  * credentials in reach wrote its test notes to the real table.
  *
  * The replies (M3). A note is answered with one of three buttons, and two
- * of them can now be written for the note: "Shall I come on Saturday?" is
+ * of them can now be fitted to the note: "Shall I come on Saturday?" is
  * better answered "Yes, please do." than "Thanks for letting me know!".
  *
- * They are drafted by whoever calls the tool — the assistant that already
- * has the note in front of it — and passed in as `replies`. Not drafted
- * here: a model call inside a tool handler is what §9.3 forbids, and would
- * put seconds into a round trip that has to stay a write or two.
+ * They are chosen, never written, by whoever calls the tool. The caller —
+ * the assistant, which already has the note in front of it — passes the
+ * keys of two replies from REPLY_CHOICES, a short list of sentences Wick
+ * itself wrote. No model is called here (§9.3 forbids one inside a tool
+ * handler), and no text a caller supplies is ever shown as something the
+ * resident can say: what the resident presses is recorded as their answer
+ * and read to the family (edge-device note-reply.mjs, get_replies), so
+ * words a caller wrote would be words put in the resident's mouth.
  *
- * What arrives is checked, not trusted (offeredReplies below):
+ *   - Two keys from the list, or the standing three are used instead.
+ *   - The third is always "Not right now.": whatever the other two say,
+ *     the resident can decline.
+ *   - Exactly one set is ever stored and shown, so what was pressed is
+ *     what the family is told.
  *
- *   - Two short plain lines, or the standing three are used instead.
- *   - The third is always Wick's own "Not right now." Whatever the other
- *     two say, the resident can decline, in words no caller chose.
- *   - Exactly one set is ever stored and shown. The television sends back
- *     which button was pressed, and the words are read from the stored
- *     card (edge-device note-reply.mjs) — so what the resident pressed is
- *     what the family is told, and nothing else can be.
- *
- * The family app shows the replies with the note before it is sent, so
- * the person sending it sees what the resident will be offered.
+ * The family app shows the replies with the note before it is sent.
  */
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -40,36 +39,44 @@ import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { WRITES, data } from './result.js';
 
-/** The way out that is always offered, in Wick's words. */
+/** The way out that is always offered. */
 export const DECLINE_REPLY = 'Not right now.';
-/** What a note is answered with when nothing fitter was offered. */
+/** What a note is answered with when nothing fitter was chosen. */
 export const STANDING_REPLIES = ['Thanks for letting me know!', "I'll call you soon.", DECLINE_REPLY] as const;
-/** A button on the television, in large type: the longest standing reply is 27. */
-export const MAX_REPLY_CHARS = 28;
-
-/** Letters, digits and the punctuation of a spoken sentence. Nothing that is markup, a link or a line break. */
-const PLAIN_REPLY = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ,.'’!?-]*$/u;
 
 /**
- * The three replies a note is sent with: two drafted for it and the standing
- * way out, or the standing three when what was drafted will not do. Never a
- * mixture of a drafted reply and a standing one in the first two places —
- * half a set reads as a mistake.
+ * Every reply a note can be sent with, besides the standing three. Wick's
+ * own sentences: short enough for a button in large type, and none that
+ * agrees to anything but a visit, a call or a kindness.
  */
-export function offeredReplies(drafted: readonly unknown[] | undefined): readonly string[] {
-  if (!Array.isArray(drafted)) return [...STANDING_REPLIES];
-  const usable: string[] = [];
-  for (const raw of drafted) {
-    // One line, as a button is. A reply that arrives with a line break in it is not tidied into one.
-    if (typeof raw !== 'string' || /[\u0000-\u001f\u007f]/.test(raw)) continue;
-    const reply = raw.trim().replace(/ +/g, ' ');
-    if (reply.length < 2 || reply.length > MAX_REPLY_CHARS || !PLAIN_REPLY.test(reply)) continue;
-    const said = reply.toLowerCase();
-    if (said === DECLINE_REPLY.toLowerCase() || usable.some((u) => u.toLowerCase() === said)) continue;
-    usable.push(reply);
-    if (usable.length === 2) break;
-  }
-  return usable.length === 2 ? [usable[0]!, usable[1]!, DECLINE_REPLY] : [...STANDING_REPLIES];
+export const REPLY_CHOICES = {
+  yes_please: 'Yes, please do.',
+  yes_fine: "Yes, that's fine.",
+  love_to: "I'd love that.",
+  another_day: 'Another day would be better.',
+  a_bit_later: 'A bit later would be better.',
+  no_thank_you: 'No, thank you.',
+  thank_you: 'Thank you!',
+  call_soon: "I'll call you soon.",
+  please_call: 'Please call me.',
+  im_fine: "I'm fine, thank you.",
+  you_too: 'Thinking of you too.',
+  lovely: "That's lovely to hear.",
+} as const;
+export type ReplyChoice = keyof typeof REPLY_CHOICES;
+
+const isChoice = (key: unknown): key is ReplyChoice => typeof key === 'string' && Object.hasOwn(REPLY_CHOICES, key);
+
+/**
+ * The three replies a note is sent with: the two chosen for it and the way
+ * out, or the standing three. Anything that is not a key from the list —
+ * a sentence somebody wrote, most of all — is not a choice, and never half
+ * a set: one usable key is not enough.
+ */
+export function offeredReplies(chosen: readonly unknown[] | undefined): readonly string[] {
+  if (!Array.isArray(chosen)) return [...STANDING_REPLIES];
+  const keys = [...new Set(chosen.filter(isChoice))].slice(0, 2);
+  return keys.length === 2 ? [REPLY_CHOICES[keys[0]!], REPLY_CHOICES[keys[1]!], DECLINE_REPLY] : [...STANDING_REPLIES];
 }
 
 export interface BuildMessageCardInput {
@@ -77,7 +84,7 @@ export interface BuildMessageCardInput {
   readonly correlationId: string;
   readonly fromName: string;
   readonly message: string;
-  /** Replies drafted for this note by the caller. Checked by offeredReplies. */
+  /** Keys of the two replies chosen for this note from REPLY_CHOICES. Checked by offeredReplies. */
   readonly replies?: readonly unknown[] | undefined;
   readonly now: number;
 }
@@ -114,12 +121,13 @@ export function registerSendNoteToTv(
       title: 'Send a note to the television',
       description:
         'Puts a note on the household television, in the name of the family member who is signed in. The resident answers with one of three buttons. ' +
-        'Pass `replies`: two short answers the resident might give to this particular note, in plain warm words (for "Shall I come on Saturday?": "Yes, please do." and "Another day would be better."). ' +
-        `Each at most ${MAX_REPLY_CHARS} characters. Never one that agrees to anything the note did not ask. A third, "${DECLINE_REPLY}", is always added; without two usable replies the standing three are used. ` +
+        'Pass `replies`: the keys of the two replies from this list that best answer this particular note — ' +
+        `${Object.entries(REPLY_CHOICES).map(([key, text]) => `${key} ("${text}")`).join(', ')}. ` +
+        `A third, "${DECLINE_REPLY}", is always added. Without two keys from the list the standing three are used. Replies cannot be written, only chosen. ` +
         'The answer says which replies were offered (`replies`).',
       inputSchema: {
         message: z.string().min(1).max(MAX_CARD_DETAIL_CHARS).describe(`The note text, at most ${MAX_CARD_DETAIL_CHARS} characters: it is read on a television, in large type, in full.`),
-        replies: z.array(z.string()).max(3).optional().describe(`Two short replies drafted for this note, each at most ${MAX_REPLY_CHARS} characters.`),
+        replies: z.array(z.string()).max(3).optional().describe('The keys of two replies from the list in this tool’s description, e.g. ["yes_please", "another_day"].'),
       },
       annotations: WRITES,
     },
