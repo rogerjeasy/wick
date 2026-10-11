@@ -2,15 +2,18 @@
  * What the simulated Alexa+ surface understands, says and shows — with no DOM
  * and no network, so it is tested (./__tests__/surface.test.ts).
  *
- * Two jobs, the two a real assistant does around an MCP add-on:
+ * What a real assistant does around an MCP add-on, in three parts:
  *
- *   routeUtterance  what the customer said -> which Wick tool, if any
- *   presentResult   the tool's raw result  -> one spoken sentence, and at
- *                                             most one card
+ *   presentResult   one tool's raw result -> a spoken sentence and a card
+ *   presentTurn     several tools, one answer: the assistant's sentence,
+ *                   each tool's card, and what was done to get there
+ *   routeUtterance  what the customer said -> which Wick tool, by rule
  *
- * The routing is a handful of rules, not a model: the rules allow a
- * simulated experience, and a deterministic one cannot invent an answer. When
- * nothing matches it says what it can do rather than guessing a tool.
+ * Which tools to call is a model's decision (the Wick server's assistant,
+ * services/mcp-server/src/assistant); main.js makes the calls and this file
+ * presents them. routeUtterance is the handful of rules the page answered
+ * by before there was a model, and still does where there is none: a
+ * deterministic fallback that says what it can do rather than guess a tool.
  *
  * The presentation follows Amazon's add-on design guide: the answer is
  * intelligible spoken alone (voice-only is the baseline), and a card carries
@@ -119,6 +122,26 @@ const CLASS_LABELS = {
   VERBATIM: 'What was said, word for word',
 };
 
+/**
+ * A moment, as it was at the house. Someone asking from another country is
+ * asking what time the carer came to their mother's door, not what time it
+ * was where they are — and the assistant's sentence is in the household's
+ * time already, so a card in the reader's would contradict it.
+ *
+ * @param {string | undefined} timeZone  the household's IANA zone (GET /api/me); the reader's own if absent
+ */
+export function timeFormatter(timeZone) {
+  const format = new Intl.DateTimeFormat('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    ...(timeZone ? { timeZone } : {}),
+  });
+  return (atMs) => {
+    const parts = format.formatToParts(new Date(atMs));
+    const part = (type) => parts.find((p) => p.type === type)?.value ?? '';
+    return `${part('weekday')} ${part('day')} ${part('month')}, ${part('hour')}:${part('minute')}`;
+  };
+}
+
 function defaultFormatTime(atMs) {
   return new Date(atMs).toLocaleString(undefined, {
     weekday: 'short',
@@ -171,6 +194,16 @@ function presentWeek(week, formatTime, now) {
   const earlier = NOT_THIS_WEEK[week.thisWeek];
   const named = weekOf(week.isoWeek);
   const isThisWeek = !earlier && week.isoWeek === isoWeekOf(now);
+  // The Rhythm baseline, as numbers: this week beside the one before, and a
+  // usual one where there is enough history to know what usual is.
+  const facts = (week.deltas ?? []).map((d) => ({
+    label: sentenceCase(d.label ?? d.metric),
+    value: [
+      `${d.thisWeek} this week`,
+      ...(d.lastWeek !== undefined ? [`${d.lastWeek} the week before`] : []),
+      ...(d.verdict !== undefined ? [`usually about ${Math.round(d.baseline)}`] : []),
+    ].join(' · '),
+  }));
   return {
     say: earlier ? `${earlier} Here is the week of ${named}. ${week.text}` : week.text,
     tone: 'answer',
@@ -178,6 +211,7 @@ function presentWeek(week, formatTime, now) {
       kind: 'list',
       title: isThisWeek || !named ? 'This week' : `Week of ${named}`,
       meta: week.isoWeek ?? '',
+      ...(facts.length ? { facts } : {}),
       items,
       empty: isThisWeek ? 'Nothing at the door this week.' : 'Nothing at the door that week.',
       footnote: week.simulated
@@ -187,15 +221,22 @@ function presentWeek(week, formatTime, now) {
   };
 }
 
-function presentToday(today, formatTime) {
+/** "Saturday 10 October" from the server's "Saturday 10 October 2026". */
+const withoutYear = (dayInWords) => (dayInWords ?? '').replace(/ \d{4}$/, '');
+const isToday = (date, now) => !date || date === new Date(now).toISOString().slice(0, 10);
+
+function presentToday(today, formatTime, now) {
   const events = [...today.events].sort(byTime);
   const kept = today.keptPrivate ?? [];
+  const thisDay = isToday(today.date, now);
+  const day = withoutYear(today.dayInWords);
+  const when = thisDay ? 'so far today' : `on ${day}`;
   const lead =
     events.length === 0
-      ? 'Nothing at the door so far today.'
+      ? `Nothing at the door ${when}.`
       : events.length === 1
-        ? `One thing so far today: ${lowerFirst(events[0].summary)}`
-        : `${things(events.length)} so far today. Most recently: ${lowerFirst(events[events.length - 1].summary)}`;
+        ? `One thing ${when}: ${lowerFirst(events[0].summary)}`
+        : `${things(events.length)} ${when}. ${thisDay ? 'Most recently' : 'Last'}: ${lowerFirst(events[events.length - 1].summary)}`;
   const say = [lead, ...kept].join(' ');
   if (events.length === 0) return { say, card: null, tone: kept.length ? 'private' : 'answer' };
   return {
@@ -203,7 +244,7 @@ function presentToday(today, formatTime) {
     tone: 'answer',
     card: {
       kind: 'list',
-      title: 'Today',
+      title: thisDay ? 'Today' : day,
       meta: '',
       items: events.map((e) => ({ primary: e.summary, secondary: formatTime(e.at) })),
       ...(kept.length ? { footnote: kept.join(' ') } : {}),
@@ -211,14 +252,69 @@ function presentToday(today, formatTime) {
   };
 }
 
-function presentVisitor(v, formatTime) {
+function presentVisitor(v, formatTime, now) {
   if (!v.name) return { say: "I don't have anyone by that name among the regular visitors.", card: null, tone: 'answer' };
+  if (!isToday(v.date, now)) {
+    const day = withoutYear(v.dayInWords);
+    const say = v.visited
+      ? `Yes. ${v.name} came on ${day}, at ${formatTime(v.at)}.`
+      : `No. ${v.name} did not come on ${day}${v.expectedToday ? ', though it is one of their usual days.' : ', and it is not one of their usual days.'}`;
+    return { say, card: null, tone: 'answer' };
+  }
   const say = v.visited
     ? `Yes. ${v.name} came at ${formatTime(v.at)}.${v.expectedToday ? ' Today is one of their usual days.' : ''}`
     : v.expectedToday
       ? `Not yet. ${v.name} usually comes today.`
       : `No. ${v.name} hasn't come today, and today isn't one of their usual days.`;
   return { say, card: null, tone: 'answer' };
+}
+
+function presentVisitors(list, formatTime) {
+  const visitors = list.visitors ?? [];
+  const expected = list.expected ?? [];
+  if (visitors.length === 0 && expected.length === 0) return { say: 'Nobody is down as a regular visitor yet.', card: null, tone: 'answer' };
+
+  const [first] = visitors;
+  const say = !first
+    ? `${expected[0].name} is expected ${formatTime(expected[0].at)}.`
+    : first.usualDays
+      ? `${first.name} usually comes on ${first.usualDays}.`
+      : `${first.name} is a regular visitor.`;
+  return {
+    say,
+    tone: 'answer',
+    card: {
+      kind: 'list',
+      title: 'Who visits',
+      meta: '',
+      items: [
+        ...visitors.map((v) => ({
+          primary: v.name,
+          secondary: [v.usualDays, v.lastVisitAt !== undefined ? `last came ${formatTime(v.lastVisitAt)}` : null].filter(Boolean).join(' · ') || 'Regular visitor',
+        })),
+        ...expected.map((v) => ({ primary: v.name, secondary: `Expected ${formatTime(v.at)}` })),
+      ],
+      footnote: 'By the day and the time, never by a face.',
+    },
+  };
+}
+
+function presentExpectedVisit(visit, formatTime) {
+  const also = visit.alsoExpectedThatDay ?? [];
+  return {
+    say: `The door will expect you around ${formatTime(visit.at)}.`,
+    tone: 'answer',
+    card: {
+      kind: 'confirmation',
+      title: 'The door expects you',
+      fields: [
+        ['Who', visit.name ?? ''],
+        ['When', formatTime(visit.at)],
+        ['Also due that day', also.length ? also.join(', ') : 'Nobody else'],
+      ],
+      footnote: 'If the doorbell goes within an hour of then, the television says it looks like you.',
+    },
+  };
 }
 
 function presentNoteSent(context, sent) {
@@ -231,7 +327,7 @@ function presentNoteSent(context, sent) {
       fields: [
         // The server signs the note with the name the resident allowed.
         ['From', sent.fromName ?? ''],
-        ['Message', context.message ?? ''],
+        ['Message', context.message ?? sent.message ?? ''],
       ],
       footnote: 'It waits for the end of an episode or a pause. One button answers it.',
     },
@@ -297,14 +393,104 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (toolName === 'get_week_narrative' && typeof parsed.text === 'string' && Array.isArray(parsed.timeline)) {
     return presentWeek(parsed, formatTime, context.now ?? Date.now());
   }
-  if (toolName === 'get_today' && Array.isArray(parsed.events)) return presentToday(parsed, formatTime);
-  if (toolName === 'did_visitor_come' && typeof parsed.visited === 'boolean') return presentVisitor(parsed, formatTime);
+  const now = context.now ?? Date.now();
+  if (toolName === 'get_today' && Array.isArray(parsed.events)) return presentToday(parsed, formatTime, now);
+  if (toolName === 'did_visitor_come' && typeof parsed.visited === 'boolean') return presentVisitor(parsed, formatTime, now);
+  if (toolName === 'list_regular_visitors' && Array.isArray(parsed.visitors)) return presentVisitors(parsed, formatTime);
+  if (toolName === 'expect_visit' && parsed.expected === true) return presentExpectedVisit(parsed, formatTime);
   if (toolName === 'send_note_to_tv' && parsed.sent === true) return presentNoteSent(context, parsed);
   if (toolName === 'get_replies' && Array.isArray(parsed.notes)) return presentReplies(parsed, formatTime);
   if (toolName === 'get_resident_shared_view' && Array.isArray(parsed.sharedWithFamily)) return presentSharedView(parsed);
 
   // A shape this surface does not know: say so, never render a guess.
   return { say: 'I got an answer I could not read.', card: null, tone: 'error' };
+}
+
+// ---------------------------------------------------------------------------
+// A turn of the model-driven conversation. The Wick server's assistant
+// (services/mcp-server/src/assistant) chooses which tools to call and what
+// to say; this app makes the calls over MCP and shows what came back. What
+// follows is how one such turn — several tools, one answer — is presented.
+// ---------------------------------------------------------------------------
+
+/** The tools that put something on a television or a roster. Each is shown to the customer before it is done. */
+const WRITE_TOOLS = ['send_note_to_tv', 'expect_visit'];
+
+export const needsConfirmation = (toolName) => WRITE_TOOLS.includes(toolName);
+
+/** What the assistant is told when the customer says no. Not an error: it is their answer. */
+export const DECLINED_RESULT = 'The customer chose not to do this. Nothing was sent or changed.';
+
+const DAY_WORDS = { today: 'today', yesterday: 'yesterday' };
+const dayAsked = (args) => {
+  const day = String(args?.day ?? '').toLowerCase();
+  if (DAY_WORDS[day]) return DAY_WORDS[day];
+  if (day) return sentenceCase(day);
+  if (!args?.date) return 'today';
+  const at = new Date(`${args.date}T00:00:00Z`);
+  return Number.isNaN(at.getTime()) ? String(args.date) : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+};
+
+/** What a step did, in a few words — never a tool's name, which means nothing to the person asking. */
+export function describeCall(toolName, args = {}) {
+  switch (toolName) {
+    case 'get_week_narrative': return 'Read the week';
+    case 'get_today': return `Looked at ${dayAsked(args)}`;
+    case 'list_regular_visitors': return 'Checked who visits';
+    case 'did_visitor_come': return `Checked ${dayAsked(args)}’s visits`;
+    case 'get_replies': return 'Looked for a reply';
+    case 'get_resident_shared_view': return 'Checked what is shared';
+    case 'send_note_to_tv': return 'Put a note on the television';
+    case 'expect_visit': return 'Told the door';
+    default: return 'Asked Wick';
+  }
+}
+
+const DECLINED_TRACE = { send_note_to_tv: 'Did not send the note', expect_visit: 'Did not tell the door' };
+
+/** "Saturday 17 October, 15:00" from the date and time a visit was asked for — said in full, so a wrong day is seen before it is sent. */
+function visitWhen(date, time) {
+  const at = new Date(`${date}T${time}:00Z`);
+  if (Number.isNaN(at.getTime())) return `${date ?? ''} ${time ?? ''}`.trim();
+  return `${at.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}, ${time}`;
+}
+
+/** The question put to the customer before a write is made. */
+export function confirmWrite(toolName, args = {}) {
+  if (toolName === 'expect_visit') {
+    return {
+      title: 'Tell the door you are coming?',
+      fields: [['When', visitWhen(args.date, args.time)]],
+      confirmLabel: 'Tell the door',
+      footnote: 'If the doorbell goes within an hour of then, the television says it looks like you.',
+    };
+  }
+  return {
+    title: 'Send this note to the television?',
+    fields: [['Message', String(args.message ?? '')]],
+    confirmLabel: 'Send',
+    footnote: 'It appears at the next natural break, never in the middle of a programme.',
+  };
+}
+
+/**
+ * One answer from several tools.
+ *
+ * @param {string | undefined} say  the assistant's sentence, or undefined when it had none fit to use
+ * @param {{name: string, args: object, presented: object | null}[]} steps  each call, and how its result is presented (null: the customer declined it)
+ */
+export function presentTurn(say, steps) {
+  const done = steps.filter((s) => s.presented);
+  // With no sentence from the assistant, the tools' own are said instead: never silence, never a guess.
+  const said = say ?? done.map((s) => s.presented.say).join(' ');
+  // A turn in which nothing was answered — every tool refused or failed — keeps that tone.
+  const refused = done.length > 0 && done.every((s) => s.presented.tone !== 'answer');
+  return {
+    say: said,
+    tone: refused ? done[done.length - 1].presented.tone : 'answer',
+    cards: done.map((s) => s.presented.card).filter(Boolean),
+    trace: steps.map((s) => (s.presented ? describeCall(s.name, s.args) : (DECLINED_TRACE[s.name] ?? 'Did not do that'))).join(' · '),
+  };
 }
 
 // ---------------------------------------------------------------------------

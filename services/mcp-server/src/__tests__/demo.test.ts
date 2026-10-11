@@ -35,7 +35,7 @@ afterEach(async () => {
 
 interface Me {
   user: { userId: string; name: string; email: string; guest: boolean };
-  household: { householdId: string; name: string; residentName: string; simulated?: boolean };
+  household: { householdId: string; name: string; residentName: string; simulated?: boolean; timeZone?: string };
   membership: { role: string; status: string };
 }
 
@@ -91,6 +91,8 @@ describe('the demo button — an anonymous account in one click', () => {
 
     const home = await me(h, tokens.access_token);
     expect(home.household.simulated).toBe(true);
+    // Where the house is: the app shows every time as it was there.
+    expect(home.household.timeZone).toBe('Europe/London');
     const rows = puts.filter((p) => p.Item?.pk?.S === `HH#${home.household.householdId}`).map((p) => p.Item!.sk!.S!);
     expect(rows).toContain('PER#maria');
     expect(rows.filter((sk) => sk.startsWith('EVT#')).length).toBeGreaterThan(40);

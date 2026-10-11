@@ -44,11 +44,13 @@ export interface ApiOptions {
   readonly claimTelevision?: ClaimTelevision | undefined;
   /** A television in a browser tab, offered to anyone with no Fire TV to hand. */
   readonly virtualTelevisionUrl?: string | undefined;
+  /** The households' IANA time zone (one for the deployment, as the Narrator's). */
+  readonly timeZone?: string | undefined;
 }
 
 export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHandler, options: ApiOptions = {}): express.Router {
   const { store } = circle;
-  const { claimTelevision, virtualTelevisionUrl } = options;
+  const { claimTelevision, virtualTelevisionUrl, timeZone } = options;
   const router = express.Router();
   // Any origin: nothing here uses a cookie, and a token is only ever sent by
   // the page that holds it.
@@ -89,6 +91,8 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
         householdId: household.householdId,
         name: household.name,
         residentName: household.residentName,
+        // Where the house is, so the app shows a time as it was there.
+        ...(timeZone ? { timeZone } : {}),
         // A demo home's history is written, not lived: the app says so (demoHome.ts).
         ...(household.simulated ? { simulated: true } : {}),
       },

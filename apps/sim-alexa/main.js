@@ -4,7 +4,21 @@
  * anything else directly. See ./index.html's on-page notice and this
  * directory's README for why this exists.
  */
-import { HELP_TEXT, SUGGESTIONS, inviteLink, presentCircle, presentResult, presentWelcome, routeUtterance } from './surface.js';
+import {
+  DECLINED_RESULT,
+  HELP_TEXT,
+  SUGGESTIONS,
+  confirmWrite,
+  describeCall,
+  inviteLink,
+  needsConfirmation,
+  presentCircle,
+  presentResult,
+  presentTurn,
+  presentWelcome,
+  routeUtterance,
+  timeFormatter,
+} from './surface.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -188,6 +202,7 @@ function signedOut(reason) {
   saveLink(null);
   me = null;
   mcpSessionId = null;
+  conversation.length = 0;
   enableToolButtons(false);
   setStatus(reason);
   // The link card is back on screen, so its demo button must be decided
@@ -407,6 +422,15 @@ function renderCard(card) {
   if (card.meta) head.appendChild(el('span', 'card-meta', card.meta));
   node.appendChild(head);
 
+  if (card.facts?.length) {
+    const facts = el('dl', 'facts');
+    for (const fact of card.facts) {
+      facts.appendChild(el('dt', undefined, fact.label));
+      facts.appendChild(el('dd', undefined, fact.value));
+    }
+    node.appendChild(facts);
+  }
+
   if (card.kind === 'confirmation') {
     const fields = el('dl', 'fields');
     for (const [name, value] of card.fields) {
@@ -452,10 +476,181 @@ async function askTool(tool, args, context = {}) {
   try {
     const result = await callTool(tool, args);
     const text = result.content?.[0]?.text ?? '';
-    fillAssistantTurn(turn, presentResult(tool, text, context, undefined, result.isError === true));
+    fillAssistantTurn(turn, presentResult(tool, text, context, formatTime, result.isError === true));
   } catch (err) {
     fillAssistantTurn(turn, { say: err.message, card: null, tone: 'error' });
   }
+}
+
+// ---------------------------------------------------------------------------
+// The model-driven conversation. The Wick server's assistant decides which
+// tools to call and what to say (services/mcp-server/src/assistant); this
+// page makes each call itself, over MCP, with the customer's own token, and
+// shows what came back. Where the server has no model, or it is busy, the
+// page answers by the rules it always had (answerByRules) — it never goes
+// silent, and never makes an answer up.
+// ---------------------------------------------------------------------------
+
+/** Times as they were at the house (GET /api/me names its zone); the reader's own zone until that is known. */
+let formatTime = timeFormatter(undefined);
+
+/** What has been asked, called and answered, as the assistant is shown it. Forgotten on sign-out. */
+const conversation = [];
+/** How much of it is sent: the server keeps less. */
+const MAX_REMEMBERED_TURNS = 40;
+/** A question the assistant cannot finish in this many steps is finished without it. */
+const MAX_STEPS = 6;
+/** Set once the server says it has no assistant, so each question is not asked of it twice. */
+let noAssistant = false;
+
+function rememberTurns(...turns) {
+  conversation.push(...turns);
+  while (conversation.length > MAX_REMEMBERED_TURNS || (conversation.length && conversation[0].role !== 'user')) conversation.shift();
+}
+
+/** One step of the assistant: `{ done, say }`, `{ done: false, calls }`, or null when there is no assistant to ask. */
+async function assistantStep() {
+  const res = await authorizedFetch('/assistant/next', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ turns: conversation }),
+  });
+  if (res.status === 503) noAssistant = true;
+  return res.ok ? res.json() : null;
+}
+
+function showProgress(turn, text) {
+  let progress = turn.querySelector('.progress');
+  if (!progress) {
+    progress = el('span', 'progress');
+    turn.appendChild(progress);
+  }
+  progress.textContent = text;
+  scrollToEnd();
+}
+
+/**
+ * Shows the customer what is about to be put on a television or a roster,
+ * and waits for their answer. Nothing is written until they say yes: the
+ * assistant proposes, and only the person whose name goes on it disposes.
+ */
+function confirmInTurn(turn, call) {
+  const asked = confirmWrite(call.name, call.args);
+  return new Promise((resolve) => {
+    const card = el('article', 'card');
+    const head = el('div', 'card-head');
+    head.appendChild(el('h2', 'card-title', asked.title));
+    card.appendChild(head);
+    const fields = el('dl', 'fields');
+    for (const [name, value] of asked.fields) {
+      fields.appendChild(el('dt', undefined, name));
+      fields.appendChild(el('dd', undefined, value));
+    }
+    card.appendChild(fields);
+
+    const actions = el('div', 'actions');
+    const yes = el('button', 'btn final', asked.confirmLabel);
+    const no = el('button', 'btn quiet', 'Not now');
+    yes.type = 'button';
+    no.type = 'button';
+    const answer = (ok) => {
+      card.remove();
+      resolve(ok);
+    };
+    yes.addEventListener('click', () => answer(true));
+    no.addEventListener('click', () => answer(false));
+    actions.append(yes, no);
+    card.appendChild(actions);
+    card.appendChild(cardFoot(asked.footnote));
+
+    turn.appendChild(card);
+    scrollToEnd();
+    yes.focus();
+  });
+}
+
+/** Puts a whole turn on the page: the sentence, each tool's card, and what was done to get there. */
+function fillTurn(turn, presented) {
+  turn.replaceChildren();
+  if (TONE_LABEL[presented.tone]) turn.appendChild(el('span', 'tone', TONE_LABEL[presented.tone]));
+  const say = el('p', 'say', presented.say);
+  say.dataset.tone = presented.tone;
+  turn.appendChild(say);
+  for (const card of presented.cards) turn.appendChild(renderCard(card));
+  if (presented.trace) turn.appendChild(el('p', 'trace', presented.trace));
+  speak(presented.say);
+  scrollToEnd();
+}
+
+/** Makes one call the assistant asked for, or does not, if the customer says no. */
+async function runCall(turn, call) {
+  if (needsConfirmation(call.name) && !(await confirmInTurn(turn, call))) {
+    return { result: { id: call.id, name: call.name, text: DECLINED_RESULT }, presented: null };
+  }
+  showProgress(turn, `${describeCall(call.name, call.args)}…`);
+  try {
+    const result = await callTool(call.name, call.args);
+    const text = result.content?.[0]?.text ?? '';
+    const isError = result.isError === true;
+    return {
+      result: { id: call.id, name: call.name, text, ...(isError ? { isError: true } : {}) },
+      presented: presentResult(call.name, text, { message: call.args?.message, now: Date.now() }, formatTime, isError),
+    };
+  } catch (err) {
+    return {
+      result: { id: call.id, name: call.name, text: err.message, isError: true },
+      presented: { say: err.message, card: null, tone: 'error' },
+    };
+  }
+}
+
+/**
+ * One question, answered by the assistant: it asks for tools, this page
+ * calls them and reports back, until it has a sentence to say. Returns
+ * false if the assistant could not be asked at all, so the caller can
+ * answer by the rules instead.
+ */
+async function converse(text) {
+  const turn = addThinking();
+  const before = conversation.length;
+  rememberTurns({ role: 'user', text });
+  const steps = [];
+
+  const finish = (say) => {
+    const presented = presentTurn(say, steps);
+    rememberTurns({ role: 'assistant', text: presented.say });
+    fillTurn(turn, presented);
+    return true;
+  };
+
+  for (let i = 0; i < MAX_STEPS; i += 1) {
+    let step;
+    try {
+      step = await assistantStep();
+    } catch {
+      step = null;
+    }
+    if (!step) {
+      // Nothing was done yet: hand the question to the rules, as if it had never been asked here.
+      if (steps.length === 0) {
+        conversation.length = Math.min(before, conversation.length);
+        turn.remove();
+        return false;
+      }
+      // Tools have already answered: say what they said.
+      return finish(undefined);
+    }
+    if (step.done) return finish(step.say);
+
+    const results = [];
+    for (const call of step.calls) {
+      const ran = await runCall(turn, call);
+      results.push(ran.result);
+      steps.push({ name: call.name, args: call.args, presented: ran.presented });
+    }
+    rememberTurns({ role: 'assistant', calls: step.calls }, { role: 'tool', results });
+  }
+  return finish(undefined);
 }
 
 /** The note form, as a card in the conversation: one field that matters, one final action. */
@@ -691,6 +886,7 @@ async function showCircle() {
  */
 async function welcome() {
   me = await api('/api/me');
+  formatTime = timeFormatter(me.household.timeZone);
   // A demo home says what it is wherever it is named: its history was written, not lived.
   setStatus(`${me.user.name} · ${me.household.name}${me.household.simulated ? ' · simulated history' : ''}`, 'connected');
   // Only the organiser, or someone already allowed, may know about the
@@ -712,20 +908,28 @@ async function welcome() {
   else $('ask-input').focus();
 }
 
-function handleUtterance(text) {
-  addCustomerTurn(text);
+/** The rules this page answered by before there was a model, and still does when there is none. */
+function answerByRules(text) {
   const route = routeUtterance(text);
-  if (route.kind === 'tool') return void askTool(route.tool, route.args);
+  if (route.kind === 'tool') return void askTool(route.tool, route.args, { now: Date.now() });
   if (route.kind === 'compose') return addComposer(route.message);
   if (route.kind === 'circle') return void showCircle();
   assistantSays({ say: HELP_TEXT, tone: 'answer' });
+}
+
+async function handleUtterance(text) {
+  addCustomerTurn(text);
+  // The circle is this app's own business with the server, not a question for a tool.
+  if (routeUtterance(text).kind === 'circle') return void showCircle();
+  if (!noAssistant && (await converse(text))) return;
+  answerByRules(text);
 }
 
 for (const suggestion of SUGGESTIONS) {
   const chip = el('button', 'chip', suggestion.label);
   chip.type = 'button';
   chip.disabled = true;
-  chip.addEventListener('click', () => handleUtterance(suggestion.utterance));
+  chip.addEventListener('click', () => void handleUtterance(suggestion.utterance));
   $('chips').appendChild(chip);
 }
 
@@ -735,7 +939,7 @@ $('ask').addEventListener('submit', (event) => {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
-  handleUtterance(text);
+  void handleUtterance(text);
 });
 
 $('speak-toggle').addEventListener('click', (event) => {

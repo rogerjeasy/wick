@@ -155,7 +155,11 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   if (issuerUrl.protocol === 'https:') app.set('trust proxy', 1);
   app.use(express.json());
   app.use(authRouter);
-  app.use(createApiRouter(circle, requireAuth, { claimTelevision: deps.claimTelevision, virtualTelevisionUrl: deps.virtualTelevisionUrl }));
+  app.use(createApiRouter(circle, requireAuth, {
+    claimTelevision: deps.claimTelevision,
+    virtualTelevisionUrl: deps.virtualTelevisionUrl,
+    timeZone: HOUSEHOLD_TZ,
+  }));
 
   // The tool list is the same for everyone and for the life of the process: asked for once, on first need.
   let toolSpecs: Promise<ToolSpec[]> | undefined;

@@ -40,16 +40,28 @@ type scale), that:
 1. speaks to the **real** MCP server in `services/mcp-server` over Streamable
    HTTP, spec 2025-11-25, after a real OAuth 2.1 link — no shortcuts, no direct
    database reads;
-2. takes a question from a suggestion chip or the text field and routes it to
-   one of six tools (`get_week_narrative`, `get_today`, `did_visitor_come`,
-   `send_note_to_tv`, `get_replies`, `get_resident_shared_view`) with a
-   handful of rules — deliberately not a model, so it cannot invent an answer.
-   When nothing matches, it says what it can do;
-3. answers the way an assistant around an add-on does: **one sentence that
+2. takes a question from a suggestion chip or the text field and lets a
+   **model choose** among Wick's eight tools (`get_week_narrative`,
+   `get_today`, `did_visitor_come`, `list_regular_visitors`, `expect_visit`,
+   `send_note_to_tv`, `get_replies`, `get_resident_shared_view`). The model
+   runs on the Wick server (`services/mcp-server/src/assistant`, Bedrock
+   Converse) and only decides: **this page makes every call itself, over
+   MCP, with the signed-in person's own token**, so the model can reach
+   nothing they could not. One question can take several tools — "I'm coming
+   on Saturday at three, let Mum know" tells the door and puts a note on the
+   television;
+3. keeps the model to the facts. A reply whose numbers are not in the tools'
+   answers is sent back once with the reason, and after that the page says
+   the tools' own sentences. Anything that writes — a note, an announced
+   visit — is **shown and confirmed first**. Where the server has no model,
+   or it is busy, the page answers by a handful of rules instead
+   (`routeUtterance`): it never goes silent and never makes an answer up;
+4. answers the way an assistant around an add-on does: **one sentence that
    stands alone spoken** (voice-only is the guide's baseline; "Speak answers"
-   reads it aloud), then **at most one card** — a list with "See all" past
-   four rows, a confirmation, or the note form with one final action;
-4. shows a refusal as what it is. "Kept private" and "Not yet" are answers,
+   reads it aloud), then **the cards the answer earned** — a list with "See
+   all" past four rows, the week measured against a usual one, a
+   confirmation — and a line saying, in plain words, what was done to answer;
+5. shows a refusal as what it is. "Kept private" and "Not yet" are answers,
    in the server's own words, never an error.
 
 `surface.js` holds the routing and the sentence-and-card logic with no DOM and
