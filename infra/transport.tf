@@ -63,7 +63,9 @@ data "aws_iam_policy_document" "ws_disconnect" {
 data "aws_iam_policy_document" "ws_route" {
   statement {
     sid = "ReadConnectionWriteTimelineAndReconcile"
-    # GetItem: CONN#<id>/META lookup. PutItem: EVT#<ts>#<uuid> timeline
+    # GetItem: CONN#<id>/META lookup, and the television's own DEV# item —
+    # a revoked television is refused on every message (device-standing.mjs).
+    # PutItem: EVT#<ts>#<uuid> timeline
     # rows. Query: reconcile's bounded CARD# range scan (see the
     # `sk BETWEEN :since AND :max` query in route.mjs). UpdateItem: S6's ADD
     # counter onto RHYTHM#tv_activity bucket items (route.mjs's

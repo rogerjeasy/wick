@@ -72,6 +72,7 @@ import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { randomUUID } from 'node:crypto';
 import { isReplayable, markCardActed, retiresCard } from './card-acted.mjs';
+import { deviceBindingKey, isServed } from './device-standing.mjs';
 import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
 import { buildCardActionEntry, shouldPublish } from './card-action-event.mjs';
 import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
@@ -160,6 +161,16 @@ export const handler = async (event) => {
   if (!lookup.Item) return { statusCode: 401, body: 'unknown_connection' };
   const householdId = lookup.Item.householdId.S;
   const deviceId = lookup.Item.deviceId.S;
+
+  // A television revoked after it connected still holds this connection.
+  // Refused here, before any message is acted on (device-standing.mjs).
+  // A consistent read: a revocation written a moment ago must count.
+  const device = await ddb.send(new GetItemCommand({
+    TableName: TABLE,
+    Key: deviceBindingKey(householdId, deviceId),
+    ConsistentRead: true,
+  }));
+  if (!isServed(device.Item)) return { statusCode: 403, body: 'revoked' };
 
   if (deviceEvent.t === 'app_lifecycle') {
     if (typeof deviceEvent.at !== 'number' || (deviceEvent.state !== 'fg' && deviceEvent.state !== 'bg')) {

@@ -19,6 +19,7 @@ import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } fro
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { verifyJwt } from './jwt.mjs';
 import { setExpression, slotForRole } from './connection-slot.mjs';
+import { deviceBindingKey, isServed } from './device-standing.mjs';
 
 const ddb = new DynamoDBClient({});
 const sm = new SecretsManagerClient({});
@@ -51,9 +52,9 @@ export const handler = async (event) => {
   // check exists purely to return 403 early without attempting the write.
   const device = await ddb.send(new GetItemCommand({
     TableName: TABLE,
-    Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
+    Key: deviceBindingKey(householdId, deviceId),
   }));
-  if (!device.Item || device.Item.denylisted?.BOOL) {
+  if (!isServed(device.Item)) {
     return { statusCode: 403, body: 'revoked' };
   }
 
