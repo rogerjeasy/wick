@@ -61,6 +61,14 @@ data "aws_iam_policy_document" "agent_door_event" {
     resources = ["${aws_apigatewayv2_api.transport.execution_arn}/*/*"]
   }
 
+  # A television on MQTT is reached by publishing to its own topic
+  # (infra/iot.tf); one on the WebSocket, by the statement above.
+  statement {
+    sid       = "PublishToTelevisionsOnMqtt"
+    actions   = ["iot:Publish"]
+    resources = [local.device_topics_arn]
+  }
+
 }
 
 # Phase 2b runs in the agent plane now; this Lambda only invokes it.

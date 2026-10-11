@@ -1,10 +1,10 @@
 # ---------------------------------------------------------------------------
-# Device transport, option B (§4.1). Not applied by this pass — see the
-# plan's global constraints. Reviewed for correctness, not yet run.
+# Device transport, option B (§4.1): an API Gateway WebSocket.
 #
-# Option A (IoT Core / MQTT) is deliberately absent — see the plan's Scope
-# decisions and FRICTION.md. MqttChannel.ts ships real client code with
-# nothing live to point it at yet.
+# The channel every television can fall back to, and the only one the
+# background card service uses. Option A — MQTT over IoT Core, tried first —
+# is infra/iot.tf. Both end at the same event handler
+# (services/edge-device/lambda/device-event.mjs).
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "ws_connect" {

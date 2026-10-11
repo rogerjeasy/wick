@@ -13,7 +13,10 @@ Source of truth: `docs/WICK-TECHNICAL.md` §0.3.
 ### INV-1 — No long-lived credential ever reaches the television
 The device holds exactly one device-bound JWT, scoped to: receive cards for one
 household, post playback events. It grants nothing over Ring, AWS or any
-family surface. Assume it is extractable (Vega documents no hardware-backed
+family surface. On the MQTT channel that same token is what IoT Core's custom
+authorizer checks (`services/edge-device/lambda/iot-authorize.mjs`); the
+television holds no certificate and no AWS credential, and the policy it is
+given names its own three topics and nothing else (`iot-policy.mjs`). Assume it is extractable (Vega documents no hardware-backed
 keystore) and scope accordingly.
 
 **Never** put a Ring token, AWS key or Bedrock credential in
@@ -37,6 +40,17 @@ Fire TV hardware) shows on-device storage actually works there.
 `services/agent/src/egress.ts` is the *only* module permitted to import a
 transport client. Everything else calls `sendToFamily()` / `sendToDevice()`.
 Enforced by an ESLint `no-restricted-imports` rule. There is no second path.
+
+A television is on one of two channels — MQTT over IoT Core, or the API
+Gateway WebSocket it falls back to — and `egress.ts` sends down whichever the
+television's own row names. Adding a channel means adding it there.
+
+**The one accepted exception** is a reply to the television that just spoke:
+when a television asks for the cards it is owed, or turns a page of "What
+Sarah sees", the edge answers on the channel the request came in on
+(`services/edge-device/lambda/route.mjs` for the WebSocket, `iot-events.mjs`
+for MQTT). Those answers are cards already stored for the resident's own
+television; nothing bound for the family goes that way.
 
 ### INV-3 — No Ring media is persisted beyond 24 hours
 Enforced by S3 bucket lifecycle policy in `infra/`, not by application code.

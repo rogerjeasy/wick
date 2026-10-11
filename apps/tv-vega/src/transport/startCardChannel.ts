@@ -164,7 +164,7 @@ export function holdCardChannel(
     ? { websocket: { url: config.websocketUrl, role: 'background' } }
     : {
         websocket: { url: config.websocketUrl, getLastSeenCardId: () => store.lastSeenCardId() },
-        ...(config.mqttWssUrl ? { mqtt: { wssUrl: config.mqttWssUrl } } : {}),
+        ...(config.mqttWssUrl ? { mqtt: { wssUrl: config.mqttWssUrl, getLastSeenCardId: () => store.lastSeenCardId() } } : {}),
       };
 
   let stopped = false;

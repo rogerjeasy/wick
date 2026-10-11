@@ -38,11 +38,32 @@ describe('every way a television is served checks its standing', () => {
   });
 
   it('every message on a connection it already holds, before anything is read or written for it', () => {
-    const route = source('route.mjs');
-    const gate = route.indexOf('isServed(');
-    const firstUse = route.indexOf("deviceEvent.t === 'app_lifecycle'");
+    // One handler for both channels, so one gate covers both.
+    const handler = source('device-event.mjs');
+    const gate = handler.indexOf('isServed(');
+    const firstUse = handler.indexOf("deviceEvent.t === 'app_lifecycle'");
 
     expect(gate).toBeGreaterThan(-1);
     expect(gate).toBeLessThan(firstUse);
+  });
+
+  it('whichever channel the message came by: both hand it to that one handler, and neither handles it itself', () => {
+    for (const entry of ['route.mjs', 'iot-events.mjs']) {
+      expect(source(entry), entry).toMatch(/handleDeviceEvent\(/);
+      expect(source(entry), entry).not.toMatch(/deviceEvent\.t ===/);
+    }
+  });
+
+  it('a new MQTT connection, and again each time IoT Core asks', () => {
+    expect(source('iot-authorize.mjs')).toMatch(/isServed\(/);
+  });
+
+  it('never takes the television or its household from what the television sent over MQTT', () => {
+    const events = source('iot-events.mjs');
+
+    // The id is the one in the topic, which only that television may publish to.
+    expect(events).toMatch(/event\?\.deviceId/);
+    expect(events).not.toMatch(/deviceEvent\.(deviceId|householdId)/);
+    expect(events).toMatch(/householdOfDevice\(/);
   });
 });

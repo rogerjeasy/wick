@@ -125,6 +125,46 @@ leads, not entries — an entry requires that you actually hit it.
                         Vega versus Fire OS — which events, which action, and the focus requirement.
                      3. Have `react-native-multi-tv-app-sample` include a full-screen player with
                         no focusable control on it, since that is the case that breaks.
+## FL-024 — An MQTT client in a WebSocket cannot authenticate to IoT Core the way MQTT clients are shown to, and the reason is one sentence on one page
+
+**Tool / API:**      AWS IoT Core custom authentication, MQTT over WebSockets; `mqtt.js` 5.x inside
+                     React Native (Vega's RN 0.83 fork and react-native-tvos)
+
+**Task attempted:**  Let a television authenticate to IoT Core with the one credential it holds —
+                     its device-bound JWT — through a custom authorizer, from `mqtt.js` over WSS.
+
+**Steps taken:**     1. Wrote the client the way every MQTT example shows: `username` = device id,
+                        `password` = the token, sent in the MQTT CONNECT (the first version of
+                        `apps/tv-vega/src/transport/MqttChannel.ts`, 2026-09-16).
+                     2. Built the server side on 2026-10-11 and read "Connecting to AWS IoT Core
+                        by using custom authentication" to write the authorizer.
+                     3. Found, under "MQTT over WebSockets": credentials may go in the HTTP upgrade
+                        request or in the MQTT CONNECT, and *"If you pass credentials through the
+                        MQTT connect message, the ALPN and SNI TLS extensions are required."*
+
+**Expected:**        That `username`/`password` in CONNECT, which the same page documents for MQTT,
+                     would work over a WebSocket too — the page lists it as one of the two ways.
+
+**Actual:**          A WebSocket opened from JavaScript — a browser's, React Native's, Vega's —
+                     has no way to set ALPN; the runtime negotiates it. So for every JavaScript
+                     client the second way does not exist, and the token must travel in the
+                     upgrade request's query string. Nothing on the page says which clients can
+                     use which way. The client as first written could never have connected, and
+                     no test without a real broker could show it.
+
+**Severity:**        Important — it silently invalidates the obvious client design, and is found
+                     only by reading for it or by a refused connection with no reason given.
+
+**Workaround:**      The token goes in the address (`…/mqtt?x-amz-customauthorizer-name=…&token=…`),
+                     as it already does on the API Gateway WebSocket. The authorizer reads the
+                     query string first and the MQTT password second, so a client that can set
+                     ALPN still works (`services/edge-device/lambda/iot-policy.mjs` `tokenFrom`).
+
+**Suggestion:**      1. Say it in the terms a developer searches in: "From a browser, React Native
+                        or any WebSocket API that does not expose ALPN, pass credentials in the
+                        query string or headers; username and password are not available."
+                     2. Have the authorizer's refusal reach the client's error with a reason, at
+                        least in a development mode. A bare close is the hardest thing to debug.
 ## FL-023 — The add-on docs name two MCP protocol versions, and only one of them is the one the client is shown sending
 
 **Tool / API:**      Alexa+ MCP Toolkit docs — "Create an MCP Add-on" (quickstart) and "Alexa+ MCP

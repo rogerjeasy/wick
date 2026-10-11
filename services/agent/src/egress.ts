@@ -15,9 +15,10 @@
  * See docs/WICK-TECHNICAL.md §6.3, §10.2.
  */
 import { evaluate, type Audience, type HouseholdPolicy } from '@wick/policy';
-import { MAX_CARD_ACTIONS, type Card, type CardPatch, type FactClass, type QueuedCard } from '@wick/contracts';
+import { MAX_CARD_ACTIONS, type Card, type CardPatch, type DeviceWireMessage, type FactClass, type QueuedCard } from '@wick/contracts';
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
+import { IoTDataPlaneClient, PublishCommand } from '@aws-sdk/client-iot-data-plane';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
@@ -86,13 +87,33 @@ export async function sendToFamily(
   return { sent: true, content: item.content };
 }
 
-interface DeviceConnection {
+/** A television on the API Gateway WebSocket. */
+interface WebSocketConnection {
   readonly connectionId: string;
   readonly wsEndpoint: string;
   readonly deviceSk: string;
   /** Present only for the card service's connection — see liveDeviceConnections. */
   readonly background?: true;
 }
+
+/**
+ * A television on MQTT over IoT Core. It is reached by publishing to its own
+ * topics, so what is needed is its id; the session id is kept to say which
+ * connection this was (edge-device's iot-presence.mjs writes both).
+ */
+interface MqttConnection {
+  readonly connectionId: string;
+  readonly mqttDeviceId: string;
+  readonly deviceSk: string;
+  /** Never the card service's: it does not use MQTT. */
+  readonly background?: never;
+}
+
+type DeviceConnection = WebSocketConnection | MqttConnection;
+
+const DEVICE_SK_PREFIX = 'DEV#';
+/** The same three topics the television's MqttChannel uses, and the authorizer's policy allows it. */
+const mqttTopic = (deviceId: string, kind: 'cards' | 'control'): string => `wick/device/${deviceId}/${kind}`;
 
 /** The DEV# attributes each connection lives in — the same names connection-slot.mjs writes. */
 const FOREGROUND_ATTRIBUTES = ['connectionId', 'transport', 'wsEndpoint', 'connectedAt'] as const;
@@ -130,10 +151,13 @@ export function liveDeviceConnections(items: readonly Record<string, AttributeVa
     // so it is refused here as well, on both.
     if (item.denylisted?.BOOL === true) continue;
     if (connectionId) {
-      // The app is on screen. On the MQTT path it cannot be reached yet —
-      // IoT Core publish isn't wired up (SP-5 gate, FRICTION.md FL-009) —
-      // and the card service is not a second way to it.
+      // The app is on screen, on one of its two channels. If the row names
+      // neither, the app still holds the television and the card service is
+      // not a second way to it.
       if (item.transport?.S === 'websocket' && wsEndpoint) live.push({ connectionId, wsEndpoint, deviceSk });
+      else if (item.transport?.S === 'mqtt' && deviceSk.startsWith(DEVICE_SK_PREFIX)) {
+        live.push({ connectionId, mqttDeviceId: deviceSk.slice(DEVICE_SK_PREFIX.length), deviceSk });
+      }
       continue;
     }
     const bgConnectionId = item.bgConnectionId?.S;
@@ -169,11 +193,36 @@ async function findDeviceConnections(householdId: string): Promise<DeviceConnect
  * fails, then the first real failure is rethrown — one broken television
  * must not keep a card off the others.
  */
-async function pushToDevices(householdId: string, payload: unknown): Promise<void> {
+async function pushToDevices(householdId: string, payload: DeviceWireMessage): Promise<void> {
   const conns = await findDeviceConnections(householdId);
-  const results = await Promise.allSettled(conns.map((conn) => pushOverWebSocket(householdId, conn, payload)));
+  const results = await Promise.allSettled(
+    conns.map((conn) => ('mqttDeviceId' in conn ? pushOverMqtt(conn, payload) : pushOverWebSocket(householdId, conn, payload))),
+  );
   const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
   if (failed) throw failed.reason;
+}
+
+/** Where, and what, to publish for one message. Pure, so it is tested without AWS. */
+export function mqttPublication(deviceId: string, payload: DeviceWireMessage): { readonly topic: string; readonly body: string } {
+  // The WebSocket carries one stream and so wraps each message in its kind;
+  // MQTT has a topic per kind, and the television reads each topic's body bare.
+  return payload.kind === 'card'
+    ? { topic: mqttTopic(deviceId, 'cards'), body: JSON.stringify(payload.card) }
+    : { topic: mqttTopic(deviceId, 'control'), body: JSON.stringify(payload.control) };
+}
+
+let iot: IoTDataPlaneClient | undefined;
+
+/**
+ * Publish one payload to a television on MQTT. QoS 1: the broker holds it
+ * until the television has it. A television that has just dropped is not an
+ * error here — IoT Core accepts the publish, and what was missed is replayed
+ * when it reconnects and asks (device-event.mjs reconcile), as on the WebSocket.
+ */
+async function pushOverMqtt(conn: MqttConnection, payload: DeviceWireMessage): Promise<void> {
+  iot ??= new IoTDataPlaneClient({});
+  const { topic, body } = mqttPublication(conn.mqttDeviceId, payload);
+  await iot.send(new PublishCommand({ topic, qos: 1, payload: new TextEncoder().encode(body) }));
 }
 
 /**
@@ -184,8 +233,8 @@ async function pushToDevices(householdId: string, payload: unknown): Promise<voi
  */
 async function pushOverWebSocket(
   householdId: string,
-  conn: DeviceConnection,
-  payload: unknown,
+  conn: WebSocketConnection,
+  payload: DeviceWireMessage,
 ): Promise<void> {
   const mgmt = new ApiGatewayManagementApiClient({ endpoint: conn.wsEndpoint });
   try {

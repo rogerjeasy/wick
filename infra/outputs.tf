@@ -75,6 +75,11 @@ output "websocket_url" {
   value       = aws_apigatewayv2_stage.transport.invoke_url
 }
 
+output "mqtt_wss_url" {
+  description = "Option A (§4.1): where a television opens MQTT over WSS, with the custom authorizer named. The television adds &token=<its device token>. Goes in apps/tv-vega/src/config.ts as mqttWssUrl; absent there, a television never tries MQTT."
+  value       = "wss://${data.aws_iot_endpoint.data.endpoint_address}/mqtt?x-amz-customauthorizer-name=${aws_iot_authorizer.device.name}"
+}
+
 output "mcp_server_url" {
   description = "The deployed MCP server (S4a). On first apply this is set from var.mcp_issuer_url's empty default — read this value, then re-apply with -var mcp_issuer_url=<this> so the app's own OAuth metadata matches its real URL. See infra/mcp.tf."
   value       = "https://${aws_apprunner_service.mcp_server.service_url}"
