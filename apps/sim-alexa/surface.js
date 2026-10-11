@@ -39,7 +39,38 @@ const NOTE_WITH_MESSAGE = [
   /^(?:please\s+)?tell\s+(?:mum|mom|her|margaret)\s+(?:that\s+)?(.+)$/i,
 ];
 
-export function routeUtterance(text) {
+const DAY_MS = 86_400_000;
+const mondayIndex = (date) => (date.getUTCDay() + 6) % 7;
+
+/** The Monday (UTC) that week 1 of an ISO year starts on: the week holding 4 January. */
+function firstMonday(year) {
+  const jan4 = Date.UTC(year, 0, 4);
+  return jan4 - mondayIndex(new Date(jan4)) * DAY_MS;
+}
+
+/** "2026-W41" for a moment — ISO 8601 in UTC, the weeks the server counts in. */
+export function isoWeekOf(atMs) {
+  const date = new Date(atMs);
+  // A week belongs to the year its Thursday is in.
+  const thursday = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - mondayIndex(date) + 3);
+  const year = new Date(thursday).getUTCFullYear();
+  const week = Math.floor((thursday - firstMonday(year)) / (7 * DAY_MS)) + 1;
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}
+
+/** "28 September" for "2026-W40": the Monday the week began on. */
+function weekOf(isoWeek) {
+  const m = /^(\d{4})-W(\d{2})$/.exec(isoWeek ?? '');
+  if (!m) return '';
+  const monday = firstMonday(Number(m[1])) + (Number(m[2]) - 1) * 7 * DAY_MS;
+  return new Date(monday).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+}
+
+/**
+ * @param {string} text
+ * @param {number} now  when it was said, for "last week"
+ */
+export function routeUtterance(text, now = Date.now()) {
   const said = (text ?? '').trim();
   if (!said) return { kind: 'help' };
   const t = said.toLowerCase();
@@ -60,7 +91,9 @@ export function routeUtterance(text) {
   if (/\b(can|may) i see\b|\bshare[sd]?\b|\bprivate\b/.test(t)) return tool('get_resident_shared_view');
   if (/\bmaria\b|\bcarer\b/.test(t)) return tool('did_visitor_come', { personId: 'maria' });
   if (/\btoday\b/.test(t)) return tool('get_today');
-  if (/\bweek\b/.test(t)) return tool('get_week_narrative');
+  // "This week" is whichever week there is to read (the server picks the
+  // latest); "last week" is asked for by name, so it is that week or nothing.
+  if (/\bweek\b/.test(t)) return tool('get_week_narrative', /\blast week\b/.test(t) ? { isoWeek: isoWeekOf(now - 7 * DAY_MS) } : {});
   return { kind: 'help' };
 }
 
@@ -123,18 +156,33 @@ function plain(toolName, raw, isError) {
 
 const byTime = (a, b) => a.at - b.at;
 
-function presentWeek(week, formatTime) {
+/**
+ * Why the week being read is not this one (`thisWeek`, set by the server
+ * when it answers with an earlier week). Said first: last week must never
+ * be heard as this week.
+ */
+const NOT_THIS_WEEK = {
+  not_written: 'This week’s story isn’t written yet: Wick writes it on Sunday evening.',
+  awaiting_resident: 'This week’s story is on the television, where the person it’s about reads it first.',
+};
+
+function presentWeek(week, formatTime, now) {
   const items = [...week.timeline].sort(byTime).map((e) => ({ primary: e.summary, secondary: formatTime(e.at) }));
+  const earlier = NOT_THIS_WEEK[week.thisWeek];
+  const named = weekOf(week.isoWeek);
+  const isThisWeek = !earlier && week.isoWeek === isoWeekOf(now);
   return {
-    say: week.text,
+    say: earlier ? `${earlier} Here is the week of ${named}. ${week.text}` : week.text,
     tone: 'answer',
     card: {
       kind: 'list',
-      title: 'This week',
+      title: isThisWeek || !named ? 'This week' : `Week of ${named}`,
       meta: week.isoWeek ?? '',
       items,
-      empty: 'Nothing at the door this week.',
-      footnote: 'The person this is about read it first, on their own television.',
+      empty: isThisWeek ? 'Nothing at the door this week.' : 'Nothing at the door that week.',
+      footnote: week.simulated
+        ? 'Simulated: this is a demo home, and nobody lived this week.'
+        : 'The person this is about read it first, on their own television.',
     },
   };
 }
@@ -238,7 +286,7 @@ function presentSharedView(view) {
 /**
  * @param {string} toolName
  * @param {string} raw        the tool result's text content, as the server sent it
- * @param {{message?: string}} context  what the customer asked for
+ * @param {{message?: string, now?: number}} context  what the customer asked for, and when
  * @param {(atMs: number) => string} formatTime
  * @param {boolean} isError   the MCP result's own isError flag
  */
@@ -247,7 +295,7 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (!parsed) return plain(toolName, raw, isError);
 
   if (toolName === 'get_week_narrative' && typeof parsed.text === 'string' && Array.isArray(parsed.timeline)) {
-    return presentWeek(parsed, formatTime);
+    return presentWeek(parsed, formatTime, context.now ?? Date.now());
   }
   if (toolName === 'get_today' && Array.isArray(parsed.events)) return presentToday(parsed, formatTime);
   if (toolName === 'did_visitor_come' && typeof parsed.visited === 'boolean') return presentVisitor(parsed, formatTime);
@@ -277,7 +325,9 @@ export function presentWelcome(me, televisions) {
   const resident = me.household.residentName;
   const { role, status } = me.membership;
   if (status === 'allowed') {
-    return { say: `Wick is linked to ${me.household.name}. What would you like to know?`, tone: 'answer', next: null };
+    // A demo home's weeks were written, not lived (the server's demoHome.ts). Said before anything is asked.
+    const simulated = me.household.simulated ? ' Its history is simulated, so there is a week to ask about.' : '';
+    return { say: `Wick is linked to ${me.household.name}.${simulated} What would you like to know?`, tone: 'answer', next: null };
   }
   if (status === 'declined') return { say: `${resident} chose not to share this with you.`, tone: 'private', next: null };
   if (status === 'removed') return { say: 'You are no longer part of this family circle.', tone: 'private', next: null };

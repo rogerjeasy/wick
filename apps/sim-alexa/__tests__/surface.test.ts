@@ -13,6 +13,17 @@ describe('routeUtterance', () => {
     expect(routeUtterance("How's Mum been this week?")).toEqual({ kind: 'tool', tool: 'get_week_narrative', args: {} });
   });
 
+  it('asks for exactly last week when that is what was said', () => {
+    const wednesdayOfW42 = Date.UTC(2026, 9, 14, 15);
+    expect(routeUtterance('How was last week?', wednesdayOfW42)).toEqual({ kind: 'tool', tool: 'get_week_narrative', args: { isoWeek: '2026-W41' } });
+    expect(routeUtterance("How's Mum been this week?", wednesdayOfW42)).toEqual({ kind: 'tool', tool: 'get_week_narrative', args: {} });
+  });
+
+  it('knows that the week before the first of a year belongs to the year before', () => {
+    // Wednesday 6 January 2027 is in 2027-W01; 2026 has 53 ISO weeks.
+    expect(routeUtterance('and last week?', Date.UTC(2027, 0, 6)).args).toEqual({ isoWeek: '2026-W53' });
+  });
+
   it('asks about today', () => {
     expect(routeUtterance('what happened today')).toEqual({ kind: 'tool', tool: 'get_today', args: {} });
   });
@@ -57,8 +68,11 @@ describe('presentResult — the week', () => {
     ],
   });
 
+  // Thursday 1 October 2026: 2026-W40 is this week.
+  const duringW40 = { now: Date.UTC(2026, 9, 1, 12) };
+
   it('speaks the prose and shows the timeline it was built from, oldest first', () => {
-    const r = presentResult('get_week_narrative', week, {}, at);
+    const r = presentResult('get_week_narrative', week, duringW40, at);
     expect(r.say).toBe('A steady week. Someone came to the door four times.');
     expect(r.card.title).toBe('This week');
     expect(r.card.items).toEqual([
@@ -66,6 +80,40 @@ describe('presentResult — the week', () => {
       { primary: 'Someone came to the door.', secondary: 't200' },
     ]);
     expect(r.card.footnote).toMatch(/read it first/);
+  });
+
+  it('says which week it is reading when this week is not written yet — never last week passed off as this one', () => {
+    const r = presentResult('get_week_narrative', JSON.stringify({ ...JSON.parse(week), thisWeek: 'not_written' }), {}, at);
+
+    expect(r.say).toBe(
+      'This week’s story isn’t written yet: Wick writes it on Sunday evening. Here is the week of 28 September. ' +
+        'A steady week. Someone came to the door four times.',
+    );
+    expect(r.card.title).toBe('Week of 28 September');
+  });
+
+  it('names a week that was asked for by name, and is not this one, by its date', () => {
+    const aWeekLater = { now: Date.UTC(2026, 9, 8, 12) };
+
+    const r = presentResult('get_week_narrative', week, aWeekLater, at);
+
+    expect(r.card.title).toBe('Week of 28 September');
+    expect(r.card.empty).toBe('Nothing at the door that week.');
+    // It was asked for: nothing needs explaining before the story.
+    expect(r.say).toBe('A steady week. Someone came to the door four times.');
+  });
+
+  it('says so when this week is on the television, waiting to be read there first', () => {
+    const r = presentResult('get_week_narrative', JSON.stringify({ ...JSON.parse(week), thisWeek: 'awaiting_resident' }), {}, at);
+
+    expect(r.say).toMatch(/^This week’s story is on the television, where the person it’s about reads it first\. Here is the week of 28 September\. A steady week\./);
+  });
+
+  it('says a simulated week is simulated, on the card that shows it', () => {
+    const r = presentResult('get_week_narrative', JSON.stringify({ ...JSON.parse(week), simulated: true }), {}, at);
+
+    expect(r.card.footnote).toBe('Simulated: this is a demo home, and nobody lived this week.');
+    expect(presentResult('get_week_narrative', week, {}, at).card.footnote).not.toMatch(/Simulated/);
   });
 
   it('says the server\'s own sentence when the week is withheld, with no card', () => {
@@ -216,6 +264,14 @@ describe('presentWelcome — the first thing said after linking', () => {
       tone: 'answer',
       next: null,
     });
+  });
+
+  it('says that a demo home’s history is simulated before anything is asked about it', () => {
+    const demo = { ...me('organiser', 'allowed'), household: { householdId: 'hh_d', name: 'Demo home', residentName: 'Margaret', simulated: true } };
+
+    expect(presentWelcome(demo, 1).say).toBe(
+      'Wick is linked to Demo home. Its history is simulated, so there is a week to ask about. What would you like to know?',
+    );
   });
 
   it('tells a new organiser to connect the television first: nobody can be asked without one', () => {
