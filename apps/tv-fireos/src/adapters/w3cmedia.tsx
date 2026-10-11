@@ -7,7 +7,7 @@
  * paused, how loud — and tells the object what the real player did.
  */
 import * as React from 'react';
-import type { StyleProp, ViewStyle } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Video, { ResizeMode, type VideoRef } from 'react-native-video';
 import { VideoPlayer } from './videoPlayer';
 
@@ -35,22 +35,31 @@ export function KeplerVideoView({ videoPlayer, style }: KeplerVideoViewProps): R
 
   if (!videoPlayer.src) return null;
   return (
-    <Video
-      ref={video}
-      source={{ uri: videoPlayer.src }}
-      paused={videoPlayer.paused}
-      volume={videoPlayer.volume}
-      resizeMode={ResizeMode.CONTAIN}
-      style={style}
-      controls={false}
-      // The remote's focus belongs to the card's buttons, never the picture.
-      focusable={false}
-      progressUpdateInterval={PROGRESS_INTERVAL_MS}
-      onLoad={(loaded) => videoPlayer.reportLoaded(loaded.duration)}
-      onProgress={(progress) => videoPlayer.reportProgress(progress.currentTime)}
-      onBuffer={(buffer) => videoPlayer.reportBuffering(buffer.isBuffering)}
-      onEnd={() => videoPlayer.reportEnded()}
-      onError={() => videoPlayer.reportError()}
-    />
+    // Android hands a key press to whatever holds focus, and to nothing if
+    // nothing does: with only a picture on screen the remote would be dead
+    // (seen on the Android TV emulator — play/pause and OK never arrived).
+    // So the picture's frame holds focus while it is all there is. A card's
+    // button asks for focus when it appears and takes it; when the card
+    // goes, focus comes back here. Vega delivers key presses to the app
+    // whatever is focused, which is why the shared screens never needed this.
+    <View style={style} focusable hasTVPreferredFocus>
+      <Video
+        ref={video}
+        source={{ uri: videoPlayer.src }}
+        paused={videoPlayer.paused}
+        volume={videoPlayer.volume}
+        resizeMode={ResizeMode.CONTAIN}
+        style={StyleSheet.absoluteFill}
+        controls={false}
+        // The player's own view never takes the remote: its frame, above, does.
+        focusable={false}
+        progressUpdateInterval={PROGRESS_INTERVAL_MS}
+        onLoad={(loaded) => videoPlayer.reportLoaded(loaded.duration)}
+        onProgress={(progress) => videoPlayer.reportProgress(progress.currentTime)}
+        onBuffer={(buffer) => videoPlayer.reportBuffering(buffer.isBuffering)}
+        onEnd={() => videoPlayer.reportEnded()}
+        onError={() => videoPlayer.reportError()}
+      />
+    </View>
   );
 }

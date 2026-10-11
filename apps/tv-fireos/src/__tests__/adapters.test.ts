@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { storageFileSystem, type KeyValueStorage } from '../adapters/storageFileSystem.js';
-import { toVegaEvent } from '../adapters/remoteEvents.js';
+import { remotePresses } from '../adapters/remoteEvents.js';
 import { VideoPlayer } from '../adapters/videoPlayer.js';
 import { deriveSnapshot, PlayerService, type MediaElementLike, type PlayerSnapshot } from '../../../tv-vega/src/player/PlayerService.js';
 import { watchCommand } from '../../../tv-vega/src/watch/remoteKeys.js';
@@ -62,35 +62,84 @@ describe('storageFileSystem', () => {
   });
 });
 
-describe('toVegaEvent', () => {
+describe('remotePresses', () => {
+  const DOWN = 0;
+  const UP = 1;
+
   it('renames the media keys to the names the Vega app listens for', () => {
-    expect(toVegaEvent({ eventType: 'playPause', eventKeyAction: 0 })?.eventType).toBe('playpause');
-    expect(toVegaEvent({ eventType: 'fastForward', eventKeyAction: 0 })?.eventType).toBe('skip_forward');
-    expect(toVegaEvent({ eventType: 'rewind', eventKeyAction: 0 })?.eventType).toBe('skip_backward');
+    const press = remotePresses();
+
+    expect(press({ eventType: 'playPause', eventKeyAction: DOWN })?.eventType).toBe('playpause');
+    expect(press({ eventType: 'fastForward', eventKeyAction: DOWN })?.eventType).toBe('skip_forward');
+    expect(press({ eventType: 'rewind', eventKeyAction: DOWN })?.eventType).toBe('skip_backward');
   });
 
   it('passes the D-pad and select through as they are', () => {
-    expect(toVegaEvent({ eventType: 'select', eventKeyAction: 0 })).toEqual({ eventType: 'select', eventKeyAction: 0 });
-    expect(toVegaEvent({ eventType: 'left' })).toEqual({ eventType: 'left', eventKeyAction: 0 });
+    const press = remotePresses();
+
+    expect(press({ eventType: 'select', eventKeyAction: DOWN })).toEqual({ eventType: 'select', eventKeyAction: 0 });
+    expect(press({ eventType: 'left' })).toEqual({ eventType: 'left', eventKeyAction: 0 });
   });
 
-  it('says nothing for a key coming back up: the press was acted on when it went down', () => {
-    expect(toVegaEvent({ eventType: 'select', eventKeyAction: 1 })).toBeUndefined();
+  it('is one press when a key goes down and comes back up', () => {
+    const press = remotePresses();
+
+    expect(press({ eventType: 'select', eventKeyAction: DOWN })).toBeDefined();
+    expect(press({ eventType: 'select', eventKeyAction: UP })).toBeUndefined();
+  });
+
+  it('is still one press when only the key coming up arrives — what the Android TV emulator sends for play/pause', () => {
+    const press = remotePresses();
+
+    expect(press({ eventType: 'playPause', eventKeyAction: UP })).toEqual({ eventType: 'playpause', eventKeyAction: 0 });
+  });
+
+  it('is two presses when a key is pressed twice, however each arrives', () => {
+    const press = remotePresses();
+    const heard = [
+      press({ eventType: 'playPause', eventKeyAction: UP }),
+      press({ eventType: 'playPause', eventKeyAction: UP }),
+      press({ eventType: 'select', eventKeyAction: DOWN }),
+      press({ eventType: 'select', eventKeyAction: UP }),
+      press({ eventType: 'select', eventKeyAction: DOWN }),
+      press({ eventType: 'select', eventKeyAction: UP }),
+    ].filter(Boolean);
+
+    expect(heard.map((e) => e!.eventType)).toEqual(['playpause', 'playpause', 'select', 'select']);
+  });
+
+  it('is one press while a key is held and Android repeats it', () => {
+    const press = remotePresses();
+    const heard = [DOWN, DOWN, DOWN, UP].map((eventKeyAction) => press({ eventType: 'fastForward', eventKeyAction })).filter(Boolean);
+
+    expect(heard).toHaveLength(1);
+  });
+
+  it('keeps each key\'s press apart from another\'s', () => {
+    const press = remotePresses();
+
+    expect(press({ eventType: 'left', eventKeyAction: DOWN })).toBeDefined();
+    expect(press({ eventType: 'right', eventKeyAction: DOWN })).toBeDefined();
+    expect(press({ eventType: 'left', eventKeyAction: UP })).toBeUndefined();
+    expect(press({ eventType: 'right', eventKeyAction: UP })).toBeUndefined();
   });
 
   it('says nothing for focus moving, which arrives the same way', () => {
-    expect(toVegaEvent({ eventType: 'focus' })).toBeUndefined();
-    expect(toVegaEvent({ eventType: 'blur' })).toBeUndefined();
-    expect(toVegaEvent(null)).toBeUndefined();
+    const press = remotePresses();
+
+    expect(press({ eventType: 'focus' })).toBeUndefined();
+    expect(press({ eventType: 'blur' })).toBeUndefined();
+    expect(press(null)).toBeUndefined();
   });
 
   it('gives the Vega app\'s own key map what it acts on', () => {
-    const press = (eventType: string) => watchCommand(toVegaEvent({ eventType, eventKeyAction: 0 })!, { cardVisible: false });
+    const press = remotePresses();
+    const command = (eventType: string) => watchCommand(press({ eventType, eventKeyAction: UP })!, { cardVisible: false });
 
-    expect(press('playPause')).toBe('toggle');
-    expect(press('fastForward')).toBe('forward');
-    expect(press('rewind')).toBe('back');
-    expect(press('select')).toBe('toggle');
+    expect(command('playPause')).toBe('toggle');
+    expect(command('fastForward')).toBe('forward');
+    expect(command('rewind')).toBe('back');
+    expect(command('select')).toBe('toggle');
   });
 });
 

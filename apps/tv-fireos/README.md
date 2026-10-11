@@ -46,6 +46,28 @@ The app pairs against the same deployed back end as the Vega app
 (`apps/tv-vega/src/config.ts`); nothing on the server knows which of the two a
 television is.
 
+## Checked on the emulator
+
+On 2026-10-11, on an Android TV emulator (API 34), against the deployed back
+end and a demo home made for the run:
+
+- the pairing screen shows a code from the pairing service; the family app
+  connects the television; the Circle card arrives and **Allow** is recorded;
+- the home screen shows the three programmes; the D-pad moves focus and OK
+  starts one; the film plays (HLS over HTTPS, ExoPlayer);
+- a note sent while the film plays is **not** shown; it appears when the film
+  is paused; a reply chosen with the D-pad and OK is read back through the
+  `get_replies` tool;
+- after the app is replaced and reopened it is still paired, as the same
+  television.
+
+Not yet checked here: a door card over a film, and Watch live. Both need a
+doorbell assigned to the test home.
+
+Two things Android does differently from Vega, both handled in the adapters
+and written up in `FRICTION.md` FL-025: a key press reaches only what holds
+focus, and play/pause arrives as the key coming up.
+
 ## Not a workspace
 
 `apps/tv-fireos` is deliberately left out of the root `package.json`'s
