@@ -17,20 +17,25 @@ export const LINK_SK = 'RING';
 
 /** A token pasted from Ring's Developer Playground lasts about this long, and says nothing about itself. */
 export const PLAYGROUND_TOKEN_MS = 30 * 60 * 1000;
+/** The longest a pasted token is ever taken to last, whatever it claims. */
+export const PLAYGROUND_TOKEN_MAX_MS = 60 * 60 * 1000;
 
 const linkKey = (householdId) => ({ pk: { S: `HH#${householdId}` }, sk: { S: LINK_SK } });
 const deviceKey = (deviceId) => ({ pk: { S: `RINGDEV#${deviceId}` }, sk: { S: 'META' } });
 
 /**
  * When a pasted token stops working: its own `exp` if it is a JWT that says
- * so, otherwise half an hour from now.
+ * so, otherwise half an hour from now — and never more than an hour. The
+ * claim is read from a token nobody here can verify, and what it sets is
+ * what the family app tells the organiser; a token that says it lasts a
+ * year must not have the app saying so.
  */
 export function pastedTokenExpiry(token, now) {
   const parts = String(token).split('.');
   if (parts.length === 3) {
     try {
       const { exp } = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-      if (Number.isFinite(exp) && exp * 1000 > now) return exp * 1000;
+      if (Number.isFinite(exp) && exp * 1000 > now) return Math.min(exp * 1000, now + PLAYGROUND_TOKEN_MAX_MS);
     } catch {
       // Not a JWT after all.
     }

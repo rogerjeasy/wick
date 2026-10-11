@@ -980,7 +980,7 @@ function renderDoorbellCard(view) {
         // Ring's own sign-in, in its own tab; it comes back to a Wick page that says how it went.
         const { url } = await api('/api/ring/link', { method: 'POST' });
         window.open(url, '_blank', 'noopener');
-        assistantSays({ say: 'Ring’s sign-in is open in another tab. When it says Connected, ask me about the doorbell again.', tone: 'answer' });
+        assistantSays({ say: 'Ring’s sign-in is open in another tab. When you have signed in there, it brings you back to Wick to finish.', tone: 'answer' });
       } catch (err) {
         assistantSays({ say: err.message, tone: 'error' });
       }
@@ -1173,8 +1173,27 @@ $('sign-out').addEventListener('click', () => {
  *   ?invite=  an invitation link somebody sent
  *   ?pair=    the link on a television's pairing screen
  */
+/**
+ * Back from Ring's sign-in. Ring sends the browser to Wick, and Wick sends it
+ * here with a one-time value in the fragment (`#ring=…`). That value alone
+ * connects nothing: the server finishes the link only for the organiser who
+ * started it, which is whoever this page is signed in as. So a Ring sign-in
+ * somebody else started, opened here, is refused and says so.
+ */
+async function finishRingSignIn(completion) {
+  try {
+    showDoorbellLink(await api('/api/ring/link/complete', { method: 'POST', body: JSON.stringify({ completion }) }));
+  } catch (err) {
+    assistantSays({ say: err.message, tone: err.status === 403 ? 'waiting' : 'error' });
+  }
+}
+
 (async function start() {
   const params = new URLSearchParams(window.location.search);
+  // Taken out of the address at once, whatever happens next: it is not
+  // something to leave in the history or hand to a reload.
+  const ringCompletion = new URLSearchParams(window.location.hash.slice(1)).get('ring');
+  if (ringCompletion) window.history.replaceState({}, '', window.location.pathname + window.location.search);
   const invite = params.get('invite');
   const pair = params.get('pair');
   if (invite) sessionStorage.setItem('wick_invite', invite);
@@ -1206,6 +1225,7 @@ $('sign-out').addEventListener('click', () => {
   enableToolButtons(true);
   try {
     await welcome();
+    if (ringCompletion) await finishRingSignIn(ringCompletion);
   } catch (err) {
     if (link) assistantSays({ say: err.message, tone: 'error' });
   }

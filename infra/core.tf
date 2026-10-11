@@ -224,6 +224,15 @@ resource "aws_s3_bucket_policy" "media_tls_only" {
   })
 }
 
+locals {
+  # Every household's Ring secret is "<prefix>/<householdId>".
+  ring_token_secret_prefix = "${local.prefix}/ring/tokens"
+  # Secrets Manager appends "-" and six characters to a name to make its ARN.
+  # The "/" after "tokens" is what keeps this from matching the superseded
+  # single secret, or anything else under ring/.
+  ring_token_secrets_arn = "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:${local.ring_token_secret_prefix}/*"
+}
+
 # ---------------------------------------------------------------------------
 # Secrets. INV-1: these never reach the television, which holds only a
 # device-bound JWT scoped to one household.
@@ -244,9 +253,18 @@ resource "aws_secretsmanager_secret" "ring_credentials" {
   }
 }
 
+# Each household's Ring link is a secret of its own, `<this name>/<householdId>`,
+# made by the linking functions when a home's organiser connects Ring
+# (services/edge-ring/lambda/ring-token.mjs) — not by Terraform, which cannot
+# know which homes will. Everything that reads or writes a link is granted
+# that prefix (local.ring_token_secrets_arn) and never this secret.
+#
+# This one is the single link the deployment had before households had their
+# own. Nothing reads it any more. It stays until its record has been moved to
+# the operator household's secret (scripts/move-ring-link.sh) and checked.
 resource "aws_secretsmanager_secret" "ring_tokens" {
   name        = "${local.prefix}/ring/tokens"
-  description = "Ring OAuth access and refresh tokens, written at account linking"
+  description = "Superseded: the deployment's single Ring link, before each household had its own under this name."
 
   recovery_window_in_days = 7
 

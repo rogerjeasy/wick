@@ -10,6 +10,17 @@
  * browser back (link.mjs): it was written here, for a household the family
  * app's server took from the organiser's access token. Nothing in the
  * callback's own address can name a household (AGENTS.md INV-8).
+ *
+ * Coming back from Ring does not finish a household's link. Anyone can be
+ * sent Ring's sign-in address: an organiser could start a link for their own
+ * home, pass the address to someone else, and — if the callback alone
+ * finished it — have that person's doorbells linked to the organiser's home.
+ * So the callback keeps Ring's code under a one-time completion value and
+ * hands that value to the browser that signed in; the link is made only when
+ * the family app presents it back as the same organiser, for the same home,
+ * that started it (household-link-service.mjs `complete`). The person who
+ * started it never sees the value; the person who signed in is not that
+ * organiser. Neither can finish it alone.
  */
 import { randomBytes, createHash } from 'node:crypto';
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
@@ -22,6 +33,9 @@ const REDIRECT_URI = process.env.RING_REDIRECT_URI;
 const AUTHORIZE_URL = 'https://account.ring.com/account/integrations/partner-link/authorize';
 const SCOPE = process.env.RING_SCOPE ?? 'ava.v1:read';
 const STATE_TTL_S = 600;
+
+/** A completion value as this module makes them. Anything else is not one. */
+export const COMPLETION_SHAPE = /^[A-Za-z0-9_-]{32,128}$/;
 
 const b64url = (buf) => buf.toString('base64url');
 
@@ -39,6 +53,51 @@ export function stateRow({ table, state, verifier, householdId, userId, now }) {
       ttl: { N: String(Math.floor(now / 1000) + STATE_TTL_S) },
     },
   };
+}
+
+export const stateKey = (state) => ({ pk: { S: `OAUTH#${state}` }, sk: { S: 'META' } });
+
+/** Kept under the value's hash, so the table never holds something that could be presented. */
+export const completionKey = (completion) => ({
+  pk: { S: `OAUTHDONE#${createHash('sha256').update(String(completion)).digest('hex')}` },
+  sk: { S: 'META' },
+});
+
+/** A fresh completion value: 256 bits, for one browser, once. */
+export const newCompletion = () => b64url(randomBytes(32));
+
+/**
+ * What the callback keeps until the family app finishes the link: which
+ * sign-in this was, and Ring's code for it. The code is single-use, expires
+ * in ten minutes, and is worthless without the client secret and the PKCE
+ * verifier, both of which stay on the server.
+ */
+export function completionRow({ table, completion, state, code, now }) {
+  return {
+    TableName: table,
+    Item: {
+      ...completionKey(completion),
+      state: { S: state },
+      code: { S: code },
+      createdAt: { N: String(now) },
+      ttl: { N: String(Math.floor(now / 1000) + STATE_TTL_S) },
+    },
+  };
+}
+
+/**
+ * What to do with a browser Ring has sent back. Pure.
+ *
+ *   'finish_in_app'  a household started this: hand the browser a completion
+ *                    value, and let the family app finish it as the organiser
+ *   'operator'       nobody's household is named: the deployment's own link,
+ *                    and only where the deployment allows that address at all
+ *   'refuse'         no such sign-in, or one this deployment does not take
+ */
+export function callbackPlan(stateItem, { operatorLinkAllowed }) {
+  if (!stateItem?.codeVerifier?.S) return 'refuse';
+  if (stateItem.householdId?.S && stateItem.userId?.S) return 'finish_in_app';
+  return operatorLinkAllowed ? 'operator' : 'refuse';
 }
 
 /** Ring's sign-in address for a state and its challenge. Pure. */

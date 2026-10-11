@@ -61,7 +61,14 @@ export async function readTokens(householdId) {
   }
 }
 
-export async function writeTokens(householdId, record) {
+/**
+ * Write a household's record. Only a link may bring a secret into being
+ * (`create: true` — finishLink, and a pasted Playground token). A refresh
+ * never may: if the organiser disconnected while a refresh was in flight,
+ * the secret is gone, and a refresh that re-created it would quietly undo
+ * the disconnect. That write fails with `not_linked` instead.
+ */
+export async function writeTokens(householdId, record, { create = false } = {}) {
   const SecretId = tokenSecretId(householdId);
   const SecretString = JSON.stringify(record);
   try {
@@ -70,6 +77,7 @@ export async function writeTokens(householdId, record) {
   } catch (err) {
     if (err?.name !== 'ResourceNotFoundException') throw err;
   }
+  if (!create) throw new Error('not_linked');
   // The household's first link: its secret does not exist yet. A secret
   // deleted moments ago (a disconnect, then a reconnect) keeps its name
   // reserved for a few seconds, so that case is waited out.
@@ -188,7 +196,7 @@ export async function finishLink(householdId, tokens, { previous = null, now = D
     }));
   }
 
-  record = await writeTokens(householdId, record);
+  record = await writeTokens(householdId, record, { create: true });
 
   console.log(JSON.stringify({
     level: 'info',

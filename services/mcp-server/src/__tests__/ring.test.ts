@@ -26,6 +26,11 @@ function fakeRingLinks(options: { playgroundAllowed?: boolean } = {}) {
       calls.push({ action: 'start', householdId, userId });
       return { ok: true, url: 'https://account.ring.com/account/integrations/partner-link/authorize?state=abc' };
     },
+    async complete(householdId, userId, completion) {
+      calls.push({ action: 'complete', householdId, userId, token: completion });
+      // Stands in for the linking function's own check (edge-ring household-link-service.test.ts).
+      return completion === `started-by:${householdId}:${userId}` ? { ok: true, linked: true, source: 'oauth', refreshable: true, devices: [] } : { ok: false, error: 'link_not_yours' };
+    },
     async playground(householdId, userId, token) {
       calls.push({ action: 'playground', householdId, userId, token });
       if (token !== TOKEN) return { ok: false, error: 'token_refused' };
@@ -207,6 +212,60 @@ describe('POST /api/ring/link — Ring\'s own sign-in', () => {
 
     expect(await res.json()).toEqual({ url: expect.stringContaining('https://account.ring.com/') });
     expect(calls).toEqual([{ action: 'start', householdId: sarah.householdId, userId: sarah.userId }]);
+  });
+});
+
+describe('POST /api/ring/link/complete — finishing a sign-in at Ring', () => {
+  const finish = (h: Harness, who: Linked, body: unknown) => api(h, who, '/api/ring/link/complete', { method: 'POST', body: JSON.stringify(body) });
+
+  it('finishes it for the organiser and the home in the token, never ones named in the request', async () => {
+    const { h, calls } = await server();
+    const sarah = await linkNewOrganiser(h);
+
+    const res = await finish(h, sarah, { completion: `started-by:${sarah.householdId}:${sarah.userId}`, householdId: 'margaret', userId: 'someone-else' });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ linked: true, source: 'ring' });
+    expect(calls[0]).toMatchObject({ action: 'complete', householdId: sarah.householdId, userId: sarah.userId });
+  });
+
+  it('refuses a sign-in somebody else started, and says nothing was connected', async () => {
+    const { h } = await server();
+    const sarah = await linkNewOrganiser(h);
+    const priya = await linkNewOrganiser(h, { name: 'Priya', email: 'priya@example.com', password: 'another long passphrase' }, 'Arun');
+
+    // Priya started a sign-in for her own home and sent Sarah the address;
+    // Sarah's browser comes back from Ring holding Priya's completion value.
+    const res = await finish(h, sarah, { completion: `started-by:${priya.householdId}:${priya.userId}` });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: 'link_not_yours', message: expect.stringContaining('Nothing was connected') });
+    expect(await (await api(h, sarah, '/api/ring')).json()).toMatchObject({ linked: false });
+  });
+
+  it('answers a request with no completion value as an expired sign-in, without asking', async () => {
+    const { h, calls } = await server();
+    const sarah = await linkNewOrganiser(h);
+
+    const res = await finish(h, sarah, {});
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'link_expired' });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('where a sign-in may send a browser', () => {
+  it('only to Ring\'s own account pages: any other address from the linking function is not passed on', async () => {
+    const ring = fakeRingLinks();
+    ring.links.start = async () => ({ ok: true, url: 'https://account.ring.com.evil.example/authorize' });
+    const { h } = await server(ring);
+    const sarah = await linkNewOrganiser(h);
+
+    const res = await api(h, sarah, '/api/ring/link', { method: 'POST' });
+
+    expect(res.status).toBe(502);
+    expect(await res.text()).not.toContain('evil.example');
   });
 });
 

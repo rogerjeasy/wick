@@ -74,14 +74,26 @@ const ringLinkService = createLinkService({
     return [{ id: `dev.camera.${accessToken.slice(-6)}`, name: 'Front Door' }];
   },
   beginAuthorization: async () => 'https://account.ring.com/account/integrations/partner-link/authorize?client_id=dev-server-stand-in',
+  // Nothing here can finish a sign-in at Ring: there is no Ring to have signed in at.
+  exchange: async () => {
+    throw Object.assign(new Error('token_exchange_failed'), { status: 400 });
+  },
+  finishLink: async (_householdId: string, tokens: unknown) => ({ record: tokens }),
   playgroundAllowed: true,
   now: Date.now,
 });
 const ringLinks = invokedRingLinks(async (request) => {
-  const { action, householdId, userId, token } = request as { action: 'status' | 'start' | 'playground' | 'disconnect'; householdId: string; userId: string; token: string };
+  const { action, householdId, userId, token, completion } = request as {
+    action: 'status' | 'start' | 'complete' | 'playground' | 'disconnect';
+    householdId: string;
+    userId: string;
+    token: string;
+    completion: string;
+  };
   try {
     if (action === 'status') return { ok: true, ...(await ringLinkService.status(householdId)) };
     if (action === 'start') return { ok: true, ...(await ringLinkService.start(householdId, userId)) };
+    if (action === 'complete') return { ok: true, ...(await ringLinkService.complete(householdId, userId, completion)) };
     if (action === 'playground') return { ok: true, ...(await ringLinkService.playground(householdId, userId, token)) };
     return { ok: true, ...(await ringLinkService.disconnect(householdId)) };
   } catch (err) {

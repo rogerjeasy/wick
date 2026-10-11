@@ -89,7 +89,7 @@ jobs:
         run: npm run build:lambda
 
       # The agent reads its Ring token from Secrets Manager at runtime via
-      # secretsManagerTokenProvider(). There is no .env in a deployed runtime,
+      # ringClientsByHousehold(). There is no .env in a deployed runtime,
       # and none may be baked into an image.
       #
       # REMEMBER: Alexa+ refreshes tool information only on deploy. Run

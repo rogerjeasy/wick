@@ -138,6 +138,15 @@ data "aws_iam_policy_document" "apprunner_instance" {
     ]
   }
 
+  # A home's own Ring link. This server holds no Ring token and reads no
+  # Ring secret; it may call the one function that does, and nothing else
+  # may (services/mcp-server/src/accounts/ringLinks.ts).
+  statement {
+    sid       = "AskForAHouseholdsRingLink"
+    actions   = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_function.household_link.arn]
+  }
+
   statement {
     sid       = "PushNotesToTheDevice"
     actions   = ["execute-api:ManageConnections"]
@@ -193,6 +202,10 @@ resource "aws_apprunner_service" "mcp_server" {
             # app answers by its rules and says nothing it was not told.
             WICK_ASSISTANT_MODEL_ID = local.narrative_model_profile
             WICK_ASSISTANT_REGION   = local.region
+            # The function with custody of each home's Ring link
+            # (infra/edge.tf household_link). Unset, the family app is told
+            # the doorbell cannot be reached.
+            WICK_RING_LINK_FUNCTION = aws_lambda_function.household_link.function_name
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
         )

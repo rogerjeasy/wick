@@ -138,10 +138,13 @@ is in [`docs/WICK-TECHNICAL.md`](docs/WICK-TECHNICAL.md) §13.
 
 ## Security
 
-No static AWS keys anywhere — CI authenticates via GitHub OIDC. Ring tokens live
-in AWS Secrets Manager, are read at runtime by the Lambdas and the AgentCore
-Runtime, and never touch the television, which holds a single
-device-bound JWT scoped to receiving cards for one household. Ring webhooks are
+No static AWS keys anywhere — CI authenticates via GitHub OIDC. Each household's
+Ring tokens live in an AWS Secrets Manager secret of its own, are read at runtime
+only for the home being acted for, and never touch the television — which holds
+a single device-bound JWT scoped to receiving cards for one household — nor the
+family app, nor the Wick server. A home's organiser connects Ring from the family
+app, and the link is made only when that same organiser, in the browser that
+signed in at Ring, finishes it. Ring webhooks are
 HMAC-SHA256 verified with constant-time comparison and idempotency on
 `request_id`. Threat model in [`docs/WICK-TECHNICAL.md`](docs/WICK-TECHNICAL.md) §10.
 

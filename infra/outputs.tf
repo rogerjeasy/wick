@@ -40,12 +40,13 @@ output "ring_credentials_secret" {
   value       = aws_secretsmanager_secret.ring_credentials.name
 }
 
-output "ring_tokens_secret" {
-  value = aws_secretsmanager_secret.ring_tokens.name
+output "ring_tokens_secret_prefix" {
+  description = "Each household's Ring link is the secret \"<this>/<householdId>\", made when its organiser connects Ring."
+  value       = local.ring_token_secret_prefix
 }
 
 output "ring_authorize_url" {
-  description = "Open this in a browser to start the partner-initiated OAuth flow."
+  description = "The operator's own way to link Ring. It answers 404 unless var.ring_operator_link is on: a home's organiser connects Ring from the family app's Doorbell card instead."
   value       = "${aws_apigatewayv2_api.edge.api_endpoint}/ring/authorize"
 }
 

@@ -23,6 +23,7 @@ import {
   claimDevice, linkRow, linkSummary, playgroundRecord, readLinkRow, releaseDevice, removeLinkRow,
 } from './household-links.mjs';
 import { SAFE_HOUSEHOLD_ID } from './ring-token.mjs';
+import { COMPLETION_SHAPE, completionKey, stateKey } from './authorization.mjs';
 
 export class LinkError extends Error {
   constructor(code) {
@@ -40,6 +41,8 @@ export class LinkError extends Error {
  * @param {(householdId: string) => Promise<void>} deps.deleteTokens
  * @param {(args: { accessToken: string }) => Promise<{ id: string, name: string | null }[]>} deps.listDevices
  * @param {(args: { householdId: string, userId?: string }) => Promise<string>} deps.beginAuthorization
+ * @param {(args: { code: string, codeVerifier: string }) => Promise<object>} deps.exchange  Ring's code for an account's tokens
+ * @param {(householdId: string, tokens: object) => Promise<{ record: object }>} deps.finishLink  stores them for that household
  * @param {boolean} deps.playgroundAllowed
  * @param {() => number} deps.now
  */
@@ -95,6 +98,47 @@ export function createLinkService(deps) {
     /** Where to send the organiser's browser to sign in at Ring. */
     async start(householdId, userId) {
       return { url: await deps.beginAuthorization({ householdId: safe(householdId), userId }) };
+    },
+
+    /**
+     * Finish a sign-in at Ring. `completion` is the value the callback gave
+     * the browser that signed in (authorization.mjs); the household and the
+     * person are the caller's own, from their access token. The link is made
+     * only if they are the ones the sign-in was started for.
+     *
+     * Whatever happens, the sign-in is spent: a second presentation of the
+     * same value finds nothing.
+     */
+    async complete(householdId, userId, completion) {
+      safe(householdId);
+      if (typeof completion !== 'string' || !COMPLETION_SHAPE.test(completion)) throw new LinkError('link_expired');
+
+      const pending = (await deps.ddb('get', { TableName: table, Key: completionKey(completion), ConsistentRead: true }))?.Item;
+      const state = pending?.state?.S;
+      const code = pending?.code?.S;
+      if (!state || !code) throw new LinkError('link_expired');
+      const started = (await deps.ddb('get', { TableName: table, Key: stateKey(state), ConsistentRead: true }))?.Item;
+
+      await deps.ddb('delete', { TableName: table, Key: completionKey(completion) });
+      await deps.ddb('delete', { TableName: table, Key: stateKey(state) });
+
+      const codeVerifier = started?.codeVerifier?.S;
+      if (!codeVerifier) throw new LinkError('link_expired');
+      if (started.householdId?.S !== householdId || !userId || started.userId?.S !== userId) {
+        // Someone else's sign-in, presented here. Nothing is exchanged and nothing is kept.
+        console.warn(JSON.stringify({ level: 'warn', msg: 'ring_link_not_the_starters', householdId }));
+        throw new LinkError('link_not_yours');
+      }
+
+      let tokens;
+      try {
+        tokens = await deps.exchange({ code, codeVerifier });
+      } catch (err) {
+        console.error(JSON.stringify({ level: 'error', msg: 'token_exchange_failed', householdId, status: err?.status ?? null }));
+        throw new LinkError('exchange_failed');
+      }
+      const { record } = await deps.finishLink(householdId, tokens);
+      return recordLink(householdId, record, userId);
     },
 
     /** Link with a token pasted from Ring's Developer Playground. Ring is asked first; a token it refuses is not kept. */

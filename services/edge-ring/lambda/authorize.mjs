@@ -20,8 +20,24 @@
 import { beginAuthorization } from './authorization.mjs';
 
 const OPERATOR_HOUSEHOLD = process.env.WICK_HOUSEHOLD_ID;
+/**
+ * Off unless the deployment turns it on (infra `ring_operator_link`). This
+ * address asks nobody who they are: whoever completes the sign-in it starts
+ * has their Ring account linked to the operator's household. That is
+ * acceptable for an operator setting up their own deployment and for nothing
+ * else — and now that a household links itself from the family app, with
+ * its organiser checked at both ends, it is not needed for anything else.
+ */
+const OPERATOR_LINK = process.env.RING_OPERATOR_LINK === 'true';
 
 export const handler = async () => {
+  if (!OPERATOR_LINK) {
+    return {
+      statusCode: 404,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+      body: 'Ring is connected from the Wick family app, by the person who set the home up.',
+    };
+  }
   const url = await beginAuthorization({ householdId: OPERATOR_HOUSEHOLD });
   return {
     statusCode: 302,

@@ -16,6 +16,7 @@ import { tokenSecretId } from '../ring-token.mjs';
 const NOW = 1_760_000_000_000;
 const PLAYGROUND_TOKEN = 'playground-token-0123456789abcdef';
 const CAMERA = { id: 'ava1.ring.device.PLAYGROUND', name: 'Front Door' };
+const OAUTH_TOKEN = 'oauth-access-token-0123456789abcdef';
 
 type Item = Record<string, { S?: string; N?: string; BOOL?: boolean }>;
 
@@ -50,6 +51,10 @@ function harness(options: { devicesByToken?: Record<string, { id: string; name: 
     if (!devices) throw Object.assign(new Error('devices_failed'), { status: 401 });
     return devices;
   });
+  const exchange = vi.fn(async ({ code }: { code: string; codeVerifier: string }) => {
+    if (code !== 'ring-code-1') throw Object.assign(new Error('token_exchange_failed'), { status: 400 });
+    return { access_token: OAUTH_TOKEN, refresh_token: 'refresh-0123456789' };
+  });
   const service = createLinkService({
     table: 'wick',
     ddb: table.ddb,
@@ -62,10 +67,16 @@ function harness(options: { devicesByToken?: Record<string, { id: string; name: 
     },
     listDevices,
     beginAuthorization: async ({ householdId, userId }: { householdId: string; userId?: string }) => `https://ring.test/authorize?for=${householdId}&by=${userId}`,
+    exchange,
+    finishLink: async (householdId: string, tokens: Record<string, unknown>) => {
+      const record = { ...tokens, source: 'oauth' };
+      secrets.set(tokenSecretId(householdId), record);
+      return { record };
+    },
     playgroundAllowed: options.playgroundAllowed ?? true,
     now: () => NOW,
   });
-  return { service, table, secrets, listDevices };
+  return { service, table, secrets, listDevices, exchange };
 }
 
 describe('a household that has not connected Ring', () => {
@@ -370,5 +381,145 @@ describe('the hourly refresh, one household at a time', () => {
     });
 
     expect(result).toEqual({ householdId: 'hh_a', ok: false, reason: 'refresh_failed' });
+  });
+});
+
+describe('finishing a sign-in at Ring', () => {
+  const COMPLETION = 'c'.repeat(43);
+
+  /**
+   * What is in the table once Ring has sent a browser back: the state row
+   * authorization.mjs wrote when `startedBy` started the sign-in, and the
+   * completion row link.mjs wrote for the browser that came back.
+   */
+  async function signedInAtRing(table: ReturnType<typeof fakeTable>, startedBy: { householdId: string; userId: string }, code = 'ring-code-1') {
+    // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+    const { completionRow, stateRow } = await import('../authorization.mjs');
+    table.items.set('OAUTH#state-1|META', stateRow({ table: 'wick', state: 'state-1', verifier: 'verifier-1', ...startedBy, now: NOW }).Item);
+    const done = completionRow({ table: 'wick', completion: COMPLETION, state: 'state-1', code, now: NOW }).Item;
+    table.items.set(`${done.pk.S}|META`, done);
+  }
+
+  const sarah = { householdId: 'hh_a', userId: 'user_sarah' };
+
+  it('links the home for the organiser who started it, and takes its doorbell', async () => {
+    const { service, table, secrets, exchange } = harness({ devicesByToken: { [OAUTH_TOKEN]: [CAMERA] } });
+    await signedInAtRing(table, sarah);
+
+    const status = await service.complete('hh_a', 'user_sarah', COMPLETION);
+
+    expect(exchange).toHaveBeenCalledWith({ code: 'ring-code-1', codeVerifier: 'verifier-1' });
+    expect(secrets.get('wick/ring/tokens/hh_a')).toMatchObject({ access_token: OAUTH_TOKEN, source: 'oauth' });
+    expect(status).toMatchObject({ linked: true, source: 'oauth', devices: [CAMERA] });
+    expect(table.holderOf(CAMERA.id)).toBe('hh_a');
+  });
+
+  it('refuses the organiser of another home: a sign-in someone was sent cannot link their doorbells to the sender\'s home, nor to their own', async () => {
+    // Sarah starts a link for hh_a and sends the Ring address to Tom, who
+    // signs in with his own Ring account. Tom's browser comes back holding
+    // the completion value; Tom's family app is signed in as hh_b's organiser.
+    const { service, table, secrets, exchange } = harness({ devicesByToken: { [OAUTH_TOKEN]: [CAMERA] } });
+    await signedInAtRing(table, sarah);
+
+    await expect(service.complete('hh_b', 'user_tom', COMPLETION)).rejects.toMatchObject({ code: 'link_not_yours' });
+
+    expect(exchange).not.toHaveBeenCalled();
+    expect(secrets.size).toBe(0);
+    expect(table.holderOf(CAMERA.id)).toBeUndefined();
+  });
+
+  it('refuses another member of the same home: it is the person who started it, not just the home', async () => {
+    const { service, table, exchange } = harness();
+    await signedInAtRing(table, sarah);
+
+    await expect(service.complete('hh_a', 'user_tom', COMPLETION)).rejects.toMatchObject({ code: 'link_not_yours' });
+    expect(exchange).not.toHaveBeenCalled();
+  });
+
+  it('is spent by a refused attempt: the starter cannot then finish what someone else signed in to', async () => {
+    const { service, table, secrets } = harness({ devicesByToken: { [OAUTH_TOKEN]: [CAMERA] } });
+    await signedInAtRing(table, sarah);
+    await expect(service.complete('hh_b', 'user_tom', COMPLETION)).rejects.toMatchObject({ code: 'link_not_yours' });
+
+    // Even if Sarah somehow learned the value afterwards.
+    await expect(service.complete('hh_a', 'user_sarah', COMPLETION)).rejects.toMatchObject({ code: 'link_expired' });
+    expect(secrets.size).toBe(0);
+  });
+
+  it('works once: the same value presented again finds nothing', async () => {
+    const { service, table, exchange } = harness({ devicesByToken: { [OAUTH_TOKEN]: [CAMERA] } });
+    await signedInAtRing(table, sarah);
+    await service.complete('hh_a', 'user_sarah', COMPLETION);
+
+    await expect(service.complete('hh_a', 'user_sarah', COMPLETION)).rejects.toMatchObject({ code: 'link_expired' });
+    expect(exchange).toHaveBeenCalledTimes(1);
+  });
+
+  it('knows nothing of a value it never issued, and reads nothing for one that is not the right shape', async () => {
+    const { service, table } = harness();
+    await signedInAtRing(table, sarah);
+    const read = vi.spyOn(table, 'ddb');
+
+    await expect(service.complete('hh_a', 'user_sarah', 'd'.repeat(43))).rejects.toMatchObject({ code: 'link_expired' });
+    for (const bad of ['', 'short', '../OAUTH#state-1', undefined, 42, 'x'.repeat(200)]) {
+      await expect(service.complete('hh_a', 'user_sarah', bad), String(bad)).rejects.toMatchObject({ code: 'link_expired' });
+    }
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('keeps nothing when Ring refuses the code', async () => {
+    const { service, table, secrets } = harness();
+    await signedInAtRing(table, sarah, 'a-code-ring-will-not-take');
+
+    await expect(service.complete('hh_a', 'user_sarah', COMPLETION)).rejects.toMatchObject({ code: 'exchange_failed' });
+
+    expect(secrets.size).toBe(0);
+    expect([...table.items.keys()].filter((k) => k.startsWith('OAUTH'))).toEqual([]);
+  });
+
+  it('never stores the completion value itself, only its hash', async () => {
+    const { table } = harness();
+    await signedInAtRing(table, sarah);
+
+    expect(JSON.stringify([...table.items.entries()])).not.toContain(COMPLETION);
+  });
+});
+
+describe('what the callback does with a browser Ring sends back', () => {
+  const state = (extra: Record<string, { S: string }> = {}) => ({ codeVerifier: { S: 'v' }, ...extra });
+
+  it('hands a household\'s sign-in to the family app to finish, whatever the deployment allows', async () => {
+    // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+    const { callbackPlan } = await import('../authorization.mjs');
+    const household = state({ householdId: { S: 'hh_a' }, userId: { S: 'user_sarah' } });
+
+    expect(callbackPlan(household, { operatorLinkAllowed: false })).toBe('finish_in_app');
+    expect(callbackPlan(household, { operatorLinkAllowed: true })).toBe('finish_in_app');
+  });
+
+  it('takes a sign-in nobody\'s household started only where the deployment allows the operator\'s link', async () => {
+    // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+    const { callbackPlan } = await import('../authorization.mjs');
+
+    expect(callbackPlan(state({ householdId: { S: 'margaret' } }), { operatorLinkAllowed: false })).toBe('refuse');
+    expect(callbackPlan(state({ householdId: { S: 'margaret' } }), { operatorLinkAllowed: true })).toBe('operator');
+    expect(callbackPlan(state(), { operatorLinkAllowed: true })).toBe('operator');
+  });
+
+  it('refuses a state it does not know', async () => {
+    // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+    const { callbackPlan } = await import('../authorization.mjs');
+
+    expect(callbackPlan(undefined, { operatorLinkAllowed: true })).toBe('refuse');
+    expect(callbackPlan({}, { operatorLinkAllowed: true })).toBe('refuse');
+  });
+});
+
+describe('a pasted token\'s own word on how long it lasts', () => {
+  it('is not taken beyond an hour', () => {
+    const farFuture = Math.floor(NOW / 1000) + 365 * 86_400;
+    const jwt = `${Buffer.from('{"alg":"none"}').toString('base64url')}.${Buffer.from(JSON.stringify({ exp: farFuture })).toString('base64url')}.sig`;
+
+    expect(pastedTokenExpiry(jwt, NOW)).toBe(NOW + 60 * 60 * 1000);
   });
 });

@@ -26,6 +26,7 @@ export function invokedRingLinks(invoke: InvokeRingLink): RingLinks {
   return {
     status: (householdId) => ask({ action: 'status', householdId }),
     start: (householdId, userId) => ask({ action: 'start', householdId, userId }),
+    complete: (householdId, userId, completion) => ask({ action: 'complete', householdId, userId, completion }),
     playground: (householdId, userId, token) => ask({ action: 'playground', householdId, userId, token }),
     disconnect: (householdId) => ask({ action: 'disconnect', householdId }),
   };

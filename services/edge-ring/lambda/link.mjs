@@ -14,10 +14,11 @@
  * and truncated hashes, which is enough to correlate without being usable.
  */
 import { createHash } from 'node:crypto';
-import { DynamoDBClient, GetItemCommand, DeleteItemCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, GetItemCommand, DeleteItemCommand, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { readCredentials, readTokens, finishLink } from './ring-token.mjs';
-import { TOKEN_URL } from './ring-api.mjs';
+import { exchangeAuthorizationCode } from './ring-api.mjs';
 import { linkService } from './household-link.mjs';
+import { callbackPlan, completionRow, newCompletion, stateKey } from './authorization.mjs';
 
 const ddb = new DynamoDBClient({});
 
@@ -25,6 +26,10 @@ const TABLE = process.env.TABLE_NAME;
 const REDIRECT_URI = process.env.RING_REDIRECT_URI;
 /** The household this deployment was set up around: the only one a link with no household can belong to. */
 const OPERATOR_HOUSEHOLD = process.env.WICK_HOUSEHOLD_ID;
+/** Whether this deployment takes the operator's own link at all (authorize.mjs). Off unless it says so. */
+const OPERATOR_LINK = process.env.RING_OPERATOR_LINK === 'true';
+/** Where the family app lives: a household's sign-in is finished there, by its organiser. */
+const FAMILY_APP_URL = (process.env.FAMILY_APP_URL ?? '').replace(/\/+$/, '') + '/';
 const CONSENT_PAGE =
   process.env.CONSENT_PAGE_URL ?? 'https://rogerjeasy.github.io/wick/link.html';
 
@@ -62,61 +67,60 @@ export const handler = async (event) => {
 
   // --- partner-initiated callback -----------------------------------------
   if (p.code && p.state) {
-    const row = await ddb.send(new GetItemCommand({
-      TableName: TABLE,
-      Key: { pk: { S: `OAUTH#${p.state}` }, sk: { S: 'META' } },
-    }));
+    const row = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: stateKey(p.state), ConsistentRead: true }));
+    const plan = callbackPlan(row.Item, { operatorLinkAllowed: OPERATOR_LINK });
 
     // An unknown state is either CSRF or an expired attempt. Refuse either way.
-    if (!row.Item?.codeVerifier?.S) {
+    if (plan === 'refuse') {
       console.warn(JSON.stringify({ level: 'warn', msg: 'unknown_or_expired_state' }));
       return page('Link expired', 'That link has expired or was already used. Start again from the beginning.', false);
     }
 
+    // A household's own link is not finished here. This browser signed in at
+    // Ring, but that does not make it the organiser who started the link —
+    // the address could have been sent to anyone (authorization.mjs says
+    // why). Ring's code is kept under a one-time value, the value goes to
+    // this browser, and the family app finishes the link by presenting it as
+    // the organiser it is signed in as. In the fragment, so it reaches no
+    // server log and no Referer.
+    if (plan === 'finish_in_app') {
+      const completion = newCompletion();
+      await ddb.send(new PutItemCommand(completionRow({ table: TABLE, completion, state: p.state, code: p.code, now: Date.now() })));
+      return {
+        statusCode: 302,
+        headers: { Location: `${FAMILY_APP_URL}#ring=${completion}`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' },
+        body: '',
+      };
+    }
+
+    // The operator's own link (authorize.mjs): no household started it, so it
+    // is the deployment's. Only where the deployment allows that address.
+    // Single-use state: consume it whether or not the exchange succeeds.
+    await ddb.send(new DeleteItemCommand({ TableName: TABLE, Key: stateKey(p.state) }));
+
     const creds = await readCredentials();
-
-    const res = await fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
+    let tokens;
+    try {
+      tokens = await exchangeAuthorizationCode({
         code: p.code,
-        code_verifier: row.Item.codeVerifier.S,
-        client_id: creds.clientId,
-        client_secret: creds.clientSecret,
-        redirect_uri: REDIRECT_URI,
-      }),
-    });
-
-    // Single-use state: consume it whether or not the exchange succeeded.
-    await ddb.send(new DeleteItemCommand({
-      TableName: TABLE,
-      Key: { pk: { S: `OAUTH#${p.state}` }, sk: { S: 'META' } },
-    }));
-
-    if (!res.ok) {
-      const detail = await res.text();
-      console.error(JSON.stringify({
-        level: 'error', msg: 'token_exchange_failed',
-        status: res.status, detail: detail.slice(0, 400),
-      }));
-      return page('Could not connect', `Ring declined the exchange (HTTP ${res.status}).`, false);
+        codeVerifier: row.Item.codeVerifier.S,
+        clientId: creds.clientId,
+        clientSecret: creds.clientSecret,
+        redirectUri: REDIRECT_URI,
+      });
+    } catch (err) {
+      console.error(JSON.stringify({ level: 'error', msg: 'token_exchange_failed', status: err?.status ?? null, detail: err?.detail ?? null }));
+      return page('Could not connect', `Ring declined the exchange (HTTP ${err?.status ?? 'unknown'}).`, false);
     }
 
     // Tokens alone do not make a live integration: the completion PATCH is what
     // wakes device consents and webhooks up. finishLink does both and reports
     // which half succeeded, so the page can tell the truth rather than assume.
-    // The household is the one the sign-in was started for (authorization.mjs
-    // wrote it into the state row) — never anything in this address. A state
-    // row from before households had their own links names none, and can
-    // only be the operator's.
-    const householdId = row.Item.householdId?.S || OPERATOR_HOUSEHOLD;
-    const tokens = await res.json();
-    const { record, completed } = await finishLink(householdId, tokens, { previous: await readTokens(householdId) });
-    await linkService.recordLink(householdId, record, row.Item.userId?.S);
+    const { record, completed } = await finishLink(OPERATOR_HOUSEHOLD, tokens, { previous: await readTokens(OPERATOR_HOUSEHOLD) });
+    await linkService.recordLink(OPERATOR_HOUSEHOLD, record);
 
     return completed
-      ? page('Connected', 'Wick can now see your Ring doorbell events. You can close this window and go back to the Wick family app.')
+      ? page('Connected', 'Wick can now see your Ring doorbell events. You can close this window.')
       : page(
           'Almost there',
           'Ring accepted the sign-in, but confirming the integration did not go through. '

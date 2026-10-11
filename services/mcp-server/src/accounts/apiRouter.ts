@@ -70,6 +70,8 @@ export interface RingLinkAnswer {
 export interface RingLinks {
   status(householdId: string): Promise<RingLinkAnswer>;
   start(householdId: string, userId: string): Promise<RingLinkAnswer>;
+  /** Finish a sign-in at Ring: only for the organiser and the home that started it. */
+  complete(householdId: string, userId: string, completion: string): Promise<RingLinkAnswer>;
   playground(householdId: string, userId: string, token: string): Promise<RingLinkAnswer>;
   disconnect(householdId: string): Promise<RingLinkAnswer>;
 }
@@ -80,7 +82,13 @@ const RING_REFUSALS: Readonly<Record<string, { status: number; message: string }
   bad_token: { status: 400, message: 'That does not look like a token. Paste the whole token from Ring’s Developer Playground.' },
   token_refused: { status: 400, message: 'Ring did not accept that token. A Playground token lasts about half an hour: get a fresh one and paste it again.' },
   ring_unreachable: RING_UNAVAILABLE,
+  link_expired: { status: 400, message: 'That Ring sign-in has expired or was already used. Start again from the Doorbell card.' },
+  link_not_yours: { status: 403, message: 'That Ring sign-in was started by someone else, for another home. Nothing was connected.' },
+  exchange_failed: { status: 502, message: 'Ring did not confirm the sign-in. Nothing was connected: start again from the Doorbell card.' },
 };
+
+/** The only place a sign-in may send a browser: Ring's own account pages. */
+const RING_SIGN_IN = 'https://account.ring.com/';
 
 /**
  * What the family app is shown of a link. Named fields only, so nothing the
@@ -241,12 +249,23 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
         const refusal = (answer.error && RING_REFUSALS[answer.error]) || RING_UNAVAILABLE;
         return void res.status(refusal.status).json({ error: answer.error && RING_REFUSALS[answer.error] ? answer.error : 'ring_unavailable', message: refusal.message });
       }
-      res.json(answer.url ? { url: answer.url } : ringLinkView(answer));
+      if (answer.url !== undefined) {
+        // The page opens this address. It is Ring's sign-in or it is nothing.
+        if (!answer.url.startsWith(RING_SIGN_IN)) return void res.status(RING_UNAVAILABLE.status).json({ error: 'ring_unavailable', message: RING_UNAVAILABLE.message });
+        return void res.json({ url: answer.url });
+      }
+      res.json(ringLinkView(answer));
     });
 
   router.get('/api/ring', ringAction((links, grant) => links.status(grant.householdId)));
 
   router.post('/api/ring/link', ringAction((links, grant) => links.start(grant.householdId, grant.userId)));
+
+  router.post('/api/ring/link/complete', ringAction(async (links, grant, req) => {
+    const completion = (req.body as { completion?: unknown } | undefined)?.completion;
+    // Not a completion value at all: answered as an expired one, without asking.
+    return typeof completion === 'string' ? links.complete(grant.householdId, grant.userId, completion) : { ok: false, error: 'link_expired' };
+  }));
 
   router.post('/api/ring/playground', ringAction(async (links, grant, req) => {
     const token = (req.body as { token?: unknown } | undefined)?.token;

@@ -27,7 +27,7 @@ data "aws_iam_policy_document" "status" {
   statement {
     sid       = "ReadRingLinkDerivedFieldsOnly"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.ring_tokens.arn]
+    resources = [local.ring_token_secrets_arn]
   }
 
   statement {
@@ -72,17 +72,17 @@ resource "aws_lambda_function" "status" {
 
   environment {
     variables = {
-      TABLE_NAME             = aws_dynamodb_table.wick.name
-      WICK_HOUSEHOLD_ID      = var.household_id
-      RING_TOKEN_SECRET_ARN  = aws_secretsmanager_secret.ring_tokens.arn
-      MCP_SERVICE_ARN        = aws_apprunner_service.mcp_server.arn
-      RING_REFRESH_RULE_NAME = aws_cloudwatch_event_rule.ring_refresh.name
-      MCP_SERVER_URL         = "https://${aws_apprunner_service.mcp_server.service_url}"
-      SIM_ALEXA_URL          = "https://${aws_cloudfront_distribution.sim_alexa.domain_name}"
-      RING_AUTHORIZE_URL     = "${aws_apigatewayv2_api.edge.api_endpoint}/ring/authorize"
-      RING_WEBHOOK_URL       = "${aws_apigatewayv2_api.edge.api_endpoint}/ring/webhook"
-      PAIRING_API_URL        = aws_apigatewayv2_api.edge.api_endpoint
-      WEBSOCKET_HTTPS_URL    = replace(aws_apigatewayv2_stage.transport.invoke_url, "wss://", "https://")
+      TABLE_NAME               = aws_dynamodb_table.wick.name
+      WICK_HOUSEHOLD_ID        = var.household_id
+      RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
+      MCP_SERVICE_ARN          = aws_apprunner_service.mcp_server.arn
+      RING_REFRESH_RULE_NAME   = aws_cloudwatch_event_rule.ring_refresh.name
+      MCP_SERVER_URL           = "https://${aws_apprunner_service.mcp_server.service_url}"
+      SIM_ALEXA_URL            = "https://${aws_cloudfront_distribution.sim_alexa.domain_name}"
+      RING_AUTHORIZE_URL       = "${aws_apigatewayv2_api.edge.api_endpoint}/ring/authorize"
+      RING_WEBHOOK_URL         = "${aws_apigatewayv2_api.edge.api_endpoint}/ring/webhook"
+      PAIRING_API_URL          = aws_apigatewayv2_api.edge.api_endpoint
+      WEBSOCKET_HTTPS_URL      = replace(aws_apigatewayv2_stage.transport.invoke_url, "wss://", "https://")
     }
   }
 

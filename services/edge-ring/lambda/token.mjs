@@ -19,8 +19,12 @@ import { linkService } from './household-link.mjs';
  * app and comes back through link.mjs, with its state.
  */
 const OPERATOR_HOUSEHOLD = process.env.WICK_HOUSEHOLD_ID;
+/** The same switch as authorize.mjs: this address, too, asks nobody who they are. */
+const OPERATOR_LINK = process.env.RING_OPERATOR_LINK === 'true';
 
 export const handler = async (event) => {
+  if (!OPERATOR_LINK) return { statusCode: 404, body: JSON.stringify({ error: 'not_found' }) };
+
   const raw = event.isBase64Encoded
     ? Buffer.from(event.body ?? '', 'base64').toString('utf8')
     : (event.body ?? '');
