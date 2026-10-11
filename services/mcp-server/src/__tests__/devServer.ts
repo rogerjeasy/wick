@@ -17,6 +17,19 @@
  *     token that starts with "playground" is accepted and lists one
  *     simulated camera; anything else is refused, as Ring refuses a bad token
  *
+ *   - Watching together: GET /dev/watch stands in for the remote and the
+ *     player. `?press=accept` (or decline, start, not_now, or an answer's
+ *     key) presses that button on the newest invitation of every home;
+ *     `?player=pause|play|stop` and `?player=seek&to=<ms>` work the film
+ *     once it is started. Each press and each position goes through the
+ *     edge's own conditional updates (edge-device watch-together.mjs), and
+ *     the player says where it is as the television's does (tv-vega
+ *     togetherReporter.ts): at each change, and every few seconds while it
+ *     plays. So what the family app follows here is what it would follow
+ *     from a television.
+ *     The films themselves are fetched through /dev/programmes, which adds
+ *     the cross-origin header a browser's HLS player needs.
+ *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
  * answers; without it there is none, and the app answers by its rules.
@@ -27,7 +40,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DOOR_CARD_TTL_MS, DOOR_LOOK_SK_PREFIX, type QueuedCard } from '@wick/contracts';
+import { UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { DOOR_CARD_TTL_MS, DOOR_LOOK_SK_PREFIX, PROGRAMMES_ORIGIN, WATCH_HEARTBEAT_MS, WATCH_SK_PREFIX, programmeById, type PlaybackStateName, type QueuedCard } from '@wick/contracts';
 import { createApp } from '../server.js';
 import { createMemoryStore } from '../accounts/__tests__/memoryStore.js';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
@@ -37,9 +51,13 @@ import { createMemoryTable } from './memoryTable.js';
 import { invokedRingLinks } from '../accounts/ringLinks.js';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { LinkError, createLinkService } from '../../../edge-ring/lambda/household-link-service.mjs';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate } from '../../../edge-device/lambda/watch-together.mjs';
 
 const API_PORT = 3300;
 const APP_PORT = 4173;
+// The family app's player fetches the films through this server here (see /dev/programmes below).
+process.env.WICK_PROGRAMMES_ORIGIN ??= `http://127.0.0.1:${API_PORT}/dev/programmes`;
 const store = createMemoryStore();
 const table = createMemoryTable();
 const cards: QueuedCard[] = [];
@@ -186,6 +204,109 @@ app.get('/dev/door', (_req, res) => {
     asked.push(householdId);
   }
   res.json({ asked, cardId });
+});
+
+/**
+ * Watching together: the remote and the player of the stand-in television.
+ * One film at a time, for whichever session was started last.
+ */
+type WatchRow = Record<string, { S?: string; N?: string }>;
+const applied = async (update: object | undefined): Promise<WatchRow | undefined> => {
+  if (!update) return undefined;
+  try {
+    return ((await table.ddb.send(new UpdateItemCommand(update as never))) as { Attributes?: WatchRow }).Attributes ?? {};
+  } catch (err) {
+    if ((err as Error).name === 'ConditionalCheckFailedException') return undefined;
+    throw err;
+  }
+};
+
+interface DevPlayer {
+  readonly householdId: string;
+  readonly sessionId: string;
+  readonly programmeId: string;
+  state: PlaybackStateName;
+  positionMs: number;
+  movedAt: number;
+  saidAt: number;
+}
+let player: DevPlayer | undefined;
+
+/** Moves the film on, and says where it is: always when `say` (something changed), otherwise every few seconds while it plays. */
+async function playerTick(say = false): Promise<void> {
+  if (!player) return;
+  const now = Date.now();
+  const film = programmeById(player.programmeId)!;
+  if (player.state === 'PLAYING') {
+    player.positionMs = Math.min(film.durationMs, player.positionMs + (now - player.movedAt));
+    if (player.positionMs >= film.durationMs) {
+      player.state = 'STOPPED';
+      say = true;
+    }
+  }
+  player.movedAt = now;
+  if (!say && (player.state !== 'PLAYING' || now - player.saidAt < WATCH_HEARTBEAT_MS)) return;
+  player.saidAt = now;
+
+  const { householdId, sessionId, state, positionMs } = player;
+  const event = { t: 'watch_position', sessionId, state, positionMs, contentId: film.id, at: now };
+  const row = await applied(positionUpdate({ table: 'dev', householdId, event, now }));
+  console.log(`television: ${state} at ${Math.round(positionMs / 1000)}s${row ? '' : ' (not kept)'}`);
+  if (row && shouldAsk(row) && (await applied(askedUpdate({ table: 'dev', householdId, sessionId, at: now })))) {
+    const question = buildQuestionCard({ householdId, item: row, now }) as QueuedCard;
+    table.put({ pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${question.id}` }, data: { S: JSON.stringify(question) } });
+    console.log(`television: card "${question.card.type === 'WATCH' ? `${question.card.headline} ${question.card.detail}` : ''}"`);
+  }
+}
+setInterval(() => void playerTick(), 1000);
+
+app.get('/dev/watch', async (req, res) => {
+  const press = typeof req.query.press === 'string' ? req.query.press : undefined;
+  const work = typeof req.query.player === 'string' ? req.query.player : undefined;
+  const now = Date.now();
+
+  if (work && player) {
+    await playerTick();
+    if (work === 'pause') player.state = 'PAUSED';
+    else if (work === 'play') player.state = 'PLAYING';
+    else if (work === 'stop') player.state = 'STOPPED';
+    else if (work === 'seek') player.positionMs = Math.max(0, Number(req.query.to) || 0);
+    player.movedAt = Date.now();
+    await playerTick(true);
+    return void res.json({ player: { state: player.state, positionMs: Math.round(player.positionMs) } });
+  }
+  if (!press) return void res.status(400).json({ error: 'press=accept|decline|start|not_now|<answer>, or player=play|pause|stop|seek&to=<ms> once a film is started' });
+
+  const done: { householdId: string; sessionId: string; applied: boolean }[] = [];
+  for (const householdId of homesWithATelevision) {
+    // The newest invitation of this home.
+    const newest = table.rows(`HH#${householdId}`)
+      .filter((row) => row.sk?.S?.startsWith(WATCH_SK_PREFIX))
+      .sort((a, b) => Number(b.createdAt?.N ?? 0) - Number(a.createdAt?.N ?? 0))[0];
+    const sessionId = newest?.sessionId?.S;
+    if (!newest || !sessionId) continue;
+    const target = { table: 'dev', householdId, sessionId, at: now };
+    const row =
+      press === 'accept' ? await applied(decisionUpdate({ ...target, accepted: true }))
+      : press === 'decline' ? await applied(decisionUpdate({ ...target, accepted: false }))
+      : press === 'start' ? await applied(startUpdate(target))
+      : press === 'not_now' ? await applied(notNowUpdate(target))
+      : await applied(answerUpdate({ ...target, answer: press })).catch(() => undefined);
+    done.push({ householdId, sessionId, applied: row !== undefined });
+    if (press === 'start' && row) {
+      player = { householdId, sessionId, programmeId: newest.programmeId!.S!, state: 'PLAYING', positionMs: 0, movedAt: now, saidAt: 0 };
+    }
+  }
+  res.json({ press, done });
+});
+
+/** The films, fetched from where the television fetches them and handed on with the header a browser's HLS player needs. */
+app.use('/dev/programmes', async (req, res) => {
+  const upstream = await fetch(`${PROGRAMMES_ORIGIN}${req.path}`);
+  res.status(upstream.status)
+    .set('access-control-allow-origin', '*')
+    .set('content-type', upstream.headers.get('content-type') ?? 'application/octet-stream')
+    .send(Buffer.from(await upstream.arrayBuffer()));
 });
 
 app.get('/dev/allow', async (_req, res) => {

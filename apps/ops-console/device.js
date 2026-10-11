@@ -12,6 +12,8 @@
  */
 const PAIRING_API_URL = 'PAIRING_API_URL_PLACEHOLDER';
 const WEBSOCKET_URL = 'WEBSOCKET_URL_PLACEHOLDER';
+/** Where the television's films are served from (infra/programmes.tf). */
+const PROGRAMMES_ORIGIN = 'PROGRAMMES_ORIGIN_PLACEHOLDER';
 
 /** As long as the code itself lives (services/edge-device/lambda/pairing-code.mjs). */
 const PAIRING_WAIT_MS = 15 * 60 * 1000;
@@ -26,6 +28,8 @@ const telemetryButtons = ['fg-btn', 'bg-btn', 'play-btn', 'pause-btn'].map((id) 
 
 let ws = null;
 let currentQueuedCard = null;
+/** The film on screen (watching together): its layer, its player, and — while someone is following — the session it speaks for. */
+let film = null;
 const MAX_LOG_LINES = 200;
 
 function el(tag, className, text) {
@@ -35,8 +39,12 @@ function el(tag, className, text) {
   return node;
 }
 
-function clear(node) {
-  while (node.firstChild) node.removeChild(node.firstChild);
+/** Puts one thing on the screen, over the film if one is playing — which is left where it is. */
+function show(node) {
+  for (const child of [...tvScreen.children]) {
+    if (child !== film?.layer) child.remove();
+  }
+  if (node) tvScreen.appendChild(node);
 }
 
 function sleep(ms) {
@@ -184,8 +192,7 @@ function stripUndefined(patch) {
 /* --- Rendering -------------------------------------------------------- */
 
 function renderEmpty() {
-  clear(tvScreen);
-  tvScreen.appendChild(el('div', 'tv-empty', 'No card currently shown.'));
+  show(film ? null : el('div', 'tv-empty', 'No card currently shown.'));
 }
 
 /** The unpaired screen: the code, and where to enter it (PairingScreen.tsx). */
@@ -201,8 +208,7 @@ function renderPairingCode(code, url) {
     link.rel = 'noopener';
     wrapper.appendChild(link);
   }
-  clear(tvScreen);
-  tvScreen.appendChild(wrapper);
+  show(wrapper);
 }
 
 function renderCard(queuedCard) {
@@ -240,6 +246,11 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'kicker', card.type === 'CIRCLE' ? 'Your family circle' : 'What your family sees'));
     wrapper.appendChild(el('div', 'headline', card.headline));
     wrapper.appendChild(el('div', 'body-text', card.detail));
+  } else if (card.type === 'WATCH') {
+    // Watch together: the server wrote every word (mcp-server tools, edge-device watch-together.mjs).
+    wrapper.appendChild(el('div', 'kicker', 'Watching together'));
+    wrapper.appendChild(el('div', 'headline', card.headline));
+    if (card.detail) wrapper.appendChild(el('div', 'body-text', card.detail));
   } else {
     wrapper.appendChild(el('div', 'body-text', `Unrecognized card type: ${card.type}`));
   }
@@ -251,8 +262,10 @@ function renderCard(queuedCard) {
       pill.type = 'button';
       pill.addEventListener('click', () => {
         send({ t: 'card_action', cardId: card.id, action: action.id, at: Date.now() });
-        // An answer to the family circle finishes its card, as on the television (cardActions.ts).
-        if (card.type === 'CIRCLE') {
+        // "Start the film" opens it, and from here this television says where it is (cardActions.ts startsFilm).
+        if (card.type === 'WATCH' && action.id === 'start' && card.programmeId) startFilm(card);
+        // An answer to the family circle, or to anything about watching together, finishes its card, as on the television (cardActions.ts).
+        if (card.type === 'CIRCLE' || card.type === 'WATCH') {
           currentQueuedCard = null;
           renderEmpty();
         }
@@ -262,8 +275,115 @@ function renderCard(queuedCard) {
     wrapper.appendChild(actions);
   }
 
-  clear(tvScreen);
-  tvScreen.appendChild(wrapper);
+  show(wrapper);
+}
+
+/* --- Watching together ------------------------------------------------ */
+
+/*
+ * The film, in this page, for someone with no Fire TV: the player's own
+ * controls stand in for the remote. From "Start the film" this page says
+ * where the film is exactly as the television does
+ * (apps/tv-vega/src/watch/togetherReporter.ts, which is the tested one —
+ * keep the two in step): at each change, at a skip, and every few seconds
+ * while it plays; only for the film that card named, and not at all once
+ * the session's time is up.
+ */
+const HLS_SRC = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.light.min.js';
+const HLS_INTEGRITY = 'sha384-aUXIo1rkYXsnqzYlykJMPPxPku80rMufp2z0gLNU59eAyfNRhP87hllql3hwVjUZ';
+const WATCH_HEARTBEAT_MS = 5000;
+const SKIP_MS = 2000;
+function loadHls() {
+  if (window.Hls) return Promise.resolve(window.Hls);
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = HLS_SRC;
+    script.integrity = HLS_INTEGRITY;
+    script.crossOrigin = 'anonymous';
+    script.onload = () => resolve(window.Hls);
+    script.onerror = () => reject(new Error('hls.js could not be loaded'));
+    document.head.appendChild(script);
+  });
+}
+
+function filmState(video) {
+  if (video.ended) return 'STOPPED';
+  if (video.paused) return 'PAUSED';
+  return video.readyState < 3 ? 'BUFFERING' : 'PLAYING';
+}
+
+function reportFilm(stopped = false) {
+  const together = film?.together;
+  const now = Date.now();
+  if (!together || now >= together.until) return;
+  const last = film.last;
+  if (stopped && (!last || last.state === 'STOPPED')) return;
+  const state = stopped ? 'STOPPED' : filmState(film.video);
+  const positionMs = stopped ? last.positionMs : Math.round(film.video.currentTime * 1000);
+  const expected = last ? last.positionMs + (last.state === 'PLAYING' ? now - last.at : 0) : 0;
+  const worthSaying =
+    !last || state !== last.state || Math.abs(positionMs - expected) > SKIP_MS || (state === 'PLAYING' && now - last.at >= WATCH_HEARTBEAT_MS);
+  if (!worthSaying) return;
+  film.last = { state, positionMs, at: now };
+  send({ t: 'watch_position', sessionId: together.sessionId, state, positionMs, contentId: together.programmeId, at: now });
+}
+
+function stopFilm() {
+  if (!film) return;
+  reportFilm(true);
+  clearInterval(film.timer);
+  film.hls?.destroy();
+  film.layer.remove();
+  film = null;
+  if (!currentQueuedCard) renderEmpty();
+}
+
+function startFilm(card) {
+  stopFilm();
+  // The id goes into an address: only what a programme id can be.
+  if (!/^[a-z0-9-]{1,64}$/.test(card.programmeId)) return;
+  const url = `${PROGRAMMES_ORIGIN}/${card.programmeId}/index.m3u8`;
+
+  const layer = el('div', 'tv-film');
+  const video = document.createElement('video');
+  video.controls = true;
+  video.playsInline = true;
+  layer.appendChild(video);
+  const back = el('button', 'pill tv-film-back', 'Back');
+  back.type = 'button';
+  back.addEventListener('click', stopFilm);
+  layer.appendChild(back);
+  // Someone follows only while the card says they can: after that the film is this television's alone.
+  const followed = typeof card.followedUntil === 'number' && Date.now() < card.followedUntil;
+  if (followed) layer.appendChild(el('div', 'tv-film-with', `${card.withName} is watching with you.`));
+  tvScreen.insertBefore(layer, tvScreen.firstChild);
+
+  film = {
+    layer,
+    video,
+    hls: null,
+    last: null,
+    together: followed ? { sessionId: card.sessionId, programmeId: card.programmeId, until: card.followedUntil } : null,
+    timer: setInterval(() => reportFilm(), 1000),
+  };
+  for (const type of ['play', 'pause', 'playing', 'waiting', 'seeked', 'ended']) video.addEventListener(type, () => reportFilm());
+
+  const mine = film;
+  const playNatively = () => {
+    if (film === mine) video.src = url;
+  };
+  loadHls()
+    .then((Hls) => {
+      if (film !== mine) return;
+      if (!Hls?.isSupported()) return playNatively();
+      mine.hls = new Hls();
+      mine.hls.loadSource(url);
+      mine.hls.attachMedia(video);
+    })
+    .catch(playNatively)
+    .finally(() => {
+      if (film === mine) video.play().catch(() => log('!', 'press play on the film to start it'));
+    });
 }
 
 /* --- Telemetry ------------------------------------------------------- */

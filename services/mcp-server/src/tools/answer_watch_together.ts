@@ -1,0 +1,94 @@
+/**
+ * MCP tool: answer_watch_together — what the family member thought of it.
+ *
+ * When the film reaches its credits each of the two is asked one question.
+ * The resident answers on the television (edge-device
+ * watch-together.mjs); this is the family member's answer, which is put on
+ * her television under their name.
+ *
+ * The answer is a key from WATCH_ANSWERS (packages/contracts watch.ts),
+ * never a sentence — answer_door_request.ts says why: what is shown under a
+ * daughter's name must be something only Wick wrote. One answer each: the
+ * write is conditional, and it is an UpdateItem, not a rewrite of the row,
+ * because the resident may be answering on the television at the same
+ * moment.
+ *
+ * INV-2: the card goes through the sender the server was given
+ * (server.ts AppDeps.sendCard).
+ */
+import { z } from 'zod';
+import { UpdateItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { WATCH_ACTIONS, WATCH_ANSWERS, type QueuedCard, type WatchAnswer } from '@wick/contracts';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { gated, type ToolContext } from './context.js';
+import { withFriendlyErrors } from './errors.js';
+import { WRITES, data, say } from './result.js';
+import { NOTHING_ASKED, TABLE, mySession, sessionKey, watchCard, type WatchSession } from './watchSession.js';
+
+const ANSWER_KEYS = Object.keys(WATCH_ANSWERS) as [WatchAnswer, ...WatchAnswer[]];
+
+export const NOT_FINISHED_TEXT = 'The film has not reached its end yet.';
+const alreadyAnswered = (session: WatchSession): string => `You have already answered: “${WATCH_ANSWERS[session.familyAnswer!]}”`;
+
+export function registerAnswerWatchTogether(
+  mcpServer: McpServer,
+  ddb: DynamoDBClient,
+  ctx: ToolContext,
+  sendCard: (card: QueuedCard) => Promise<void>,
+  now: () => number = Date.now,
+): void {
+  mcpServer.registerTool(
+    'answer_watch_together',
+    {
+      title: 'Say what you thought of the film',
+      description:
+        'After a film watched together has reached its end, puts the family member’s answer to the one question on the resident’s television, under their name. ' +
+        'Pass the `sessionId` from get_watch_together and `answer`: the key of one of these — ' +
+        `${Object.entries(WATCH_ANSWERS).map(([key, text]) => `${key} ("${text}")`).join(', ')}. ` +
+        'An answer cannot be written, only chosen, and only by the person who watched: never answer on their behalf.',
+      inputSchema: {
+        sessionId: z.string().min(1).max(64).describe('The `sessionId` get_watch_together returned.'),
+        answer: z.enum(ANSWER_KEYS).describe('The key of the chosen answer, e.g. "loved_it".'),
+      },
+      annotations: WRITES,
+    },
+    withFriendlyErrors(gated(ctx, async (allowed, { sessionId, answer }: { sessionId: string; answer: WatchAnswer }) => {
+      const residentName = allowed.household.residentName;
+      const at = now();
+      const session = await mySession(ddb, ctx.householdId, ctx.userId, sessionId);
+      if (!session) return say(NOTHING_ASKED(residentName));
+      if (session.askedAt === undefined) return say(NOT_FINISHED_TEXT);
+      if (session.familyAnswer) return say(alreadyAnswered(session));
+      if (at >= session.closesAt) return say(`It is too late to put an answer on the television. A note will still reach ${residentName}.`);
+
+      try {
+        await ddb.send(new UpdateItemCommand({
+          TableName: TABLE,
+          Key: sessionKey(ctx.householdId, sessionId),
+          UpdateExpression: 'SET familyAnswer = :answer, familyAnsweredAt = :at',
+          ConditionExpression: 'attribute_exists(askedAt) AND attribute_not_exists(familyAnswer)',
+          ExpressionAttributeValues: { ':answer': { S: answer }, ':at': { N: String(at) } },
+        }));
+      } catch (err) {
+        if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
+        // Answered in the moment between the read and the write, from another window.
+        const settled = await mySession(ddb, ctx.householdId, ctx.userId, sessionId);
+        return say(settled?.familyAnswer ? alreadyAnswered(settled) : NOT_FINISHED_TEXT);
+      }
+
+      const by = session.invitedByName;
+      const text = WATCH_ANSWERS[answer];
+      await sendCard(watchCard({
+        kind: 'answer',
+        householdId: ctx.householdId,
+        session,
+        headline: `${by} says: “${text}”`,
+        detail: `About ${session.programmeTitle}, which you watched together.`,
+        actions: [{ id: WATCH_ACTIONS.ok, label: 'OK', kind: 'primary' }],
+        now: at,
+      }));
+
+      return data({ shown: true, by, text, ...(session.residentAnswer ? { theirAnswer: WATCH_ANSWERS[session.residentAnswer] } : {}) });
+    })),
+  );
+}

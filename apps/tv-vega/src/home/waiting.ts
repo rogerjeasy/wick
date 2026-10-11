@@ -18,6 +18,8 @@ export function waitingLine(queued: QueuedCard): string {
       return `${card.personName} would like to join your family circle.`;
     case 'SHARING':
       return 'What your family can see is ready to look at.';
+    case 'WATCH':
+      return card.headline;
     default:
       return 'Something is waiting for you.';
   }

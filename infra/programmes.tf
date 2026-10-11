@@ -60,6 +60,14 @@ resource "aws_cloudfront_distribution" "programmes" {
     viewer_protocol_policy = "https-only"
     compress               = true
 
+    # Watching together: the family member's player runs in a browser, on the
+    # family app's origin, and a browser's HLS player (hls.js) fetches the
+    # playlist and each segment with a cross-origin request. Without this
+    # header it is refused. The films are public (CC BY 3.0) and carry no
+    # cookie or credential, so any origin may read them: AWS's own
+    # Managed-SimpleCORS policy, named by its fixed id.
+    response_headers_policy_id = "60669652-455b-4ae9-85a4-c4c02393f86c"
+
     forwarded_values {
       query_string = false
       cookies {

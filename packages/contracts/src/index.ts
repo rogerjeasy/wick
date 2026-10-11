@@ -5,4 +5,6 @@ export * from './door.js';
 export * from './fact.js';
 export * from './live.js';
 export * from './narrative.js';
+export * from './programmes.js';
 export * from './timeline.js';
+export * from './watch.js';

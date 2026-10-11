@@ -49,10 +49,12 @@ type scale), that:
    HTTP, spec 2025-11-25, after a real OAuth 2.1 link — no shortcuts, no direct
    database reads;
 2. takes a question from a suggestion chip or the text field and lets a
-   **model choose** among Wick's ten tools (`get_week_narrative`,
+   **model choose** among Wick's sixteen tools (`get_week_narrative`,
    `get_today`, `get_whats_different`, `did_visitor_come`,
    `list_regular_visitors`, `add_regular_visitor`, `expect_visit`,
-   `send_note_to_tv`, `get_replies`, `get_resident_shared_view`). The model
+   `send_note_to_tv`, `get_replies`, `get_resident_shared_view`,
+   `get_door_request`, `answer_door_request`, `invite_to_watch`,
+   `get_watch_together`, `join_watch_together`, `answer_watch_together`). The model
    runs on the Wick server (`services/mcp-server/src/assistant`, Bedrock
    Converse) and only decides: **this page makes every call itself, over
    MCP, with the signed-in person's own token**, so the model can reach
@@ -83,3 +85,19 @@ changes** — which is the whole reason for building to the published spec rathe
 than to whatever is convenient.
 
 Build after `services/mcp-server` answers correctly from MCP Inspector.
+
+**Watching a film together.** "Ask Mum to watch a film with me" sends an
+invitation to the television (`invite_to_watch`); the answer is kept on the
+server, so "Did Mum say yes to the film?" works on any later day. At the
+arranged time this page offers a seat: a player with no pause and no skip,
+kept where the television's player is (`get_watch_together`, asked every two
+seconds while the seat is taken). The film plays through hls.js, loaded from
+jsDelivr only when a seat is taken, pinned to one version and checked against
+a hash; where that cannot run, the browser's own HLS is used. The following
+itself is `follow` in `surface.js`, and is tested there.
+
+To try it with no television: `GET http://127.0.0.1:3300/dev/watch?press=accept`
+says yes as the resident, `?press=start` starts the film once you have sat
+down, and `?player=pause`, `play`, `seek&to=<ms>` and `stop` work the
+stand-in television's player. `?press=loved_it` answers the question at the
+credits.

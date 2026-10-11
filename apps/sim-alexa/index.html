@@ -201,6 +201,17 @@
   .door-description { margin: 0; }
   .door-answers { display: flex; flex-direction: column; gap: var(--s-xs); }
   .door-answers .btn { text-align: left; }
+  /* A film watched together: the picture, one line about the television, and no controls — the remote is theirs. */
+  .watch-screen { width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r-m); background: #000; overflow: hidden; }
+  .watch-screen[hidden] { display: none; }
+  .watch-screen video { width: 100%; height: 100%; display: block; object-fit: contain; }
+  .watch-status { margin: 0; font-weight: 600; }
+  .watch-question { display: flex; flex-direction: column; gap: var(--s-xs); }
+  .watch-question[hidden] { display: none; }
+  .watch-question p { margin: 0; }
+  .watch-attribution { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
+  .watch-attribution:empty { display: none; }
+  .card > .actions:empty { display: none; }
   .by { display: inline-flex; align-items: center; gap: var(--s-2xs); white-space: nowrap; }
   .empty { color: var(--ink-dim); margin: 0; }
 
@@ -221,7 +232,7 @@
 
   .form { display: flex; flex-direction: column; gap: var(--s-s); }
   .form label { display: flex; flex-direction: column; gap: var(--s-2xs); color: var(--ink-dim); font-size: var(--t-small); }
-  .form input, .form textarea, .ask input, details input, input.linkbox {
+  .form input, .form textarea, .form select, .ask input, details input, input.linkbox {
     background: var(--card-inner);
     border: 1px solid var(--line);
     border-radius: var(--r-m);

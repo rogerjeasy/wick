@@ -41,12 +41,17 @@ locals {
 
   ops_console_device_js = replace(
     replace(
-      file("${path.module}/../apps/ops-console/device.js"),
-      "PAIRING_API_URL_PLACEHOLDER",
-      aws_apigatewayv2_api.edge.api_endpoint,
+      replace(
+        file("${path.module}/../apps/ops-console/device.js"),
+        "PAIRING_API_URL_PLACEHOLDER",
+        aws_apigatewayv2_api.edge.api_endpoint,
+      ),
+      "WEBSOCKET_URL_PLACEHOLDER",
+      aws_apigatewayv2_stage.transport.invoke_url,
     ),
-    "WEBSOCKET_URL_PLACEHOLDER",
-    aws_apigatewayv2_stage.transport.invoke_url,
+    # Watching together: the virtual television plays the same films from the same place (infra/programmes.tf).
+    "PROGRAMMES_ORIGIN_PLACEHOLDER",
+    "https://${aws_cloudfront_distribution.programmes.domain_name}",
   )
 }
 

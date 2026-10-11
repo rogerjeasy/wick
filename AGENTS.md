@@ -173,6 +173,23 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   row, week and household carries `simulated`, and the family app says so
   wherever it names the home. **Never** write simulated rows to a household a
   person set up, and never show a simulated week without saying it is one.
+- **Where a film has got to is the resident's.** Watching together
+  (`packages/contracts/src/watch.ts`) lets one family member's player follow
+  the resident's. The position of a film leaves the television only after the
+  resident's own press on "Start the film" — on a card that says who will see
+  it — only for the one film named in the invitation they accepted, only
+  inside that invitation's window, and it is read back only to the person who
+  sent the invitation. Three places keep it, and none trusts another: the
+  television says nothing without the press
+  (`apps/tv-vega/src/watch/togetherReporter.ts`), the edge keeps nothing that
+  does not match the session's row
+  (`services/edge-device/lambda/watch-together.mjs`), and the tools answer
+  nobody else (`services/mcp-server/src/tools/watchSession.ts` `mySession`).
+  The ordinary `playback` event carries a programme's id for the week's
+  rhythm and is never read by a family tool. **Never** add a tool, a route or
+  a field that tells the family what is playing, or where it has got to,
+  outside a session the resident started. And the family member's player has
+  no pause and no skip: nobody reaches the resident's remote.
 - **Never commit real household data.** No captures, no HAR files, no Ring
   snapshots. `.gitignore` covers the common cases; you are still
   responsible.

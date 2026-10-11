@@ -36,7 +36,22 @@ export type DeviceEvent =
       readonly at: number;
     }
   | { readonly t: 'card_shown'; readonly cardId: string; readonly at: number }
-  | { readonly t: 'app_lifecycle'; readonly state: 'fg' | 'bg'; readonly at: number };
+  | { readonly t: 'app_lifecycle'; readonly state: 'fg' | 'bg'; readonly at: number }
+  /**
+   * Watch together (watch.ts): where the film is, for the one person the
+   * resident is watching it with. Sent only between her press on "Start the
+   * film" and the end of that film — never for anything else she plays.
+   * Not a `playback` event: those are counted into the week's rhythm, once
+   * per change of state, and these come every few seconds.
+   */
+  | {
+      readonly t: 'watch_position';
+      readonly sessionId: string;
+      readonly state: PlaybackStateName;
+      readonly positionMs: number;
+      readonly contentId: string;
+      readonly at: number;
+    };
 
 export type ControlMessage =
   | { readonly t: 'patch'; readonly patch: CardPatch }
