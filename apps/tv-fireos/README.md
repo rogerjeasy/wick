@@ -58,11 +58,17 @@ end and a demo home made for the run:
 - a note sent while the film plays is **not** shown; it appears when the film
   is paused; a reply chosen with the D-pad and OK is read back through the
   `get_replies` tool;
+- a door card arrives over a playing film, with the picture from Ring's
+  Developer Playground camera (Ring's simulator);
+- **Watch live** shows that camera's live picture with the countdown, and Back
+  returns to the card with the film still there;
 - after the app is replaced and reopened it is still paired, as the same
   television.
 
-Not yet checked here: a door card over a film, and Watch live. Both need a
-doorbell assigned to the test home.
+The door card was sent to the test home from a laptop with the Door agent's
+own code, because Ring's webhook only ever resolves to the operator's
+household; everything after that — the picture, Watch live, the bridge — was
+the deployed stack.
 
 Two things Android does differently from Vega, both handled in the adapters
 and written up in `FRICTION.md` FL-025: a key press reaches only what holds
