@@ -16,11 +16,13 @@ function worker(pages: Page[] = []) {
   const listeners = new Map<string, (event: unknown) => void>();
   const showNotification = vi.fn(async (_title: string, _options: Record<string, unknown>) => {});
   const openWindow = vi.fn(async (_url: string) => {});
+  const skipWaiting = vi.fn(async () => {});
+  const claim = vi.fn(async () => {});
   const self = {
     addEventListener: (type: string, listener: (event: unknown) => void) => void listeners.set(type, listener),
     registration: { scope: SCOPE, showNotification },
-    clients: { matchAll: async () => pages, openWindow },
-    skipWaiting: async () => {},
+    clients: { matchAll: async () => pages, openWindow, claim },
+    skipWaiting,
   };
   new Function('self', SOURCE)(self);
 
@@ -32,7 +34,7 @@ function worker(pages: Page[] = []) {
   };
   const push = (payload: unknown) =>
     dispatch('push', { data: payload === undefined ? null : { json: () => (typeof payload === 'string' ? JSON.parse(payload) : payload) } });
-  return { dispatch, push, showNotification, openWindow };
+  return { dispatch, push, showNotification, openWindow, skipWaiting, claim };
 }
 
 describe('the service worker — a nudge becomes a notification', () => {
@@ -96,5 +98,17 @@ describe('the service worker — pressing the notification', () => {
     await click(w).done;
 
     expect(w.openWindow).toHaveBeenCalledWith(SCOPE);
+  });
+});
+
+describe('the service worker — a new version', () => {
+  it('takes over at once: an old worker would show a new kind of nudge in words that say nothing', async () => {
+    const w = worker();
+
+    await w.dispatch('install', {});
+    await w.dispatch('activate', {});
+
+    expect(w.skipWaiting).toHaveBeenCalled();
+    expect(w.claim).toHaveBeenCalled();
   });
 });

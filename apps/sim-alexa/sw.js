@@ -19,6 +19,12 @@ const OTHER = 'Something is waiting for you in Wick.';
 /** Kinds that should stay on screen until someone looks: a person is waiting on the answer. */
 const WAITS_FOR_YOU = ['door_look'];
 
+// A new version of this file takes over at once, from every open page. Left
+// to wait for the old one's pages to close, it could be days before a new
+// kind of nudge was shown in its own words.
+self.addEventListener('install', (event) => event.waitUntil(self.skipWaiting()));
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
 function kindOf(event) {
   try {
     const kind = event.data ? event.data.json().kind : undefined;
