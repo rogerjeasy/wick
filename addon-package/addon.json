@@ -1,15 +1,13 @@
 {
-  "_comment": "Alexa+ add-on manifest. Schema verified against the Alexa+ MCP Toolkit quickstart (2026-09-14). Deploy with: alexa-ai deploy",
-  "_endpointNote": "integrations[0].config.endpoints.default.uri is the ONLY field still requiring a decision. It must point at the deployed WickMcp stack — either the raw API Gateway/CloudFront URL from the CDK output, or a CNAME you control. Set it before running alexa-ai deploy.",
-  "_assetsNote": "Legal pages and media are served from GitHub Pages (repo Settings > Pages > main, /docs). Image files must exist at these exact URLs and at these exact pixel sizes before deploy will accept the manifest.",
   "manifestVersion": "1.0",
   "storeListing": {
     "distributionCountries": ["US"],
     "locales": {
       "en-US": {
-        "name": { "value": "Wick", "spokenForm": { "format": "ipa", "value": "" } },
+        "default": "DEFAULT",
+        "name": { "value": "Wick", "spokenForm": { "format": "ipa", "value": "wɪk" } },
         "shortDescription": "Ask how someone living alone has been this week, in plain language.",
-        "fullDescription": "Wick turns the television into the care surface for the person being cared for. It watches the front door through Ring and learns the household's ordinary rhythm — so it can tell a distant family member the truth about the week, without ever turning a living room into a surveillance feed. Nothing about health, money or relationships leaves the house without permission, and the resident sees their own week before anyone else can read it.",
+        "fullDescription": "Ask \"how has my mum been this week?\" and Wick answers in plain words: who came to the door, whether the carer visited, and whether anything was unlike a usual week.\n\nWick is for the family of someone who lives alone. A television in their home runs the Wick app and shows them calm cards, never in the middle of a programme, only at a natural break. A Ring doorbell tells Wick when someone is at the door.\n\nWhat you can do:\n• Hear how the week went, and what was different from usual\n• Check whether a regular visitor, such as a carer, came today\n• Put a short note on their television and hear their one-button reply\n• Tell them you are coming to visit\n\nThe person at home is in charge. They see their own week before anyone else can read it, they choose who in the family is allowed, and nothing about health, money or relationships is ever passed on.\n\nBefore you start: you link a Wick account, the home needs a Fire TV running the Wick app, and the person who lives there must allow you from their television.",
         "examplePhrases": [
           "how has my mum been this week",
           "did the carer come today",
@@ -29,15 +27,23 @@
               { "size": "180x180", "uri": "https://rogerjeasy.github.io/wick/icons/light-180.png" },
               { "size": "241x241", "uri": "https://rogerjeasy.github.io/wick/icons/light-241.png" }
             ],
-            "dark": []
+            "dark": [
+              { "size": "72x72",   "uri": "https://rogerjeasy.github.io/wick/icons/dark-72.png" },
+              { "size": "64x64",   "uri": "https://rogerjeasy.github.io/wick/icons/dark-64.png" },
+              { "size": "88x88",   "uri": "https://rogerjeasy.github.io/wick/icons/dark-88.png" },
+              { "size": "126x126", "uri": "https://rogerjeasy.github.io/wick/icons/dark-126.png" },
+              { "size": "180x180", "uri": "https://rogerjeasy.github.io/wick/icons/dark-180.png" },
+              { "size": "241x241", "uri": "https://rogerjeasy.github.io/wick/icons/dark-241.png" }
+            ]
           },
           "carouselImages": [
             {
               "uri": "https://rogerjeasy.github.io/wick/carousel/wick-1.png",
-              "altText": "A television showing a calm card: someone is at the front door, with a still from the doorbell camera.",
+              "altText": "The Wick mark, a candle flame, above the name Wick and the line: the television as the care surface for the person being cared for.",
               "size": "600x900"
             }
-          ]
+          ],
+          "bannerImages": []
         }
       }
     }
@@ -45,7 +51,7 @@
   "integrations": [
     {
       "type": "MCP",
-      "config": { "endpoints": { "default": { "type": "HTTPS", "uri": "SET-FROM-WICKMCP-STACK-OUTPUT" } } }
+      "config": { "endpoints": { "default": { "type": "HTTPS", "uri": "https://tqcu7pa3ip.us-east-1.awsapprunner.com/mcp" } } }
     }
   ]
 }

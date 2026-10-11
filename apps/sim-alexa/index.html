@@ -236,6 +236,13 @@
   .card a { color: var(--wick); }
 
   details { color: var(--ink-dim); font-size: var(--t-small); }
+  /* The add-on listing: its icon beside the name, and what it says about itself. */
+  .listing-icon { width: 56px; height: 56px; border-radius: var(--r-m); align-self: center; flex: none; }
+  .listing { display: flex; flex-direction: column; gap: var(--s-s); }
+  .listing p { margin: 0; }
+  .listing a { color: var(--ink); }
+  .listing details p, .listing details ul { margin: var(--s-xs) 0 0; }
+  .listing details ul { padding-left: 1.2em; }
   details summary { cursor: pointer; padding: var(--s-2xs) 0; }
   details label { display: flex; flex-direction: column; gap: var(--s-2xs); margin-top: var(--s-xs); }
 
@@ -286,9 +293,23 @@
       <div id="link-card" class="turn-assistant">
         <p id="link-say" class="say">To ask about the house, link Wick first.</p>
         <div class="card">
-          <div class="card-head"><h2 id="link-title" class="card-title">Link your Wick account</h2></div>
+          <div class="card-head">
+            <img id="listing-icon" class="listing-icon" alt="" hidden />
+            <h2 id="link-title" class="card-title">Link your Wick account</h2>
+            <span id="listing-meta" class="card-meta" hidden>Add-on · simulated listing</span>
+          </div>
           <p id="link-detail" class="empty">Sign in, or create an account with your email and a password.
             Wick then answers only what the person at home has agreed to share.</p>
+          <!-- Wick's listing as an add-on, filled from ./addon.json (the package
+               Amazon's toolkit would be given). Hidden until that file is read. -->
+          <div id="listing-body" class="listing" hidden>
+            <p class="card-meta">Things to say</p>
+            <ul id="listing-phrases" class="rows"></ul>
+            <details id="listing-about"><summary>About Wick</summary></details>
+            <p class="empty">Enabling Wick links a Wick account.
+              <a id="listing-privacy" target="_blank" rel="noopener">Privacy</a> ·
+              <a id="listing-terms" target="_blank" rel="noopener">Terms</a></p>
+          </div>
           <div class="form">
             <div class="actions">
               <button id="connect" class="btn final" type="button">Sign in or create an account</button>

@@ -663,7 +663,7 @@ The wearable connector was removed with the Day agent (§5.3). The section numbe
 | | Status | What we do |
 |---|---|---|
 | **S4a — the MCP server** | **Buildable, ungated** | Build it to the full published spec. Exercise via MCP Inspector, Claude, and a small simulated Alexa+ web surface — the alternative the hackathon rules explicitly allow. |
-| **S4b — Alexa+ registration** | **Gated** | Request access; document the outcome. `addon-package/addon.json` is kept complete and valid so that if access opens, **no code changes** — only a deploy. |
+| **S4b — Alexa+ registration** | **Gated** — staff confirmed in the week of 2026-10-05 that no hackathon participant will be given access | `addon-package/addon.json` is complete and checked: `npm run addon:check` holds it to the quickstart's field table in CI, and `-- --live` runs the rest of what a deploy is documented to need against the deployed stack. The family app reads the same file for Wick's listing and for the server it links against. If access opens, **no code changes** — only a deploy. |
 
 **Build to the published requirements anyway.** They are all good engineering independent of Alexa+, and they are what makes the claim "this is a real MCP server, not a demo prop" defensible to a judge.
 

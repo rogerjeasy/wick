@@ -115,13 +115,102 @@ export function routeUtterance(text, now = Date.now()) {
 
   if (/\b(can|may) i see\b|\bshare[sd]?\b|\bprivate\b/.test(t)) return tool('get_resident_shared_view');
   // Before "today" and "Maria": "is anything different today" is this question, not the day's list.
-  if (/\bdifferent\b|\bunusual\b|\ball ?right\b|\bshould i know\b/.test(t)) return tool('get_whats_different');
+  if (/\bdifferent\b|\bunusual\b|\bal(?:l ?)?right\b|\bshould i know\b/.test(t)) return tool('get_whats_different');
   if (/\bmaria\b|\bcarer\b/.test(t)) return tool('did_visitor_come', { personId: 'maria' });
   if (/\btoday\b/.test(t)) return tool('get_today');
   // "This week" is whichever week there is to read (the server picks the
   // latest); "last week" is asked for by name, so it is that week or nothing.
   if (/\bweek\b/.test(t)) return tool('get_week_narrative', /\blast week\b/.test(t) ? { isoWeek: isoWeekOf(now - 7 * DAY_MS) } : {});
   return { kind: 'help' };
+}
+
+/**
+ * Wick's listing as an add-on, read from the package Amazon's toolkit would
+ * be given (addon-package/addon.json, published beside this page). It is
+ * what a customer sees before they enable an add-on: the name, what it is
+ * for, things to say, and that an account is linked.
+ *
+ * Null for a package this page should not stand behind — no name, or no
+ * HTTPS server to link against. The page then shows its plain link card.
+ * The package's full rules are checked where it is built
+ * (scripts/addon/manifest-rules.ts); this is only what the page itself needs.
+ *
+ * @param {unknown} manifest
+ * @param {string} locale
+ */
+export function presentListing(manifest, locale = 'en-US') {
+  const store = manifest?.storeListing?.locales?.[locale];
+  const name = store?.name?.value?.trim?.();
+  if (!name) return null;
+
+  const endpoint = (manifest.integrations ?? []).find((i) => i?.type === 'MCP')?.config?.endpoints?.default?.uri;
+  let server;
+  try {
+    server = new URL(endpoint);
+  } catch {
+    return null;
+  }
+  if (server.protocol !== 'https:') return null;
+
+  // This page is dark, so the dark-theme icons are the ones made for it.
+  const icons = store.mediaAssets?.icons ?? {};
+  const set = icons.dark?.length ? icons.dark : (icons.light ?? []);
+  const width = (icon) => Number.parseInt(icon?.size ?? '0', 10);
+  const largest = [...set].sort((a, b) => width(b) - width(a))[0];
+
+  const about = String(store.fullDescription ?? '')
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.split('\n').map((line) => line.trim()).filter(Boolean))
+    .filter((lines) => lines.length > 0)
+    .map((lines) => {
+      const items = lines.filter((line) => line.startsWith('•')).map((line) => line.slice(1).trim());
+      if (items.length === 0) return { text: lines.join(' ') };
+      return { lead: lines.filter((line) => !line.startsWith('•')).join(' '), items };
+    });
+
+  return {
+    name,
+    summary: store.shortDescription ?? '',
+    about,
+    phrases: (store.examplePhrases ?? []).filter((phrase) => typeof phrase === 'string' && phrase.trim()),
+    iconUrl: largest?.uri,
+    privacyUrl: store.privacyAndCompliance?.privacyPolicyUrl,
+    termsUrl: store.privacyAndCompliance?.termsOfUseUrl,
+    serverUrl: server.origin,
+  };
+}
+
+/**
+ * The server to link against: the one the package names, wherever this page
+ * is deployed. On a laptop the server is the developer's own, so the field
+ * on the page is left as it is.
+ *
+ * @param {{ serverUrl: string } | null} listing
+ * @param {string} hostname  this page's own
+ */
+export function serverFor(listing, hostname) {
+  if (!listing?.serverUrl) return null;
+  return hostname === 'localhost' || hostname === '127.0.0.1' ? null : listing.serverUrl;
+}
+
+/**
+ * The chips under the conversation: the phrases the listing promises first,
+ * then the app's own, leaving out any that ask what a phrase already asks.
+ *
+ * @param {{ phrases: string[] } | null} listing
+ */
+export function suggestionsFor(listing) {
+  const phrases = listing?.phrases ?? [];
+  if (phrases.length === 0) return SUGGESTIONS;
+  const asks = (utterance) => {
+    const route = routeUtterance(utterance);
+    return route.kind === 'tool' ? route.tool : route.kind;
+  };
+  const promised = new Set(phrases.map(asks));
+  return [
+    ...phrases.map((phrase) => ({ label: `${sentenceCase(phrase).replace(/'/g, '’')}?`, utterance: phrase })),
+    ...SUGGESTIONS.filter((suggestion) => !promised.has(asks(suggestion.utterance))),
+  ];
 }
 
 export const HELP_TEXT =
