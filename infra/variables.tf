@@ -46,7 +46,7 @@ variable "pairing_url_base" {
 }
 
 variable "household_id" {
-  description = "The household the linked Ring account serves. Accounts made everything else multi-household (the MCP server, pairing, the television take a household from a token, never from here; the weekly Narrator writes for every household with a television), but there is still one Ring link per deployment and no Ring-device -> household registry (services/agent/src/agents/door/lambda.ts)."
+  description = "The household the ops console's status page counts rows for (services/edge-ring/lambda/status.mjs). Nothing else reads it: the MCP server, pairing and the television take a household from a token, a ring takes it from the doorbell that rang (services/agent/src/store/ringDevices.ts), and the weekly Narrator writes for every household with a television."
   type        = string
   default     = "margaret"
 }

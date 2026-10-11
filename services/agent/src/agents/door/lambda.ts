@@ -8,9 +8,10 @@
  *          (2b, the sentence, runs in the household's AgentCore Runtime
  *          session as a Strands graph — describeRemote.ts)
  *
- * `routeRingEvent` is the part worth unit testing — gating, device lookup,
- * error propagation — with every AWS/Bedrock client injected behind
- * `runPhase2`. `handler` is the thin shim that wires the real ones, in the
+ * `routeDoorEvent` and `routeRingEvent` are the parts worth unit testing —
+ * whose doorbell it is, gating, device lookup, error propagation — with
+ * every AWS/Bedrock client injected behind `depsFor` and `runPhase2`.
+ * `handler` is the thin shim that wires the real ones, in the
  * same style as webhook.mjs and connect.mjs: composition, not logic, so it
  * is left untested the same way those are.
  *
@@ -23,10 +24,10 @@
  * the sentence is not a reason to fail the whole invocation (and risk an
  * EventBridge retry re-running Phase 1 for no benefit).
  *
- * Household resolution is hardcoded to one household via WICK_HOUSEHOLD_ID.
- * There is no Ring-device -> household registry in this repo yet, and the
- * product is built around one real household (docs/WICK.md §2). Multi-
- * household is Tier 3 (§4.5), not S1 — do not build a registry for it here.
+ * The household comes from the doorbell that rang (store/ringDevices.ts),
+ * never from an environment variable (AGENTS.md INV-8). There is still one
+ * Ring link per deployment: its devices are handed to households with
+ * scripts/assign-ring-device.ts, and a device nobody holds reaches nobody.
  */
 import type { CachedDevices, RingDevice, RingHistoryEvent } from '@wick/ring';
 import {
@@ -35,6 +36,7 @@ import {
   hasHallwayChime,
   imageForEvent,
   listDevices,
+  playableChimes,
   secretsManagerTokenProvider,
 } from '@wick/ring';
 import type { QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
@@ -44,15 +46,17 @@ import { DynamoDBClient, PutItemCommand, QueryCommand } from '@aws-sdk/client-dy
 import { handleDoorEvent } from './handle.js';
 import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
 import { matchVisitor } from './roster.js';
+import { cachedRoster } from './rosterCache.js';
 import { buildDoorEventItem, buildPresenceItem } from './presence.js';
 import { runDoorPhase2, type Phase2Outcome } from './phase2.js';
 import { describeViaRuntime } from './describeRemote.js';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
 import { createRhythmWriter } from '../../rhythm/writeClient.js';
+import { devicesOfHousehold, ringDeviceOwners, type DdbSend } from '../../store/ringDevices.js';
 import { buildDoorActivityKey, buildPresenceKey } from '../../rhythm/records.js';
 
-export type RouteResult = 'sent' | 'skipped' | 'unknown_device';
+export type RouteResult = 'sent' | 'skipped' | 'unknown_device' | 'unclaimed_device';
 
 export interface RouteDeps {
   readonly householdId: string;
@@ -165,6 +169,33 @@ export async function routeRingEvent(
   return 'sent';
 }
 
+export interface HouseholdRouting {
+  /** The household that holds this Ring device (store/ringDevices.ts). */
+  readonly householdOf: (ringDeviceId: string) => Promise<string | undefined>;
+  readonly depsFor: (householdId: string) => RouteDeps;
+}
+
+/**
+ * Whose doorbell rang, then the whole path for that household.
+ *
+ * A ring carries a Ring device id and nothing about a household (INV-8: no
+ * household from an environment variable). A doorbell no household holds
+ * reaches no television: showing one home a picture of another home's door
+ * is the failure this refuses, so there is no default household to fall
+ * back to.
+ */
+export async function routeDoorEvent(detail: Record<string, unknown>, routing: HouseholdRouting): Promise<RouteResult> {
+  // Before the lookup, for the same reason routeRingEvent gates before its
+  // own: most events on the bus are not doorbell events.
+  if (!isDoorWorthy(detail)) return 'skipped';
+
+  const { deviceId } = toRingHistoryEvent(detail, '');
+  const householdId = await routing.householdOf(deviceId);
+  if (!householdId) return 'unclaimed_device';
+
+  return routeRingEvent(detail, routing.depsFor(householdId));
+}
+
 interface EventBridgeEnvelope {
   readonly detail: Record<string, unknown>;
 }
@@ -177,17 +208,9 @@ const TABLE = process.env.TABLE_NAME ?? '';
 // S6. Same table, same client — see rhythm/records.ts's header for why this
 // is DynamoDB rather than Timestream.
 const rhythmWriter = createRhythmWriter(ddb, TABLE);
-const ROSTER_CACHE_MS = 60_000;
-let rosterCache: { roster: readonly RosterEntry[]; fetchedAt: number } | undefined;
+const ringDevices = ringDeviceOwners((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
 
-/**
- * M4's roster, container-cached like deviceCache.ts's device list — a
- * household curates this rarely, and Phase 1 shouldn't pay a DynamoDB round
- * trip on every warm invocation just to usually find nobody scheduled.
- */
-async function fetchRoster(householdId: string): Promise<readonly RosterEntry[]> {
-  if (rosterCache && Date.now() - rosterCache.fetchedAt < ROSTER_CACHE_MS) return rosterCache.roster;
-
+async function loadRoster(householdId: string): Promise<readonly RosterEntry[]> {
   const res = await ddb.send(new QueryCommand({
     TableName: TABLE,
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
@@ -196,14 +219,13 @@ async function fetchRoster(householdId: string): Promise<readonly RosterEntry[]>
       ':prefix': { S: 'PER#' },
     },
   }));
-  const roster = (res.Items ?? [])
+  return (res.Items ?? [])
     .map((item) => item.data?.S)
     .filter((s): s is string => Boolean(s))
     .map((s) => JSON.parse(s) as RosterEntry);
-
-  rosterCache = { roster, fetchedAt: Date.now() };
-  return roster;
 }
+
+const fetchRoster = cachedRoster({ load: loadRoster });
 
 async function recordPresence(householdId: string, match: VisitorMatch, at: number): Promise<void> {
   await ddb.send(new PutItemCommand({
@@ -236,33 +258,38 @@ async function recordPresenceActivity(householdId: string, personId: string, at:
 }
 
 export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
-  const householdId = process.env.WICK_HOUSEHOLD_ID;
-  if (!householdId) throw new Error('WICK_HOUSEHOLD_ID not set');
-
   const ringClient = new RingClient({ getToken: secretsManagerTokenProvider() });
-  const household = (devices ??= cachedDevices({ list: () => listDevices(ringClient) }));
+  // Every device on the deployment's one Ring link; which household holds
+  // each is ringDevices' answer, never this list's.
+  const account = (devices ??= cachedDevices({ list: () => listDevices(ringClient) }));
   const agents = (runtime ??= agentCoreTarget());
-  const describe = describeViaRuntime((kind, hh, payload) => invokeRuntime(agents, kind, hh, payload), householdId);
 
-  const result = await routeRingEvent(evt.detail, {
-    householdId,
-    findDevice: household.find,
-    hasHallwayChime: async () => hasHallwayChime(await household.all()),
-    listRoster: () => fetchRoster(householdId),
-    recordPresence: (match, at) => recordPresence(householdId, match, at),
-    recordDoorEvent: (at) => recordDoorEvent(householdId, at),
-    recordDoorActivity: (deviceId, subType, measureName, at) =>
-      recordDoorActivity(householdId, deviceId, subType, measureName, at),
-    recordPresenceActivity: (personId, at) => recordPresenceActivity(householdId, personId, at),
-    sendToDevice: (card, ringDeviceId) => realSendToDevice(card, DEFAULT_POLICY, { ringDeviceId }),
-    runPhase2: (cardId, event) =>
-      runDoorPhase2(cardId, {
-        fetchImage: () => imageForEvent(ringClient, event.deviceId, event),
-        describe,
-        sendPatch: (patch) => realSendPatchToDevice(patch, householdId),
-      }, event.eventType),
-    now: Date.now,
-  });
+  const depsFor = (householdId: string): RouteDeps => {
+    const describe = describeViaRuntime((kind, hh, payload) => invokeRuntime(agents, kind, hh, payload), householdId);
+    return {
+      householdId,
+      findDevice: account.find,
+      // This household's own chime: the button must never sound in another home.
+      hasHallwayChime: async () =>
+        hasHallwayChime(await devicesOfHousehold(householdId, playableChimes(await account.all()), ringDevices.householdOf)),
+      listRoster: () => fetchRoster(householdId),
+      recordPresence: (match, at) => recordPresence(householdId, match, at),
+      recordDoorEvent: (at) => recordDoorEvent(householdId, at),
+      recordDoorActivity: (deviceId, subType, measureName, at) =>
+        recordDoorActivity(householdId, deviceId, subType, measureName, at),
+      recordPresenceActivity: (personId, at) => recordPresenceActivity(householdId, personId, at),
+      sendToDevice: (card, ringDeviceId) => realSendToDevice(card, DEFAULT_POLICY, { ringDeviceId }),
+      runPhase2: (cardId, event) =>
+        runDoorPhase2(cardId, {
+          fetchImage: () => imageForEvent(ringClient, event.deviceId, event),
+          describe,
+          sendPatch: (patch) => realSendPatchToDevice(patch, householdId),
+        }, event.eventType),
+      now: Date.now,
+    };
+  };
 
-  console.log(JSON.stringify({ level: 'info', msg: 'door_event_routed', result }));
+  const result = await routeDoorEvent(evt.detail, { householdOf: ringDevices.householdOf, depsFor });
+
+  console.log(JSON.stringify({ level: result === 'unclaimed_device' ? 'warn' : 'info', msg: 'door_event_routed', result }));
 };

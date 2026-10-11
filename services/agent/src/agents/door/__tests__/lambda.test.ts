@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { RingDevice, RingHistoryEvent } from '@wick/ring';
 import type { QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
-import { routeRingEvent, type RouteDeps } from '../lambda.js';
+import { routeDoorEvent, routeRingEvent, type RouteDeps } from '../lambda.js';
 
 const device: RingDevice = {
   id: 'ava1.ring.device.ABNJQ',
@@ -286,5 +286,41 @@ describe('routeRingEvent', () => {
     });
 
     await expect(routeRingEvent(detail, deps)).resolves.toBe('sent');
+  });
+});
+
+describe('routeDoorEvent', () => {
+  it('sends the ring to the household that holds the doorbell, and to no other', async () => {
+    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+    const householdOf = vi.fn(async (_deviceId: string) => 'hh-b');
+    const depsFor = vi.fn((householdId: string) => baseDeps({ householdId, sendToDevice }));
+
+    const result = await routeDoorEvent(detail, { householdOf, depsFor });
+
+    expect(result).toBe('sent');
+    expect(householdOf).toHaveBeenCalledWith('ava1.ring.device.ABNJQ');
+    expect(depsFor.mock.calls).toEqual([['hh-b']]);
+    expect(sendToDevice.mock.calls.map(([card]) => card.card.householdId)).toEqual(['hh-b']);
+  });
+
+  it('puts a ring from a doorbell no household holds on no television at all', async () => {
+    const depsFor = vi.fn((householdId: string) => baseDeps({ householdId }));
+
+    const result = await routeDoorEvent(detail, { householdOf: async () => undefined, depsFor });
+
+    expect(result).toBe('unclaimed_device');
+    expect(depsFor).not.toHaveBeenCalled();
+  });
+
+  it('skips an event that is not door-worthy without asking whose doorbell it is', async () => {
+    const householdOf = vi.fn(async (_deviceId: string) => 'hh-b');
+
+    const result = await routeDoorEvent(
+      { ...detail, event_type: 'subscription_activated' },
+      { householdOf, depsFor: (householdId) => baseDeps({ householdId }) },
+    );
+
+    expect(result).toBe('skipped');
+    expect(householdOf).not.toHaveBeenCalled();
   });
 });

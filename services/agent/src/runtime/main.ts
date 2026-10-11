@@ -25,6 +25,7 @@ import { playlistUrlFor } from '../live/hls.js';
 import { liveSessions, type LiveDdbSend } from '../live/sessions.js';
 import { startLive } from '../live/startLive.js';
 import { cardStore, type DdbSend } from '../store/cards.js';
+import { devicesOfHousehold, ringDeviceOwners } from '../store/ringDevices.js';
 import { doorActionHandler, doorDescribeHandler, liveStartHandler, liveStopHandler } from './handlers.js';
 import { createRuntimeServer } from './server.js';
 
@@ -47,6 +48,7 @@ const lambda = new LambdaClient({});
 const ring = new RingClient({ getToken: secretsManagerTokenProvider() });
 // The narrow send types in store/ and live/ keep those modules testable; the real clients satisfy them.
 const cards = cardStore((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
+const ringDevices = ringDeviceOwners((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
 const live = liveSessions((cmd) => ddb.send(cmd as never) as ReturnType<LiveDdbSend>, TABLE);
 
 const server = createRuntimeServer({
@@ -58,7 +60,9 @@ const server = createRuntimeServer({
     'door.action': doorActionHandler((householdId) => ({
       loadCard: cards.loadCard,
       claimOnce: cards.claimOnce,
-      listDevices: () => listDevices(ring),
+      // Only this household's chimes: one Ring link can hold several homes'
+      // devices, and a press here must never make a sound in another home.
+      listDevices: async () => devicesOfHousehold(householdId, await listDevices(ring), ringDevices.householdOf),
       ringChime: (chimeId) => ringChime(ring, chimeId, CHIME_SLOT),
       sendPatch: (patch) => sendPatchToDevice(patch, householdId),
       now: Date.now,

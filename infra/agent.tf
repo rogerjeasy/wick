@@ -44,6 +44,8 @@ data "aws_iam_policy_document" "agent_door_event" {
     # sendToDevice: PutItem writes the CARD#<id> queue item. sendPatchToDevice
     # (Phase 2): GetItem reads it back, UpdateItem merges the patch in. Both:
     # Query finds the household's paired device to learn its live connection.
+    # GetItem is also how a ring finds its household: RINGDEV#<deviceId>
+    # (store/ringDevices.ts).
     # UpdateItem is also S6's ADD counter onto RHYTHM#door_activity/presence
     # bucket items (rhythm/writeClient.ts) — same table, same action, no
     # separate grant needed.
@@ -103,7 +105,6 @@ resource "aws_lambda_function" "agent_door_event" {
     variables = {
       TABLE_NAME            = aws_dynamodb_table.wick.name
       RING_TOKEN_SECRET_ID  = aws_secretsmanager_secret.ring_tokens.name
-      WICK_HOUSEHOLD_ID     = var.household_id
       AGENT_RUNTIME_ARN     = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
       AGENT_RUNTIME_VERSION = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
     }
