@@ -14,3 +14,5 @@ export { visibleDeltas } from './agents/narrator/comparisons.js';
 export { isoWeekRange } from './agents/narrator/isoWeek.js';
 export { factsWeekNarrative } from './agents/narrator/index.js';
 export { stillWelcome } from './agents/door/roster.js';
+export { toTimelineEntry } from './agents/narrator/timeline.js';
+export { VISIT_GRACE_MS, parsePattern, whatsDifferent, type Difference, type DifferenceKind, type DifferentAnswer } from './rhythm/different.js';

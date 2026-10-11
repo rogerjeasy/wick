@@ -25,6 +25,7 @@ export const SUGGESTIONS = [
   { label: 'How’s Mum been this week?', utterance: "How's Mum been this week?" },
   { label: 'What happened today?', utterance: 'What happened today?' },
   { label: 'Did Maria come today?', utterance: 'Did Maria come today?' },
+  { label: 'Is anything different?', utterance: 'Is anything different?' },
   { label: 'Send a note to her television', utterance: "Put a note on Mum's television" },
   { label: 'Has Mum replied?', utterance: 'Has Mum replied?' },
   { label: 'What can I see?', utterance: 'What can I see about Mum?' },
@@ -92,6 +93,8 @@ export function routeUtterance(text, now = Date.now()) {
   if (/\bnote\b|\bmessage\b/.test(t)) return { kind: 'compose' };
 
   if (/\b(can|may) i see\b|\bshare[sd]?\b|\bprivate\b/.test(t)) return tool('get_resident_shared_view');
+  // Before "today" and "Maria": "is anything different today" is this question, not the day's list.
+  if (/\bdifferent\b|\bunusual\b|\ball ?right\b|\bshould i know\b/.test(t)) return tool('get_whats_different');
   if (/\bmaria\b|\bcarer\b/.test(t)) return tool('did_visitor_come', { personId: 'maria' });
   if (/\btoday\b/.test(t)) return tool('get_today');
   // "This week" is whichever week there is to read (the server picks the
@@ -101,7 +104,7 @@ export function routeUtterance(text, now = Date.now()) {
 }
 
 export const HELP_TEXT =
-  'I can tell you how the week has been, what happened today, whether Maria came, ' +
+  'I can tell you how the week has been, what happened today, whether Maria came, whether anything is different, ' +
   'put a note on the television, tell you if there is a reply, show what you are able to see, ' +
   'or open the family circle.';
 
@@ -269,6 +272,28 @@ function presentVisitor(v, formatTime, now) {
   return { say, card: null, tone: 'answer' };
 }
 
+/**
+ * Something's Different. The server writes every sentence and the summary;
+ * this only lays them out. A usual day is said and shows no card: there is
+ * nothing behind "nothing is different" to look at.
+ */
+function presentDifferent(answer, formatTime) {
+  const differences = answer.differences ?? [];
+  const say = typeof answer.summary === 'string' ? answer.summary : 'Nothing is different from the usual today.';
+  if (differences.length === 0) return { say, card: null, tone: 'answer' };
+  return {
+    say,
+    tone: 'answer',
+    card: {
+      kind: 'list',
+      title: differences.length === 1 ? 'One thing is different' : `${things(differences.length)} are different`,
+      meta: '',
+      items: differences.map((d) => ({ primary: d.sentence, secondary: formatTime(d.at) })),
+      footnote: `Against the last ${answer.weeksObserved} weeks in this house, and nothing else.`,
+    },
+  };
+}
+
 function presentVisitors(list, formatTime) {
   const visitors = list.visitors ?? [];
   const expected = list.expected ?? [];
@@ -397,6 +422,7 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (toolName === 'get_today' && Array.isArray(parsed.events)) return presentToday(parsed, formatTime, now);
   if (toolName === 'did_visitor_come' && typeof parsed.visited === 'boolean') return presentVisitor(parsed, formatTime, now);
   if (toolName === 'list_regular_visitors' && Array.isArray(parsed.visitors)) return presentVisitors(parsed, formatTime);
+  if (toolName === 'get_whats_different' && Array.isArray(parsed.differences)) return presentDifferent(parsed, formatTime);
   if (toolName === 'expect_visit' && parsed.expected === true) return presentExpectedVisit(parsed, formatTime);
   if (toolName === 'send_note_to_tv' && parsed.sent === true) return presentNoteSent(context, parsed);
   if (toolName === 'get_replies' && Array.isArray(parsed.notes)) return presentReplies(parsed, formatTime);
@@ -444,6 +470,7 @@ export function describeCall(toolName, args = {}) {
     case 'get_week_narrative': return 'Read the week';
     case 'get_today': return `Looked at ${dayAsked(args)}`;
     case 'list_regular_visitors': return 'Checked who visits';
+    case 'get_whats_different': return 'Looked for anything different';
     case 'did_visitor_come': return `Checked ${dayAsked(args)}’s visits`;
     case 'get_replies': return 'Looked for a reply';
     case 'get_resident_shared_view': return 'Checked what is shared';

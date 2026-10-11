@@ -362,12 +362,56 @@ describe('inviteLink', () => {
 // The model-driven conversation: a turn can take several tools.
 // ---------------------------------------------------------------------------
 
+describe("Something's Different", () => {
+  const missed = { kind: 'missed_visit', sentence: 'Maria usually comes on Friday mornings. There has been no visit today.', at: 700 };
+
+  it('is asked for in the words people use, before "today" or "Maria" can take the question', () => {
+    const asked = { kind: 'tool', tool: 'get_whats_different', args: {} };
+
+    expect(routeUtterance('Is anything different?')).toEqual(asked);
+    expect(routeUtterance('Is anything different today?')).toEqual(asked);
+    expect(routeUtterance('Is everything all right with Mum?')).toEqual(asked);
+    expect(routeUtterance('Anything unusual about Maria this week?')).toEqual(asked);
+  });
+
+  it("says the server's own summary, and lays each difference out with when it was", () => {
+    const answer = JSON.stringify({
+      weeksObserved: 6,
+      enoughHistory: true,
+      differences: [missed],
+      keptPrivate: [],
+      summary: `${missed.sentence} Nothing else is different from the usual.`,
+    });
+
+    const r = presentResult('get_whats_different', answer, {}, at);
+
+    expect(r.say).toBe('Maria usually comes on Friday mornings. There has been no visit today. Nothing else is different from the usual.');
+    expect(r.card.title).toBe('One thing is different');
+    expect(r.card.items).toEqual([{ primary: missed.sentence, secondary: 't700' }]);
+    expect(r.card.footnote).toBe('Against the last 6 weeks in this house, and nothing else.');
+  });
+
+  it('shows no card on a usual day: there is nothing behind "nothing is different" to look at', () => {
+    const answer = JSON.stringify({ weeksObserved: 6, enoughHistory: true, differences: [], keptPrivate: [], summary: 'Nothing is different from the usual today.' });
+
+    expect(presentResult('get_whats_different', answer, {}, at)).toMatchObject({ say: 'Nothing is different from the usual today.', card: null });
+  });
+
+  it('says it cannot tell yet, in the server\'s words, when Wick has not been there three weeks', () => {
+    const summary = 'Wick has been here for one week. It needs three weeks before it knows what is usual, so it cannot yet say what is different.';
+    const answer = JSON.stringify({ weeksObserved: 1, enoughHistory: false, differences: [], keptPrivate: [], summary });
+
+    expect(presentResult('get_whats_different', answer, {}, at)).toMatchObject({ say: summary, card: null });
+  });
+});
+
 describe('describeCall — what a step did, in a few words', () => {
   it('names each tool by what it does for the customer, never by its name', () => {
     expect(describeCall('get_week_narrative', {})).toBe('Read the week');
     expect(describeCall('get_today', { day: 'yesterday' })).toBe('Looked at yesterday');
     expect(describeCall('get_today', {})).toBe('Looked at today');
     expect(describeCall('list_regular_visitors', {})).toBe('Checked who visits');
+    expect(describeCall('get_whats_different', {})).toBe('Looked for anything different');
     expect(describeCall('did_visitor_come', { personId: 'maria', day: 'tuesday' })).toBe('Checked Tuesday’s visits');
     expect(describeCall('send_note_to_tv', { message: 'Hi' })).toBe('Put a note on the television');
     expect(describeCall('expect_visit', { date: '2026-10-17', time: '15:00' })).toBe('Told the door');
