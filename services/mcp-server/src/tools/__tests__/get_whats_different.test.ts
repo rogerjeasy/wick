@@ -47,7 +47,7 @@ describe('loadWhatsDifferent', () => {
   it("says the visitor who did not come, in the Rhythm pillar's own words, and that nothing else is different", async () => {
     const { ddb } = table(sixWeeksOfMaria);
 
-    const answer = await loadWhatsDifferent(ddb, 'hh-1', NOW, DEFAULT_POLICY);
+    const answer = (await loadWhatsDifferent(ddb, 'hh-1', NOW, DEFAULT_POLICY))!;
 
     expect(answer).toEqual({
       weeksObserved: 6,
@@ -61,7 +61,7 @@ describe('loadWhatsDifferent', () => {
   it('says that nothing is different on a usual day', async () => {
     const { ddb } = table([...sixWeeksOfMaria, mariaVisit(FRIDAY + 9 * HOUR)]);
 
-    const answer = await loadWhatsDifferent(ddb, 'hh-1', NOW, DEFAULT_POLICY);
+    const answer = (await loadWhatsDifferent(ddb, 'hh-1', NOW, DEFAULT_POLICY))!;
 
     expect(answer.differences).toEqual([]);
     expect(answer.summary).toBe('Nothing is different from the usual today.');
@@ -70,7 +70,7 @@ describe('loadWhatsDifferent', () => {
   it('says it cannot tell yet, rather than "nothing", before three weeks', async () => {
     const { ddb } = table(sixWeeksOfMaria, { firstAt: FRIDAY - 10 * DAY });
 
-    const answer = await loadWhatsDifferent(ddb, 'hh-1', NOW, DEFAULT_POLICY);
+    const answer = (await loadWhatsDifferent(ddb, 'hh-1', NOW, DEFAULT_POLICY))!;
 
     expect(answer).toMatchObject({ weeksObserved: 1, enoughHistory: false, differences: [] });
     expect(answer.summary).toBe('Wick has been here for one week. It needs three weeks before it knows what is usual, so it cannot yet say what is different.');
@@ -80,11 +80,20 @@ describe('loadWhatsDifferent', () => {
     const policy = { ...DEFAULT_POLICY, residentExclusions: ['PRESENCE' as const] };
     const { ddb, rosterReads } = table(sixWeeksOfMaria, { policy });
 
-    const answer = await loadWhatsDifferent(ddb, 'hh-1', NOW, policy);
+    const answer = (await loadWhatsDifferent(ddb, 'hh-1', NOW, policy))!;
 
     expect(answer.differences).toEqual([]);
     expect(answer.keptPrivate).toEqual(['Who visits, by name. That is something the resident keeps to themselves.']);
     expect(rosterReads).toEqual([]);
+  });
+
+  it('gives no answer at all when the resident keeps the shape of the week private — a difference is a comparison with the usual', async () => {
+    const policy = { ...DEFAULT_POLICY, residentExclusions: ['RHYTHM' as const] };
+    const { ddb } = table(sixWeeksOfMaria, { policy });
+
+    expect(await loadWhatsDifferent(ddb, 'hh-1', NOW, policy)).toBeUndefined();
+    // Nothing was read to work one out: not the timeline, not who visits.
+    expect(ddb.send).not.toHaveBeenCalled();
   });
 
   it('keeps the door private on its own: the visitor is still said, the night call is not', async () => {
@@ -92,7 +101,7 @@ describe('loadWhatsDifferent', () => {
     const inTheNight = doorCall(FRIDAY + 1 * HOUR + 10 * 60_000);
     const { ddb } = table([...sixWeeksOfMaria, inTheNight], { policy });
 
-    const answer = await loadWhatsDifferent(ddb, 'hh-1', NOW, policy);
+    const answer = (await loadWhatsDifferent(ddb, 'hh-1', NOW, policy))!;
 
     expect(answer.differences.map((d) => d.kind)).toEqual(['missed_visit']);
     expect(answer.keptPrivate).toEqual(['When someone comes to the door. That is something the resident keeps to themselves.']);
@@ -112,6 +121,20 @@ describe('loadWhatsDifferent', () => {
 });
 
 describe('registerGetWhatsDifferent (registered tool handler, end to end)', () => {
+  it('refuses, in the words every tool uses, when the stored policy keeps the shape of the week private', async () => {
+    const { ddb } = table(sixWeeksOfMaria, { policy: { ...DEFAULT_POLICY, residentExclusions: ['RHYTHM' as const] } });
+    const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
+    registerGetWhatsDifferent(mcpServer, ddb, allowedContext('hh-1'), () => NOW);
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = await client.callTool({ name: 'get_whats_different', arguments: {} });
+
+    expect((result.content as { text: string }[])[0]!.text).toBe("That's something the resident is keeping to themselves. I'm not able to share it.");
+    expect(result.structuredContent).toBeUndefined();
+  });
+
   it('answers with the sentence to say and the same answer as structured content', async () => {
     const { ddb } = table(sixWeeksOfMaria);
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });

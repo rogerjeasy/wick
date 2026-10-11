@@ -10,8 +10,15 @@
  * pillar's (services/agent/src/rhythm/different.ts): against the
  * household's own last six weeks, never from fewer than three, and never by
  * a model. This file loads the six weeks, and withholds what the resident
- * does not share — per class, exactly as get_today does: a household can
- * keep its visitors private and not its door.
+ * does not share:
+ *
+ *   - Every difference is a comparison with the household's usual, which is
+ *     the RHYTHM class — "the shape of the week" on the resident's own
+ *     television. Keeping that private withholds the whole answer, exactly
+ *     as it withholds the week (get_week_narrative's familyWeek), and
+ *     nothing is read to work it out.
+ *   - Within it, per class, as get_today does: a household can keep its
+ *     visitors private and not its door.
  *
  * Computed on request rather than by a job. The answer is about now, and
  * six weeks of a household's events is one small query (§7.3's 500 ms).
@@ -22,10 +29,10 @@ import { toTimelineEntry, whatsDifferent, type DifferenceKind } from '@wick/agen
 import type { HouseholdPolicy } from '@wick/policy';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
-import { isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
+import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { loadRoster } from './list_regular_visitors.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data } from './result.js';
+import { READS, data, say } from './result.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
@@ -93,13 +100,19 @@ function summaryOf(answer: Pick<DifferentForFamily, 'weeksObserved' | 'enoughHis
   return `${answer.differences.map((d) => d.sentence).join(' ')} Nothing else is different from the usual.`;
 }
 
+/**
+ * The family's answer, or `undefined` when the resident keeps the shape of
+ * the week private — in which case nothing has been read to work one out.
+ */
 export async function loadWhatsDifferent(
   ddb: DynamoDBClient,
   householdId: string,
   now: Date,
   policy: HouseholdPolicy,
   timeZone: string = HOUSEHOLD_TZ,
-): Promise<DifferentForFamily> {
+): Promise<DifferentForFamily | undefined> {
+  if (!isSharedWithFamily('RHYTHM', policy)) return undefined;
+
   const doorShared = isSharedWithFamily('DOOR_EVENT', policy);
   const presenceShared = isSharedWithFamily('PRESENCE', policy);
   const keptPrivate = [
@@ -143,7 +156,8 @@ export function registerGetWhatsDifferent(
     },
     withFriendlyErrors(gated(ctx, async () => {
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
-      return data(await loadWhatsDifferent(ddb, ctx.householdId, now(), policy));
+      const answer = await loadWhatsDifferent(ddb, ctx.householdId, now(), policy);
+      return answer ? data(answer) : say(FAMILY_REFUSAL_TEXT);
     })),
   );
 }
