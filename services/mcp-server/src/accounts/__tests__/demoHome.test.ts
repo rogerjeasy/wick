@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { MAX_NARRATIVE_CHARS, currentIsoWeek, parseTimestampFromSortKey, type RosterEntry, type WeekNarrative } from '@wick/contracts';
 import { factsWeekNarrative, isoWeekRange } from '@wick/agent';
-import { DEMO_HISTORY_WEEKS, DEMO_VISITOR, demoHomeItems, seedDemoHome } from '../demoHome.js';
+import { DEMO_HISTORY_TTL_MS, DEMO_HISTORY_WEEKS, DEMO_VISITOR, demoHomeItems, seedDemoHome } from '../demoHome.js';
 
 type Item = Record<string, AttributeValue>;
 
@@ -70,6 +70,13 @@ describe('the demo home — a history to ask about, from the first minute', () =
   it('marks every event and every week as simulated — nobody lived these weeks', () => {
     expect(events.every((i) => i.simulated?.BOOL === true)).toBe(true);
     expect(narratives.every((n) => n.simulated === true)).toBe(true);
+  });
+
+  it('expires: a demo home anyone can make with one click must not fill the table for ever', () => {
+    const expiry = Math.floor((NOW + DEMO_HISTORY_TTL_MS) / 1000);
+
+    expect(DEMO_HISTORY_TTL_MS).toBeGreaterThanOrEqual(60 * DAY);
+    expect(items.every((i) => i.ttl?.N === String(expiry))).toBe(true);
   });
 
   it('has each whole week already written, and already read by the resident (INV-7)', () => {

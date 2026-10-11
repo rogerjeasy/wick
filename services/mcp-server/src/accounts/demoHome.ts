@@ -52,6 +52,16 @@ const FIRST_WEEK_AGO = DEMO_HISTORY_WEEKS + 1;
 /** The demo home's regular visitor. Times are UTC, as the Door agent matches them (door/roster.ts). */
 export const DEMO_VISITOR: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' };
 
+/**
+ * How long the history is kept. A demo home costs one click and no email,
+ * and its history is some seventy-five rows: left for ever, the demo
+ * button would be a way to grow the table without limit. Every row carries
+ * the table's own expiry (infra/core.tf `ttl`), sixty days on — past the
+ * end of judging for a home made on the last day. The guest rate limit
+ * (demo.ts) bounds how fast they can be made; this bounds how many exist.
+ */
+export const DEMO_HISTORY_TTL_MS = 60 * 24 * 60 * 60 * 1000;
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -133,7 +143,9 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
     weeks.push({ pk, sk: { S: `NARR#${isoWeek}` }, data: { S: JSON.stringify(narrative) } });
   }
 
-  return [{ pk, sk: { S: `PER#${DEMO_VISITOR.personId}` }, data: { S: JSON.stringify(DEMO_VISITOR) } }, ...events, ...weeks];
+  const ttl = { N: String(Math.floor((now + DEMO_HISTORY_TTL_MS) / 1000)) };
+  const roster: Item = { pk, sk: { S: `PER#${DEMO_VISITOR.personId}` }, data: { S: JSON.stringify(DEMO_VISITOR) } };
+  return [roster, ...events, ...weeks].map((item) => ({ ...item, ttl }));
 }
 
 const WRITES_AT_ONCE = 10;
