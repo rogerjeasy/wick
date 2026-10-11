@@ -2,4 +2,4 @@
 # deploy-edge/deploy-agent on a push to main — deploys exactly these, never
 # whatever a moving `latest` tag points at. scripts/push-agent-image.sh pushes
 # both images (wick-agents, wick-live-bridge) under one tag and rewrites this.
-agent_image_tag = "4d39390"
+agent_image_tag = "d1c3619"
