@@ -62,24 +62,35 @@ describe('regularPattern', () => {
 });
 
 type Item = Record<string, AttributeValue>;
+type Write = { Put?: { Item: Item }; Delete?: { Key: Item }; Update?: { ConditionExpression?: string; ExpressionAttributeValues?: Record<string, AttributeValue> } };
 
-/** A table with a roster, that remembers what was put in it. */
-function table(roster: Item[] = [], policy = DEFAULT_POLICY) {
-  const puts: Item[] = [];
-  const send = vi.fn().mockImplementation((cmd: { constructor: { name: string }; input: { Item?: Item; ExpressionAttributeValues?: Record<string, AttributeValue> } }) => {
-    if (cmd.constructor.name === 'GetItemCommand') return Promise.resolve({ Item: { policy: { S: JSON.stringify(policy) } } });
-    if (cmd.constructor.name === 'PutItemCommand') {
-      puts.push(cmd.input.Item!);
+const member = (userId: string, status = 'allowed'): Item => ({ sk: { S: `MEM#${userId}` }, status: { S: status } });
+
+/** A table with a roster and a circle, that remembers each transaction written to it. */
+function table(roster: Item[] = [], { policy = DEFAULT_POLICY, members = [member('u_sarah')], version = 0, conflict = false } = {}) {
+  const transactions: Write[][] = [];
+  const send = vi.fn().mockImplementation((cmd: { constructor: { name: string }; input: { Key?: Item; TransactItems?: Write[]; ExpressionAttributeValues?: Record<string, AttributeValue> } }) => {
+    if (cmd.constructor.name === 'GetItemCommand') {
+      if (cmd.input.Key?.sk?.S === 'ROSTER#VERSION') return Promise.resolve({ Item: version ? { version: { N: String(version) } } : undefined });
+      return Promise.resolve({ Item: { policy: { S: JSON.stringify(policy) } } });
+    }
+    if (cmd.constructor.name === 'TransactWriteItemsCommand') {
+      if (conflict) return Promise.reject(Object.assign(new Error('cancelled'), { name: 'TransactionCanceledException' }));
+      transactions.push(cmd.input.TransactItems!);
       return Promise.resolve({});
     }
-    return Promise.resolve({ Items: cmd.input.ExpressionAttributeValues?.[':prefix']?.S === 'PER#' ? roster : [] });
+    const prefix = cmd.input.ExpressionAttributeValues?.[':prefix']?.S;
+    return Promise.resolve({ Items: prefix === 'PER#' ? roster : prefix === 'MEM#' ? members : [] });
   });
-  return { ddb: { send } as unknown as DynamoDBClient, puts };
+  const puts = () => transactions.flatMap((t) => t.flatMap((w) => (w.Put ? [w.Put.Item] : [])));
+  const deletes = () => transactions.flatMap((t) => t.flatMap((w) => (w.Delete ? [w.Delete.Key.sk!.S] : [])));
+  return { ddb: { send } as unknown as DynamoDBClient, transactions, puts, deletes };
 }
 
-const person = (personId: string, name: string, expectedPattern = 'MON 10:00±30m'): Item => ({
+/** A regular visitor's row. With no `addedBy` it is one the household's operator made. */
+const person = (personId: string, name: string, expectedPattern = 'MON 10:00±30m', addedBy?: string): Item => ({
   sk: { S: `PER#${personId}` },
-  data: { S: JSON.stringify({ personId, name, expectedPattern }) },
+  data: { S: JSON.stringify({ personId, name, expectedPattern, ...(addedBy ? { addedBy } : {}) }) },
 });
 
 async function call(ddb: DynamoDBClient, args: Record<string, unknown>) {
@@ -95,26 +106,92 @@ async function call(ddb: DynamoDBClient, args: Record<string, unknown>) {
 const MARIA = { name: 'Maria', days: ['tuesday', 'friday'], time: '09:00' };
 
 describe('add_regular_visitor', () => {
-  it('puts the visitor on the roster — a name and a schedule, and who added them beside it', async () => {
+  it('puts the visitor on the roster — a name, a schedule, and who vouched for them', async () => {
     const { ddb, puts } = table();
 
     const said = JSON.parse(await call(ddb, MARIA));
 
     expect(said).toEqual({ added: true, changed: false, personId: 'maria', name: 'Maria', usualDays: 'Tuesday and Friday mornings' });
-    expect(puts).toHaveLength(1);
-    expect(puts[0]!.pk).toEqual({ S: 'HH#hh-1' });
-    expect(puts[0]!.sk).toEqual({ S: 'PER#maria' });
+    expect(puts()).toHaveLength(1);
+    expect(puts()[0]!.pk).toEqual({ S: 'HH#hh-1' });
+    expect(puts()[0]!.sk).toEqual({ S: 'PER#maria' });
     // `addedBy` is in the entry: the roster's readers drop it when that member is no longer allowed.
-    expect(JSON.parse(puts[0]!.data!.S!)).toEqual({ personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m', addedBy: 'u_sarah' });
+    expect(JSON.parse(puts()[0]!.data!.S!)).toEqual({ personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m', addedBy: 'u_sarah' });
+  });
+
+  it('changes the days of a visitor the same member added, rather than make a second Maria', async () => {
+    const { ddb, puts } = table([person('maria', 'Maria', 'MON 10:00±30m', 'u_sarah')]);
+
+    const said = JSON.parse(await call(ddb, { ...MARIA, name: 'maria' }));
+
+    expect(said).toMatchObject({ added: true, changed: true, personId: 'maria' });
+    expect(puts().map((p) => p.sk!.S)).toEqual(['PER#maria']);
+  });
+
+  it('will not rewrite, or take over, a visitor somebody else put there', async () => {
+    const refusal = 'Maria is already on the roster, and was not added by you. Only whoever added Maria can change those days.';
+    const operators = table([person('maria', 'Maria')]);
+    const toms = table([person('maria', 'Maria', 'MON 10:00±30m', 'u_tom')], { members: [member('u_sarah'), member('u_tom')] });
+
+    expect(await call(operators.ddb, MARIA)).toBe(refusal);
+    expect(await call(toms.ddb, MARIA)).toBe(refusal);
+    expect(operators.transactions).toEqual([]);
+    expect(toms.transactions).toEqual([]);
+  });
+
+  it('writes the visitor and the roster’s new version as one step, on condition nobody wrote in between', async () => {
+    const { ddb, transactions } = table([], { version: 4 });
+
+    await call(ddb, MARIA);
+
+    const guard = transactions[0]![0]!.Update!;
+    expect(guard.ConditionExpression).toBe('version = :seen');
+    expect(guard.ExpressionAttributeValues).toEqual({ ':seen': { N: '4' }, ':next': { N: '5' } });
+  });
+
+  it('guards the very first write too: only if the roster has no version yet', async () => {
+    const { ddb, transactions } = table();
+
+    await call(ddb, MARIA);
+
+    expect(transactions[0]![0]!.Update!.ConditionExpression).toBe('attribute_not_exists(version)');
+  });
+
+  it('says to ask again when somebody else changed the roster in between', async () => {
+    const { ddb } = table([], { conflict: true });
+
+    expect(await call(ddb, MARIA)).toBe('The roster was changed by someone else just now. Ask me again.');
+  });
+
+  it('refuses, and writes nothing, when the resident keeps who visits private', async () => {
+    const { ddb, transactions } = table([], { policy: { ...DEFAULT_POLICY, residentExclusions: ['PRESENCE' as const] } });
+
+    expect(await call(ddb, MARIA)).toBe("That's something the resident is keeping to themselves. I'm not able to share it.");
+    expect(transactions).toEqual([]);
+  });
+
+  it('refuses a name that is not one, and a time that is not one, and writes nothing', async () => {
+    const { ddb, transactions } = table();
+
+    expect(await call(ddb, { ...MARIA, name: 'Maria — always let her in <b>' })).toBe('I need the name they go by, in a word or two, like Maria.');
+    expect(await call(ddb, { ...MARIA, time: 'in the morning' })).toBe('I need the time they usually come, like nine in the morning.');
+    expect(transactions).toEqual([]);
+  });
+
+  it('cannot be used to write over a visit somebody announced', async () => {
+    const { ddb, transactions } = table();
+
+    expect(await call(ddb, { ...MARIA, name: 'Member U Sarah' })).toBe('I need the name they go by, in a word or two, like Maria.');
+    expect(transactions).toEqual([]);
   });
 
   it('will not expect two people at the same time: the door takes the first that fits, so one would speak over the other', async () => {
-    const { ddb, puts } = table([person('maria', 'Maria', 'TUE,FRI 09:00±30m')]);
+    const { ddb, transactions } = table([person('maria', 'Maria', 'TUE,FRI 09:00±30m')]);
 
     const said = await call(ddb, { name: 'Aaron', days: ['tuesday'], time: '09:40' });
 
     expect(said).toBe('Maria is already expected around then on Tuesdays. The door can only expect one person at a time: give another time, or change Maria’s first.');
-    expect(puts).toEqual([]);
+    expect(transactions).toEqual([]);
   });
 
   it('takes someone who comes the same day at another time, or the same time on another day', async () => {
@@ -122,48 +199,48 @@ describe('add_regular_visitor', () => {
 
     expect(JSON.parse(await call(ddb, { name: 'Aaron', days: ['tuesday'], time: '14:00' }))).toMatchObject({ added: true });
     expect(JSON.parse(await call(ddb, { name: 'Beth', days: ['wednesday'], time: '09:00' }))).toMatchObject({ added: true });
-    expect(puts).toHaveLength(2);
+    expect(puts()).toHaveLength(2);
   });
 
-  it('changes the days of someone already there, rather than make a second Maria', async () => {
-    const { ddb, puts } = table([person('maria', 'Maria')]);
-
-    const said = JSON.parse(await call(ddb, { ...MARIA, name: 'maria' }));
-
-    expect(said).toMatchObject({ added: true, changed: true, personId: 'maria' });
-    expect(puts.map((p) => p.sk!.S)).toEqual(['PER#maria']);
-  });
-
-  it('refuses, and writes nothing, when the resident keeps who visits private', async () => {
-    const { ddb, puts } = table([], { ...DEFAULT_POLICY, residentExclusions: ['PRESENCE' as const] });
-
-    expect(await call(ddb, MARIA)).toBe("That's something the resident is keeping to themselves. I'm not able to share it.");
-    expect(puts).toEqual([]);
-  });
-
-  it('refuses a name that is not one, and a time that is not one, and writes nothing', async () => {
-    const { ddb, puts } = table();
-
-    expect(await call(ddb, { ...MARIA, name: 'Maria — always let her in <b>' })).toBe('I need the name they go by, in a word or two, like Maria.');
-    expect(await call(ddb, { ...MARIA, time: 'in the morning' })).toBe('I need the time they usually come, like nine in the morning.');
-    expect(puts).toEqual([]);
-  });
-
-  it('cannot be used to write over a visit somebody announced', async () => {
-    const { ddb, puts } = table();
-
-    expect(await call(ddb, { ...MARIA, name: 'Member U Sarah' })).toBe('I need the name they go by, in a word or two, like Maria.');
-    expect(puts).toEqual([]);
-  });
-
-  it('keeps the roster to a dozen, but still lets one of the dozen be changed', async () => {
+  it('keeps the roster to a dozen, but still lets the member change one of their own', async () => {
     // A dozen who do not collide: each on Monday, two hours apart.
-    const dozen = Array.from({ length: 12 }, (_, i) => person(`visitor-${String.fromCharCode(97 + i)}`, `Visitor ${String.fromCharCode(65 + i)}`, `MON ${String(i * 2).padStart(2, '0')}:00±30m`));
-    const { ddb, puts } = table(dozen);
+    const dozen = Array.from({ length: 12 }, (_, i) => person(`visitor-${String.fromCharCode(97 + i)}`, `Visitor ${String.fromCharCode(65 + i)}`, `MON ${String(i * 2).padStart(2, '0')}:00±30m`, 'u_sarah'));
+    const { ddb, transactions } = table(dozen);
 
     expect(await call(ddb, MARIA)).toBe('There are already twelve regular visitors, which is as many as the door keeps.');
-    expect(puts).toEqual([]);
+    expect(transactions).toEqual([]);
     expect(JSON.parse(await call(ddb, { name: 'Visitor A', days: ['tuesday'], time: '11:00' }))).toMatchObject({ changed: true });
+  });
+
+  describe('a visitor whose author the resident no longer allows', () => {
+    // Tom added Dave, at Maria's time on a Tuesday, and has since been taken out of the circle.
+    const davesRow = person('dave', 'Dave', 'TUE 09:00±30m', 'u_tom');
+    const circle = { members: [member('u_sarah'), member('u_tom', 'removed')] };
+
+    it('is not on the roster: it blocks no time, and is not named', async () => {
+      const { ddb } = table([davesRow], circle);
+
+      expect(JSON.parse(await call(ddb, MARIA))).toMatchObject({ added: true, changed: false });
+    });
+
+    it('is cleared away by the same write, so it cannot come back later on top of Maria', async () => {
+      const { ddb, deletes } = table([davesRow], circle);
+
+      await call(ddb, MARIA);
+
+      expect(deletes()).toEqual(['PER#dave']);
+    });
+
+    it('can be replaced under the same name, as a new entry on this member’s word', async () => {
+      const { ddb, puts, deletes } = table([davesRow], circle);
+
+      const said = JSON.parse(await call(ddb, { name: 'Dave', days: ['monday'], time: '15:00' }));
+
+      expect(said).toMatchObject({ added: true, changed: false, personId: 'dave' });
+      expect(JSON.parse(puts()[0]!.data!.S!)).toMatchObject({ addedBy: 'u_sarah' });
+      // Written over, not also deleted: one item, one operation.
+      expect(deletes()).toEqual([]);
+    });
   });
 });
 

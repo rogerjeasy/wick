@@ -31,16 +31,26 @@
  *     over the visitor already there — or be spoken over.
  *   - Half an hour either side, and a dozen entries: a roster cannot be
  *     made to say "looks like someone" about every caller.
+ *   - A visitor is changed only by the member who added them. Somebody
+ *     else's entry — another member's, or one the household's operator
+ *     made — is not this caller's to rewrite or take over.
+ *
+ * Those rules are checked against every entry the roster really holds,
+ * and the write is one transaction guarded by the roster's version: two
+ * people adding at once cannot both pass a check the other has just made
+ * untrue. An entry whose author the resident no longer allows counts for
+ * nothing — it is not on the roster — and is cleared away by the same
+ * write, so it cannot come back later on top of someone added since.
  */
 import { z } from 'zod';
-import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { GetItemCommand, QueryCommand, TransactWriteItemsCommand, type DynamoDBClient, type TransactWriteItem } from '@aws-sdk/client-dynamodb';
 import type { RosterEntry } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
-import { parsePattern } from '@wick/agent';
-import { describePattern, loadRoster } from './list_regular_visitors.js';
+import { parsePattern, stillWelcome } from '@wick/agent';
+import { describePattern } from './list_regular_visitors.js';
 import { WRITES, data, say } from './result.js';
 import { localToUtc } from './when.js';
 
@@ -60,6 +70,12 @@ type DayName = (typeof DAY_NAMES)[number];
 export const VISITOR_BAD_NAME_TEXT = 'I need the name they go by, in a word or two, like Maria.';
 export const VISITOR_BAD_TIME_TEXT = 'I need the time they usually come, like nine in the morning.';
 export const VISITOR_TOO_MANY_TEXT = 'There are already twelve regular visitors, which is as many as the door keeps.';
+export const VISITOR_CHANGED_MEANWHILE_TEXT = 'The roster was changed by someone else just now. Ask me again.';
+
+/** The roster's version: bumped by every write here, so a check and its write are one step. */
+export const ROSTER_VERSION_SK = 'ROSTER#VERSION';
+/** Entries cleared away in one write. Far more than a household's roster ever leaves behind. */
+const MAX_CLEARED = 20;
 
 /** A name as a person would say it: letters, and the marks names have. One to forty characters. */
 export function visitorName(raw: string): string | undefined {
@@ -116,6 +132,34 @@ export function collidesWith(pattern: string, others: readonly RosterEntry[]): {
   return undefined;
 }
 
+interface Regulars {
+  /** On the roster: an operator's entries, and those whose author the resident still allows. */
+  readonly live: readonly RosterEntry[];
+  /** Still in the table, but not on the roster: their author is no longer allowed. */
+  readonly dead: readonly RosterEntry[];
+  readonly version: number;
+}
+
+/** Every regular visitor the table holds for the household, live or not, and the roster's version. */
+async function loadRegulars(ddb: DynamoDBClient, householdId: string): Promise<Regulars> {
+  const pk = { S: `HH#${householdId}` };
+  const rows = (prefix: string) => ddb.send(new QueryCommand({
+    TableName: TABLE,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: { ':pk': pk, ':prefix': { S: prefix } },
+  }));
+  const [people, members, versionRow] = await Promise.all([
+    rows('PER#'),
+    rows('MEM#'),
+    ddb.send(new GetItemCommand({ TableName: TABLE, Key: { pk, sk: { S: ROSTER_VERSION_SK } }, ConsistentRead: true })),
+  ]);
+  const all = (people.Items ?? [])
+    .flatMap((item) => (item.data?.S ? [JSON.parse(item.data.S) as RosterEntry] : []))
+    .filter((p) => !p.expectedOnce);
+  const live = stillWelcome(all, members.Items ?? []);
+  return { live, dead: all.filter((p) => !live.includes(p)), version: Number(versionRow.Item?.version?.N ?? 0) };
+}
+
 export interface RegularVisitorAnswer {
   readonly added: true;
   /** True when this name was already on the roster and its days or time were changed. */
@@ -157,24 +201,49 @@ export function registerAddRegularVisitor(
       const expectedPattern = regularPattern(asked.days, asked.time, HOUSEHOLD_TZ, now());
       if (!expectedPattern) return say(VISITOR_BAD_TIME_TEXT);
 
-      const regulars = (await loadRoster(ddb, ctx.householdId)).filter((p) => !p.expectedOnce);
-      const existing = regulars.find((p) => p.personId === personId);
-      if (!existing && regulars.length >= MAX_REGULAR_VISITORS) return say(VISITOR_TOO_MANY_TEXT);
-      const taken = collidesWith(expectedPattern, regulars.filter((p) => p.personId !== personId));
+      const { live, dead, version } = await loadRegulars(ddb, ctx.householdId);
+      const existing = live.find((p) => p.personId === personId);
+      // Somebody else's entry — another member's, or the operator's — is not this caller's to rewrite.
+      if (existing && existing.addedBy !== ctx.userId) {
+        return say(`${existing.name} is already on the roster, and was not added by you. Only whoever added ${existing.name} can change those days.`);
+      }
+      if (!existing && live.length >= MAX_REGULAR_VISITORS) return say(VISITOR_TOO_MANY_TEXT);
+      const taken = collidesWith(expectedPattern, live.filter((p) => p.personId !== personId));
       if (taken) {
         return say(`${taken.name} is already expected around then on ${taken.day}. The door can only expect one person at a time: give another time, or change ${taken.name}’s first.`);
       }
 
+      const pk = { S: `HH#${ctx.householdId}` };
       const entry: RosterEntry = { personId, name, expectedPattern, addedBy: ctx.userId };
-      await ddb.send(new PutItemCommand({
-        TableName: TABLE,
-        Item: {
-          pk: { S: `HH#${ctx.householdId}` },
-          sk: { S: `PER#${personId}` },
-          data: { S: JSON.stringify(entry) },
-          addedAt: { N: String(now().getTime()) },
+      const cleared = dead.filter((p) => p.personId !== personId).slice(0, MAX_CLEARED);
+      const writes: TransactWriteItem[] = [
+        {
+          // The guard: this write happens only if nobody else has written since the roster was read.
+          Update: {
+            TableName: TABLE,
+            Key: { pk, sk: { S: ROSTER_VERSION_SK } },
+            UpdateExpression: 'SET version = :next',
+            ConditionExpression: version === 0 ? 'attribute_not_exists(version)' : 'version = :seen',
+            ExpressionAttributeValues: {
+              ':next': { N: String(version + 1) },
+              ...(version === 0 ? {} : { ':seen': { N: String(version) } }),
+            },
+          },
         },
-      }));
+        {
+          Put: {
+            TableName: TABLE,
+            Item: { pk, sk: { S: `PER#${personId}` }, data: { S: JSON.stringify(entry) }, addedAt: { N: String(now().getTime()) } },
+          },
+        },
+        ...cleared.map((p) => ({ Delete: { TableName: TABLE, Key: { pk, sk: { S: `PER#${p.personId}` } } } })),
+      ];
+      try {
+        await ddb.send(new TransactWriteItemsCommand({ TransactItems: writes }));
+      } catch (err) {
+        if ((err as { name?: string }).name === 'TransactionCanceledException') return say(VISITOR_CHANGED_MEANWHILE_TEXT);
+        throw err;
+      }
 
       const answer: RegularVisitorAnswer = {
         added: true,

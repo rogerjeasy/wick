@@ -80,6 +80,23 @@ export function createMemoryTable(): MemoryTable {
         return { Item: items.get(keyOf(input.Key!)) };
       case 'QueryCommand':
         return query(input);
+      case 'TransactWriteItemsCommand': {
+        // All or nothing, as DynamoDB does it. Only the conditions the server uses are understood.
+        const writes = (input as unknown as { TransactItems: { Put?: { Item: Item }; Delete?: { Key: Item }; Update?: { Key: Item; ConditionExpression?: string; ExpressionAttributeValues?: Record<string, AttributeValue> } }[] }).TransactItems;
+        for (const { Update } of writes) {
+          if (!Update) continue;
+          const held = items.get(keyOf(Update.Key))?.version?.N;
+          const seen = Update.ExpressionAttributeValues?.[':seen']?.N;
+          const ok = Update.ConditionExpression === 'attribute_not_exists(version)' ? held === undefined : held === seen;
+          if (!ok) throw Object.assign(new Error('Transaction cancelled'), { name: 'TransactionCanceledException' });
+        }
+        for (const { Put, Delete, Update } of writes) {
+          if (Put) items.set(keyOf(Put.Item), Put.Item);
+          if (Delete) items.delete(keyOf(Delete.Key));
+          if (Update) items.set(keyOf(Update.Key), { ...Update.Key, version: Update.ExpressionAttributeValues![':next']! });
+        }
+        return {};
+      }
       default:
         throw new Error(`memoryTable: unsupported request ${command.constructor.name}`);
     }
