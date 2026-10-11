@@ -33,9 +33,11 @@ locals {
   # The checked-in file defaults the MCP server URL field to localhost —
   # correct for `npm run dev`, wrong for this deployed copy. Rewritten here
   # rather than in the source file so local dev and the deployed static
-  # site each get the default that's actually right for them, from one
-  # source of truth. The field stays a plain <input>, so this is a
-  # convenience default only — never load-bearing.
+  # site each get the default that's actually right for them. It is the
+  # fallback only: the page takes the server from the add-on package
+  # published beside it (addon.json, below; main.js serverFor), and this
+  # default is what it has if that file cannot be read — a deploy that
+  # stopped half way has left a page and its files out of step before.
   sim_alexa_index_html = replace(
     file("${path.module}/../apps/sim-alexa/index.html"),
     "http://127.0.0.1:3300",
@@ -51,6 +53,19 @@ resource "aws_s3_object" "sim_alexa_index" {
   content_type = "text/html; charset=utf-8"
   # A browser must ask again after every deploy, or it runs a stale page
   # against a newer server (observed: a cached main.js kept a new button off).
+  cache_control = "no-cache"
+}
+
+# The Alexa+ add-on package, the same file `alexa-ai deploy` would be given.
+# The page draws Wick's listing from it and links an account against the MCP
+# server it names, so the address lives in one place. A test holds that
+# address to var.mcp_issuer_url (scripts/__tests__/addon-package.test.ts).
+resource "aws_s3_object" "sim_alexa_addon_json" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "addon.json"
+  source        = "${path.module}/../addon-package/addon.json"
+  etag          = filemd5("${path.module}/../addon-package/addon.json")
+  content_type  = "application/json; charset=utf-8"
   cache_control = "no-cache"
 }
 
