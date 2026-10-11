@@ -1,0 +1,26 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": [],
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "baseUrl": ".",
+    "paths": {
+      "@amazon-devices/react-native-kepler": ["src/adapters/kepler.ts"],
+      "@amazon-devices/react-native-w3cmedia": ["src/adapters/w3cmedia.tsx"],
+      "@amazon-devices/kepler-file-system": ["src/adapters/fileSystem.ts"],
+      "@amazon-devices/*": ["src/adapters/unavailable.ts"],
+      "@wick/contracts": ["../../packages/contracts/src/index.ts"],
+      "@wick/vega-calm-ui": ["../../packages/vega-calm-ui/src/index.ts"],
+      "react": ["node_modules/@types/react"],
+      "react/*": ["node_modules/@types/react/*"],
+      "react-native": ["node_modules/react-native"],
+      "react-native/*": ["node_modules/react-native/*"],
+      "mqtt": ["node_modules/mqtt"]
+    }
+  },
+  "include": ["src", "../tv-vega/src/App.tsx"],
+  "exclude": ["node_modules", "android", "src/__tests__"]
+}
