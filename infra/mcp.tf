@@ -121,6 +121,20 @@ data "aws_iam_policy_document" "apprunner_instance" {
   }
 
   statement {
+    sid = "AskTheAssistantsModel"
+    # The stand-in assistant's model (services/mcp-server/src/assistant/):
+    # one Converse call per step of a conversation. The same model the
+    # Narrator writes with, through its cross-region inference profile —
+    # so, as there, InvokeModel on the profile and on the foundation model
+    # it routes to, in whichever US region it picks.
+    actions = ["bedrock:InvokeModel"]
+    resources = [
+      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/${local.narrative_model_profile}",
+      "arn:aws:bedrock:*::foundation-model/${local.narrative_model}",
+    ]
+  }
+
+  statement {
     sid       = "PushNotesToTheDevice"
     actions   = ["execute-api:ManageConnections"]
     resources = ["${aws_apigatewayv2_api.transport.execution_arn}/*/*"]
@@ -171,6 +185,10 @@ resource "aws_apprunner_service" "mcp_server" {
             # A television in a browser tab, offered to anyone with no Fire
             # TV to hand: it pairs with a code and shows the same cards.
             WICK_VIRTUAL_TV_URL = "https://${aws_cloudfront_distribution.ops_console.domain_name}/device.html"
+            # The model behind the family app's conversation. Unset, the
+            # app answers by its rules and says nothing it was not told.
+            WICK_ASSISTANT_MODEL_ID = local.narrative_model_profile
+            WICK_ASSISTANT_REGION   = local.region
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
         )

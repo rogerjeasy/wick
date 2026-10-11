@@ -13,13 +13,21 @@
  * a conversation and nothing else: there is no field in which to send a
  * prompt, a tool or a name.
  *
+ * INV-9 holds here as it does on every tool: someone the resident has not
+ * allowed — or has since removed — is given that answer, in the same
+ * words, and the model is never asked. The tools would refuse them anyway;
+ * this keeps a refused person from spending a model to be told so.
+ *
  * A model costs money and a guest account costs nothing (accounts/demo.ts),
- * so each person may take a bounded number of steps in a while. Where no
- * model is configured the route says so, and the app falls back to the
- * rules it used before there was one.
+ * so steps are bounded three ways: for each person, for everyone together
+ * (so a new guest is not a way round the first), and for the day (so the
+ * worst a day can cost is a known number). Where no model is configured
+ * the route says so, and the app falls back to the rules it used before
+ * there was one.
  */
 import cors from 'cors';
 import express, { type RequestHandler } from 'express';
+import { checkAccess } from '../accounts/circle.js';
 import { grantOf } from '../accounts/oauthProvider.js';
 import type { AccountStore } from '../accounts/store.js';
 import { nextStep, readTurns, type Converse, type ToolSpec } from './brain.js';
@@ -39,24 +47,44 @@ export interface AssistantRouterOptions {
   readonly timeZone: string;
 }
 
-/** A long conversation is twenty questions of three steps each; nobody needs more in ten minutes. */
-export const STEPS_PER_WINDOW = 60;
 const WINDOW_MS = 10 * 60_000;
-const MAX_TRACKED = 5_000;
+const DAY_MS = 24 * 60 * 60_000;
+/** One person, in ten minutes: a dozen questions of three steps each. */
+export const STEPS_PER_PERSON = 40;
+/** Everyone together, in ten minutes. */
+export const STEPS_PER_WINDOW = 300;
+/** Everyone together, in a day. */
+export const STEPS_PER_DAY = 3_000;
 
-/** Fixed windows per person, held in this process — one instance serves the deployment (infra/mcp.tf). */
-function createStepLimiter(now: () => number): (userId: string) => boolean {
-  const windows = new Map<string, { start: number; taken: number }>();
+/**
+ * Whether one more step may be taken now, counting it if so. Fixed windows
+ * held in this process — one instance serves the deployment (infra/mcp.tf).
+ * Everyone's ten minutes start together, so what is remembered is never
+ * more than one window's worth of people.
+ */
+export function createStepLimiter(now: () => number): (userId: string) => boolean {
+  let windowStart = now();
+  let windowTaken = 0;
+  let dayStart = windowStart;
+  let dayTaken = 0;
+  const people = new Map<string, number>();
+
   return (userId) => {
     const at = now();
-    if (windows.size > MAX_TRACKED) for (const [id, w] of windows) if (at - w.start >= WINDOW_MS) windows.delete(id);
-    const current = windows.get(userId);
-    if (!current || at - current.start >= WINDOW_MS) {
-      windows.set(userId, { start: at, taken: 1 });
-      return true;
+    if (at - windowStart >= WINDOW_MS) {
+      windowStart = at;
+      windowTaken = 0;
+      people.clear();
     }
-    if (current.taken >= STEPS_PER_WINDOW) return false;
-    current.taken += 1;
+    if (at - dayStart >= DAY_MS) {
+      dayStart = at;
+      dayTaken = 0;
+    }
+    const mine = people.get(userId) ?? 0;
+    if (dayTaken >= STEPS_PER_DAY || windowTaken >= STEPS_PER_WINDOW || mine >= STEPS_PER_PERSON) return false;
+    people.set(userId, mine + 1);
+    windowTaken += 1;
+    dayTaken += 1;
     return true;
   };
 }
@@ -72,20 +100,20 @@ export function createAssistantRouter(options: AssistantRouterOptions): express.
     const grant = grantOf(req.auth);
     if (!grant) return void res.status(401).json({ error: 'invalid_token', message: 'Link Wick again.' });
     if (!assistant) return void res.status(503).json({ error: 'assistant_unavailable', message: 'There is no assistant here.' });
-    if (!mayStep(grant.userId)) {
-      return void res.status(429).json({ error: 'assistant_busy', message: 'That is a lot of questions. Give me a few minutes.' });
-    }
 
     try {
+      // INV-9, asked on every step as on every tool call: the refusal is the answer, and costs no model.
+      const access = await checkAccess(store, grant.householdId, grant.userId);
+      if (!access.ok) return void res.json({ done: true, say: access.say });
+      const { household, membership } = access;
+
+      if (!mayStep(grant.userId)) {
+        return void res.status(429).json({ error: 'assistant_busy', message: 'That is a lot of questions. Give me a few minutes.' });
+      }
+
       const tools = await toolSpecs();
       const turns = readTurns((req.body as { turns?: unknown } | undefined)?.turns, tools);
       if (!turns) return void res.status(400).json({ error: 'not_a_conversation', message: 'I could not follow that.' });
-
-      const [household, membership] = await Promise.all([
-        store.getHousehold(grant.householdId),
-        store.getMembership(grant.householdId, grant.userId),
-      ]);
-      if (!household || !membership) return void res.status(401).json({ error: 'invalid_token', message: 'Link Wick again.' });
 
       const step = await nextStep({
         converse: assistant.converse,

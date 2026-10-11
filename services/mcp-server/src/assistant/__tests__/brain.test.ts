@@ -139,6 +139,24 @@ describe('systemPrompt', () => {
     expect(prompt).toContain('2026-W42');
   });
 
+  it('gives the days around today as dates: a model asked for "Saturday" must not have to work one out', () => {
+    const prompt = systemPrompt(WHO, NOW, TZ);
+
+    expect(prompt).toContain('Monday 12 October = 2026-10-12 (yesterday)');
+    expect(prompt).toContain('Tuesday 13 October = 2026-10-13 (today)');
+    expect(prompt).toContain('Wednesday 14 October = 2026-10-14 (tomorrow)');
+    expect(prompt).toContain('Saturday 17 October = 2026-10-17');
+    expect(prompt).toContain('Tuesday 6 October = 2026-10-06');
+    expect(prompt).toContain('Tuesday 27 October = 2026-10-27');
+  });
+
+  it('counts the days where the house is, not in UTC', () => {
+    // 23:30 UTC on Tuesday is already Wednesday in London's summer.
+    const lateTuesday = new Date(Date.UTC(2026, 9, 13, 23, 30));
+
+    expect(systemPrompt(WHO, lateTuesday, TZ)).toContain('Wednesday 14 October = 2026-10-14 (today)');
+  });
+
   it('tells the model a demo home’s history is simulated', () => {
     expect(systemPrompt({ ...WHO, simulated: true }, NOW, TZ)).toMatch(/simulated/);
     expect(systemPrompt(WHO, NOW, TZ)).not.toMatch(/simulated/);
