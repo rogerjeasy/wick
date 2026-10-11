@@ -184,10 +184,13 @@ export function secretsManagerTokenProvider(
  * no client that is not some household's.
  */
 export function ringClientsByHousehold(
-  options: SecretsTokenProviderOptions & { readonly fetchImpl?: typeof fetch } = {},
+  // No `secretId` here, on purpose: a name given once would be every
+  // household's secret. Each household's is derived from its own id.
+  options: Omit<SecretsTokenProviderOptions, 'secretId'> & { readonly fetchImpl?: typeof fetch } = {},
 ): (householdId: string) => RingClient {
   const clients = new Map<string, RingClient>();
-  const { fetchImpl, ...providerOptions } = options;
+  // Dropped here as well as in the type: a plain-JavaScript caller is not held by the type.
+  const { fetchImpl, secretId: _oneNameForEveryone, ...providerOptions } = options as SecretsTokenProviderOptions & { readonly fetchImpl?: typeof fetch };
   return (householdId) => {
     let client = clients.get(householdId);
     if (!client) {

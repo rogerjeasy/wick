@@ -23,7 +23,7 @@ import {
   claimDevice, linkRow, linkSummary, playgroundRecord, readLinkRow, releaseDevice, removeLinkRow,
 } from './household-links.mjs';
 import { SAFE_HOUSEHOLD_ID } from './ring-token.mjs';
-import { COMPLETION_SHAPE, completionKey, stateKey } from './authorization.mjs';
+import { COMPLETION_SHAPE, completionKey, isFresh, stateKey } from './authorization.mjs';
 
 export class LinkError extends Error {
   constructor(code) {
@@ -66,12 +66,31 @@ export function createLinkService(deps) {
    */
   async function recordLink(householdId, record, linkedBy) {
     const now = deps.now();
-    let seen = [];
+    // What this home held under its link until now. A home that links again —
+    // with another Ring account, say — must not go on holding doorbells its
+    // new link cannot see: nobody could release them from the app, and the
+    // home that really owns one would be told it is held elsewhere for good.
+    const before = linkSummary((await deps.ddb('get', readLinkRow({ table, householdId })))?.Item, now).devices ?? [];
+
+    let seen;
     try {
       seen = await deps.listDevices({ accessToken: record.access_token });
     } catch (err) {
-      // The link holds; the list can be asked for again by linking again.
+      // The link holds, and so does what the home held: a list that could
+      // not be read is not a list of nothing. Linking again asks again.
       console.warn(JSON.stringify({ level: 'warn', msg: 'ring_devices_not_listed', householdId, status: err?.status ?? null }));
+      await deps.ddb('put', linkRow({ table, householdId, record, linkedBy, devices: before, heldElsewhere: 0, now }));
+      return status(householdId);
+    }
+
+    const stillSeen = new Set(seen.map((device) => device.id));
+    for (const device of before) {
+      if (stillSeen.has(device.id)) continue;
+      try {
+        await deps.ddb('delete', releaseDevice({ table, deviceId: device.id, householdId }));
+      } catch (err) {
+        if (!conditionFailed(err)) throw err; // no longer this household's to release
+      }
     }
 
     const held = [];
@@ -123,7 +142,7 @@ export function createLinkService(deps) {
       await deps.ddb('delete', { TableName: table, Key: stateKey(state) });
 
       const codeVerifier = started?.codeVerifier?.S;
-      if (!codeVerifier) throw new LinkError('link_expired');
+      if (!codeVerifier || !isFresh(started, deps.now()) || !isFresh(pending, deps.now())) throw new LinkError('link_expired');
       if (started.householdId?.S !== householdId || !userId || started.userId?.S !== userId) {
         // Someone else's sign-in, presented here. Nothing is exchanged and nothing is kept.
         console.warn(JSON.stringify({ level: 'warn', msg: 'ring_link_not_the_starters', householdId }));

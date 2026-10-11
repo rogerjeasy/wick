@@ -486,24 +486,34 @@ describe('finishing a sign-in at Ring', () => {
 });
 
 describe('what the callback does with a browser Ring sends back', () => {
-  const state = (extra: Record<string, { S: string }> = {}) => ({ codeVerifier: { S: 'v' }, ...extra });
+  const state = (extra: Record<string, { S: string }> = {}, createdAt = NOW) => ({ codeVerifier: { S: 'v' }, createdAt: { N: String(createdAt) }, ...extra });
 
   it('hands a household\'s sign-in to the family app to finish, whatever the deployment allows', async () => {
     // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
     const { callbackPlan } = await import('../authorization.mjs');
     const household = state({ householdId: { S: 'hh_a' }, userId: { S: 'user_sarah' } });
 
-    expect(callbackPlan(household, { operatorLinkAllowed: false })).toBe('finish_in_app');
-    expect(callbackPlan(household, { operatorLinkAllowed: true })).toBe('finish_in_app');
+    expect(callbackPlan(household, { operatorLinkAllowed: false, now: NOW })).toBe('finish_in_app');
+    expect(callbackPlan(household, { operatorLinkAllowed: true, now: NOW })).toBe('finish_in_app');
   });
 
   it('takes a sign-in nobody\'s household started only where the deployment allows the operator\'s link', async () => {
     // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
     const { callbackPlan } = await import('../authorization.mjs');
 
-    expect(callbackPlan(state({ householdId: { S: 'margaret' } }), { operatorLinkAllowed: false })).toBe('refuse');
-    expect(callbackPlan(state({ householdId: { S: 'margaret' } }), { operatorLinkAllowed: true })).toBe('operator');
-    expect(callbackPlan(state(), { operatorLinkAllowed: true })).toBe('operator');
+    expect(callbackPlan(state({ householdId: { S: 'margaret' } }), { operatorLinkAllowed: false, now: NOW })).toBe('refuse');
+    expect(callbackPlan(state({ householdId: { S: 'margaret' } }), { operatorLinkAllowed: true, now: NOW })).toBe('operator');
+    expect(callbackPlan(state(), { operatorLinkAllowed: true, now: NOW })).toBe('operator');
+  });
+
+  it('refuses a sign-in older than ten minutes, even if the table has not removed its row yet', async () => {
+    // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+    const { callbackPlan } = await import('../authorization.mjs');
+    const household = { householdId: { S: 'hh_a' }, userId: { S: 'user_sarah' } };
+
+    expect(callbackPlan(state(household, NOW - 9 * 60_000), { operatorLinkAllowed: true, now: NOW })).toBe('finish_in_app');
+    expect(callbackPlan(state(household, NOW - 11 * 60_000), { operatorLinkAllowed: true, now: NOW })).toBe('refuse');
+    expect(callbackPlan({ codeVerifier: { S: 'v' }, ...household }, { operatorLinkAllowed: true, now: NOW })).toBe('refuse');
   });
 
   it('refuses a state it does not know', async () => {
@@ -521,5 +531,77 @@ describe('a pasted token\'s own word on how long it lasts', () => {
     const jwt = `${Buffer.from('{"alg":"none"}').toString('base64url')}.${Buffer.from(JSON.stringify({ exp: farFuture })).toString('base64url')}.sig`;
 
     expect(pastedTokenExpiry(jwt, NOW)).toBe(NOW + 60 * 60 * 1000);
+  });
+});
+
+describe('finishing a sign-in that has gone stale', () => {
+  it('refuses one started more than ten minutes ago, and keeps nothing', async () => {
+    const { service, table, secrets, exchange } = harness();
+    // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+    const { completionRow, stateRow } = await import('../authorization.mjs');
+    const completion = 'e'.repeat(43);
+    const old = NOW - 11 * 60_000;
+    table.items.set('OAUTH#state-old|META', stateRow({ table: 'wick', state: 'state-old', verifier: 'v', householdId: 'hh_a', userId: 'user_sarah', now: old }).Item);
+    const done = completionRow({ table: 'wick', completion, state: 'state-old', code: 'ring-code-1', now: old }).Item;
+    table.items.set(`${done.pk.S}|META`, done);
+
+    await expect(service.complete('hh_a', 'user_sarah', completion)).rejects.toMatchObject({ code: 'link_expired' });
+
+    expect(exchange).not.toHaveBeenCalled();
+    expect(secrets.size).toBe(0);
+  });
+});
+
+describe('linking a home again', () => {
+  const FIRST = 'first-accounts-token-0123456789ab';
+  const SECOND = 'second-accounts-token-0123456789a';
+  const kitchen = { id: 'ava1.ring.device.KITCHEN', name: 'Back Door' };
+
+  it('lets go of a doorbell the new link cannot see, so the home that owns it can connect it', async () => {
+    const { service, table } = harness({ devicesByToken: { [FIRST]: [CAMERA], [SECOND]: [kitchen] } });
+    await service.playground('hh_a', 'user_sarah', FIRST);
+
+    const status = await service.playground('hh_a', 'user_sarah', SECOND);
+
+    expect(status.devices).toEqual([kitchen]);
+    expect(table.holderOf(CAMERA.id)).toBeUndefined();
+    expect(table.holderOf(kitchen.id)).toBe('hh_a');
+
+    await service.playground('hh_b', 'user_tom', FIRST);
+    expect(table.holderOf(CAMERA.id)).toBe('hh_b');
+  });
+
+  it('keeps a doorbell both links can see', async () => {
+    const { service, table } = harness({ devicesByToken: { [FIRST]: [CAMERA], [SECOND]: [CAMERA, kitchen] } });
+    await service.playground('hh_a', 'user_sarah', FIRST);
+
+    const status = await service.playground('hh_a', 'user_sarah', SECOND);
+
+    expect(status.devices).toEqual([CAMERA, kitchen]);
+    expect(table.holderOf(CAMERA.id)).toBe('hh_a');
+  });
+
+  it('keeps what the home held when Ring will not list devices: an unread list is not an empty one', async () => {
+    const { service, table } = harness({ devicesByToken: { [FIRST]: [CAMERA] } });
+    await service.playground('hh_a', 'user_sarah', FIRST);
+
+    // A link finished through Ring's sign-in, at a moment Ring's device list fails.
+    const status = await service.recordLink('hh_a', { access_token: 'a-token-the-list-fails-for-0123456', refresh_token: 'r', source: 'oauth' }, 'user_sarah');
+
+    expect(status).toMatchObject({ linked: true, source: 'oauth', devices: [CAMERA] });
+    expect(table.holderOf(CAMERA.id)).toBe('hh_a');
+    // …and a later disconnect still releases it.
+    await service.disconnect('hh_a');
+    expect(table.holderOf(CAMERA.id)).toBeUndefined();
+  });
+
+  it('never releases a doorbell that has since come to be another home\'s', async () => {
+    const { service, table } = harness({ devicesByToken: { [FIRST]: [CAMERA], [SECOND]: [kitchen] } });
+    await service.playground('hh_a', 'user_sarah', FIRST);
+    table.items.set(`RINGDEV#${CAMERA.id}|META`, { pk: { S: `RINGDEV#${CAMERA.id}` }, sk: { S: 'META' }, householdId: { S: 'hh_b' } });
+
+    await service.playground('hh_a', 'user_sarah', SECOND);
+
+    expect(table.holderOf(CAMERA.id)).toBe('hh_b');
   });
 });

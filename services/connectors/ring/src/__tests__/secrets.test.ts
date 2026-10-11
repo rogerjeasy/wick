@@ -211,3 +211,22 @@ describe('ringClientsByHousehold', () => {
     expect(ring.bearers).toEqual([]);
   });
 });
+
+describe('ringClientsByHousehold and a secret named once', () => {
+  it('takes no secret name — and ignores one given anyway: one name would be every household\'s secret', async () => {
+    const asked: string[] = [];
+    const client = {
+      send: async (cmd: { input: { SecretId?: string } }) => {
+        asked.push(cmd.input.SecretId ?? '');
+        return { SecretString: JSON.stringify({ access_token: 'tok', expiresAt: NOW + HOUR }) };
+      },
+    } as never;
+    const fetchImpl = (async () => new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    // @ts-expect-error — `secretId` is deliberately not an option here.
+    const clientFor = ringClientsByHousehold({ client, now: () => NOW, fetchImpl, secretId: 'wick/ring/tokens/hh_a' });
+
+    await clientFor('hh_b').get('/v1/devices');
+
+    expect(asked).toEqual(['wick/ring/tokens/hh_b']);
+  });
+});

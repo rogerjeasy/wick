@@ -99,12 +99,12 @@ data "aws_iam_policy_document" "token" {
   }
 
   # Ring calls this itself, with no household: the link it makes is the
-  # operator household's. The policy still spans the prefix, because the
-  # household is chosen in code (WICK_HOUSEHOLD_ID), not here.
+  # operator household's, and that is the only secret it may touch. It is on
+  # a public route; no other home's link is within its reach.
   statement {
-    sid       = "WriteAHouseholdsTokens"
+    sid       = "WriteTheOperatorHouseholdsTokens"
     actions   = ["secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:CreateSecret"]
-    resources = [local.ring_token_secrets_arn]
+    resources = [local.ring_operator_token_secret_arn]
   }
 
   statement {
@@ -141,10 +141,13 @@ data "aws_iam_policy_document" "link" {
     resources = [aws_secretsmanager_secret.ring_credentials.arn]
   }
 
+  # The callback finishes only the operator's own link (where that is allowed
+  # at all). A household's link is finished by household-link, below, so this
+  # public function needs no other home's secret and has none.
   statement {
-    sid       = "ReadWriteAHouseholdsTokens"
+    sid       = "ReadWriteTheOperatorHouseholdsTokens"
     actions   = ["secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:CreateSecret"]
-    resources = [local.ring_token_secrets_arn]
+    resources = [local.ring_operator_token_secret_arn]
   }
 }
 

@@ -231,6 +231,10 @@ locals {
   # The "/" after "tokens" is what keeps this from matching the superseded
   # single secret, or anything else under ring/.
   ring_token_secrets_arn = "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:${local.ring_token_secret_prefix}/*"
+  # The one household the public Ring functions ever act for: the operator's
+  # (var.household_id). "-??????" is the suffix Secrets Manager adds, spelled
+  # out so this cannot also match a household whose id merely begins the same.
+  ring_operator_token_secret_arn = "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:${local.ring_token_secret_prefix}/${var.household_id}-??????"
 }
 
 # ---------------------------------------------------------------------------

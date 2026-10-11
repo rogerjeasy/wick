@@ -55,6 +55,16 @@ export function stateRow({ table, state, verifier, householdId, userId, now }) {
   };
 }
 
+/**
+ * Whether a state or completion row is still inside its ten minutes. The
+ * table's TTL removes old rows eventually, not on time, so the age is
+ * checked here and an old row is treated as no row.
+ */
+export function isFresh(item, now) {
+  const createdAt = Number(item?.createdAt?.N);
+  return Number.isFinite(createdAt) && now - createdAt < STATE_TTL_S * 1000 && now >= createdAt - 60_000;
+}
+
 export const stateKey = (state) => ({ pk: { S: `OAUTH#${state}` }, sk: { S: 'META' } });
 
 /** Kept under the value's hash, so the table never holds something that could be presented. */
@@ -94,8 +104,8 @@ export function completionRow({ table, completion, state, code, now }) {
  *                    and only where the deployment allows that address at all
  *   'refuse'         no such sign-in, or one this deployment does not take
  */
-export function callbackPlan(stateItem, { operatorLinkAllowed }) {
-  if (!stateItem?.codeVerifier?.S) return 'refuse';
+export function callbackPlan(stateItem, { operatorLinkAllowed, now = Date.now() }) {
+  if (!stateItem?.codeVerifier?.S || !isFresh(stateItem, now)) return 'refuse';
   if (stateItem.householdId?.S && stateItem.userId?.S) return 'finish_in_app';
   return operatorLinkAllowed ? 'operator' : 'refuse';
 }

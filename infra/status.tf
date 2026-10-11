@@ -27,7 +27,7 @@ data "aws_iam_policy_document" "status" {
   statement {
     sid       = "ReadRingLinkDerivedFieldsOnly"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [local.ring_token_secrets_arn]
+    resources = [local.ring_operator_token_secret_arn]
   }
 
   statement {
