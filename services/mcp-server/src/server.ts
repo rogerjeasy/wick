@@ -23,6 +23,8 @@ import express from 'express';
 import cors from 'cors';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ErrorCode, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -31,6 +33,8 @@ import { createAuth } from './auth.js';
 import { createApiRouter, type ClaimTelevision } from './accounts/apiRouter.js';
 import { checkAccess, type CircleDeps } from './accounts/circle.js';
 import { seedDemoHome } from './accounts/demoHome.js';
+import { createAssistantRouter, type AssistantDeps } from './assistant/router.js';
+import type { ToolSpec } from './assistant/brain.js';
 import type { IdentityProvider } from './accounts/identity.js';
 import { grantOf } from './accounts/oauthProvider.js';
 import type { AccountStore } from './accounts/store.js';
@@ -80,6 +84,25 @@ function createMcpServer(ddb: DynamoDBClient, ctx: ToolContext): McpServer {
  * sign-in and circle flow is tested end to end without AWS (index.ts wires
  * the real ones).
  */
+/**
+ * This server's tools as a client is told of them: asked of a server of its
+ * own, over MCP's tools/list, so the stand-in assistant (assistant/) is
+ * shown exactly the names, descriptions and schemas Alexa+ would be — not
+ * a second list kept by hand. No tool is ever called through this.
+ */
+async function listToolSpecs(ddb: DynamoDBClient): Promise<ToolSpec[]> {
+  const nobody: ToolContext = { householdId: '', userId: '', access: async () => { throw new Error('tools/list only'); } };
+  const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'wick-assistant', version: '0.1.0' });
+  await Promise.all([createMcpServer(ddb, nobody).connect(serverSide), client.connect(clientSide)]);
+  try {
+    const { tools } = await client.listTools();
+    return tools.map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema }));
+  } finally {
+    await client.close();
+  }
+}
+
 export interface AppDeps {
   readonly store: AccountStore;
   readonly identity: IdentityProvider;
@@ -91,6 +114,8 @@ export interface AppDeps {
   readonly claimTelevision?: ClaimTelevision;
   /** Let a visitor become an anonymous guest in one click (accounts/demo.ts). Off unless set. */
   readonly demoAccounts?: boolean;
+  /** The model behind the family app's conversation (assistant/brain.ts). Without one the app answers by its rules. */
+  readonly assistant?: AssistantDeps;
   /** A television in a browser tab, for someone with no Fire TV to hand (apps/ops-console/device.html). */
   readonly virtualTelevisionUrl?: string;
   readonly now?: () => number;
@@ -130,6 +155,17 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   app.use(express.json());
   app.use(authRouter);
   app.use(createApiRouter(circle, requireAuth, { claimTelevision: deps.claimTelevision, virtualTelevisionUrl: deps.virtualTelevisionUrl }));
+
+  // The tool list is the same for everyone and for the life of the process: asked for once, on first need.
+  let toolSpecs: Promise<ToolSpec[]> | undefined;
+  app.use(createAssistantRouter({
+    assistant: deps.assistant,
+    requireAuth,
+    store: deps.store,
+    toolSpecs: () => (toolSpecs ??= listToolSpecs(ddb)),
+    now: circle.now,
+    timeZone: HOUSEHOLD_TZ,
+  }));
 
   // Session-keyed transports. StreamableHTTPServerTransport in stateful mode
   // (`sessionIdGenerator` set) only flips its internal `_initialized` flag on the
