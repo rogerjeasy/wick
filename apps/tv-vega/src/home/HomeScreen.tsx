@@ -71,9 +71,11 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
           accessibilityLabel={`${waiting} Press OK to open it.`}
           style={({ focused }: { focused: boolean }) => [styles.waiting, focused && styles.tileFocused]}
         >
-          <Text style={styles.line} numberOfLines={1}>
-            {waiting} Press OK to open it.
+          {/* The line gets the width; "Open" says what OK does, and is never what is cut. */}
+          <Text style={[styles.line, styles.waitingLine]} numberOfLines={1}>
+            {waiting}
           </Text>
+          <Text style={styles.title}>Open</Text>
         </Pressable>
       ) : null}
     </View>
@@ -127,6 +129,12 @@ const styles = StyleSheet.create({
     backgroundColor: safe.raised,
     paddingHorizontal: 20,
     paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 24,
+  },
+  waitingLine: {
+    flex: 1,
   },
   caption: {
     padding: 16,
