@@ -7,16 +7,18 @@
 import {
   DECLINED_RESULT,
   HELP_TEXT,
-  SUGGESTIONS,
   confirmWrite,
   describeCall,
   inviteLink,
   needsConfirmation,
   presentCircle,
+  presentListing,
   presentResult,
   presentTurn,
   presentWelcome,
   routeUtterance,
+  serverFor,
+  suggestionsFor,
   timeFormatter,
 } from './surface.js';
 
@@ -983,12 +985,61 @@ async function handleUtterance(text) {
   if (!answered) answerByRules(text);
 }
 
-for (const suggestion of SUGGESTIONS) {
-  const chip = el('button', 'chip', suggestion.label);
-  chip.type = 'button';
-  chip.disabled = true;
-  chip.addEventListener('click', () => void handleUtterance(suggestion.utterance));
-  $('chips').appendChild(chip);
+/**
+ * The chips under the conversation. Drawn once from the app's own list, and
+ * again when the add-on listing is read: its phrases then come first.
+ */
+function showSuggestions(listing) {
+  // As enabled as the field beside them: redrawing must not open what sign-in has not.
+  const enabled = !$('ask-input').disabled;
+  $('chips').replaceChildren(...suggestionsFor(listing).map((suggestion) => {
+    const chip = el('button', 'chip', suggestion.label);
+    chip.type = 'button';
+    chip.disabled = !enabled;
+    chip.addEventListener('click', () => void handleUtterance(suggestion.utterance));
+    return chip;
+  }));
+}
+showSuggestions(null);
+
+/**
+ * Wick's listing as an add-on, from the package published beside this page
+ * (addon-package/addon.json — the file `alexa-ai deploy` would be given).
+ * Nothing if it cannot be read: the page then links an account as before.
+ */
+async function readListing() {
+  try {
+    const res = await fetch('./addon.json', { cache: 'no-cache' });
+    return res.ok ? presentListing(await res.json()) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The link card, as a customer would meet Wick before enabling it. */
+function showListing(listing) {
+  if (!$('listing-body')) return;
+  $('link-say').textContent = `${listing.name}, as it would be listed for Alexa+. This listing is simulated.`;
+  $('link-title').textContent = listing.name;
+  $('link-detail').textContent = listing.summary;
+  $('connect').textContent = 'Enable and link your account';
+  if (listing.iconUrl) {
+    // An icon that will not load is left out, not shown broken.
+    $('listing-icon').addEventListener('error', () => { $('listing-icon').hidden = true; }, { once: true });
+    $('listing-icon').src = listing.iconUrl;
+    $('listing-icon').hidden = false;
+  }
+  $('listing-meta').hidden = false;
+  $('listing-phrases').replaceChildren(...listing.phrases.map((phrase) => el('li', 'row', `“${phrase}”`)));
+  $('listing-about').append(...listing.about.flatMap((part) => {
+    if (!part.items) return [el('p', '', part.text)];
+    const list = el('ul');
+    list.append(...part.items.map((item) => el('li', '', item)));
+    return [...(part.lead ? [el('p', '', part.lead)] : []), list];
+  }));
+  if (listing.privacyUrl) $('listing-privacy').href = listing.privacyUrl;
+  if (listing.termsUrl) $('listing-terms').href = listing.termsUrl;
+  $('listing-body').hidden = false;
 }
 
 $('ask').addEventListener('submit', (event) => {
@@ -1048,7 +1099,16 @@ $('sign-out').addEventListener('click', () => {
   if (params.size > 0) window.history.replaceState({}, '', window.location.pathname);
 
   link = loadLink();
+  // The server this page links against is the one the add-on package names;
+  // a link made earlier, and a developer's own machine, keep theirs.
+  const listing = await readListing();
+  const listed = serverFor(listing, window.location.hostname);
+  if (listed) $('server-url').value = listed;
   if (link) $('server-url').value = link.serverUrl;
+  if (listing) {
+    showListing(listing);
+    showSuggestions(listing);
+  }
 
   // An invitation is for a home this browser may not be linked to yet, so it
   // goes through sign-in again even when a link exists. The server remembers

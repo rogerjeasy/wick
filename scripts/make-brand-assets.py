@@ -23,12 +23,16 @@ from PIL import Image, ImageDraw, ImageFont
 
 # packages/vega-calm-ui/src/tokens.ts
 GROUND = (0x12, 0x10, 0x0E)
+# The ground of the dark-theme icons: the default card colour of Alexa+'s dark
+# theme (the add-on design guide's Visual Foundations; apps/sim-alexa uses the
+# same value as --card). The mark sits on the surface it is shown on.
+DARK_THEME_GROUND = (0x14, 0x18, 0x1E)
 INK = (0xF4, 0xF1, 0xEA)
 INK_DIM = (0xC8, 0xC2, 0xB6)
 ACCENT = (0xE8, 0xB7, 0x5D)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-ICON_SIZES = [72, 64, 88, 126, 180, 241]   # all six are mandatory
+ICON_SIZES = [72, 64, 88, 126, 180, 241]   # all six are mandatory, for each theme given
 CAROUSEL = (600, 900)
 SS = 4                                      # supersample factor for clean edges
 
@@ -67,23 +71,23 @@ def flame_points(cx: float, cy: float, h: float, w: float, steps: int = 240):
     return pts
 
 
-def glow(size: int, cx: float, cy: float, radius: float, strength: float = 0.5):
+def glow(size: int, cx: float, cy: float, radius: float, strength: float = 0.5, ground=GROUND):
     """Soft radial warmth behind the mark. Drawn as concentric rings."""
-    layer = Image.new("RGB", (size, size), GROUND)
+    layer = Image.new("RGB", (size, size), ground)
     d = ImageDraw.Draw(layer)
     rings = 48
     for i in range(rings, 0, -1):
         r = radius * i / rings
         k = (1 - i / rings) ** 2 * strength
-        col = tuple(int(GROUND[c] + (ACCENT[c] - GROUND[c]) * k) for c in range(3))
+        col = tuple(int(ground[c] + (ACCENT[c] - ground[c]) * k) for c in range(3))
         d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
     return layer
 
 
-def make_icon(px: int) -> Image.Image:
+def make_icon(px: int, ground=GROUND) -> Image.Image:
     s = px * SS
     cx, cy = s / 2, s / 2
-    img = glow(s, cx, cy * 1.04, s * 0.40, strength=0.30)
+    img = glow(s, cx, cy * 1.04, s * 0.40, strength=0.30, ground=ground)
     d = ImageDraw.Draw(img)
 
     # Outer flame.
@@ -149,10 +153,11 @@ def main() -> None:
     icons.mkdir(parents=True, exist_ok=True)
     carousel.mkdir(parents=True, exist_ok=True)
 
-    for px in ICON_SIZES:
-        out = icons / f"light-{px}.png"
-        make_icon(px).save(out, "PNG", optimize=True)
-        print(f"  {out.relative_to(ROOT)}  {px}x{px}")
+    for theme, ground in (("light", GROUND), ("dark", DARK_THEME_GROUND)):
+        for px in ICON_SIZES:
+            out = icons / f"{theme}-{px}.png"
+            make_icon(px, ground).save(out, "PNG", optimize=True)
+            print(f"  {out.relative_to(ROOT)}  {px}x{px}")
 
     out = carousel / "wick-1.png"
     make_carousel().save(out, "PNG", optimize=True)
