@@ -90,7 +90,13 @@ interface DeviceConnection {
   readonly connectionId: string;
   readonly wsEndpoint: string;
   readonly deviceSk: string;
+  /** Present only for the card service's connection — see liveDeviceConnections. */
+  readonly background?: true;
 }
+
+/** The DEV# attributes each connection lives in — the same names connection-slot.mjs writes. */
+const FOREGROUND_ATTRIBUTES = ['connectionId', 'transport', 'wsEndpoint', 'connectedAt'] as const;
+const BACKGROUND_ATTRIBUTES = ['bgConnectionId', 'bgTransport', 'bgWsEndpoint', 'bgConnectedAt'] as const;
 
 /**
  * Every live WebSocket connection among a household's DEV# items. Pure, so
@@ -102,6 +108,13 @@ interface DeviceConnection {
  * sorts before 'wick-tv') resolved to that disconnected device, and every
  * live push silently fell through to "offline". A door card also belongs on
  * every television in the house, not one of them.
+ *
+ * One connection per television: the Wick app when it is on screen, and
+ * otherwise the app's card service, which keeps running behind another app
+ * and can only put up a toast saying a card is waiting (edge-device's
+ * connection-slot.mjs). Never both — the app closes its connection when it
+ * leaves the screen, so a foreground connection means the card itself will
+ * be seen and a toast over it would say the same thing twice.
  */
 export function liveDeviceConnections(items: readonly Record<string, AttributeValue>[]): DeviceConnection[] {
   const live: DeviceConnection[] = [];
@@ -111,8 +124,16 @@ export function liveDeviceConnections(items: readonly Record<string, AttributeVa
     const deviceSk = item.sk?.S;
     // Offline, or on the MQTT path — IoT Core publish isn't wired up yet
     // (SP-5 gate, see FRICTION.md FL-009).
-    if (!connectionId || item.transport?.S !== 'websocket' || !wsEndpoint || !deviceSk) continue;
-    live.push({ connectionId, wsEndpoint, deviceSk });
+    if (!deviceSk) continue;
+    if (connectionId && item.transport?.S === 'websocket' && wsEndpoint) {
+      live.push({ connectionId, wsEndpoint, deviceSk });
+      continue;
+    }
+    const bgConnectionId = item.bgConnectionId?.S;
+    const bgWsEndpoint = item.bgWsEndpoint?.S;
+    if (bgConnectionId && item.bgTransport?.S === 'websocket' && bgWsEndpoint) {
+      live.push({ connectionId: bgConnectionId, wsEndpoint: bgWsEndpoint, deviceSk, background: true });
+    }
   }
   return live;
 }
@@ -172,12 +193,13 @@ async function pushOverWebSocket(
       // already reconnected (fresh connectionId written by connect.mjs in
       // the gap between the earlier Query and this catch). An unconditional
       // REMOVE here would wipe out the live connection.
+      const attributes = conn.background ? BACKGROUND_ATTRIBUTES : FOREGROUND_ATTRIBUTES;
       try {
         await ddb.send(new UpdateItemCommand({
           TableName: TABLE,
           Key: { pk: { S: `HH#${householdId}` }, sk: { S: conn.deviceSk } },
-          UpdateExpression: 'REMOVE connectionId, transport, wsEndpoint, connectedAt',
-          ConditionExpression: 'connectionId = :cid',
+          UpdateExpression: `REMOVE ${attributes.join(', ')}`,
+          ConditionExpression: `${attributes[0]} = :cid`,
           ExpressionAttributeValues: { ':cid': { S: conn.connectionId } },
         }));
       } catch (cleanupErr) {

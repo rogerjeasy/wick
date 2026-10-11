@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelState, ControlMessage, DeviceChannel, DeviceEvent, DeviceToken, QueuedCard } from '@wick/contracts';
-import { holdCardChannel, startCardChannel } from '../startCardChannel.js';
+import { holdCardChannel, startBackgroundChannel, startCardChannel } from '../startCardChannel.js';
 import { QueueStore, type FileSystemLike } from '../../headless/QueueStore.js';
 
 /** The VVD's real disk (FL-013): every call rejects. The runner must not depend on it. */
@@ -241,5 +241,72 @@ describe('holdCardChannel — what App.tsx runs once the device is ready', () =>
 
     expect(channel.closed).toBe(true);
     expect(channel.listenerCount).toBe(0);
+  });
+});
+
+describe('startBackgroundChannel', () => {
+  it('announces a card that arrives, and does not claim it was shown', async () => {
+    const channel = new FakeChannel();
+    const announced: string[] = [];
+    const running = startBackgroundChannel(new QueueStore(brokenFs()), channel, (card) => announced.push(card.id));
+
+    channel.pushCard(doorCard('door-1'));
+    await settle();
+
+    expect(announced).toEqual(['door-1']);
+    expect(channel.sent).toEqual([]);
+    running.stop();
+  });
+
+  it("leaves the app's outbox alone", async () => {
+    vi.useFakeTimers();
+    const channel = new FakeChannel();
+    const store = new QueueStore(brokenFs());
+    const drain = vi.spyOn(store, 'drainOutbound');
+    const running = startBackgroundChannel(store, channel, () => undefined);
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(drain).not.toHaveBeenCalled();
+    running.stop();
+  });
+
+  it('stops listening and closes the connection when stopped', () => {
+    const channel = new FakeChannel();
+    const running = startBackgroundChannel(new QueueStore(brokenFs()), channel, () => undefined);
+
+    running.stop();
+
+    expect(channel.listenerCount).toBe(0);
+    expect(channel.closed).toBe(true);
+  });
+});
+
+describe('holdCardChannel — for the card service', () => {
+  const TOKEN: DeviceToken = { jwt: 'j', deviceId: 'd1', householdId: 'h1', expiresAt: Date.now() + 100_000 };
+
+  it('asks for the background connection, and announces what arrives on it', async () => {
+    const channel = new FakeChannel();
+    const asked: unknown[] = [];
+    const announced: string[] = [];
+    const held = holdCardChannel(
+      new QueueStore(brokenFs()),
+      TOKEN,
+      async (config) => {
+        asked.push(config);
+        return channel;
+      },
+      { websocketUrl: 'wss://ws.example', mqttWssUrl: 'wss://mqtt.example' },
+      (card) => announced.push(card.id),
+    );
+    await settle();
+
+    channel.pushCard(doorCard('door-1'));
+    await settle();
+
+    expect(asked).toEqual([{ websocket: { url: 'wss://ws.example', role: 'background' } }]);
+    expect(announced).toEqual(['door-1']);
+    expect(channel.sent).toEqual([]);
+    held.stop();
   });
 });

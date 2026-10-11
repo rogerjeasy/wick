@@ -33,7 +33,9 @@ runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeK
 categories     = ["com.amazon.category.main", "com.amazon.category.kepler.media"]
 launch-type    = "singleton"
 
-# Holds the device channel; receives cards while the app package is alive.
+# Keeps running while another app is in front: holds the television's
+# background connection and puts up a system toast for a door card
+# (src/headless/CardService.ts). The app starts it — see FL-022.
 #
 # vpt's own manifest validator suggests replacing the runtime-module below
 # with the headless loader ('/com.amazon.kepler.headless.runtime.loader_2@
@@ -99,6 +101,14 @@ id = "com.amazon.tv.content-personalization.privilege.provide-data"
 
 [[wants.privilege]]
 id = "com.amazon.devconf.privilege.accessibility"   # screen-reader state
+
+# The door, outside Wick (FL-022). Wick is a client of its own card service,
+# which it starts by URI; the service posts the toast.
+[[wants.service]]
+id = "com.wick.tv.card.service"
+
+[[wants.privilege]]
+id = "com.amazon.notification.privilege.post"
 
 [[wants.service]]
 id = "com.amazon.media.server"
@@ -196,13 +206,9 @@ mode         = "install"
 [[offers.service]]
 id = "com.wick.tv.content.dataRefresh.provider"
 
-# Without this, nothing tells the platform com.wick.tv.card.service exists to
-# be launched — confirmed missing 2026-09-19: the process never spawned even
-# once (vega device running-apps never listed it, no LaunchComponent request
-# for it in the device log, across every relaunch this session), so
-# onStartCardService() never ran and the device channel never opened,
-# independent of the pairing/token issue FRICTION.md FL-013 documents. See
-# FRICTION.md.
+# Offering the service is what lets the platform launch it at all — but
+# offering alone starts nothing (FL-014). The app starts it by its pkg://
+# URI (src/headless/launchCardService.ts, FL-022).
 [[offers.service]]
 id = "com.wick.tv.card.service"
 

@@ -1,21 +1,25 @@
 /**
- * com.wick.tv.card.service — holds the device channel while the app package is
- * alive, so a card can arrive without the UI being mounted.
+ * com.wick.tv.card.service — the part of Wick that keeps running while
+ * another app is in front.
+ *
+ * It holds the television's *background* connection (WebSocketChannel's
+ * `role`). The server sends a card there only when the app itself is not
+ * on screen (edge-device connection-slot.mjs, agent egress.ts), and all
+ * this process can do with one is announce it: a system toast for a door
+ * card (notify/doorToast.ts), whose button brings Wick forward. The card
+ * itself is rendered by the app, which gets it from the server when it
+ * connects.
  *
  * Isolated in its own process group (manifest.toml) so a UI crash cannot drop
  * the channel.
  *
- * FL-014: on the VVD the platform never launches this process, so it is no
- * longer the only holder of the channel — App.tsx runs the same
- * startCardChannel() in the main process while Wick is on screen. This stays
- * for the background case wherever the platform does start the service.
- *
- * NOTE: this does NOT make Wick able to draw over another app's playback. That
- * is SP-1, the project's pivot question. See docs/WICK-TECHNICAL.md §14.
+ * FL-014, resolved: nothing starts this process by itself. App.tsx starts
+ * it, by its `pkg://` URI, once the television is paired (FL-022).
  */
 import type { DeviceChannel } from '@wick/contracts';
 import { createDeviceChannel, type DeviceChannelConfig } from '../transport/createDeviceChannel.js';
-import { startCardChannel, type RunningCardChannel } from '../transport/startCardChannel.js';
+import { holdCardChannel, type RunningCardChannel } from '../transport/startCardChannel.js';
+import { doorToast, postToast, type ToastContent } from '../notify/doorToast.js';
 import { QueueStore, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
@@ -27,6 +31,8 @@ interface TestDeps {
   readonly createChannel: (config: DeviceChannelConfig, token: Parameters<typeof createDeviceChannel>[1]) => Promise<DeviceChannel>;
   /** Injectable so tests can stub PairingFlow's server-side refresh fallback without a real network call. */
   readonly fetchImpl?: typeof fetch;
+  /** Injectable so tests see the toast instead of looking a TurboModule up. */
+  readonly postToast?: (toast: ToastContent) => Promise<void>;
 }
 
 let testDeps: TestDeps | null = null;
@@ -61,12 +67,11 @@ export async function onStartCardService(): Promise<void> {
   const token = await pairing.loadToken(await resolveDeviceId(fs));
   if (!token) return; // genuinely unpaired — App.tsx shows the pairing screen; nothing to hold open yet
 
-  const channelConfig: DeviceChannelConfig = {
-    websocket: { url: config.websocketUrl, getLastSeenCardId: () => store.lastSeenCardId() },
-    ...(config.mqttWssUrl ? { mqtt: { wssUrl: config.mqttWssUrl } } : {}),
-  };
-
-  running = startCardChannel(store, await createChannel(channelConfig, token));
+  const announce = testDeps?.postToast ?? postToast;
+  running = holdCardChannel(store, token, createChannel, config, (card) => {
+    const toast = doorToast(card);
+    if (toast) void announce(toast);
+  });
 }
 
 export async function onStopCardService(): Promise<void> {

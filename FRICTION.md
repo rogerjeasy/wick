@@ -36,7 +36,8 @@ succeeds still often surfaces a documentation or ergonomics gap.
 
 - [x] **SP-1** Rendering over active playback on Vega — **yes.** A DOOR card composited by
       the app over its own `w3cmedia` HLS playback on the VVD (2026-10-01): legible, playback
-      uninterrupted. Over *another app's* playback remains unanswerable (no overlay API).
+      uninterrupted. Over *another app's* playback there is still no overlay for a card —
+      but a system toast can be put there, from a service the app starts: FL-022.
 - [x] **SP-2** Ring snapshot latency (`POST /media/image/download`) — **3.15s** end to end
       (0.8s to the 303, ~2.3s to pull 106KB). And it is not a snapshot: see FL-005.
 - [x] **SP-3** Ring WHEP session negotiation and limits on Vega — **WHEP works; Vega can't be
@@ -79,6 +80,114 @@ leads, not entries — an entry requires that you actually hit it.
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-022 — A Vega app can announce something while another app is in front, but every step of how is undocumented, and two of the documents say it cannot
+
+**Tool / API:**      Vega SDK 0.24.12044 / Vega CLI 1.3.4 / Vega Virtual Device;
+                     `@amazon-devices/react-native-kepler` 4.0.1 (`useToastKepler`,
+                     `Linking`, `AppState`), the `NotificationManager` TurboModule,
+                     `@amazon-devices/expo-notifications` 2.0.9000000000-rn-83
+
+**Task attempted:**  Tell the resident somebody is at the door while they are in another
+                     app or on the home screen. Until now a door card appeared only while
+                     Wick itself was on screen (FL-014).
+
+**Steps taken:**     1. Logged a heartbeat from the interactive component and pressed
+                        Home. `AppState` reports `background`, one more tick runs, and
+                        then nothing: timers and a chain of `fetch` calls both stop
+                        within about five seconds. The process stays in
+                        `vega device running-apps`.
+                     2. Read the device log for how a system service gets started. The
+                        notification renderer was launched by `servicergrd` when a
+                        client connected ("service inactive; client connection
+                        deferred … issuing launch request") and stopped fifteen seconds
+                        later ("No clients connected to the service, terminating").
+                        Nothing connects to `com.wick.tv.card.service`, which is why it
+                        has never run.
+                     3. Tried `vmsgr send pkg://com.wick.tv.card.service` from the dev
+                        shell: `[com.amazon.apmf.SecurityError]: Missing privileges to
+                        send message`.
+                     4. Called `Linking.openURL('pkg://com.wick.tv.card.service')` from
+                        the app, with `[[wants.service]]` for its own service in the
+                        manifest. The service process started, and kept ticking after
+                        Home and with another app in front — for the five minutes
+                        watched.
+                     5. Posted to the `NotificationManager` TurboModule with
+                        `com.amazon.notification.privilege.post`. Information,
+                        action-required and ongoing kinds, and `HIGH` importance, are
+                        all refused: `No Permission Error`. The toast kind is accepted
+                        and returns an id.
+                     6. The accepted toast drew nothing, three times, in 24 screenshots.
+                        The renderer launched and came to the foreground as an overlay
+                        each time. Reading `useToastKepler`'s source gave the reason:
+                        the channel's `name` has to be the render template
+                        (`SimpleToastRenderTemplate` / `MenuToastRenderTemplate`). With
+                        any other name the post succeeds and nothing is drawn.
+                     7. With the template as the channel name, posted from the service
+                        while another app was in front: the toast appears over it, and
+                        the Menu button on it brings Wick forward.
+
+**Expected:**        One page that says what a third-party app may show outside itself
+                     and how to keep code running to do it. What exists says no:
+                     - the expo-notifications page: "The library currently doesn't work
+                       on the Vega Virtual Device", and not supported on React Native
+                       0.83; the package's own `README.kepler.md`: "The library is not
+                       currently supported on Kepler";
+                     - the type definitions describe `isImportant` as "displayed on top
+                       of the foreground app", with no word that an app may not use it;
+                     - the headless overview's "Manually launch with this command:" is
+                       followed by nothing, in every version from 0.21 to 0.24;
+                     - `useToastKepler` is documented, but not whether a toast shows
+                       when the app that posts it is not in front, or on the VVD.
+
+**Actual:**          It works, on the simulator, with three undocumented facts:
+                     an app starts its own service by sending its `pkg://` URI through
+                     `Linking`; a started service outlives the app's time on screen,
+                     where the app's own JavaScript does not; and a toast posted from
+                     that service is drawn by the system over whatever is in front,
+                     provided the channel is named after a render template. The
+                     documented notification library is not needed, and the statement
+                     that notifications do not work on the VVD is out of date for
+                     toasts.
+
+**Severity:**        Critical — this is the difference between an app that can tell
+                     someone the doorbell rang and one that cannot, and the only way to
+                     find it is to read the device log and the SDK's source.
+
+**Workaround:**      Wick starts `com.wick.tv.card.service` each time it comes on
+                     screen (`src/headless/launchCardService.ts`). The service holds a
+                     second, background connection, and for a door card posts a toast
+                     with an "Open Wick" button (`src/notify/doorToast.ts`). The app
+                     closes its own connection on `background`, so the server knows to
+                     send to the service instead.
+
+                     **What it costs:** a toast, not a card — one line, a small
+                     picture, eight seconds, one button. Nothing starts the service
+                     after a reboot until Wick has been opened once. How long the
+                     platform leaves the service running is not known beyond the five
+                     minutes watched, and none of this has been seen on hardware.
+
+**Suggestion:**      1. **Document the route.** "To show something while your app is not
+                        in front: start a service with `Linking.openURL('pkg://<service
+                        component id>')`, post a toast from it." Three lines would have
+                        saved three weeks of believing it impossible.
+                     2. **Say what is stopped in the background and when.** The
+                        AppState page says the process survives; it does not say the
+                        JavaScript stops within seconds, which is the fact an app has to
+                        design around.
+                     3. **Fail a toast whose channel name is not a template.** Accepting
+                        it, returning an id and drawing nothing is the same shape as
+                        FL-016: a silent no.
+                     4. **Name the privilege in the error.** `No Permission Error` for
+                        an information notification does not say which privilege would
+                        allow it, or that no third-party app can have it.
+                     5. **Correct the VVD statement** on the notifications page, and
+                        fill in the empty "Manually launch with this command:" line.
+                     6. **Give a service a documented lifetime**: whether it is
+                        restarted after a reboot or after the platform reclaims it, and
+                        a way to ask for that.
+
+---
 
 ## FL-021 — `useTVEventHandler` delivers different key names from the ones `HWEvent` documents
 

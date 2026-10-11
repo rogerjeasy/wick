@@ -54,6 +54,23 @@ describe('WebSocketChannel', () => {
     expect(socket.sent).toEqual([JSON.stringify({ t: 'reconcile', sinceCardId: 'c9' })]);
   });
 
+  it("marks the card service's connection as background, and does not ask for a replay", async () => {
+    FakeSocket.instances = [];
+    const channel = new WebSocketChannel(
+      { url: 'wss://api.example/prod', getLastSeenCardId: () => 'c9', role: 'background' },
+      fakeFactory(),
+    );
+
+    const connecting = channel.connect(TOKEN);
+    const socket = FakeSocket.instances[0]!;
+    expect(socket.url).toBe('wss://api.example/prod?token=jwt.token.here&role=background');
+    socket.onopen?.();
+    await connecting;
+
+    expect(channel.state).toBe('open');
+    expect(socket.sent).toEqual([]);
+  });
+
   it('delivers a card wire message to onCard handlers', async () => {
     FakeSocket.instances = [];
     const channel = new WebSocketChannel({ url: 'wss://api.example/prod' }, fakeFactory());

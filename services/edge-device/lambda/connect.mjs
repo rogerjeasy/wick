@@ -2,9 +2,10 @@
  * WebSocket $connect.
  *
  *   - verify the device-bound JWT (RS256), check the deviceId denylist
- *   - store the connectionId on the Device item, plus a reverse lookup so
- *     $disconnect can find it again (API Gateway hands $disconnect nothing
- *     but the connectionId)
+ *   - store the connectionId on the Device item — in the foreground slot, or
+ *     the background slot for the app's card service (`?role=background`,
+ *     connection-slot.mjs) — plus a reverse lookup so $disconnect can find
+ *     it again (API Gateway hands $disconnect nothing but the connectionId)
  *
  * Reconcile (replaying queued cards since the client's last-seen card) does
  * NOT happen here: the client never puts that in the connect query string —
@@ -17,6 +18,7 @@
 import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { verifyJwt } from './jwt.mjs';
+import { setExpression, slotForRole } from './connection-slot.mjs';
 
 const ddb = new DynamoDBClient({});
 const sm = new SecretsManagerClient({});
@@ -56,6 +58,8 @@ export const handler = async (event) => {
   }
 
   const connectionId = event.requestContext.connectionId;
+  // The app on screen, or its card service behind another app (connection-slot.mjs).
+  const slot = slotForRole(event.queryStringParameters?.role);
   const wsEndpoint = `https://${event.requestContext.domainName}/${event.requestContext.stage}`;
 
   // UpdateItem, not PutItem: a full-item replace here would silently erase
@@ -68,7 +72,7 @@ export const handler = async (event) => {
     await ddb.send(new UpdateItemCommand({
       TableName: TABLE,
       Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
-      UpdateExpression: 'SET connectionId = :c, transport = :t, wsEndpoint = :w, connectedAt = :ca',
+      UpdateExpression: setExpression(slot),
       ConditionExpression: 'attribute_exists(pk) AND (attribute_not_exists(denylisted) OR denylisted = :false)',
       ExpressionAttributeValues: {
         ':c': { S: connectionId },
@@ -90,6 +94,7 @@ export const handler = async (event) => {
       sk: { S: 'META' },
       deviceId: { S: deviceId },
       householdId: { S: householdId },
+      role: { S: slot.role },
       ttl: { N: String(Math.floor(Date.now() / 1000) + 86400) }, // stale-connection backstop
     },
   }));

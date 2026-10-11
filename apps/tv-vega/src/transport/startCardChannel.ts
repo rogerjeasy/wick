@@ -65,6 +65,41 @@ export function startCardChannel(store: QueueStore, channel: DeviceChannel): Run
   };
 }
 
+/**
+ * The card service's half, behind another app: listen, keep the store in
+ * step, and announce. It shows nothing itself, so it never says
+ * `card_shown` — that is the app's to say, when the card is on screen —
+ * and it leaves the outbox to the app, whose events those are.
+ */
+export function startBackgroundChannel(
+  store: QueueStore,
+  channel: DeviceChannel,
+  announce: (card: QueuedCard) => void,
+): RunningCardChannel {
+  const unsubscribeCard = channel.onCard((card: QueuedCard) => {
+    // Best effort: the VVD has no data root (FL-013). The server still holds
+    // the card, and replays it when the app next connects.
+    void store.upsert(card).catch(() => undefined);
+    announce(card);
+  });
+
+  const unsubscribeControl = channel.onControl((msg: ControlMessage) => {
+    if (msg.t === 'patch') void store.applyPatch(msg.patch).catch(() => undefined);
+    else if (msg.t === 'revoke') void store.remove(msg.cardId).catch(() => undefined);
+  });
+
+  let stopped = false;
+  return {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      unsubscribeCard();
+      unsubscribeControl();
+      channel.close();
+    },
+  };
+}
+
 async function flushOutbox(store: QueueStore, channel: DeviceChannel): Promise<void> {
   const events = await store.drainOutbound();
   for (const event of events) {
@@ -77,7 +112,8 @@ async function flushOutbox(store: QueueStore, channel: DeviceChannel): Promise<v
 }
 
 /**
- * Connect, then run — App.tsx's whole side of the channel. A failed first
+ * Connect, then run — App.tsx's whole side of the channel, and with
+ * `announce` the card service's. A failed first
  * connect (no network yet at boot, API Gateway briefly unreachable) retries
  * with capped backoff: once the device is paired there is no screen to fall
  * back to, so giving up would mean no cards until the next relaunch. After
@@ -88,11 +124,15 @@ export function holdCardChannel(
   token: DeviceToken,
   createChannel: ChannelFactory,
   config: Pick<DeviceConfig, 'websocketUrl' | 'mqttWssUrl'>,
+  /** Given by the card service: hold the background connection, and announce instead of show. */
+  announce?: (card: QueuedCard) => void,
 ): RunningCardChannel {
-  const channelConfig: DeviceChannelConfig = {
-    websocket: { url: config.websocketUrl, getLastSeenCardId: () => store.lastSeenCardId() },
-    ...(config.mqttWssUrl ? { mqtt: { wssUrl: config.mqttWssUrl } } : {}),
-  };
+  const channelConfig: DeviceChannelConfig = announce
+    ? { websocket: { url: config.websocketUrl, role: 'background' } }
+    : {
+        websocket: { url: config.websocketUrl, getLastSeenCardId: () => store.lastSeenCardId() },
+        ...(config.mqttWssUrl ? { mqtt: { wssUrl: config.mqttWssUrl } } : {}),
+      };
 
   let stopped = false;
   let running: RunningCardChannel | undefined;
@@ -114,7 +154,7 @@ export function holdCardChannel(
       channel.close(); // stop() won the race — never leave it holding this device's connectionId
       return;
     }
-    running = startCardChannel(store, channel);
+    running = announce ? startBackgroundChannel(store, channel, announce) : startCardChannel(store, channel);
   };
   void attempt();
 

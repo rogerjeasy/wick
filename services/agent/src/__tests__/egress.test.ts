@@ -98,6 +98,25 @@ describe('liveDeviceConnections', () => {
     expect(liveDeviceConnections(items).map((c) => c.connectionId)).toEqual(['conn-2', 'conn-1']);
   });
 
+  it('falls back to the card service when Wick is not on screen, and says so', () => {
+    const behind = { ...dev('wick-tv'), bgConnectionId: { S: 'bg-1' }, bgTransport: { S: 'websocket' }, bgWsEndpoint: { S: WS } };
+
+    expect(liveDeviceConnections([behind])).toEqual([{ connectionId: 'bg-1', wsEndpoint: WS, deviceSk: 'DEV#wick-tv', background: true }]);
+  });
+
+  it('sends to the app alone when it is on screen — the card will be seen, so no toast as well', () => {
+    const both = { ...dev('wick-tv', 'conn-1'), bgConnectionId: { S: 'bg-1' }, bgTransport: { S: 'websocket' }, bgWsEndpoint: { S: WS } };
+
+    expect(liveDeviceConnections([both])).toEqual([{ connectionId: 'conn-1', wsEndpoint: WS, deviceSk: 'DEV#wick-tv' }]);
+  });
+
+  it('chooses per television: one with Wick on screen, one with another app in front', () => {
+    const bedroom = { ...dev('bedroom'), bgConnectionId: { S: 'bg-2' }, bgTransport: { S: 'websocket' }, bgWsEndpoint: { S: WS } };
+    const items = [bedroom, dev('living-room', 'conn-1')];
+
+    expect(liveDeviceConnections(items).map((c) => [c.connectionId, c.background ?? false])).toEqual([['bg-2', true], ['conn-1', false]]);
+  });
+
   it('skips a device on the MQTT path — IoT Core publish is not wired up yet', () => {
     const mqtt = { ...dev('wick-tv', 'conn-1'), transport: { S: 'mqtt' } };
 

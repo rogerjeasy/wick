@@ -15,6 +15,7 @@
  * Virtual Device — SP-1 in FRICTION.md.
  */
 import * as React from 'react';
+import { AppState, Linking } from 'react-native';
 import { StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import type { DeviceToken, QueuedCard } from '@wick/contracts';
@@ -33,6 +34,7 @@ import { WatchScreen } from './watch/WatchScreen.js';
 import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { createDeviceChannel } from './transport/createDeviceChannel.js';
 import { holdCardChannel } from './transport/startCardChannel.js';
+import { launchCardService } from './headless/launchCardService.js';
 import { loadDeviceConfig } from './config.js';
 import { resolveDeviceId } from './deviceId.js';
 
@@ -44,6 +46,20 @@ const CONTENT_ID_NAMESPACE = 'wick';
 type Screen =
   | { readonly kind: 'pairing'; readonly info?: PairingStartResponse }
   | { readonly kind: 'ready'; readonly token: DeviceToken };
+
+/**
+ * Whether Wick is the app on screen. Vega tells an app it is leaving the
+ * screen and stops its JavaScript a few seconds later (FL-022), so the
+ * `background` event is the last chance to hand over to the card service.
+ */
+function useOnScreen(): boolean {
+  const [onScreen, setOnScreen] = React.useState(AppState.currentState !== 'background');
+  React.useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => setOnScreen(state !== 'background'));
+    return () => subscription.remove();
+  }, []);
+  return onScreen;
+}
 
 export default function App(): React.JSX.Element {
   const config = React.useMemo(() => loadDeviceConfig(), []);
@@ -101,17 +117,28 @@ export default function App(): React.JSX.Element {
     };
   }, [pairing]);
 
-  // FL-014: the card channel lives here, in the process that renders. The
-  // card_service process that was meant to hold it never launches on the
-  // VVD, so a card could be queued server-side and never reach the screen.
-  // Holding it here means the one QueueStore instance the render loop reads
+  // The card channel lives here, in the process that renders, for as long
+  // as Wick is on screen: the one QueueStore instance the render loop reads
   // below is the one the channel writes into — no disk hand-off (FL-013).
+  //
+  // Leaving the screen closes it, on purpose. The server then has only the
+  // card service's background connection for this television and sends a
+  // door card there, where it becomes a toast (headless/CardService.ts). A
+  // connection left open by an app that is no longer running would swallow
+  // the card instead.
   const token = screen?.kind === 'ready' ? screen.token : undefined;
+  const onScreen = useOnScreen();
   React.useEffect(() => {
-    if (!token) return;
+    if (!token || !onScreen) return;
     const held = holdCardChannel(store, token, createDeviceChannel, config);
     return () => held.stop();
-  }, [token, store, config]);
+  }, [token, onScreen, store, config]);
+
+  // Once paired, and again each time Wick comes back on screen.
+  React.useEffect(() => {
+    if (!token || !onScreen) return;
+    void launchCardService((uri) => Linking.openURL(uri));
+  }, [token, onScreen]);
 
   React.useEffect(() => {
     if (screen?.kind !== 'ready') return;
