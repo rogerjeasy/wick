@@ -148,7 +148,7 @@ describe('comparisonSentences — the comparisons, without a model', () => {
     expect(comparisonSentences([usualDoor, moreMaria], true)).toEqual(['Maria visited more than usual.']);
   });
 
-  it('speaks of a week that is not over as not over — the Sunday-evening run is one', () => {
+  it('speaks of a week that is not over as not over', () => {
     const busyDoor = door({ thisWeek: 12, lastWeek: 4, baseline: 4, baselineWeeks: 4, zScore: 2.4, verdict: 'more' });
     const quietDoor = door({ thisWeek: 0, lastWeek: 4, baseline: 5, baselineWeeks: 4, zScore: -2.5, verdict: 'fewer' });
     const fewerMaria = maria({ thisWeek: 1, lastWeek: 4, baseline: 4, baselineWeeks: 4, zScore: -3, verdict: 'fewer' });
