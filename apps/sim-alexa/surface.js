@@ -370,6 +370,8 @@ function presentNoteSent(context, sent) {
         // The server signs the note with the name the resident allowed.
         ['From', sent.fromName ?? ''],
         ['Message', context.message ?? sent.message ?? ''],
+        // The server's word on what was offered: it may have set aside what was drafted.
+        ...(Array.isArray(sent.replies) && sent.replies.length ? [['Can be answered with', sent.replies.join(' · ')]] : []),
       ],
       footnote: 'It waits for the end of an episode or a pause. One button answers it.',
     },
@@ -549,7 +551,12 @@ export function confirmWrite(toolName, args = {}, title) {
   if (toolName === 'send_note_to_tv') {
     return {
       title: 'Send this note to the television?',
-      fields: [['Message', String(args.message ?? '')], ...otherFields(args, ['message'])],
+      fields: [
+        ['Message', String(args.message ?? '')],
+        // What the resident will be offered to answer with: seen before it is sent.
+        ...(Array.isArray(args.replies) && args.replies.length ? [['Replies offered', [...args.replies.map(String), 'Not right now.'].join(' · ')]] : []),
+        ...otherFields(args, ['message', 'replies']),
+      ],
       confirmLabel: 'Send',
       footnote: 'It appears at the next natural break, never in the middle of a programme.',
     };

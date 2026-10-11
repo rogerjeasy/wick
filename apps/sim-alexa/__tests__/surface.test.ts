@@ -362,6 +362,29 @@ describe('inviteLink', () => {
 // The model-driven conversation: a turn can take several tools.
 // ---------------------------------------------------------------------------
 
+describe('a note, and what it can be answered with', () => {
+  it('shows the replies with the note before it is sent', () => {
+    const asked = confirmWrite('send_note_to_tv', { message: 'Shall I come on Saturday?', replies: ['Yes, please do.', 'Another day would be better.'] });
+
+    expect(asked.fields).toEqual([
+      ['Message', 'Shall I come on Saturday?'],
+      ['Replies offered', 'Yes, please do. · Another day would be better. · Not right now.'],
+    ]);
+  });
+
+  it('shows the note alone when no replies were drafted', () => {
+    expect(confirmWrite('send_note_to_tv', { message: 'Thinking of you.' }).fields).toEqual([['Message', 'Thinking of you.']]);
+  });
+
+  it('says afterwards what the server really offered', () => {
+    const sent = JSON.stringify({ sent: true, cardId: 'note-1', fromName: 'Sarah', message: 'Shall I come on Saturday?', replies: ['Yes, please do.', 'Another day would be better.', 'Not right now.'] });
+
+    const r = presentResult('send_note_to_tv', sent, { message: 'Shall I come on Saturday?' }, at);
+
+    expect(r.card.fields).toContainEqual(['Can be answered with', 'Yes, please do. · Another day would be better. · Not right now.']);
+  });
+});
+
 describe('adding a regular visitor', () => {
   it('asks first, in words: who, which days, around when', () => {
     const asked = confirmWrite('add_regular_visitor', { name: 'Maria', days: ['tuesday', 'friday'], time: '09:00' });
