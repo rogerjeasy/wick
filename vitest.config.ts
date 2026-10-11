@@ -13,6 +13,7 @@ export default defineConfig({
   },
   test: {
     include: ['**/*.{test,spec}.ts'],
-    exclude: ['**/node_modules/**', '**/dist/**'],
+    // .worktrees/ and .claude/worktrees/ hold other branches checked out side by side (.gitignore); their tests are theirs.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/.worktrees/**', '**/.claude/worktrees/**'],
   },
 });
