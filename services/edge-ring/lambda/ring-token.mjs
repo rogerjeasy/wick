@@ -11,7 +11,7 @@
  */
 import { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand }
   from '@aws-sdk/client-secrets-manager';
-import { needsRefresh, isRefreshable, mergeTokens } from './token-policy.mjs';
+import { needsRefresh, isRefreshable, linkTokens, mergeTokens } from './token-policy.mjs';
 import { refreshTokens, fetchAccountIdentifier, completeAppIntegration } from './ring-api.mjs';
 
 const sm = new SecretsManagerClient({});
@@ -102,7 +102,7 @@ export async function getAccessToken({ now = Date.now() } = {}) {
  * would not be.
  */
 export async function finishLink(tokens, { previous = null, now = Date.now() } = {}) {
-  let record = mergeTokens(previous, tokens, now);
+  let record = linkTokens(previous, tokens, now);
 
   let accountId = record.accountId ?? null;
   let completed = false;
