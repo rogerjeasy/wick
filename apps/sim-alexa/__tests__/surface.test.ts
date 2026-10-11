@@ -405,10 +405,38 @@ describe('confirmWrite — nothing is put on a television or a roster without be
     });
   });
 
-  it('asks nothing before a read', () => {
+  it('asks nothing before a tool the server marks read-only', () => {
     for (const tool of ['get_week_narrative', 'get_today', 'did_visitor_come', 'get_replies', 'get_resident_shared_view', 'list_regular_visitors']) {
-      expect(needsConfirmation(tool)).toBe(false);
+      expect(needsConfirmation(tool, { readOnlyHint: true })).toBe(false);
     }
+  });
+
+  it('fails closed: a tool is asked about unless the server itself says it only reads', () => {
+    // A tool this page has never heard of, a tool with no annotations, and one the server could not be asked about.
+    expect(needsConfirmation('a_tool_added_next_month', { readOnlyHint: false })).toBe(true);
+    expect(needsConfirmation('a_tool_added_next_month', {})).toBe(true);
+    expect(needsConfirmation('get_today', undefined)).toBe(true);
+    // The page's own knowledge never overrides the server's: a "read" that is marked a write is asked about.
+    expect(needsConfirmation('get_today', { readOnlyHint: false })).toBe(true);
+  });
+
+  it('shows a write it does not know as exactly what it is: its own name, and every value that would be sent', () => {
+    expect(confirmWrite('forget_everything', { scope: 'all', days: 30 }, 'Forget the history')).toEqual({
+      title: 'Forget the history?',
+      fields: [['scope', 'all'], ['days', '30']],
+      confirmLabel: 'Go ahead',
+      footnote: 'This changes something. Nothing is done until you say so.',
+    });
+    // Never dressed up as a note.
+    expect(confirmWrite('forget_everything', {}).title).toBe('forget_everything?');
+  });
+
+  it('shows every value a known write would send, not only the one it expects', () => {
+    expect(confirmWrite('send_note_to_tv', { message: 'Hello', urgent: true }).fields).toEqual([['Message', 'Hello'], ['urgent', 'true']]);
+    expect(confirmWrite('expect_visit', { date: '2026-10-17', time: '15:00', name: 'Maria' }).fields).toEqual([
+      ['When', 'Saturday 17 October, 15:00'],
+      ['name', 'Maria'],
+    ]);
   });
 });
 

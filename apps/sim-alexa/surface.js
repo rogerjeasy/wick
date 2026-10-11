@@ -413,10 +413,17 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
 // follows is how one such turn — several tools, one answer — is presented.
 // ---------------------------------------------------------------------------
 
-/** The tools that put something on a television or a roster. Each is shown to the customer before it is done. */
-const WRITE_TOOLS = ['send_note_to_tv', 'expect_visit'];
-
-export const needsConfirmation = (toolName) => WRITE_TOOLS.includes(toolName);
+/**
+ * Whether a call is shown to the customer before it is made. Everything is,
+ * unless the server itself marks the tool read-only (MCP's `readOnlyHint`,
+ * from tools/list). The rule fails closed on purpose: this page keeps no
+ * list of its own, so a write added to the server next month, a tool with
+ * no annotations, and a server that could not be asked are all confirmed.
+ *
+ * @param {string} _toolName
+ * @param {{readOnlyHint?: boolean} | undefined} annotations  the tool's own, from the server
+ */
+export const needsConfirmation = (_toolName, annotations) => annotations?.readOnlyHint !== true;
 
 /** What the assistant is told when the customer says no. Not an error: it is their answer. */
 export const DECLINED_RESULT = 'The customer chose not to do this. Nothing was sent or changed.';
@@ -455,21 +462,44 @@ function visitWhen(date, time) {
   return `${at.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}, ${time}`;
 }
 
-/** The question put to the customer before a write is made. */
-export function confirmWrite(toolName, args = {}) {
+/** Every argument not already shown, by its own name: nothing is sent that was not on the card. */
+const otherFields = (args, shown) =>
+  Object.entries(args ?? {})
+    .filter(([name]) => !shown.includes(name))
+    .map(([name, value]) => [name, typeof value === 'string' ? value : JSON.stringify(value)]);
+
+/**
+ * The question put to the customer before a write is made: what it is, and
+ * every value that would be sent. A write this page does not know is shown
+ * under the server's own name for it, with its arguments as they are —
+ * never dressed up as one it does know.
+ *
+ * @param {string} toolName
+ * @param {object} args
+ * @param {string} [title]  the tool's title from tools/list
+ */
+export function confirmWrite(toolName, args = {}, title) {
   if (toolName === 'expect_visit') {
     return {
       title: 'Tell the door you are coming?',
-      fields: [['When', visitWhen(args.date, args.time)]],
+      fields: [['When', visitWhen(args.date, args.time)], ...otherFields(args, ['date', 'time'])],
       confirmLabel: 'Tell the door',
       footnote: 'If the doorbell goes within an hour of then, the television says it looks like you.',
     };
   }
+  if (toolName === 'send_note_to_tv') {
+    return {
+      title: 'Send this note to the television?',
+      fields: [['Message', String(args.message ?? '')], ...otherFields(args, ['message'])],
+      confirmLabel: 'Send',
+      footnote: 'It appears at the next natural break, never in the middle of a programme.',
+    };
+  }
   return {
-    title: 'Send this note to the television?',
-    fields: [['Message', String(args.message ?? '')]],
-    confirmLabel: 'Send',
-    footnote: 'It appears at the next natural break, never in the middle of a programme.',
+    title: `${title || toolName}?`,
+    fields: otherFields(args, []),
+    confirmLabel: 'Go ahead',
+    footnote: 'This changes something. Nothing is done until you say so.',
   };
 }
 

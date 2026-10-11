@@ -202,6 +202,7 @@ function signedOut(reason) {
   saveLink(null);
   me = null;
   mcpSessionId = null;
+  toolInfo = null;
   conversation.length = 0;
   enableToolButtons(false);
   setStatus(reason);
@@ -323,6 +324,26 @@ async function ensureMcpSession() {
     },
   });
   await sendMcpMessage({ jsonrpc: '2.0', method: 'notifications/initialized' });
+}
+
+/**
+ * What the server says about each of its tools (tools/list): its title, and
+ * whether it only reads. Asked once per session. Until it is known — and if
+ * it cannot be — it is empty, and every call is confirmed (surface.js
+ * needsConfirmation fails closed).
+ */
+let toolInfo = null;
+
+async function knownTools() {
+  if (toolInfo) return toolInfo;
+  try {
+    await ensureMcpSession();
+    const listed = await sendMcpMessage({ jsonrpc: '2.0', id: ++mcpRequestId, method: 'tools/list', params: {} });
+    toolInfo = new Map((listed.tools ?? []).map((t) => [t.name, { title: t.title, annotations: t.annotations }]));
+    return toolInfo;
+  } catch {
+    return new Map();
+  }
 }
 
 async function callTool(name, args) {
@@ -502,6 +523,10 @@ const MAX_REMEMBERED_TURNS = 40;
 const MAX_STEPS = 6;
 /** Set once the server says it has no assistant, so each question is not asked of it twice. */
 let noAssistant = false;
+/** How long a confirmation is on screen before its "yes" can be pressed. */
+const CONFIRM_ARMS_AFTER_MS = 700;
+/** One question at a time: a second, asked while a confirmation waits, would be answered around it. */
+let answering = false;
 
 function rememberTurns(...turns) {
   conversation.push(...turns);
@@ -534,8 +559,8 @@ function showProgress(turn, text) {
  * and waits for their answer. Nothing is written until they say yes: the
  * assistant proposes, and only the person whose name goes on it disposes.
  */
-function confirmInTurn(turn, call) {
-  const asked = confirmWrite(call.name, call.args);
+function confirmInTurn(turn, call, title) {
+  const asked = confirmWrite(call.name, call.args, title);
   return new Promise((resolve) => {
     const card = el('article', 'card');
     const head = el('div', 'card-head');
@@ -563,9 +588,18 @@ function confirmInTurn(turn, call) {
     card.appendChild(actions);
     card.appendChild(cardFoot(asked.footnote));
 
+    // A card that appears while someone is typing must not be answered by
+    // the key already on its way down. So the focus goes to "Not now" — a
+    // stray Enter or Space declines — and "yes" cannot be pressed at all
+    // until the card has been on screen long enough to be read as a card.
+    yes.disabled = true;
+    setTimeout(() => {
+      yes.disabled = false;
+    }, CONFIRM_ARMS_AFTER_MS);
+
     turn.appendChild(card);
     scrollToEnd();
-    yes.focus();
+    no.focus();
   });
 }
 
@@ -584,7 +618,8 @@ function fillTurn(turn, presented) {
 
 /** Makes one call the assistant asked for, or does not, if the customer says no. */
 async function runCall(turn, call) {
-  if (needsConfirmation(call.name) && !(await confirmInTurn(turn, call))) {
+  const info = (await knownTools()).get(call.name);
+  if (needsConfirmation(call.name, info?.annotations) && !(await confirmInTurn(turn, call, info?.title))) {
     return { result: { id: call.id, name: call.name, text: DECLINED_RESULT }, presented: null };
   }
   showProgress(turn, `${describeCall(call.name, call.args)}…`);
@@ -917,12 +952,32 @@ function answerByRules(text) {
   assistantSays({ say: HELP_TEXT, tone: 'answer' });
 }
 
+/** The chips and the text field, off while a question is being answered. */
+function setAsking(enabled) {
+  for (const control of document.querySelectorAll('.chip, #ask-input, #ask-send')) control.disabled = !enabled;
+}
+
 async function handleUtterance(text) {
+  if (answering) return;
   addCustomerTurn(text);
   // The circle is this app's own business with the server, not a question for a tool.
   if (routeUtterance(text).kind === 'circle') return void showCircle();
-  if (!noAssistant && (await converse(text))) return;
-  answerByRules(text);
+  if (noAssistant) return answerByRules(text);
+
+  answering = true;
+  setAsking(false);
+  let answered = false;
+  try {
+    answered = await converse(text);
+  } finally {
+    answering = false;
+    // Still signed in? Then the next question may be asked.
+    if (me) {
+      setAsking(true);
+      $('ask-input').focus();
+    }
+  }
+  if (!answered) answerByRules(text);
 }
 
 for (const suggestion of SUGGESTIONS) {
