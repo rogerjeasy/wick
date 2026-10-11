@@ -34,6 +34,12 @@ export interface RosterEntry {
   readonly photoRef?: string;
   /** Cron-ish expectation, e.g. "TUE,FRI 09:00±30m". Used instead of biometrics. */
   readonly expectedPattern?: string;
+  /**
+   * One visit somebody said they would make (the family's expect_visit
+   * tool): the moment, and how many minutes either side of it still count.
+   * Like the pattern, it is a time and nothing more.
+   */
+  readonly expectedOnce?: { readonly at: number; readonly windowMin: number };
 }
 
 export interface VisitorMatch {

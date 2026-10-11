@@ -37,7 +37,11 @@ export interface WeekFacts {
   /** Door visits by local day and part of day, in chronological order. */
   readonly doorTimes: readonly DoorTime[];
   readonly visits: readonly NamedVisits[];
-  /** False when the narrative is written before the week has ended. */
+  /**
+   * False when the narrative is written with the week still under way —
+   * true from Sunday evening on (TOLD_AS_THE_WEEK_MS), not only after
+   * midnight.
+   */
   readonly weekComplete: boolean;
   /** The last local day the facts cover. */
   readonly throughDay: string;
@@ -70,6 +74,16 @@ function partOfDay(hour: number): PartOfDay {
 
 const VISITED = /^(.+) visited\.$/;
 
+/**
+ * From how long before the week ends its telling is the week's, not "the
+ * week so far". The Narrator runs on Sunday evening (infra/narrator.tf, 20:00
+ * UTC) and that story is what the resident reads then, and what the family
+ * reads on any day of the week after — when "so far this week" is no longer
+ * true of anything. Six hours covers that run in every time zone's Sunday
+ * evening without reaching back into its afternoon.
+ */
+export const TOLD_AS_THE_WEEK_MS = 6 * 3_600_000;
+
 export function summariseWeek(entries: readonly TimelineEntry[], options: SummariseOptions): WeekFacts {
   const { timeZone, range, now } = options;
   const sorted = [...entries].sort((a, b) => a.at - b.at);
@@ -95,9 +109,11 @@ export function summariseWeek(entries: readonly TimelineEntry[], options: Summar
     }
   }
 
-  const weekComplete = now >= range.endMs;
-  const lastCovered = weekComplete ? range.endMs - 1 : Math.max(range.startMs, now);
-  return { doorVisits, doorTimes, visits, weekComplete, throughDay: localDayAndHour(lastCovered, timeZone).day };
+  const weekComplete = now >= range.endMs - TOLD_AS_THE_WEEK_MS;
+  // A whole week ends on its Sunday by definition; the range's last instant
+  // is already Monday morning east of Greenwich.
+  const throughDay = weekComplete ? 'Sunday' : localDayAndHour(Math.max(range.startMs, now), timeZone).day;
+  return { doorVisits, doorTimes, visits, weekComplete, throughDay };
 }
 
 /** The only facts the model is shown. Every number it may use is here. */

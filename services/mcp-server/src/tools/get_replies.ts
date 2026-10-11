@@ -15,6 +15,7 @@ import type { QueuedCard } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
+import { READS, data, say } from './result.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -62,13 +63,14 @@ export function registerGetReplies(mcpServer: McpServer, ddb: DynamoDBClient, ct
       title: 'Replies from the television',
       description: "Returns this week's notes sent to the household television, newest first, each with the resident's one-button reply or null if they haven't replied yet.",
       inputSchema: {},
+      annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async () => {
       const notes = await loadNoteReplies(ddb, ctx.householdId, now());
       if (notes.length === 0) {
-        return { content: [{ type: 'text' as const, text: 'No notes have been sent to the television this week.' }] };
+        return say('No notes have been sent to the television this week.');
       }
-      return { content: [{ type: 'text' as const, text: JSON.stringify({ notes }) }] };
+      return data({ notes });
     })),
   );
 }

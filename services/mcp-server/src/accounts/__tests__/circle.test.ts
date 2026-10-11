@@ -244,6 +244,18 @@ describe('checkAccess — INV-9: nobody reads a household before the resident al
   });
 });
 
+describe('removeMember — what they announced goes with them', () => {
+  it('takes a removed person’s announced visits off the roster: the door must not go on expecting them', async () => {
+    const { deps, store } = setup();
+    const household = await createHousehold(deps, SARAH, { residentName: 'Margaret' });
+    await acceptInvitation(deps, TOM, (await createInvitation(deps, { householdId: household.householdId, userId: 'u_sarah' })).code);
+
+    await removeMember(deps, { householdId: household.householdId, userId: 'u_sarah' }, 'u_tom');
+
+    expect(store.forgottenVisits).toEqual([{ householdId: household.householdId, userId: 'u_tom' }]);
+  });
+});
+
 describe('removeMember', () => {
   it('is the organiser’s to do, and never to themselves', async () => {
     const { deps } = setup();

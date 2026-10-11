@@ -32,11 +32,11 @@
  * Model: Claude — runs weekly, offline, and prose quality IS the product here.
  * See docs/WICK-TECHNICAL.md §5.4.
  */
-import type { TimelineEntry, WeekNarrative } from '@wick/contracts';
+import type { RhythmDelta, TimelineEntry, WeekNarrative } from '@wick/contracts';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { isoWeekRange, type WeekRange } from './isoWeek.js';
 import { toTimelineEntry } from './timeline.js';
-import { checkNarrative, factLines, fallbackNarrative, summariseWeek } from './weekFacts.js';
+import { checkNarrative, factLines, fallbackNarrative, summariseWeek, type WeekFacts } from './weekFacts.js';
 import { comparisonLines } from './comparisons.js';
 import { baselineWindow, weekDeltas } from '../../rhythm/baseline.js';
 
@@ -60,6 +60,52 @@ export interface NarratorDeps {
 
 const MODEL_ATTEMPTS = 2;
 
+interface WeekCounted {
+  readonly timeline: TimelineEntry[];
+  readonly facts: WeekFacts;
+  readonly deltas: RhythmDelta[];
+}
+
+/**
+ * The week, counted: its own events, and how they compare with the weeks
+ * before. `rawItems` covers baselineWindow(range). No model is involved, so
+ * every caller counts the same way.
+ */
+function countWeek(
+  rawItems: readonly Record<string, AttributeValue>[],
+  range: WeekRange,
+  when: { readonly now: number; readonly timeZone: string; readonly observedSince: number | undefined },
+): WeekCounted {
+  const loaded = rawItems
+    .map(toTimelineEntry)
+    .filter((e): e is TimelineEntry => e !== undefined);
+  const timeline = loaded.filter((e) => e.at >= range.startMs && e.at < range.endMs);
+  return {
+    timeline,
+    facts: summariseWeek(timeline, { timeZone: when.timeZone, range, now: when.now }),
+    deltas: weekDeltas(loaded, { range, now: when.now, observedSince: when.observedSince }),
+  };
+}
+
+/**
+ * A week written from the facts alone — the narrative the Narrator falls
+ * back to, asked for directly. For a history that has to exist the moment a
+ * household does (the demo home, services/mcp-server/src/accounts/
+ * demoHome.ts): there is no Sunday evening to wait for, and no reason to
+ * pay a model to phrase a week nobody lived.
+ *
+ * `rawItems` are EVT# items covering the week and the six before it.
+ */
+export function factsWeekNarrative(
+  householdId: string,
+  isoWeek: string,
+  rawItems: readonly Record<string, AttributeValue>[],
+  when: { readonly now: number; readonly timeZone: string; readonly observedSince: number | undefined },
+): WeekNarrative {
+  const { timeline, facts, deltas } = countWeek(rawItems, isoWeekRange(isoWeek), when);
+  return { householdId, isoWeek, text: fallbackNarrative(facts, deltas), textSource: 'facts', deltas, timeline, generatedAt: when.now };
+}
+
 export async function computeWeekNarrative(
   householdId: string,
   isoWeek: string,
@@ -67,13 +113,11 @@ export async function computeWeekNarrative(
 ): Promise<WeekNarrative> {
   const range = isoWeekRange(isoWeek);
   const rawItems = await deps.loadEvents(baselineWindow(range));
-  const loaded = rawItems
-    .map(toTimelineEntry)
-    .filter((e): e is TimelineEntry => e !== undefined);
-  const timeline = loaded.filter((e) => e.at >= range.startMs && e.at < range.endMs);
-
-  const facts = summariseWeek(timeline, { timeZone: deps.timeZone, range, now: deps.now() });
-  const deltas = weekDeltas(loaded, { range, now: deps.now(), observedSince: await deps.firstEventAt() });
+  const { timeline, facts, deltas } = countWeek(rawItems, range, {
+    now: deps.now(),
+    timeZone: deps.timeZone,
+    observedSince: await deps.firstEventAt(),
+  });
   const lines = [...factLines(facts), ...comparisonLines(deltas, facts.weekComplete)];
 
   let text: string | undefined;

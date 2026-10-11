@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { computeWeekNarrative, type NarratorDeps } from '../index.js';
+import { computeWeekNarrative, factsWeekNarrative, type NarratorDeps } from '../index.js';
 
 const doorItem = (at: number, id = 'evt-1'): Record<string, AttributeValue> => ({
   pk: { S: 'HH#hh-1' },
@@ -153,5 +153,23 @@ describe('computeWeekNarrative', () => {
     const result = await computeWeekNarrative('hh-1', '2026-W38', deps({ loadEvents: async () => [cardShown] }));
 
     expect(result.timeline).toEqual([]);
+  });
+});
+
+describe('factsWeekNarrative — a week written with no model at all', () => {
+  it('writes the same week the Narrator would fall back to, from the same events', () => {
+    const items = [...doorsInWeek(0, 4), ...doorsInWeek(1, 4), ...doorsInWeek(2, 4), ...doorsInWeek(3, 4)];
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const week = factsWeekNarrative('hh-1', '2026-W38', items, { now: AFTER_W38, timeZone: 'Europe/London', observedSince: W38_START - 3 * WEEK });
+
+    expect(week).toMatchObject({ householdId: 'hh-1', isoWeek: '2026-W38', textSource: 'facts', generatedAt: AFTER_W38 });
+    expect(week.timeline).toHaveLength(4);
+    expect(week.deltas[0]).toMatchObject({ metric: 'door', thisWeek: 4, lastWeek: 4, baselineWeeks: 3, verdict: 'usual' });
+    expect(week.text).toContain('Nothing unusual this week.');
+    expect(week.residentSeenAt).toBeUndefined();
+    // Not a model that failed: there was never one to fail.
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
   });
 });

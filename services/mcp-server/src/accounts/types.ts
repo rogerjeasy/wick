@@ -22,6 +22,12 @@ export interface Household {
   readonly residentName: string;
   readonly createdBy: string;
   readonly createdAt: number;
+  /**
+   * A demo home: its history was written by Wick, not lived (demoHome.ts).
+   * Every surface that names the home says so. Never set on a home a
+   * person set up for someone.
+   */
+  readonly simulated?: boolean;
 }
 
 export interface Membership {

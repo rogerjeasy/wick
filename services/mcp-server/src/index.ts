@@ -1,11 +1,13 @@
 /** Entrypoint: wires the real AWS clients into the server. Local dev and the App Runner container both run this. */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
+import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { sendToDevice } from '@wick/agent';
 import { createApp } from './server.js';
 import { createCognitoIdentity, type CognitoSend } from './accounts/identity.js';
 import { createDynamoAccountStore, type DdbSend } from './accounts/store.js';
+import { createBedrockConverse } from './assistant/bedrock.js';
 
 // Every read-tool file (get_resident_shared_view.ts, get_today.ts,
 // did_visitor_come.ts, get_week_narrative.ts) defaults an unset TABLE_NAME to
@@ -40,6 +42,19 @@ if (!PAIRING_API_URL) {
 const DEMO_ACCOUNTS = process.env.WICK_DEMO_ACCOUNTS === 'on';
 const VIRTUAL_TELEVISION_URL = process.env.WICK_VIRTUAL_TV_URL || undefined;
 
+// The model behind the family app's conversation (assistant/brain.ts), named
+// by the deployment (infra/mcp.tf). Unset, there is no assistant: the route
+// says so and the app answers by its rules — never a made-up reply.
+const ASSISTANT_MODEL_ID = process.env.WICK_ASSISTANT_MODEL_ID || undefined;
+const assistant = ASSISTANT_MODEL_ID
+  ? {
+      converse: createBedrockConverse(
+        new BedrockRuntimeClient(process.env.WICK_ASSISTANT_REGION ? { region: process.env.WICK_ASSISTANT_REGION } : {}),
+        ASSISTANT_MODEL_ID,
+      ),
+    }
+  : undefined;
+
 const PORT = Number(process.env.PORT ?? 3300);
 const ISSUER_URL = new URL(process.env.MCP_ISSUER_URL ?? `http://127.0.0.1:${PORT}`);
 
@@ -62,6 +77,7 @@ const app = createApp(ISSUER_URL, {
     return { status: res.status, body: await res.text() };
   },
   demoAccounts: DEMO_ACCOUNTS,
+  ...(assistant ? { assistant } : {}),
   ...(VIRTUAL_TELEVISION_URL ? { virtualTelevisionUrl: VIRTUAL_TELEVISION_URL } : {}),
 });
 

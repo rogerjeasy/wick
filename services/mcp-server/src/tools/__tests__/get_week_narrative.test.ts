@@ -8,7 +8,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   WEEK_AWAITING_RESIDENT_TEXT,
   WEEK_NOT_WRITTEN_TEXT,
+  WEEK_NOT_WRITTEN_THEN_TEXT,
   familyWeek,
+  latestReadableWeek,
   loadWeekNarrative,
   registerGetWeekNarrative,
 } from '../get_week_narrative.js';
@@ -74,7 +76,8 @@ describe('get_week_narrative INV-7 guard (end-to-end through the registered tool
   it('says plainly when no week has been written yet', async () => {
     const ddb = { send: vi.fn().mockResolvedValue({ Item: undefined }) } as unknown as DynamoDBClient;
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerGetWeekNarrative(mcpServer, ddb, allowedContext('hh-1'));
+    // Asked during 2026-W38 itself: "this week" is the week that was named.
+    registerGetWeekNarrative(mcpServer, ddb, allowedContext('hh-1'), () => new Date(Date.UTC(2026, 8, 16)));
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
     await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
@@ -208,5 +211,114 @@ describe('get_week_narrative honours "What Sarah sees" (end to end through the r
     const week = JSON.parse(await callWith(['PRESENCE'])) as WeekNarrative;
     expect(week.timeline).toEqual([]);
     expect(week.text).not.toContain('Maria');
+  });
+});
+
+describe('latestReadableWeek — "how has the week been?" has an answer on a Wednesday', () => {
+  const week = (isoWeek: string, seen: boolean): WeekNarrative => {
+    const { residentSeenAt, ...unread } = NARRATIVE;
+    return { ...unread, isoWeek, text: `The story of ${isoWeek}.`, ...(seen ? { residentSeenAt } : {}) };
+  };
+
+  it('is this week, once it is written and the resident has read it', () => {
+    expect(latestReadableWeek([week('2026-W38', true), week('2026-W37', true)], '2026-W38')).toEqual({
+      status: 'available',
+      narrative: week('2026-W38', true),
+    });
+  });
+
+  it('is last week, saying this week is not written yet, for the six days before Sunday evening', () => {
+    expect(latestReadableWeek([week('2026-W37', true), week('2026-W36', true)], '2026-W38')).toEqual({
+      status: 'available',
+      narrative: week('2026-W37', true),
+      thisWeek: 'not_written',
+    });
+  });
+
+  it('never hands over a week the resident has not read: it goes back to one they have (INV-7)', () => {
+    expect(latestReadableWeek([week('2026-W38', false), week('2026-W37', true)], '2026-W38')).toEqual({
+      status: 'available',
+      narrative: week('2026-W37', true),
+      thisWeek: 'awaiting_resident',
+    });
+  });
+
+  it('skips an older week nobody read on the television, too', () => {
+    expect(latestReadableWeek([week('2026-W37', false), week('2026-W36', true)], '2026-W38')).toMatchObject({
+      narrative: { isoWeek: '2026-W36' },
+      thisWeek: 'not_written',
+    });
+  });
+
+  it('says a week is waiting on the television when none has been read yet', () => {
+    expect(latestReadableWeek([week('2026-W38', false)], '2026-W38')).toEqual({ status: 'awaiting_resident' });
+    expect(latestReadableWeek([week('2026-W37', false)], '2026-W38')).toEqual({ status: 'awaiting_resident' });
+  });
+
+  it('says nothing is written for a home with no weeks at all', () => {
+    expect(latestReadableWeek([], '2026-W38')).toEqual({ status: 'not_written' });
+  });
+});
+
+describe('get_week_narrative with no week named (end to end through the registered tool)', () => {
+  const NOW = new Date(Date.UTC(2026, 8, 16, 12)); // Wednesday of 2026-W38
+  const stored = (isoWeek: string, seen: boolean): { data: { S: string } } => ({
+    data: { S: JSON.stringify({ ...NARRATIVE, isoWeek, text: `The story of ${isoWeek}.`, residentSeenAt: seen ? 200 : undefined }) },
+  });
+
+  const call = async (weeks: { data: { S: string } }[], args: Record<string, string> = {}) => {
+    const send = vi.fn(async (cmd: { input: { Key?: { sk: { S: string } }; KeyConditionExpression?: string } }) =>
+      cmd.input.KeyConditionExpression ? { Items: weeks } : { Item: undefined },
+    );
+    const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
+    registerGetWeekNarrative(mcpServer, { send } as unknown as DynamoDBClient, allowedContext('hh-1'), () => NOW);
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+    const result = await client.callTool({ name: 'get_week_narrative', arguments: args });
+    return { text: (result.content as { type: string; text: string }[])[0]!.text, send };
+  };
+
+  it('asks for the newest weeks up to this one, newest first, in one query', async () => {
+    const { send } = await call([stored('2026-W37', true)]);
+
+    const query = send.mock.calls.map(([cmd]) => cmd.input).find((input) => input.KeyConditionExpression) as unknown as {
+      ExpressionAttributeValues: Record<string, { S: string }>;
+      ScanIndexForward: boolean;
+    };
+    expect(query.ExpressionAttributeValues).toMatchObject({ ':pk': { S: 'HH#hh-1' }, ':to': { S: 'NARR#2026-W38' } });
+    expect(query.ScanIndexForward).toBe(false);
+  });
+
+  it('answers with last week, and says this week is not written yet', async () => {
+    const { text } = await call([stored('2026-W37', true), stored('2026-W36', true)]);
+
+    expect(JSON.parse(text)).toMatchObject({ isoWeek: '2026-W37', text: 'The story of 2026-W37.', thisWeek: 'not_written' });
+  });
+
+  it('keeps this week back until the resident has read it, and still answers with the one before', async () => {
+    const { text } = await call([stored('2026-W38', false), stored('2026-W37', true)]);
+
+    expect(text).not.toContain('The story of 2026-W38.');
+    expect(JSON.parse(text)).toMatchObject({ isoWeek: '2026-W37', thisWeek: 'awaiting_resident' });
+  });
+
+  it('adds nothing to this week when it is the one returned', async () => {
+    const { text } = await call([stored('2026-W38', true), stored('2026-W37', true)]);
+
+    expect(JSON.parse(text)).toMatchObject({ isoWeek: '2026-W38' });
+    expect(JSON.parse(text)).not.toHaveProperty('thisWeek');
+  });
+
+  it('says a week is waiting on the television, or that none is written, when there is nothing to read', async () => {
+    expect((await call([stored('2026-W38', false)])).text).toBe(WEEK_AWAITING_RESIDENT_TEXT);
+    expect((await call([])).text).toBe(WEEK_NOT_WRITTEN_TEXT);
+  });
+
+  it('answers for exactly the week that was named, and does not call a past week "this week"', async () => {
+    const { text, send } = await call([stored('2026-W37', true)], { isoWeek: '2026-W30' });
+
+    expect(text).toBe(WEEK_NOT_WRITTEN_THEN_TEXT);
+    expect(send.mock.calls.some(([cmd]) => cmd.input.KeyConditionExpression)).toBe(false);
   });
 });

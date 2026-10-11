@@ -23,6 +23,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
+import { READS, data, say } from './result.js';
+import { DAY_ARGUMENT, resolveRecentDay } from './when.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -35,7 +37,7 @@ export interface VisitorCheckResult {
 
 const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
 
-function expectedToday(pattern: string | undefined, now: Date): boolean {
+export function expectedToday(pattern: string | undefined, now: Date): boolean {
   if (!pattern) return false;
   // getUTCDay() is always 0-6, so this index always hits — the `!` just
   // routes around noUncheckedIndexedAccess, which can't see that bound.
@@ -89,24 +91,40 @@ export async function checkVisitor(
   };
 }
 
-export function registerDidVisitorCome(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext): void {
+export function registerDidVisitorCome(
+  mcpServer: McpServer,
+  ddb: DynamoDBClient,
+  ctx: ToolContext,
+  now: () => Date = () => new Date(),
+): void {
   mcpServer.registerTool(
     'did_visitor_come',
     {
       title: 'Did a visitor come',
-      description: 'Checks whether a specific person on the household roster visited today, and whether today was one of their expected days.',
-      inputSchema: { personId: z.string().describe('The roster person id, e.g. "maria".') },
+      description:
+        'Checks whether a specific regular visitor came on a given day — today unless one is named — and whether that is one of their usual days (`expectedToday`). ' +
+        'Takes the `personId` from list_regular_visitors; `name` comes back empty for an id this household does not know. ' +
+        'For "on Tuesday" or "yesterday" pass `day`; the answer says which day it is for (`dayInWords`).',
+      inputSchema: {
+        personId: z.string().describe('The visitor’s `personId` from list_regular_visitors, e.g. "maria".'),
+        day: z.string().optional().describe(DAY_ARGUMENT),
+        date: z.string().optional().describe('An exact day, YYYY-MM-DD, when a date was given. Leave both out for today.'),
+      },
+      annotations: READS,
     },
-    withFriendlyErrors(gated(ctx, async (_allowed, { personId }: { personId: string }) => {
+    withFriendlyErrors(gated(ctx, async (_allowed, { personId, day, date }: { personId: string; day?: string | undefined; date?: string | undefined }) => {
       // Mirrors get_resident_shared_view.ts's disclosure check: if PRESENCE
       // isn't shared with FAMILY under the household's policy, the whole
       // answer is withheld rather than silently answered anyway (§6.4).
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
       if (!isSharedWithFamily('PRESENCE', policy)) {
-        return { content: [{ type: 'text' as const, text: FAMILY_REFUSAL_TEXT }] };
+        return say(FAMILY_REFUSAL_TEXT);
       }
-      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date());
-      return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+      // The same days get_today answers for, by the same rule (when.ts).
+      const resolved = resolveRecentDay({ day, date }, now());
+      if (!resolved.ok) return say(resolved.say);
+      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date(resolved.day.start));
+      return data({ ...result, date: resolved.day.date, dayInWords: resolved.day.inWords });
     })),
   );
 }

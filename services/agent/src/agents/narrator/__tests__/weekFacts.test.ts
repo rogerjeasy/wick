@@ -54,6 +54,21 @@ describe('summariseWeek', () => {
   it('knows a run after Sunday covers the whole week', () => {
     expect(summariseWeek([], { timeZone: LONDON, range, now: afterTheWeek }).weekComplete).toBe(true);
   });
+
+  it('tells Sunday evening’s run as the week: it is read that evening, and all the week after', () => {
+    // The Narrator's own hour (infra/narrator.tf): Sunday 20:00 UTC.
+    const sundayEvening = Date.parse('2026-10-04T20:00:00Z');
+    const facts = summariseWeek([door('2026-09-30T09:00:00Z')], { timeZone: LONDON, range, now: sundayEvening });
+
+    expect(facts).toMatchObject({ weekComplete: true, throughDay: 'Sunday' });
+    expect(fallbackNarrative(facts)).toBe('Someone came to the front door once this week, on Wednesday morning.');
+  });
+
+  it('still calls Sunday afternoon the week so far', () => {
+    const sundayAfternoon = Date.parse('2026-10-04T15:00:00Z');
+
+    expect(summariseWeek([], { timeZone: LONDON, range, now: sundayAfternoon }).weekComplete).toBe(false);
+  });
 });
 
 describe('factLines', () => {

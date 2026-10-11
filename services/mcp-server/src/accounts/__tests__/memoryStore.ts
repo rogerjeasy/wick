@@ -9,9 +9,12 @@ import type { Household, Membership, Television, User } from '../types.js';
 export interface MemoryStore extends AccountStore {
   /** Pretend a television was paired, as pair-claim.mjs would have done. */
   addTelevision(householdId: string, tv: Television): void;
+  /** Every forgetAnnouncedVisits call, in order. */
+  readonly forgottenVisits: { householdId: string; userId: string }[];
 }
 
 export function createMemoryStore(now: () => number = Date.now): MemoryStore {
+  const forgottenVisits: { householdId: string; userId: string }[] = [];
   const users = new Map<string, User>();
   const households = new Map<string, Household>();
   const memberships = new Map<string, Membership>();
@@ -61,6 +64,10 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
       const existing = memberships.get(key);
       if (!existing) throw Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException' });
       memberships.set(key, { ...existing, status, decidedAt: at });
+    },
+    forgottenVisits,
+    async forgetAnnouncedVisits(householdId, userId) {
+      forgottenVisits.push({ householdId, userId });
     },
     async listTelevisions(householdId) {
       return televisions.get(householdId) ?? [];

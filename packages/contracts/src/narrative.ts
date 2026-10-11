@@ -54,6 +54,12 @@ export interface WeekNarrative {
   readonly generatedAt: number;
   /** INV-7 gate. Until set, no family surface may read this. */
   readonly residentSeenAt?: number;
+  /**
+   * Set on the weeks a demo home starts with (services/mcp-server/src/
+   * accounts/demoHome.ts): nobody lived this week. Never set on a week
+   * counted from a real household's events.
+   */
+  readonly simulated?: true;
 }
 
 export interface TimelineEntry {

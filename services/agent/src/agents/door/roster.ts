@@ -17,7 +17,8 @@
  * and inventing precise-looking decimals from nothing is
  * exactly the "confident guessing" docs/WICK.md Principle 11 forbids.
  */
-import type { RosterEntry, VisitorMatch } from '@wick/contracts';
+import type { AttributeValue } from '@aws-sdk/client-dynamodb';
+import { userIdOfMemberPerson, type RosterEntry, type VisitorMatch } from '@wick/contracts';
 
 /** Deliberately modest: a schedule match is weaker evidence than a direct observation. */
 export const SCHEDULE_MATCH_CONFIDENCE = 0.5;
@@ -57,7 +58,17 @@ export function matchVisitor(roster: readonly RosterEntry[], at: number): Visito
   const todayCode = DAY_CODES[date.getUTCDay()]!;
   const minutesOfDay = date.getUTCHours() * 60 + date.getUTCMinutes();
 
+  const matched = (person: RosterEntry): VisitorMatch => ({
+    personId: person.personId,
+    name: person.name,
+    basis: 'schedule',
+    expectedToday: true,
+    confidence: SCHEDULE_MATCH_CONFIDENCE,
+  });
+
   for (const person of roster) {
+    // A visit somebody announced (expect_visit): the one moment they gave.
+    if (person.expectedOnce && Math.abs(at - person.expectedOnce.at) <= person.expectedOnce.windowMin * 60_000) return matched(person);
     if (!person.expectedPattern) continue;
     const parsed = parsePattern(person.expectedPattern);
     if (!parsed) continue;
@@ -66,14 +77,32 @@ export function matchVisitor(roster: readonly RosterEntry[], at: number): Visito
     const targetMinutes = parsed.hour * 60 + parsed.minute;
     if (Math.abs(minutesOfDay - targetMinutes) > parsed.windowMin) continue;
 
-    return {
-      personId: person.personId,
-      name: person.name,
-      basis: 'schedule',
-      expectedToday: true,
-      confidence: SCHEDULE_MATCH_CONFIDENCE,
-    };
+    return matched(person);
   }
 
   return undefined;
+}
+
+/**
+ * The roster, without the announced visits of anyone the resident no longer
+ * allows. `memberships` are the household's `MEM#<userId>` rows.
+ *
+ * A visit somebody announced is filed under them (contracts memberPersonId)
+ * and removed with them, but removal and announcement can cross: the row
+ * can be written in the instant after its author is taken out of the
+ * circle. So membership is checked again here, every time a roster is read
+ * — the same rule as INV-9, where every tool call asks again. A row whose
+ * author is not allowed right now is simply not on the roster.
+ */
+export function stillWelcome(
+  roster: readonly RosterEntry[],
+  memberships: readonly Record<string, AttributeValue>[],
+): RosterEntry[] {
+  const allowed = new Set(
+    memberships.filter((m) => m.status?.S === 'allowed').map((m) => m.sk?.S?.replace(/^MEM#/, '')),
+  );
+  return roster.filter((person) => {
+    const userId = userIdOfMemberPerson(person.personId);
+    return userId === undefined || allowed.has(userId);
+  });
 }

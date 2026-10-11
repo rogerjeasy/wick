@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — a plain browser module, deliberately untyped (no build step).
-import { inviteLink, presentCircle, presentResult, presentWelcome, routeUtterance, SUGGESTIONS } from '../surface.js';
+import {
+  timeFormatter,
+  confirmWrite,
+  describeCall,
+  inviteLink,
+  needsConfirmation,
+  presentCircle,
+  presentResult,
+  presentTurn,
+  presentWelcome,
+  routeUtterance,
+  SUGGESTIONS,
+} from '../surface.js';
 
 const at = (ms: number) => `t${ms}`;
 
@@ -11,6 +23,17 @@ describe('routeUtterance', () => {
 
   it('asks for the week', () => {
     expect(routeUtterance("How's Mum been this week?")).toEqual({ kind: 'tool', tool: 'get_week_narrative', args: {} });
+  });
+
+  it('asks for exactly last week when that is what was said', () => {
+    const wednesdayOfW42 = Date.UTC(2026, 9, 14, 15);
+    expect(routeUtterance('How was last week?', wednesdayOfW42)).toEqual({ kind: 'tool', tool: 'get_week_narrative', args: { isoWeek: '2026-W41' } });
+    expect(routeUtterance("How's Mum been this week?", wednesdayOfW42)).toEqual({ kind: 'tool', tool: 'get_week_narrative', args: {} });
+  });
+
+  it('knows that the week before the first of a year belongs to the year before', () => {
+    // Wednesday 6 January 2027 is in 2027-W01; 2026 has 53 ISO weeks.
+    expect(routeUtterance('and last week?', Date.UTC(2027, 0, 6)).args).toEqual({ isoWeek: '2026-W53' });
   });
 
   it('asks about today', () => {
@@ -57,8 +80,11 @@ describe('presentResult — the week', () => {
     ],
   });
 
+  // Thursday 1 October 2026: 2026-W40 is this week.
+  const duringW40 = { now: Date.UTC(2026, 9, 1, 12) };
+
   it('speaks the prose and shows the timeline it was built from, oldest first', () => {
-    const r = presentResult('get_week_narrative', week, {}, at);
+    const r = presentResult('get_week_narrative', week, duringW40, at);
     expect(r.say).toBe('A steady week. Someone came to the door four times.');
     expect(r.card.title).toBe('This week');
     expect(r.card.items).toEqual([
@@ -66,6 +92,40 @@ describe('presentResult — the week', () => {
       { primary: 'Someone came to the door.', secondary: 't200' },
     ]);
     expect(r.card.footnote).toMatch(/read it first/);
+  });
+
+  it('says which week it is reading when this week is not written yet — never last week passed off as this one', () => {
+    const r = presentResult('get_week_narrative', JSON.stringify({ ...JSON.parse(week), thisWeek: 'not_written' }), {}, at);
+
+    expect(r.say).toBe(
+      'This week’s story isn’t written yet: Wick writes it on Sunday evening. Here is the week of 28 September. ' +
+        'A steady week. Someone came to the door four times.',
+    );
+    expect(r.card.title).toBe('Week of 28 September');
+  });
+
+  it('names a week that was asked for by name, and is not this one, by its date', () => {
+    const aWeekLater = { now: Date.UTC(2026, 9, 8, 12) };
+
+    const r = presentResult('get_week_narrative', week, aWeekLater, at);
+
+    expect(r.card.title).toBe('Week of 28 September');
+    expect(r.card.empty).toBe('Nothing at the door that week.');
+    // It was asked for: nothing needs explaining before the story.
+    expect(r.say).toBe('A steady week. Someone came to the door four times.');
+  });
+
+  it('says so when this week is on the television, waiting to be read there first', () => {
+    const r = presentResult('get_week_narrative', JSON.stringify({ ...JSON.parse(week), thisWeek: 'awaiting_resident' }), {}, at);
+
+    expect(r.say).toMatch(/^This week’s story is on the television, where the person it’s about reads it first\. Here is the week of 28 September\. A steady week\./);
+  });
+
+  it('says a simulated week is simulated, on the card that shows it', () => {
+    const r = presentResult('get_week_narrative', JSON.stringify({ ...JSON.parse(week), simulated: true }), {}, at);
+
+    expect(r.card.footnote).toBe('Simulated: this is a demo home, and nobody lived this week.');
+    expect(presentResult('get_week_narrative', week, {}, at).card.footnote).not.toMatch(/Simulated/);
   });
 
   it('says the server\'s own sentence when the week is withheld, with no card', () => {
@@ -218,6 +278,14 @@ describe('presentWelcome — the first thing said after linking', () => {
     });
   });
 
+  it('says that a demo home’s history is simulated before anything is asked about it', () => {
+    const demo = { ...me('organiser', 'allowed'), household: { householdId: 'hh_d', name: 'Demo home', residentName: 'Margaret', simulated: true } };
+
+    expect(presentWelcome(demo, 1).say).toBe(
+      'Wick is linked to Demo home. Its history is simulated, so there is a week to ask about. What would you like to know?',
+    );
+  });
+
   it('tells a new organiser to connect the television first: nobody can be asked without one', () => {
     expect(presentWelcome(me('organiser', 'pending'), 0)).toEqual({
       say: 'Welcome, Sarah. Connect Margaret’s television next. Margaret will then be asked, on it, whether to allow you.',
@@ -287,5 +355,205 @@ describe('presentCircle', () => {
 describe('inviteLink', () => {
   it('opens this same app with the invitation in the address', () => {
     expect(inviteLink('https://family.example/?pair=123456', 'abc_DEF-123')).toBe('https://family.example/?invite=abc_DEF-123');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The model-driven conversation: a turn can take several tools.
+// ---------------------------------------------------------------------------
+
+describe('describeCall — what a step did, in a few words', () => {
+  it('names each tool by what it does for the customer, never by its name', () => {
+    expect(describeCall('get_week_narrative', {})).toBe('Read the week');
+    expect(describeCall('get_today', { day: 'yesterday' })).toBe('Looked at yesterday');
+    expect(describeCall('get_today', {})).toBe('Looked at today');
+    expect(describeCall('list_regular_visitors', {})).toBe('Checked who visits');
+    expect(describeCall('did_visitor_come', { personId: 'maria', day: 'tuesday' })).toBe('Checked Tuesday’s visits');
+    expect(describeCall('send_note_to_tv', { message: 'Hi' })).toBe('Put a note on the television');
+    expect(describeCall('expect_visit', { date: '2026-10-17', time: '15:00' })).toBe('Told the door');
+    expect(describeCall('did_visitor_come', { personId: 'maria', date: '2026-10-09' })).toBe('Checked 9 October’s visits');
+    expect(describeCall('get_today', { date: '2026-10-09' })).toBe('Looked at 9 October');
+    expect(describeCall('something_new', {})).toBe('Asked Wick');
+  });
+});
+
+describe('timeFormatter — a time is the time it was at the house', () => {
+  it('shows a moment in the household’s zone, whatever zone the person reading is in', () => {
+    // 09:08 UTC on Friday 9 October 2026 is 10:08 in London's summer.
+    expect(timeFormatter('Europe/London')(Date.UTC(2026, 9, 9, 9, 8))).toBe('Fri 9 Oct, 10:08');
+    expect(timeFormatter('America/New_York')(Date.UTC(2026, 9, 9, 9, 8))).toBe('Fri 9 Oct, 05:08');
+  });
+});
+
+describe('confirmWrite — nothing is put on a television or a roster without being shown first', () => {
+  it('asks before a note is sent, showing the words that would be sent', () => {
+    expect(needsConfirmation('send_note_to_tv')).toBe(true);
+    expect(confirmWrite('send_note_to_tv', { message: 'I’m coming on Saturday at three.' })).toEqual({
+      title: 'Send this note to the television?',
+      fields: [['Message', 'I’m coming on Saturday at three.']],
+      confirmLabel: 'Send',
+      footnote: 'It appears at the next natural break, never in the middle of a programme.',
+    });
+  });
+
+  it('asks before a visit is announced, with the day worked out in full so a wrong one is seen', () => {
+    expect(needsConfirmation('expect_visit')).toBe(true);
+    expect(confirmWrite('expect_visit', { date: '2026-10-17', time: '15:00' })).toMatchObject({
+      title: 'Tell the door you are coming?',
+      fields: [['When', 'Saturday 17 October, 15:00']],
+      confirmLabel: 'Tell the door',
+    });
+  });
+
+  it('asks nothing before a tool the server marks read-only', () => {
+    for (const tool of ['get_week_narrative', 'get_today', 'did_visitor_come', 'get_replies', 'get_resident_shared_view', 'list_regular_visitors']) {
+      expect(needsConfirmation(tool, { readOnlyHint: true })).toBe(false);
+    }
+  });
+
+  it('fails closed: a tool is asked about unless the server itself says it only reads', () => {
+    // A tool this page has never heard of, a tool with no annotations, and one the server could not be asked about.
+    expect(needsConfirmation('a_tool_added_next_month', { readOnlyHint: false })).toBe(true);
+    expect(needsConfirmation('a_tool_added_next_month', {})).toBe(true);
+    expect(needsConfirmation('get_today', undefined)).toBe(true);
+    // The page's own knowledge never overrides the server's: a "read" that is marked a write is asked about.
+    expect(needsConfirmation('get_today', { readOnlyHint: false })).toBe(true);
+  });
+
+  it('shows a write it does not know as exactly what it is: its own name, and every value that would be sent', () => {
+    expect(confirmWrite('forget_everything', { scope: 'all', days: 30 }, 'Forget the history')).toEqual({
+      title: 'Forget the history?',
+      fields: [['scope', 'all'], ['days', '30']],
+      confirmLabel: 'Go ahead',
+      footnote: 'This changes something. Nothing is done until you say so.',
+    });
+    // Never dressed up as a note.
+    expect(confirmWrite('forget_everything', {}).title).toBe('forget_everything?');
+  });
+
+  it('shows every value a known write would send, not only the one it expects', () => {
+    expect(confirmWrite('send_note_to_tv', { message: 'Hello', urgent: true }).fields).toEqual([['Message', 'Hello'], ['urgent', 'true']]);
+    expect(confirmWrite('expect_visit', { date: '2026-10-17', time: '15:00', name: 'Maria' }).fields).toEqual([
+      ['When', 'Saturday 17 October, 15:00'],
+      ['name', 'Maria'],
+    ]);
+  });
+});
+
+describe('presentResult — the visitors', () => {
+  const visitors = JSON.stringify({
+    visitors: [{ personId: 'maria', name: 'Maria', usualDays: 'Tuesday and Friday mornings', expectedToday: false, lastVisitAt: 500 }],
+    expected: [{ name: 'Sarah', at: 900 }],
+  });
+
+  it('lists who comes, when they last did, and who has said they are coming', () => {
+    const r = presentResult('list_regular_visitors', visitors, {}, at);
+
+    expect(r.say).toBe('Maria usually comes on Tuesday and Friday mornings.');
+    expect(r.card.title).toBe('Who visits');
+    expect(r.card.items).toEqual([
+      { primary: 'Maria', secondary: 'Tuesday and Friday mornings · last came t500' },
+      { primary: 'Sarah', secondary: 'Expected t900' },
+    ]);
+  });
+
+  it('says so when nobody visits regularly', () => {
+    expect(presentResult('list_regular_visitors', JSON.stringify({ visitors: [], expected: [] }), {}, at)).toMatchObject({
+      say: 'Nobody is down as a regular visitor yet.',
+      card: null,
+    });
+  });
+});
+
+describe('presentResult — a visit announced', () => {
+  it('confirms what the door now expects, and who else is due', () => {
+    const r = presentResult('expect_visit', JSON.stringify({ expected: true, name: 'Sarah', at: 900, windowMinutes: 60, alsoExpectedThatDay: ['Maria'] }), {}, at);
+
+    expect(r.say).toBe('The door will expect you around t900.');
+    expect(r.card).toMatchObject({ kind: 'confirmation', title: 'The door expects you', fields: [['Who', 'Sarah'], ['When', 't900'], ['Also due that day', 'Maria']] });
+  });
+});
+
+describe('presentResult — a day that is not today', () => {
+  const now = Date.UTC(2026, 9, 13, 12);
+
+  it('says which day it is answering for', () => {
+    const day = JSON.stringify({ date: '2026-10-10', dayInWords: 'Saturday 10 October 2026', events: [{ at: 100, summary: 'Someone was at the front door.' }], keptPrivate: [] });
+
+    const r = presentResult('get_today', day, { now }, at);
+
+    expect(r.say).toBe('One thing on Saturday 10 October: someone was at the front door.');
+    expect(r.card.title).toBe('Saturday 10 October');
+  });
+
+  it('keeps "so far today" for today', () => {
+    const today = JSON.stringify({ date: '2026-10-13', dayInWords: 'Tuesday 13 October 2026', events: [], keptPrivate: [] });
+
+    expect(presentResult('get_today', today, { now }, at).say).toBe('Nothing at the door so far today.');
+  });
+
+  it('answers a visit on a named day in the past tense, naming the day', () => {
+    const came = JSON.stringify({ visited: true, at: 100, name: 'Maria', expectedToday: true, date: '2026-10-09', dayInWords: 'Friday 9 October 2026' });
+    const not = JSON.stringify({ visited: false, name: 'Maria', expectedToday: false, date: '2026-10-12', dayInWords: 'Monday 12 October 2026' });
+
+    expect(presentResult('did_visitor_come', came, { now }, at).say).toBe('Yes. Maria came on Friday 9 October, at t100.');
+    expect(presentResult('did_visitor_come', not, { now }, at).say).toBe('No. Maria did not come on Monday 12 October, and it is not one of their usual days.');
+  });
+});
+
+describe('presentResult — the week, measured', () => {
+  it('shows this week beside last week and a usual one, for the door and each visitor', () => {
+    const week = JSON.stringify({
+      isoWeek: '2026-W41', text: 'Nothing unusual this week.', timeline: [],
+      deltas: [
+        { metric: 'door', label: 'the front door', thisWeek: 6, lastWeek: 7, baseline: 6.2, zScore: -0.2, baselineWeeks: 5, verdict: 'usual' },
+        { metric: 'visit:maria', label: 'Maria', thisWeek: 2, lastWeek: 2, baseline: 2, zScore: 0, baselineWeeks: 5, verdict: 'usual' },
+        { metric: 'visit:tom', label: 'Tom', thisWeek: 1, baseline: 0, zScore: 0, baselineWeeks: 0 },
+      ],
+    });
+
+    expect(presentResult('get_week_narrative', week, { now: Date.UTC(2026, 9, 8) }, at).card.facts).toEqual([
+      { label: 'The front door', value: '6 this week · 7 the week before · usually about 6' },
+      { label: 'Maria', value: '2 this week · 2 the week before · usually about 2' },
+      { label: 'Tom', value: '1 this week' },
+    ]);
+  });
+});
+
+describe('presentTurn — several tools, one answer', () => {
+  const step = (name: string, raw: string, args = {}) => ({ name, args, presented: presentResult(name, raw, {}, at) });
+  const visitors = JSON.stringify({ visitors: [{ personId: 'maria', name: 'Maria', expectedToday: false }], expected: [] });
+  const note = JSON.stringify({ sent: true, cardId: 'note-1', fromName: 'Sarah', message: 'See you Saturday.' });
+
+  it('says the model’s sentence, shows each tool’s card, and says what was done to get there', () => {
+    const turn = presentTurn('I have told the door and sent the note.', [step('list_regular_visitors', visitors), step('send_note_to_tv', note, { message: 'See you Saturday.' })]);
+
+    expect(turn.say).toBe('I have told the door and sent the note.');
+    expect(turn.tone).toBe('answer');
+    expect(turn.trace).toBe('Checked who visits · Put a note on the television');
+    expect(turn.cards.map((c: { title: string }) => c.title)).toEqual(['Who visits', 'Note sent to the television']);
+  });
+
+  it('says what the tools themselves said when the model’s words were not fit to use', () => {
+    const turn = presentTurn(undefined, [step('list_regular_visitors', visitors), step('send_note_to_tv', note)]);
+
+    expect(turn.say).toBe('Maria is a regular visitor. Sent. It will appear on the television at the next natural break, never in the middle of a programme.');
+  });
+
+  it('keeps a refusal a refusal: the tone is the tool’s when nothing was answered', () => {
+    const turn = presentTurn('Margaret keeps that to herself.', [step('get_today', 'That is something Margaret is keeping to themselves.')]);
+
+    expect(turn.tone).toBe('private');
+    expect(turn.cards).toEqual([]);
+  });
+
+  it('is just the sentence when no tool was needed', () => {
+    expect(presentTurn('I can only help with the house.', [])).toEqual({ say: 'I can only help with the house.', tone: 'answer', cards: [], trace: '' });
+  });
+
+  it('marks a step the customer declined, and shows nothing for it', () => {
+    const declined = { name: 'send_note_to_tv', args: { message: 'x' }, presented: null };
+
+    expect(presentTurn('All right, I have not sent it.', [declined])).toMatchObject({ trace: 'Did not send the note', cards: [] });
   });
 });

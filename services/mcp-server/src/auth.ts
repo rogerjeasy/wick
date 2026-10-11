@@ -39,7 +39,10 @@ export function createAuth(
   issuerUrl: URL,
   circle: CircleDeps,
   identity: IdentityProvider,
-  options: { readonly demoAccounts?: boolean | undefined } = {},
+  options: {
+    readonly demoAccounts?: boolean | undefined;
+    readonly seedDemoHome?: ((householdId: string) => Promise<void>) | undefined;
+  } = {},
 ): Auth {
   const oauth = createWickOAuth(circle.store, circle.now);
 
@@ -52,7 +55,7 @@ export function createAuth(
       resourceName: 'Wick',
     }),
   );
-  router.use(createAccountRouter({ circle, identity, oauth, issuerUrl, demoAccounts: options.demoAccounts }));
+  router.use(createAccountRouter({ circle, identity, oauth, issuerUrl, demoAccounts: options.demoAccounts, seedDemoHome: options.seedDemoHome }));
 
   /**
    * §7.3 requires 401 with NO WWW-Authenticate header when unauthenticated.

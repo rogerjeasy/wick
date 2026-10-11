@@ -13,29 +13,44 @@
  *     "virtual television" link opens here)
  *   - the demo button is on
  *
+ * The assistant's model is the one thing with no stand-in. With
+ * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
+ * answers; without it there is none, and the app answers by its rules.
+ *
  * Nothing here ships: the deployed entrypoint is ../index.ts.
  */
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { QueuedCard } from '@wick/contracts';
 import { createApp } from '../server.js';
 import { createMemoryStore } from '../accounts/__tests__/memoryStore.js';
+import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
+import { createBedrockConverse } from '../assistant/bedrock.js';
 import { createFakeIdentity } from './harness.js';
+import { createMemoryTable } from './memoryTable.js';
 
 const API_PORT = 3300;
 const APP_PORT = 4173;
 const store = createMemoryStore();
+const table = createMemoryTable();
 const cards: QueuedCard[] = [];
 
 const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
   store,
   identity: createFakeIdentity(),
-  sendCard: async (card) => void cards.push(card),
-  ddb: { send: async () => ({ Items: [] }) } as unknown as DynamoDBClient,
+  sendCard: async (card) => {
+    cards.push(card);
+    // As egress.ts files it, so "has Mum replied?" finds the note.
+    table.put({ pk: { S: `HH#${card.card.householdId}` }, sk: { S: `CARD#${card.id}` }, data: { S: JSON.stringify(card) } });
+  },
+  // A real table's worth of answers: the demo home's history is written here and read back by the tools.
+  ddb: table.ddb,
   demoAccounts: true,
+  ...(process.env.WICK_DEV_ASSISTANT === 'on'
+    ? { assistant: { converse: createBedrockConverse(new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? 'us-east-1' }), process.env.WICK_ASSISTANT_MODEL_ID) } }
+    : {}),
   virtualTelevisionUrl: `http://127.0.0.1:${API_PORT}/dev/allow`,
   claimTelevision: async (accessToken, code) => {
     if (code !== '123456') return { status: 404, body: 'unknown_or_expired_code' };

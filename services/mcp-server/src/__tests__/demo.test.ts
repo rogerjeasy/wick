@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { currentIsoWeek } from '@wick/contracts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -17,6 +19,7 @@ import {
 } from './harness.js';
 import type { AppDeps } from '../server.js';
 import { createMemoryStore } from '../accounts/__tests__/memoryStore.js';
+import { createMemoryTable } from './memoryTable.js';
 
 const closers: (() => Promise<void>)[] = [];
 
@@ -32,7 +35,7 @@ afterEach(async () => {
 
 interface Me {
   user: { userId: string; name: string; email: string; guest: boolean };
-  household: { householdId: string; name: string; residentName: string };
+  household: { householdId: string; name: string; residentName: string; simulated?: boolean; timeZone?: string };
   membership: { role: string; status: string };
 }
 
@@ -77,6 +80,75 @@ describe('the demo button — an anonymous account in one click', () => {
       household: { name: 'Demo home', residentName: 'Margaret' },
       membership: { role: 'organiser', status: 'pending' },
     });
+  });
+
+  it('gives the demo home a history to ask about, and says it is simulated', async () => {
+    const puts: { TableName?: string; Item?: Record<string, { S?: string }> }[] = [];
+    const ddb = { send: async (command: { input: object }) => (puts.push(command.input), {}) } as unknown as DynamoDBClient;
+    const h = await server({ demoAccounts: true, ddb });
+
+    const { tokens } = await demoTokens(h);
+
+    const home = await me(h, tokens.access_token);
+    expect(home.household.simulated).toBe(true);
+    // Where the house is: the app shows every time as it was there.
+    expect(home.household.timeZone).toBe('Europe/London');
+    const rows = puts.filter((p) => p.Item?.pk?.S === `HH#${home.household.householdId}`).map((p) => p.Item!.sk!.S!);
+    expect(rows).toContain('PER#maria');
+    expect(rows.filter((sk) => sk.startsWith('EVT#')).length).toBeGreaterThan(40);
+    expect(rows.filter((sk) => sk.startsWith('NARR#')).length).toBe(7);
+  });
+
+  it('lets the guest, once Margaret has allowed them, ask about a week that is there to ask about', async () => {
+    const table = createMemoryTable();
+    const h = await server({ demoAccounts: true, ddb: table.ddb });
+    const { tokens } = await demoTokens(h);
+    const guest = await me(h, tokens.access_token);
+    await h.store.setMemberStatus(guest.household.householdId, guest.user.userId, 'allowed', Date.now());
+    const transport = new StreamableHTTPClientTransport(new URL(`${h.base}/mcp`), {
+      requestInit: { headers: { authorization: `Bearer ${tokens.access_token}` } },
+    });
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await client.connect(transport as unknown as Transport);
+    closers.push(() => client.close());
+    const ask = async (name: string, args: Record<string, string> = {}) =>
+      JSON.parse(((await client.callTool({ name, arguments: args })).content as { text: string }[])[0]!.text) as Record<string, unknown>;
+
+    // No week is named: the answer is last week's story, and it says so.
+    const week = await ask('get_week_narrative');
+    expect(week).toMatchObject({
+      isoWeek: currentIsoWeek(new Date(Date.now() - 7 * 86_400_000)),
+      thisWeek: 'not_written',
+      simulated: true,
+    });
+    expect(week.text).toMatch(/Maria visited twice/);
+    expect(week.text).toMatch(/Nothing unusual/);
+
+    // The carer the suggested question asks about is someone this home knows.
+    expect(await ask('did_visitor_come', { personId: 'maria' })).toMatchObject({ name: 'Maria' });
+    expect(await ask('get_today')).toMatchObject({ keptPrivate: [] });
+  });
+
+  it('still makes the guest when the history cannot be written', async () => {
+    const ddb = { send: async () => { throw new Error('table unavailable'); } } as unknown as DynamoDBClient;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const h = await server({ demoAccounts: true, ddb });
+
+    const { tokens } = await demoTokens(h);
+
+    expect((await me(h, tokens.access_token)).user.guest).toBe(true);
+    warn.mockRestore();
+  });
+
+  it('gives a home somebody set up for themselves no history at all: only a demo home is simulated', async () => {
+    const puts: object[] = [];
+    const ddb = { send: async (command: { input: object }) => (puts.push(command.input), {}) } as unknown as DynamoDBClient;
+    const h = await server({ demoAccounts: true, ddb });
+
+    const sarah = await linkNewOrganiser(h);
+
+    expect((await me(h, sarah.tokens.access_token)).household.simulated).toBeUndefined();
+    expect(puts).toEqual([]);
   });
 
   it('gives every click its own account and its own home: two visitors never share one', async () => {

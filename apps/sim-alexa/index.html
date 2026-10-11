@@ -168,6 +168,13 @@
   .card-head { display: flex; align-items: baseline; gap: var(--s-m); }
   .card-title { font-size: var(--t-headline); font-weight: 600; margin: 0; }
   .card-meta { color: var(--ink-dim); font-size: var(--t-small); }
+  /* The week measured: this week beside the one before and a usual one. */
+  .facts { margin: 0 0 var(--s-s); display: grid; grid-template-columns: max-content 1fr; gap: var(--s-2xs) var(--s-m); }
+  .facts dt { font-weight: 600; }
+  .facts dd { margin: 0; color: var(--ink-dim); font-size: var(--t-small); align-self: center; }
+  /* What the assistant did to answer: the tools it called, in plain words. */
+  .trace { margin: var(--s-xs) 0 0; color: var(--ink-dim); font-size: var(--t-small); }
+  .progress { margin-left: var(--s-s); color: var(--ink-dim); font-size: var(--t-small); }
   .rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-xs); }
   .row {
     background: var(--card-inner);
@@ -219,7 +226,7 @@
     width: 100%;
   }
   .form textarea { resize: vertical; min-height: 4.5em; }
-  .form .actions { display: flex; gap: var(--s-s); align-items: center; }
+  .form .actions, .card > .actions { display: flex; gap: var(--s-s); align-items: center; }
   .counter { color: var(--ink-dim); font-size: var(--t-small); margin-left: auto; }
   /* The six digits on the television: large, spaced, impossible to misread. */
   .form input.code { font-size: var(--t-display); letter-spacing: 0.18em; max-width: 9em; }
@@ -256,8 +263,9 @@
     <strong>The Wick family app, with a simulated Alexa+ conversation.</strong> Amazon's
     Alexa+ add-on tools are open to select partners only, so this page stands in for the
     assistant, as the hackathon permits. Nothing on it is canned: you sign in to a real
-    account, and every answer comes from the real Wick MCP server (spec 2025-11-25,
-    Streamable HTTP, OAuth 2.1).
+    account, a model chooses which of Wick's tools to call, and this page calls them on
+    the real Wick MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1). Every fact it
+    says comes from a tool's answer.
   </p>
 
   <main class="surface">

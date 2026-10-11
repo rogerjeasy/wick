@@ -28,6 +28,11 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
+import { READS, data, say } from './result.js';
+import { DAY_ARGUMENT, resolveRecentDay } from './when.js';
+
+export { DAY_NOT_A_DATE_TEXT, DAY_NOT_YET_TEXT, DAY_TOO_OLD_TEXT } from './when.js';
+import { z } from 'zod';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -57,6 +62,10 @@ export interface TodayEntry {
 }
 
 export interface TodayAnswer {
+  /** The day answered for, YYYY-MM-DD (UTC, as the timeline is filed). Set by the tool. */
+  readonly date?: string;
+  /** The same day in words: "Tuesday 6 October 2026". */
+  readonly dayInWords?: string;
   readonly events: readonly TodayEntry[];
   /** What the resident keeps private, in plain words, named whether or not it happened. */
   readonly keptPrivate: readonly string[];
@@ -109,18 +118,33 @@ export async function loadTodayEvents(
   return { events, keptPrivate };
 }
 
-export function registerGetToday(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext): void {
+export function registerGetToday(
+  mcpServer: McpServer,
+  ddb: DynamoDBClient,
+  ctx: ToolContext,
+  now: () => Date = () => new Date(),
+): void {
   mcpServer.registerTool(
     'get_today',
     {
-      title: "Today's events",
-      description: "Returns today's door activity and visits, in plain language, as far as the resident shares them, and names anything they keep private.",
-      inputSchema: {},
+      title: 'A day’s events',
+      description:
+        "Returns one day's door activity and visits, in plain language, as far as the resident shares them, and names anything they keep private. " +
+        'Today when no day is given; any day of the last six weeks when one is. For "yesterday" or "on Tuesday" pass `day`, and the server works the date out; ' +
+        'the answer says which day it is for (`dayInWords`): say that day, not the one you were asked for, if they differ.',
+      inputSchema: {
+        day: z.string().optional().describe(DAY_ARGUMENT),
+        date: z.string().optional().describe('An exact day, YYYY-MM-DD, when a date was given. Leave both out for today.'),
+      },
+      annotations: READS,
     },
-    withFriendlyErrors(gated(ctx, async () => {
+    withFriendlyErrors(gated(ctx, async (_allowed, asked: { date?: string | undefined; day?: string | undefined }) => {
+      const resolved = resolveRecentDay(asked, now());
+      if (!resolved.ok) return say(resolved.say);
+
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
-      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(), policy);
-      return { content: [{ type: 'text' as const, text: JSON.stringify(answer) }] };
+      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(resolved.day.start), policy);
+      return data({ date: resolved.day.date, dayInWords: resolved.day.inWords, ...answer });
     })),
   );
 }
