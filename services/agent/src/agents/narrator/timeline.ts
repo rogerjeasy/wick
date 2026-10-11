@@ -5,8 +5,9 @@
  * granular for a week-level narrative and not what "how's Mum been this
  * week" is asking about. TimelineEntry's 'card' and 'deviation' kinds stay
  * unused here — 'card' needs a product decision about which actions are
- * narrative-worthy, 'deviation' needs S6's Rhythm baseline, neither of
- * which exists yet.
+ * narrative-worthy, and a deviation is not an event with a moment: the
+ * Rhythm baseline reports it on the week (WeekNarrative.deltas,
+ * rhythm/baseline.ts), not as an entry in it.
  */
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { parseTimestampFromSortKey, type TimelineEntry } from '@wick/contracts';

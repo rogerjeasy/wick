@@ -15,7 +15,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { DynamoDBClient, PutItemCommand, QueryCommand, ScanCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
-import { currentIsoWeek, padTimestamp, type WeekNarrative } from '@wick/contracts';
+import { currentIsoWeek, padTimestamp, parseTimestampFromSortKey, type WeekNarrative } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { householdsWithTelevision, narrateEveryHousehold } from './everyHousehold.js';
 import { writeNarrative } from './prose.js';
@@ -25,20 +25,45 @@ import { sendToDevice } from '../../egress.js';
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
 
+/**
+ * Paged: this is the week and the six before it (rhythm/baseline.ts), and
+ * the timeline also holds every card the television showed. One page is
+ * not a safe assumption for seven weeks of a household's life.
+ */
 async function loadEvents(householdId: string, range: WeekRange) {
+  const items: Record<string, AttributeValue>[] = [];
+  let startKey: Record<string, AttributeValue> | undefined;
+  do {
+    const page = await ddb.send(new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
+      ExpressionAttributeValues: {
+        ':pk': { S: `HH#${householdId}` },
+        ':from': { S: `EVT#${padTimestamp(range.startMs)}` },
+        // range.endMs is exclusive; the sentinel character sorts after any
+        // uuid suffix at that millisecond, matching get_today.ts's and
+        // did_visitor_come.ts's identical upper-bound pattern.
+        ':to': { S: `EVT#${padTimestamp(range.endMs - 1)}#￿` },
+      },
+      ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+    }));
+    items.push(...(page.Items ?? []));
+    startKey = page.LastEvaluatedKey;
+  } while (startKey);
+  return items;
+}
+
+/** The oldest EVT# row: sort keys are zero-padded timestamps, so the first one is the first event. */
+async function firstEventAt(householdId: string): Promise<number | undefined> {
   const res = await ddb.send(new QueryCommand({
     TableName: TABLE,
-    KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
-    ExpressionAttributeValues: {
-      ':pk': { S: `HH#${householdId}` },
-      ':from': { S: `EVT#${padTimestamp(range.startMs)}` },
-      // range.endMs is exclusive; the sentinel character sorts after any
-      // uuid suffix at that millisecond, matching get_today.ts's and
-      // did_visitor_come.ts's identical upper-bound pattern.
-      ':to': { S: `EVT#${padTimestamp(range.endMs - 1)}#￿` },
-    },
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :evt)',
+    ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':evt': { S: 'EVT#' } },
+    ProjectionExpression: 'sk',
+    Limit: 1,
   }));
-  return res.Items ?? [];
+  const sk = res.Items?.[0]?.sk?.S;
+  return sk ? parseTimestampFromSortKey(sk) : undefined;
 }
 
 /**
@@ -80,6 +105,7 @@ export const handler = async (): Promise<void> => {
   const run = await narrateEveryHousehold(isoWeek, {
     listHouseholds,
     loadEvents,
+    firstEventAt,
     writeNarrative: (facts, retryReason) => writeNarrative(facts, retryReason),
     saveNarrative,
     sendWeekCard: (card) => sendToDevice(card, DEFAULT_POLICY),

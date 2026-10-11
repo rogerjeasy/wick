@@ -10,12 +10,16 @@
  * facts to the model for prose (prose.ts). Its prose is then checked: a
  * number the facts never gave, or a narrative too long for the card, is
  * refused, asked for once more, and then replaced by a narrative written
- * from the facts alone. deltas is
- * always empty: S6 Rhythm's baseline — the thing "up from last week" would
- * be computed from — does not exist yet (no Timestream table, no baseline
- * job). Reporting zero deltas is the honest answer, not a placeholder:
- * narrative.ts's own RhythmDelta comment says deviations are suppressed
- * below three weeks of baseline, and zero is below three.
+ * from the facts alone.
+ *
+ * THE MODEL NEVER DECIDES WHAT IS USUAL, either. The six weeks before this
+ * one are loaded with it and counted the same way (rhythm/baseline.ts);
+ * `deltas` is this week against them. The model is shown last week and the
+ * usual week as facts, with the verdict already reached (comparisons.ts),
+ * and prose that makes a comparison the facts do not is refused like a
+ * wrong number. Below three observed weeks there is no usual week and no
+ * verdict: narrative.ts's RhythmDelta says deviations are suppressed below
+ * three weeks of baseline, and that is enforced here, not hoped for.
  *
  * residentSeenAt is never set here, on purpose. INV-7: the resident sees
  * their week on their own television before any family surface can read
@@ -33,9 +37,17 @@ import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { isoWeekRange, type WeekRange } from './isoWeek.js';
 import { toTimelineEntry } from './timeline.js';
 import { checkNarrative, factLines, fallbackNarrative, summariseWeek } from './weekFacts.js';
+import { comparisonLines } from './comparisons.js';
+import { baselineWindow, weekDeltas } from '../../rhythm/baseline.js';
 
 export interface NarratorDeps {
+  /** Called once, with the week and the six before it (rhythm/baseline.ts baselineWindow). */
   readonly loadEvents: (range: WeekRange) => Promise<readonly Record<string, AttributeValue>[]>;
+  /**
+   * When the household's first event was recorded, ever. A week before it
+   * is a week nobody saw, not a quiet one, and is kept out of the baseline.
+   */
+  readonly firstEventAt: () => Promise<number | undefined>;
   /**
    * Prose from the fact lines. `retryReason` is set on the second attempt
    * and says why the first was refused.
@@ -54,13 +66,15 @@ export async function computeWeekNarrative(
   deps: NarratorDeps,
 ): Promise<WeekNarrative> {
   const range = isoWeekRange(isoWeek);
-  const rawItems = await deps.loadEvents(range);
-  const timeline = rawItems
+  const rawItems = await deps.loadEvents(baselineWindow(range));
+  const loaded = rawItems
     .map(toTimelineEntry)
     .filter((e): e is TimelineEntry => e !== undefined);
+  const timeline = loaded.filter((e) => e.at >= range.startMs && e.at < range.endMs);
 
   const facts = summariseWeek(timeline, { timeZone: deps.timeZone, range, now: deps.now() });
-  const lines = factLines(facts);
+  const deltas = weekDeltas(loaded, { range, now: deps.now(), observedSince: await deps.firstEventAt() });
+  const lines = [...factLines(facts), ...comparisonLines(deltas, facts.weekComplete)];
 
   let text: string | undefined;
   let retryReason: string | undefined;
@@ -73,14 +87,16 @@ export async function computeWeekNarrative(
       console.error(JSON.stringify({ level: 'error', msg: 'narrative_model_failed', isoWeek, error: (err as Error).name || String(err) }));
       break;
     }
-    const check = checkNarrative(draft, facts);
+    const check = checkNarrative(draft, facts, deltas);
     if (check.ok) text = draft;
     else {
       retryReason = check.reason === 'unsupported_number'
         ? `Your draft used "${check.detail}", a number that is not in the facts. Use only the numbers given.`
-        : check.reason === 'too_long'
-          ? `Your draft was ${check.detail} characters. Stay under the limit.`
-          : 'Your draft was empty.';
+        : check.reason === 'unsupported_comparison'
+          ? `Your draft said "${check.detail}", which the facts do not support. Compare with last week, or with what is usual, only where the facts do.`
+          : check.reason === 'too_long'
+            ? `Your draft was ${check.detail} characters. Stay under the limit.`
+            : 'Your draft was empty.';
       console.warn(JSON.stringify({ level: 'warn', msg: 'narrative_rejected', isoWeek, attempt, reason: check.reason, detail: check.detail }));
     }
   }
@@ -88,9 +104,9 @@ export async function computeWeekNarrative(
   return {
     householdId,
     isoWeek,
-    text: text ?? fallbackNarrative(facts),
+    text: text ?? fallbackNarrative(facts, deltas),
     textSource: text === undefined ? 'facts' : 'model',
-    deltas: [],
+    deltas,
     timeline,
     generatedAt: deps.now(),
   };

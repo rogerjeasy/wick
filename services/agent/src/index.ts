@@ -10,4 +10,5 @@
  */
 export { sendToDevice } from './egress.js';
 export { privateNarrative, summariseWeek } from './agents/narrator/weekFacts.js';
+export { visibleDeltas } from './agents/narrator/comparisons.js';
 export { isoWeekRange } from './agents/narrator/isoWeek.js';

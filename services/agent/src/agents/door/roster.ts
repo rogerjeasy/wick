@@ -12,8 +12,9 @@
  *
  * SCHEDULE_MATCH_CONFIDENCE is a fixed, documented constant rather than a
  * computed probability: there is no real accuracy data to calibrate a
- * gradient against (that needs S6 Rhythm's historical baseline, which does
- * not exist yet), and inventing precise-looking decimals from nothing is
+ * gradient against (the Rhythm baseline counts how often a named visitor
+ * comes in a week, not how often a schedule match was the right person),
+ * and inventing precise-looking decimals from nothing is
  * exactly the "confident guessing" docs/WICK.md Principle 11 forbids.
  */
 import type { RosterEntry, VisitorMatch } from '@wick/contracts';

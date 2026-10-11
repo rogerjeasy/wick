@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { GetItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { currentIsoWeek, type WeekNarrative } from '@wick/contracts';
 import type { HouseholdPolicy } from '@wick/policy';
-import { isoWeekRange, privateNarrative, summariseWeek } from '@wick/agent';
+import { isoWeekRange, privateNarrative, summariseWeek, visibleDeltas } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
@@ -61,7 +61,10 @@ export type FamilyWeekResult =
  * whole week. Keeping door visits or visitors private drops those entries
  * from the timeline and rewrites the prose from the facts still shared;
  * the stored prose may mention them, and the model is never asked again
- * in-request (§9.3: the round trip stays a GetItem or two).
+ * in-request (§9.3: the round trip stays a GetItem or two). The Rhythm
+ * comparisons go the same way: a private door takes "more callers than
+ * usual" with it, and private visitors take "Maria did not visit" — an
+ * absence is as much a fact about someone as an arrival.
  */
 export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, timeZone: string): FamilyWeekResult {
   if (!isSharedWithFamily('RHYTHM', policy)) return { status: 'private' };
@@ -72,9 +75,11 @@ export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, ti
   const hides = (kind: string) => (kind === 'door' && hidden.door) || ((kind === 'visit' || kind === 'presence') && hidden.visits);
   const timeline = narrative.timeline.filter((e) => !hides(e.kind));
   const facts = summariseWeek(timeline, { timeZone, range: isoWeekRange(narrative.isoWeek), now: narrative.generatedAt });
+  // Weeks written before the baseline existed carry no deltas at all.
+  const deltas = visibleDeltas(narrative.deltas ?? [], hidden);
   return {
     status: 'available',
-    narrative: { ...narrative, timeline, text: privateNarrative(facts, hidden), textSource: 'facts' },
+    narrative: { ...narrative, timeline, deltas, text: privateNarrative(facts, hidden, deltas), textSource: 'facts' },
   };
 }
 

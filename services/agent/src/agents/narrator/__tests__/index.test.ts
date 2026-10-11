@@ -10,8 +10,15 @@ const doorItem = (at: number, id = 'evt-1'): Record<string, AttributeValue> => (
 
 // 2026-W38 is Monday 14 Sep to Sunday 20 Sep; "now" is after it ends.
 const AFTER_W38 = Date.UTC(2026, 8, 21, 20);
+const WEEK = 7 * 86_400_000;
+const W38_START = Date.UTC(2026, 8, 14);
+/** `n` door events on the Wednesday of the week `weeksAgo` weeks before W38. */
+const doorsInWeek = (weeksAgo: number, n: number): Record<string, AttributeValue>[] =>
+  Array.from({ length: n }, (_, i) => doorItem(W38_START - weeksAgo * WEEK + 2 * 86_400_000 + 9 * 3_600_000 + i * 60_000, `w${weeksAgo}-${i}`));
+
 const deps = (over: Partial<NarratorDeps>): NarratorDeps => ({
   loadEvents: async () => [],
+  firstEventAt: async () => undefined,
   writeNarrative: async () => 'A quiet week.',
   now: () => AFTER_W38,
   timeZone: 'Europe/London',
@@ -25,11 +32,13 @@ describe('computeWeekNarrative', () => {
 
     const result = await computeWeekNarrative('hh-1', '2026-W38', deps({ loadEvents, writeNarrative }));
 
-    expect(loadEvents).toHaveBeenCalledWith({ startMs: Date.UTC(2026, 8, 14), endMs: Date.UTC(2026, 8, 21) });
+    // The week itself, and the six before it that a usual week is drawn from.
+    expect(loadEvents).toHaveBeenCalledWith({ startMs: Date.UTC(2026, 8, 14) - 6 * WEEK, endMs: Date.UTC(2026, 8, 21) });
     expect(writeNarrative.mock.calls[0]![0]).toEqual([
       'This is the whole week: Monday to Sunday.',
       'Someone came to the front door 2 times.',
       'Wednesday morning: 2 times at the front door.',
+      'There is not enough history yet to know what a usual week is.',
     ]);
     expect(result.timeline).toHaveLength(2);
     expect(result.text).toBe('Someone came to the door twice, on Wednesday morning.');
@@ -79,8 +88,54 @@ describe('computeWeekNarrative', () => {
     expect(result.textSource).toBe('facts');
   });
 
-  it('reports no deltas — there is no Rhythm baseline yet, and Principle 11 forbids inventing one', async () => {
-    expect((await computeWeekNarrative('hh-1', '2026-W38', deps({}))).deltas).toEqual([]);
+  it('reports no baseline for a household with no history — Principle 11 forbids inventing one', async () => {
+    expect((await computeWeekNarrative('hh-1', '2026-W38', deps({}))).deltas).toEqual([
+      { metric: 'door', label: 'the front door', thisWeek: 0, baseline: 0, zScore: 0, baselineWeeks: 0 },
+    ]);
+  });
+
+  it('keeps the weeks before out of this week\'s timeline, and counts this week against them', async () => {
+    const loadEvents = async () => [...doorsInWeek(0, 4), ...doorsInWeek(1, 3), ...doorsInWeek(2, 5), ...doorsInWeek(3, 4)];
+    const writeNarrative = vi.fn<NarratorDeps['writeNarrative']>(async () => 'Someone came to the door four times, about the usual. Nothing unusual this week.');
+
+    const result = await computeWeekNarrative('hh-1', '2026-W38', deps({ loadEvents, writeNarrative, firstEventAt: async () => W38_START - 3 * WEEK }));
+
+    expect(result.timeline).toHaveLength(4);
+    expect(result.deltas).toEqual([
+      { metric: 'door', label: 'the front door', thisWeek: 4, lastWeek: 3, baseline: 4, zScore: 0, baselineWeeks: 3, verdict: 'usual' },
+    ]);
+    expect(writeNarrative.mock.calls[0]![0].slice(3)).toEqual([
+      'Last week: 3 times at the front door.',
+      'In a usual week: about 4 times at the front door.',
+      'The front door this week: about the usual.',
+      'Nothing unusual this week.',
+    ]);
+    expect(result.text).toBe('Someone came to the door four times, about the usual. Nothing unusual this week.');
+    expect(result.textSource).toBe('model');
+  });
+
+  it('asks again, saying why, when the model calls a week usual on no history', async () => {
+    const writeNarrative = vi
+      .fn<NarratorDeps['writeNarrative']>()
+      .mockResolvedValueOnce('A quiet week, nothing unusual.')
+      .mockResolvedValueOnce('A quiet week.');
+
+    const result = await computeWeekNarrative('hh-1', '2026-W38', deps({ writeNarrative }));
+
+    expect(writeNarrative.mock.calls[1]![1]).toMatch(/"unusual".*facts do not support/);
+    expect(result.text).toBe('A quiet week.');
+  });
+
+  it('says what the baseline found even when the model cannot be reached', async () => {
+    const loadEvents = async () => [...doorsInWeek(0, 4), ...doorsInWeek(1, 3), ...doorsInWeek(2, 5), ...doorsInWeek(3, 4)];
+    const writeNarrative = async () => {
+      throw new Error('AccessDeniedException');
+    };
+
+    const result = await computeWeekNarrative('hh-1', '2026-W38', deps({ loadEvents, writeNarrative, firstEventAt: async () => W38_START - 3 * WEEK }));
+
+    expect(result.text).toBe('Someone came to the front door four times this week, on Wednesday morning. Nothing unusual this week.');
+    expect(result.textSource).toBe('facts');
   });
 
   it('leaves residentSeenAt unset — INV-7: no family surface may read this until the resident has seen it on their own television', async () => {

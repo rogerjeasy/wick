@@ -19,8 +19,12 @@
  * exactly what the narrator's baseline query needs (§8.2: "binned by
  * day-of-week and hour") — DynamoDB just can't compute it lazily at query
  * time the way Timestream's `INTERPOLATE` could, so the binning happens at
- * write time instead. No baseline or z-score logic lives here; that's the
- * narrator's job once three weeks of buckets exist (§4.5).
+ * write time instead.
+ *
+ * These say when in the week the house is usually busy. They cannot say
+ * what a usual week is — every week is added into the same bucket — so the
+ * weekly baseline and its z-score are counted from the timeline instead
+ * (baseline.ts).
  */
 
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];

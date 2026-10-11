@@ -16,6 +16,8 @@ import { buildWeekCard } from './weekCard.js';
 export interface EveryHouseholdDeps {
   readonly listHouseholds: () => Promise<readonly string[]>;
   readonly loadEvents: (householdId: string, range: WeekRange) => Promise<readonly Record<string, AttributeValue>[]>;
+  /** The household's first recorded event, ever — where its Rhythm baseline can begin. */
+  readonly firstEventAt: (householdId: string) => Promise<number | undefined>;
   readonly writeNarrative: NarratorDeps['writeNarrative'];
   readonly saveNarrative: (narrative: WeekNarrative) => Promise<void>;
   readonly sendWeekCard: (card: QueuedCard) => Promise<void>;
@@ -59,6 +61,7 @@ export async function narrateEveryHousehold(isoWeek: string, deps: EveryHousehol
     try {
       const narrative = await computeWeekNarrative(householdId, isoWeek, {
         loadEvents: (range) => deps.loadEvents(householdId, range),
+        firstEventAt: () => deps.firstEventAt(householdId),
         writeNarrative: deps.writeNarrative,
         now: deps.now,
         timeZone: deps.timeZone,
@@ -69,7 +72,7 @@ export async function narrateEveryHousehold(isoWeek: string, deps: EveryHousehol
       // sets residentSeenAt (route.mjs); nothing here does that directly.
       await deps.sendWeekCard(buildWeekCard(narrative, deps.newCorrelationId(), deps.now(), deps.familyName));
       written.push(householdId);
-      console.log(JSON.stringify({ level: 'info', msg: 'narrative_computed', householdId, isoWeek, events: narrative.timeline.length, textSource: narrative.textSource, chars: narrative.text.length }));
+      console.log(JSON.stringify({ level: 'info', msg: 'narrative_computed', householdId, isoWeek, events: narrative.timeline.length, baselineWeeks: narrative.deltas[0]?.baselineWeeks ?? 0, unusual: narrative.deltas.filter((d) => d.verdict && d.verdict !== 'usual').length, textSource: narrative.textSource, chars: narrative.text.length }));
     } catch (err) {
       failed.push(householdId);
       console.error(JSON.stringify({ level: 'error', msg: 'narrative_household_failed', householdId, isoWeek, error: (err as Error).name || String(err) }));

@@ -14,8 +14,10 @@
  * o'clock" in UTC. That was 600 characters, and it pushed the card's one
  * button off the screen.
  */
-import { MAX_NARRATIVE_CHARS, type TimelineEntry } from '@wick/contracts';
+import { MAX_NARRATIVE_CHARS, type RhythmDelta, type TimelineEntry } from '@wick/contracts';
 import type { WeekRange } from './isoWeek.js';
+import { checkComparisons, comparisonNumbers, comparisonSentences, visibleDeltas } from './comparisons.js';
+import { spokenTimes, times } from './words.js';
 
 export type PartOfDay = 'morning' | 'afternoon' | 'evening' | 'night';
 
@@ -49,7 +51,7 @@ export interface SummariseOptions {
 
 export type NarrativeCheck =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: 'empty' | 'too_long' | 'unsupported_number'; readonly detail?: string };
+  | { readonly ok: false; readonly reason: 'empty' | 'too_long' | 'unsupported_number' | 'unsupported_comparison'; readonly detail?: string };
 
 function localDayAndHour(at: number, timeZone: string): { day: string; hour: number } {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'long', hour: 'numeric', hourCycle: 'h23' }).formatToParts(new Date(at));
@@ -98,8 +100,6 @@ export function summariseWeek(entries: readonly TimelineEntry[], options: Summar
   return { doorVisits, doorTimes, visits, weekComplete, throughDay: localDayAndHour(lastCovered, timeZone).day };
 }
 
-const times = (n: number): string => `${n} ${n === 1 ? 'time' : 'times'}`;
-
 /** The only facts the model is shown. Every number it may use is here. */
 export function factLines(facts: WeekFacts): string[] {
   const lines = [
@@ -120,16 +120,21 @@ const NUMBER_WORDS: Readonly<Record<string, number>> = {
 };
 const NUMBER_PATTERN = new RegExp(`\\b(\\d+(?:\\.\\d+)?|${Object.keys(NUMBER_WORDS).join('|')})\\b`, 'gi');
 
-function allowedNumbers(facts: WeekFacts): ReadonlySet<number> {
-  return new Set([facts.doorVisits, ...facts.doorTimes.map((t) => t.count), ...facts.visits.map((v) => v.count)]);
+function allowedNumbers(facts: WeekFacts, deltas: readonly RhythmDelta[]): ReadonlySet<number> {
+  return new Set([facts.doorVisits, ...facts.doorTimes.map((t) => t.count), ...facts.visits.map((v) => v.count), ...comparisonNumbers(deltas)]);
 }
 
-export function checkNarrative(text: string, facts: WeekFacts): NarrativeCheck {
+/**
+ * `deltas` is the Rhythm baseline's answer for this week (rhythm/baseline.ts):
+ * it widens the numbers the prose may use to last week's and the usual
+ * week's, and it is what any talk of "usual" is held to (comparisons.ts).
+ */
+export function checkNarrative(text: string, facts: WeekFacts, deltas: readonly RhythmDelta[] = []): NarrativeCheck {
   const trimmed = text.trim();
   if (!trimmed) return { ok: false, reason: 'empty' };
   if (trimmed.length > MAX_NARRATIVE_CHARS) return { ok: false, reason: 'too_long', detail: String(trimmed.length) };
 
-  const allowed = allowedNumbers(facts);
+  const allowed = allowedNumbers(facts, deltas);
   // "no one" is nobody, not a count of one.
   const scannable = trimmed.replace(/\bno one\b/gi, 'nobody');
   for (const match of scannable.matchAll(NUMBER_PATTERN)) {
@@ -137,16 +142,10 @@ export function checkNarrative(text: string, facts: WeekFacts): NarrativeCheck {
     const value = NUMBER_WORDS[token.toLowerCase()] ?? Number(token);
     if (!allowed.has(value)) return { ok: false, reason: 'unsupported_number', detail: token };
   }
+
+  const comparison = checkComparisons(trimmed, deltas);
+  if (!comparison.ok) return { ok: false, reason: 'unsupported_comparison', detail: comparison.detail };
   return { ok: true };
-}
-
-const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
-
-/** "once", "twice", "three times" … "13 times". */
-function spokenTimes(n: number): string {
-  if (n === 1) return 'once';
-  if (n === 2) return 'twice';
-  return `${WORDS[n] ?? String(n)} times`;
 }
 
 function list(items: readonly string[]): string {
@@ -157,8 +156,16 @@ function list(items: readonly string[]): string {
 /**
  * Sentences from the facts alone, door first then who visited, each part
  * included only if asked for, and all of it — with `tail` — inside the card.
+ * `comparisons` (this week against the usual) come after the names and
+ * before the door's times of day: "nothing unusual" is worth more than
+ * "twice on Wednesday evening".
  */
-function compose(facts: WeekFacts, include: { door: boolean; visits: boolean }, tail: readonly string[] = []): string[] {
+function compose(
+  facts: WeekFacts,
+  include: { door: boolean; visits: boolean },
+  tail: readonly string[] = [],
+  comparisons: readonly string[] = [],
+): string[] {
   const fits = (sentences: readonly string[]) => [...sentences, ...tail].join(' ').length <= MAX_NARRATIVE_CHARS;
 
   let door: string | undefined;
@@ -180,21 +187,26 @@ function compose(facts: WeekFacts, include: { door: boolean; visits: boolean }, 
     }
   }
 
+  const compared: string[] = [];
+  for (const sentence of comparisons) {
+    if (fits([...(door ? [door] : []), ...named, ...compared, sentence])) compared.push(sentence);
+  }
+
   if (door && facts.doorVisits > 0 && facts.doorTimes.length > 0) {
     const [only] = facts.doorTimes;
     const detailed =
       facts.doorTimes.length === 1 && only
         ? `${door.slice(0, -1)}, on ${only.day} ${only.part}.`
         : `${door.slice(0, -1)}: ${list(facts.doorTimes.map((t) => `${spokenTimes(t.count)} on ${t.day} ${t.part}`))}.`;
-    if (fits([detailed, ...named])) door = detailed;
+    if (fits([detailed, ...named, ...compared])) door = detailed;
   }
 
-  return [...(door ? [door] : []), ...named, ...tail];
+  return [...(door ? [door] : []), ...named, ...compared, ...tail];
 }
 
 /** The week from the facts alone — no model, nothing invented. Always passes checkNarrative. */
-export function fallbackNarrative(facts: WeekFacts): string {
-  return compose(facts, { door: true, visits: true }).join(' ');
+export function fallbackNarrative(facts: WeekFacts, deltas: readonly RhythmDelta[] = []): string {
+  return compose(facts, { door: true, visits: true }, [], comparisonSentences(deltas, facts.weekComplete)).join(' ');
 }
 
 /**
@@ -203,8 +215,15 @@ export function fallbackNarrative(facts: WeekFacts): string {
  * private door is not "nobody came". The last sentence says some of the
  * week is private, because silence would be a lie (§6.4).
  */
-export function privateNarrative(facts: WeekFacts, hidden: { readonly door: boolean; readonly visits: boolean }): string {
+export function privateNarrative(
+  facts: WeekFacts,
+  hidden: { readonly door: boolean; readonly visits: boolean },
+  deltas: readonly RhythmDelta[] = [],
+): string {
   const include = { door: !hidden.door, visits: !hidden.visits };
   if (!include.door && !include.visits) return 'This week is kept private.';
-  return compose(facts, include, ['Some of this week is kept private.']).join(' ');
+  // Only what is still shared is compared, and never the week as a whole:
+  // "nothing unusual" would speak for the part being kept back.
+  const comparisons = comparisonSentences(visibleDeltas(deltas, hidden), facts.weekComplete, { wholeWeek: false });
+  return compose(facts, include, ['Some of this week is kept private.'], comparisons).join(' ');
 }
