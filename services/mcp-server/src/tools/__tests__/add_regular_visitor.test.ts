@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { parsePattern } from '@wick/agent';
-import { personIdFor, regularPattern, registerAddRegularVisitor, visitorName } from '../add_regular_visitor.js';
+import { collidesWith, personIdFor, regularPattern, registerAddRegularVisitor, visitorName } from '../add_regular_visitor.js';
 import { allowedContext } from './toolContext.js';
 
 /** A Wednesday in October: London is an hour ahead of UTC. */
@@ -38,21 +38,21 @@ describe('personIdFor', () => {
 
 describe('regularPattern', () => {
   it("stores the household's nine o'clock as the door agent reads it, in UTC", () => {
-    expect(regularPattern(['friday', 'tuesday'], '09:00', 'Europe/London', OCTOBER)).toBe('TUE,FRI 08:00±60m');
-    expect(regularPattern(['tuesday', 'friday'], '09:00', 'Europe/London', JANUARY)).toBe('TUE,FRI 09:00±60m');
+    expect(regularPattern(['friday', 'tuesday'], '09:00', 'Europe/London', OCTOBER)).toBe('TUE,FRI 08:00±30m');
+    expect(regularPattern(['tuesday', 'friday'], '09:00', 'Europe/London', JANUARY)).toBe('TUE,FRI 09:00±30m');
   });
 
   it('says the days Monday first, once each', () => {
-    expect(regularPattern(['sunday', 'monday', 'sunday'], '10:30', 'Europe/London', JANUARY)).toBe('MON,SUN 10:30±60m');
+    expect(regularPattern(['sunday', 'monday', 'sunday'], '10:30', 'Europe/London', JANUARY)).toBe('MON,SUN 10:30±30m');
   });
 
   it('takes the day with the time when UTC is on the other side of midnight', () => {
     // Half past midnight on a Tuesday in London in summer time is Monday evening in UTC.
-    expect(regularPattern(['tuesday'], '00:30', 'Europe/London', OCTOBER)).toBe('MON 23:30±60m');
+    expect(regularPattern(['tuesday'], '00:30', 'Europe/London', OCTOBER)).toBe('MON 23:30±30m');
   });
 
   it('is a pattern every reader of the roster can read', () => {
-    expect(parsePattern(regularPattern(['tuesday', 'friday'], '09:00', 'Europe/London', JANUARY))).toEqual({ days: [2, 5], minuteOfDay: 540, windowMin: 60 });
+    expect(parsePattern(regularPattern(['tuesday', 'friday'], '09:00', 'Europe/London', JANUARY))).toEqual({ days: [2, 5], minuteOfDay: 540, windowMin: 30 });
   });
 
   it('gives nothing for a time that is not one', () => {
@@ -77,7 +77,7 @@ function table(roster: Item[] = [], policy = DEFAULT_POLICY) {
   return { ddb: { send } as unknown as DynamoDBClient, puts };
 }
 
-const person = (personId: string, name: string, expectedPattern = 'MON 10:00±60m'): Item => ({
+const person = (personId: string, name: string, expectedPattern = 'MON 10:00±30m'): Item => ({
   sk: { S: `PER#${personId}` },
   data: { S: JSON.stringify({ personId, name, expectedPattern }) },
 });
@@ -104,8 +104,25 @@ describe('add_regular_visitor', () => {
     expect(puts).toHaveLength(1);
     expect(puts[0]!.pk).toEqual({ S: 'HH#hh-1' });
     expect(puts[0]!.sk).toEqual({ S: 'PER#maria' });
-    expect(JSON.parse(puts[0]!.data!.S!)).toEqual({ personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±60m' });
-    expect(puts[0]!.addedBy).toEqual({ S: 'u_sarah' });
+    // `addedBy` is in the entry: the roster's readers drop it when that member is no longer allowed.
+    expect(JSON.parse(puts[0]!.data!.S!)).toEqual({ personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m', addedBy: 'u_sarah' });
+  });
+
+  it('will not expect two people at the same time: the door takes the first that fits, so one would speak over the other', async () => {
+    const { ddb, puts } = table([person('maria', 'Maria', 'TUE,FRI 09:00±30m')]);
+
+    const said = await call(ddb, { name: 'Aaron', days: ['tuesday'], time: '09:40' });
+
+    expect(said).toBe('Maria is already expected around then on Tuesdays. The door can only expect one person at a time: give another time, or change Maria’s first.');
+    expect(puts).toEqual([]);
+  });
+
+  it('takes someone who comes the same day at another time, or the same time on another day', async () => {
+    const { ddb, puts } = table([person('maria', 'Maria', 'TUE,FRI 09:00±30m')]);
+
+    expect(JSON.parse(await call(ddb, { name: 'Aaron', days: ['tuesday'], time: '14:00' }))).toMatchObject({ added: true });
+    expect(JSON.parse(await call(ddb, { name: 'Beth', days: ['wednesday'], time: '09:00' }))).toMatchObject({ added: true });
+    expect(puts).toHaveLength(2);
   });
 
   it('changes the days of someone already there, rather than make a second Maria', async () => {
@@ -140,11 +157,26 @@ describe('add_regular_visitor', () => {
   });
 
   it('keeps the roster to a dozen, but still lets one of the dozen be changed', async () => {
-    const dozen = Array.from({ length: 12 }, (_, i) => person(`visitor-${String.fromCharCode(97 + i)}`, `Visitor ${String.fromCharCode(65 + i)}`));
+    // A dozen who do not collide: each on Monday, two hours apart.
+    const dozen = Array.from({ length: 12 }, (_, i) => person(`visitor-${String.fromCharCode(97 + i)}`, `Visitor ${String.fromCharCode(65 + i)}`, `MON ${String(i * 2).padStart(2, '0')}:00±30m`));
     const { ddb, puts } = table(dozen);
 
     expect(await call(ddb, MARIA)).toBe('There are already twelve regular visitors, which is as many as the door keeps.');
     expect(puts).toEqual([]);
-    expect(JSON.parse(await call(ddb, { name: 'Visitor A', days: ['monday'], time: '11:00' }))).toMatchObject({ changed: true });
+    expect(JSON.parse(await call(ddb, { name: 'Visitor A', days: ['tuesday'], time: '11:00' }))).toMatchObject({ changed: true });
   });
 });
+
+describe('collidesWith', () => {
+  const maria = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' };
+
+  it('finds the visitor whose window this one would overlap, and the day', () => {
+    expect(collidesWith('FRI 10:00±30m', [maria])).toEqual({ name: 'Maria', day: 'Fridays' });
+  });
+
+  it('finds nobody when the windows only come close', () => {
+    expect(collidesWith('FRI 10:01±30m', [maria])).toBeUndefined();
+    expect(collidesWith('MON 09:00±30m', [maria])).toBeUndefined();
+  });
+});
+

@@ -40,6 +40,14 @@ export interface RosterEntry {
    * Like the pattern, it is a time and nothing more.
    */
   readonly expectedOnce?: { readonly at: number; readonly windowMin: number };
+  /**
+   * The member who put a regular visitor on the roster (the family's
+   * add_regular_visitor tool). The roster is what the door's "this looks
+   * like Maria" rests on, so an entry stands only while the person who
+   * vouched for it is still allowed by the resident (door/roster.ts
+   * stillWelcome). Absent on an entry the household's operator made.
+   */
+  readonly addedBy?: string;
 }
 
 export interface VisitorMatch {

@@ -17,8 +17,20 @@
  * The time is given in the household's own clock and stored as the door
  * agent matches it, in UTC (services/agent/src/agents/door/roster.ts), at
  * the offset in force today. After the clocks change a regular time is an
- * hour out until it is said again — the hour either side that still counts
- * (REGULAR_WINDOW_MIN) is there partly for that.
+ * hour out until it is said again.
+ *
+ * The door's "this looks like Maria" is only a schedule, and this tool is
+ * how a schedule gets written — so what it writes is kept narrow:
+ *
+ *   - It stands on the word of the member who added it, and only while the
+ *     resident still allows that member (`addedBy`, door/roster.ts
+ *     stillWelcome): take someone out of the circle and the visitors they
+ *     vouched for leave the roster with them.
+ *   - Two visitors cannot be expected at the same time. The door agent
+ *     takes the first entry that fits, so an overlapping one would speak
+ *     over the visitor already there — or be spoken over.
+ *   - Half an hour either side, and a dozen entries: a roster cannot be
+ *     made to say "looks like someone" about every caller.
  */
 import { z } from 'zod';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -27,6 +39,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
+import { parsePattern } from '@wick/agent';
 import { describePattern, loadRoster } from './list_regular_visitors.js';
 import { WRITES, data, say } from './result.js';
 import { localToUtc } from './when.js';
@@ -36,7 +49,7 @@ const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 const DAY_MS = 86_400_000;
 /** A ring this long either side of the usual time still looks like them. */
-export const REGULAR_WINDOW_MIN = 60;
+export const REGULAR_WINDOW_MIN = 30;
 /** A roster is a handful of people the resident knows, not a contact list. */
 export const MAX_REGULAR_VISITORS = 12;
 
@@ -83,6 +96,26 @@ export function regularPattern(days: readonly DayName[], time: string, timeZone:
   return `${codes.join(',')} ${hhmm}±${REGULAR_WINDOW_MIN}m`;
 }
 
+const WEEKDAYS = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'] as const;
+
+/**
+ * The visitor already expected at a time this pattern would also claim, and
+ * the day they collide on — or nothing. Two windows collide when they share
+ * a day and overlap at all.
+ */
+export function collidesWith(pattern: string, others: readonly RosterEntry[]): { readonly name: string; readonly day: string } | undefined {
+  const mine = parsePattern(pattern);
+  if (!mine) return undefined;
+  for (const other of others) {
+    const theirs = parsePattern(other.expectedPattern);
+    if (!theirs) continue;
+    const day = mine.days.find((d) => theirs.days.includes(d));
+    if (day === undefined) continue;
+    if (Math.abs(mine.minuteOfDay - theirs.minuteOfDay) <= mine.windowMin + theirs.windowMin) return { name: other.name, day: WEEKDAYS[day]! };
+  }
+  return undefined;
+}
+
 export interface RegularVisitorAnswer {
   readonly added: true;
   /** True when this name was already on the roster and its days or time were changed. */
@@ -127,16 +160,18 @@ export function registerAddRegularVisitor(
       const regulars = (await loadRoster(ddb, ctx.householdId)).filter((p) => !p.expectedOnce);
       const existing = regulars.find((p) => p.personId === personId);
       if (!existing && regulars.length >= MAX_REGULAR_VISITORS) return say(VISITOR_TOO_MANY_TEXT);
+      const taken = collidesWith(expectedPattern, regulars.filter((p) => p.personId !== personId));
+      if (taken) {
+        return say(`${taken.name} is already expected around then on ${taken.day}. The door can only expect one person at a time: give another time, or change ${taken.name}’s first.`);
+      }
 
-      const entry: RosterEntry = { personId, name, expectedPattern };
+      const entry: RosterEntry = { personId, name, expectedPattern, addedBy: ctx.userId };
       await ddb.send(new PutItemCommand({
         TableName: TABLE,
         Item: {
           pk: { S: `HH#${ctx.householdId}` },
           sk: { S: `PER#${personId}` },
           data: { S: JSON.stringify(entry) },
-          // Who put them there, and when — beside the entry, never in it.
-          addedBy: { S: ctx.userId },
           addedAt: { N: String(now().getTime()) },
         },
       }));

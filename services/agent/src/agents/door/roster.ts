@@ -85,7 +85,8 @@ export function matchVisitor(roster: readonly RosterEntry[], at: number): Visito
 
 /**
  * The roster, without the announced visits of anyone the resident no longer
- * allows. `memberships` are the household's `MEM#<userId>` rows.
+ * allows — and without the regular visitors such a person added.
+ * `memberships` are the household's `MEM#<userId>` rows.
  *
  * A visit somebody announced is filed under them (contracts memberPersonId)
  * and removed with them, but removal and announcement can cross: the row
@@ -102,7 +103,10 @@ export function stillWelcome(
     memberships.filter((m) => m.status?.S === 'allowed').map((m) => m.sk?.S?.replace(/^MEM#/, '')),
   );
   return roster.filter((person) => {
-    const userId = userIdOfMemberPerson(person.personId);
+    // Their own announced visit, or a regular visitor they vouched for
+    // (add_regular_visitor): either way it stands on their word, and only
+    // for as long as the resident still takes it.
+    const userId = userIdOfMemberPerson(person.personId) ?? person.addedBy;
     return userId === undefined || allowed.has(userId);
   });
 }
