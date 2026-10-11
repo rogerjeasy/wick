@@ -71,7 +71,7 @@ import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateIte
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { randomUUID } from 'node:crypto';
-import { isReplayable, markCardActed, retiresCard } from './card-acted.mjs';
+import { isReplayable, markCardActed, markCardShown, replayedCard, retiresCard } from './card-acted.mjs';
 import { deviceBindingKey, isServed } from './device-standing.mjs';
 import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
 import { buildCardActionEntry, shouldPublish } from './card-action-event.mjs';
@@ -206,6 +206,8 @@ export const handler = async (event) => {
       },
     }));
 
+    if (deviceEvent.t === 'card_shown') await countShowing(householdId, deviceEvent.cardId);
+
     if (deviceEvent.t === 'card_action' && retiresCard(deviceEvent.action)) {
       await retireActedCard(householdId, deviceEvent.cardId, deviceEvent.at);
     }
@@ -238,6 +240,20 @@ export const handler = async (event) => {
 
   return { statusCode: 200, body: '' };
 };
+
+/**
+ * See card-acted.mjs markCardShown. Logged, never thrown: the showing is
+ * already on the timeline, and a count that fails means at worst one
+ * showing too many.
+ */
+async function countShowing(householdId, cardId) {
+  try {
+    await ddb.send(new UpdateItemCommand(markCardShown({ table: TABLE, householdId, cardId })));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return; // not a card the server sent
+    console.error('card_shown_count_failed', { householdId, err: err?.name });
+  }
+}
 
 /**
  * See card-acted.mjs. Logged, never thrown: the action is already on the
@@ -395,7 +411,7 @@ async function reconcile({ event, householdId, connectionId }) {
   const now = Date.now();
   for (const item of items) {
     if (!isReplayable(item, now)) continue;
-    const card = JSON.parse(item.data.S);
+    const card = replayedCard(item);
     try {
       await mgmt.send(new PostToConnectionCommand({
         ConnectionId: connectionId,

@@ -1,7 +1,8 @@
 /**
  * The card channel's working half: an already-connected DeviceChannel wired
  * to a QueueStore. Inbound cards and controls go into the store; outbound
- * device events the UI queued go out on a poll.
+ * device events the UI queued — among them `card_shown`, when a card is
+ * really on screen — go out on a poll.
  *
  * Process-agnostic on purpose. It used to live inside CardService.ts, which
  * only ever runs in the card_service process — and on the VVD that process
@@ -31,9 +32,12 @@ export interface RunningCardChannel {
 }
 
 export function startCardChannel(store: QueueStore, channel: DeviceChannel): RunningCardChannel {
+  // Stored, not announced as shown: a card that arrives is not yet on
+  // screen — a note waits for a natural break. App.tsx says `card_shown`
+  // when it is (BreakController.noteShown), which is what the server counts
+  // towards the two showings a card gets.
   const unsubscribeCard = channel.onCard((card: QueuedCard) => {
     void store.upsert(card);
-    void channel.send({ t: 'card_shown', cardId: card.id, at: Date.now() }).catch(() => undefined);
   });
 
   const unsubscribeControl = channel.onControl((msg: ControlMessage) => {

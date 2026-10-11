@@ -21,9 +21,15 @@ export interface HomeScreenProps {
   readonly cardVisible: boolean;
   /** The programme to return focus to after watching it. */
   readonly lastWatchedId?: string | undefined;
+  /**
+   * One line about a card that has had its two showings and is waiting to
+   * be asked for (home/waiting.ts). Absent when nothing is.
+   */
+  readonly waiting?: string | undefined;
+  readonly onOpenWaiting?: (() => void) | undefined;
 }
 
-export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting }: HomeScreenProps): React.JSX.Element {
   const focusId = lastWatchedId ?? programmes[0]?.id;
 
   return (
@@ -43,7 +49,7 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId }:
             accessibilityLabel={`${programme.title}. ${programme.line}`}
             style={({ focused }: { focused: boolean }) => [styles.tile, focused && styles.tileFocused]}
           >
-            <Image source={POSTERS[programme.id]} style={styles.poster} resizeMode="cover" accessibilityLabel="" />
+            <Image source={POSTERS[programme.id]} style={[styles.poster, waiting ? styles.posterWithRow : null]} resizeMode="cover" accessibilityLabel="" />
             <View style={styles.caption}>
               <Text style={styles.title} numberOfLines={1}>
                 {programme.title}
@@ -55,6 +61,21 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId }:
           </Pressable>
         ))}
       </View>
+
+      {/* Quiet, and never focused on its own: it is there to be found, not to ask again. */}
+      {waiting ? (
+        <Pressable
+          onPress={onOpenWaiting}
+          focusable={!cardVisible}
+          accessibilityRole="button"
+          accessibilityLabel={`${waiting} Press OK to open it.`}
+          style={({ focused }: { focused: boolean }) => [styles.waiting, focused && styles.tileFocused]}
+        >
+          <Text style={styles.line} numberOfLines={1}>
+            {waiting} Press OK to open it.
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -94,6 +115,18 @@ const styles = StyleSheet.create({
   poster: {
     width: '100%',
     height: 200,
+  },
+  // Thirty dp less, which is what the waiting row below needs to stay inside 540dp.
+  posterWithRow: {
+    height: 170,
+  },
+  waiting: {
+    borderRadius: 16,
+    borderWidth: 4,
+    borderColor: 'transparent',
+    backgroundColor: safe.raised,
+    paddingHorizontal: 20,
+    paddingVertical: 6,
   },
   caption: {
     padding: 16,
