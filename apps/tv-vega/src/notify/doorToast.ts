@@ -32,11 +32,13 @@ const WICK_APP_URI = 'pkg://com.wick.tv.main';
 const TOAST_SECONDS = 8;
 
 /**
- * The notification manager caps one notification at 4096 bytes, and the
- * picture's address is sent twice. A signed address longer than this would
- * push the whole toast over the cap, so Wick's own mark is used instead.
+ * The notification manager refuses a notification over 4096 bytes
+ * (`max-notification-payload`, /etc/notification-manager on the device).
+ * Ring's picture address is signed, and long; it is sent once, and if the
+ * toast would still be over the cap the words win and Wick's own mark is
+ * shown instead.
  */
-const MAX_PICTURE_URL_CHARS = 1024;
+export const MAX_NOTIFICATION_BYTES = 4096;
 
 /** NotificationManager's kind for a toast — the only kind a third-party app may post. */
 const TOAST_KIND = 5;
@@ -45,7 +47,6 @@ export interface ToastContent {
   readonly mTitle: string;
   readonly mDescription: string;
   readonly mIconUri: string;
-  readonly mLargeIconUri: string;
   readonly mTimeout: number;
   readonly mLaunchTargets: readonly { readonly appUri: string; readonly title: string; readonly iconUri: string }[];
   readonly mChannel: {
@@ -56,21 +57,35 @@ export interface ToastContent {
   };
 }
 
-function picture(imageRef: string | undefined): string {
-  if (!imageRef || !imageRef.startsWith('https://') || imageRef.length > MAX_PICTURE_URL_CHARS) return WICK_ICON_URL;
-  return imageRef;
+/**
+ * How much of the cap a toast takes: its JSON, in UTF-8 bytes. The platform
+ * serialises it its own way; JSON with every key name is the larger of the
+ * two, so a toast that fits here fits there.
+ */
+export function notificationBytes(toast: ToastContent): number {
+  const text = JSON.stringify(toast);
+  let bytes = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    // Counted by hand: the television's JavaScript engine has no TextEncoder.
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code >= 0xd800 && code <= 0xdbff ? ((i += 1), 4) : 3;
+  }
+  return bytes;
 }
 
-/** The toast for a card that arrived while Wick was not on screen, or nothing if the card should wait. */
+/**
+ * The toast for a door card that arrived while Wick was not on screen, or
+ * nothing if the card should wait. Built from the card as it stands, so
+ * the same card gives a fuller toast once its picture and description
+ * have arrived (transport/startCardChannel.ts announces it again then).
+ */
 export function doorToast(queued: QueuedCard): ToastContent | undefined {
   const card = queued.card;
   if (card.type !== 'DOOR') return undefined;
-  const icon = picture(card.imageRef);
-  return {
+  const withIcon = (icon: string): ToastContent => ({
     mTitle: card.line,
     mDescription: card.description ?? 'Open Wick to see who it is.',
     mIconUri: icon,
-    mLargeIconUri: icon,
     mTimeout: TOAST_SECONDS,
     mLaunchTargets: [{ appUri: WICK_APP_URI, title: 'Open Wick', iconUri: 'not_used' }],
     mChannel: {
@@ -78,7 +93,13 @@ export function doorToast(queued: QueuedCard): ToastContent | undefined {
       kind: { kindDescriptor: TOAST_KIND },
       name: 'MenuToastRenderTemplate',
     },
-  };
+  });
+
+  if (card.imageRef?.startsWith('https://')) {
+    const withPicture = withIcon(card.imageRef);
+    if (notificationBytes(withPicture) <= MAX_NOTIFICATION_BYTES) return withPicture;
+  }
+  return withIcon(WICK_ICON_URL);
 }
 
 export interface NotificationManagerLike {

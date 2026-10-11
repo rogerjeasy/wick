@@ -258,6 +258,53 @@ describe('startBackgroundChannel', () => {
     running.stop();
   });
 
+  it('announces the card again, once, when what was seen at the door arrives', async () => {
+    const channel = new FakeChannel();
+    const announced: { id: string; description?: string; imageRef?: string }[] = [];
+    const running = startBackgroundChannel(new QueueStore(brokenFs()), channel, (card) => {
+      if (card.card.type === 'DOOR') announced.push({ id: card.id, ...(card.card.description ? { description: card.card.description } : {}), ...(card.card.imageRef ? { imageRef: card.card.imageRef } : {}) });
+    });
+
+    channel.pushCard(doorCard('door-1'));
+    channel.pushControl({ t: 'patch', patch: { cardId: 'door-1', imageRef: 'https://cdn.example/door.jpg' } });
+    channel.pushControl({ t: 'patch', patch: { cardId: 'door-1', description: 'A man holding a parcel.' } });
+    // Later patches — the chime rang, the buttons changed — are not news about who is there.
+    channel.pushControl({ t: 'patch', patch: { cardId: 'door-1', notice: 'The hallway chime rang.' } });
+    channel.pushControl({ t: 'patch', patch: { cardId: 'door-1', description: 'A man holding a parcel.' } });
+    await settle();
+
+    expect(announced).toEqual([
+      { id: 'door-1' },
+      { id: 'door-1', description: 'A man holding a parcel.', imageRef: 'https://cdn.example/door.jpg' },
+    ]);
+    running.stop();
+  });
+
+  it('does not announce the picture on its own: a second toast is for when there is something to say', async () => {
+    const channel = new FakeChannel();
+    const announced: string[] = [];
+    const running = startBackgroundChannel(new QueueStore(brokenFs()), channel, (card) => announced.push(card.id));
+
+    channel.pushCard(doorCard('door-1'));
+    channel.pushControl({ t: 'patch', patch: { cardId: 'door-1', imageRef: 'https://cdn.example/door.jpg' } });
+    await settle();
+
+    expect(announced).toEqual(['door-1']);
+    running.stop();
+  });
+
+  it('says nothing about a description for a card it never had — the app was on screen when that one came', async () => {
+    const channel = new FakeChannel();
+    const announced: string[] = [];
+    const running = startBackgroundChannel(new QueueStore(brokenFs()), channel, (card) => announced.push(card.id));
+
+    channel.pushControl({ t: 'patch', patch: { cardId: 'door-9', description: 'A man holding a parcel.' } });
+    await settle();
+
+    expect(announced).toEqual([]);
+    running.stop();
+  });
+
   it("leaves the app's outbox alone", async () => {
     vi.useFakeTimers();
     const channel = new FakeChannel();

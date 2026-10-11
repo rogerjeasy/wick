@@ -70,22 +70,51 @@ export function startCardChannel(store: QueueStore, channel: DeviceChannel): Run
  * step, and announce. It shows nothing itself, so it never says
  * `card_shown` — that is the app's to say, when the card is on screen —
  * and it leaves the outbox to the app, whose events those are.
+ *
+ * A door card is announced twice at most: when it arrives, and once more
+ * when the door agent's description of who is there arrives for it — by
+ * then usually with the picture (door agent, Phase 2). The picture alone
+ * is not announced, nor anything later (the chime rang, the buttons
+ * changed): a second toast is for when there is something new to say
+ * about who is at the door.
  */
 export function startBackgroundChannel(
   store: QueueStore,
   channel: DeviceChannel,
   announce: (card: QueuedCard) => void,
 ): RunningCardChannel {
+  // One at a time, in the order they arrived: a patch must find the card
+  // it is for already stored, and be applied before the card is read back.
+  let tail: Promise<void> = Promise.resolve();
+  const inOrder = (work: () => Promise<void>): void => {
+    tail = tail.then(work).catch(() => undefined);
+  };
+  const described = new Set<string>();
+
   const unsubscribeCard = channel.onCard((card: QueuedCard) => {
-    // Best effort: the VVD has no data root (FL-013). The server still holds
-    // the card, and replays it when the app next connects.
-    void store.upsert(card).catch(() => undefined);
+    // Best effort: the VVD has no data root (FL-013), and the store falls
+    // back to memory. The server still holds the card, and replays it when
+    // the app next connects.
+    inOrder(() => store.upsert(card));
     announce(card);
   });
 
   const unsubscribeControl = channel.onControl((msg: ControlMessage) => {
-    if (msg.t === 'patch') void store.applyPatch(msg.patch).catch(() => undefined);
-    else if (msg.t === 'revoke') void store.remove(msg.cardId).catch(() => undefined);
+    if (msg.t === 'revoke') {
+      inOrder(() => store.remove(msg.cardId));
+      return;
+    }
+    if (msg.t !== 'patch') return;
+    const { patch } = msg;
+    inOrder(async () => {
+      await store.applyPatch(patch);
+      if (patch.description === undefined || described.has(patch.cardId)) return;
+      const card = (await store.readAll()).find((c) => c.id === patch.cardId);
+      // Not one this process holds: the app was on screen when it came.
+      if (!card) return;
+      described.add(patch.cardId);
+      announce(card);
+    });
   });
 
   let stopped = false;

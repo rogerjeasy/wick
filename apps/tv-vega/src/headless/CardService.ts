@@ -6,9 +6,10 @@
  * `role`). The server sends a card there only when the app itself is not
  * on screen (edge-device connection-slot.mjs, agent egress.ts), and all
  * this process can do with one is announce it: a system toast for a door
- * card (notify/doorToast.ts), whose button brings Wick forward. The card
- * itself is rendered by the app, which gets it from the server when it
- * connects.
+ * card (notify/doorToast.ts), whose button brings Wick forward, and a
+ * second toast with the picture and what was seen at the door once the
+ * door agent has them (transport/startCardChannel.ts). The card itself is
+ * rendered by the app, which gets it from the server when it connects.
  *
  * Isolated in its own process group (manifest.toml) so a UI crash cannot drop
  * the channel.

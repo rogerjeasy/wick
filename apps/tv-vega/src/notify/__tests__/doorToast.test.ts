@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { QueuedCard } from '@wick/contracts';
-import { doorToast, postToast, WICK_ICON_URL } from '../doorToast.js';
+import { MAX_NOTIFICATION_BYTES, doorToast, notificationBytes, postToast, WICK_ICON_URL } from '../doorToast.js';
 
 const door = (over: Record<string, unknown> = {}): QueuedCard => ({
   id: 'door-1',
@@ -66,16 +66,39 @@ describe('doorToast', () => {
     const toast = doorToast(door({ imageRef: 'https://cdn.example/door.jpg' }));
 
     expect(toast?.mIconUri).toBe('https://cdn.example/door.jpg');
-    expect(toast?.mLargeIconUri).toBe('https://cdn.example/door.jpg');
+  });
+
+  it("shows a picture whose address is long, as Ring's signed ones are — the address is sent once, not twice", () => {
+    const signed = `https://download.example/frame.jpg?X-Amz-Signature=${'a'.repeat(1800)}`;
+    const toast = doorToast(door({ imageRef: signed, description: 'A man in a blue jacket holding a parcel.' }))!;
+
+    expect(toast.mIconUri).toBe(signed);
+    expect(JSON.stringify(toast).split(signed)).toHaveLength(2);
   });
 
   it("shows Wick's own mark when there is no picture yet", () => {
     expect(doorToast(door())?.mIconUri).toBe(WICK_ICON_URL);
   });
 
-  it("shows Wick's own mark when the picture's address is not https, or too long for one notification", () => {
+  it("shows Wick's own mark when the picture's address is not https", () => {
     expect(doorToast(door({ imageRef: 'http://cdn.example/door.jpg' }))?.mIconUri).toBe(WICK_ICON_URL);
-    expect(doorToast(door({ imageRef: `https://cdn.example/door.jpg?sig=${'a'.repeat(1200)}` }))?.mIconUri).toBe(WICK_ICON_URL);
+  });
+
+  it("shows Wick's own mark rather than send a notification the platform would refuse for its size", () => {
+    // The notification manager caps one notification at 4096 bytes. The words come first.
+    const huge = `https://cdn.example/door.jpg?sig=${'a'.repeat(4000)}`;
+    const toast = doorToast(door({ imageRef: huge, description: 'A man in a blue jacket holding a parcel.' }))!;
+
+    expect(toast.mIconUri).toBe(WICK_ICON_URL);
+    expect(toast.mDescription).toBe('A man in a blue jacket holding a parcel.');
+    expect(notificationBytes(toast)).toBeLessThanOrEqual(MAX_NOTIFICATION_BYTES);
+  });
+
+  it('keeps every toast it builds inside the cap, picture and all', () => {
+    const justFits = `https://cdn.example/door.jpg?sig=${'a'.repeat(3000)}`;
+    const toast = doorToast(door({ imageRef: justFits, description: 'A'.repeat(240) }))!;
+
+    expect(notificationBytes(toast)).toBeLessThanOrEqual(MAX_NOTIFICATION_BYTES);
   });
 
   it('is silent for a note from family — a note waits for a natural break, it never interrupts', () => {
