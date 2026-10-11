@@ -25,6 +25,7 @@ import {
   serverFor,
   suggestionsFor,
   timeFormatter,
+  toldToAnnounce,
 } from './surface.js';
 
 const $ = (id) => document.getElementById(id);
@@ -859,6 +860,40 @@ async function lookForDoorQuestion() {
   }
 }
 
+// What the resident asked Wick to tell ("Shall I tell Sarah?" on the
+// television). Looked for when the page is opened or comes back into view —
+// which is what pressing the notification does — and said once per browser.
+const TOLD_SHOWN_KEY = 'wick_told_shown';
+
+async function lookForWhatWasTold() {
+  if (document.hidden || !me || answering) return;
+  try {
+    const result = await callTool('get_whats_different', {});
+    if (result.isError === true) return;
+    const text = result.content?.[0]?.text ?? '';
+    const shown = JSON.parse(localStorage.getItem(TOLD_SHOWN_KEY) ?? '[]');
+    const fresh = toldToAnnounce(text, Array.isArray(shown) ? shown : []);
+    if (fresh.length === 0) return;
+    localStorage.setItem(TOLD_SHOWN_KEY, JSON.stringify([...(Array.isArray(shown) ? shown : []), ...fresh].slice(-50)));
+    assistantSays(presentResult('get_whats_different', text, {}, formatTime));
+  } catch {
+    // Read again the next time the page is looked at; nothing is said about it.
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) void lookForWhatWasTold();
+});
+
+// A nudge that arrives while this page is open (sw.js): look at once.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.wick !== 'nudge') return;
+    if (event.data.kind === 'told') void lookForWhatWasTold();
+    if (event.data.kind === 'door_look') void lookForDoorQuestion();
+  });
+}
+
 function watchTheDoor() {
   if (doorWatch !== null) clearInterval(doorWatch);
   doorWatch = setInterval(() => void lookForDoorQuestion(), DOOR_WATCH_MS);
@@ -1293,6 +1328,7 @@ async function welcome() {
   if (me.membership.role === 'organiser' && (pair || presented.next === 'connect')) addConnectTelevision(pair ?? undefined);
   else $('ask-input').focus();
   watchTheDoor();
+  void lookForWhatWasTold();
   offerNotificationsOnce();
 }
 

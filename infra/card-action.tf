@@ -97,6 +97,8 @@ resource "aws_lambda_function" "agent_card_action" {
       AGENT_RUNTIME_VERSION = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
       # "Ask Sarah to look" reads and writes the household's own rows.
       TABLE_NAME = aws_dynamodb_table.wick.name
+      # "Shall I tell Sarah?" reads the night on the household's own clock (rhythm/different.ts).
+      WICK_HOUSEHOLD_TZ = var.household_time_zone
       # And nudges the family's own browsers (infra/push.tf). Unset keys mean no nudge, never a failure.
       PUSH_VAPID_SECRET_ARN = aws_secretsmanager_secret.push_vapid.arn
     }
@@ -107,13 +109,13 @@ resource "aws_lambda_function" "agent_card_action" {
 
 resource "aws_cloudwatch_event_rule" "card_actions" {
   name           = "${local.prefix}-card-actions"
-  description    = "Door Card presses the agent plane carries out (the chime, and asking the family to look)"
+  description    = "Presses the agent plane carries out: the chime, asking the family to look, and the answer to 'Shall I tell ...?'"
   event_bus_name = aws_cloudwatch_event_bus.wick.name
 
   event_pattern = jsonencode({
     source        = ["wick.device"]
     "detail-type" = ["card.action"]
-    detail        = { action = ["hallway_chime", "ask_family"] }
+    detail        = { action = ["hallway_chime", "ask_family", "tell_family", "keep_private"] }
   })
 }
 
@@ -137,4 +139,49 @@ resource "aws_lambda_permission" "card_actions" {
   function_name = aws_lambda_function.agent_card_action.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.card_actions.arn
+}
+
+# ---------------------------------------------------------------------------
+# "Shall I tell Sarah?" — the asking.
+#
+#   TV connects / comes to the front / is being watched
+#     -> edge television-active.mjs -> EventBridge (wick.device / television.active)
+#     -> agent-card-action -> tell/ask.ts: anything different? -> TELL#<id> -> card -> TV
+#
+# A question for the resident can only be put while they are at the
+# television, so that is when one is looked for — not on a timer over every
+# household. The edge sends at most one signal every two minutes per
+# television; the question itself is filed once per difference.
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudwatch_event_rule" "television_active" {
+  name           = "${local.prefix}-television-active"
+  description    = "A television says its resident is there: the agent plane looks for anything to ask them"
+  event_bus_name = aws_cloudwatch_event_bus.wick.name
+
+  event_pattern = jsonencode({
+    source        = ["wick.device"]
+    "detail-type" = ["television.active"]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "television_active" {
+  rule           = aws_cloudwatch_event_rule.television_active.name
+  event_bus_name = aws_cloudwatch_event_bus.wick.name
+  arn            = aws_lambda_function.agent_card_action.arn
+
+  # A look that failed is made again at the next signal, two minutes on at
+  # the latest. A late replay would only ask about a moment that has passed.
+  retry_policy {
+    maximum_retry_attempts       = 0
+    maximum_event_age_in_seconds = 60
+  }
+}
+
+resource "aws_lambda_permission" "television_active" {
+  statement_id  = "AllowExecutionFromTelevisionActive"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.agent_card_action.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.television_active.arn
 }

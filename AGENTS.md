@@ -8,7 +8,7 @@ Source of truth: `docs/WICK-TECHNICAL.md` §0.3.
 
 ---
 
-## The nine invariants
+## The ten invariants
 
 ### INV-1 — No long-lived credential ever reaches the television
 The device holds exactly one device-bound JWT, scoped to: receive cards for one
@@ -123,6 +123,24 @@ question still open. Every MCP tool call asks again (`tools/context.ts`
 **Never** write `status: 'allowed'` from the family side, and never answer a
 tool call without `gated`. The resident has no account: the paired television
 is their identity, and the remote is their consent.
+
+### INV-10 — Nothing different leaves the house before the resident says so
+Wick notices when a day is unlike this household's usual
+(`services/agent/src/rhythm/different.ts`). It does not tell the family. It
+asks the resident, on their own television, "Shall I tell Sarah?", showing
+the very sentence that would be told (`agents/tell/ask.ts`), and only the
+press on "Tell" makes that one difference readable (`agents/tell/answer.ts`,
+`TELL#<differenceId>`).
+
+`get_whats_different` reads the rows answered "tell" and nothing else. A
+question still open and one answered "Keep it to myself" must look exactly
+like no difference at all, and the summary says only that nothing has been
+told — otherwise keeping something would itself tell the family there was
+something. Enforced by `get_whats_different.test.ts`.
+
+**Never** compute a difference on the family side, never return, count or
+hint at one the resident has not told, and never say "nothing is different"
+to the family: Wick cannot know what was kept.
 
 ---
 

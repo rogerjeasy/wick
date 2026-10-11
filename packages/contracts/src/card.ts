@@ -96,7 +96,21 @@ export interface CircleCard extends CardBase {
   readonly detail: string;
 }
 
-export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard;
+/**
+ * "Shall I tell Sarah?" — something about today is unlike this household's
+ * usual, and the resident decides whether the family hears of it (tell.ts).
+ * `detail` is the very sentence the family would be told, so the resident
+ * reads exactly what would leave the house. The server writes every word
+ * (services/agent rhythm/tell.ts); the television only renders it. Its id is
+ * always `tell-<differenceId>` (tell.ts), so the press names what it answers.
+ */
+export interface TellCard extends CardBase {
+  readonly type: 'TELL';
+  readonly headline: string;
+  readonly detail: string;
+}
+
+export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard;
 
 export interface QueuedCard {
   readonly id: string;

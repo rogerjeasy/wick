@@ -53,6 +53,13 @@ export interface Difference {
   readonly factClass: Extract<FactClass, 'PRESENCE' | 'DOOR_EVENT'>;
   /** Plain words, written here. */
   readonly sentence: string;
+  /**
+   * The same thing, said so that it is still true when read on another day:
+   * the day by name, never "today". It is what the resident is shown when
+   * asked "Shall I tell Sarah?" and, word for word, what the family is then
+   * told (tell.ts) — which may be days after it was noticed.
+   */
+  readonly lasting: string;
   /** The moment it is about: the visit that did not happen, the call in the night, the start of today. */
   readonly at: number;
   readonly personId?: string;
@@ -147,6 +154,7 @@ function missedVisits(input: DifferentInput): Difference[] {
       kind: 'missed_visit',
       factClass: 'PRESENCE',
       sentence: `${usual} ${absent}`,
+      lasting: `${usual} There was no visit on ${dayName}.`,
       at: day + pattern.minuteOfDay * 60_000,
       personId: person.personId,
     });
@@ -163,6 +171,12 @@ const atNight = (at: number, timeZone: string): boolean => {
   return hour >= NIGHT_FROM_HOUR || hour < NIGHT_UNTIL_HOUR;
 };
 
+/** "2:10 am", on the household's own clock. */
+const clockTime = (at: number, timeZone: string): string =>
+  new Intl.DateTimeFormat('en-GB', { timeZone, hour: 'numeric', minute: '2-digit', hour12: true }).format(at);
+
+const localDayName = (at: number, timeZone: string): string => new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'long' }).format(at);
+
 function doorAtNight(input: DifferentInput, weeksObserved: number): Difference[] {
   const { entries, now, observedSince, timeZone } = input;
   if (observedSince === undefined) return [];
@@ -174,17 +188,19 @@ function doorAtNight(input: DifferentInput, weeksObserved: number): Difference[]
   const from = Math.max(observedSince, now - BASELINE_WEEKS * WEEK_MS);
   if (nightCalls.some((e) => e.at >= from && e.at <= since)) return [];
 
-  const time = new Intl.DateTimeFormat('en-GB', { timeZone, hour: 'numeric', minute: '2-digit', hour12: true }).format(recent.at);
+  const time = clockTime(recent.at, timeZone);
+  const before = `Nobody had come at night in the ${weeksObserved} weeks before.`;
   return [{
     kind: 'door_at_night',
     factClass: 'DOOR_EVENT',
-    sentence: `Someone came to the door in the night, at ${time}. Nobody had come at night in the ${weeksObserved} weeks before.`,
+    sentence: `Someone came to the door in the night, at ${time}. ${before}`,
+    lasting: `Someone came to the door in the night, at ${time} on ${localDayName(recent.at, timeZone)}. ${before}`,
     at: recent.at,
   }];
 }
 
 function doorToday(input: DifferentInput): Difference[] {
-  const { entries, now, observedSince } = input;
+  const { entries, now, observedSince, timeZone } = input;
   const today = utcDayStart(now);
   const elapsed = now - today;
   const doorTimes = entries.filter((e) => e.kind === 'door').map((e) => e.at);
@@ -200,15 +216,24 @@ function doorToday(input: DifferentInput): Difference[] {
   const delta = deltaFor({ metric: 'door', label: 'the front door', thisWeek: callers, priorWeeks });
   if (delta.verdict !== 'more' && delta.verdict !== 'fewer') return [];
 
-  const usual = `By this time on a ${DAY_NAMES[weekday(today)]!} there are usually about ${Math.round(delta.baseline)}.`;
+  const dayName = DAY_NAMES[weekday(today)]!;
+  const about = `on a ${dayName} there are usually about ${Math.round(delta.baseline)}.`;
+  const usual = `By this time ${about}`;
+  // Said later, "by this time" means nothing: the hour it was noticed is part of the fact.
+  const usualThen = `By that time ${about}`;
+  const byThen = `by ${clockTime(now, timeZone)}`;
   if (delta.verdict === 'fewer') {
     const said = callers === 0 ? 'Nobody has come to the door today.' : `Fewer people than usual have come to the door today: ${callers}.`;
-    return [{ kind: 'door_quiet', factClass: 'DOOR_EVENT', sentence: `${said} ${usual}`, at: today }];
+    const saidThen = callers === 0
+      ? `Nobody had come to the door ${byThen} on ${dayName}.`
+      : `Fewer people than usual had come to the door ${byThen} on ${dayName}: ${callers}.`;
+    return [{ kind: 'door_quiet', factClass: 'DOOR_EVENT', sentence: `${said} ${usual}`, lasting: `${saidThen} ${usualThen}`, at: today }];
   }
   return [{
     kind: 'door_busy',
     factClass: 'DOOR_EVENT',
     sentence: `The door has been busier than usual today: ${callers} callers. ${usual}`,
+    lasting: `The door was busier than usual on ${dayName}: ${callers} callers ${byThen}. ${usualThen}`,
     at: today,
   }];
 }

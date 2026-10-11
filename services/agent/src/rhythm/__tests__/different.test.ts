@@ -42,6 +42,7 @@ describe('a regular visitor who did not come', () => {
         kind: 'missed_visit',
         factClass: 'PRESENCE',
         sentence: 'Maria usually comes on Friday mornings. There has been no visit today.',
+        lasting: 'Maria usually comes on Friday mornings. There was no visit on Friday.',
         at: at(FRIDAY, 9),
         personId: 'maria',
       },
@@ -98,6 +99,7 @@ describe('somebody at the door in the night', () => {
         kind: 'door_at_night',
         factClass: 'DOOR_EVENT',
         sentence: 'Someone came to the door in the night, at 2:10 am. Nobody had come at night in the 6 weeks before.',
+        lasting: 'Someone came to the door in the night, at 2:10 am on Friday. Nobody had come at night in the 6 weeks before.',
         at: inTheNight,
       },
     ]);
@@ -180,5 +182,34 @@ describe('parsePattern', () => {
   it('gives nothing for a pattern it cannot read', () => {
     expect(parsePattern('every other day')).toBeUndefined();
     expect(parsePattern(undefined)).toBeUndefined();
+  });
+});
+
+describe('the lasting wording — the same difference, said so that it is still true when read on another day', () => {
+  const usualFridays = (perFriday: number): TimelineEntry[] =>
+    [1, 2, 3, 4, 5, 6].flatMap((k) => Array.from({ length: perFriday }, (_, i) => door(at(FRIDAY - k * WEEK, 9 + i))));
+  const lasting = (over: Partial<DifferentInput>) => whatsDifferent(input(over)).differences.map((d) => d.lasting);
+
+  it('names the day of a missed visit, whichever day it is said on', () => {
+    expect(lasting({ entries: mariaCame(6) })).toEqual(['Maria usually comes on Friday mornings. There was no visit on Friday.']);
+    expect(lasting({ entries: mariaCame(6), now: at(FRIDAY + DAY, 10) })).toEqual(['Maria usually comes on Friday mornings. There was no visit on Friday.']);
+  });
+
+  it('names the day and the hour a quiet door was noticed, in the household’s own time', () => {
+    // Two in the afternoon UTC is three in London's summer.
+    expect(lasting({ roster: [], entries: usualFridays(3) })).toEqual([
+      'Nobody had come to the door by 3:00 pm on Friday. By that time on a Friday there are usually about 3.',
+    ]);
+    expect(lasting({ roster: [], entries: [...usualFridays(4), door(at(FRIDAY, 9))] })).toEqual([
+      'Fewer people than usual had come to the door by 3:00 pm on Friday: 1. By that time on a Friday there are usually about 4.',
+    ]);
+  });
+
+  it('names the day and the hour a busy door was noticed', () => {
+    const today = [9, 10, 11, 12, 13].map((h) => door(at(FRIDAY, h)));
+
+    expect(lasting({ roster: [], entries: [...usualFridays(1), ...today] })).toEqual([
+      'The door was busier than usual on Friday: 5 callers by 3:00 pm. By that time on a Friday there are usually about 1.',
+    ]);
   });
 });
