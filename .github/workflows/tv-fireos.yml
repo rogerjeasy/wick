@@ -1,0 +1,50 @@
+name: tv-fireos
+
+# The Fire OS app builds from the Vega app's source, so a change to either —
+# or to the packages both draw on — is a change to this build.
+on:
+  push:
+    branches: [main]
+    paths: ['apps/tv-fireos/**', 'apps/tv-vega/src/**', 'apps/tv-vega/assets/**', 'packages/**', '.github/workflows/tv-fireos.yml']
+  pull_request:
+    paths: ['apps/tv-fireos/**', 'apps/tv-vega/src/**', 'apps/tv-vega/assets/**', 'packages/**', '.github/workflows/tv-fireos.yml']
+
+# Builds and uploads an APK; touches no AWS and holds no signing key (the
+# debug build is signed with the key Android's tooling makes on the runner).
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: type-check and build the APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/tv-fireos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/tv-fireos/package-lock.json
+      # React Native 0.83's Gradle plugin asks for a Java 17 toolchain.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      # Not a workspace of the root package: here `react-native` is
+      # react-native-tvos (see package.json's comment).
+      - run: npm ci
+      # The Vega source, checked a second time against the Fire OS adapters.
+      - run: npm run typecheck
+      # The release type, so the JavaScript is bundled by Gradle too. One
+      # architecture is enough to prove the build.
+      - run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --console=plain
+        working-directory: apps/tv-fireos/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wick-fireos-apk
+          path: apps/tv-fireos/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error

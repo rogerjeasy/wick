@@ -1,0 +1,8 @@
+# Gradle and the Android build. (`build/` and `node_modules/` are ignored repo-wide.)
+android/.gradle/
+android/.kotlin/
+android/.cxx/
+android/app/.cxx/
+android/local.properties
+*.hprof
+*.keystore

@@ -5,7 +5,8 @@
  * The Vega samples ship ContentPersonalizationMocks wired into the real service
  * path. Shipping that would break the submission's "no simulated data" constraint
  * in the most visible place in the repo. This fails the build if any runtime
- * module under apps/tv-vega/src imports something matching /mock/i.
+ * module under apps/tv-vega/src or apps/tv-fireos/src imports something
+ * matching /mock/i.
  *
  * Test fixtures are fine — but they live under __tests__ and never ship.
  */
@@ -13,7 +14,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
-const SCAN = join(ROOT, 'apps/tv-vega/src');
+// The Fire OS app bundles the Vega app's source and adds adapters of its own.
+const SCAN = [join(ROOT, 'apps/tv-vega/src'), join(ROOT, 'apps/tv-fireos/src')];
 const IMPORT_RE = /\b(?:import|require)\s*\(?\s*['"]([^'"]+)['"]/g;
 const offenders = [];
 
@@ -34,10 +36,10 @@ function walk(dir) {
   }
 }
 
-walk(SCAN);
+for (const dir of SCAN) walk(dir);
 
 if (offenders.length) {
-  console.error('\n  Mock imports found in Vega runtime code (see WICK-TECHNICAL.md §12.1):\n');
+  console.error('\n  Mock imports found in television runtime code (see WICK-TECHNICAL.md §12.1):\n');
   for (const o of offenders) console.error(`   - ${o}`);
   console.error('\n  Runtime code must use real data. Fixtures belong under __tests__.\n');
   process.exit(1);

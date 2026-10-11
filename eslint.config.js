@@ -19,7 +19,7 @@ const TRANSPORT_CLIENTS = [
 export default tseslint.config(
   // .programmes holds HLS segments, whose .ts is MPEG transport stream, not TypeScript.
   // .worktrees/ and .claude/worktrees/ hold other branches checked out side by side (.gitignore).
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**', '.programmes/**', '.worktrees/**', '.claude/worktrees/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**', '.programmes/**', 'apps/tv-fireos/android/**', '.worktrees/**', '.claude/worktrees/**'] },
 
   // Parse TypeScript everywhere.
   ...tseslint.configs.recommended,
@@ -64,7 +64,13 @@ export default tseslint.config(
   // Metro and Babel load their own config as plain CommonJS by convention —
   // not part of the app's ESM/TS source.
   {
-    files: ['apps/tv-vega/metro.config.js', 'apps/tv-vega/babel.config.js'],
+    files: [
+      'apps/tv-vega/metro.config.js',
+      'apps/tv-vega/babel.config.js',
+      'apps/tv-fireos/metro.config.js',
+      'apps/tv-fireos/babel.config.js',
+      'apps/tv-fireos/adapters.config.js',
+    ],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
     },
