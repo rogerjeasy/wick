@@ -66,13 +66,13 @@ const TABLE = process.env.TABLE_NAME ?? 'wick';
 /** The same default as the Narrator's and get_week_narrative.ts's. */
 const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
-function createMcpServer(ddb: DynamoDBClient, ctx: ToolContext): McpServer {
+function createMcpServer(ddb: DynamoDBClient, ctx: ToolContext, sendCard: (card: QueuedCard) => Promise<void>): McpServer {
   const mcpServer = new McpServer({ name: 'wick', version: '0.2.0' });
   registerGetResidentSharedView(mcpServer, ddb, ctx);
   registerGetWeekNarrative(mcpServer, ddb, ctx);
   registerGetToday(mcpServer, ddb, ctx);
   registerDidVisitorCome(mcpServer, ddb, ctx);
-  registerSendNoteToTv(mcpServer, ctx);
+  registerSendNoteToTv(mcpServer, ctx, sendCard);
   registerGetReplies(mcpServer, ddb, ctx);
   registerListRegularVisitors(mcpServer, ddb, ctx);
   registerExpectVisit(mcpServer, ddb, ctx);
@@ -94,7 +94,8 @@ async function listToolSpecs(ddb: DynamoDBClient): Promise<ToolSpec[]> {
   const nobody: ToolContext = { householdId: '', userId: '', access: async () => { throw new Error('tools/list only'); } };
   const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'wick-assistant', version: '0.1.0' });
-  await Promise.all([createMcpServer(ddb, nobody).connect(serverSide), client.connect(clientSide)]);
+  const nowhere = async (): Promise<void> => { throw new Error('tools/list only'); };
+  await Promise.all([createMcpServer(ddb, nobody, nowhere).connect(serverSide), client.connect(clientSide)]);
   try {
     const { tools } = await client.listTools();
     return tools.map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema }));
@@ -228,7 +229,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
           householdId: grant.householdId,
           userId: grant.userId,
           access: () => checkAccess(deps.store, grant.householdId, grant.userId),
-        });
+        }, deps.sendCard);
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid) => {

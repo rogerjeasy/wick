@@ -5,14 +5,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { buildMessageCard, registerSendNoteToTv } from '../send_note_to_tv.js';
 import { allowedContext } from './toolContext.js';
 
-// INV-2: services/agent/src/egress.ts is the only module allowed to touch a
-// transport client; send_note_to_tv.ts calls sendToDevice() from @wick/agent
-// rather than importing DynamoDB/transport clients itself. Mocked at that
-// import boundary — vitest.config.ts already aliases '@wick/agent' to
-// services/agent/src/index.ts, so vi.mock('@wick/agent', ...) intercepts the
-// same specifier send_note_to_tv.ts imports.
+// INV-2: the tool is handed its sender (in a deployment, egress.ts's
+// sendToDevice) and reaches a television no other way. Here it is handed a spy.
 const sendToDevice = vi.fn();
-vi.mock('@wick/agent', () => ({ sendToDevice: (...args: unknown[]) => sendToDevice(...args) }));
 
 describe('buildMessageCard', () => {
   it('builds a MESSAGE card with three static suggested replies', () => {
@@ -46,7 +41,7 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
     sendToDevice.mockResolvedValue(undefined);
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerSendNoteToTv(mcpServer, allowedContext('hh-9', { name: 'Tom' }));
+    registerSendNoteToTv(mcpServer, allowedContext('hh-9', { name: 'Tom' }), sendToDevice);
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -69,7 +64,7 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
     sendToDevice.mockResolvedValue(undefined);
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerSendNoteToTv(mcpServer, allowedContext('hh-9', { name: 'Tom' }));
+    registerSendNoteToTv(mcpServer, allowedContext('hh-9', { name: 'Tom' }), sendToDevice);
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -87,7 +82,7 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
       householdId: 'hh-9',
       userId: 'u_tom',
       access: async () => ({ ok: false, reason: 'waiting', say: 'Margaret hasn’t allowed this yet.' }),
-    });
+    }, sendToDevice);
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -103,7 +98,7 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
     sendToDevice.mockRejectedValue(new Error('AccessDeniedException: arn:aws:iam::123456789012:role/wick-mcp'));
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerSendNoteToTv(mcpServer, allowedContext('hh-9'));
+    registerSendNoteToTv(mcpServer, allowedContext('hh-9'), sendToDevice);
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });

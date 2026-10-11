@@ -3,7 +3,12 @@
  *
  * INV-2: sendToDevice() (services/agent/src/egress.ts) is the only legal path
  * to the television. This file never touches DynamoDB or a transport client
- * directly — it builds a card and hands it to sendToDevice().
+ * directly — it builds a card and hands it to the sender the server was
+ * given (server.ts AppDeps.sendCard), which in a deployment is sendToDevice
+ * and nothing else. It is handed in, not imported here, so that a server
+ * started for a test or on a laptop sends where it was told to — this file
+ * used to call sendToDevice itself, and a local server with AWS
+ * credentials in reach wrote its test notes to the real table.
  *
  * suggestedReplies are three static, generic strings — model-drafted replies
  * "in the resident's own register" are M3's full build, sequenced later
@@ -13,8 +18,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { MAX_CARD_DETAIL_CHARS, type QueuedCard } from '@wick/contracts';
-import { DEFAULT_POLICY } from '@wick/policy';
-import { sendToDevice } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
@@ -51,7 +54,11 @@ export function buildMessageCard(input: BuildMessageCardInput): QueuedCard {
   };
 }
 
-export function registerSendNoteToTv(mcpServer: McpServer, ctx: ToolContext): void {
+export function registerSendNoteToTv(
+  mcpServer: McpServer,
+  ctx: ToolContext,
+  sendCard: (card: QueuedCard) => Promise<void>,
+): void {
   mcpServer.registerTool(
     'send_note_to_tv',
     {
@@ -74,7 +81,7 @@ export function registerSendNoteToTv(mcpServer: McpServer, ctx: ToolContext): vo
         message,
         now: Date.now(),
       });
-      await sendToDevice(card, DEFAULT_POLICY);
+      await sendCard(card);
       return data({ sent: true, cardId: card.id, fromName, message });
     })),
   );

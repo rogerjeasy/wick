@@ -53,6 +53,19 @@ describe('createApp', () => {
     expect(res.status).toBe(401);
   });
 
+  it('sends a note through the sender the server was given, and by no other way (INV-2)', async () => {
+    const { h } = await server();
+    const sarah = await linkNewOrganiser(h);
+    await h.store.setMemberStatus(sarah.householdId, sarah.userId, 'allowed', Date.now());
+    const { client } = await mcpClient(h, sarah);
+
+    const result = await client.callTool({ name: 'send_note_to_tv', arguments: { message: 'Lunch on Sunday?' } });
+
+    expect(JSON.parse((result.content as { text: string }[])[0]!.text)).toMatchObject({ sent: true });
+    // The test server's own sender received it: nothing reached a real table or a real television.
+    expect(h.cards.map((c) => c.card)).toContainEqual(expect.objectContaining({ type: 'MESSAGE', transcript: 'Lunch on Sunday?', householdId: sarah.householdId }));
+  });
+
   it('exposes exactly the eight deployed tools — the registered set IS the deploy contract', async () => {
     const { h } = await server();
     const sarah = await linkNewOrganiser(h);
