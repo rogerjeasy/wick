@@ -1,21 +1,22 @@
 # ---------------------------------------------------------------------------
 # S4a — the MCP server, deployed. See docs/WICK-TECHNICAL.md §7.3.
 #
-# App Runner, not Lambda: the server holds one McpServer instance per MCP
-# session in memory, across a Streamable HTTP connection. Lambda's
-# per-invocation isolation has no guarantee two requests in the same MCP
-# session land on the same execution environment; App Runner is one
-# long-running container, so that state persists across the requests that
-# need it to.
+# App Runner: one long-running container behind a public URL. It was chosen
+# over Lambda when the server held one McpServer per MCP session in memory.
+# It no longer does.
 #
-# Sign-in state is NOT in memory any more. OAuth clients, codes, tokens and
-# the sign-in cookie are in DynamoDB (services/mcp-server/src/accounts), so
-# a redeploy no longer signs anyone out — which the hackathon's "must stay
-# live through judging" ruling needs. An MCP session is still lost on
-# restart; a client opens a new one with the token it already holds.
+# Nothing a request needs is in this process's memory. OAuth clients, codes,
+# tokens and the sign-in cookie are in DynamoDB
+# (services/mcp-server/src/accounts), and there are no MCP sessions at all:
+# every request is answered by a server built for the person its own token
+# names (the SDK's stateless mode, services/mcp-server/src/server.ts). So a
+# redeploy signs nobody out and interrupts no conversation — which the
+# hackathon's "must stay live through judging" ruling needs — and a second
+# instance would answer any client the first one could.
 #
-# Still exactly one instance, on purpose: a second would hold a different
-# set of MCP sessions. Scaling out needs the SDK's stateless mode.
+# What is still per-process: the family assistant's rate budgets
+# (assistant/router.ts). They reset on a restart and would be counted per
+# instance; that is a looser limit, not a wrong answer.
 #
 # The issuer URL problem: mcpAuthRouter() bakes `issuerUrl` into the OAuth
 # metadata it serves at startup (auth.ts's createAuthRouter), but App

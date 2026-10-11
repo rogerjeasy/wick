@@ -18,14 +18,13 @@
  * precomputed state. NO MODEL CALL EVER RUNS INSIDE A TOOL HANDLER. If you want
  * one, you have mis-sited the work — precompute it upstream (§5.4).
  */
-import { randomUUID } from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { ErrorCode, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { QueuedCard } from '@wick/contracts';
@@ -125,13 +124,6 @@ export interface AppDeps {
   readonly newId?: () => string;
 }
 
-/** An MCP session and the person and household it was opened for. */
-interface Session {
-  readonly transport: StreamableHTTPServerTransport;
-  readonly userId: string;
-  readonly householdId: string;
-}
-
 export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   const { ddb } = deps;
   const circle: CircleDeps = {
@@ -174,36 +166,35 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     timeZone: HOUSEHOLD_TZ,
   }));
 
-  // Session-keyed transports. StreamableHTTPServerTransport in stateful mode
-  // (`sessionIdGenerator` set) only flips its internal `_initialized` flag on the
-  // SAME transport instance that handled `initialize` — every other request routes
-  // through `validateSession()`, which 400s "Server not initialized" against a fresh
-  // instance. So the transport for a session must be created once, on `initialize`,
-  // and REUSED for every subsequent request carrying that session's `Mcp-Session-Id`
-  // header — never reconstructed per request. Pattern verified against the SDK's own
-  // shipped reference server, installed SDK 1.30.0:
-  // node_modules/@modelcontextprotocol/sdk/dist/esm/examples/server/simpleStreamableHttp.js
-  // (mcpPostHandler, ~lines 566-625: the `transports` map, `onsessioninitialized`
-  // storing the transport keyed by its generated session id, and `transport.onclose`
-  // deleting that entry). `onsessioninitialized`/`onclose` signatures confirmed against
-  // node_modules/@modelcontextprotocol/sdk/dist/esm/server/webStandardStreamableHttp.d.ts.
-  const sessions: Record<string, Session> = {};
-
-  // apps/sim-alexa (and any real browser client) runs on a different origin than
-  // this server and sends custom `authorization`/`mcp-session-id` headers on every
-  // /mcp request, which triggers a browser CORS preflight (`OPTIONS /mcp`). Only
+  // No sessions. Every request is answered by a server built for the person
+  // and household its own token names (INV-8), and thrown away when the
+  // answer has gone.
+  //
+  // Sessions used to be held here, in a map in this process's memory: a
+  // redeploy forgot every one of them, and a second instance would have had
+  // a different set — a client that had initialized against one would be
+  // told "Server not initialized" by the other. Nothing an MCP session
+  // carries is needed for that cost: the tools keep no state between calls,
+  // and who is asking is settled by the token, per request. So there is no
+  // session to lose, and nothing that pins a client to one instance.
+  //
+  // The SDK's stateless mode (`sessionIdGenerator: undefined`): one transport
+  // and one McpServer per request, each closed when the response is — its
+  // own reference, installed SDK 1.30.0:
+  // node_modules/@modelcontextprotocol/sdk/dist/esm/examples/server/simpleStatelessStreamableHttp.js.
+  // A transport in this mode does not ask for `initialize` first and ignores
+  // any `Mcp-Session-Id` a client still sends from before.
+  //
+  // apps/sim-alexa (and any real browser client) runs on a different origin
+  // than this server and sends a custom `authorization` header on every /mcp
+  // request, which triggers a browser CORS preflight (`OPTIONS /mcp`). Only
   // this route needs it — mcpAuthRouter's own routes already call cors()
-  // internally, so this is scoped here rather than applied app-wide. The session
-  // id is read back from the response by client JS (main.js's sendMcpMessage()),
-  // so it must be explicitly exposed — browsers hide non-exposed response headers
-  // from JS under CORS by default (verified against @types/cors's CorsOptions,
-  // installed @types/cors 2.8.19: `exposedHeaders?: string | string[]`).
-  const mcpCors = cors({ exposedHeaders: ['Mcp-Session-Id'] });
+  // internally, so this is scoped here rather than applied app-wide.
+  const mcpCors = cors();
 
   app.options('/mcp', mcpCors);
   app.post('/mcp', mcpCors, requireAuth(), async (req, res) => {
     try {
-      const sessionId = req.headers['mcp-session-id'];
       // INV-8: who this request is for comes from its verified token.
       const grant = grantOf(req.auth);
       if (!grant) {
@@ -211,68 +202,30 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
         return;
       }
 
-      const session = typeof sessionId === 'string' ? sessions[sessionId] : undefined;
-      if (session) {
-        // A session answers only the person and household it was opened for.
-        // Its tools were built around that household, so a different token
-        // presenting this session id must not be served by them.
-        if (session.userId !== grant.userId || session.householdId !== grant.householdId) {
-          res.status(403).json({ jsonrpc: '2.0', error: { code: -32001, message: 'This session belongs to someone else.' }, id: null });
-          return;
-        }
-        // Existing session: reuse its already-`connect()`ed transport. Do not
-        // reconstruct or reconnect — that would recreate the exact bug being fixed.
-        await session.transport.handleRequest(req, res, req.body);
-        return;
-      }
-
-      if (sessionId === undefined && isInitializeRequest(req.body)) {
-        // Genuine new session: a fresh McpServer AND a fresh transport, each
-        // constructed once for this session's lifetime and never reused
-        // across sessions. Reusing one shared McpServer across sessions is
-        // the exact bug this fixes — see createMcpServer's doc comment.
-        const mcpServer = createMcpServer(ddb, {
-          householdId: grant.householdId,
-          userId: grant.userId,
-          access: () => checkAccess(deps.store, grant.householdId, grant.userId),
-        }, deps.sendCard);
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (sid) => {
-            sessions[sid] = { transport, userId: grant.userId, householdId: grant.householdId };
-          },
-        });
-        transport.onclose = () => {
-          const sid = transport.sessionId;
-          if (sid !== undefined) delete sessions[sid];
-          // Release this session's McpServer so a future session's `connect()`
-          // never collides with it — matches the SDK's own stateless example
-          // (simpleStatelessStreamableHttp.js), which pairs every `connect()`
-          // with a `close()` on the same instance.
-          void mcpServer.close();
-        };
-        // StreamableHTTPServerTransport's onclose/onerror/onmessage accessors are typed
-        // `X | undefined` even though Transport declares them as optional `X` — under this
-        // repo's `exactOptionalPropertyTypes`, those aren't the same type. The class does
-        // structurally implement Transport (verified against the SDK's own `implements
-        // Transport` on this class, installed SDK 1.30.0); the cast just routes around the
-        // accessor-vs-optional-property mismatch.
-        await mcpServer.connect(transport as unknown as Transport);
-        await transport.handleRequest(req, res, req.body);
-        return;
-      }
-
-      res.status(400).json({
-        jsonrpc: '2.0',
-        error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
-        id: null,
+      const mcpServer = createMcpServer(ddb, {
+        householdId: grant.householdId,
+        userId: grant.userId,
+        access: () => checkAccess(deps.store, grant.householdId, grant.userId),
+      }, deps.sendCard);
+      // No `sessionIdGenerator` given: that is what makes it stateless.
+      const transport = new StreamableHTTPServerTransport({});
+      res.on('close', () => {
+        void transport.close();
+        void mcpServer.close();
       });
+      // StreamableHTTPServerTransport's onclose/onerror/onmessage accessors are typed
+      // `X | undefined` even though Transport declares them as optional `X` — under this
+      // repo's `exactOptionalPropertyTypes`, those aren't the same type. The class does
+      // structurally implement Transport (verified against the SDK's own `implements
+      // Transport` on this class, installed SDK 1.30.0); the cast just routes around the
+      // accessor-vs-optional-property mismatch.
+      await mcpServer.connect(transport as unknown as Transport);
+      await transport.handleRequest(req, res, req.body);
     } catch (err) {
-      // An uncaught error here (e.g. a second `connect()` on an already-connected
-      // instance, or any other transport-layer failure) must never propagate to
-      // Express's default handler, which would leak a raw stack trace as a bare
-      // 500. Match the SDK's own shipped error shape (ErrorCode.InternalError,
-      // verified in node_modules/@modelcontextprotocol/sdk/dist/esm/types.js).
+      // An uncaught error here must never propagate to Express's default
+      // handler, which would leak a raw stack trace as a bare 500. Match the
+      // SDK's own shipped error shape (ErrorCode.InternalError, verified in
+      // node_modules/@modelcontextprotocol/sdk/dist/esm/types.js).
       console.error('[wick/mcp-server] Error handling POST /mcp:', err);
       if (!res.headersSent) {
         res.status(500).json({
@@ -284,25 +237,17 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     }
   });
 
-  // Session termination (MCP spec, Streamable HTTP transport): lets a client
-  // cleanly end a session instead of relying on a bare TCP close. This is also
-  // what makes onclose's cleanup above actually fire on a normal disconnect —
-  // without it the session map only evicts via GC of an abandoned socket.
-  app.delete('/mcp', mcpCors, requireAuth(), async (req, res) => {
-    const sessionId = req.headers['mcp-session-id'];
-    const session = typeof sessionId === 'string' ? sessions[sessionId] : undefined;
-    const grant = grantOf(req.auth);
-    if (!session || session.userId !== grant?.userId || session.householdId !== grant.householdId) {
-      res.status(400).send('Invalid or missing session ID');
-      return;
-    }
-    try {
-      await session.transport.handleRequest(req, res);
-    } catch (err) {
-      console.error('[wick/mcp-server] Error handling DELETE /mcp:', err);
-      if (!res.headersSent) res.status(500).send('Error processing session termination');
-    }
-  });
+  // With no session there is no stream to open and nothing to end (MCP
+  // Streamable HTTP: a server that offers neither answers 405).
+  const noSessions: express.RequestHandler = (_req, res) => {
+    res.status(405).set('Allow', 'POST').json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Method not allowed. This server keeps no sessions: send each request as a POST.' },
+      id: null,
+    });
+  };
+  app.get('/mcp', mcpCors, noSessions);
+  app.delete('/mcp', mcpCors, noSessions);
 
   return app;
 }

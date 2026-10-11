@@ -31,6 +31,8 @@ const $ = (id) => document.getElementById(id);
 const LINK_KEY = 'wick_link';
 let link = null;
 let mcpSessionId = null;
+/** Whether this page has said hello to the server (`initialize`). The server keeps no session, so this is all there is to remember. */
+let mcpInitialized = false;
 /** GET /api/me for the linked account, once known. */
 let me = null;
 
@@ -202,6 +204,7 @@ function signedOut(reason) {
   saveLink(null);
   me = null;
   mcpSessionId = null;
+  mcpInitialized = false;
   toolInfo = null;
   conversation.length = 0;
   enableToolButtons(false);
@@ -259,14 +262,12 @@ function parseSseEvents(text) {
 }
 
 /**
- * A single JSON-RPC round trip over POST /mcp. Streamable HTTP is
- * session-based (see services/mcp-server/src/server.ts): the very first
- * request on a connection must be `initialize`, and every request after that
- * — including `initialize`'s own required `notifications/initialized`
- * follow-up — must carry the `Mcp-Session-Id` the server handed back on the
- * `initialize` response, or the server 400s "No valid session ID provided".
- * `ensureMcpSession()` below performs that handshake once per page session,
- * lazily, before the first real tool call.
+ * A single JSON-RPC round trip over POST /mcp. The Wick server keeps no
+ * MCP session (see services/mcp-server/src/server.ts): each request is
+ * answered on the strength of its own token, so a redeploy in the middle of
+ * a conversation costs nothing. `ensureMcpSession()` below still says
+ * `initialize` once per page, as the protocol asks of a client, and a
+ * session id is still carried if a server ever hands one back.
  *
  * The installed SDK's StreamableHTTPServerTransport (this server does not set
  * `enableJsonResponse`) always answers POST /mcp with
@@ -293,10 +294,11 @@ async function sendMcpMessage(message) {
     return undefined;
   }
 
-  // The server restarted and forgot this MCP session (they are held in
-  // memory; the sign-in is not). Open a new one and ask again, once.
+  // A server that does keep sessions has forgotten this one. Open a new
+  // one and ask again, once.
   if ((res.status === 400 || res.status === 404) && mcpSessionId && message.method !== 'initialize') {
     mcpSessionId = null;
+    mcpInitialized = false;
     await ensureMcpSession();
     return sendMcpMessage(message);
   }
@@ -312,7 +314,7 @@ async function sendMcpMessage(message) {
 }
 
 async function ensureMcpSession() {
-  if (mcpSessionId) return;
+  if (mcpInitialized) return;
   await sendMcpMessage({
     jsonrpc: '2.0',
     id: ++mcpRequestId,
@@ -324,6 +326,7 @@ async function ensureMcpSession() {
     },
   });
   await sendMcpMessage({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  mcpInitialized = true;
 }
 
 /**
