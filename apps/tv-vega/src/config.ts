@@ -8,7 +8,7 @@
 export interface DeviceConfig {
   readonly pairingApiUrl: string;
   readonly websocketUrl: string;
-  /** Absent until infra/transport.tf's IoT Core stack exists — SP-5, see FRICTION.md. */
+  /** MQTT over IoT Core (infra/iot.tf), tried before the WebSocket. Absent, MQTT is never tried. */
   readonly mqttWssUrl?: string;
 }
 
@@ -34,6 +34,11 @@ export function resolveDeviceConfig(partial: Partial<DeviceConfig>): DeviceConfi
 const DEPLOYED: Partial<DeviceConfig> = {
   pairingApiUrl: 'https://aplt2e6673.execute-api.us-east-1.amazonaws.com',
   websocketUrl: 'wss://2ozlpzh5da.execute-api.us-east-1.amazonaws.com/prod',
+  // `terraform output mqtt_wss_url` (infra/iot.tf): the IoT Core endpoint with
+  // the custom authorizer named. The television adds its own device token
+  // (transport/MqttChannel.ts). It is tried first; the WebSocket above is what
+  // the app falls back to, and what the background card service always uses.
+  mqttWssUrl: 'wss://a3mcxw8j3fftbo-ats.iot.us-east-1.amazonaws.com/mqtt?x-amz-customauthorizer-name=wick-device',
 };
 
 export function loadDeviceConfig(): DeviceConfig {
