@@ -38,3 +38,44 @@ export function utcDayStart(date: string): number | undefined {
   const at = localToUtc(date, '00:00', 'UTC');
   return at === undefined ? undefined : at - (at % DAY_MS);
 }
+
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+export interface ResolvedDay {
+  /** The day's first millisecond (UTC, as the timeline is filed). */
+  readonly start: number;
+  /** YYYY-MM-DD. */
+  readonly date: string;
+  /** "Tuesday 6 October 2026" — so whoever reads the answer can see which day it is for. */
+  readonly inWords: string;
+}
+
+/**
+ * The day a question means. An exact `date` wins; otherwise `day` is
+ * "today", "yesterday" or a weekday, which is the most recent such day,
+ * today included; with neither, today. Undefined for anything else.
+ *
+ * Worked out here because a model asked to turn "last Tuesday" into a date
+ * got Thursday, and answered — wrongly, and with confidence — for that.
+ */
+export function resolveDay(input: { readonly date?: string | undefined; readonly day?: string | undefined }, now: Date): ResolvedDay | undefined {
+  const today = now.getTime() - (now.getTime() % DAY_MS);
+  let start: number | undefined;
+
+  if (input.date !== undefined) start = utcDayStart(input.date);
+  else if (input.day === undefined || input.day.trim().toLowerCase() === 'today') start = today;
+  else if (input.day.trim().toLowerCase() === 'yesterday') start = today - DAY_MS;
+  else {
+    const weekday = WEEKDAYS.indexOf(input.day.trim().toLowerCase());
+    if (weekday !== -1) start = today - ((new Date(today).getUTCDay() - weekday + 7) % 7) * DAY_MS;
+  }
+  if (start === undefined) return undefined;
+
+  const inWords = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    .format(new Date(start))
+    .replace(',', '');
+  return { start, date: new Date(start).toISOString().slice(0, 10), inWords };
+}
+
+/** What a tool's `day` argument accepts, for its schema. */
+export const DAY_ARGUMENT = 'One of "today", "yesterday", or a weekday name ("tuesday"): the most recent such day, today included.';

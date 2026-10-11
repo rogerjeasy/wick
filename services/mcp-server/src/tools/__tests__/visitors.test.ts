@@ -6,9 +6,10 @@ import { padTimestamp, type RosterEntry } from '@wick/contracts';
 import { createMemoryTable, type MemoryTable } from '../../__tests__/memoryTable.js';
 import { loadVisitors, registerListRegularVisitors } from '../list_regular_visitors.js';
 import { EXPECT_VISIT_PAST_TEXT, EXPECT_VISIT_TOO_FAR_TEXT, registerExpectVisit } from '../expect_visit.js';
-import { localToUtc } from '../when.js';
+import { localToUtc, resolveDay } from '../when.js';
+import { registerDidVisitorCome } from '../did_visitor_come.js';
 import { DAY_NOT_A_DATE_TEXT, DAY_NOT_YET_TEXT, DAY_TOO_OLD_TEXT, registerGetToday } from '../get_today.js';
-import { FAMILY_REFUSAL_TEXT } from '../get_resident_shared_view.js';
+import { FAMILY_REFUSAL_TEXT, registerGetResidentSharedView } from '../get_resident_shared_view.js';
 import { allowedContext } from './toolContext.js';
 
 const HH = 'hh-1';
@@ -190,6 +191,7 @@ describe('get_today — any recent day, not only this one', () => {
 
     expect(result.structuredContent).toEqual({
       date: '2026-10-13',
+      dayInWords: 'Tuesday 13 October 2026',
       events: [{ at: Date.UTC(2026, 9, 13, 10), summary: 'Someone was at the front door.' }],
       keptPrivate: [],
     });
@@ -213,5 +215,76 @@ describe('get_today — any recent day, not only this one', () => {
     expect(textOf(await call(table, { date: '2026-10-14' }))).toBe(DAY_NOT_YET_TEXT);
     expect(textOf(await call(table, { date: '2026-01-01' }))).toBe(DAY_TOO_OLD_TEXT);
     expect(textOf(await call(table, { date: 'yesterday' }))).toBe(DAY_NOT_A_DATE_TEXT);
+  });
+});
+
+describe('resolveDay — the day somebody means, worked out here and never by a model', () => {
+  // NOW is Tuesday 13 October 2026.
+  const day = (input: { date?: string; day?: string }) => resolveDay(input, NOW);
+
+  it('is today when nothing is said', () => {
+    expect(day({})).toEqual({ start: Date.UTC(2026, 9, 13), date: '2026-10-13', inWords: 'Tuesday 13 October 2026' });
+  });
+
+  it('reads "yesterday", and a weekday as the most recent one — today included', () => {
+    expect(day({ day: 'yesterday' })).toMatchObject({ date: '2026-10-12', inWords: 'Monday 12 October 2026' });
+    expect(day({ day: 'Friday' })).toMatchObject({ date: '2026-10-09' });
+    expect(day({ day: 'tuesday' })).toMatchObject({ date: '2026-10-13' });
+    expect(day({ day: 'wednesday' })).toMatchObject({ date: '2026-10-07' });
+  });
+
+  it('takes an exact date over a day name, and refuses what is neither', () => {
+    expect(day({ date: '2026-10-06', day: 'friday' })).toMatchObject({ date: '2026-10-06', inWords: 'Tuesday 6 October 2026' });
+    expect(day({ day: 'someday' })).toBeUndefined();
+    expect(day({ date: 'last week' })).toBeUndefined();
+  });
+});
+
+describe('the day tools take a day by name', () => {
+  it('get_today answers for "yesterday" and says in words which day that was', async () => {
+    const table = createMemoryTable();
+    table.put({ pk: { S: `HH#${HH}` }, sk: { S: `EVT#${padTimestamp(Date.UTC(2026, 9, 12, 10))}#d` }, type: { S: 'door' } });
+    const client = await connect(table, (s) => registerGetToday(s, table.ddb, allowedContext(HH), () => NOW));
+
+    const result = await client.callTool({ name: 'get_today', arguments: { day: 'yesterday' } });
+
+    expect(result.structuredContent).toMatchObject({ date: '2026-10-12', dayInWords: 'Monday 12 October 2026', events: [{ at: Date.UTC(2026, 9, 12, 10) }] });
+  });
+
+  it('did_visitor_come answers for a named day: "did Maria come on Friday?"', async () => {
+    const table = createMemoryTable();
+    person(table, 'PER#maria', MARIA);
+    visit(table, Date.UTC(2026, 9, 9, 9, 5), MARIA);
+    const client = await connect(table, (s) => registerDidVisitorCome(s, table.ddb, allowedContext(HH), () => NOW));
+
+    const friday = await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria', day: 'friday' } });
+    const monday = await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria', date: '2026-10-12' } });
+
+    expect(friday.structuredContent).toMatchObject({ visited: true, at: Date.UTC(2026, 9, 9, 9, 5), name: 'Maria', expectedToday: true, date: '2026-10-09', dayInWords: 'Friday 9 October 2026' });
+    expect(monday.structuredContent).toMatchObject({ visited: false, expectedToday: false, dayInWords: 'Monday 12 October 2026' });
+  });
+
+  it('did_visitor_come still answers for today when no day is named', async () => {
+    const table = createMemoryTable();
+    person(table, 'PER#maria', MARIA);
+    visit(table, Date.UTC(2026, 9, 13, 8, 55), MARIA);
+    const client = await connect(table, (s) => registerDidVisitorCome(s, table.ddb, allowedContext(HH), () => NOW));
+
+    expect((await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria' } })).structuredContent).toMatchObject({ visited: true, date: '2026-10-13' });
+  });
+});
+
+describe('get_resident_shared_view — in words, so nobody has to guess what a class means', () => {
+  it('says what each shared and private kind of thing is', async () => {
+    const table = createMemoryTable();
+    table.put({ pk: { S: `HH#${HH}` }, sk: { S: 'META' }, residentExclusions: { SS: ['PRESENCE'] } });
+    const client = await connect(table, (s) => registerGetResidentSharedView(s, table.ddb, allowedContext(HH)));
+
+    const view = (await client.callTool({ name: 'get_resident_shared_view', arguments: {} })).structuredContent as Record<string, string[]>;
+
+    expect(view.keptPrivateInWords).toEqual(['Who visits, by name']);
+    expect(view.sharedInWords).toContain('When someone comes to the door');
+    expect(view.sharedInWords).toContain('The shape of the week');
+    expect(view.sharedInWords).toHaveLength(view.sharedWithFamily!.length);
   });
 });

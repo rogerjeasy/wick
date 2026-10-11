@@ -107,6 +107,7 @@ describe('registerGetToday (registered tool handler, end to end)', () => {
     expect(JSON.parse(content[0]!.text)).toEqual({
       // The day answered for: today, since none was named.
       date: new Date().toISOString().slice(0, 10),
+      dayInWords: expect.stringMatching(/^\w+day \d+ \w+ \d{4}$/) as unknown,
       events: [{ at: 1700000000000, summary: 'Someone was at the front door.' }],
       keptPrivate: [],
     });

@@ -24,6 +24,8 @@ import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
 import { READS, data, say } from './result.js';
+import { DAY_ARGUMENT, resolveDay } from './when.js';
+import { DAY_NOT_A_DATE_TEXT } from './get_today.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -90,18 +92,28 @@ export async function checkVisitor(
   };
 }
 
-export function registerDidVisitorCome(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext): void {
+export function registerDidVisitorCome(
+  mcpServer: McpServer,
+  ddb: DynamoDBClient,
+  ctx: ToolContext,
+  now: () => Date = () => new Date(),
+): void {
   mcpServer.registerTool(
     'did_visitor_come',
     {
       title: 'Did a visitor come',
       description:
-        'Checks whether a specific regular visitor came today, and whether today is one of their usual days. ' +
-        'Takes the `personId` from list_regular_visitors; `name` comes back empty for an id this household does not know.',
-      inputSchema: { personId: z.string().describe('The visitor’s `personId` from list_regular_visitors, e.g. "maria".') },
+        'Checks whether a specific regular visitor came on a given day — today unless one is named — and whether that is one of their usual days (`expectedToday`). ' +
+        'Takes the `personId` from list_regular_visitors; `name` comes back empty for an id this household does not know. ' +
+        'For "on Tuesday" or "yesterday" pass `day`; the answer says which day it is for (`dayInWords`).',
+      inputSchema: {
+        personId: z.string().describe('The visitor’s `personId` from list_regular_visitors, e.g. "maria".'),
+        day: z.string().optional().describe(DAY_ARGUMENT),
+        date: z.string().optional().describe('An exact day, YYYY-MM-DD, when a date was given. Leave both out for today.'),
+      },
       annotations: READS,
     },
-    withFriendlyErrors(gated(ctx, async (_allowed, { personId }: { personId: string }) => {
+    withFriendlyErrors(gated(ctx, async (_allowed, { personId, day, date }: { personId: string; day?: string | undefined; date?: string | undefined }) => {
       // Mirrors get_resident_shared_view.ts's disclosure check: if PRESENCE
       // isn't shared with FAMILY under the household's policy, the whole
       // answer is withheld rather than silently answered anyway (§6.4).
@@ -109,7 +121,10 @@ export function registerDidVisitorCome(mcpServer: McpServer, ddb: DynamoDBClient
       if (!isSharedWithFamily('PRESENCE', policy)) {
         return say(FAMILY_REFUSAL_TEXT);
       }
-      return data(await checkVisitor(ddb, ctx.householdId, personId, new Date()));
+      const resolved = resolveDay({ day, date }, now());
+      if (!resolved) return say(DAY_NOT_A_DATE_TEXT);
+      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date(resolved.start));
+      return data({ ...result, date: resolved.date, dayInWords: resolved.inWords });
     })),
   );
 }

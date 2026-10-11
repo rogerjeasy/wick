@@ -61,12 +61,32 @@ export function isSharedWithFamily(factClass: FactClass, policy: HouseholdPolicy
   return allowed && !policy.residentExclusions.includes(factClass);
 }
 
+/**
+ * Each class in the words the television's own "What Sarah sees" screen
+ * uses for it. Sent with the codes, because a code read cold is guessed
+ * at: an assistant shown PRESENCE told someone the resident shares
+ * "whether she is in or out" — it means who visits, by name.
+ */
+export const FACT_CLASS_WORDS: Readonly<Record<FactClass, string>> = {
+  DOOR_EVENT: 'When someone comes to the door',
+  PRESENCE: 'Who visits, by name',
+  COMMITMENT: 'Appointments and plans',
+  RHYTHM: 'The shape of the week',
+  HEALTH: 'Health',
+  FINANCIAL: 'Money',
+  RELATIONSHIP: 'Relationships',
+  LOCATION: 'Where they go',
+  VERBATIM: 'What was said, word for word',
+};
+
 export function registerGetResidentSharedView(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext): void {
   mcpServer.registerTool(
     'get_resident_shared_view',
     {
       title: 'What the resident shares with family',
-      description: "Returns exactly what the resident has agreed is shared with family — the machine-readable counterpart of the television's \"What Sarah Sees\" screen.",
+      description:
+        "Returns exactly what the resident has agreed is shared with family — the counterpart of the television's \"What Sarah Sees\" screen. " +
+        'Use `sharedInWords` and `keptPrivateInWords` when saying it: they are what each kind of thing means.',
       inputSchema: {},
       annotations: READS,
     },
@@ -75,7 +95,12 @@ export function registerGetResidentSharedView(mcpServer: McpServer, ddb: DynamoD
       const shared = (Object.keys(policy.table) as FactClass[]).filter((factClass) =>
         isSharedWithFamily(factClass, policy),
       );
-      return data({ sharedWithFamily: shared, residentExclusions: policy.residentExclusions });
+      return data({
+        sharedWithFamily: shared,
+        residentExclusions: policy.residentExclusions,
+        sharedInWords: shared.map((c) => FACT_CLASS_WORDS[c]),
+        keptPrivateInWords: policy.residentExclusions.map((c) => FACT_CLASS_WORDS[c]),
+      });
     })),
   );
 }
