@@ -133,3 +133,87 @@ describe('BreakController — with playback attached', () => {
     expect(bc.breakState(NOW + 6200)).toBe('IN_SCENE');
   });
 });
+
+describe('BreakController — a showing, and the two a card gets', () => {
+  /** On the home screen long enough to be settled: a DEFERRED card may show. */
+  function settled(): BreakController {
+    const bc = new BreakController();
+    bc.setForeground(true, NOW);
+    return bc;
+  }
+  const SETTLED = NOW + 20_000;
+  const playing = { state: 'PLAYING', positionMs: 10_000, durationMs: 600_000 } as never;
+
+  it('says when a card first comes on screen, once', () => {
+    const bc = settled();
+    const queue = [messageQueued()];
+
+    expect(bc.noteShown(bc.pickCard(queue, SETTLED), queue, SETTLED)).toEqual({ began: queue[0] });
+    expect(bc.noteShown(bc.pickCard(queue, SETTLED + 1000), queue, SETTLED + 1000)).toEqual({});
+  });
+
+  it('says a showing ended when the break did and the card was left unanswered', () => {
+    const bc = settled();
+    const queue = [messageQueued()];
+    bc.noteShown(bc.pickCard(queue, SETTLED), queue, SETTLED);
+
+    // A programme starts: the card comes off the screen, unanswered.
+    bc.setPlayback(playing, SETTLED + 5000);
+
+    expect(bc.noteShown(bc.pickCard(queue, SETTLED + 5000), queue, SETTLED + 5000)).toEqual({ ended: queue[0] });
+    // And only once.
+    expect(bc.noteShown(bc.pickCard(queue, SETTLED + 6000), queue, SETTLED + 6000)).toEqual({});
+  });
+
+  it('does not call it ignored when the resident answered it', () => {
+    const bc = settled();
+    const queue = [messageQueued()];
+    bc.noteShown(bc.pickCard(queue, SETTLED), queue, SETTLED);
+
+    // Answered: the card is gone from the queue.
+    bc.setPlayback(playing, SETTLED + 5000);
+
+    expect(bc.noteShown(bc.pickCard([], SETTLED + 5000), [], SETTLED + 5000)).toEqual({});
+  });
+
+  it('does not end a showing because the doorbell rang over it: the same card comes back in the same break', () => {
+    const bc = settled();
+    const note = messageQueued();
+    bc.noteShown(bc.pickCard([note], SETTLED), [note], SETTLED);
+
+    const withDoor = [note, doorQueued({ queuedAt: SETTLED, expiresAt: SETTLED + 60_000 })];
+    expect(bc.noteShown(bc.pickCard(withDoor, SETTLED + 1000), withDoor, SETTLED + 1000)).toEqual({ began: withDoor[1] });
+    // The door card is dismissed; the note is on screen again, in the same showing.
+    expect(bc.noteShown(bc.pickCard([note], SETTLED + 9000), [note], SETTLED + 9000)).toEqual({});
+  });
+
+  it('shows a card at two breaks and never at a third: after that it waits to be asked for', () => {
+    const bc = settled();
+    const twice = messageQueued({ shownCount: 2 });
+
+    expect(bc.pickCard([twice], SETTLED)).toBeUndefined();
+    expect(bc.waiting([twice], SETTLED)).toEqual(twice);
+  });
+
+  it('does not take a card off the screen mid-showing when the server says it has now been shown twice', () => {
+    // The second showing has begun, and the server has counted it. A
+    // reconnect replays the card with that count while it is still up.
+    const bc = settled();
+    const once = messageQueued({ shownCount: 1 });
+    bc.noteShown(bc.pickCard([once], SETTLED), [once], SETTLED);
+    const replayed = messageQueued({ shownCount: 2 });
+
+    expect(bc.pickCard([replayed], SETTLED + 1000)).toEqual(replayed);
+    expect(bc.waiting([replayed], SETTLED + 1000)).toBeUndefined();
+  });
+
+  it('keeps the longest-waiting card for the row, and never a door card', () => {
+    const bc = settled();
+    const older = messageQueued({ id: 'm0', queuedAt: NOW - 5000, shownCount: 2 });
+    const newer = messageQueued({ id: 'm2', queuedAt: NOW, shownCount: 2 });
+    const staleDoor = doorQueued({ shownCount: 2 });
+
+    expect(bc.waiting([newer, staleDoor, older], SETTLED)?.id).toBe('m0');
+  });
+});
+

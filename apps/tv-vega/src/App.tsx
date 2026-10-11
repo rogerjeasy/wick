@@ -30,6 +30,7 @@ import type { PlayerSnapshot } from './player/PlayerService.js';
 import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
 import { CATALOG, type Programme } from './catalog/catalog.js';
 import { HomeScreen } from './home/HomeScreen.js';
+import { waitingLine } from './home/waiting.js';
 import { WatchScreen } from './watch/WatchScreen.js';
 import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { createDeviceChannel } from './transport/createDeviceChannel.js';
@@ -72,6 +73,10 @@ export default function App(): React.JSX.Element {
 
   const [screen, setScreen] = React.useState<Screen | null>(null);
   const [card, setCard] = React.useState<QueuedCard | null>(null);
+  /** A card that has had its two showings and waits on the home screen to be asked for. */
+  const [waiting, setWaiting] = React.useState<QueuedCard | null>(null);
+  /** The waiting card the resident opened. A ref as well: the tick below reads it between renders. */
+  const openedId = React.useRef<string | null>(null);
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
@@ -157,9 +162,27 @@ export default function App(): React.JSX.Element {
 
     const tick = async () => {
       const now = Date.now();
-      const cards = await store.readAll();
+      let cards = await store.readAll();
       const picked = breakController.pickCard(cards, now);
-      if (!cancelled) setCard(picked ?? null);
+
+      // Rule 3 of the Natural-Break Engine, made real: the server is told
+      // when a card is really on screen, and a showing that ends unanswered
+      // is counted. Two, and the card waits on the home screen instead.
+      const showing = breakController.noteShown(picked, cards, now);
+      if (showing.began) void store.enqueueOutbound({ t: 'card_shown', cardId: showing.began.id, at: now });
+      if (showing.ended) {
+        await store.countShowing(showing.ended.id);
+        cards = await store.readAll();
+      }
+
+      // A waiting card the resident opened is shown until it is answered —
+      // unless someone is at the door, which always comes first.
+      const opened = openedId.current ? cards.find((c) => c.id === openedId.current) : undefined;
+      if (openedId.current && !opened) openedId.current = null;
+      const shown = picked?.urgency === 'DOOR' ? picked : opened ?? picked;
+      if (cancelled) return;
+      setCard(shown ?? null);
+      setWaiting(breakController.waiting(cards, now) ?? null);
 
       const state = breakController.breakState(now);
       if (state !== lastSentBreakState) {
@@ -201,6 +224,12 @@ export default function App(): React.JSX.Element {
     });
   }, []);
 
+  const handleOpenWaiting = React.useCallback(() => {
+    if (!waiting) return;
+    openedId.current = waiting.id;
+    setCard(waiting);
+  }, [waiting]);
+
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {
       if (card && card.id === cardId && opensLiveView(card.card, actionId)) setLiveFor(cardId);
@@ -234,7 +263,14 @@ export default function App(): React.JSX.Element {
           onExit={handleExitWatching}
         />
       ) : (
-        <HomeScreen programmes={CATALOG} onChoose={setWatching} cardVisible={card !== null} lastWatchedId={lastWatchedId} />
+        <HomeScreen
+          programmes={CATALOG}
+          onChoose={setWatching}
+          cardVisible={card !== null}
+          lastWatchedId={lastWatchedId}
+          waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting) : undefined}
+          onOpenWaiting={handleOpenWaiting}
+        />
       )}
       {/* Over the programme, at the bottom, never instead of it. */}
       {/* Not while live view is open: a card left underneath keeps the remote's

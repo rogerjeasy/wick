@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   markCardActed,
+  markCardShown,
+  replayedCard,
   isReplayable,
   retiresCard,
   // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
@@ -77,3 +79,40 @@ describe('retiresCard — which presses finish a card server-side', () => {
     expect(retiresCard('watch_live')).toBe(false);
   });
 });
+
+describe('markCardShown — the server counts the showings a card gets', () => {
+  it('adds one to the card for that household', () => {
+    const input = markCardShown({ table: 'wick', householdId: 'margaret', cardId: 'note-1' });
+
+    expect(input.Key).toEqual({ pk: { S: 'HH#margaret' }, sk: { S: 'CARD#note-1' } });
+    expect(input.UpdateExpression).toBe('ADD shown :one');
+    expect(input.ExpressionAttributeValues).toEqual({ ':one': { N: '1' } });
+  });
+
+  it('never creates a card the server did not send', () => {
+    expect(markCardShown({ table: 'wick', householdId: 'margaret', cardId: 'made-up' }).ConditionExpression).toBe('attribute_exists(pk)');
+  });
+});
+
+describe('replayedCard — what reconcile sends back', () => {
+  const stored = (queued: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ data: { S: JSON.stringify(queued) }, ...extra });
+
+  it('carries the showings counted since the card was sent', () => {
+    const item = stored({ id: 'note-1', urgency: 'DEFERRED', shownCount: 0 }, { shown: { N: '2' } });
+
+    expect(replayedCard(item)).toEqual({ id: 'note-1', urgency: 'DEFERRED', shownCount: 2 });
+  });
+
+  it('sends a card nobody has seen exactly as it was stored', () => {
+    const queued = { id: 'note-1', urgency: 'DEFERRED', shownCount: 0 };
+
+    expect(replayedCard(stored(queued))).toEqual(queued);
+  });
+
+  it('leaves a door card its own count: it goes by its clock, not by how often it was looked at', () => {
+    const item = stored({ id: 'door-1', urgency: 'DOOR', shownCount: 0 }, { shown: { N: '5' } });
+
+    expect(replayedCard(item)).toEqual({ id: 'door-1', urgency: 'DOOR', shownCount: 0 });
+  });
+});
+

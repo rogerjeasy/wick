@@ -66,7 +66,7 @@ describe('createApp', () => {
     expect(h.cards.map((c) => c.card)).toContainEqual(expect.objectContaining({ type: 'MESSAGE', transcript: 'Lunch on Sunday?', householdId: sarah.householdId }));
   });
 
-  it('exposes exactly the nine deployed tools — the registered set IS the deploy contract', async () => {
+  it('exposes exactly the ten deployed tools — the registered set IS the deploy contract', async () => {
     const { h } = await server();
     const sarah = await linkNewOrganiser(h);
     const { client } = await mcpClient(h, sarah);
@@ -75,6 +75,7 @@ describe('createApp', () => {
 
     expect(names).toEqual(
       [
+        'add_regular_visitor',
         'did_visitor_come',
         'expect_visit',
         'get_replies',
@@ -88,29 +89,48 @@ describe('createApp', () => {
     );
   });
 
-  // `client.connect` performs the `initialize` handshake (which allocates the
-  // session and stores its transport in server.ts's session map) followed
-  // immediately by the mandatory `notifications/initialized` — exactly the
-  // request that 400'd when a fresh, unconnected transport was built per
-  // request. A third request then reuses the same stored transport.
-  it('completes a real multi-request session: initialize, then reuses the session id on later requests', async () => {
+  it('keeps no session: a client is handed no session id, and is answered all the same', async () => {
     const { h } = await server();
     const sarah = await linkNewOrganiser(h);
     await residentAllows(h, sarah.householdId, sarah.userId);
     const { client, transport } = await mcpClient(h, sarah);
 
-    expect(transport.sessionId).toBeDefined();
+    expect(transport.sessionId).toBeUndefined();
     const result = await client.callTool({ name: 'get_resident_shared_view', arguments: {} });
 
     expect(JSON.parse(textOf(result))).toHaveProperty('sharedWithFamily');
   });
 
-  // A single module-scoped McpServer, `connect()`ed once and reused for every
-  // session, throws "Already connected to a transport" (Protocol.connect(),
-  // installed SDK 1.30.0) the moment a SECOND real session opens without the
-  // first ever closing — a page reload, a second tab, MCP Inspector alongside
-  // the family app, a reconnect after token expiry.
-  it('supports two independent concurrent sessions on the same server process (regression for the single-McpServer bug)', async () => {
+  /** One JSON-RPC request, straight over HTTP, as a client that never initialized here would send it. */
+  const rpc = (h: { base: string }, token: string, body: unknown, headers: Record<string, string> = {}) =>
+    fetch(`${h.base}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}`, ...headers },
+      body: JSON.stringify(body),
+    });
+  const TOOLS_LIST = { jsonrpc: '2.0', id: 7, method: 'tools/list' };
+
+  it('answers a request that never initialized here — what a client meets after a redeploy, or on a second instance', async () => {
+    const { h } = await server();
+    const sarah = await linkNewOrganiser(h);
+
+    const res = await rpc(h, sarah.tokens.access_token, TOOLS_LIST);
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('get_week_narrative');
+  });
+
+  it('answers a client still sending the session id it was given before a restart', async () => {
+    const { h } = await server();
+    const sarah = await linkNewOrganiser(h);
+
+    const res = await rpc(h, sarah.tokens.access_token, TOOLS_LIST, { 'mcp-session-id': '7d3f1b0e-from-before-the-restart' });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('mcp-session-id')).toBeNull();
+  });
+
+  it('serves two clients at once', async () => {
     const { h } = await server();
     const sarah = await linkNewOrganiser(h);
     await residentAllows(h, sarah.householdId, sarah.userId);
@@ -118,11 +138,21 @@ describe('createApp', () => {
     const a = await mcpClient(h, sarah);
     const b = await mcpClient(h, sarah);
 
-    expect(b.transport.sessionId).not.toBe(a.transport.sessionId);
-    const fromB = textOf(await b.client.callTool({ name: 'get_resident_shared_view', arguments: {} }));
-    const fromA = textOf(await a.client.callTool({ name: 'get_resident_shared_view', arguments: {} }));
-    expect(JSON.parse(fromB)).toHaveProperty('sharedWithFamily');
-    expect(JSON.parse(fromA)).toHaveProperty('sharedWithFamily');
+    const [fromB, fromA] = await Promise.all([
+      b.client.callTool({ name: 'get_resident_shared_view', arguments: {} }),
+      a.client.callTool({ name: 'get_resident_shared_view', arguments: {} }),
+    ]);
+    expect(JSON.parse(textOf(fromB))).toHaveProperty('sharedWithFamily');
+    expect(JSON.parse(textOf(fromA))).toHaveProperty('sharedWithFamily');
+  });
+
+  it('has no stream to open and no session to end: GET and DELETE are refused, plainly', async () => {
+    const { h } = await server();
+    const sarah = await linkNewOrganiser(h);
+    const auth = { authorization: `Bearer ${sarah.tokens.access_token}` };
+
+    expect((await fetch(`${h.base}/mcp`, { method: 'GET', headers: { ...auth, accept: 'text/event-stream' } })).status).toBe(405);
+    expect((await fetch(`${h.base}/mcp`, { method: 'DELETE', headers: auth })).status).toBe(405);
   });
 });
 
@@ -139,7 +169,7 @@ describe('INV-9: the resident decides who can ask', () => {
     expect(householdKeysRead(send)).toEqual([]);
   });
 
-  it('answers on the very next question once the resident has pressed Allow — same session, no relinking', async () => {
+  it('answers on the very next question once the resident has pressed Allow — no relinking', async () => {
     const { h } = await server();
     const sarah = await linkNewOrganiser(h);
     const { client } = await mcpClient(h, sarah);
@@ -182,24 +212,27 @@ describe('INV-8: every tool reads the household the token is for', () => {
     expect(new Set(householdKeysRead(send))).toEqual(new Set([`HH#${priya.householdId}`]));
   });
 
-  it('refuses a session id presented with somebody else’s token', async () => {
-    const { h } = await server();
+  it('treats a session id as nothing: with somebody else’s token the answer is about their own home, never the other', async () => {
+    const { h, send } = await server();
     const sarah = await linkNewOrganiser(h);
     const priya = await linkNewOrganiser(h, { name: 'Priya', email: 'priya@example.com', password: 'another long passphrase' }, 'Asha');
     await residentAllows(h, sarah.householdId, sarah.userId);
-    const { transport } = await mcpClient(h, sarah);
+    await residentAllows(h, priya.householdId, priya.userId);
 
+    send.mockClear();
     const res = await fetch(`${h.base}/mcp`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
         authorization: `Bearer ${priya.tokens.access_token}`,
-        'mcp-session-id': transport.sessionId!,
+        // Anything at all: there is no session for it to name.
+        'mcp-session-id': 'a-session-id-seen-on-sarahs-screen',
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'get_today', arguments: {} } }),
     });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    expect(new Set(householdKeysRead(send))).toEqual(new Set([`HH#${priya.householdId}`]));
   });
 });

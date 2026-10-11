@@ -167,4 +167,16 @@ describe('QueueStore', () => {
       expect(await store.drainOutbound()).toEqual([]);
     });
   });
+
+  it('counts a showing on the card it was, and on no other', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(doorCard('c1'));
+    await store.upsert(doorCard('c2'));
+
+    await store.countShowing('c1');
+    await store.countShowing('c1');
+    await store.countShowing('never-held');
+
+    expect((await store.readAll()).map((c) => [c.id, c.shownCount])).toEqual([['c1', 2], ['c2', 0]]);
+  });
 });

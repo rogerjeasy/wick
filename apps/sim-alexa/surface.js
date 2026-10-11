@@ -20,6 +20,27 @@
  * one title, glanceable rows and nothing the sentence did not earn.
  */
 
+/**
+ * The replies a note can be sent with, as the server keeps them
+ * (services/mcp-server/src/tools/send_note_to_tv.ts REPLY_CHOICES) — here
+ * so the note can be shown with its replies before it is sent. A test
+ * holds the two lists equal. An assistant passes keys; it cannot write one.
+ */
+export const REPLY_CHOICES = {
+  yes_please: 'Yes, please do.',
+  yes_fine: "Yes, that's fine.",
+  love_to: "I'd love that.",
+  another_day: 'Another day would be better.',
+  a_bit_later: 'A bit later would be better.',
+  no_thank_you: 'No, thank you.',
+  thank_you: 'Thank you!',
+  call_soon: "I'll call you soon.",
+  please_call: 'Please call me.',
+  im_fine: "I'm fine, thank you.",
+  you_too: 'Thinking of you too.',
+  lovely: "That's lovely to hear.",
+};
+
 /** The chips under the conversation. Each must route to a tool (tested). */
 export const SUGGESTIONS = [
   { label: 'How’s Mum been this week?', utterance: "How's Mum been this week?" },
@@ -342,6 +363,23 @@ function presentExpectedVisit(visit, formatTime) {
   };
 }
 
+function presentRegularVisitor(added) {
+  const days = added.usualDays ? ` on ${added.usualDays}` : '';
+  return {
+    say: added.changed ? `Changed. ${added.name} is now expected${days}.` : `Added. The door will expect ${added.name}${days}.`,
+    tone: 'answer',
+    card: {
+      kind: 'confirmation',
+      title: added.changed ? 'A regular visitor, changed' : 'A regular visitor, added',
+      fields: [
+        ['Who', added.name ?? ''],
+        ['Usually', added.usualDays || 'No days given'],
+      ],
+      footnote: 'By the day and the time, never by a face.',
+    },
+  };
+}
+
 function presentNoteSent(context, sent) {
   return {
     say: 'Sent. It will appear on the television at the next natural break, never in the middle of a programme.',
@@ -353,6 +391,8 @@ function presentNoteSent(context, sent) {
         // The server signs the note with the name the resident allowed.
         ['From', sent.fromName ?? ''],
         ['Message', context.message ?? sent.message ?? ''],
+        // The server's word on what was offered: it may have set aside what was drafted.
+        ...(Array.isArray(sent.replies) && sent.replies.length ? [['Can be answered with', sent.replies.join(' · ')]] : []),
       ],
       footnote: 'It waits for the end of an episode or a pause. One button answers it.',
     },
@@ -424,6 +464,7 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (toolName === 'list_regular_visitors' && Array.isArray(parsed.visitors)) return presentVisitors(parsed, formatTime);
   if (toolName === 'get_whats_different' && Array.isArray(parsed.differences)) return presentDifferent(parsed, formatTime);
   if (toolName === 'expect_visit' && parsed.expected === true) return presentExpectedVisit(parsed, formatTime);
+  if (toolName === 'add_regular_visitor' && parsed.added === true) return presentRegularVisitor(parsed);
   if (toolName === 'send_note_to_tv' && parsed.sent === true) return presentNoteSent(context, parsed);
   if (toolName === 'get_replies' && Array.isArray(parsed.notes)) return presentReplies(parsed, formatTime);
   if (toolName === 'get_resident_shared_view' && Array.isArray(parsed.sharedWithFamily)) return presentSharedView(parsed);
@@ -476,6 +517,7 @@ export function describeCall(toolName, args = {}) {
     case 'get_resident_shared_view': return 'Checked what is shared';
     case 'send_note_to_tv': return 'Put a note on the television';
     case 'expect_visit': return 'Told the door';
+    case 'add_regular_visitor': return 'Added a regular visitor';
     default: return 'Asked Wick';
   }
 }
@@ -505,6 +547,13 @@ const otherFields = (args, shown) =>
  * @param {object} args
  * @param {string} [title]  the tool's title from tools/list
  */
+/** The sentences for two keys from the list, or null when that is not what was passed. */
+function chosenReplies(keys) {
+  if (!Array.isArray(keys)) return null;
+  const texts = [...new Set(keys)].filter((k) => typeof k === 'string' && Object.hasOwn(REPLY_CHOICES, k)).map((k) => REPLY_CHOICES[k]);
+  return texts.length >= 2 ? texts.slice(0, 2) : null;
+}
+
 export function confirmWrite(toolName, args = {}, title) {
   if (toolName === 'expect_visit') {
     return {
@@ -514,10 +563,29 @@ export function confirmWrite(toolName, args = {}, title) {
       footnote: 'If the doorbell goes within an hour of then, the television says it looks like you.',
     };
   }
+  if (toolName === 'add_regular_visitor') {
+    return {
+      title: 'Add a regular visitor?',
+      fields: [
+        ['Who', String(args.name ?? '')],
+        ['Days', Array.isArray(args.days) ? args.days.map((d) => sentenceCase(String(d))).join(', ') : ''],
+        ['Around', String(args.time ?? '')],
+        ...otherFields(args, ['name', 'days', 'time']),
+      ],
+      confirmLabel: 'Add',
+      footnote: 'When the doorbell goes around then on one of those days, the television says who it looks like. It goes by the day and the time, never by a face.',
+    };
+  }
   if (toolName === 'send_note_to_tv') {
     return {
       title: 'Send this note to the television?',
-      fields: [['Message', String(args.message ?? '')], ...otherFields(args, ['message'])],
+      fields: [
+        ['Message', String(args.message ?? '')],
+        // What the resident will be offered to answer with: seen before it is
+        // sent. Two keys from the list, or the server uses its standing three.
+        ...(chosenReplies(args.replies) ? [['Replies offered', [...chosenReplies(args.replies), 'Not right now.'].join(' · ')]] : []),
+        ...otherFields(args, ['message', 'replies']),
+      ],
       confirmLabel: 'Send',
       footnote: 'It appears at the next natural break, never in the middle of a programme.',
     };

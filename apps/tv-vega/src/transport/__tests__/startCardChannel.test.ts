@@ -70,7 +70,8 @@ describe('startCardChannel — the card channel, runnable in whichever process r
     await settle();
 
     expect((await store.readAll()).map((c) => c.id)).toEqual(['c1']);
-    expect(channel.sent).toEqual([{ t: 'card_shown', cardId: 'c1', at: expect.any(Number) }]);
+    // Arriving is not being shown: the app says `card_shown` when the card is on screen.
+    expect(channel.sent).toEqual([]);
     running.stop();
   });
 

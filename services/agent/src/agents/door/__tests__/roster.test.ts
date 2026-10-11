@@ -99,4 +99,13 @@ describe('stillWelcome — a visit announced by someone no longer in the circle 
   it('drops an announced visit whose author has no membership at all, or one still waiting', () => {
     expect(stillWelcome([sarah, tom], [member('u_tom', 'pending')])).toEqual([]);
   });
+
+  it('keeps a regular visitor a member added only while the resident still allows that member', () => {
+    // "This looks like Dave" rests on the word of whoever put Dave there.
+    const dave: RosterEntry = { personId: 'dave', name: 'Dave', expectedPattern: 'MON 14:00±30m', addedBy: 'u_tom' };
+
+    expect(stillWelcome([maria, dave], [member('u_tom', 'allowed')])).toEqual([maria, dave]);
+    expect(stillWelcome([maria, dave], [member('u_tom', 'removed')])).toEqual([maria]);
+    expect(stillWelcome([maria, dave], [])).toEqual([maria]);
+  });
 });

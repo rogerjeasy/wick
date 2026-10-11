@@ -348,15 +348,12 @@ confirm any time with:
 curl -s "$(cd infra && terraform output -raw mcp_server_url)/.well-known/oauth-authorization-server"
 ```
 
-**Why App Runner, not Lambda.** The server holds in-memory OAuth session
-state (`auth.ts`'s client/token maps) and one `McpServer` instance per MCP
-session across a Streamable HTTP connection — state that has to survive
-across several requests in the same session. Lambda gives no guarantee two
-requests in one session hit the same execution environment; App Runner is
-one long-running container, so that assumption actually holds. See
-`infra/mcp.tf`'s header comment for the full reasoning, including why this
-is deliberately a single-instance deployment (a second instance would hold
-a *different* copy of the same in-memory state).
+**Why App Runner.** It was chosen over Lambda when the server kept OAuth
+state and one `McpServer` per MCP session in memory. Neither is true any
+more: sign-in state is in DynamoDB and there are no MCP sessions — every
+request is answered on the strength of its own token — so a redeploy
+interrupts nobody and nothing pins a client to one instance. See
+`infra/mcp.tf`'s header comment.
 
 **Redeploying after a code change** — there's no CI wired up for this yet,
 so it's a manual build-and-push, same as any container service:

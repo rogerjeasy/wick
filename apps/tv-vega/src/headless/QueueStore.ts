@@ -97,6 +97,18 @@ export class QueueStore {
     await this.#persist(this.#queuePath, JSON.stringify(state.queue));
   }
 
+  /**
+   * One of a DEFERRED card's two showings is over, unanswered
+   * (BreakController.noteShown). Counted here so the engine's "shown twice,
+   * never a third time" holds within one sitting; the server counts too,
+   * for the next (route.mjs, card-acted.mjs markCardShown).
+   */
+  async countShowing(cardId: string): Promise<void> {
+    const state = await this.#load();
+    state.queue = state.queue.map((q) => (q.id === cardId ? { ...q, shownCount: q.shownCount + 1 } : q));
+    await this.#persist(this.#queuePath, JSON.stringify(state.queue));
+  }
+
   async remove(cardId: string): Promise<void> {
     const state = await this.#load();
     state.queue = state.queue.filter((c) => c.id !== cardId);
