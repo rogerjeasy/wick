@@ -121,7 +121,9 @@ export class WebSocketChannel implements DeviceChannel {
         })();
       };
 
-      socket.onmessage = (ev: { data: unknown }) => {
+      // `data` is optional in React Native's own WebSocket types (the Fire OS
+      // build checks this file against them); String() reads it either way.
+      socket.onmessage = (ev: { data?: unknown }) => {
         const msg = JSON.parse(String(ev.data)) as DeviceWireMessage;
         if (msg.kind === 'card') {
           for (const h of this.#cardHandlers) h(msg.card);

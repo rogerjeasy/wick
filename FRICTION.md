@@ -81,6 +81,50 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-025 — Fire OS has no emulator, and on the one the FAQ names a television app's remote is silent until something holds focus
+
+**Tool / API:**      Fire TV (Fire OS) with React Native — `react-native-tvos` 0.83.0-0 on the Android
+                     TV emulator (API 34, arm64), the emulator the hackathon FAQ names for Fire OS
+
+**Task attempted:**  Run Wick's Vega app on Fire OS from the same source, and pause a film with the
+                     remote's play/pause key.
+
+**Steps taken:**     1. Built `apps/tv-fireos`: the Vega app's source, with Android stand-ins for the
+                        three Amazon packages it imports. Pairing, the home screen and playback
+                        worked on the emulator first time.
+                     2. Pressed play/pause (`adb shell input keyevent KEYCODE_MEDIA_PLAY_PAUSE`) and
+                        OK while a film played. Nothing happened; the film kept playing.
+                     3. Logged every event `useTVEventHandler` delivered. With only the picture on
+                        screen: none at all, for any key.
+                     4. Gave the picture's frame focus (`focusable`, `hasTVPreferredFocus`). Events
+                        arrived — and play/pause arrived only as the key coming up
+                        (`eventKeyAction: 1`), never going down.
+
+**Expected:**        What Vega does with the same code: `useTVEventHandler` hears every key press
+                     whatever is focused, as key down (`eventKeyAction: 0`; FL-021 covers the names).
+
+**Actual:**          Two differences, neither in Fire TV's React Native guidance or the multi-TV
+                     sample's notes: (a) Android delivers a key press to the focused view and to
+                     nothing if nothing is focused, so a screen that is all picture has a dead
+                     remote; (b) which half of a press arrives depends on the key. Code written to
+                     act on key down — the right thing on Vega — ignores play/pause entirely.
+                     There is also no Fire OS emulator to find this on: it was found on a stock
+                     Android TV image, and whether a Fire TV Stick behaves the same is unknown.
+
+**Severity:**        Important — a player with no working pause is the first thing a reviewer of a
+                     Fire TV app would hit, and it fails silently.
+
+**Workaround:**      In the Fire OS adapters only; the shared screens are unchanged. The video
+                     view's frame holds focus while it is all there is
+                     (`apps/tv-fireos/src/adapters/w3cmedia.tsx`), and a press is acted on once,
+                     whichever half arrives first (`remoteEvents.ts`).
+
+**Suggestion:**      1. Publish a Fire OS emulator image, or state plainly how the Android TV
+                        emulator differs from a Fire TV device for input, focus and notifications.
+                     2. In the Vega/Fire OS porting guide, a short table: `useTVEventHandler` on
+                        Vega versus Fire OS — which events, which action, and the focus requirement.
+                     3. Have `react-native-multi-tv-app-sample` include a full-screen player with
+                        no focusable control on it, since that is the case that breaks.
 ## FL-024 — An MQTT client in a WebSocket cannot authenticate to IoT Core the way MQTT clients are shown to, and the reason is one sentence on one page
 
 **Tool / API:**      AWS IoT Core custom authentication, MQTT over WebSockets; `mqtt.js` 5.x inside

@@ -9,7 +9,8 @@ packages/vega-calm-ui/src/tokens.ts — one palette, used everywhere.
     python3 scripts/make-brand-assets.py
 
 Outputs to docs/icons/ and docs/carousel/, which GitHub Pages serves at the exact
-URLs referenced in addon-package/addon.json.
+URLs referenced in addon-package/addon.json, and the Fire OS app's launcher
+icons and television banner under apps/tv-fireos/android/app/src/main/res/.
 
 These are honest, on-brand marks, not finished design work. Replace them with
 designed versions when you have them; the filenames and sizes must not change.
@@ -147,6 +148,45 @@ def make_carousel() -> Image.Image:
     return img.resize(CAROUSEL, Image.LANCZOS)
 
 
+# What Android calls each screen density, and the launcher icon's size at it.
+ANDROID_ICON_PX = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
+# The banner a television launcher shows for an app: 320x180 at xhdpi, which
+# is the density of a 1080p television.
+ANDROID_BANNER = (320, 180)
+ANDROID_RES = ROOT / "apps" / "tv-fireos" / "android" / "app" / "src" / "main" / "res"
+
+
+def make_tv_banner() -> Image.Image:
+    """The mark and the name, side by side: what Fire OS and Android TV list Wick as."""
+    w, h = ANDROID_BANNER[0] * SS, ANDROID_BANNER[1] * SS
+    img = glow(max(w, h), w * 0.30, h * 0.52, h * 0.70, strength=0.26).crop((0, 0, w, h))
+    d = ImageDraw.Draw(img)
+
+    d.polygon(flame_points(w * 0.30, h * 0.50, h * 0.62, h * 0.38), fill=ACCENT)
+    core = tuple(int(ACCENT[c] + (INK[c] - ACCENT[c]) * 0.55) for c in range(3))
+    d.polygon(flame_points(w * 0.30, h * 0.59, h * 0.28, h * 0.165), fill=core)
+
+    serif = ["/System/Library/Fonts/Supplemental/Georgia.ttf",
+             "/System/Library/Fonts/Times.ttc",
+             "/Library/Fonts/Georgia.ttf"]
+    font = _font(serif, int(h * 0.34))
+    box = d.textbbox((0, 0), "Wick", font=font)
+    d.text((w * 0.47, (h - (box[3] - box[1])) / 2 - box[1]), "Wick", font=font, fill=INK)
+
+    return img.resize(ANDROID_BANNER, Image.LANCZOS)
+
+
+def make_round_icon(px: int) -> Image.Image:
+    """The launcher icon, cut to a circle for launchers that ask for one."""
+    s = px * SS
+    square = make_icon(px).resize((s, s), Image.LANCZOS)
+    mask = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, s - 1, s - 1], fill=255)
+    out = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    out.paste(square, (0, 0), mask)
+    return out.resize((px, px), Image.LANCZOS)
+
+
 def main() -> None:
     icons = ROOT / "docs" / "icons"
     carousel = ROOT / "docs" / "carousel"
@@ -162,6 +202,19 @@ def main() -> None:
     out = carousel / "wick-1.png"
     make_carousel().save(out, "PNG", optimize=True)
     print(f"  {out.relative_to(ROOT)}  {CAROUSEL[0]}x{CAROUSEL[1]}")
+
+    # The Fire OS app's launcher icons and television banner.
+    for density, px in ANDROID_ICON_PX.items():
+        folder = ANDROID_RES / f"mipmap-{density}"
+        folder.mkdir(parents=True, exist_ok=True)
+        make_icon(px).save(folder / "ic_launcher.png", "PNG", optimize=True)
+        make_round_icon(px).save(folder / "ic_launcher_round.png", "PNG", optimize=True)
+        print(f"  {(folder / 'ic_launcher.png').relative_to(ROOT)}  {px}x{px} (and round)")
+
+    banner = ANDROID_RES / "drawable-xhdpi"
+    banner.mkdir(parents=True, exist_ok=True)
+    make_tv_banner().save(banner / "tv_banner.png", "PNG", optimize=True)
+    print(f"  {(banner / 'tv_banner.png').relative_to(ROOT)}  {ANDROID_BANNER[0]}x{ANDROID_BANNER[1]}")
 
 
 if __name__ == "__main__":
