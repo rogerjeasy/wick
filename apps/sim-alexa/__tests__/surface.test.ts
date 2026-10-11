@@ -7,6 +7,7 @@ import {
   inviteLink,
   needsConfirmation,
   presentCircle,
+  presentDoorbell,
   presentListing,
   presentResult,
   presentTurn,
@@ -671,6 +672,85 @@ describe('presentTurn — several tools, one answer', () => {
     const declined = { name: 'send_note_to_tv', args: { message: 'x' }, presented: null };
 
     expect(presentTurn('All right, I have not sent it.', [declined])).toMatchObject({ trace: 'Did not send the note', cards: [] });
+  });
+});
+
+describe('presentDoorbell — the home\'s own Ring link, for its organiser', () => {
+  const me = { household: { residentName: 'Margaret' } };
+
+  it('says no doorbell is connected, and offers both ways where a Playground token is taken', () => {
+    const out = presentDoorbell({ linked: false, playgroundAllowed: true }, me, at);
+
+    expect(out.say).toBe('No doorbell is connected to Margaret’s home yet.');
+    expect(out.card.actions).toEqual({ connectRing: true, playground: true, disconnect: false });
+    expect(out.card.footnote).toContain('simulator');
+  });
+
+  it('offers only a Ring account where a Playground token is not taken', () => {
+    const out = presentDoorbell({ linked: false, playgroundAllowed: false }, me, at);
+
+    expect(out.card.actions).toEqual({ connectRing: true, playground: false, disconnect: false });
+    expect(out.card.footnote).not.toContain('simulator');
+  });
+
+  it('never passes the simulator off as a real doorbell: it says so in the sentence, the rows and the footnote', () => {
+    const out = presentDoorbell(
+      { linked: true, source: 'playground', simulated: true, expired: false, expiresAt: 5000, cameras: ['Front Door'], heldElsewhere: 0, playgroundAllowed: true },
+      me,
+      at,
+    );
+
+    expect(out.say).toBe('Margaret’s home is connected to Ring’s simulator, not to a real doorbell.');
+    expect(out.card.rows).toEqual([{ primary: 'Front Door', secondary: 'Simulated camera' }]);
+    expect(out.card.footnote).toContain('simulated doorbell');
+    expect(out.card.footnote).toContain('works until t5000');
+    expect(out.card.actions).toEqual({ connectRing: true, playground: true, disconnect: true });
+  });
+
+  it('says when a pasted token has stopped working, as something still to be done', () => {
+    const out = presentDoorbell(
+      { linked: true, source: 'playground', simulated: true, expired: true, expiresAt: 5000, cameras: ['Front Door'], heldElsewhere: 0, playgroundAllowed: true },
+      me,
+      at,
+    );
+
+    expect(out.tone).toBe('waiting');
+    expect(out.say).toContain('that link has ended');
+    expect(out.card.footnote).toContain('stopped working t5000');
+  });
+
+  it('says a Ring account keeps itself going, and offers only to disconnect it', () => {
+    const out = presentDoorbell(
+      { linked: true, source: 'ring', simulated: false, refreshable: true, expired: false, cameras: ['Front Door', 'Back Door'], heldElsewhere: 0, playgroundAllowed: true },
+      me,
+      at,
+    );
+
+    expect(out.say).toBe('Margaret’s doorbell is connected through Ring.');
+    expect(out.card.rows.map((r: { secondary: string }) => r.secondary)).toEqual(['Ring', 'Ring']);
+    expect(out.card.actions).toEqual({ connectRing: false, playground: false, disconnect: true });
+  });
+
+  it('says when a device was left with another home, and when Ring listed none', () => {
+    const one = presentDoorbell({ linked: true, source: 'ring', simulated: false, cameras: [], heldElsewhere: 1 }, me, at);
+    const two = presentDoorbell({ linked: true, source: 'ring', simulated: false, cameras: ['Front Door'], heldElsewhere: 2 }, me, at);
+
+    expect(one.card.footnote).toContain('Ring listed no camera for it.');
+    expect(one.card.footnote).toContain('One of its devices belongs to another home and was left alone.');
+    expect(two.card.footnote).toContain('Two of its devices belong to another home and were left alone.');
+  });
+});
+
+describe('asking about the doorbell', () => {
+  it('opens the doorbell card, not a tool', () => {
+    expect(routeUtterance('Connect the doorbell')).toEqual({ kind: 'doorbell' });
+    expect(routeUtterance('disconnect Ring')).toEqual({ kind: 'doorbell' });
+    expect(routeUtterance('Is the doorbell connected?')).toEqual({ kind: 'doorbell' });
+  });
+
+  it('still asks the day\'s tool who came to the door', () => {
+    expect(routeUtterance('Did anyone ring the doorbell today?').tool).toBe('get_today');
+    expect(routeUtterance('Connect a television').kind).toBe('circle');
   });
 });
 

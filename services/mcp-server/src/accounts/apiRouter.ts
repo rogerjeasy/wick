@@ -14,7 +14,7 @@
  */
 import cors from 'cors';
 import express, { type Request, type RequestHandler, type Response } from 'express';
-import { CircleError, createInvitation, describeCircle, removeMember, type CircleDeps, type CircleErrorCode } from './circle.js';
+import { CircleError, createInvitation, describeCircle, removeMember, requireOrganiser, type CircleDeps, type CircleErrorCode } from './circle.js';
 import { isGuest } from './demo.js';
 import { grantOf } from './oauthProvider.js';
 
@@ -40,8 +40,81 @@ const PAIRING_REFUSALS: Readonly<Record<string, string>> = {
   invalid_token: 'Link Wick again.',
 };
 
+/**
+ * What the Ring linking function answers (services/edge-ring/lambda/
+ * household-link.mjs). It never holds a token: that function keeps them in
+ * the household's own secret and tells this server only what is linked.
+ */
+export interface RingLinkAnswer {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly linked?: boolean;
+  readonly source?: string;
+  readonly simulated?: boolean;
+  readonly linkedAt?: number;
+  readonly expiresAt?: number;
+  readonly refreshable?: boolean;
+  readonly expired?: boolean;
+  readonly devices?: readonly { readonly id?: string; readonly name?: string | null }[];
+  readonly heldElsewhere?: number;
+  readonly playgroundAllowed?: boolean;
+  readonly url?: string;
+}
+
+/**
+ * A household's Ring link, asked for by household. This server decides who
+ * may ask and for which home — the organiser, for the home in their own
+ * access token — and passes that household on; the function it calls takes
+ * no household from anyone else.
+ */
+export interface RingLinks {
+  status(householdId: string): Promise<RingLinkAnswer>;
+  start(householdId: string, userId: string): Promise<RingLinkAnswer>;
+  /** Finish a sign-in at Ring: only for the organiser and the home that started it. */
+  complete(householdId: string, userId: string, completion: string): Promise<RingLinkAnswer>;
+  playground(householdId: string, userId: string, token: string): Promise<RingLinkAnswer>;
+  disconnect(householdId: string): Promise<RingLinkAnswer>;
+}
+
+const RING_UNAVAILABLE = { status: 502, message: 'The doorbell could not be reached just now. Try again in a moment.' };
+const RING_REFUSALS: Readonly<Record<string, { status: number; message: string }>> = {
+  playground_not_allowed: { status: 403, message: 'This Wick does not take a Playground token.' },
+  bad_token: { status: 400, message: 'That does not look like a token. Paste the whole token from Ring’s Developer Playground.' },
+  token_refused: { status: 400, message: 'Ring did not accept that token. A Playground token lasts about half an hour: get a fresh one and paste it again.' },
+  ring_unreachable: RING_UNAVAILABLE,
+  link_expired: { status: 400, message: 'That Ring sign-in has expired or was already used. Start again from the Doorbell card.' },
+  link_not_yours: { status: 403, message: 'That Ring sign-in was started by someone else, for another home. Nothing was connected.' },
+  exchange_failed: { status: 502, message: 'Ring did not confirm the sign-in. Nothing was connected: start again from the Doorbell card.' },
+};
+
+/** The only place a sign-in may send a browser: Ring's own account pages. */
+const RING_SIGN_IN = 'https://account.ring.com/';
+
+/**
+ * What the family app is shown of a link. Named fields only, so nothing the
+ * linking function might one day add reaches a browser unreviewed — and a
+ * camera is its name, never Ring's identifier for it.
+ */
+export function ringLinkView(answer: RingLinkAnswer): Record<string, unknown> {
+  if (!answer.linked) return { linked: false, playgroundAllowed: answer.playgroundAllowed === true };
+  return {
+    linked: true,
+    source: answer.source === 'playground' ? 'playground' : 'ring',
+    simulated: answer.simulated === true,
+    linkedAt: answer.linkedAt,
+    ...(answer.expiresAt === undefined ? {} : { expiresAt: answer.expiresAt }),
+    refreshable: answer.refreshable === true,
+    expired: answer.expired === true,
+    cameras: (answer.devices ?? []).map((d) => d.name || 'A Ring device'),
+    heldElsewhere: answer.heldElsewhere ?? 0,
+    playgroundAllowed: answer.playgroundAllowed === true,
+  };
+}
+
 export interface ApiOptions {
   readonly claimTelevision?: ClaimTelevision | undefined;
+  /** Connecting a home's own Ring account. Absent where the deployment has no Ring. */
+  readonly ringLinks?: RingLinks | undefined;
   /** A television in a browser tab, offered to anyone with no Fire TV to hand. */
   readonly virtualTelevisionUrl?: string | undefined;
   /** The households' IANA time zone (one for the deployment, as the Narrator's). */
@@ -50,7 +123,7 @@ export interface ApiOptions {
 
 export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHandler, options: ApiOptions = {}): express.Router {
   const { store } = circle;
-  const { claimTelevision, virtualTelevisionUrl, timeZone } = options;
+  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone } = options;
   const router = express.Router();
   // Any origin: nothing here uses a cookie, and a token is only ever sent by
   // the page that holds it.
@@ -149,6 +222,57 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
     await removeMember(circle, grant, String(req.params.userId));
     res.status(204).end();
   }));
+
+  // --- The home's own Ring link -------------------------------------------
+  //
+  // The organiser's alone, like inviting and connecting a television: what a
+  // home is connected to is theirs to decide. And for the home in their own
+  // token — there is no household in any of these requests to read (INV-8).
+
+  /** Runs a Ring action for the organiser of the token's household, and turns its answer into words. */
+  const ringAction =
+    (act: (links: RingLinks, grant: { userId: string; householdId: string }, req: Request) => Promise<RingLinkAnswer | undefined>): RequestHandler =>
+    withGrant(async (grant, req, res) => {
+      await requireOrganiser(circle, grant);
+      if (!ringLinks) return void res.status(RING_UNAVAILABLE.status).json({ error: 'ring_unavailable', message: RING_UNAVAILABLE.message });
+
+      let answer: RingLinkAnswer | undefined;
+      try {
+        answer = await act(ringLinks, grant, req);
+      } catch (err) {
+        console.error('[wick/mcp-server] ring link failed:', (err as Error).name);
+        answer = undefined;
+      }
+      if (!answer) return void res.status(400).json({ error: 'bad_token', message: RING_REFUSALS.bad_token!.message });
+      if (!answer.ok) {
+        // Only an answer this server recognises is passed on, as with pairing.
+        const refusal = (answer.error && RING_REFUSALS[answer.error]) || RING_UNAVAILABLE;
+        return void res.status(refusal.status).json({ error: answer.error && RING_REFUSALS[answer.error] ? answer.error : 'ring_unavailable', message: refusal.message });
+      }
+      if (answer.url !== undefined) {
+        // The page opens this address. It is Ring's sign-in or it is nothing.
+        if (!answer.url.startsWith(RING_SIGN_IN)) return void res.status(RING_UNAVAILABLE.status).json({ error: 'ring_unavailable', message: RING_UNAVAILABLE.message });
+        return void res.json({ url: answer.url });
+      }
+      res.json(ringLinkView(answer));
+    });
+
+  router.get('/api/ring', ringAction((links, grant) => links.status(grant.householdId)));
+
+  router.post('/api/ring/link', ringAction((links, grant) => links.start(grant.householdId, grant.userId)));
+
+  router.post('/api/ring/link/complete', ringAction(async (links, grant, req) => {
+    const completion = (req.body as { completion?: unknown } | undefined)?.completion;
+    // Not a completion value at all: answered as an expired one, without asking.
+    return typeof completion === 'string' ? links.complete(grant.householdId, grant.userId, completion) : { ok: false, error: 'link_expired' };
+  }));
+
+  router.post('/api/ring/playground', ringAction(async (links, grant, req) => {
+    const token = (req.body as { token?: unknown } | undefined)?.token;
+    return typeof token === 'string' ? links.playground(grant.householdId, grant.userId, token) : undefined;
+  }));
+
+  router.delete('/api/ring', ringAction((links, grant) => links.disconnect(grant.householdId)));
 
   return router;
 }

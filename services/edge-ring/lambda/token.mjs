@@ -9,8 +9,22 @@
  */
 import { readCredentials, readTokens, finishLink } from './ring-token.mjs';
 import { TOKEN_URL } from './ring-api.mjs';
+import { linkService } from './household-link.mjs';
+
+/**
+ * Ring calls this itself, server to server, when a link is started from
+ * Ring's side (the developer console). Nothing in that call says which
+ * household is linking, so it can only be the operator's — the one this
+ * deployment was set up around. A household's own link starts in the family
+ * app and comes back through link.mjs, with its state.
+ */
+const OPERATOR_HOUSEHOLD = process.env.WICK_HOUSEHOLD_ID;
+/** The same switch as authorize.mjs: this address, too, asks nobody who they are. */
+const OPERATOR_LINK = process.env.RING_OPERATOR_LINK === 'true';
 
 export const handler = async (event) => {
+  if (!OPERATOR_LINK) return { statusCode: 404, body: JSON.stringify({ error: 'not_found' }) };
+
   const raw = event.isBase64Encoded
     ? Buffer.from(event.body ?? '', 'base64').toString('utf8')
     : (event.body ?? '');
@@ -55,7 +69,8 @@ export const handler = async (event) => {
   // Same completion step as the partner-initiated path: tokens are not a live
   // integration until Ring is told the link is done.
   const tokens = await res.json();
-  const { completed } = await finishLink(tokens, { previous: await readTokens() });
+  const { record, completed } = await finishLink(OPERATOR_HOUSEHOLD, tokens, { previous: await readTokens(OPERATOR_HOUSEHOLD) });
+  await linkService.recordLink(OPERATOR_HOUSEHOLD, record);
 
   return { statusCode: 200, body: JSON.stringify({ ok: true, completed }) };
 };

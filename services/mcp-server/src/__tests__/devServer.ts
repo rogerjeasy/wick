@@ -12,6 +12,10 @@
  *     for everyone who is waiting (it is also what the family app's
  *     "virtual television" link opens here)
  *   - the demo button is on
+ *   - Ring: the real linking service (edge-ring household-link-service.mjs)
+ *     over an in-memory table, with Ring itself stood in for — any pasted
+ *     token that starts with "playground" is accepted and lists one
+ *     simulated camera; anything else is refused, as Ring refuses a bad token
  *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
@@ -30,12 +34,72 @@ import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { createBedrockConverse } from '../assistant/bedrock.js';
 import { createFakeIdentity } from './harness.js';
 import { createMemoryTable } from './memoryTable.js';
+import { invokedRingLinks } from '../accounts/ringLinks.js';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { LinkError, createLinkService } from '../../../edge-ring/lambda/household-link-service.mjs';
 
 const API_PORT = 3300;
 const APP_PORT = 4173;
 const store = createMemoryStore();
 const table = createMemoryTable();
 const cards: QueuedCard[] = [];
+
+/** The linking function's two tables and one secret store, in memory. */
+type Row = Record<string, { S?: string }>;
+const ringRows = new Map<string, Row>();
+const ringSecrets = new Map<string, unknown>();
+const rowKey = (k: Row) => `${k.pk?.S}|${k.sk?.S}`;
+const conditionFailed = () => Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException' });
+const ringLinkService = createLinkService({
+  table: 'dev',
+  ddb: async (command: string, input: { Key?: Row; Item?: Row; ConditionExpression?: string; ExpressionAttributeValues?: Record<string, { S?: string }> }) => {
+    const holder = (row: Row | undefined) => row?.householdId?.S;
+    const wanted = input.ExpressionAttributeValues?.[':hh']?.S;
+    if (command === 'get') return { Item: ringRows.get(rowKey(input.Key!)) };
+    if (command === 'put') {
+      const existing = ringRows.get(rowKey(input.Item!));
+      if (input.ConditionExpression && existing && holder(existing) !== wanted) throw conditionFailed();
+      ringRows.set(rowKey(input.Item!), input.Item!);
+      return {};
+    }
+    if (input.ConditionExpression && holder(ringRows.get(rowKey(input.Key!))) !== wanted) throw conditionFailed();
+    ringRows.delete(rowKey(input.Key!));
+    return {};
+  },
+  writeTokens: async (householdId: string, record: unknown) => void ringSecrets.set(householdId, record),
+  deleteTokens: async (householdId: string) => void ringSecrets.delete(householdId),
+  // Ring, stood in for. One simulated camera per home, so two demo homes do not contend for it.
+  listDevices: async ({ accessToken }: { accessToken: string }) => {
+    if (!accessToken.startsWith('playground')) throw Object.assign(new Error('devices_failed'), { status: 401 });
+    return [{ id: `dev.camera.${accessToken.slice(-6)}`, name: 'Front Door' }];
+  },
+  beginAuthorization: async () => 'https://account.ring.com/account/integrations/partner-link/authorize?client_id=dev-server-stand-in',
+  // Nothing here can finish a sign-in at Ring: there is no Ring to have signed in at.
+  exchange: async () => {
+    throw Object.assign(new Error('token_exchange_failed'), { status: 400 });
+  },
+  finishLink: async (_householdId: string, tokens: unknown) => ({ record: tokens }),
+  playgroundAllowed: true,
+  now: Date.now,
+});
+const ringLinks = invokedRingLinks(async (request) => {
+  const { action, householdId, userId, token, completion } = request as {
+    action: 'status' | 'start' | 'complete' | 'playground' | 'disconnect';
+    householdId: string;
+    userId: string;
+    token: string;
+    completion: string;
+  };
+  try {
+    if (action === 'status') return { ok: true, ...(await ringLinkService.status(householdId)) };
+    if (action === 'start') return { ok: true, ...(await ringLinkService.start(householdId, userId)) };
+    if (action === 'complete') return { ok: true, ...(await ringLinkService.complete(householdId, userId, completion)) };
+    if (action === 'playground') return { ok: true, ...(await ringLinkService.playground(householdId, userId, token)) };
+    return { ok: true, ...(await ringLinkService.disconnect(householdId)) };
+  } catch (err) {
+    return { ok: false, error: err instanceof LinkError ? (err as { code: string }).code : 'failed' };
+  }
+});
 
 const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
   store,
@@ -48,6 +112,7 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
   // A real table's worth of answers: the demo home's history is written here and read back by the tools.
   ddb: table.ddb,
   demoAccounts: true,
+  ringLinks,
   ...(process.env.WICK_DEV_ASSISTANT === 'on'
     ? { assistant: { converse: createBedrockConverse(new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? 'us-east-1' }), process.env.WICK_ASSISTANT_MODEL_ID) } }
     : {}),

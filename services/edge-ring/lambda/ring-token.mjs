@@ -5,46 +5,108 @@
  * here returns a refresh token to a caller; `getAccessToken()` hands back an
  * access token and nothing else.
  *
- * Refresh is lazy and single-flight. A warm container that handles three door
- * events at once must not fire three refreshes — Ring may well rotate the
- * refresh token, and the two losers would then be holding a dead one.
+ * One secret per household — `<prefix>/<householdId>` — and every function
+ * here takes the household first. There is no "the" Ring token: a link is a
+ * home's own, made by its organiser (household-link.mjs), and it is read
+ * only for that home (AGENTS.md INV-8).
+ *
+ * Refresh is lazy and single-flight per household. A warm container that
+ * handles three door events at once must not fire three refreshes — Ring may
+ * well rotate the refresh token, and the two losers would then be holding a
+ * dead one.
  */
-import { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand }
-  from '@aws-sdk/client-secrets-manager';
+import {
+  SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand, CreateSecretCommand, DeleteSecretCommand,
+} from '@aws-sdk/client-secrets-manager';
 import { needsRefresh, isRefreshable, linkTokens, mergeTokens } from './token-policy.mjs';
 import { refreshTokens, fetchAccountIdentifier, completeAppIntegration } from './ring-api.mjs';
 
 const sm = new SecretsManagerClient({});
 
 const SECRET_ARN = process.env.RING_SECRET_ARN;
-const TOKEN_SECRET_ARN = process.env.RING_TOKEN_SECRET_ARN;
+const TOKEN_SECRET_PREFIX = process.env.RING_TOKEN_SECRET_PREFIX ?? 'wick/ring/tokens';
 
-/** In-flight refresh, shared by every caller in this container. */
-let inFlight = null;
+/**
+ * A household id that is safe to make part of a secret's name: no `/`, no
+ * wildcard, nothing that could name a secret outside the household's own.
+ * (The same rule as services/connectors/ring/src/secrets.ts.)
+ */
+export const SAFE_HOUSEHOLD_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** The name of one household's Ring secret. */
+export function tokenSecretId(householdId, prefix = TOKEN_SECRET_PREFIX) {
+  if (typeof householdId !== 'string' || !SAFE_HOUSEHOLD_ID.test(householdId)) throw new Error('unsafe_household_id');
+  return `${prefix}/${householdId}`;
+}
+
+/** In-flight refreshes, one per household, shared by every caller in this container. */
+const inFlight = new Map();
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function readCredentials() {
   const r = await sm.send(new GetSecretValueCommand({ SecretId: SECRET_ARN }));
   return JSON.parse(r.SecretString);
 }
 
-export async function readTokens() {
+export async function readTokens(householdId) {
   try {
-    const r = await sm.send(new GetSecretValueCommand({ SecretId: TOKEN_SECRET_ARN }));
+    const r = await sm.send(new GetSecretValueCommand({ SecretId: tokenSecretId(householdId) }));
     return r.SecretString ? JSON.parse(r.SecretString) : null;
   } catch (err) {
-    // An unlinked account has a secret with no version yet. That is a state,
-    // not a fault.
+    // A household that has never connected Ring has no secret. That is a
+    // state, not a fault.
     if (err?.name === 'ResourceNotFoundException') return null;
     throw err;
   }
 }
 
-export async function writeTokens(record) {
-  await sm.send(new PutSecretValueCommand({
-    SecretId: TOKEN_SECRET_ARN,
-    SecretString: JSON.stringify(record),
-  }));
-  return record;
+/**
+ * Write a household's record. Only a link may bring a secret into being
+ * (`create: true` — finishLink, and a pasted Playground token). A refresh
+ * never may: if the organiser disconnected while a refresh was in flight,
+ * the secret is gone, and a refresh that re-created it would quietly undo
+ * the disconnect. That write fails with `not_linked` instead.
+ */
+export async function writeTokens(householdId, record, { create = false } = {}) {
+  const SecretId = tokenSecretId(householdId);
+  const SecretString = JSON.stringify(record);
+  try {
+    await sm.send(new PutSecretValueCommand({ SecretId, SecretString }));
+    return record;
+  } catch (err) {
+    if (err?.name !== 'ResourceNotFoundException') throw err;
+  }
+  if (!create) throw new Error('not_linked');
+  // The household's first link: its secret does not exist yet. A secret
+  // deleted moments ago (a disconnect, then a reconnect) keeps its name
+  // reserved for a few seconds, so that case is waited out.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await sm.send(new CreateSecretCommand({
+        Name: SecretId,
+        SecretString,
+        Description: `Ring tokens for household ${householdId}. Written by the Ring linking functions only.`,
+      }));
+      return record;
+    } catch (err) {
+      if (err?.name === 'ResourceExistsException') {
+        await sm.send(new PutSecretValueCommand({ SecretId, SecretString }));
+        return record;
+      }
+      if (err?.name !== 'InvalidRequestException' || attempt >= 4) throw err;
+      await sleep(1500);
+    }
+  }
+}
+
+/** A disconnect. The secret goes at once, with no recovery window: nothing should be able to bring a removed link back. */
+export async function deleteTokens(householdId) {
+  try {
+    await sm.send(new DeleteSecretCommand({ SecretId: tokenSecretId(householdId), ForceDeleteWithoutRecovery: true }));
+  } catch (err) {
+    if (err?.name !== 'ResourceNotFoundException') throw err;
+  }
 }
 
 /**
@@ -54,8 +116,8 @@ export async function writeTokens(record) {
  * when the 30-day refresh token has lapsed — two different problems with two
  * different fixes, so they are two different errors.
  */
-export async function getAccessToken({ now = Date.now() } = {}) {
-  const record = await readTokens();
+export async function getAccessToken(householdId, { now = Date.now() } = {}) {
+  const record = await readTokens(householdId);
 
   if (!record?.access_token && !record?.refresh_token) {
     throw new Error('not_linked');
@@ -65,7 +127,9 @@ export async function getAccessToken({ now = Date.now() } = {}) {
 
   if (!isRefreshable(record)) throw new Error('refresh_expired');
 
-  inFlight ??= (async () => {
+  if (inFlight.has(householdId)) return inFlight.get(householdId);
+
+  const refreshing = (async () => {
     try {
       const creds = await readCredentials();
       const fresh = await refreshTokens({
@@ -75,7 +139,7 @@ export async function getAccessToken({ now = Date.now() } = {}) {
       });
 
       const merged = mergeTokens(record, fresh, Date.now());
-      await writeTokens(merged);
+      await writeTokens(householdId, merged);
 
       console.log(JSON.stringify({
         level: 'info',
@@ -86,11 +150,12 @@ export async function getAccessToken({ now = Date.now() } = {}) {
 
       return merged.access_token;
     } finally {
-      inFlight = null;
+      inFlight.delete(householdId);
     }
   })();
 
-  return inFlight;
+  inFlight.set(householdId, refreshing);
+  return refreshing;
 }
 
 /**
@@ -101,7 +166,7 @@ export async function getAccessToken({ now = Date.now() } = {}) {
  * and a retry is cheap — losing the tokens because the last call of four threw
  * would not be.
  */
-export async function finishLink(tokens, { previous = null, now = Date.now() } = {}) {
+export async function finishLink(householdId, tokens, { previous = null, now = Date.now() } = {}) {
   let record = linkTokens(previous, tokens, now);
 
   let accountId = record.accountId ?? null;
@@ -131,11 +196,12 @@ export async function finishLink(tokens, { previous = null, now = Date.now() } =
     }));
   }
 
-  record = await writeTokens(record);
+  record = await writeTokens(householdId, record, { create: true });
 
   console.log(JSON.stringify({
     level: 'info',
     msg: 'account_linked',
+    householdId,
     expiresIn: record.expires_in ?? null,
     hasRefresh: Boolean(record.refresh_token),
     hasAccountId: Boolean(accountId),

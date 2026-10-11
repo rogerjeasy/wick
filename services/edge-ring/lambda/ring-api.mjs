@@ -24,6 +24,27 @@ async function readError(res) {
   try { return (await res.text()).slice(0, 400); } catch { return null; }
 }
 
+/** Exchange an authorization code, with its PKCE verifier, for an account's tokens. */
+export async function exchangeAuthorizationCode({ code, codeVerifier, clientId, clientSecret, redirectUri, fetchImpl = fetch }) {
+  const res = await fetchImpl(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      code_verifier: codeVerifier,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new RingError('token_exchange_failed', { status: res.status, detail: await readError(res) });
+  }
+  return res.json();
+}
+
 /** Exchange a refresh token for a new access token. */
 export async function refreshTokens({ refreshToken, clientId, clientSecret, fetchImpl = fetch }) {
   const res = await fetchImpl(TOKEN_URL, {
@@ -94,6 +115,25 @@ export async function completeAppIntegration({ accessToken, accountIdentifier, f
     });
   }
   return true;
+}
+
+/**
+ * The devices this token can see: ids and names, nothing more. A token Ring
+ * refuses throws — which is how a pasted token is checked before it is kept.
+ */
+export async function listDevices({ accessToken, fetchImpl = fetch }) {
+  const res = await fetchImpl(`${API_BASE}/v1/devices`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    throw new RingError('devices_failed', { status: res.status, detail: await readError(res) });
+  }
+
+  const doc = await res.json();
+  return (Array.isArray(doc?.data) ? doc.data : [])
+    .filter((d) => typeof d?.id === 'string' && d.id)
+    .map((d) => ({ id: d.id, name: typeof d.attributes?.name === 'string' ? d.attributes.name : null }));
 }
 
 export { RingError };

@@ -109,9 +109,11 @@ data "aws_iam_policy_document" "agents_runtime" {
   }
 
   statement {
-    sid       = "ReadRingToken"
+    # Each household's own Ring link; which one is read is the household
+    # the code is acting for (services/connectors/ring/src/secrets.ts).
+    sid       = "ReadAHouseholdsRingToken"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.ring_tokens.arn]
+    resources = [local.ring_token_secrets_arn]
   }
 
   statement {
@@ -181,11 +183,11 @@ resource "aws_bedrockagentcore_agent_runtime" "agents" {
   }
 
   environment_variables = {
-    TABLE_NAME            = aws_dynamodb_table.wick.name
-    LIVE_BRIDGE_FUNCTION  = aws_lambda_function.live_bridge.function_name
-    LIVE_ORIGIN           = "https://${aws_cloudfront_distribution.live.domain_name}"
-    RING_TOKEN_SECRET_ID  = aws_secretsmanager_secret.ring_tokens.name
-    WICK_CHIME_SLOT_EVENT = var.chime_slot_event
+    TABLE_NAME               = aws_dynamodb_table.wick.name
+    LIVE_BRIDGE_FUNCTION     = aws_lambda_function.live_bridge.function_name
+    LIVE_ORIGIN              = "https://${aws_cloudfront_distribution.live.domain_name}"
+    RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
+    WICK_CHIME_SLOT_EVENT    = var.chime_slot_event
   }
 
   depends_on = [aws_iam_role_policy.agents_runtime]

@@ -39,6 +39,18 @@ variable "ring_scope" {
   default     = "ava.v1:read"
 }
 
+variable "ring_operator_link" {
+  description = "Serve the old, unauthenticated way to link Ring (GET /ring/authorize and Ring's own POST /ring/token), which links whoever signs in to the operator's household (var.household_id). Off by default: those addresses ask nobody who they are, and a home's organiser now connects Ring from the family app, where they are checked at the start and again at the finish. Turn it on only while setting up the operator's own link, and off again after."
+  type        = bool
+  default     = false
+}
+
+variable "ring_playground_link" {
+  description = "Let a home's organiser connect Ring by pasting a token from Ring's Developer Playground — Ring's simulator. On for the hackathon, where the simulator is all that can be shown without a doorbell; the family app says it is the simulator wherever it names the link. Turn it off for a deployment with real doorbells: a pasted token is a developer's tool, not a customer's."
+  type        = bool
+  default     = true
+}
+
 variable "pairing_url_base" {
   description = "Address shown on the TV's pairing screen; `/?pair=<code>` is appended. Empty means the family app's own CloudFront address. Set it when a shorter domain fronts the family app. §4.2."
   type        = string

@@ -25,19 +25,19 @@
  * EventBridge retry re-running Phase 1 for no benefit).
  *
  * The household comes from the doorbell that rang (store/ringDevices.ts),
- * never from an environment variable (AGENTS.md INV-8). There is still one
- * Ring link per deployment: its devices are handed to households with
- * scripts/assign-ring-device.ts, and a device nobody holds reaches nobody.
+ * never from an environment variable (AGENTS.md INV-8). Each household has
+ * its own Ring link: connecting it claims the doorbells that link can see
+ * (services/edge-ring/lambda/household-link-service.mjs), and a device nobody
+ * holds reaches nobody.
  */
-import type { CachedDevices, RingDevice, RingHistoryEvent } from '@wick/ring';
+import type { CachedDevices, RingClient, RingDevice, RingHistoryEvent } from '@wick/ring';
 import {
-  RingClient,
   cachedDevices,
   hasHallwayChime,
   imageForEvent,
   listDevices,
   playableChimes,
-  secretsManagerTokenProvider,
+  ringClientsByHousehold,
 } from '@wick/ring';
 import type { QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
@@ -200,7 +200,18 @@ interface EventBridgeEnvelope {
   readonly detail: Record<string, unknown>;
 }
 
-let devices: CachedDevices | undefined;
+/** One Ring client per household, each carrying that household's own token. */
+const ringFor = ringClientsByHousehold();
+/** The device list of each household's own link, cached as the single list used to be. */
+const devicesByHousehold = new Map<string, CachedDevices>();
+function devicesOf(householdId: string, client: RingClient): CachedDevices {
+  let cached = devicesByHousehold.get(householdId);
+  if (!cached) {
+    cached = cachedDevices({ list: () => listDevices(client) });
+    devicesByHousehold.set(householdId, cached);
+  }
+  return cached;
+}
 let runtime: RuntimeTarget | undefined;
 
 const ddb = new DynamoDBClient({});
@@ -262,13 +273,17 @@ async function recordPresenceActivity(householdId: string, personId: string, at:
 }
 
 export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
-  const ringClient = new RingClient({ getToken: secretsManagerTokenProvider() });
-  // Every device on the deployment's one Ring link; which household holds
-  // each is ringDevices' answer, never this list's.
-  const account = (devices ??= cachedDevices({ list: () => listDevices(ringClient) }));
   const agents = (runtime ??= agentCoreTarget());
 
   const depsFor = (householdId: string): RouteDeps => {
+    // This household's own Ring link, and the devices it can see. A doorbell's
+    // household was already settled from the doorbell (routeDoorEvent), so
+    // the picture and the chime are asked for with that home's credential and
+    // no other. Which of those devices the household holds is still
+    // ringDevices' answer, never this list's: a credential can see a doorbell
+    // another home holds.
+    const ringClient = ringFor(householdId);
+    const account = devicesOf(householdId, ringClient);
     const describe = describeViaRuntime((kind, hh, payload) => invokeRuntime(agents, kind, hh, payload), householdId);
     return {
       householdId,

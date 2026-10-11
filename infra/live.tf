@@ -126,9 +126,11 @@ resource "aws_iam_role_policy_attachment" "live_bridge_basic" {
 
 data "aws_iam_policy_document" "live_bridge" {
   statement {
-    sid       = "ReadRingToken"
+    # Each household's own Ring link; which one is read is the household
+    # the code is acting for (services/connectors/ring/src/secrets.ts).
+    sid       = "ReadAHouseholdsRingToken"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.ring_tokens.arn]
+    resources = [local.ring_token_secrets_arn]
   }
 
   statement {
@@ -186,9 +188,9 @@ resource "aws_lambda_function" "live_bridge" {
 
   environment {
     variables = {
-      TABLE_NAME           = aws_dynamodb_table.wick.name
-      MEDIA_BUCKET         = aws_s3_bucket.media.id
-      RING_TOKEN_SECRET_ID = aws_secretsmanager_secret.ring_tokens.name
+      TABLE_NAME               = aws_dynamodb_table.wick.name
+      MEDIA_BUCKET             = aws_s3_bucket.media.id
+      RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
     }
   }
 

@@ -33,7 +33,7 @@ const apprunner = new AppRunnerClient({});
 
 const TABLE = process.env.TABLE_NAME;
 const HOUSEHOLD_ID = process.env.WICK_HOUSEHOLD_ID;
-const RING_TOKEN_SECRET_ARN = process.env.RING_TOKEN_SECRET_ARN;
+const RING_TOKEN_SECRET_PREFIX = process.env.RING_TOKEN_SECRET_PREFIX ?? 'wick/ring/tokens';
 const MCP_SERVICE_ARN = process.env.MCP_SERVICE_ARN;
 const RING_REFRESH_RULE_NAME = process.env.RING_REFRESH_RULE_NAME;
 
@@ -77,7 +77,8 @@ async function countByPrefix(prefix) {
 
 async function readRingLinkRecord() {
   try {
-    const res = await sm.send(new GetSecretValueCommand({ SecretId: RING_TOKEN_SECRET_ARN }));
+    // The ops console watches the household this deployment was set up around.
+    const res = await sm.send(new GetSecretValueCommand({ SecretId: `${RING_TOKEN_SECRET_PREFIX}/${HOUSEHOLD_ID}` }));
     return res.SecretString ? JSON.parse(res.SecretString) : null;
   } catch {
     return null;

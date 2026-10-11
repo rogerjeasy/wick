@@ -98,10 +98,19 @@ data "aws_iam_policy_document" "token" {
     resources = [aws_secretsmanager_secret.ring_credentials.arn]
   }
 
+  # Ring calls this itself, with no household: the link it makes is the
+  # operator household's, and that is the only secret it may touch. It is on
+  # a public route; no other home's link is within its reach.
   statement {
-    sid       = "WriteTokens"
-    actions   = ["secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.ring_tokens.arn]
+    sid       = "WriteTheOperatorHouseholdsTokens"
+    actions   = ["secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:CreateSecret"]
+    resources = [local.ring_operator_token_secret_arn]
+  }
+
+  statement {
+    sid       = "ClaimDevicesAndRecordTheLink"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.wick.arn]
   }
 }
 
@@ -119,8 +128,36 @@ resource "aws_iam_role_policy" "token" {
 
 data "aws_iam_policy_document" "link" {
   statement {
-    sid       = "ConsumePkceState"
-    actions   = ["dynamodb:GetItem", "dynamodb:DeleteItem"]
+    sid = "ConsumePkceStateClaimDevicesAndRecordTheLink"
+    # GetItem/DeleteItem: the state row, which says whose link this is.
+    # PutItem: the doorbells that link can see, and the household's link row.
+    actions   = ["dynamodb:GetItem", "dynamodb:DeleteItem", "dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.wick.arn]
+  }
+
+  statement {
+    sid       = "ReadClientCredentials"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.ring_credentials.arn]
+  }
+
+  # The callback finishes only the operator's own link (where that is allowed
+  # at all). A household's link is finished by household-link, below, so this
+  # public function needs no other home's secret and has none.
+  statement {
+    sid       = "ReadWriteTheOperatorHouseholdsTokens"
+    actions   = ["secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:CreateSecret"]
+    resources = [local.ring_operator_token_secret_arn]
+  }
+}
+
+# The family app's way to a home's Ring link (household-link.mjs). It has
+# the widest rights of the Ring functions — it makes a link and unmakes one —
+# and the narrowest door: no route, no schedule, one caller (infra/mcp.tf).
+data "aws_iam_policy_document" "household_link" {
+  statement {
+    sid       = "StatePkceLinkRowAndDeviceClaims"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }
 
@@ -131,9 +168,14 @@ data "aws_iam_policy_document" "link" {
   }
 
   statement {
-    sid       = "ReadWriteTokens"
-    actions   = ["secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.ring_tokens.arn]
+    sid = "MakeAndUnmakeAHouseholdsLink"
+    actions = [
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:PutSecretValue",
+      "secretsmanager:CreateSecret",
+      "secretsmanager:DeleteSecret",
+    ]
+    resources = [local.ring_token_secrets_arn]
   }
 }
 
@@ -145,9 +187,16 @@ data "aws_iam_policy_document" "refresh" {
   }
 
   statement {
-    sid       = "ReadWriteTokens"
+    sid       = "ReadWriteEveryHouseholdsTokens"
     actions   = ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"]
-    resources = [aws_secretsmanager_secret.ring_tokens.arn]
+    resources = [local.ring_token_secrets_arn]
+  }
+
+  statement {
+    sid = "FindEveryLinkAndRecordItsExpiry"
+    # Scan: the households that have a link (their RING rows).
+    actions   = ["dynamodb:Scan", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.wick.arn]
   }
 }
 
@@ -261,8 +310,14 @@ resource "aws_lambda_function" "token" {
 
   environment {
     variables = {
-      RING_SECRET_ARN       = aws_secretsmanager_secret.ring_credentials.arn
-      RING_TOKEN_SECRET_ARN = aws_secretsmanager_secret.ring_tokens.arn
+      TABLE_NAME               = aws_dynamodb_table.wick.name
+      RING_SECRET_ARN          = aws_secretsmanager_secret.ring_credentials.arn
+      RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
+      RING_REDIRECT_URI        = local.ring_redirect_uri
+      # Ring's own call names no household; it can only be the operator's —
+      # and it is answered at all only where the deployment says so.
+      WICK_HOUSEHOLD_ID  = var.household_id
+      RING_OPERATOR_LINK = var.ring_operator_link ? "true" : "false"
     }
   }
 
@@ -284,11 +339,18 @@ resource "aws_lambda_function" "link" {
 
   environment {
     variables = {
-      CONSENT_PAGE_URL      = var.consent_page_url
-      TABLE_NAME            = aws_dynamodb_table.wick.name
-      RING_SECRET_ARN       = aws_secretsmanager_secret.ring_credentials.arn
-      RING_TOKEN_SECRET_ARN = aws_secretsmanager_secret.ring_tokens.arn
-      RING_REDIRECT_URI     = local.ring_redirect_uri
+      CONSENT_PAGE_URL         = var.consent_page_url
+      TABLE_NAME               = aws_dynamodb_table.wick.name
+      RING_SECRET_ARN          = aws_secretsmanager_secret.ring_credentials.arn
+      RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
+      RING_REDIRECT_URI        = local.ring_redirect_uri
+      # A callback whose state names no household can only be the operator's,
+      # and is taken only where the deployment allows that link.
+      WICK_HOUSEHOLD_ID  = var.household_id
+      RING_OPERATOR_LINK = var.ring_operator_link ? "true" : "false"
+      # A household's own sign-in is not finished by the callback: the browser
+      # is sent here, and the family app finishes it as the organiser.
+      FAMILY_APP_URL = "https://${aws_cloudfront_distribution.sim_alexa.domain_name}"
     }
   }
 
@@ -314,6 +376,10 @@ resource "aws_lambda_function" "authorize" {
       RING_SECRET_ARN   = aws_secretsmanager_secret.ring_credentials.arn
       RING_REDIRECT_URI = local.ring_redirect_uri
       RING_SCOPE        = var.ring_scope
+      # This unauthenticated address links the operator's household and no
+      # other — and only where the deployment turns it on.
+      WICK_HOUSEHOLD_ID  = var.household_id
+      RING_OPERATOR_LINK = var.ring_operator_link ? "true" : "false"
     }
   }
 
@@ -340,12 +406,67 @@ resource "aws_lambda_function" "refresh" {
 
   environment {
     variables = {
-      RING_SECRET_ARN       = aws_secretsmanager_secret.ring_credentials.arn
-      RING_TOKEN_SECRET_ARN = aws_secretsmanager_secret.ring_tokens.arn
+      TABLE_NAME               = aws_dynamodb_table.wick.name
+      RING_SECRET_ARN          = aws_secretsmanager_secret.ring_credentials.arn
+      RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
     }
   }
 
   depends_on = [aws_cloudwatch_log_group.refresh]
+}
+
+# --- a household's own link, for the family app ----------------------------
+# Not on the HTTP API: the Wick server invokes it (infra/mcp.tf), having
+# checked the organiser and taken the household from their token.
+
+resource "aws_iam_role" "household_link" {
+  name               = "${local.prefix}-ring-household-link"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "household_link_basic" {
+  role       = aws_iam_role.household_link.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "household_link" {
+  name   = "${local.prefix}-ring-household-link"
+  role   = aws_iam_role.household_link.id
+  policy = data.aws_iam_policy_document.household_link.json
+}
+
+resource "aws_cloudwatch_log_group" "household_link" {
+  name              = "/aws/lambda/${local.prefix}-ring-household-link"
+  retention_in_days = 14
+}
+
+resource "aws_lambda_function" "household_link" {
+  function_name = "${local.prefix}-ring-household-link"
+  role          = aws_iam_role.household_link.arn
+  handler       = "household-link.handler"
+  runtime       = "nodejs22.x"
+  architectures = ["arm64"]
+
+  filename         = data.archive_file.edge_ring.output_path
+  source_code_hash = data.archive_file.edge_ring.output_base64sha256
+
+  # A new household's secret can take a few seconds to be nameable again
+  # after a disconnect (ring-token.mjs writeTokens waits that out).
+  timeout     = 20
+  memory_size = 256
+
+  environment {
+    variables = {
+      TABLE_NAME               = aws_dynamodb_table.wick.name
+      RING_SECRET_ARN          = aws_secretsmanager_secret.ring_credentials.arn
+      RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
+      RING_REDIRECT_URI        = local.ring_redirect_uri
+      RING_SCOPE               = var.ring_scope
+      RING_PLAYGROUND_LINK     = var.ring_playground_link ? "true" : "false"
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.household_link]
 }
 
 # Hourly, not four-hourly: the handler refreshes only inside the skew window, so

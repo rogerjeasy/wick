@@ -18,7 +18,8 @@ const TRANSPORT_CLIENTS = [
 
 export default tseslint.config(
   // .programmes holds HLS segments, whose .ts is MPEG transport stream, not TypeScript.
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**', '.programmes/**', 'apps/tv-fireos/android/**'] },
+  // .worktrees/ and .claude/worktrees/ hold other branches checked out side by side (.gitignore).
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**', '.programmes/**', 'apps/tv-fireos/android/**', '.worktrees/**', '.claude/worktrees/**'] },
 
   // Parse TypeScript everywhere.
   ...tseslint.configs.recommended,

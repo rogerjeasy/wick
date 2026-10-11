@@ -34,9 +34,11 @@ resource "aws_iam_role_policy_attachment" "agent_door_event_basic" {
 
 data "aws_iam_policy_document" "agent_door_event" {
   statement {
-    sid       = "ReadRingToken"
+    # Each household's own Ring link; which one is read is the household
+    # the code is acting for (services/connectors/ring/src/secrets.ts).
+    sid       = "ReadAHouseholdsRingToken"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.ring_tokens.arn]
+    resources = [local.ring_token_secrets_arn]
   }
 
   statement {
@@ -103,10 +105,10 @@ resource "aws_lambda_function" "agent_door_event" {
 
   environment {
     variables = {
-      TABLE_NAME            = aws_dynamodb_table.wick.name
-      RING_TOKEN_SECRET_ID  = aws_secretsmanager_secret.ring_tokens.name
-      AGENT_RUNTIME_ARN     = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
-      AGENT_RUNTIME_VERSION = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
+      TABLE_NAME               = aws_dynamodb_table.wick.name
+      RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
+      AGENT_RUNTIME_ARN        = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
+      AGENT_RUNTIME_VERSION    = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
     }
   }
 

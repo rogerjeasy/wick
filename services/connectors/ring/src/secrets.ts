@@ -5,10 +5,16 @@
  * is no .env in a Lambda, a container or AgentCore — and there must not be, since
  * .env is gitignored and so could only arrive by being baked into an image.
  *
+ * Each household has its own Ring link, and so its own secret:
+ * `wick/ring/tokens/<householdId>`. There is no provider, and no client,
+ * without a household — the argument is required, so a caller cannot reach
+ * Ring with "the" token, only with the token of the home it is acting for
+ * (AGENTS.md INV-8).
+ *
  * The split is deliberate and worth stating:
  *
- *   deployed   secretsManagerTokenProvider()  — reads wick/ring/tokens
- *   local dev  scripts/env.ts                 — reads .env, never shipped
+ *   deployed   secretsManagerTokenProvider(householdId)  — that home's secret
+ *   local dev  scripts/env.ts                            — reads .env, never shipped
  *
  * Refresh is NOT done here. `wick-ring-refresh` runs hourly and owns it, so the
  * secret is already warm; duplicating that would mean two writers racing over
@@ -20,9 +26,26 @@ import {
   SecretsManagerClient,
   GetSecretValueCommand,
 } from '@aws-sdk/client-secrets-manager';
-import type { TokenProvider } from './client.js';
+import { RingClient, type TokenProvider } from './client.js';
 
-export const RING_TOKEN_SECRET_ID = 'wick/ring/tokens';
+/** Every household's Ring secret lives under this name. */
+export const RING_TOKEN_SECRET_PREFIX = 'wick/ring/tokens';
+
+/**
+ * A household id that is safe to make part of a secret's name. Ids Wick
+ * issues are `hh_<random>` or a plain name; anything with a `/` or a
+ * wildcard in it could name a secret outside the household's own.
+ */
+const SAFE_HOUSEHOLD_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** The name of one household's Ring secret. */
+export function ringTokenSecretId(
+  householdId: string,
+  prefix: string = process.env.RING_TOKEN_SECRET_PREFIX ?? RING_TOKEN_SECRET_PREFIX,
+): string {
+  if (!SAFE_HOUSEHOLD_ID.test(householdId)) throw new Error('unsafe_household_id');
+  return `${prefix}/${householdId}`;
+}
 
 /** The record `finishLink()` and the refresh lambda write. */
 export interface RingTokenRecord {
@@ -58,7 +81,7 @@ export function accessTokenFrom(
   now: number = Date.now(),
 ): string {
   if (!record?.access_token) {
-    throw new RingTokenUnavailable('not_linked', `no access token in ${RING_TOKEN_SECRET_ID}`);
+    throw new RingTokenUnavailable('not_linked', 'this household has no Ring link');
   }
 
   const expiresAt =
@@ -95,9 +118,10 @@ export interface SecretsTokenProviderOptions {
  * token it holds is no longer valid.
  */
 export function secretsManagerTokenProvider(
+  householdId: string,
   options: SecretsTokenProviderOptions = {},
 ): TokenProvider {
-  const secretId = options.secretId ?? process.env.RING_TOKEN_SECRET_ID ?? RING_TOKEN_SECRET_ID;
+  const secretId = options.secretId ?? ringTokenSecretId(householdId);
   const client = options.client ?? new SecretsManagerClient({});
   const cacheMs = options.cacheMs ?? 60_000;
   const now = options.now ?? Date.now;
@@ -112,7 +136,17 @@ export function secretsManagerTokenProvider(
     // exists to prevent.
     inFlight ??= (async () => {
       try {
-        const result = await client.send(new GetSecretValueCommand({ SecretId: secretId }));
+        let result;
+        try {
+          result = await client.send(new GetSecretValueCommand({ SecretId: secretId }));
+        } catch (err) {
+          // A household that has never connected Ring has no secret at all.
+          // That is a state, not a fault.
+          if ((err as { name?: string }).name === 'ResourceNotFoundException') {
+            throw new RingTokenUnavailable('not_linked', 'this household has no Ring link');
+          }
+          throw err;
+        }
         if (!result.SecretString) {
           throw new RingTokenUnavailable('not_linked', `${secretId} has no value yet`);
         }
@@ -140,5 +174,32 @@ export function secretsManagerTokenProvider(
     }
 
     return accessTokenFrom(await read(), now());
+  };
+}
+
+/**
+ * A Ring client for a household, made once per household and kept: a warm
+ * process serves many homes, and each client carries its own home's token
+ * cache. This is the only way the deployed code builds a client, so there is
+ * no client that is not some household's.
+ */
+export function ringClientsByHousehold(
+  // No `secretId` here, on purpose: a name given once would be every
+  // household's secret. Each household's is derived from its own id.
+  options: Omit<SecretsTokenProviderOptions, 'secretId'> & { readonly fetchImpl?: typeof fetch } = {},
+): (householdId: string) => RingClient {
+  const clients = new Map<string, RingClient>();
+  // Dropped here as well as in the type: a plain-JavaScript caller is not held by the type.
+  const { fetchImpl, secretId: _oneNameForEveryone, ...providerOptions } = options as SecretsTokenProviderOptions & { readonly fetchImpl?: typeof fetch };
+  return (householdId) => {
+    let client = clients.get(householdId);
+    if (!client) {
+      client = new RingClient({
+        getToken: secretsManagerTokenProvider(householdId, providerOptions),
+        ...(fetchImpl ? { fetchImpl } : {}),
+      });
+      clients.set(householdId, client);
+    }
+    return client;
   };
 }

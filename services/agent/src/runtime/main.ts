@@ -17,7 +17,7 @@
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
-import { RingClient, listDevices, ringChime, secretsManagerTokenProvider } from '@wick/ring';
+import { listDevices, ringChime, ringClientsByHousehold } from '@wick/ring';
 import { sendPatchToDevice } from '../egress.js';
 import { describeModel } from '../graphs/doorDescribe.js';
 import { randomBytes } from 'node:crypto';
@@ -45,7 +45,8 @@ const log = (line: Record<string, unknown>) => console.log(JSON.stringify(line))
 
 const ddb = new DynamoDBClient({});
 const lambda = new LambdaClient({});
-const ring = new RingClient({ getToken: secretsManagerTokenProvider() });
+/** One Ring client per household, each carrying that household's own token: there is no client without one. */
+const ringFor = ringClientsByHousehold();
 // The narrow send types in store/ and live/ keep those modules testable; the real clients satisfy them.
 const cards = cardStore((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
 const ringDevices = ringDeviceOwners((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
@@ -60,10 +61,11 @@ const server = createRuntimeServer({
     'door.action': doorActionHandler((householdId) => ({
       loadCard: cards.loadCard,
       claimOnce: cards.claimOnce,
-      // Only this household's chimes: one Ring link can hold several homes'
-      // devices, and a press here must never make a sound in another home.
-      listDevices: async () => devicesOfHousehold(householdId, await listDevices(ring), ringDevices.householdOf),
-      ringChime: (chimeId) => ringChime(ring, chimeId, CHIME_SLOT),
+      // This household's own Ring link, and of what it can see only the
+      // chimes this household holds: a press here must never make a sound
+      // in another home.
+      listDevices: async () => devicesOfHousehold(householdId, await listDevices(ringFor(householdId)), ringDevices.householdOf),
+      ringChime: (chimeId) => ringChime(ringFor(householdId), chimeId, CHIME_SLOT),
       sendPatch: (patch) => sendPatchToDevice(patch, householdId),
       now: Date.now,
     })),

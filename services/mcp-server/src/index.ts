@@ -2,12 +2,14 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
+import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { sendToDevice } from '@wick/agent';
 import { createApp } from './server.js';
 import { createCognitoIdentity, type CognitoSend } from './accounts/identity.js';
 import { createDynamoAccountStore, type DdbSend } from './accounts/store.js';
 import { createBedrockConverse } from './assistant/bedrock.js';
+import { invokedRingLinks } from './accounts/ringLinks.js';
 
 // Every read-tool file (get_resident_shared_view.ts, get_today.ts,
 // did_visitor_come.ts, get_week_narrative.ts) defaults an unset TABLE_NAME to
@@ -55,6 +57,23 @@ const assistant = ASSISTANT_MODEL_ID
     }
   : undefined;
 
+// A home's own Ring link (accounts/apiRouter.ts `/api/ring`). The function
+// named here has custody of the tokens; this server holds none and only says
+// who is asking, for which home. Unset, the family app is told the doorbell
+// cannot be reached.
+const RING_LINK_FUNCTION = process.env.WICK_RING_LINK_FUNCTION || undefined;
+const lambda = RING_LINK_FUNCTION ? new LambdaClient({}) : undefined;
+const ringLinks = lambda
+  ? invokedRingLinks(async (request) => {
+      const reply = await lambda.send(new InvokeCommand({
+        FunctionName: RING_LINK_FUNCTION,
+        Payload: new TextEncoder().encode(JSON.stringify(request)),
+      }));
+      if (reply.FunctionError || !reply.Payload) return undefined;
+      return JSON.parse(new TextDecoder().decode(reply.Payload)) as unknown;
+    })
+  : undefined;
+
 const PORT = Number(process.env.PORT ?? 3300);
 const ISSUER_URL = new URL(process.env.MCP_ISSUER_URL ?? `http://127.0.0.1:${PORT}`);
 
@@ -78,6 +97,7 @@ const app = createApp(ISSUER_URL, {
   },
   demoAccounts: DEMO_ACCOUNTS,
   ...(assistant ? { assistant } : {}),
+  ...(ringLinks ? { ringLinks } : {}),
   ...(VIRTUAL_TELEVISION_URL ? { virtualTelevisionUrl: VIRTUAL_TELEVISION_URL } : {}),
 });
 

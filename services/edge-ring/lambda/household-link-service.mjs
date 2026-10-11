@@ -1,0 +1,198 @@
+/**
+ * Connecting a household to Ring, and disconnecting it.
+ *
+ * Who may ask is decided before this is reached: the family app's server
+ * lets only a home's organiser through, and names the household from their
+ * access token (services/mcp-server/src/accounts/ringRouter.ts, INV-8). What
+ * is decided here is what a link is:
+ *
+ *   - the tokens go into that household's own secret, and nowhere else;
+ *   - the doorbells that credential can see become that household's —
+ *     unless another household already holds one, which is left alone;
+ *   - a row beside the household says what is linked, with no token in it.
+ *
+ * Two ways in. Ring's own sign-in (`start`, finished by link.mjs when Ring
+ * sends the browser back). And, where the deployment allows it, a token
+ * pasted from Ring's Developer Playground — Ring's simulator, which is all
+ * that can be shown without a doorbell (FRICTION.md FL-004, FL-019).
+ *
+ * Everything that touches AWS or Ring is passed in, so this is tested as
+ * plain code (__tests__/household-link-service.test.ts).
+ */
+import {
+  claimDevice, linkRow, linkSummary, playgroundRecord, readLinkRow, releaseDevice, removeLinkRow,
+} from './household-links.mjs';
+import { SAFE_HOUSEHOLD_ID } from './ring-token.mjs';
+import { COMPLETION_SHAPE, completionKey, isFresh, stateKey } from './authorization.mjs';
+
+export class LinkError extends Error {
+  constructor(code) {
+    super(code);
+    this.name = 'LinkError';
+    this.code = code;
+  }
+}
+
+/**
+ * @param {object} deps
+ * @param {string} deps.table
+ * @param {(command: string, input: object) => Promise<any>} deps.ddb  'get' | 'put' | 'delete'
+ * @param {(householdId: string, record: object) => Promise<object>} deps.writeTokens
+ * @param {(householdId: string) => Promise<void>} deps.deleteTokens
+ * @param {(args: { accessToken: string }) => Promise<{ id: string, name: string | null }[]>} deps.listDevices
+ * @param {(args: { householdId: string, userId?: string }) => Promise<string>} deps.beginAuthorization
+ * @param {(args: { code: string, codeVerifier: string }) => Promise<object>} deps.exchange  Ring's code for an account's tokens
+ * @param {(householdId: string, tokens: object) => Promise<{ record: object }>} deps.finishLink  stores them for that household
+ * @param {boolean} deps.playgroundAllowed
+ * @param {() => number} deps.now
+ */
+export function createLinkService(deps) {
+  const { table } = deps;
+  const safe = (householdId) => {
+    if (typeof householdId !== 'string' || !SAFE_HOUSEHOLD_ID.test(householdId)) throw new LinkError('bad_household');
+    return householdId;
+  };
+
+  const conditionFailed = (err) => err?.name === 'ConditionalCheckFailedException';
+
+  async function status(householdId) {
+    const row = await deps.ddb('get', readLinkRow({ table, householdId: safe(householdId) }));
+    return { ...linkSummary(row?.Item, deps.now()), playgroundAllowed: deps.playgroundAllowed };
+  }
+
+  /**
+   * The devices this credential can see become this household's, and the row
+   * is written. Called once the tokens are safely in the household's secret.
+   */
+  async function recordLink(householdId, record, linkedBy) {
+    const now = deps.now();
+    // What this home held under its link until now. A home that links again —
+    // with another Ring account, say — must not go on holding doorbells its
+    // new link cannot see: nobody could release them from the app, and the
+    // home that really owns one would be told it is held elsewhere for good.
+    const before = linkSummary((await deps.ddb('get', readLinkRow({ table, householdId })))?.Item, now).devices ?? [];
+
+    let seen;
+    try {
+      seen = await deps.listDevices({ accessToken: record.access_token });
+    } catch (err) {
+      // The link holds, and so does what the home held: a list that could
+      // not be read is not a list of nothing. Linking again asks again.
+      console.warn(JSON.stringify({ level: 'warn', msg: 'ring_devices_not_listed', householdId, status: err?.status ?? null }));
+      await deps.ddb('put', linkRow({ table, householdId, record, linkedBy, devices: before, heldElsewhere: 0, now }));
+      return status(householdId);
+    }
+
+    const stillSeen = new Set(seen.map((device) => device.id));
+    for (const device of before) {
+      if (stillSeen.has(device.id)) continue;
+      try {
+        await deps.ddb('delete', releaseDevice({ table, deviceId: device.id, householdId }));
+      } catch (err) {
+        if (!conditionFailed(err)) throw err; // no longer this household's to release
+      }
+    }
+
+    const held = [];
+    let heldElsewhere = 0;
+    for (const device of seen) {
+      try {
+        await deps.ddb('put', claimDevice({ table, deviceId: device.id, householdId, now }));
+        held.push(device);
+      } catch (err) {
+        if (!conditionFailed(err)) throw err;
+        heldElsewhere += 1; // another home's doorbell stays that home's
+      }
+    }
+
+    await deps.ddb('put', linkRow({ table, householdId, record, linkedBy, devices: held, heldElsewhere, now }));
+    console.log(JSON.stringify({ level: 'info', msg: 'household_ring_linked', householdId, source: record.source ?? 'oauth', devices: held.length, heldElsewhere }));
+    return status(householdId);
+  }
+
+  return {
+    status,
+    recordLink: (householdId, record, linkedBy) => recordLink(safe(householdId), record, linkedBy),
+
+    /** Where to send the organiser's browser to sign in at Ring. */
+    async start(householdId, userId) {
+      return { url: await deps.beginAuthorization({ householdId: safe(householdId), userId }) };
+    },
+
+    /**
+     * Finish a sign-in at Ring. `completion` is the value the callback gave
+     * the browser that signed in (authorization.mjs); the household and the
+     * person are the caller's own, from their access token. The link is made
+     * only if they are the ones the sign-in was started for.
+     *
+     * Whatever happens, the sign-in is spent: a second presentation of the
+     * same value finds nothing.
+     */
+    async complete(householdId, userId, completion) {
+      safe(householdId);
+      if (typeof completion !== 'string' || !COMPLETION_SHAPE.test(completion)) throw new LinkError('link_expired');
+
+      const pending = (await deps.ddb('get', { TableName: table, Key: completionKey(completion), ConsistentRead: true }))?.Item;
+      const state = pending?.state?.S;
+      const code = pending?.code?.S;
+      if (!state || !code) throw new LinkError('link_expired');
+      const started = (await deps.ddb('get', { TableName: table, Key: stateKey(state), ConsistentRead: true }))?.Item;
+
+      await deps.ddb('delete', { TableName: table, Key: completionKey(completion) });
+      await deps.ddb('delete', { TableName: table, Key: stateKey(state) });
+
+      const codeVerifier = started?.codeVerifier?.S;
+      if (!codeVerifier || !isFresh(started, deps.now()) || !isFresh(pending, deps.now())) throw new LinkError('link_expired');
+      if (started.householdId?.S !== householdId || !userId || started.userId?.S !== userId) {
+        // Someone else's sign-in, presented here. Nothing is exchanged and nothing is kept.
+        console.warn(JSON.stringify({ level: 'warn', msg: 'ring_link_not_the_starters', householdId }));
+        throw new LinkError('link_not_yours');
+      }
+
+      let tokens;
+      try {
+        tokens = await deps.exchange({ code, codeVerifier });
+      } catch (err) {
+        console.error(JSON.stringify({ level: 'error', msg: 'token_exchange_failed', householdId, status: err?.status ?? null }));
+        throw new LinkError('exchange_failed');
+      }
+      const { record } = await deps.finishLink(householdId, tokens);
+      return recordLink(householdId, record, userId);
+    },
+
+    /** Link with a token pasted from Ring's Developer Playground. Ring is asked first; a token it refuses is not kept. */
+    async playground(householdId, userId, token) {
+      safe(householdId);
+      if (!deps.playgroundAllowed) throw new LinkError('playground_not_allowed');
+      const pasted = typeof token === 'string' ? token.trim() : '';
+      if (pasted.length < 20 || pasted.length > 8192 || /\s/.test(pasted)) throw new LinkError('bad_token');
+
+      try {
+        await deps.listDevices({ accessToken: pasted });
+      } catch (err) {
+        throw new LinkError(err?.status === 401 || err?.status === 403 ? 'token_refused' : 'ring_unreachable');
+      }
+
+      const record = playgroundRecord(pasted, deps.now());
+      await deps.writeTokens(householdId, record);
+      return recordLink(householdId, record, userId);
+    },
+
+    /** Let the doorbells go, remove the row, delete the secret. Safe to ask twice. */
+    async disconnect(householdId) {
+      safe(householdId);
+      const row = await deps.ddb('get', readLinkRow({ table, householdId }));
+      for (const device of linkSummary(row?.Item, deps.now()).devices ?? []) {
+        try {
+          await deps.ddb('delete', releaseDevice({ table, deviceId: device.id, householdId }));
+        } catch (err) {
+          if (!conditionFailed(err)) throw err; // no longer this household's to release
+        }
+      }
+      await deps.deleteTokens(householdId);
+      await deps.ddb('delete', removeLinkRow({ table, householdId }));
+      console.log(JSON.stringify({ level: 'info', msg: 'household_ring_unlinked', householdId }));
+      return status(householdId);
+    },
+  };
+}

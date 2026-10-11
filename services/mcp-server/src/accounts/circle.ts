@@ -169,7 +169,7 @@ async function establishHousehold(
   return household;
 }
 
-async function requireOrganiser(deps: CircleDeps, actor: { householdId: string; userId: string }): Promise<Membership> {
+export async function requireOrganiser(deps: CircleDeps, actor: { householdId: string; userId: string }): Promise<Membership> {
   const membership = await deps.store.getMembership(actor.householdId, actor.userId);
   // An organiser still waiting for the resident may invite and connect the
   // television: nobody they invite can read anything until the resident

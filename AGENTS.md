@@ -78,9 +78,17 @@ agent looks up which household holds that Ring device
 no television. The weekly Narrator writes for every household with a paired
 television (`services/agent/src/agents/narrator/everyHousehold.ts`).
 
-**Known gap:** there is still one Ring link per deployment. A household
-cannot connect its own Ring account; the operator hands each device on the
-linked account to a household with `scripts/assign-ring-device.ts`.
+**Each household has its own Ring link.** Its tokens are one secret,
+`wick/ring/tokens/<householdId>`, and there is no Ring client without a
+household (`ringClientsByHousehold`, `services/connectors/ring/src/secrets.ts`):
+the door, the chime, live view and the refresh each read the link of the home
+they are acting for. A home's organiser connects it from the family app. The
+household is the one in their access token at the start, and again at the
+finish — coming back from Ring's sign-in links nothing by itself, because that
+address can be sent to anyone (`services/edge-ring/lambda/authorization.mjs`).
+
+**Never** add a way to reach Ring that does not name a household, and never
+finish a link for anyone but the organiser who started it.
 
 ### INV-9 — Nobody reads a household before the resident allows them
 A membership starts `pending`. The only thing that makes it `allowed` is the
@@ -117,13 +125,18 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
 
 | Where | How a Ring token is obtained |
 |---|---|
-| Lambda / container / AgentCore | `secretsManagerTokenProvider()` — reads `wick/ring/tokens` |
-| The `wick-ring-*` lambdas | Secrets Manager directly (`RING_SECRET_ARN`, `RING_TOKEN_SECRET_ARN`) |
+| Lambda / container / AgentCore | `ringClientsByHousehold()(householdId)` — reads `wick/ring/tokens/<householdId>` |
+| The `wick-ring-*` lambdas | `ring-token.mjs`, which takes the household first (`RING_SECRET_ARN`, `RING_TOKEN_SECRET_PREFIX`) |
+| The Wick server (family app) | Never. It invokes `wick-ring-household-link`, which has custody, and is told only what is linked |
 | A laptop | `scripts/env.ts`, from `.env` |
 
-- **Refresh has exactly one owner:** the hourly `wick-ring-refresh` lambda. Do not
-  add a second refresh path — Ring may rotate the refresh token, and two writers
-  racing over one rotation is how an account silently unlinks.
+- **Refresh has exactly one owner:** the hourly `wick-ring-refresh` lambda, which
+  walks every household's link in turn. Do not add a second refresh path — Ring
+  may rotate the refresh token, and two writers racing over one rotation is how
+  an account silently unlinks.
+- **Only a link creates a household's secret.** A refresh writes to one that
+  exists and fails if it does not (`writeTokens`' `create`): otherwise a refresh
+  in flight during a disconnect would bring the removed link back.
 - **CI holds no AWS keys.** Deploy workflows authenticate by OIDC
   (`aws-actions/configure-aws-credentials` with `vars.AWS_DEPLOY_ROLE_ARN`). A
   role ARN is not a credential; it names a role that will only mint one for a
