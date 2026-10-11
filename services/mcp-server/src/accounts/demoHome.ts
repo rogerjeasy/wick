@@ -29,13 +29,20 @@
  * at the weekend. Last week was like the weeks before it, so its story ends
  * the way Wick's best weeks do: nothing unusual.
  *
+ * With one exception, in the week still under way: the most recent morning
+ * Maria was due, she did not come. It is the one thing in this home that
+ * is unlike its usual, so that "is anything different?" has something to
+ * find (rhythm/different.ts) — said once, calmly, and gone again when she
+ * next comes. Early in a week, before her first morning is over, there is
+ * nothing different at all, which is the commoner answer.
+ *
  * Deterministic: the same moment gives the same history. Only events that
  * have already happened are written, so "today" is as true at nine in the
  * morning as at nine at night.
  */
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { currentIsoWeek, padTimestamp, parseTimestampFromSortKey, type RosterEntry, type WeekNarrative } from '@wick/contracts';
-import { factsWeekNarrative, isoWeekRange } from '@wick/agent';
+import { VISIT_GRACE_MS, factsWeekNarrative, isoWeekRange, parsePattern } from '@wick/agent';
 
 type Item = Record<string, AttributeValue>;
 
@@ -110,6 +117,24 @@ function eventItems(householdId: string, at: number, key: string, visitor: Roste
 }
 
 /**
+ * Which of this week's visits did not happen: the latest one that is over
+ * by the rule Something's Different itself uses (her window, and the grace
+ * after it), so the home never claims a visit was missed while she could
+ * still be on her way. Undefined before her first morning of the week.
+ */
+function missedVisitSlot(thisMonday: number, now: number): number | undefined {
+  const pattern = parsePattern(DEMO_VISITOR.expectedPattern);
+  if (!pattern) return undefined;
+  let missed: number | undefined;
+  WEEK_PATTERN.forEach((slot, index) => {
+    if (!slot.visitor) return;
+    const over = thisMonday + slot.day * DAY + (pattern.minuteOfDay + pattern.windowMin) * MINUTE + VISIT_GRACE_MS;
+    if (over <= now) missed = index;
+  });
+  return missed;
+}
+
+/**
  * Everything the demo home starts with: the roster, the events of the
  * whole weeks before this one and of this week so far, and each whole
  * week's story, already read by the resident (INV-7 holds: they saw it
@@ -119,10 +144,13 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
   const pk = { S: `HH#${householdId}` };
   const thisMonday = isoWeekRange(currentIsoWeek(new Date(now))).startMs;
 
+  const missed = missedVisitSlot(thisMonday, now);
+
   const events: Item[] = [];
   for (let weeksAgo = FIRST_WEEK_AGO; weeksAgo >= 0; weeksAgo -= 1) {
     WEEK_PATTERN.forEach((slot, index) => {
       if (slot.inWeek && !slot.inWeek(weeksAgo)) return;
+      if (weeksAgo === 0 && index === missed) return;
       const at = thisMonday - weeksAgo * WEEK + slot.day * DAY + slot.hour * HOUR + (slot.minute + jitterMinutes(weeksAgo, index)) * MINUTE;
       if (at <= now) events.push(...eventItems(householdId, at, `${weeksAgo}-${index}`, slot.visitor));
     });

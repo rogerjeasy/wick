@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { MAX_NARRATIVE_CHARS, currentIsoWeek, parseTimestampFromSortKey, type RosterEntry, type WeekNarrative } from '@wick/contracts';
-import { factsWeekNarrative, isoWeekRange } from '@wick/agent';
+import { factsWeekNarrative, isoWeekRange, toTimelineEntry, whatsDifferent } from '@wick/agent';
 import { DEMO_HISTORY_TTL_MS, DEMO_HISTORY_WEEKS, DEMO_VISITOR, demoHomeItems, seedDemoHome } from '../demoHome.js';
 
 type Item = Record<string, AttributeValue>;
@@ -47,11 +47,11 @@ describe('the demo home — a history to ask about, from the first minute', () =
     }
   });
 
-  it('has Maria come every Tuesday and Friday morning, inside the time she is expected', () => {
+  it('has Maria come every Tuesday and Friday morning of the weeks before this one, inside the time she is expected', () => {
     const visits = events.filter((i) => i.type!.S === 'presence');
 
-    // Two visits in every whole week, and this week's Tuesday.
-    expect(visits).toHaveLength(FIRST_WEEK * 2 + 1);
+    // Two visits in every whole week. This week's Tuesday is the one she missed (see below).
+    expect(visits).toHaveLength(FIRST_WEEK * 2);
     for (const visit of visits) {
       const when = new Date(at(visit));
       expect(visit.personId!.S).toBe('maria');
@@ -121,6 +121,47 @@ describe('the demo home — a history to ask about, from the first minute', () =
       expect(new Date(first).getUTCDay()).toBe(1);
       expect(first).toBeGreaterThanOrEqual(W42.startMs - FIRST_WEEK * WEEK);
     }
+  });
+});
+
+describe('the demo home — one thing in it is different', () => {
+  /** What Something's Different finds in a demo home made at `now`, read at `readAt`. */
+  const different = (now: number, readAt: number = now) => {
+    const made = demoHomeItems(HH, now, 'Europe/London');
+    const entries = made.flatMap((i) => toTimelineEntry(i) ?? []);
+    const roster = made.filter((i) => i.sk!.S!.startsWith('PER#')).map((i) => JSON.parse(i.data!.S!) as RosterEntry);
+    const observedSince = Math.min(...entries.map((e) => e.at));
+    return whatsDifferent({ entries, roster, now: readAt, observedSince, timeZone: 'Europe/London' });
+  };
+
+  it('is that Maria did not come on her most recent morning — and nothing else', () => {
+    // Made on the Wednesday afternoon: Tuesday was her morning.
+    expect(different(NOW).differences.map((d) => d.sentence)).toEqual([
+      'Maria usually comes on Tuesday mornings. There was no visit yesterday.',
+    ]);
+  });
+
+  it('is her Friday, in a home made after it — and her Tuesday that week is back to usual', () => {
+    const saturday = W42.startMs + 5 * DAY + 10 * 3_600_000;
+    const made = demoHomeItems(HH, saturday, 'Europe/London');
+    const mariaThisWeek = made.filter((i) => i.type?.S === 'presence' && at(i) >= W42.startMs).map((i) => new Date(at(i)).getUTCDay());
+
+    expect(mariaThisWeek).toEqual([2]);
+    expect(different(saturday).differences.map((d) => d.sentence)).toEqual([
+      'Maria usually comes on Friday mornings. There was no visit yesterday.',
+    ]);
+  });
+
+  it('is nothing at all early in the week, before her first morning is over', () => {
+    const tuesdayAtTen = W42.startMs + DAY + 10 * 3_600_000;
+
+    expect(different(tuesdayAtTen)).toMatchObject({ enoughHistory: true, differences: [] });
+  });
+
+  it('never touches the weeks already written: last week still has both her visits', () => {
+    const lastWeek = events.filter((i) => i.type?.S === 'presence' && at(i) >= W42.startMs - WEEK && at(i) < W42.startMs);
+
+    expect(lastWeek).toHaveLength(2);
   });
 });
 

@@ -47,6 +47,7 @@ import { registerDidVisitorCome } from './tools/did_visitor_come.js';
 import { registerSendNoteToTv } from './tools/send_note_to_tv.js';
 import { registerGetReplies } from './tools/get_replies.js';
 import { registerListRegularVisitors } from './tools/list_regular_visitors.js';
+import { registerGetWhatsDifferent } from './tools/get_whats_different.js';
 import { registerExpectVisit } from './tools/expect_visit.js';
 
 /**
@@ -75,6 +76,7 @@ function createMcpServer(ddb: DynamoDBClient, ctx: ToolContext, sendCard: (card:
   registerSendNoteToTv(mcpServer, ctx, sendCard);
   registerGetReplies(mcpServer, ddb, ctx);
   registerListRegularVisitors(mcpServer, ddb, ctx);
+  registerGetWhatsDifferent(mcpServer, ddb, ctx);
   registerExpectVisit(mcpServer, ddb, ctx);
   return mcpServer;
 }
