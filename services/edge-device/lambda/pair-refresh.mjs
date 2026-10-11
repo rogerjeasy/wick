@@ -38,7 +38,7 @@
 import { DynamoDBClient, GetItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { signJwt } from './jwt.mjs';
-import { REFRESH_TOKEN_TTL_SEC, REFRESH_MIN_INTERVAL_MS } from './pairing-code.mjs';
+import { REFRESH_TOKEN_TTL_SEC, nextRefreshWindow } from './pairing-code.mjs';
 import { deviceOwnerKey, householdOfDevice } from './device-owner.mjs';
 
 export function createHandler({ send, privateKey, now, table }) {
@@ -57,28 +57,37 @@ export function createHandler({ send, privateKey, now, table }) {
     if (!householdId) return { statusCode: 404, body: 'device_not_paired' };
 
     const bindingKey = { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } };
-    const item = (await send(new GetItemCommand({ TableName: table, Key: bindingKey }))).Item;
-    if (!item) return { statusCode: 404, body: 'device_not_paired' };
-    if (item.denylisted?.BOOL) return { statusCode: 403, body: 'device_denylisted' };
 
-    // Throttle, not an auth check: bounds repeated/automated minting. A single
-    // caller only needs one successful call to get a token, so this doesn't
-    // defend against that — see this file's header comment for the real trade-off.
-    const at = now();
-    try {
-      await send(new UpdateItemCommand({
-        TableName: table,
-        Key: bindingKey,
-        UpdateExpression: 'SET lastRefreshAt = :now',
-        ConditionExpression: 'attribute_not_exists(lastRefreshAt) OR lastRefreshAt < :cutoff',
-        ExpressionAttributeValues: {
-          ':now': { N: String(at) },
-          ':cutoff': { N: String(at - REFRESH_MIN_INTERVAL_MS) },
-        },
-      }));
-    } catch (err) {
-      if (err?.name !== 'ConditionalCheckFailedException') throw err;
-      return { statusCode: 429, body: 'refresh_rate_limited' };
+    // Counted on the binding row, and written only if the row still says
+    // what was read: the app and its card service ask a second apart, and
+    // neither may lose its place to the other.
+    for (let attempt = 0; ; attempt += 1) {
+      const item = (await send(new GetItemCommand({ TableName: table, Key: bindingKey }))).Item;
+      if (!item) return { statusCode: 404, body: 'device_not_paired' };
+      if (item.denylisted?.BOOL) return { statusCode: 403, body: 'device_denylisted' };
+
+      const next = nextRefreshWindow(item, now());
+      if (!next) return { statusCode: 429, body: 'refresh_rate_limited' };
+      const counted = item.refreshWindowAt && item.refreshCount;
+      try {
+        await send(new UpdateItemCommand({
+          TableName: table,
+          Key: bindingKey,
+          UpdateExpression: 'SET refreshWindowAt = :at, refreshCount = :count',
+          ConditionExpression: counted
+            ? 'refreshWindowAt = :wasAt AND refreshCount = :wasCount'
+            : 'attribute_exists(pk) AND attribute_not_exists(refreshWindowAt)',
+          ExpressionAttributeValues: {
+            ':at': { N: String(next.at) },
+            ':count': { N: String(next.count) },
+            ...(counted ? { ':wasAt': item.refreshWindowAt, ':wasCount': item.refreshCount } : {}),
+          },
+        }));
+        break;
+      } catch (err) {
+        if (err?.name !== 'ConditionalCheckFailedException') throw err;
+        if (attempt >= 2) return { statusCode: 429, body: 'refresh_rate_limited' };
+      }
     }
 
     const jwt = signJwt({ deviceId, householdId }, await privateKey(), { expiresInSec: REFRESH_TOKEN_TTL_SEC });

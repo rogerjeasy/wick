@@ -85,6 +85,59 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-026 — A Vega service whose start takes longer than eight seconds is killed as "not responding", and nothing in the package says a start has a time limit
+
+**Tool / API:**      Vega OS SDK 0.24.12044 / `@amazon-devices/headless-task-manager` 1.2.8
+                     (`registerHeadlessEntryPoint2`, `…::onStartService`), Vega Virtual Device
+
+**Task attempted:**  Have Wick's background card service wait for its device token before it
+                     opens its connection. (It has to ask the server: the simulator keeps no
+                     files, FL-013, so the app and its service — two processes — cannot share
+                     one. The server allowed one such request in 30 seconds, the app had just
+                     made it, so the service's was refused and it waited to ask again.)
+
+**Steps taken:**     1. Made the service's `onStartService` function `await` the token, with a
+                        32-second wait and a second request when the first was refused.
+                     2. Opened Wick. The app ran; `vega device running-apps` no longer listed
+                        the service, and no door alert came up outside Wick.
+                     3. Read `vega device start-log-stream`. Eight seconds after the launch:
+                        `lcm-transition-monitor: Transition timed out - appInst[1663]
+                        (com.wick.tv.card.service): START transition`, then `Forcefully
+                        terminating process 1367917 with reason AppNotResponding` and a crash
+                        report (`crashed with signal 3`).
+
+**Expected:**        Either that a start function may take as long as its work takes — it is
+                     `async`, and the README's example returns a promise — or a stated limit.
+
+**Actual:**          The system gives a service's start about eight seconds and then kills the
+                     process. The package's README (68 lines, the copy installed from npm)
+                     does not mention a limit, a timeout or "not responding"; the online
+                     reference was not re-read for this entry. From the app's side the failure
+                     is silent: the `pkg://` launch succeeds, nothing is thrown, and nothing
+                     restarts the service. Before this, the same missing token had failed the
+                     other way — the service returned at once, stayed alive holding nothing —
+                     which is how a door alert outside Wick had been working only until the
+                     app was next reopened.
+
+**Severity:**        Important — any service that does network work before it is ready (a
+                     token, a handshake) is correct on a fast network and dead on a slow one,
+                     with the reason visible only in the system log.
+
+**Workaround:**      The start returns within three seconds whatever happens, and the
+                     connection is taken up when the token arrives
+                     (`apps/tv-vega/src/headless/CardService.ts`). The server now allows a
+                     launch's worth of refreshes — the app's and its service's, twice in 30
+                     seconds (`services/edge-device/lambda/pairing-code.mjs`).
+
+**Suggestion:**      1. State the time limit of `onStartService` (and `onStopService`) in the
+                        README and the reference, and say what happens when it is passed.
+                     2. Say whether a service killed this way is ever started again, and give
+                        the app a way to learn that the service it launched has gone.
+                     3. A documented way for an app to hand a value to the service it starts
+                        would remove the reason for the wait in the first place (FL-013).
+
+---
+
 ## FL-025 — Fire OS has no emulator, and on the one the FAQ names a television app's remote is silent until something holds focus
 
 **Tool / API:**      Fire TV (Fire OS) with React Native — `react-native-tvos` 0.83.0-0 on the Android

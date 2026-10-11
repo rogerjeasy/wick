@@ -160,6 +160,63 @@ describe('PairingFlow', () => {
       expect(await flow.loadToken('d1')).toBeNull();
     });
 
+    // The server lets one television refresh once in 30 seconds
+    // (edge-device pairing-code.mjs). Where the disk keeps nothing, the app
+    // and its card service each ask when the app is opened — a second apart
+    // — and the card service was the one turned away: it took that for
+    // "not paired" and never held its connection, so a door alert outside
+    // Wick stopped after the first relaunch (seen on the Vega simulator,
+    // 2026-10-11).
+    it('waits and asks again when the server says this television refreshed a moment ago, if told it may wait', async () => {
+      const answers = [
+        new Response('refresh_rate_limited', { status: 429 }),
+        new Response(JSON.stringify({ token: TOKEN }), { status: 200 }),
+      ];
+      const fetchMock = vi.fn(async () => answers.shift()!);
+      const waits: number[] = [];
+      const flow = new PairingFlow(
+        { pairingApiUrl: 'https://pair.example', refreshRetryMs: 32_000, wait: async (ms) => void waits.push(ms) },
+        fakeFs(),
+        fetchMock as unknown as typeof fetch,
+      );
+
+      expect(await flow.loadToken('d1', { waitIfRefreshedJustNow: true })).toEqual(TOKEN);
+      expect(waits).toEqual([32_000]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not wait unless told it may — the app has a screen to show instead', async () => {
+      const fetchMock = vi.fn(async () => new Response('refresh_rate_limited', { status: 429 }));
+      const waits: number[] = [];
+      const flow = new PairingFlow(
+        { pairingApiUrl: 'https://pair.example', wait: async (ms) => void waits.push(ms) },
+        fakeFs(),
+        fetchMock as unknown as typeof fetch,
+      );
+
+      expect(await flow.loadToken('d1')).toBeNull();
+      expect(waits).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives up after a few tries, and never waits on a television the server does not know', async () => {
+      const limited = vi.fn(async () => new Response('refresh_rate_limited', { status: 429 }));
+      const waits: number[] = [];
+      const wait = async (ms: number): Promise<void> => void waits.push(ms);
+      const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', wait }, fakeFs(), limited as unknown as typeof fetch);
+
+      expect(await flow.loadToken('d1', { waitIfRefreshedJustNow: true })).toBeNull();
+      expect(limited).toHaveBeenCalledTimes(4);
+      expect(waits).toHaveLength(3);
+
+      const unknown = vi.fn(async () => new Response('device_not_paired', { status: 404 }));
+      const other = new PairingFlow({ pairingApiUrl: 'https://pair.example', wait }, fakeFs(), unknown as unknown as typeof fetch);
+
+      expect(await other.loadToken('d1', { waitIfRefreshedJustNow: true })).toBeNull();
+      expect(unknown).toHaveBeenCalledTimes(1);
+      expect(waits).toHaveLength(3);
+    });
+
     it('treats a throwing disk read as "nothing cached" and still falls back to refresh', async () => {
       // Reproduces the suspected cause of this session's unexplained
       // background-process SIGABRT crashes: loadToken()'s disk read was

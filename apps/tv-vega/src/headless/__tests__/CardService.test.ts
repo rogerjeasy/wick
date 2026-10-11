@@ -112,6 +112,66 @@ describe('CardService', () => {
     expect(toasts).toEqual([expect.objectContaining({ mTitle: "Someone's at the front door." })]);
   });
 
+  // Seen on the Vega simulator, 2026-10-11. Opening Wick already paired, the
+  // app refreshes its token and starts this service, which asks for the same
+  // refresh a second later and is told "too soon" (one in 30 seconds). And
+  // the system ends a service whose start has not returned in 8 seconds
+  // ("START transition timed out … AppNotResponding"). So the wait has to
+  // happen after the start has returned.
+  it('starts at once when the server says "too soon", and holds the connection once it has its token', async () => {
+    vi.useFakeTimers();
+    const channel = listeningChannel();
+    const token = { jwt: 'j', deviceId: 'wick-tv', householdId: 'h1', expiresAt: Date.now() + 3_600_000 };
+    const answers = [
+      new Response('refresh_rate_limited', { status: 429 }),
+      new Response(JSON.stringify({ token }), { status: 200 }),
+    ];
+    const fetchImpl = vi.fn(async () => answers.shift()!);
+    __setCardServiceTestDeps({
+      fs: fakeFs(),
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      createChannel: channel.createChannel,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    let started = false;
+    void onStartCardService().then(() => {
+      started = true;
+    });
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    expect(started).toBe(true);
+    expect(channel.asked).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(channel.asked).toEqual([{ websocket: { url: 'wss://ws.example', role: 'background' } }]);
+  });
+
+  it('holds nothing if it was stopped while it waited for its token', async () => {
+    vi.useFakeTimers();
+    const channel = listeningChannel();
+    const token = { jwt: 'j', deviceId: 'wick-tv', householdId: 'h1', expiresAt: Date.now() + 3_600_000 };
+    const answers = [
+      new Response('refresh_rate_limited', { status: 429 }),
+      new Response(JSON.stringify({ token }), { status: 200 }),
+    ];
+    __setCardServiceTestDeps({
+      fs: fakeFs(),
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      createChannel: channel.createChannel,
+      fetchImpl: (async () => answers.shift()!) as unknown as typeof fetch,
+    });
+
+    void onStartCardService();
+    await vi.advanceTimersByTimeAsync(4_000);
+    await onStopCardService();
+    await vi.advanceTimersByTimeAsync(40_000);
+
+    expect(channel.asked).toEqual([]);
+  });
+
   it('keeps the card for the app, and does not say it was shown — it has not been', async () => {
     const fs = await pairedFs();
     const channel = listeningChannel();

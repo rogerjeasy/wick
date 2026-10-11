@@ -34,20 +34,38 @@ export interface PairingConfig {
   readonly pairingApiUrl: string;
   readonly pollIntervalMs?: number;
   readonly pollTimeoutMs?: number;
+  /** How long to wait before asking for a refresh again after the server said "too soon". */
+  readonly refreshRetryMs?: number;
+  /** Injectable so tests do not sit through the wait. */
+  readonly wait?: (ms: number) => Promise<void>;
+}
+
+export interface LoadTokenOptions {
+  /**
+   * The server lets one television refresh once in 30 seconds. A caller with
+   * no screen to fall back to — the card service — sets this, and a "too
+   * soon" is waited out and asked again instead of read as "not paired".
+   */
+  readonly waitIfRefreshedJustNow?: boolean;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 3000;
 const DEFAULT_POLL_TIMEOUT_MS = 15 * 60 * 1000; // matches the pairing nonce's 15-minute TTL
+// A little over the server's window (edge-device pairing-code.mjs REFRESH_WINDOW_MS, 30 s): by then it has opened a new one.
+const DEFAULT_REFRESH_RETRY_MS = 32_000;
+const REFRESH_RETRIES = 3;
 
 export class PairingFlow {
   readonly #config: PairingConfig;
   readonly #fs: FileSystemLike;
   readonly #fetch: typeof fetch;
+  readonly #wait: (ms: number) => Promise<void>;
 
   constructor(config: PairingConfig, fs: FileSystemLike, fetchImpl: typeof fetch = fetch) {
     this.#config = config;
     this.#fs = fs;
     this.#fetch = fetchImpl;
+    this.#wait = config.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
   /**
@@ -65,11 +83,11 @@ export class PairingFlow {
    * the actual source of truth for "is this device paired," and for which
    * household it belongs to (INV-8: the television only says who it is).
    */
-  async loadToken(deviceId?: string): Promise<DeviceToken | null> {
+  async loadToken(deviceId?: string, options: LoadTokenOptions = {}): Promise<DeviceToken | null> {
     const cached = await this.#loadTokenFromDisk();
     if (cached) return cached;
     if (!deviceId) return null;
-    return this.#refreshToken(deviceId);
+    return this.#refreshToken(deviceId, options.waitIfRefreshedJustNow === true);
   }
 
   async #loadTokenFromDisk(): Promise<DeviceToken | null> {
@@ -91,12 +109,21 @@ export class PairingFlow {
     }
   }
 
-  async #refreshToken(deviceId: string): Promise<DeviceToken | null> {
-    const res = await this.#fetch(`${this.#config.pairingApiUrl}/pair/refresh`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId }),
-    });
+  async #refreshToken(deviceId: string, patient: boolean): Promise<DeviceToken | null> {
+    const ask = (): Promise<Response> =>
+      this.#fetch(`${this.#config.pairingApiUrl}/pair/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deviceId }),
+      });
+    let res = await ask();
+    // 429: this television refreshed a moment ago — where the disk keeps
+    // nothing (FL-013), that was the app, a second before its card service.
+    // It is paired; the answer is only late.
+    for (let tries = 0; res.status === 429 && patient && tries < REFRESH_RETRIES; tries += 1) {
+      await this.#wait(this.#config.refreshRetryMs ?? DEFAULT_REFRESH_RETRY_MS);
+      res = await ask();
+    }
     // Never paired, denylisted, or the refresh call itself failed — the
     // pairing screen is the safe, fail-closed fallback in every case here.
     if (!res.ok) return null;
