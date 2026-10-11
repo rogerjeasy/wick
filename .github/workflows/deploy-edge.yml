@@ -66,9 +66,20 @@ jobs:
       # Ring credentials are NOT set here. They live in Secrets Manager
       # (wick/ring/credentials, wick/ring/tokens) and are seeded once by
       # infra/bootstrap/put-ring-secret.sh. A deploy must never carry them.
+      # The edge's own Lambda must be what answers, whichever way this
+      # deployment is set. /ring/authorize is the operator's link:
+      #   302  it is on (var.ring_operator_link) and redirects to Ring;
+      #   404 in Wick's own words  it is off, the default now that a home's
+      #        organiser connects Ring from the family app.
+      # API Gateway's own 404 ({"message":"Not Found"}) or any 5xx means the
+      # route or the function is not there, and fails the deploy.
       - name: confirm the edge answers
         run: |
           url=$(terraform -chdir=infra output -raw ring_authorize_url)
-          code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
+          body=$(mktemp)
+          code=$(curl -s -o "$body" -w '%{http_code}' "$url")
           echo "GET $url -> $code"
-          [ "$code" = "302" ] || { echo "expected a 302 redirect to Ring"; exit 1; }
+          if [ "$code" = "302" ]; then exit 0; fi
+          if [ "$code" = "404" ] && grep -q "Wick family app" "$body"; then exit 0; fi
+          echo "expected a 302 redirect to Ring, or the edge's own 404 when the operator's link is off"
+          exit 1
