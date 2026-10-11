@@ -142,12 +142,14 @@ export const MAX_CARD_DETAIL_CHARS = 240;
 
 /**
  * A DOOR card's action ids. Only `dismiss` removes the card on press:
- * `watch_live` opens the live view over it, and `hallway_chime` waits for
- * the patch that says whether the chime rang.
+ * `watch_live` opens the live view over it, `hallway_chime` waits for
+ * the patch that says whether the chime rang, and `ask_family` waits for
+ * the patch that says who was asked — and then for what they answer.
  */
 export const DOOR_ACTIONS = {
   watchLive: 'watch_live',
   hallwayChime: 'hallway_chime',
+  askFamily: 'ask_family',
   dismiss: 'dismiss',
 } as const;
 /** The Week card's actions. `seen` is the only one that releases the week (INV-7). */

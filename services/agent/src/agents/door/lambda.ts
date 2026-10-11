@@ -54,6 +54,7 @@ import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtim
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
 import { createRhythmWriter } from '../../rhythm/writeClient.js';
 import { devicesOfHousehold, ringDeviceOwners, type DdbSend } from '../../store/ringDevices.js';
+import { lookStore, type LookSend } from '../../store/looks.js';
 import { buildDoorActivityKey, buildPresenceKey } from '../../rhythm/records.js';
 
 export type RouteResult = 'sent' | 'skipped' | 'unknown_device' | 'unclaimed_device';
@@ -65,6 +66,8 @@ export interface RouteDeps {
   readonly hasHallwayChime: () => Promise<boolean>;
   /** M4. Most households have not curated one; an empty list is the common answer. */
   readonly listRoster: () => Promise<readonly RosterEntry[]>;
+  /** The names of the people the resident has allowed into the family circle — who "Ask Sarah to look" can reach. */
+  readonly listFamily: () => Promise<readonly string[]>;
   /** M5. Only called when the event actually matches the roster. */
   readonly recordPresence: (match: VisitorMatch, at: number) => Promise<void>;
   /** D3. Called for every door-worthy event, matched or not. */
@@ -105,9 +108,10 @@ export async function routeRingEvent(
   const roster = await deps.listRoster();
   // A failed lookup costs the button, never the card.
   const hallwayChime = await deps.hasHallwayChime().catch(() => false);
+  const family = await deps.listFamily().catch(() => []);
 
   const queued = await handleDoorEvent(
-    { event, device, hallwayChime, householdId: deps.householdId, correlationId, now: deps.now(), roster },
+    { event, device, hallwayChime, householdId: deps.householdId, correlationId, now: deps.now(), roster, family },
     { sendToDevice: deps.sendToDevice },
   );
 
@@ -242,6 +246,11 @@ async function loadRoster(householdId: string): Promise<readonly RosterEntry[]> 
 
 const fetchRoster = cachedRoster({ load: loadRoster });
 
+const looks = lookStore((cmd) => ddb.send(cmd as never) as ReturnType<LookSend>, TABLE);
+const fetchFamily = cachedRoster<string>({
+  load: async (householdId) => (await looks.listFamily(householdId)).map((member) => member.name),
+});
+
 async function recordPresence(householdId: string, match: VisitorMatch, at: number): Promise<void> {
   await ddb.send(new PutItemCommand({
     TableName: TABLE,
@@ -292,6 +301,7 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
       hasHallwayChime: async () =>
         hasHallwayChime(await devicesOfHousehold(householdId, playableChimes(await account.all()), ringDevices.householdOf)),
       listRoster: () => fetchRoster(householdId),
+      listFamily: () => fetchFamily(householdId),
       recordPresence: (match, at) => recordPresence(householdId, match, at),
       recordDoorEvent: (at) => recordDoorEvent(householdId, at),
       recordDoorActivity: (deviceId, subType, measureName, at) =>

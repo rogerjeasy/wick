@@ -9,7 +9,8 @@
  * HTTPS with its device token (live-start.mjs), because it needs the answer
  * — a playlist URL — and a bus can't give one back.
  */
-const SERVER_ACTIONS = new Set(['hallway_chime']);
+// The chime, and "Ask Sarah to look" (services/agent door/askFamily.ts).
+const SERVER_ACTIONS = new Set(['hallway_chime', 'ask_family']);
 
 export function shouldPublish(action) {
   return SERVER_ACTIONS.has(action);

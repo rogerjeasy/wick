@@ -9,16 +9,22 @@
  */
 import type { RosterEntry } from '@wick/contracts';
 
-export interface CachedRosterOptions {
-  readonly load: (householdId: string) => Promise<readonly RosterEntry[]>;
+export interface CachedRosterOptions<T = RosterEntry> {
+  readonly load: (householdId: string) => Promise<readonly T[]>;
   readonly cacheMs?: number;
   readonly now?: () => number;
 }
 
-export function cachedRoster(options: CachedRosterOptions): (householdId: string) => Promise<readonly RosterEntry[]> {
+/**
+ * Also holds the names of the family circle for the door card's "Ask Sarah
+ * to look" button, on the same terms: read rarely, kept per household. The
+ * press itself reads the circle again (askFamily.ts), so a minute-old list
+ * here can cost a button, never show a picture to someone since removed.
+ */
+export function cachedRoster<T = RosterEntry>(options: CachedRosterOptions<T>): (householdId: string) => Promise<readonly T[]> {
   const cacheMs = options.cacheMs ?? 60_000;
   const now = options.now ?? Date.now;
-  const cached = new Map<string, { roster: readonly RosterEntry[]; fetchedAt: number }>();
+  const cached = new Map<string, { roster: readonly T[]; fetchedAt: number }>();
 
   return async (householdId) => {
     const hit = cached.get(householdId);

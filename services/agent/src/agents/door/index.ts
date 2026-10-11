@@ -69,20 +69,52 @@ export interface DoorCardInput {
   readonly now: number;
   /** M4. Omitted (not just empty) is the common case — most households haven't curated one yet. */
   readonly roster?: readonly RosterEntry[];
+  /**
+   * The names of the people the resident has allowed into the family circle
+   * (INV-9) — the only people a door picture can be put in front of. Omitted
+   * or empty: nobody to ask.
+   */
+  readonly family?: readonly string[];
+}
+
+/** The longest first name that still fits a button in 32pt type beside two others. */
+const MAX_NAME_ON_BUTTON = 12;
+
+/**
+ * Who the resident would be asking, in the words a button and a notice can
+ * carry: one person's first name, or "the family" when several could answer
+ * or the name would not fit. Undefined when there is nobody to ask.
+ */
+export function familyToAsk(family: readonly string[] | undefined): string | undefined {
+  if (!family || family.length === 0) return undefined;
+  const first = family.length === 1 ? family[0]!.trim().split(/\s+/)[0] : undefined;
+  return first && first.length <= MAX_NAME_ON_BUTTON ? first : 'the family';
 }
 
 /**
  * The three buttons — minus any the household cannot actually do.
  *
- * The middle one rings the hallway chime: Ring's API can play audio only on a
+ * The middle one is for a second opinion. When nobody is expected and the
+ * resident has allowed someone into the family circle, it asks that person
+ * to look at the picture (askFamily.ts): the resident has no telephone in
+ * their hand, a stranger is on the step, and the person they would ring is
+ * one press away. For a visitor the household expects there is nothing to
+ * ask.
+ *
+ * Otherwise it rings the hallway chime: Ring's API can play audio only on a
  * Chime, an indoor speaker, so it tells the rest of the house, not the visitor
  * (spec D1). It is only offered when a playable chime exists; a button that
  * fails when pressed is worse than one that was never there (D6).
+ *
+ * Never both. Three, never four (Principle 6), and when a stranger is at the
+ * door someone who can look matters more than a sound in the hall.
  */
-function actionsFor(hallwayChime: boolean): readonly CardAction[] {
+function actionsFor(hallwayChime: boolean, ask: string | undefined): readonly CardAction[] {
   const actions: CardAction[] = [{ id: DOOR_ACTIONS.watchLive, label: 'Watch live', kind: 'primary' }];
 
-  if (hallwayChime) {
+  if (ask) {
+    actions.push({ id: DOOR_ACTIONS.askFamily, label: `Ask ${ask} to look`, kind: 'secondary' });
+  } else if (hallwayChime) {
     actions.push({ id: DOOR_ACTIONS.hallwayChime, label: 'Ring the hallway chime', kind: 'secondary' });
   }
 
@@ -113,7 +145,7 @@ function cardIdFor(eventId: string): string {
  * (INV-6: idempotent and correlated).
  */
 export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
-  const { event, hallwayChime, householdId, correlationId, now, roster } = input;
+  const { event, hallwayChime, householdId, correlationId, now, roster, family } = input;
   const match = roster ? matchVisitor(roster, event.start) : undefined;
 
   return {
@@ -123,7 +155,7 @@ export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
     correlationId,
     createdAt: now,
     line: DOOR_LINE,
-    actions: actionsFor(hallwayChime),
+    actions: actionsFor(hallwayChime, match ? undefined : familyToAsk(family)),
     ...(match ? { match } : {}),
   };
 }

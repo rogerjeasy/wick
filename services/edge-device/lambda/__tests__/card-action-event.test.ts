@@ -21,3 +21,9 @@ describe('card-action-event — presses the agent plane has to carry out', () =>
     });
   });
 });
+
+describe('shouldPublish — asking the family to look', () => {
+  it('hands "ask_family" to the agent plane: who is asked, and telling the resident, are decided there', () => {
+    expect(shouldPublish('ask_family')).toBe(true);
+  });
+});

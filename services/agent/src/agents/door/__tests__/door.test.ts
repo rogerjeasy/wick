@@ -136,6 +136,53 @@ describe('buildPhaseOneCard — M4 Known Visitors', () => {
   });
 });
 
+describe('buildPhaseOneCard — asking the family to look', () => {
+  const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' };
+  const withFamily = (family: readonly string[], over: { hallwayChime?: boolean; start?: number; roster?: readonly RosterEntry[] } = {}) =>
+    buildPhaseOneCard({
+      event: { ...event, start: over.start ?? event.start },
+      device,
+      hallwayChime: over.hallwayChime ?? false,
+      householdId: 'hh-1',
+      correlationId: 'corr-abc',
+      now: 1789455094000,
+      family,
+      ...(over.roster ? { roster: over.roster } : {}),
+    });
+
+  it('offers to ask the one person the resident has allowed, by first name, when nobody is expected', () => {
+    const actions = withFamily(['Sarah Whitfield']).actions;
+    expect(actions.map((a) => a.id)).toEqual(['watch_live', 'ask_family', 'dismiss']);
+    expect(actions[1]).toEqual({ id: 'ask_family', label: 'Ask Sarah to look', kind: 'secondary' });
+  });
+
+  it('asks "the family" when more than one person could answer', () => {
+    expect(withFamily(['Sarah', 'Tom']).actions[1]!.label).toBe('Ask the family to look');
+  });
+
+  it('asks "the family" rather than squeeze a long name onto a button', () => {
+    expect(withFamily(['Bartholomew-James Whitfield']).actions[1]!.label).toBe('Ask the family to look');
+  });
+
+  it('offers nothing when the resident has allowed nobody — a button that reaches no one is worse than none', () => {
+    expect(withFamily([]).actions.map((a) => a.id)).toEqual(['watch_live', 'dismiss']);
+    expect(build(false).actions.map((a) => a.id)).toEqual(['watch_live', 'dismiss']);
+  });
+
+  it('offers nothing when the visitor is someone the household expects', () => {
+    // Tuesday 2026-09-15 09:10 UTC — inside Maria's expected window.
+    const card = withFamily(['Sarah'], { start: Date.UTC(2026, 8, 15, 9, 10), roster: [maria] });
+    expect(card.match?.name).toBe('Maria');
+    expect(card.actions.map((a) => a.id)).toEqual(['watch_live', 'dismiss']);
+  });
+
+  it('takes the middle place from the hallway chime — three buttons, never four', () => {
+    const actions = withFamily(['Sarah'], { hallwayChime: true }).actions;
+    expect(actions.map((a) => a.id)).toEqual(['watch_live', 'ask_family', 'dismiss']);
+    expect(actions.length).toBeLessThanOrEqual(MAX_CARD_ACTIONS);
+  });
+});
+
 describe('validateDescription', () => {
   it('accepts the sentence the product is built around', () => {
     expect(validateDescription('A man in a delivery uniform, holding a parcel.')).toBe(true);

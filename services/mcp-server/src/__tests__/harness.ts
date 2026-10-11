@@ -74,6 +74,7 @@ export async function startServer(overrides: Partial<AppDeps> = {}, issuer = 'ht
     store: createMemoryStore(),
     identity: createFakeIdentity(),
     sendCard: async (card) => void cards.push(card),
+    sendPatch: async () => {},
     ddb: { send: async () => ({}) } as unknown as DynamoDBClient,
     ...overrides,
   };

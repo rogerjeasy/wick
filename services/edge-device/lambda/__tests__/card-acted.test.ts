@@ -116,3 +116,8 @@ describe('replayedCard — what reconcile sends back', () => {
   });
 });
 
+describe('retiresCard — asking the family to look', () => {
+  it('keeps the door card: the answer arrives on it, so reconcile must still replay it', () => {
+    expect(retiresCard('ask_family')).toBe(false);
+  });
+});

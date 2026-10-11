@@ -9,6 +9,7 @@ import {
   HELP_TEXT,
   confirmWrite,
   describeCall,
+  doorQuestionToAnnounce,
   inviteLink,
   needsConfirmation,
   presentCircle,
@@ -210,6 +211,9 @@ function signedOut(reason) {
   mcpInitialized = false;
   toolInfo = null;
   conversation.length = 0;
+  if (doorWatch !== null) clearInterval(doorWatch);
+  doorWatch = null;
+  announcedDoorQuestions.clear();
   enableToolButtons(false);
   setStatus(reason);
   // The link card is back on screen, so its demo button must be decided
@@ -442,7 +446,59 @@ function renderRows(card) {
   return rows;
 }
 
+/**
+ * A question from the front door: the picture the resident is looking at,
+ * the sentence under it, and each answer as a button carrying the very
+ * words that will be shown on the television. Pressing one is the answer —
+ * there is nothing further to confirm, because nothing is sent that the
+ * button did not say.
+ */
+function renderDoorCard(card) {
+  const node = el('article', 'card door');
+  const head = el('div', 'card-head');
+  head.appendChild(el('h2', 'card-title', card.title));
+  head.appendChild(el('span', 'card-meta', card.meta));
+  node.appendChild(head);
+
+  if (card.pictureUrl) {
+    const picture = el('img', 'door-picture');
+    picture.src = card.pictureUrl;
+    picture.alt = card.description ?? 'The picture from the doorbell';
+    // Ring's address for the picture is signed: it is not passed on to anyone.
+    picture.referrerPolicy = 'no-referrer';
+    node.appendChild(picture);
+  } else {
+    node.appendChild(el('p', 'empty', 'The picture has not arrived yet.'));
+  }
+  if (card.description) node.appendChild(el('p', 'door-description', card.description));
+
+  const answers = el('div', 'door-answers');
+  for (const answer of card.answers) {
+    const button = el('button', 'btn', answer.text);
+    button.type = 'button';
+    button.addEventListener('click', () => void answerDoorQuestion(card.requestId, answer.key, answers));
+    answers.appendChild(button);
+  }
+  node.appendChild(answers);
+  node.appendChild(cardFoot(card.footnote));
+  return node;
+}
+
+async function answerDoorQuestion(requestId, answer, buttons) {
+  const all = [...buttons.querySelectorAll('button')];
+  for (const button of all) button.disabled = true;
+  try {
+    const result = await callTool('answer_door_request', { requestId, answer });
+    assistantSays(presentResult('answer_door_request', result.content?.[0]?.text ?? '', {}, formatTime, result.isError === true));
+  } catch (err) {
+    // Nothing was shown: the answers can be pressed again.
+    for (const button of all) button.disabled = false;
+    assistantSays({ say: err.message, tone: 'error' });
+  }
+}
+
 function renderCard(card) {
+  if (card.kind === 'door') return renderDoorCard(card);
   const node = el('article', 'card');
   const head = el('div', 'card-head');
   head.appendChild(el('h2', 'card-title', card.title));
@@ -756,6 +812,50 @@ function assistantSays(presented) {
   log.appendChild(turn);
   fillAssistantTurn(turn, { card: null, ...presented });
   return turn;
+}
+
+// ---------------------------------------------------------------------------
+// The door. When the resident presses "Ask … to look" on the television,
+// the person asked should not have to think of asking. While this page is
+// open it looks, over the same MCP tool anyone could call, and says so once.
+// ---------------------------------------------------------------------------
+
+const DOOR_WATCH_MS = 5000;
+/** Each question announced in this page, and the turn it was announced in. */
+const announcedDoorQuestions = new Map();
+let doorWatch = null;
+
+async function lookForDoorQuestion() {
+  // Not behind another tab, and not across an answer being given. Whether
+  // the resident allows this person is the server's to say, on every look
+  // (INV-9): what this page knew at sign-in may be minutes old either way.
+  if (document.hidden || !me || answering) return;
+  try {
+    const result = await callTool('get_door_request', {});
+    if (result.isError === true) return;
+    const text = result.content?.[0]?.text ?? '';
+    const presented = presentResult('get_door_request', text, {}, formatTime);
+    const fresh = doorQuestionToAnnounce(text, new Set(announcedDoorQuestions.keys()));
+    if (fresh) {
+      announcedDoorQuestions.set(fresh, { turn: assistantSays(presented), shown: text });
+      return;
+    }
+    // The picture and the sentence reach the door card a few seconds after
+    // the card itself: a question already on the page is redrawn, not said again.
+    const known = presented.card?.kind === 'door' ? announcedDoorQuestions.get(presented.card.requestId) : undefined;
+    if (known && known.shown !== text && !known.turn.querySelector('.door-answers button:disabled')) {
+      known.shown = text;
+      known.turn.querySelector('.card.door')?.replaceWith(renderCard(presented.card));
+    }
+  } catch {
+    // A look that failed is tried again; nothing is said about it.
+  }
+}
+
+function watchTheDoor() {
+  if (doorWatch !== null) clearInterval(doorWatch);
+  doorWatch = setInterval(() => void lookForDoorQuestion(), DOOR_WATCH_MS);
+  void lookForDoorQuestion();
 }
 
 /** A card the app itself draws under a sentence: title, body, footnote. */
@@ -1081,6 +1181,7 @@ async function welcome() {
   sessionStorage.removeItem('wick_pair');
   if (me.membership.role === 'organiser' && (pair || presented.next === 'connect')) addConnectTelevision(pair ?? undefined);
   else $('ask-input').focus();
+  watchTheDoor();
 }
 
 /** The rules this page answered by before there was a model, and still does when there is none. */

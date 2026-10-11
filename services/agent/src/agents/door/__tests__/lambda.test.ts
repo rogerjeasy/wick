@@ -25,6 +25,7 @@ function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     findDevice: vi.fn(async () => device),
     hasHallwayChime: vi.fn(async () => false),
     listRoster: vi.fn(async () => []),
+    listFamily: vi.fn(async () => []),
     recordPresence: vi.fn(async (_match: VisitorMatch, _at: number) => {}),
     recordDoorEvent: vi.fn(async (_at: number) => {}),
     recordDoorActivity: vi.fn(async (_deviceId: string, _subType: string, _measureName: 'motion' | 'button_press', _at: number) => {}),
@@ -52,6 +53,24 @@ describe('routeRingEvent', () => {
     const deps = baseDeps({ hasHallwayChime: vi.fn(async () => { throw new Error('ring down'); }) });
     expect(await routeRingEvent(detail, deps)).toBe('sent');
     const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0]!;
+    expect(sent.card.actions.map((a) => a.id)).toEqual(['watch_live', 'dismiss']);
+  });
+
+  it('offers to ask the family when the resident has allowed someone and nobody is expected', async () => {
+    const deps = baseDeps({ listFamily: vi.fn(async () => ['Sarah']) });
+
+    await routeRingEvent(detail, deps);
+
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0];
+    expect(sent.card.actions.map((a) => a.id)).toEqual(['watch_live', 'ask_family', 'dismiss']);
+  });
+
+  it('leaves the ask button off when the circle cannot be read, and still sends the card', async () => {
+    const deps = baseDeps({ listFamily: vi.fn(async () => { throw new Error('table down'); }) });
+
+    expect(await routeRingEvent(detail, deps)).toBe('sent');
+
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0];
     expect(sent.card.actions.map((a) => a.id)).toEqual(['watch_live', 'dismiss']);
   });
 

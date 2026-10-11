@@ -41,6 +41,18 @@ export const REPLY_CHOICES = {
   lovely: "That's lovely to hear.",
 };
 
+/**
+ * What can be answered when the resident asks someone to look at the door.
+ * The server's own list (packages/contracts door.ts), copied because this
+ * page has no build step, and held equal to it by a test. Only these are
+ * ever drawn as buttons: an answer this page does not know is not offered.
+ */
+export const DOOR_ANSWERS = {
+  known: "It's all right, I know who that is.",
+  dont_open: "Please don't open the door. I'll ring you now.",
+  not_sure: "I can't tell who that is. I'll ring you now.",
+};
+
 /** The chips under the conversation. Each must route to a tool (tested). */
 export const SUGGESTIONS = [
   { label: 'How’s Mum been this week?', utterance: "How's Mum been this week?" },
@@ -49,6 +61,7 @@ export const SUGGESTIONS = [
   { label: 'Is anything different?', utterance: 'Is anything different?' },
   { label: 'Send a note to her television', utterance: "Put a note on Mum's television" },
   { label: 'Has Mum replied?', utterance: 'Has Mum replied?' },
+  { label: 'Did Mum ask me to look?', utterance: 'Has Mum asked me to look at the door?' },
   { label: 'What can I see?', utterance: 'What can I see about Mum?' },
   { label: 'Family circle', utterance: 'Who is in the family circle?' },
 ];
@@ -106,6 +119,10 @@ export function routeUtterance(text, now = Date.now()) {
 
   // The doorbell is the app's own business too: connecting Ring is something the organiser does here.
   if (/\b(connect|disconnect|link|unlink)\b.*\b(doorbell|ring)\b|\bdoorbell\b.*\bconnected\b/.test(t)) return { kind: 'doorbell' };
+
+  // "Ask Sarah to look": the resident's question about who is at the door.
+  // Narrow on purpose — "did anyone come to the door today" is the day's list.
+  if (/\bask(?:ed|ing)? (?:me|us) to look\b|\bwho(?:'|’)?s at\b.*\bdoor\b|\bwho is at\b.*\bdoor\b|\bsomeone at\b.*\bdoor\b/.test(t)) return tool('get_door_request');
 
   // Replies first: "has Mum replied to my note" mentions a note, and is not one.
   if (/\brepl(y|ied|ies)\b|\banswered\b|written back/.test(t)) return tool('get_replies');
@@ -407,6 +424,56 @@ function presentDifferent(answer, formatTime) {
   };
 }
 
+/** Only a picture over https is ever drawn: the address comes from a tool result, and is put in an <img>. */
+const httpsUrl = (value) => (typeof value === 'string' && /^https:\/\/[^\s"'<>]+$/.test(value) ? value : null);
+
+/**
+ * A question from the front door (get_door_request). While it waits it is a
+ * card with the picture the resident is looking at, the one sentence under
+ * it, and the answers that can be given — as buttons, each showing the very
+ * words that will appear on the television.
+ */
+function presentDoorRequest(request, formatTime) {
+  if (request.state === 'answered' && request.answer) {
+    return { say: `${request.answer.by} answered ${formatTime(request.answer.at)}: “${request.answer.text}”`, card: null, tone: 'answer' };
+  }
+  if (request.state !== 'waiting') {
+    return { say: `You were asked to look at the door ${formatTime(request.askedAt)}. The door card has since gone from the television.`, card: null, tone: 'answer' };
+  }
+  const description = typeof request.description === 'string' && request.description ? request.description : null;
+  const pictureUrl = httpsUrl(request.pictureUrl);
+  const offered = Array.isArray(request.answers) ? request.answers : [];
+  return {
+    say: `You have been asked to look at the door. ${description ?? (pictureUrl ? 'The picture is below.' : 'The picture has not arrived yet.')}`,
+    tone: 'answer',
+    card: {
+      kind: 'door',
+      title: typeof request.line === 'string' ? request.line : 'Someone’s at the front door.',
+      meta: `Asked ${formatTime(request.askedAt)}`,
+      requestId: request.requestId,
+      pictureUrl,
+      description,
+      // The words on each button are the server's, and only for a key this page knows.
+      answers: offered.filter((a) => Object.hasOwn(DOOR_ANSWERS, a?.key) && DOOR_ANSWERS[a.key] === a.text).map((a) => ({ key: a.key, text: a.text })),
+      footnote: 'Your answer goes on the television at once, under your name.',
+    },
+  };
+}
+
+/**
+ * Whether a look at get_door_request, made unasked while the app is open,
+ * found something to say: a question still waiting that has not been
+ * announced yet. Returns its id, or null.
+ *
+ * @param {string} raw  the tool result's text
+ * @param {Set<string>} announced  the ids already announced in this page
+ */
+export function doorQuestionToAnnounce(raw, announced) {
+  const request = parseJson(raw);
+  if (!request || request.state !== 'waiting' || typeof request.requestId !== 'string') return null;
+  return announced.has(request.requestId) ? null : request.requestId;
+}
+
 function presentVisitors(list, formatTime) {
   const visitors = list.visitors ?? [];
   const expected = list.expected ?? [];
@@ -560,6 +627,10 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (toolName === 'send_note_to_tv' && parsed.sent === true) return presentNoteSent(context, parsed);
   if (toolName === 'get_replies' && Array.isArray(parsed.notes)) return presentReplies(parsed, formatTime);
   if (toolName === 'get_resident_shared_view' && Array.isArray(parsed.sharedWithFamily)) return presentSharedView(parsed);
+  if (toolName === 'get_door_request' && typeof parsed.requestId === 'string' && typeof parsed.state === 'string') return presentDoorRequest(parsed, formatTime);
+  if (toolName === 'answer_door_request' && parsed.shown === true) {
+    return { say: `It is on the television now: “${parsed.by} says: ${parsed.text}”`, card: null, tone: 'answer' };
+  }
 
   // A shape this surface does not know: say so, never render a guess.
   return { say: 'I got an answer I could not read.', card: null, tone: 'error' };
@@ -610,11 +681,13 @@ export function describeCall(toolName, args = {}) {
     case 'send_note_to_tv': return 'Put a note on the television';
     case 'expect_visit': return 'Told the door';
     case 'add_regular_visitor': return 'Added a regular visitor';
+    case 'get_door_request': return 'Looked at the question from the door';
+    case 'answer_door_request': return 'Answered on the television';
     default: return 'Asked Wick';
   }
 }
 
-const DECLINED_TRACE = { send_note_to_tv: 'Did not send the note', expect_visit: 'Did not tell the door' };
+const DECLINED_TRACE = { send_note_to_tv: 'Did not send the note', expect_visit: 'Did not tell the door', answer_door_request: 'Did not answer' };
 
 /** "Saturday 17 October, 15:00" from the date and time a visit was asked for — said in full, so a wrong day is seen before it is sent. */
 function visitWhen(date, time) {
@@ -680,6 +753,17 @@ export function confirmWrite(toolName, args = {}, title) {
       ],
       confirmLabel: 'Send',
       footnote: 'It appears at the next natural break, never in the middle of a programme.',
+    };
+  }
+  if (toolName === 'answer_door_request') {
+    const key = String(args.answer ?? '');
+    return {
+      title: 'Show this on the television?',
+      // The sentence itself, for a key this page knows; otherwise the key as
+      // it was passed — the server will refuse it, and it is not dressed up.
+      fields: [['Your answer', Object.hasOwn(DOOR_ANSWERS, key) ? DOOR_ANSWERS[key] : key], ...otherFields(args, ['answer'])],
+      confirmLabel: 'Show it',
+      footnote: 'It appears on the door card at once, under your name.',
     };
   }
   return {

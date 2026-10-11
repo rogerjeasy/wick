@@ -157,6 +157,14 @@ describe('systemPrompt', () => {
     expect(systemPrompt(WHO, lateTuesday, TZ)).toContain('Wednesday 14 October = 2026-10-14 (today)');
   });
 
+  it('lets the model look at a question from the door, and never answer one the person did not', () => {
+    const prompt = systemPrompt(WHO, NOW, TZ);
+
+    expect(prompt).toContain('get_door_request');
+    expect(prompt).toMatch(/answer_door_request only when Sarah has said what to answer/);
+    expect(prompt).toMatch(/never choose an answer for Sarah/i);
+  });
+
   it('tells the model a demo home’s history is simulated', () => {
     expect(systemPrompt({ ...WHO, simulated: true }, NOW, TZ)).toMatch(/simulated/);
     expect(systemPrompt(WHO, NOW, TZ)).not.toMatch(/simulated/);
