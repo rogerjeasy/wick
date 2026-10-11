@@ -342,6 +342,23 @@ function presentExpectedVisit(visit, formatTime) {
   };
 }
 
+function presentRegularVisitor(added) {
+  const days = added.usualDays ? ` on ${added.usualDays}` : '';
+  return {
+    say: added.changed ? `Changed. ${added.name} is now expected${days}.` : `Added. The door will expect ${added.name}${days}.`,
+    tone: 'answer',
+    card: {
+      kind: 'confirmation',
+      title: added.changed ? 'A regular visitor, changed' : 'A regular visitor, added',
+      fields: [
+        ['Who', added.name ?? ''],
+        ['Usually', added.usualDays || 'No days given'],
+      ],
+      footnote: 'By the day and the time, never by a face.',
+    },
+  };
+}
+
 function presentNoteSent(context, sent) {
   return {
     say: 'Sent. It will appear on the television at the next natural break, never in the middle of a programme.',
@@ -424,6 +441,7 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (toolName === 'list_regular_visitors' && Array.isArray(parsed.visitors)) return presentVisitors(parsed, formatTime);
   if (toolName === 'get_whats_different' && Array.isArray(parsed.differences)) return presentDifferent(parsed, formatTime);
   if (toolName === 'expect_visit' && parsed.expected === true) return presentExpectedVisit(parsed, formatTime);
+  if (toolName === 'add_regular_visitor' && parsed.added === true) return presentRegularVisitor(parsed);
   if (toolName === 'send_note_to_tv' && parsed.sent === true) return presentNoteSent(context, parsed);
   if (toolName === 'get_replies' && Array.isArray(parsed.notes)) return presentReplies(parsed, formatTime);
   if (toolName === 'get_resident_shared_view' && Array.isArray(parsed.sharedWithFamily)) return presentSharedView(parsed);
@@ -476,6 +494,7 @@ export function describeCall(toolName, args = {}) {
     case 'get_resident_shared_view': return 'Checked what is shared';
     case 'send_note_to_tv': return 'Put a note on the television';
     case 'expect_visit': return 'Told the door';
+    case 'add_regular_visitor': return 'Added a regular visitor';
     default: return 'Asked Wick';
   }
 }
@@ -512,6 +531,19 @@ export function confirmWrite(toolName, args = {}, title) {
       fields: [['When', visitWhen(args.date, args.time)], ...otherFields(args, ['date', 'time'])],
       confirmLabel: 'Tell the door',
       footnote: 'If the doorbell goes within an hour of then, the television says it looks like you.',
+    };
+  }
+  if (toolName === 'add_regular_visitor') {
+    return {
+      title: 'Add a regular visitor?',
+      fields: [
+        ['Who', String(args.name ?? '')],
+        ['Days', Array.isArray(args.days) ? args.days.map((d) => sentenceCase(String(d))).join(', ') : ''],
+        ['Around', String(args.time ?? '')],
+        ...otherFields(args, ['name', 'days', 'time']),
+      ],
+      confirmLabel: 'Add',
+      footnote: 'When the doorbell goes around then on one of those days, the television says who it looks like. It goes by the day and the time, never by a face.',
     };
   }
   if (toolName === 'send_note_to_tv') {

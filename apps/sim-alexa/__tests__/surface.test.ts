@@ -362,6 +362,37 @@ describe('inviteLink', () => {
 // The model-driven conversation: a turn can take several tools.
 // ---------------------------------------------------------------------------
 
+describe('adding a regular visitor', () => {
+  it('asks first, in words: who, which days, around when', () => {
+    const asked = confirmWrite('add_regular_visitor', { name: 'Maria', days: ['tuesday', 'friday'], time: '09:00' });
+
+    expect(asked.title).toBe('Add a regular visitor?');
+    expect(asked.fields).toEqual([['Who', 'Maria'], ['Days', 'Tuesday, Friday'], ['Around', '09:00']]);
+    expect(asked.confirmLabel).toBe('Add');
+  });
+
+  it('shows anything else the assistant tried to pass, so nothing rides along unseen', () => {
+    const asked = confirmWrite('add_regular_visitor', { name: 'Maria', days: ['tuesday'], time: '09:00', note: 'has a key' });
+
+    expect(asked.fields.some(([, value]: [string, string]) => String(value).includes('has a key'))).toBe(true);
+  });
+
+  it('says it is done, and when the door will expect them', () => {
+    const added = JSON.stringify({ added: true, changed: false, personId: 'maria', name: 'Maria', usualDays: 'Tuesday and Friday mornings' });
+
+    const r = presentResult('add_regular_visitor', added, {}, at);
+
+    expect(r.say).toBe('Added. The door will expect Maria on Tuesday and Friday mornings.');
+    expect(r.card.fields).toEqual([['Who', 'Maria'], ['Usually', 'Tuesday and Friday mornings']]);
+  });
+
+  it('says changed, not added, for someone already on the roster', () => {
+    const changed = JSON.stringify({ added: true, changed: true, personId: 'maria', name: 'Maria', usualDays: 'Monday mornings' });
+
+    expect(presentResult('add_regular_visitor', changed, {}, at).say).toBe('Changed. Maria is now expected on Monday mornings.');
+  });
+});
+
 describe("Something's Different", () => {
   const missed = { kind: 'missed_visit', sentence: 'Maria usually comes on Friday mornings. There has been no visit today.', at: 700 };
 
@@ -415,6 +446,7 @@ describe('describeCall — what a step did, in a few words', () => {
     expect(describeCall('did_visitor_come', { personId: 'maria', day: 'tuesday' })).toBe('Checked Tuesday’s visits');
     expect(describeCall('send_note_to_tv', { message: 'Hi' })).toBe('Put a note on the television');
     expect(describeCall('expect_visit', { date: '2026-10-17', time: '15:00' })).toBe('Told the door');
+    expect(describeCall('add_regular_visitor', { name: 'Maria' })).toBe('Added a regular visitor');
     expect(describeCall('did_visitor_come', { personId: 'maria', date: '2026-10-09' })).toBe('Checked 9 October’s visits');
     expect(describeCall('get_today', { date: '2026-10-09' })).toBe('Looked at 9 October');
     expect(describeCall('something_new', {})).toBe('Asked Wick');
