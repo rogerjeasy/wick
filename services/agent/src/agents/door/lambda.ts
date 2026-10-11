@@ -45,7 +45,7 @@ import { randomUUID } from 'node:crypto';
 import { DynamoDBClient, PutItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { handleDoorEvent } from './handle.js';
 import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
-import { matchVisitor } from './roster.js';
+import { matchVisitor, stillWelcome } from './roster.js';
 import { cachedRoster } from './rosterCache.js';
 import { buildDoorEventItem, buildPresenceItem } from './presence.js';
 import { runDoorPhase2, type Phase2Outcome } from './phase2.js';
@@ -211,18 +211,22 @@ const rhythmWriter = createRhythmWriter(ddb, TABLE);
 const ringDevices = ringDeviceOwners((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
 
 async function loadRoster(householdId: string): Promise<readonly RosterEntry[]> {
-  const res = await ddb.send(new QueryCommand({
+  const rows = (prefix: string) => ddb.send(new QueryCommand({
     TableName: TABLE,
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
     ExpressionAttributeValues: {
       ':pk': { S: `HH#${householdId}` },
-      ':prefix': { S: 'PER#' },
+      ':prefix': { S: prefix },
     },
   }));
-  return (res.Items ?? [])
+  // The circle is read with the roster: a visit announced by someone since
+  // removed must not be matched (roster.ts stillWelcome).
+  const [people, members] = await Promise.all([rows('PER#'), rows('MEM#')]);
+  const roster = (people.Items ?? [])
     .map((item) => item.data?.S)
     .filter((s): s is string => Boolean(s))
     .map((s) => JSON.parse(s) as RosterEntry);
+  return stillWelcome(roster, members.Items ?? []);
 }
 
 const fetchRoster = cachedRoster({ load: loadRoster });

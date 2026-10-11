@@ -43,3 +43,19 @@ export function userIdFromCircleCardId(cardId: string): string | undefined {
  * member's bearer token when they connect a television.
  */
 export const ACCESS_TOKEN_KEY_PREFIX = 'OAUTH#AT#';
+
+/**
+ * A family member, as a person on the household's roster: how a visit they
+ * announced is filed (the family's expect_visit tool), and how the Door
+ * agent tells such an entry from a regular visitor's.
+ */
+const MEMBER_PERSON_PREFIX = 'member-';
+
+export function memberPersonId(userId: string): string {
+  return `${MEMBER_PERSON_PREFIX}${userId}`;
+}
+
+/** The member behind a roster person id, or undefined for a regular visitor. */
+export function userIdOfMemberPerson(personId: string): string | undefined {
+  return personId.startsWith(MEMBER_PERSON_PREFIX) ? personId.slice(MEMBER_PERSON_PREFIX.length) : undefined;
+}

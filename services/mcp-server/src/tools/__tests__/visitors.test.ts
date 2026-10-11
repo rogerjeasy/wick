@@ -59,7 +59,18 @@ describe('loadVisitors — who comes to this house, in words', () => {
     person(table, 'PER#member-u_sarah#2026-10-17', { personId: 'member-u_sarah', name: 'Sarah', expectedOnce: { at, windowMin: 60 } });
     person(table, 'PER#member-u_tom#2026-10-10', { personId: 'member-u_tom', name: 'Tom', expectedOnce: { at: Date.UTC(2026, 9, 10, 14), windowMin: 60 } });
 
+    table.put({ pk: { S: `HH#${HH}` }, sk: { S: 'MEM#u_sarah' }, status: { S: 'allowed' } });
+    table.put({ pk: { S: `HH#${HH}` }, sk: { S: 'MEM#u_tom' }, status: { S: 'allowed' } });
+
     expect(await loadVisitors(table.ddb, HH, NOW)).toEqual({ visitors: [], expected: [{ name: 'Sarah', at }] });
+  });
+
+  it('never lists a visit announced by someone who has since been removed from the circle', async () => {
+    const table = createMemoryTable();
+    person(table, 'PER#member-u_tom#2026-10-17', { personId: 'member-u_tom', name: 'Tom', expectedOnce: { at: Date.UTC(2026, 9, 17, 14), windowMin: 60 } });
+    table.put({ pk: { S: `HH#${HH}` }, sk: { S: 'MEM#u_tom' }, status: { S: 'removed' } });
+
+    expect((await loadVisitors(table.ddb, HH, NOW)).expected).toEqual([]);
   });
 });
 

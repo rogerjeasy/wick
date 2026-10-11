@@ -13,6 +13,7 @@
  */
 import { QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { padTimestamp, parseTimestampFromSortKey, type RosterEntry } from '@wick/contracts';
+import { stillWelcome } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { expectedToday } from './did_visitor_come.js';
@@ -60,13 +61,20 @@ export function describePattern(pattern: string | undefined): string | undefined
   return `${listed} ${partOfDay(Number(m[2]))}`;
 }
 
+/**
+ * The household's roster, read with its circle: an announced visit whose
+ * author the resident no longer allows is not on it (door/roster.ts
+ * stillWelcome — the Door agent reads the roster by the same rule).
+ */
 export async function loadRoster(ddb: DynamoDBClient, householdId: string): Promise<RosterEntry[]> {
-  const res = await ddb.send(new QueryCommand({
+  const rows = (prefix: string) => ddb.send(new QueryCommand({
     TableName: TABLE,
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
-    ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':prefix': { S: 'PER#' } },
+    ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':prefix': { S: prefix } },
   }));
-  return (res.Items ?? []).flatMap((item) => (item.data?.S ? [JSON.parse(item.data.S) as RosterEntry] : []));
+  const [people, members] = await Promise.all([rows('PER#'), rows('MEM#')]);
+  const roster = (people.Items ?? []).flatMap((item) => (item.data?.S ? [JSON.parse(item.data.S) as RosterEntry] : []));
+  return stillWelcome(roster, members.Items ?? []);
 }
 
 export async function loadVisitors(ddb: DynamoDBClient, householdId: string, now: Date): Promise<VisitorsAnswer> {

@@ -8,9 +8,13 @@
  * row, and the store that takes a person's rows away again when they are
  * removed from the circle (store.ts forgetAnnouncedVisits). A row that
  * outlived its author would have the door go on telling the resident that
- * a caller "looks like" someone they no longer let in.
+ * a caller "looks like" someone they no longer let in. (The readers check
+ * too — door/roster.ts stillWelcome — so a row written in the same moment
+ * its author was removed is never acted on either.)
  */
-export const memberPersonId = (userId: string): string => `member-${userId}`;
+import { memberPersonId } from '@wick/contracts';
+
+export { memberPersonId };
 
 /** Every announced visit of one person: the prefix their rows share. */
 export const announcedVisitPrefix = (userId: string): string => `PER#${memberPersonId(userId)}#`;

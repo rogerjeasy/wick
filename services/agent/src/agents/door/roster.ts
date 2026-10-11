@@ -17,7 +17,8 @@
  * and inventing precise-looking decimals from nothing is
  * exactly the "confident guessing" docs/WICK.md Principle 11 forbids.
  */
-import type { RosterEntry, VisitorMatch } from '@wick/contracts';
+import type { AttributeValue } from '@aws-sdk/client-dynamodb';
+import { userIdOfMemberPerson, type RosterEntry, type VisitorMatch } from '@wick/contracts';
 
 /** Deliberately modest: a schedule match is weaker evidence than a direct observation. */
 export const SCHEDULE_MATCH_CONFIDENCE = 0.5;
@@ -80,4 +81,28 @@ export function matchVisitor(roster: readonly RosterEntry[], at: number): Visito
   }
 
   return undefined;
+}
+
+/**
+ * The roster, without the announced visits of anyone the resident no longer
+ * allows. `memberships` are the household's `MEM#<userId>` rows.
+ *
+ * A visit somebody announced is filed under them (contracts memberPersonId)
+ * and removed with them, but removal and announcement can cross: the row
+ * can be written in the instant after its author is taken out of the
+ * circle. So membership is checked again here, every time a roster is read
+ * — the same rule as INV-9, where every tool call asks again. A row whose
+ * author is not allowed right now is simply not on the roster.
+ */
+export function stillWelcome(
+  roster: readonly RosterEntry[],
+  memberships: readonly Record<string, AttributeValue>[],
+): RosterEntry[] {
+  const allowed = new Set(
+    memberships.filter((m) => m.status?.S === 'allowed').map((m) => m.sk?.S?.replace(/^MEM#/, '')),
+  );
+  return roster.filter((person) => {
+    const userId = userIdOfMemberPerson(person.personId);
+    return userId === undefined || allowed.has(userId);
+  });
 }

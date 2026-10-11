@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { RosterEntry } from '@wick/contracts';
-import { matchVisitor } from '../roster.js';
+import { matchVisitor, stillWelcome } from '../roster.js';
 
 const maria: RosterEntry = {
   personId: 'maria',
@@ -84,5 +84,19 @@ describe('matchVisitor — someone who said they were coming, once', () => {
 
   it('still finds the regular visitor on a roster that has both', () => {
     expect(matchVisitor([sarah, maria], tuesdayAt(9, 10))).toMatchObject({ name: 'Maria' });
+  });
+});
+
+describe('stillWelcome — a visit announced by someone no longer in the circle is not on the roster', () => {
+  const sarah: RosterEntry = { personId: 'member-u_sarah', name: 'Sarah', expectedOnce: { at: 1, windowMin: 60 } };
+  const tom: RosterEntry = { personId: 'member-u_tom', name: 'Tom', expectedOnce: { at: 2, windowMin: 60 } };
+  const member = (userId: string, status: string) => ({ sk: { S: `MEM#${userId}` }, status: { S: status } });
+
+  it('keeps the regular visitors, and the announced visits of people the resident still allows', () => {
+    expect(stillWelcome([maria, sarah, tom], [member('u_sarah', 'allowed'), member('u_tom', 'removed')])).toEqual([maria, sarah]);
+  });
+
+  it('drops an announced visit whose author has no membership at all, or one still waiting', () => {
+    expect(stillWelcome([sarah, tom], [member('u_tom', 'pending')])).toEqual([]);
   });
 });
