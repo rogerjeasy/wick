@@ -74,3 +74,24 @@ export function mergeTokens(previous, fresh, now = Date.now()) {
 
   return merged;
 }
+
+/**
+ * The record an account link leaves.
+ *
+ * The secret holds one of two kinds of credential, and they are not the same
+ * identity to Ring: a token pasted from the Developer Playground
+ * (scripts/set-ring-token.sh, `source: 'playground'`), which sees the
+ * Playground's simulated camera, and the tokens of a linked Ring account,
+ * which see that account's own devices. A link on top of a pasted token
+ * replaces it — so it must not inherit anything from it. Carrying the old
+ * `source` forward once left a record that called itself a Playground token
+ * while holding a linked account's, and Watch live answering 404 for a camera
+ * the record claimed it could see.
+ *
+ * An earlier link is carried forward as before (mergeTokens).
+ */
+export function linkTokens(previous, fresh, now = Date.now()) {
+  const carried = previous?.source === 'playground' ? null : previous;
+  return { ...mergeTokens(carried, fresh, now), source: 'oauth' };
+}
+

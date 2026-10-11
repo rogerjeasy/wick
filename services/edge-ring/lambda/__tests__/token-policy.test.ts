@@ -5,6 +5,7 @@ import {
   expiresAt,
   needsRefresh,
   isRefreshable,
+  linkTokens,
   mergeTokens,
   // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 } from '../token-policy.mjs';
@@ -102,5 +103,47 @@ describe('mergeTokens', () => {
   it('never leaves a refreshed record looking stale', () => {
     const merged = mergeTokens({ refresh_token: 'r' }, { access_token: 'a' }, NOW);
     expect(needsRefresh(merged, NOW)).toBe(false);
+  });
+});
+
+describe('linkTokens — what an account link leaves in the record', () => {
+  it('says what it is: an account link, never the hand-pasted token it replaced', () => {
+    // The record that hid the Watch live 404 for six days: an account link on
+    // top of a Playground token kept the label `playground`, so the secret
+    // described a token that could see the Playground camera while holding
+    // one that could not.
+    const linked = linkTokens(
+      { access_token: 'pasted', accountId: 'playground-acct', source: 'playground', expiresAt: NOW - 1 },
+      { access_token: 'linked', refresh_token: 'r', expires_in: 14400 },
+      NOW,
+    );
+
+    expect(linked.source).toBe('oauth');
+    expect(linked.access_token).toBe('linked');
+  });
+
+  it("does not inherit a hand-pasted token's account: it is learned again from the linked one", () => {
+    const linked = linkTokens(
+      { access_token: 'pasted', accountId: 'playground-acct', source: 'playground' },
+      { access_token: 'linked', refresh_token: 'r' },
+      NOW,
+    );
+
+    expect(linked.accountId).toBeUndefined();
+  });
+
+  it('still carries an earlier link forward: its account, and its refresh token when Ring sends none', () => {
+    const linked = linkTokens(
+      { access_token: 'old', refresh_token: 'keep-me', accountId: 'acct-1', source: 'oauth' },
+      { access_token: 'new', expires_in: 14400 },
+      NOW,
+    );
+
+    expect(linked).toMatchObject({ access_token: 'new', refresh_token: 'keep-me', accountId: 'acct-1', source: 'oauth' });
+    expect(linked.expiresAt).toBe(NOW + 4 * HOUR);
+  });
+
+  it('labels a first link too', () => {
+    expect(linkTokens(null, { access_token: 'a', refresh_token: 'r' }, NOW).source).toBe('oauth');
   });
 });
