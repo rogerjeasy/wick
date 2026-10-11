@@ -3,16 +3,16 @@
  * hardware was available to run the documented 4-hour spike
  * (docs/WICK-TECHNICAL.md §14 SP-5), so both implementations ship and this
  * factory tries IoT Core MQTT first, falling back to the WebSocket API on any
- * connect failure or timeout — every time the app starts, not just once. See
- * the plan's Scope decisions and FRICTION.md for why IoT Core infra isn't
- * live yet.
+ * connect failure or timeout — every time the app starts, not just once.
+ * Both halves were seen on the Vega simulator on 2026-10-11 (FRICTION.md
+ * FL-009, update).
  */
 import type { DeviceChannel, DeviceToken } from '@wick/contracts';
 import { MqttChannel, type MqttChannelConfig, type MqttConnector } from './MqttChannel.js';
 import { WebSocketChannel, type WebSocketChannelConfig, type WebSocketFactory } from './WebSocketChannel.js';
 
 export interface DeviceChannelConfig {
-  /** Absent until infra/transport.tf's IoT Core stack is deployed. */
+  /** Absent, MQTT is never tried: the card service, which holds the WebSocket's background slot. */
   readonly mqtt?: MqttChannelConfig;
   readonly websocket: WebSocketChannelConfig;
 }
@@ -35,8 +35,7 @@ export async function createDeviceChannel(
       await mqttChannel.connect(token);
       return mqttChannel;
     } catch {
-      // Falls through to B. The first time this actually fires on hardware is
-      // a FRICTION.md entry, not a silent path — see docs/WICK-TECHNICAL.md §14.
+      // Falls through to B (docs/WICK-TECHNICAL.md §4.1).
     }
   }
   const wsChannel = overrides.websocketOpen

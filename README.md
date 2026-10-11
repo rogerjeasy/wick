@@ -109,7 +109,7 @@ apps/tv-vega        Vega OS application — cards, player, break engine, headles
 apps/tv-fireos      Fire OS companion build
 apps/sim-alexa      Simulated Alexa+ surface — a client of the real MCP server
 services/edge-ring  Ring webhook receiver — HMAC verify, idempotency, sub-5s ACK
-services/edge-device WebSocket connect/disconnect/route for the television
+services/edge-device The television's two channels: IoT Core (MQTT) authorizer, presence and events; WebSocket connect/disconnect/route
 services/mcp-server Alexa+ MCP add-on backend
 services/agent      Strands agent graph + the single egress module (INV-2)
 services/connectors Ring client

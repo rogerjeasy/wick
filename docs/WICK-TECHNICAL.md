@@ -439,6 +439,12 @@ Audio ducking for spoken cards via `@amazon-devices/keplerscript-audio-lib` ⚠�
 > travels in the address, not the MQTT password (FRICTION.md FL-024). B stays
 > for the fallback and for the background card service. The table and
 > recommendation below are the reasoning as it stood before the decision.
+>
+> **Run 2026-10-11, on the Vega simulator and the Android TV emulator:** the
+> television connects over A, cards come down and replies go up, and with A
+> refused it is on B. Not run: hours, a network drop, hardware. A reconnect
+> keeps its IoT session id, so a disconnect is matched to its connection by
+> the event's version number (FRICTION.md FL-009, update).
 
 **🔬 S — resolve in the first 72 hours.**
 
@@ -934,7 +940,7 @@ Nothing here is product code. The purpose is to find out what is impossible befo
 | ~~**SP-2**~~ **DONE** | **Ring snapshot latency.** Measured 2026-09-15, n=3: **3.15s end to end** (0.8s to the 303, ~2.3s to fetch 106KB of 1280x720 JPEG). Well over the 1.5s p99 bar — **so Phase 1 ships the card with no image and patches the image in after**, as planned. Also discovered: there is no live-capture call at all; `at_timestamp` retrieves a *recorded* frame. See FL-005. | done | §9.1 |
 | **SP-3** | **Ring WHEP on Vega.** Negotiate a session; render on the TV. Measure setup time and whether sessions are duration-limited. | 6h | M2 (Watch Live). Fallback: short clip via `media/video/download`. |
 | **SP-4** | ~~Alexa+ add-on access~~ **RESOLVED 2026-09-14: partner-gated, no application path** (FL-001). Replacement spike: stand up a spec-2025-11-25 Streamable HTTP server behind `cloudflared` and drive it from MCP Inspector. | 3h | **S4a.** Proves the server is real without waiting on access. Re-request S4b access periodically; it costs nothing. |
-| **SP-5** | **Transport.** `mqtt.js` over WSS inside Vega RN 0.83, including a reconnect cycle. | 4h | §4.1 — IoT Core or API GW WebSocket. |
+| **SP-5** | ~~**Transport.** `mqtt.js` over WSS inside Vega RN 0.83, including a reconnect cycle.~~ **RUN 2026-10-11 on the simulator: connects, reconnects on reopening the app, falls back to the WebSocket when refused** (FL-009, update). Hours and hardware not run. | 4h | §4.1 — IoT Core or API GW WebSocket. |
 | **SP-7** | **Content Personalization round trip.** Publish one real playback event; confirm it lands in Continue Watching on the device. | 4h | The Rhythm pillar's device-side input. |
 | **SP-8** | **Stage One insurance.** Get a Vega sample running on the real Fire TV Stick and **record it.** | 2h | Non-negotiable. Do it first. |
 

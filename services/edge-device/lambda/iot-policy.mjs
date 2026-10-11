@@ -91,35 +91,81 @@ export function placeOf(functionArn) {
 const MQTT_PREFIX = 'mqtt:';
 
 /**
- * The name the device row keeps for an MQTT connection. IoT Core gives every
- * session an id; holding it is what lets a late "disconnected" for an old
- * session leave a newer one alone (as disconnect.mjs does for the WebSocket).
+ * The name the device row keeps for an MQTT connection: the id IoT Core
+ * gives the session, marked so it is never taken for a WebSocket's. It says
+ * which channel holds the row, not which connection — see the presence
+ * updates below for how an old event is told from a new one.
  */
 export const mqttConnectionId = (sessionIdentifier) => `${MQTT_PREFIX}${sessionIdentifier}`;
 
-/** The television is on screen and reachable over MQTT. Refused for one that is revoked or unknown. */
-export function presenceConnected({ table, householdId, deviceId, sessionIdentifier, at }) {
+/**
+ * IoT Core says its connect and disconnect events "might be sent out of
+ * order" and might come twice, and the session id does not tell two
+ * connections of one television apart: a television that reconnects into its
+ * persistent session keeps the id it had (seen on the Vega simulator,
+ * 2026-10-11). What does is the event's `versionNumber` — a connection's
+ * connect and its disconnect carry the same one, and the next connection a
+ * higher one — so the row keeps it. It starts again at 0 after about an hour
+ * offline, and `timestamp` is "an approximation", so neither is used alone:
+ *
+ *   - a disconnect clears the row only for the connection it belongs to;
+ *   - a connect is refused if it is older than the connection the row
+ *     names (either channel's), or if its own disconnect has been heard.
+ */
+
+/**
+ * The television is on screen and reachable over MQTT. Refused for one that
+ * is revoked or unknown, and for an event that is out of date (above).
+ */
+export function presenceConnected({ table, householdId, deviceId, sessionIdentifier, version, at }) {
   return {
     TableName: table,
     Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
-    UpdateExpression: 'SET connectionId = :c, transport = :t, connectedAt = :ca REMOVE wsEndpoint',
-    ConditionExpression: 'attribute_exists(pk) AND (attribute_not_exists(denylisted) OR denylisted = :false)',
+    UpdateExpression: 'SET connectionId = :c, transport = :t, connectedAt = :at, mqttVersion = :v REMOVE wsEndpoint',
+    ConditionExpression:
+      'attribute_exists(pk) AND (attribute_not_exists(denylisted) OR denylisted = :false)' +
+      ' AND (attribute_not_exists(connectedAt) OR connectedAt <= :at)' +
+      ' AND (attribute_not_exists(mqttGoneVersion) OR mqttGoneVersion <> :v OR mqttGoneAt < :at)',
     ExpressionAttributeValues: {
       ':c': { S: mqttConnectionId(sessionIdentifier) },
       ':t': { S: 'mqtt' },
-      ':ca': { N: String(at) },
+      ':at': { N: String(at) },
+      ':v': { N: String(version) },
       ':false': { BOOL: false },
     },
   };
 }
 
-/** The session ended. Clears the row only if it still names that session. */
-export function presenceDisconnected({ table, householdId, deviceId, sessionIdentifier }) {
+/**
+ * A connection ended. Clears the row only if that connection is the one it
+ * names. (A row written before versions were kept names none, and is
+ * cleared by its session alone, as it was then.)
+ */
+export function presenceDisconnected({ table, householdId, deviceId, sessionIdentifier, version, at }) {
   return {
     TableName: table,
     Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
-    UpdateExpression: 'REMOVE connectionId, transport, wsEndpoint, connectedAt',
-    ConditionExpression: 'connectionId = :cid',
-    ExpressionAttributeValues: { ':cid': { S: mqttConnectionId(sessionIdentifier) } },
+    UpdateExpression: 'SET mqttGoneVersion = :v, mqttGoneAt = :at REMOVE connectionId, transport, wsEndpoint, connectedAt, mqttVersion',
+    ConditionExpression: 'connectionId = :cid AND (attribute_not_exists(mqttVersion) OR mqttVersion = :v)',
+    ExpressionAttributeValues: {
+      ':cid': { S: mqttConnectionId(sessionIdentifier) },
+      ':v': { N: String(version) },
+      ':at': { N: String(at) },
+    },
+  };
+}
+
+/**
+ * The disconnect had nothing to clear — the row names another connection.
+ * It is still remembered, the latest one only, so that the connect it
+ * belongs to cannot arrive late and put the ended connection back.
+ */
+export function presenceGone({ table, householdId, deviceId, version, at }) {
+  return {
+    TableName: table,
+    Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
+    UpdateExpression: 'SET mqttGoneVersion = :v, mqttGoneAt = :at',
+    ConditionExpression: 'attribute_exists(pk) AND (attribute_not_exists(mqttGoneAt) OR mqttGoneAt < :at)',
+    ExpressionAttributeValues: { ':v': { N: String(version) }, ':at': { N: String(at) } },
   };
 }

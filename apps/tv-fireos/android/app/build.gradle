@@ -101,6 +101,20 @@ android {
     }
 }
 
+// The JavaScript bundle is made from the Vega app's source and the shared
+// packages (metro.config.js), which live outside this project. Gradle only
+// watches this project for the bundle task, so without this a change to a
+// shared screen left the old bundle in place and called the build up to date
+// (seen 2026-10-11: a new build with yesterday's JavaScript in it).
+tasks.configureEach { task ->
+    if (task.name.startsWith("createBundle") && task.name.endsWith("JsAndAssets")) {
+        task.inputs.dir(file("../../../tv-vega/src")).withPropertyName("vegaAppSource")
+        task.inputs.dir(file("../../../tv-vega/assets")).withPropertyName("vegaAppAssets")
+        task.inputs.files(fileTree(dir: file("../../../../packages"), excludes: ["**/node_modules/**", "**/dist/**"])).withPropertyName("sharedPackages")
+        task.inputs.file(file("../../adapters.config.js")).withPropertyName("adapterTable")
+    }
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
