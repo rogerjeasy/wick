@@ -14,13 +14,22 @@
  */
 import { DynamoDBClient, GetItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { deviceOwnerKey, householdOfDevice } from './device-owner.mjs';
-import { SAFE_DEVICE_ID, presenceConnected, presenceDisconnected } from './iot-policy.mjs';
+import { SAFE_DEVICE_ID, presenceConnected, presenceDisconnected, presenceGone } from './iot-policy.mjs';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME;
 
+/** Best effort: a television that was unpaired meanwhile, or a later disconnect already noted. */
+async function remember(update) {
+  try {
+    await ddb.send(new UpdateItemCommand(update));
+  } catch (err) {
+    if (err?.name !== 'ConditionalCheckFailedException') throw err;
+  }
+}
+
 export const handler = async (event) => {
-  const { clientId: deviceId, eventType, sessionIdentifier, timestamp } = event ?? {};
+  const { clientId: deviceId, eventType, sessionIdentifier, timestamp, versionNumber } = event ?? {};
   if (typeof deviceId !== 'string' || !SAFE_DEVICE_ID.test(deviceId) || typeof sessionIdentifier !== 'string') return;
   if (eventType !== 'connected' && eventType !== 'disconnected') return;
 
@@ -28,14 +37,19 @@ export const handler = async (event) => {
   const householdId = householdOfDevice(owner.Item);
   if (!householdId) return;
 
-  const update = eventType === 'connected'
-    ? presenceConnected({ table: TABLE, householdId, deviceId, sessionIdentifier, at: typeof timestamp === 'number' ? timestamp : Date.now() })
-    : presenceDisconnected({ table: TABLE, householdId, deviceId, sessionIdentifier });
+  const at = typeof timestamp === 'number' ? timestamp : Date.now();
+  // Without a version (IoT Core always sends one) every event counts as one connection's.
+  const version = typeof versionNumber === 'number' ? versionNumber : -1;
+  const row = { table: TABLE, householdId, deviceId, sessionIdentifier, version, at };
+  const update = eventType === 'connected' ? presenceConnected(row) : presenceDisconnected(row);
   try {
     await ddb.send(new UpdateItemCommand(update));
     console.log(JSON.stringify({ level: 'info', msg: `mqtt_${eventType}`, deviceId }));
   } catch (err) {
-    // Connected: revoked or never paired. Disconnected: a newer connection already holds the row.
+    // Connected: revoked, never paired, or out of date. Disconnected: the
+    // row names another connection. See iot-policy.mjs for the rule.
     if (err?.name !== 'ConditionalCheckFailedException') throw err;
+    console.log(JSON.stringify({ level: 'info', msg: `mqtt_${eventType}_not_applied`, deviceId }));
+    if (eventType === 'disconnected') await remember(presenceGone(row));
   }
 };
