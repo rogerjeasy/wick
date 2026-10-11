@@ -143,6 +143,14 @@ data "aws_iam_policy_document" "apprunner_instance" {
     actions   = ["execute-api:ManageConnections"]
     resources = ["${aws_apigatewayv2_api.transport.execution_arn}/*/*"]
   }
+
+  # A television on MQTT is reached by publishing to its own topic
+  # (infra/iot.tf); one on the WebSocket, by the statement above.
+  statement {
+    sid       = "PublishToTelevisionsOnMqtt"
+    actions   = ["iot:Publish"]
+    resources = [local.device_topics_arn]
+  }
 }
 
 resource "aws_iam_role_policy" "apprunner_instance" {

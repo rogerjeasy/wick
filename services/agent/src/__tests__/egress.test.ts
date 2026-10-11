@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { DoorCard, MessageCard } from '@wick/contracts';
-import { applyCardPatch, cardItem, liveDeviceConnections } from '../egress.js';
+import type { DoorCard, MessageCard, QueuedCard } from '@wick/contracts';
+import { applyCardPatch, cardItem, liveDeviceConnections, mqttPublication } from '../egress.js';
 
 const door: DoorCard = {
   type: 'DOOR',
@@ -134,22 +134,46 @@ describe('liveDeviceConnections', () => {
     expect(liveDeviceConnections([restored]).map((c) => c.connectionId)).toEqual(['conn-1']);
   });
 
+  /** A DEV# item as iot-presence.mjs leaves it: an MQTT session, and no WebSocket endpoint. */
+  const onMqtt = (deviceId: string, session: string) => ({
+    pk: { S: 'HH#margaret' },
+    sk: { S: `DEV#${deviceId}` },
+    connectionId: { S: `mqtt:${session}` },
+    transport: { S: 'mqtt' },
+  });
+
+  it('reaches a television on MQTT by its own id', () => {
+    expect(liveDeviceConnections([onMqtt('wick-tv', 'sess-1')])).toEqual([
+      { connectionId: 'mqtt:sess-1', mqttDeviceId: 'wick-tv', deviceSk: 'DEV#wick-tv' },
+    ]);
+  });
+
+  it('sends to the app on MQTT, not to its card service as well', () => {
+    const both = { ...onMqtt('wick-tv', 'sess-1'), bgConnectionId: { S: 'bg-1' }, bgTransport: { S: 'websocket' }, bgWsEndpoint: { S: WS } };
+
+    expect(liveDeviceConnections([both]).map((c) => c.connectionId)).toEqual(['mqtt:sess-1']);
+  });
+
+  it('reaches one television on each channel in the same house', () => {
+    const items = [dev('living-room', 'conn-1'), onMqtt('bedroom', 'sess-2')];
+
+    expect(liveDeviceConnections(items).map((c) => c.deviceSk)).toEqual(['DEV#living-room', 'DEV#bedroom']);
+  });
+
+  it('never sends to a revoked television on MQTT either', () => {
+    expect(liveDeviceConnections([{ ...onMqtt('wick-tv', 'sess-1'), denylisted: { BOOL: true } }])).toEqual([]);
+  });
+
   it('does not fall back to the card service while the app holds a connection it cannot be reached on', () => {
-    const mqttOnScreen = {
+    const unknownChannel = {
       ...dev('wick-tv', 'conn-1'),
-      transport: { S: 'mqtt' },
+      transport: { S: 'carrier-pigeon' },
       bgConnectionId: { S: 'bg-1' },
       bgTransport: { S: 'websocket' },
       bgWsEndpoint: { S: WS },
     };
 
-    expect(liveDeviceConnections([mqttOnScreen])).toEqual([]);
-  });
-
-  it('skips a device on the MQTT path — IoT Core publish is not wired up yet', () => {
-    const mqtt = { ...dev('wick-tv', 'conn-1'), transport: { S: 'mqtt' } };
-
-    expect(liveDeviceConnections([mqtt])).toEqual([]);
+    expect(liveDeviceConnections([unknownChannel])).toEqual([]);
   });
 
   it('returns nothing when no device is connected — reconcile delivers on next connect', () => {
@@ -172,5 +196,33 @@ describe('cardItem — the CARD# queue item', () => {
     const item = cardItem(queued, { ringDeviceId: 'ava1.ring.device.ABNJQ' });
     expect(item.ringDeviceId).toEqual({ S: 'ava1.ring.device.ABNJQ' });
     expect(item.data!.S).not.toContain('ava1.ring.device.ABNJQ');
+  });
+});
+
+describe('mqttPublication — what a television on MQTT is sent', () => {
+  const card = { id: 'c1', urgency: 'DOOR', receivedAt: 1, card: { type: 'DOOR', id: 'c1', householdId: 'margaret', line: 'Someone is at the door.' } } as unknown as QueuedCard;
+
+  it('publishes a card, bare, to that television\'s cards topic', () => {
+    const { topic, body } = mqttPublication('wick-tv', { kind: 'card', card });
+
+    expect(topic).toBe('wick/device/wick-tv/cards');
+    expect(JSON.parse(body)).toEqual(card);
+  });
+
+  it('publishes a patch, bare, to its control topic', () => {
+    const control = { t: 'patch' as const, patch: { cardId: 'c1', description: 'A person in a blue coat.' } };
+
+    const { topic, body } = mqttPublication('wick-tv', { kind: 'control', control });
+
+    expect(topic).toBe('wick/device/wick-tv/control');
+    expect(JSON.parse(body)).toEqual(control);
+  });
+
+  it('is what the television\'s MQTT client reads: the body of the cards topic is the card itself', () => {
+    // MqttChannel.ts: `JSON.parse(payload) as QueuedCard` on the cards topic.
+    const { body } = mqttPublication('wick-tv', { kind: 'card', card });
+
+    expect(JSON.parse(body).kind).toBeUndefined();
+    expect(JSON.parse(body).id).toBe('c1');
   });
 });

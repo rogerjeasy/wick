@@ -431,6 +431,15 @@ Audio ducking for spoken cards via `@amazon-devices/keplerscript-audio-lib` ⚠�
 
 ### 4.1 Transport — a decision gate, not a decision
 
+> **Decided 2026-10-11: both.** A television tries A and falls back to B
+> (`apps/tv-vega/src/transport/createDeviceChannel.ts`). A is `infra/iot.tf`:
+> a custom authorizer that checks the television's own device token, a policy
+> for its own three topics, and two topic rules — presence, and events, which
+> end at the same handler as the WebSocket's (`device-event.mjs`). The token
+> travels in the address, not the MQTT password (FRICTION.md FL-024). B stays
+> for the fallback and for the background card service. The table and
+> recommendation below are the reasoning as it stood before the decision.
+
 **🔬 S — resolve in the first 72 hours.**
 
 | Option | Pro | Con |

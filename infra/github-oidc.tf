@@ -117,6 +117,34 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["*"]
   }
 
+  # The MQTT channel (infra/iot.tf): one authorizer and two topic rules.
+  #
+  # NOT iot:*. That would also be the data plane — publishing a card to any
+  # television, or reading what one sends — and every certificate and policy
+  # in the account. The deploy role shapes the channel and never speaks on it.
+  statement {
+    sid = "ManageTheMqttChannelNeverItsMessages"
+    actions = [
+      "iot:CreateAuthorizer",
+      "iot:UpdateAuthorizer",
+      "iot:DeleteAuthorizer",
+      "iot:DescribeAuthorizer",
+      "iot:ListAuthorizers",
+      "iot:CreateTopicRule",
+      "iot:ReplaceTopicRule",
+      "iot:DeleteTopicRule",
+      "iot:GetTopicRule",
+      "iot:ListTopicRules",
+      "iot:EnableTopicRule",
+      "iot:DisableTopicRule",
+      "iot:DescribeEndpoint",
+      "iot:ListTagsForResource",
+      "iot:TagResource",
+      "iot:UntagResource",
+    ]
+    resources = ["*"] # rule and authorizer ARNs exist only once created; DescribeEndpoint has none
+  }
+
   # Family accounts (infra/accounts.tf): the user pool and its app client.
   # Without a grant the first deploy after accounts landed failed on
   # CreateUserPool with AccessDenied — after it had already updated the
