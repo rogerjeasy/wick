@@ -17,6 +17,12 @@
  *     token that starts with "playground" is accepted and lists one
  *     simulated camera; anything else is refused, as Ring refuses a bad token
  *
+ *   - the doorbell: GET http://127.0.0.1:3300/dev/door puts a door card on
+ *     the stand-in television of every home that connected one, as if the
+ *     resident had pressed "Ask … to look" — and nudges the browsers that
+ *     turned notifications on, for real, through their own push services
+ *     (a key pair is made at start-up and forgotten at exit)
+ *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
  * answers; without it there is none, and the app answers by its rules.
@@ -35,6 +41,9 @@ import { createBedrockConverse } from '../assistant/bedrock.js';
 import { createFakeIdentity } from './harness.js';
 import { createMemoryTable } from './memoryTable.js';
 import { invokedRingLinks } from '../accounts/ringLinks.js';
+import webpush from 'web-push';
+import { PUSH_KINDS, PUSH_SK_PREFIX } from '@wick/contracts';
+import { nudge, subscriptionFromItem, type StoredSubscription } from '../../../agent/src/push/nudge.js';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { LinkError, createLinkService } from '../../../edge-ring/lambda/household-link-service.mjs';
 
@@ -101,6 +110,37 @@ const ringLinks = invokedRingLinks(async (request) => {
   }
 });
 
+/**
+ * Web Push, for real: this run's own signing keys, the public half where the
+ * server reads it (accounts/push.ts), and the same nudge the agent plane
+ * sends (services/agent push/nudge.ts) with the request made here.
+ */
+const pushKeys = webpush.generateVAPIDKeys();
+table.put({ pk: { S: 'CONFIG#push' }, sk: { S: 'VAPID' }, publicKey: { S: pushKeys.publicKey } });
+
+const nudgeBrowsers = (userIds: readonly string[]) =>
+  nudge(userIds, PUSH_KINDS.doorLook, {
+    listSubscriptions: async (userId) =>
+      table.rows(`USER#${userId}`).filter((row) => row.sk?.S?.startsWith(PUSH_SK_PREFIX)).map(subscriptionFromItem).filter((s): s is StoredSubscription => s !== undefined),
+    post: async (subscription, payload) => {
+      try {
+        const res = await webpush.sendNotification(
+          { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
+          payload,
+          { vapidDetails: { ...pushKeys, subject: 'mailto:dev@wick.invalid' }, TTL: 300, urgency: 'high' },
+        );
+        return res.statusCode;
+      } catch (err) {
+        const status = (err as { statusCode?: unknown }).statusCode;
+        // Said here, because a push service's refusal is otherwise only a count.
+        console.log(`push service ${new URL(subscription.endpoint).host} answered ${String(status)}: ${String((err as { body?: unknown }).body ?? '').slice(0, 200)}`);
+        if (typeof status === 'number') return status;
+        throw err;
+      }
+    },
+    forget: async () => {},
+  });
+
 /** Every home that has connected the stand-in television: where /dev/door rings. */
 const homesWithATelevision = new Set<string>();
 
@@ -146,7 +186,7 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
  * Door agent and askFamily.ts would have written. The picture is a
  * placeholder, not Ring's.
  */
-app.get('/dev/door', (_req, res) => {
+app.get('/dev/door', async (_req, res) => {
   const now = Date.now();
   const cardId = `door-dev-${now.toString(36)}`;
   const asked: string[] = [];
@@ -185,7 +225,12 @@ app.get('/dev/door', (_req, res) => {
     });
     asked.push(householdId);
   }
-  res.json({ asked, cardId });
+  // Everyone allowed in those homes, as askFamily.ts would nudge them.
+  const allowed = (await Promise.all(asked.map((householdId) => store.listMembers(householdId))))
+    .flat()
+    .filter((member) => member.status === 'allowed')
+    .map((member) => member.userId);
+  res.json({ asked, cardId, nudged: await nudgeBrowsers(allowed) });
 });
 
 app.get('/dev/allow', async (_req, res) => {

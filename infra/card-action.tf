@@ -97,6 +97,8 @@ resource "aws_lambda_function" "agent_card_action" {
       AGENT_RUNTIME_VERSION = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
       # "Ask Sarah to look" reads and writes the household's own rows.
       TABLE_NAME = aws_dynamodb_table.wick.name
+      # And nudges the family's own browsers (infra/push.tf). Unset keys mean no nudge, never a failure.
+      PUSH_VAPID_SECRET_ARN = aws_secretsmanager_secret.push_vapid.arn
     }
   }
 

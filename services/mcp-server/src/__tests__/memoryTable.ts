@@ -4,7 +4,7 @@
  * questions with no AWS (devServer.ts, and the end-to-end tests).
  *
  * It understands exactly what this server sends — PutItem (with the one
- * condition the door answer uses), GetItem, and a
+ * condition the door answer uses), GetItem, DeleteItem, and a
  * Query on `pk` with a `BETWEEN` or `begins_with` on `sk`, an optional
  * filter of `name = :value` terms joined by AND, `ScanIndexForward` and
  * `Limit` — and throws on anything else, so a new kind of request fails
@@ -88,6 +88,9 @@ export function createMemoryTable(): MemoryTable {
       }
       case 'GetItemCommand':
         return { Item: items.get(keyOf(input.Key!)) };
+      case 'DeleteItemCommand':
+        items.delete(keyOf(input.Key!));
+        return {};
       case 'QueryCommand':
         return query(input);
       case 'TransactWriteItemsCommand': {

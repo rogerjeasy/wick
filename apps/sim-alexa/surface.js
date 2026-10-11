@@ -124,6 +124,9 @@ export function routeUtterance(text, now = Date.now()) {
   // Narrow on purpose — "did anyone come to the door today" is the day's list.
   if (/\bask(?:ed|ing)? (?:me|us) to look\b|\bwho(?:'|’)?s at\b.*\bdoor\b|\bwho is at\b.*\bdoor\b|\bsomeone at\b.*\bdoor\b/.test(t)) return tool('get_door_request');
 
+  // Notifications are the app's own business with this browser.
+  if (/\bnotif(?:y|ication|ications)\b/.test(t)) return { kind: 'notifications' };
+
   // Replies first: "has Mum replied to my note" mentions a note, and is not one.
   if (/\brepl(y|ied|ies)\b|\banswered\b|written back/.test(t)) return tool('get_replies');
 
@@ -422,6 +425,57 @@ function presentDifferent(answer, formatTime) {
       footnote: `Against the last ${answer.weeksObserved} weeks in this house, and nothing else.`,
     },
   };
+}
+
+/**
+ * Being told when Wick is closed (Web Push). What the page says about it,
+ * from what the browser and the server allow.
+ *
+ * @param {{supported?: boolean, available?: boolean, permission?: string, subscribed?: boolean}} state
+ * @param {string} residentName
+ */
+export function presentNotifications(state, residentName) {
+  const nothing = (say) => ({ offer: false, say, card: null });
+  if (!state.supported) return nothing('This browser cannot show notifications from Wick.');
+  if (!state.available) return nothing('This Wick cannot send notifications yet.');
+  // A browser asks once. After "Block", only its own settings can change it.
+  if (state.permission === 'denied') return nothing('This browser has blocked notifications for Wick. They can be allowed again in the browser’s site settings.');
+  if (state.permission === 'granted' && state.subscribed) {
+    return nothing(`Notifications are on in this browser. It will tell you when ${residentName} asks you to look at the door.`);
+  }
+  return {
+    offer: true,
+    say: `This browser can tell you when ${residentName} asks you to look at the door, even when Wick is closed.`,
+    card: {
+      title: 'Be told at once',
+      body: 'The notification says only that there is something to look at. The picture and everything else stay in Wick.',
+      confirmLabel: 'Turn on notifications',
+    },
+  };
+}
+
+/** The server's public signing key (base64url) as the bytes `pushManager.subscribe` takes. */
+export function applicationServerKey(base64url) {
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
+  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+}
+
+/**
+ * Whether a subscription this browser already holds was made with the
+ * server's present key. One made with another key — the keys were replaced,
+ * or this browser last talked to a different Wick — is refused by the push
+ * service when Wick sends to it, so it is thrown away and made again.
+ *
+ * @param {{options?: {applicationServerKey?: ArrayBuffer | null}}} subscription
+ * @param {string} publicKey  the server's key, base64url
+ */
+export function madeWithKey(subscription, publicKey) {
+  const held = subscription?.options?.applicationServerKey;
+  if (!held) return false;
+  const mine = new Uint8Array(held);
+  const theirs = applicationServerKey(publicKey);
+  return mine.length === theirs.length && mine.every((byte, i) => byte === theirs[i]);
 }
 
 /** Only a picture over https is ever drawn: the address comes from a tool result, and is put in an <img>. */

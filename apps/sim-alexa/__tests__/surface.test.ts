@@ -19,6 +19,9 @@ import {
   SUGGESTIONS,
   DOOR_ANSWERS,
   doorQuestionToAnnounce,
+  applicationServerKey,
+  presentNotifications,
+  madeWithKey,
 } from '../surface.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -1001,5 +1004,78 @@ describe('doorQuestionToAnnounce — what the app says unasked while it is open'
     expect(doorQuestionToAnnounce(JSON.stringify({ requestId: 'door-abc', state: 'answered', askedAt: 1, answer: {} }), none)).toBeNull();
     expect(doorQuestionToAnnounce(JSON.stringify({ requestId: 'door-abc', state: 'gone', askedAt: 1 }), none)).toBeNull();
     expect(doorQuestionToAnnounce('{"state":"waiting"}', none)).toBeNull();
+  });
+});
+
+describe('notifications — being told when Wick is closed', () => {
+  const ready = { supported: true, available: true, permission: 'default', subscribed: false };
+
+  it('offers to turn them on, saying exactly how little a notification says', () => {
+    const r = presentNotifications(ready, 'Margaret');
+
+    expect(r.offer).toBe(true);
+    expect(r.say).toBe('This browser can tell you when Margaret asks you to look at the door, even when Wick is closed.');
+    expect(r.card).toEqual({
+      title: 'Be told at once',
+      body: 'The notification says only that there is something to look at. The picture and everything else stay in Wick.',
+      confirmLabel: 'Turn on notifications',
+    });
+  });
+
+  it('says they are on, and offers nothing more', () => {
+    expect(presentNotifications({ ...ready, permission: 'granted', subscribed: true }, 'Margaret')).toEqual({
+      offer: false,
+      say: 'Notifications are on in this browser. It will tell you when Margaret asks you to look at the door.',
+      card: null,
+    });
+  });
+
+  it('offers again when the browser allows them but this browser is not yet registered', () => {
+    expect(presentNotifications({ ...ready, permission: 'granted', subscribed: false }, 'Margaret').offer).toBe(true);
+  });
+
+  it('says where to change it when the browser has blocked them — the page cannot ask twice', () => {
+    expect(presentNotifications({ ...ready, permission: 'denied' }, 'Margaret')).toEqual({
+      offer: false,
+      say: 'This browser has blocked notifications for Wick. They can be allowed again in the browser’s site settings.',
+      card: null,
+    });
+  });
+
+  it('says so plainly where there is nothing to offer', () => {
+    expect(presentNotifications({ supported: false }, 'Margaret')).toMatchObject({ offer: false, say: 'This browser cannot show notifications from Wick.' });
+    expect(presentNotifications({ ...ready, available: false }, 'Margaret')).toMatchObject({ offer: false, say: 'This Wick cannot send notifications yet.' });
+  });
+
+  it('is asked for by name', () => {
+    expect(routeUtterance('Turn on notifications')).toEqual({ kind: 'notifications' });
+    expect(routeUtterance('Can you notify me?')).toEqual({ kind: 'notifications' });
+  });
+});
+
+describe('applicationServerKey', () => {
+  it('turns the server’s base64url key into the bytes a browser subscribes with', () => {
+    // "hello?>" in base64url is aGVsbG8_Pg (no padding, with both url-safe characters once + is included).
+    expect([...applicationServerKey('aGVsbG8_Pg')]).toEqual([104, 101, 108, 108, 111, 63, 62]);
+    expect([...applicationServerKey('-_-_')]).toEqual([251, 255, 191]);
+  });
+});
+
+describe('madeWithKey — whether a browser’s subscription still belongs to this Wick', () => {
+  const key = 'aGVsbG8_Pg';
+  const bytes = (values: number[]) => new Uint8Array(values).buffer;
+
+  it('is true for a subscription made with the server’s present key', () => {
+    expect(madeWithKey({ options: { applicationServerKey: bytes([104, 101, 108, 108, 111, 63, 62]) } }, key)).toBe(true);
+  });
+
+  it('is false for one made with another key: Wick’s nudges to it would be refused', () => {
+    expect(madeWithKey({ options: { applicationServerKey: bytes([104, 101, 108, 108, 111, 63, 63]) } }, key)).toBe(false);
+    expect(madeWithKey({ options: { applicationServerKey: bytes([104, 101]) } }, key)).toBe(false);
+  });
+
+  it('is false when the browser does not say which key it was made with', () => {
+    expect(madeWithKey({ options: {} }, key)).toBe(false);
+    expect(madeWithKey({}, key)).toBe(false);
   });
 });

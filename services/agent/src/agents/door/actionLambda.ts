@@ -14,8 +14,8 @@
  * and each handler's once-per-card claim makes any redelivery harmless.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DOOR_ACTIONS } from '@wick/contracts';
-import { sendPatchToDevice } from '../../egress.js';
+import { DOOR_ACTIONS, PUSH_KINDS } from '@wick/contracts';
+import { nudgeFamily, sendPatchToDevice } from '../../egress.js';
 import { cardStore, type DdbSend } from '../../store/cards.js';
 import { lookStore, type LookSend } from '../../store/looks.js';
 import { handleAskFamily, type AskResult } from './askFamily.js';
@@ -52,6 +52,7 @@ function askFamily(detail: Record<string, unknown>): Promise<AskResult> {
     listFamily: looks.listFamily,
     claimOnce: looks.claimOnce,
     sendPatch: (patch) => sendPatchToDevice(patch, householdId),
+    nudge: async (userIds) => void (await nudgeFamily(userIds, PUSH_KINDS.doorLook)),
     now: Date.now,
   });
 }

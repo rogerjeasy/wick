@@ -36,6 +36,7 @@ function deps(over: Partial<AskFamilyDeps> = {}): AskFamilyDeps {
     listFamily: vi.fn(async () => [sarah]),
     claimOnce: vi.fn(async (_r: LookRequest) => true),
     sendPatch: vi.fn(async (_p: CardPatch) => {}),
+    nudge: vi.fn(async (_userIds: readonly string[]) => {}),
     now: () => NOW,
     ...over,
   };
@@ -128,6 +129,42 @@ describe('handleAskFamily — the resident asks someone to look at the door', ()
 
     expect(await handleAskFamily(detail, d)).toBe('duplicate');
     expect(d.sendPatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleAskFamily — reaching the people asked when the family app is closed', () => {
+  it('nudges the browsers of everyone the resident allows, after the resident has been told', async () => {
+    const order: string[] = [];
+    const d = deps({
+      listFamily: vi.fn(async () => [sarah, tom]),
+      sendPatch: vi.fn(async () => void order.push('patch')),
+      nudge: vi.fn(async () => void order.push('nudge')),
+    });
+
+    await handleAskFamily(detail, d);
+
+    expect(d.nudge).toHaveBeenCalledWith(['u-sarah', 'u-tom']);
+    expect(order).toEqual(['patch', 'nudge']);
+  });
+
+  it('has still asked when the nudge fails: the question is filed, and the app finds it when it is opened', async () => {
+    const d = deps({ nudge: vi.fn(async () => { throw new Error('push keys missing'); }) });
+
+    expect(await handleAskFamily(detail, d)).toBe('asked');
+  });
+
+  it('nudges nobody for a press that asked nobody', async () => {
+    const duplicate = deps({ claimOnce: vi.fn(async () => false) });
+    const nobody = deps({ listFamily: vi.fn(async () => []) });
+    const stale = deps({ loadCard: vi.fn(async () => doorCard({ expiresAt: NOW - 1 })) });
+
+    await handleAskFamily(detail, duplicate);
+    await handleAskFamily(detail, nobody);
+    await handleAskFamily(detail, stale);
+
+    expect(duplicate.nudge).not.toHaveBeenCalled();
+    expect(nobody.nudge).not.toHaveBeenCalled();
+    expect(stale.nudge).not.toHaveBeenCalled();
   });
 });
 

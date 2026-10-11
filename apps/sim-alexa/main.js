@@ -7,14 +7,17 @@
 import {
   DECLINED_RESULT,
   HELP_TEXT,
+  applicationServerKey,
   confirmWrite,
   describeCall,
   doorQuestionToAnnounce,
   inviteLink,
+  madeWithKey,
   needsConfirmation,
   presentCircle,
   presentDoorbell,
   presentListing,
+  presentNotifications,
   presentResult,
   presentTurn,
   presentWelcome,
@@ -214,6 +217,8 @@ function signedOut(reason) {
   if (doorWatch !== null) clearInterval(doorWatch);
   doorWatch = null;
   announcedDoorQuestions.clear();
+  // A link that ended by itself cannot tell the server; the browser still stops listening.
+  void forgetThisBrowser({ tellServer: false });
   enableToolButtons(false);
   setStatus(reason);
   // The link card is back on screen, so its demo button must be decided
@@ -490,6 +495,8 @@ async function answerDoorQuestion(requestId, answer, buttons) {
   try {
     const result = await callTool('answer_door_request', { requestId, answer });
     assistantSays(presentResult('answer_door_request', result.content?.[0]?.text ?? '', {}, formatTime, result.isError === true));
+    // Having just been asked is when "be told next time, even with Wick closed" means something.
+    void api('/api/me').then((latest) => { me = latest; offerNotificationsOnce(); }).catch(() => {});
   } catch (err) {
     // Nothing was shown: the answers can be pressed again.
     for (const button of all) button.disabled = false;
@@ -858,6 +865,110 @@ function watchTheDoor() {
   void lookForDoorQuestion();
 }
 
+// ---------------------------------------------------------------------------
+// Notifications (Web Push): being told when this page is closed. The browser
+// is registered with the Wick server under the person signed in; what is
+// then sent to it is a kind and nothing else, and sw.js supplies the words.
+// ---------------------------------------------------------------------------
+
+const PUSH_OFFERED_KEY = 'wick_push_offered';
+
+async function readPushState() {
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  if (!supported) return { supported: false };
+  let info;
+  try {
+    info = await api('/api/push');
+  } catch {
+    info = { available: false };
+  }
+  if (!info.available) return { supported, available: false };
+  const registration = await navigator.serviceWorker.register('./sw.js');
+  let existing = await registration.pushManager.getSubscription();
+  // Made with a key this Wick no longer signs with: its nudges would be refused, so it is made again when asked for.
+  if (existing && !madeWithKey(existing, info.publicKey)) {
+    await existing.unsubscribe();
+    existing = null;
+  }
+  return { supported, available: true, publicKey: info.publicKey, permission: Notification.permission, subscribed: Boolean(existing), registration, existing };
+}
+
+const registerBrowser = (subscription) => api('/api/push', { method: 'POST', body: JSON.stringify(subscription.toJSON()) });
+
+/** This browser stops being told: asked of the push service here, and of the Wick server while the link still stands. */
+async function forgetThisBrowser({ tellServer }) {
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
+    if (!subscription) return;
+    if (tellServer) await api('/api/push', { method: 'DELETE', body: JSON.stringify({ endpoint: subscription.endpoint }) }).catch(() => {});
+    await subscription.unsubscribe();
+  } catch {
+    // The push service forgets a browser that stops answering; nothing to say here.
+  }
+}
+
+/**
+ * Says where notifications stand, and offers to turn them on when they can be.
+ * @param {{quietUnlessOffered?: boolean}} [options]  say nothing at all unless there is something to offer
+ */
+async function showNotifications({ quietUnlessOffered = false } = {}) {
+  let state;
+  try {
+    state = await readPushState();
+    // A browser already registered is registered again under whoever is
+    // signed in now — it may last have been somebody else on this computer.
+    if (state.existing && state.permission === 'granted') await registerBrowser(state.existing);
+  } catch (err) {
+    if (!quietUnlessOffered) assistantSays({ say: err.message, tone: 'error' });
+    return;
+  }
+  const resident = me.household.residentName;
+  const presented = presentNotifications(state, resident);
+  if (quietUnlessOffered && !presented.offer) return;
+  const turn = assistantSays({ say: presented.say, tone: 'answer' });
+  if (!presented.card) return;
+
+  const { card, body } = plainCard(presented.card.title, 'It can be turned off again in the browser’s site settings.');
+  body.appendChild(el('p', undefined, presented.card.body));
+  const actions = el('div', 'actions');
+  const yes = el('button', 'btn final', presented.card.confirmLabel);
+  yes.type = 'button';
+  yes.addEventListener('click', async () => {
+    yes.disabled = true;
+    try {
+      // The browser's own question. Asked from a press, as browsers require.
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        // The worker must be running before a browser will subscribe through it.
+        await navigator.serviceWorker.ready;
+        const subscription =
+          state.existing ??
+          (await state.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: applicationServerKey(state.publicKey) }));
+        await registerBrowser(subscription);
+        assistantSays(presentNotifications({ ...state, permission, subscribed: true }, resident));
+      } else {
+        assistantSays(presentNotifications({ ...state, permission }, resident));
+      }
+    } catch (err) {
+      yes.disabled = false;
+      assistantSays({ say: err.message, tone: 'error' });
+    }
+  });
+  actions.appendChild(yes);
+  body.appendChild(actions);
+  turn.appendChild(card);
+  scrollToEnd();
+}
+
+/** Offered once per browser, at a moment it means something — never asked again unprompted. */
+function offerNotificationsOnce() {
+  if (!me || me.membership.status !== 'allowed' || localStorage.getItem(PUSH_OFFERED_KEY)) return;
+  localStorage.setItem(PUSH_OFFERED_KEY, '1');
+  void showNotifications({ quietUnlessOffered: true });
+}
+
 /** A card the app itself draws under a sentence: title, body, footnote. */
 function plainCard(title, footnote) {
   const card = el('article', 'card');
@@ -1182,6 +1293,7 @@ async function welcome() {
   if (me.membership.role === 'organiser' && (pair || presented.next === 'connect')) addConnectTelevision(pair ?? undefined);
   else $('ask-input').focus();
   watchTheDoor();
+  offerNotificationsOnce();
 }
 
 /** The rules this page answered by before there was a model, and still does when there is none. */
@@ -1191,6 +1303,7 @@ function answerByRules(text) {
   if (route.kind === 'compose') return addComposer(route.message);
   if (route.kind === 'circle') return void showCircle();
   if (route.kind === 'doorbell') return void showDoorbell();
+  if (route.kind === 'notifications') return void showNotifications();
   assistantSays({ say: HELP_TEXT, tone: 'answer' });
 }
 
@@ -1205,6 +1318,8 @@ async function handleUtterance(text) {
   // The circle is this app's own business with the server, not a question for a tool.
   if (routeUtterance(text).kind === 'circle') return void showCircle();
   if (routeUtterance(text).kind === 'doorbell') return void showDoorbell();
+  // And so are this browser's notifications.
+  if (routeUtterance(text).kind === 'notifications') return void showNotifications();
   if (noAssistant) return answerByRules(text);
 
   answering = true;
@@ -1314,7 +1429,10 @@ async function offerDemoIfAllowed() {
   }
 }
 
-$('sign-out').addEventListener('click', () => {
+$('sign-out').addEventListener('click', async () => {
+  // While the link still stands, so the server forgets this browser too:
+  // the next person to sign in here must not be told about this home.
+  await forgetThisBrowser({ tellServer: true });
   signedOut('Not connected');
   window.location.replace(redirectUri());
 });

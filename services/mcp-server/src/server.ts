@@ -49,6 +49,7 @@ import { registerListRegularVisitors } from './tools/list_regular_visitors.js';
 import { registerGetWhatsDifferent } from './tools/get_whats_different.js';
 import { registerAddRegularVisitor } from './tools/add_regular_visitor.js';
 import { registerExpectVisit } from './tools/expect_visit.js';
+import { createPushStore } from './accounts/push.js';
 import { registerGetDoorRequest } from './tools/get_door_request.js';
 import { registerAnswerDoorRequest } from './tools/answer_door_request.js';
 
@@ -169,6 +170,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     ringLinks: deps.ringLinks,
     virtualTelevisionUrl: deps.virtualTelevisionUrl,
     timeZone: HOUSEHOLD_TZ,
+    push: createPushStore(ddb, process.env.TABLE_NAME ?? 'wick'),
   }));
 
   // The tool list is the same for everyone and for the life of the process: asked for once, on first need.
