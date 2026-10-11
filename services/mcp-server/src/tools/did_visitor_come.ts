@@ -23,6 +23,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
+import { READS, data, say } from './result.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -35,7 +36,7 @@ export interface VisitorCheckResult {
 
 const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
 
-function expectedToday(pattern: string | undefined, now: Date): boolean {
+export function expectedToday(pattern: string | undefined, now: Date): boolean {
   if (!pattern) return false;
   // getUTCDay() is always 0-6, so this index always hits — the `!` just
   // routes around noUncheckedIndexedAccess, which can't see that bound.
@@ -94,8 +95,11 @@ export function registerDidVisitorCome(mcpServer: McpServer, ddb: DynamoDBClient
     'did_visitor_come',
     {
       title: 'Did a visitor come',
-      description: 'Checks whether a specific person on the household roster visited today, and whether today was one of their expected days.',
-      inputSchema: { personId: z.string().describe('The roster person id, e.g. "maria".') },
+      description:
+        'Checks whether a specific regular visitor came today, and whether today is one of their usual days. ' +
+        'Takes the `personId` from list_regular_visitors; `name` comes back empty for an id this household does not know.',
+      inputSchema: { personId: z.string().describe('The visitor’s `personId` from list_regular_visitors, e.g. "maria".') },
+      annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (_allowed, { personId }: { personId: string }) => {
       // Mirrors get_resident_shared_view.ts's disclosure check: if PRESENCE
@@ -103,10 +107,9 @@ export function registerDidVisitorCome(mcpServer: McpServer, ddb: DynamoDBClient
       // answer is withheld rather than silently answered anyway (§6.4).
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
       if (!isSharedWithFamily('PRESENCE', policy)) {
-        return { content: [{ type: 'text' as const, text: FAMILY_REFUSAL_TEXT }] };
+        return say(FAMILY_REFUSAL_TEXT);
       }
-      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date());
-      return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+      return data(await checkVisitor(ddb, ctx.householdId, personId, new Date()));
     })),
   );
 }

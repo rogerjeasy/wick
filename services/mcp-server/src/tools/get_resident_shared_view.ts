@@ -14,6 +14,7 @@ import { NEVER_TO_FAMILY, type FactClass } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
+import { READS, data } from './result.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -67,20 +68,14 @@ export function registerGetResidentSharedView(mcpServer: McpServer, ddb: DynamoD
       title: 'What the resident shares with family',
       description: "Returns exactly what the resident has agreed is shared with family — the machine-readable counterpart of the television's \"What Sarah Sees\" screen.",
       inputSchema: {},
+      annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async () => {
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
       const shared = (Object.keys(policy.table) as FactClass[]).filter((factClass) =>
         isSharedWithFamily(factClass, policy),
       );
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({ sharedWithFamily: shared, residentExclusions: policy.residentExclusions }),
-          },
-        ],
-      };
+      return data({ sharedWithFamily: shared, residentExclusions: policy.residentExclusions });
     })),
   );
 }

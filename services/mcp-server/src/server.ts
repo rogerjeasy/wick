@@ -42,6 +42,8 @@ import { registerGetToday } from './tools/get_today.js';
 import { registerDidVisitorCome } from './tools/did_visitor_come.js';
 import { registerSendNoteToTv } from './tools/send_note_to_tv.js';
 import { registerGetReplies } from './tools/get_replies.js';
+import { registerListRegularVisitors } from './tools/list_regular_visitors.js';
+import { registerExpectVisit } from './tools/expect_visit.js';
 
 /**
  * A fresh `McpServer` for exactly one session's lifetime.
@@ -68,6 +70,8 @@ function createMcpServer(ddb: DynamoDBClient, ctx: ToolContext): McpServer {
   registerDidVisitorCome(mcpServer, ddb, ctx);
   registerSendNoteToTv(mcpServer, ctx);
   registerGetReplies(mcpServer, ddb, ctx);
+  registerListRegularVisitors(mcpServer, ddb, ctx);
+  registerExpectVisit(mcpServer, ddb, ctx);
   return mcpServer;
 }
 

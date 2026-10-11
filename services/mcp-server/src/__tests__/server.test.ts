@@ -53,7 +53,7 @@ describe('createApp', () => {
     expect(res.status).toBe(401);
   });
 
-  it('exposes exactly the six deployed tools — the registered set IS the deploy contract', async () => {
+  it('exposes exactly the eight deployed tools — the registered set IS the deploy contract', async () => {
     const { h } = await server();
     const sarah = await linkNewOrganiser(h);
     const { client } = await mcpClient(h, sarah);
@@ -61,7 +61,16 @@ describe('createApp', () => {
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
 
     expect(names).toEqual(
-      ['did_visitor_come', 'get_replies', 'get_resident_shared_view', 'get_today', 'get_week_narrative', 'send_note_to_tv'].sort(),
+      [
+        'did_visitor_come',
+        'expect_visit',
+        'get_replies',
+        'get_resident_shared_view',
+        'get_today',
+        'get_week_narrative',
+        'list_regular_visitors',
+        'send_note_to_tv',
+      ].sort(),
     );
   });
 

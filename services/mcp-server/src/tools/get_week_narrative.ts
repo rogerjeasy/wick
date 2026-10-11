@@ -26,6 +26,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
+import { READS, data, say } from './result.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 /** The household's time zone, for rewriting a week with part of it private. Same default as the Narrator's. */
@@ -149,9 +150,9 @@ export function registerGetWeekNarrative(
         '"awaiting_resident": it is on the television, and they read it first). ' +
         "Never returns a week the resident hasn't seen yet.",
       inputSchema: { isoWeek: z.string().optional().describe('ISO 8601 week, e.g. "2026-W38", for that exact week. Leave out for the latest week there is to read.') },
+      annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (_allowed, { isoWeek }: { isoWeek?: string | undefined }) => {
-      const say = (text: string) => ({ content: [{ type: 'text' as const, text }] });
       const currentWeek = currentIsoWeek(now());
       const result: LatestWeekResult = isoWeek
         ? await loadWeekNarrative(ddb, ctx.householdId, isoWeek)
@@ -163,7 +164,7 @@ export function registerGetWeekNarrative(
       }
       const family = familyWeek(result.narrative, await loadHouseholdPolicy(ddb, ctx.householdId), HOUSEHOLD_TZ);
       if (family.status === 'private') return say(FAMILY_REFUSAL_TEXT);
-      return say(JSON.stringify({ ...family.narrative, ...(result.thisWeek ? { thisWeek: result.thisWeek } : {}) }));
+      return data({ ...family.narrative, ...(result.thisWeek ? { thisWeek: result.thisWeek } : {}) });
     })),
   );
 }

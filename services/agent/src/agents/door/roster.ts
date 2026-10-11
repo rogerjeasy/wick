@@ -57,7 +57,17 @@ export function matchVisitor(roster: readonly RosterEntry[], at: number): Visito
   const todayCode = DAY_CODES[date.getUTCDay()]!;
   const minutesOfDay = date.getUTCHours() * 60 + date.getUTCMinutes();
 
+  const matched = (person: RosterEntry): VisitorMatch => ({
+    personId: person.personId,
+    name: person.name,
+    basis: 'schedule',
+    expectedToday: true,
+    confidence: SCHEDULE_MATCH_CONFIDENCE,
+  });
+
   for (const person of roster) {
+    // A visit somebody announced (expect_visit): the one moment they gave.
+    if (person.expectedOnce && Math.abs(at - person.expectedOnce.at) <= person.expectedOnce.windowMin * 60_000) return matched(person);
     if (!person.expectedPattern) continue;
     const parsed = parsePattern(person.expectedPattern);
     if (!parsed) continue;
@@ -66,13 +76,7 @@ export function matchVisitor(roster: readonly RosterEntry[], at: number): Visito
     const targetMinutes = parsed.hour * 60 + parsed.minute;
     if (Math.abs(minutesOfDay - targetMinutes) > parsed.windowMin) continue;
 
-    return {
-      personId: person.personId,
-      name: person.name,
-      basis: 'schedule',
-      expectedToday: true,
-      confidence: SCHEDULE_MATCH_CONFIDENCE,
-    };
+    return matched(person);
   }
 
   return undefined;

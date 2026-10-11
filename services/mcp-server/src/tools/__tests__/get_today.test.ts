@@ -104,7 +104,12 @@ describe('registerGetToday (registered tool handler, end to end)', () => {
 
     const result = await client.callTool({ name: 'get_today', arguments: {} });
     const content = result.content as { type: string; text: string }[];
-    expect(JSON.parse(content[0]!.text)).toEqual({ events: [{ at: 1700000000000, summary: 'Someone was at the front door.' }], keptPrivate: [] });
+    expect(JSON.parse(content[0]!.text)).toEqual({
+      // The day answered for: today, since none was named.
+      date: new Date().toISOString().slice(0, 10),
+      events: [{ at: 1700000000000, summary: 'Someone was at the front door.' }],
+      keptPrivate: [],
+    });
   });
 
   it('withholds presence-derived entries end to end when the stored household policy excludes PRESENCE', async () => {

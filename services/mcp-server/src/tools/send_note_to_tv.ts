@@ -18,6 +18,7 @@ import { sendToDevice } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
+import { WRITES, data } from './result.js';
 
 const STATIC_SUGGESTED_REPLIES = ['Thanks for letting me know!', "I'll call you soon.", 'Not right now.'] as const;
 
@@ -59,6 +60,7 @@ export function registerSendNoteToTv(mcpServer: McpServer, ctx: ToolContext): vo
       inputSchema: {
         message: z.string().min(1).max(MAX_CARD_DETAIL_CHARS).describe(`The note text, at most ${MAX_CARD_DETAIL_CHARS} characters: it is read on a television, in large type, in full.`),
       },
+      annotations: WRITES,
     },
     // The sender is never an argument. The resident trusts the name on the
     // card, so it is the name of the person the resident allowed — a note
@@ -73,7 +75,7 @@ export function registerSendNoteToTv(mcpServer: McpServer, ctx: ToolContext): vo
         now: Date.now(),
       });
       await sendToDevice(card, DEFAULT_POLICY);
-      return { content: [{ type: 'text' as const, text: JSON.stringify({ sent: true, cardId: card.id, fromName }) }] };
+      return data({ sent: true, cardId: card.id, fromName, message });
     })),
   );
 }

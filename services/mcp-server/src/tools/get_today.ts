@@ -28,6 +28,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
+import { READS, data, say } from './result.js';
+import { utcDayStart } from './when.js';
+import { z } from 'zod';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -57,6 +60,8 @@ export interface TodayEntry {
 }
 
 export interface TodayAnswer {
+  /** The day answered for, YYYY-MM-DD (UTC, as the timeline is filed). Set by the tool. */
+  readonly date?: string;
   readonly events: readonly TodayEntry[];
   /** What the resident keeps private, in plain words, named whether or not it happened. */
   readonly keptPrivate: readonly string[];
@@ -109,18 +114,41 @@ export async function loadTodayEvents(
   return { events, keptPrivate };
 }
 
-export function registerGetToday(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext): void {
+const DAY_MS = 86_400_000;
+/** As far back as a day can be asked about: the weeks a usual week is drawn from (rhythm/baseline.ts). */
+const DAYS_BACK = 42;
+
+export const DAY_NOT_A_DATE_TEXT = 'I need the day as a date for that.';
+export const DAY_NOT_YET_TEXT = 'That day has not come yet.';
+export const DAY_TOO_OLD_TEXT = 'That is further back than I keep day by day. I can tell you about the last six weeks.';
+
+export function registerGetToday(
+  mcpServer: McpServer,
+  ddb: DynamoDBClient,
+  ctx: ToolContext,
+  now: () => Date = () => new Date(),
+): void {
   mcpServer.registerTool(
     'get_today',
     {
-      title: "Today's events",
-      description: "Returns today's door activity and visits, in plain language, as far as the resident shares them, and names anything they keep private.",
-      inputSchema: {},
+      title: 'A day’s events',
+      description:
+        "Returns one day's door activity and visits, in plain language, as far as the resident shares them, and names anything they keep private. " +
+        'Today when no date is given; any day of the last six weeks when one is ("yesterday", "on Tuesday": pass that day as `date`).',
+      inputSchema: { date: z.string().optional().describe('The day to answer for, YYYY-MM-DD. Leave out for today.') },
+      annotations: READS,
     },
-    withFriendlyErrors(gated(ctx, async () => {
+    withFriendlyErrors(gated(ctx, async (_allowed, { date }: { date?: string | undefined }) => {
+      const today = now();
+      const todayStart = today.getTime() - (today.getTime() % DAY_MS);
+      const dayStart = date === undefined ? todayStart : utcDayStart(date);
+      if (dayStart === undefined) return say(DAY_NOT_A_DATE_TEXT);
+      if (dayStart > todayStart) return say(DAY_NOT_YET_TEXT);
+      if (dayStart < todayStart - DAYS_BACK * DAY_MS) return say(DAY_TOO_OLD_TEXT);
+
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
-      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(), policy);
-      return { content: [{ type: 'text' as const, text: JSON.stringify(answer) }] };
+      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(dayStart), policy);
+      return data({ date: new Date(dayStart).toISOString().slice(0, 10), ...answer });
     })),
   );
 }

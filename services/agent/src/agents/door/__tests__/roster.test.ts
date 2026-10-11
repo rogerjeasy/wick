@@ -56,3 +56,33 @@ describe('matchVisitor', () => {
     expect(matchVisitor([], tuesdayAt(9, 10))).toBeUndefined();
   });
 });
+
+describe('matchVisitor — someone who said they were coming, once', () => {
+  // Sarah told Wick she would come on Saturday 17 October 2026 at 15:00 (expect_visit).
+  const sarah: RosterEntry = {
+    personId: 'member-u_sarah',
+    name: 'Sarah',
+    expectedOnce: { at: Date.UTC(2026, 9, 17, 15), windowMin: 60 },
+  };
+  const saturdayAt = (hh: number, mm: number): number => Date.UTC(2026, 9, 17, hh, mm);
+
+  it('matches a ring near the time they gave', () => {
+    expect(matchVisitor([sarah], saturdayAt(15, 20))).toEqual({
+      personId: 'member-u_sarah',
+      name: 'Sarah',
+      basis: 'schedule',
+      expectedToday: true,
+      confidence: 0.5,
+    });
+    expect(matchVisitor([sarah], saturdayAt(14, 0))).toMatchObject({ name: 'Sarah' });
+  });
+
+  it('does not match outside it, or the same hour a week later', () => {
+    expect(matchVisitor([sarah], saturdayAt(16, 1))).toBeUndefined();
+    expect(matchVisitor([sarah], saturdayAt(15, 0) + 7 * 86_400_000)).toBeUndefined();
+  });
+
+  it('still finds the regular visitor on a roster that has both', () => {
+    expect(matchVisitor([sarah, maria], tuesdayAt(9, 10))).toMatchObject({ name: 'Maria' });
+  });
+});
