@@ -57,7 +57,10 @@ export interface Harness {
 
 function listen(app: express.Express): Promise<{ port: number; close: () => Promise<void> }> {
   return new Promise((resolve) => {
-    const server = app.listen(0, () => {
+    // On 127.0.0.1, where the tests call it. Listening on every interface
+    // lets the OS hand out a port some other program already holds on
+    // loopback, and that program then answers the test's request.
+    const server = app.listen(0, '127.0.0.1', () => {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 0;
       resolve({ port, close: () => new Promise((r) => server.close(() => r())) });
