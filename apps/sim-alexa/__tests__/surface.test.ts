@@ -8,13 +8,18 @@ import {
   needsConfirmation,
   presentCircle,
   presentDoorbell,
+  presentListing,
   presentResult,
   presentTurn,
   presentWelcome,
   routeUtterance,
+  serverFor,
+  suggestionsFor,
   REPLY_CHOICES,
   SUGGESTIONS,
 } from '../surface.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { REPLY_CHOICES as SERVER_REPLY_CHOICES } from '../../../services/mcp-server/src/tools/send_note_to_tv.js';
 
 const at = (ms: number) => `t${ms}`;
@@ -746,5 +751,117 @@ describe('asking about the doorbell', () => {
   it('still asks the day\'s tool who came to the door', () => {
     expect(routeUtterance('Did anyone ring the doorbell today?').tool).toBe('get_today');
     expect(routeUtterance('Connect a television').kind).toBe('circle');
+  });
+});
+
+describe('the add-on listing', () => {
+  const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../../../addon-package/addon.json', import.meta.url)), 'utf8'));
+  /** A manifest of its own, so a test can break one thing. */
+  const copy = () => structuredClone(manifest);
+
+  it('shows what the package says: the name, the short description, the phrases and the legal links', () => {
+    const listing = presentListing(manifest);
+
+    expect(listing).toMatchObject({
+      name: 'Wick',
+      summary: 'Ask how someone living alone has been this week, in plain language.',
+      phrases: ['how has my mum been this week', 'did the carer come today', "is everything alright at mum's"],
+      privacyUrl: 'https://rogerjeasy.github.io/wick/privacy.html',
+      termsUrl: 'https://rogerjeasy.github.io/wick/terms.html',
+      serverUrl: 'https://tqcu7pa3ip.us-east-1.awsapprunner.com',
+    });
+  });
+
+  it('shows the largest dark-theme icon — the page is dark — and the light one when there is no dark set', () => {
+    const lightOnly = copy();
+    lightOnly.storeListing.locales['en-US'].mediaAssets.icons.dark = [];
+
+    expect(presentListing(manifest).iconUrl).toBe('https://rogerjeasy.github.io/wick/icons/dark-241.png');
+    expect(presentListing(lightOnly).iconUrl).toBe('https://rogerjeasy.github.io/wick/icons/light-241.png');
+  });
+
+  it('breaks the full description into paragraphs and one list', () => {
+    const { about } = presentListing(manifest);
+
+    expect(about[0]).toEqual({ text: expect.stringContaining('how has my mum been this week') });
+    expect(about.find((part: { items?: string[] }) => part.items)).toEqual({
+      lead: 'What you can do:',
+      items: [
+        'Hear how the week went, and what was different from usual',
+        'Check whether a regular visitor, such as a carer, came today',
+        'Put a short note on their television and hear their one-button reply',
+        'Tell them you are coming to visit',
+      ],
+    });
+    expect(about.at(-1).text).toContain('you link a Wick account');
+  });
+
+  it('shows nothing for a package it cannot stand behind: no name, or no HTTPS server', () => {
+    const nameless = copy();
+    nameless.storeListing.locales['en-US'].name.value = '';
+    const placeholder = copy();
+    placeholder.integrations[0].config.endpoints.default.uri = 'SET-FROM-WICKMCP-STACK-OUTPUT';
+    const plain = copy();
+    plain.integrations[0].config.endpoints.default.uri = 'http://mcp.wick.test/mcp';
+
+    expect(presentListing(nameless)).toBeNull();
+    expect(presentListing(placeholder)).toBeNull();
+    expect(presentListing(plain)).toBeNull();
+    expect(presentListing(undefined)).toBeNull();
+    expect(presentListing({})).toBeNull();
+  });
+
+  it('answers every phrase the listing promises — the store guidance says each must work when said', () => {
+    const routed = presentListing(manifest).phrases.map((phrase: string) => routeUtterance(phrase));
+
+    expect(routed).toEqual([
+      { kind: 'tool', tool: 'get_week_narrative', args: {} },
+      { kind: 'tool', tool: 'did_visitor_come', args: { personId: 'maria' } },
+      { kind: 'tool', tool: 'get_whats_different', args: {} },
+    ]);
+  });
+
+  it('understands "alright" as well as "all right"', () => {
+    expect(routeUtterance('Is everything alright?').tool).toBe('get_whats_different');
+    expect(routeUtterance('Is everything all right with Mum?').tool).toBe('get_whats_different');
+  });
+});
+
+describe('serverFor', () => {
+  const listing = { serverUrl: 'https://mcp.wick.test' };
+
+  it('is the server the package names, on the deployed page', () => {
+    expect(serverFor(listing, 'd111111abcdef8.cloudfront.net')).toBe('https://mcp.wick.test');
+  });
+
+  it('leaves a developer\'s own server alone, on a laptop', () => {
+    expect(serverFor(listing, '127.0.0.1')).toBeNull();
+    expect(serverFor(listing, 'localhost')).toBeNull();
+  });
+
+  it('is nothing when there is no listing to read it from', () => {
+    expect(serverFor(null, 'd111111abcdef8.cloudfront.net')).toBeNull();
+  });
+});
+
+describe('suggestionsFor', () => {
+  const listing = { phrases: ['how has my mum been this week', 'did the carer come today', "is everything alright at mum's"] };
+
+  it('offers the listing\'s phrases first, written as questions', () => {
+    expect(suggestionsFor(listing).slice(0, 3)).toEqual([
+      { label: 'How has my mum been this week?', utterance: 'how has my mum been this week' },
+      { label: 'Did the carer come today?', utterance: 'did the carer come today' },
+      { label: 'Is everything alright at mum\u2019s?', utterance: "is everything alright at mum's" },
+    ]);
+  });
+
+  it('then the app\'s own chips, without the ones that ask the same thing', () => {
+    const labels = suggestionsFor(listing).slice(3).map((s: { label: string }) => s.label);
+
+    expect(labels).toEqual(['What happened today?', 'Send a note to her television', 'Has Mum replied?', 'What can I see?', 'Family circle']);
+  });
+
+  it('is the app\'s own chips when there is no listing', () => {
+    expect(suggestionsFor(null)).toEqual(SUGGESTIONS);
   });
 });

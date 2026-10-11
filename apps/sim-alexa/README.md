@@ -20,6 +20,14 @@ television in a browser tab for anyone with no Fire TV to hand
 To try the whole journey with no AWS:
 `npx vite-node -c vitest.config.ts services/mcp-server/src/__tests__/devServer.ts`
 
+**Wick's listing.** Before sign-in the page shows Wick as an add-on would be
+listed: its icon, name, what it is for, three things to say, and that enabling
+it links an account. All of it is read from `addon.json`, the package Amazon's
+toolkit would be given (`addon-package/`), published beside this page — and the
+server the page links against is the one that file names. The listing is
+labelled as simulated, and every phrase it shows is held by a test to one that
+the page answers.
+
 **Why this exists.** The Alexa+ MCP Toolkit is restricted to select partners with
 no published application path (see `FRICTION.md` FL-001), so Wick cannot register
 a real add-on. The hackathon rules explicitly permit an alternative:

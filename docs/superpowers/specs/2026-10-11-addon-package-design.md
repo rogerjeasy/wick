@@ -11,7 +11,7 @@ field name is relied on.
 
 `addon-package/addon.json` has a placeholder where the server address goes, and nothing
 reads the file. Uploading it to Amazon is not possible: the MCP Toolkit, its CLI and the web
-simulator are open to select partners only, and Amazon staff repeated on 2026-10-08 (forum
+simulator are open to select partners only, and Amazon staff repeated in the week of 2026-10-05 (forum
 topic 45482) that no hackathon participant will be given access. After this work the
 package is complete and valid, **a preflight script runs every check Amazon's docs describe
 for a deploy that can be run without Amazon**, and **the simulated Alexa+ surface reads the
@@ -71,7 +71,7 @@ page's example names `2025-03-26`. If the re-read confirms that, it is a frictio
 | D3 | `spokenForm` becomes IPA `wɪk`. Six dark-theme icons are made from the existing mark and published beside the light ones. | Both are optional in the schema; both are cheap; neither can fail the preflight if absent. |
 | D4 | The preflight has two layers. **Static** checks run in CI inside `npm run verify`. **Live** checks run by hand (`npm run addon:check -- --live`) and before submission. | Live checks need the network and the deployed server; CI should not fail because GitHub Pages was slow. |
 | D5 | The simulated surface gains one step before sign-in: **Wick's listing**, drawn from `addon.json` — icon, name, short description, example phrases, the account-linking notice, privacy and terms links, and an **Enable** button that starts the sign-in that exists today. | This is what a customer sees before using an add-on, and it makes the file load-bearing. |
-| D6 | When the page is not on `localhost`, the server it links against is the manifest's endpoint. Terraform's string rewrite of `index.html` is removed, and `addon.json` is published beside the page. | One source for the address. Local development keeps the `localhost` field. |
+| D6 | When the page is not on `localhost`, the server it links against is the manifest's endpoint, and `addon.json` is published beside the page. Terraform's rewrite of the field in `index.html` stays as the fallback for a page that cannot read the file. | One source for the address in normal use; a half-finished deploy has left a page and its files out of step before. |
 | D7 | The listing is labelled as simulated, uses no Alexa+ logo, and the on-page notice that this is not a real Alexa+ integration stays. | Staff ruling in forum topic 45450; `apps/sim-alexa/README.md` "What this is not". |
 | D8 | The preflight reports what the server does with a `2025-03-26` `initialize` and whether it advertises `resources`. It does not change the server. | Custom views (`ui://`, MCP Apps) and resources are a separate piece of work, outside these four items. |
 
@@ -122,7 +122,7 @@ writes nothing else and never touches a household a person set up.
 
 ### 4.4 Words
 - `README.md`: the add-on line states what is finished and what cannot be done.
-- `FRICTION.md`: FL-001 gains the 2026-10-08 staff answer; a new entry for the protocol
+- `FRICTION.md`: FL-001 gains the staff answer; a new entry for the protocol
   version disagreement if the re-read confirms it.
 - `docs/WICK-TECHNICAL.md` §7.3: S4b's row updated.
 

@@ -141,13 +141,15 @@ app.get('/dev/allow', async (_req, res) => {
 app.listen(API_PORT, () => console.log(`Wick server (in memory) on http://127.0.0.1:${API_PORT}`));
 
 const appDir = fileURLToPath(new URL('../../../../apps/sim-alexa/', import.meta.url));
-const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8' };
+const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8' };
+/** Published beside the page when deployed (infra/sim-alexa.tf); served from where it lives here. */
+const ADDON_MANIFEST = fileURLToPath(new URL('../../../../addon-package/addon.json', import.meta.url));
 
 createServer(async (req, res) => {
   const path = new URL(req.url ?? '/', 'http://x').pathname;
   const file = path === '/' ? 'index.html' : path.slice(1);
   try {
-    const body = await readFile(join(appDir, file));
+    const body = await readFile(file === 'addon.json' ? ADDON_MANIFEST : join(appDir, file));
     res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
     res.end(body);
   } catch {
