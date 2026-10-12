@@ -51,6 +51,11 @@ export interface MqttChannelConfig {
   readonly wssUrl: string;
   readonly connectTimeoutMs?: number;
   readonly getLastSeenCardId?: () => string | undefined | Promise<string | undefined>;
+  /**
+   * The cards this television holds, sent with the reconcile: the server
+   * takes back any that were answered on another television in the home.
+   */
+  readonly getHeldCardIds?: () => readonly string[] | Promise<readonly string[]>;
 }
 
 interface Topics {
@@ -187,8 +192,9 @@ export class MqttChannel implements DeviceChannel {
           }
           void (async () => {
             const sinceCardId = await this.#config.getLastSeenCardId?.();
+            const holding = await this.#config.getHeldCardIds?.();
             // Best-effort: a reconcile that cannot be sent is asked again on the next connection.
-            await publish(client, topics.events, JSON.stringify({ t: 'reconcile', sinceCardId })).catch(() => undefined);
+            await publish(client, topics.events, JSON.stringify({ t: 'reconcile', sinceCardId, ...(holding ? { holding } : {}) })).catch(() => undefined);
             if (settled) return;
             settled = true;
             opened = true;

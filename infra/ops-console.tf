@@ -55,52 +55,63 @@ locals {
   )
 }
 
+# Every file is revalidated on each load (`no-cache`), as the family app's
+# are. With no header at all a browser guesses how long a copy stays fresh,
+# and a virtual television that had been opened before went on running last
+# week's script: it was sent a card it had since been taught and said it did
+# not recognise it.
 resource "aws_s3_object" "ops_console_index" {
-  bucket       = aws_s3_bucket.ops_console.id
-  key          = "index.html"
-  source       = "${path.module}/../apps/ops-console/index.html"
-  etag         = filemd5("${path.module}/../apps/ops-console/index.html")
-  content_type = "text/html; charset=utf-8"
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "index.html"
+  source        = "${path.module}/../apps/ops-console/index.html"
+  etag          = filemd5("${path.module}/../apps/ops-console/index.html")
+  content_type  = "text/html; charset=utf-8"
+  cache_control = "no-cache"
 }
 
 resource "aws_s3_object" "ops_console_device_html" {
-  bucket       = aws_s3_bucket.ops_console.id
-  key          = "device.html"
-  source       = "${path.module}/../apps/ops-console/device.html"
-  etag         = filemd5("${path.module}/../apps/ops-console/device.html")
-  content_type = "text/html; charset=utf-8"
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "device.html"
+  source        = "${path.module}/../apps/ops-console/device.html"
+  etag          = filemd5("${path.module}/../apps/ops-console/device.html")
+  content_type  = "text/html; charset=utf-8"
+  cache_control = "no-cache"
 }
 
 resource "aws_s3_object" "ops_console_styles_css" {
-  bucket       = aws_s3_bucket.ops_console.id
-  key          = "styles.css"
-  source       = "${path.module}/../apps/ops-console/styles.css"
-  etag         = filemd5("${path.module}/../apps/ops-console/styles.css")
-  content_type = "text/css; charset=utf-8"
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "styles.css"
+  source        = "${path.module}/../apps/ops-console/styles.css"
+  etag          = filemd5("${path.module}/../apps/ops-console/styles.css")
+  content_type  = "text/css; charset=utf-8"
+  cache_control = "no-cache"
 }
 
 resource "aws_s3_object" "ops_console_device_css" {
-  bucket       = aws_s3_bucket.ops_console.id
-  key          = "device.css"
-  source       = "${path.module}/../apps/ops-console/device.css"
-  etag         = filemd5("${path.module}/../apps/ops-console/device.css")
-  content_type = "text/css; charset=utf-8"
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "device.css"
+  source        = "${path.module}/../apps/ops-console/device.css"
+  etag          = filemd5("${path.module}/../apps/ops-console/device.css")
+  content_type  = "text/css; charset=utf-8"
+  cache_control = "no-cache"
 }
 
 resource "aws_s3_object" "ops_console_status_js" {
-  bucket       = aws_s3_bucket.ops_console.id
-  key          = "status.js"
-  content      = local.ops_console_status_js
-  etag         = md5(local.ops_console_status_js)
-  content_type = "application/javascript; charset=utf-8"
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "status.js"
+  content       = local.ops_console_status_js
+  etag          = md5(local.ops_console_status_js)
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
 }
 
 resource "aws_s3_object" "ops_console_device_js" {
-  bucket       = aws_s3_bucket.ops_console.id
-  key          = "device.js"
-  content      = local.ops_console_device_js
-  etag         = md5(local.ops_console_device_js)
-  content_type = "application/javascript; charset=utf-8"
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "device.js"
+  content       = local.ops_console_device_js
+  etag          = md5(local.ops_console_device_js)
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
 }
 
 resource "aws_cloudfront_origin_access_control" "ops_console" {

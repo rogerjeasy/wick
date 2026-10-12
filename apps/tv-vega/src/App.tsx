@@ -21,7 +21,7 @@
  */
 import * as React from 'react';
 import { AppState, Linking } from 'react-native';
-import { StyleSheet, View } from '@amazon-devices/react-native-kepler';
+import { BackHandler, StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import type { DeviceToken, QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
@@ -33,9 +33,9 @@ import { PairingScreen } from './pairing/PairingScreen.js';
 import { QueueStore } from './headless/QueueStore.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
 import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
-import { CATALOG, programmeById, type Programme } from './catalog/catalog.js';
+import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
 import { HomeScreen } from './home/HomeScreen.js';
-import { waitingLine } from './home/waiting.js';
+import { backClosesOpened, waitingLine } from './home/waiting.js';
 import { WatchScreen } from './watch/WatchScreen.js';
 import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { TogetherReporter, type Together } from './watch/togetherReporter.js';
@@ -75,7 +75,7 @@ export default function App(): React.JSX.Element {
     [config],
   );
   const store = React.useMemo(() => new QueueStore(KeplerFileSystem), []);
-  const breakController = React.useMemo(() => new BreakController(), []);
+  const breakController = React.useMemo(() => new BreakController({ calmPointsOf }), []);
 
   const [screen, setScreen] = React.useState<Screen | null>(null);
   const [card, setCard] = React.useState<QueuedCard | null>(null);
@@ -257,6 +257,19 @@ export default function App(): React.JSX.Element {
     setCard(waiting);
   }, [waiting]);
 
+  // Back on a waiting card the resident opened puts it back to waiting.
+  // Registered again whenever what is on screen changes, so it is asked
+  // before the screens underneath; it declines anything that is not its own.
+  React.useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!backClosesOpened({ openedId: openedId.current, shownId: card?.id ?? null, liveOpen: liveFor !== null })) return false;
+      openedId.current = null;
+      setCard(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [card, liveFor]);
+
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {
       if (card && card.id === cardId && opensLiveView(card.card, actionId)) setLiveFor(cardId);
@@ -292,6 +305,7 @@ export default function App(): React.JSX.Element {
           onSnapshot={handleSnapshot}
           onPlaybackEvent={handlePlaybackEvent}
           cardVisible={card !== null}
+          held={breakController.holdsProgramme(card ?? undefined)}
           suspended={liveFor !== null}
           companion={together && together.programmeId === watching.id ? together.withName : undefined}
           onExit={handleExitWatching}

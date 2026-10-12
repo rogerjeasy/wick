@@ -5,8 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { DOOR_CARD_TTL_MS, MAX_CARD_SHOWS, type QueuedCard } from '@wick/contracts';
-import { allowsDeferred, classify, selectReleasable } from '../index.js';
-import type { BreakState, EngineInput } from '../types.js';
+import { allowsDeferred, classify, holdsProgramme, selectReleasable } from '../index.js';
+import { CALM_POINT_WINDOW_MS, type BreakState, type EngineInput } from '../types.js';
 
 const RUNS = 10_000;
 
@@ -79,6 +79,80 @@ describe('classify', () => {
         now: 0,
       }),
     ).toBe('IDLE');
+  });
+});
+
+describe('classify — calm points inside a programme', () => {
+  const playing = (positionMs: number, state: 'PLAYING' | 'PAUSED' | 'BUFFERING' = 'PLAYING', pausedForMs?: number): EngineInput => ({
+    appForeground: true,
+    foregroundForMs: 600_000,
+    playback: { state, positionMs, durationMs: 900_000, creditsPositionMs: 750_000, calmPointsMs: [180_000, 420_000] },
+    ...(pausedForMs === undefined ? {} : { pausedForMs }),
+    now: 0,
+  });
+
+  it('is AT_BREAK from a calm point for a few seconds, and IN_SCENE on either side of that', () => {
+    expect(classify(playing(179_999))).toBe('IN_SCENE');
+    expect(classify(playing(180_000))).toBe('AT_BREAK');
+    expect(classify(playing(180_000 + CALM_POINT_WINDOW_MS - 1))).toBe('AT_BREAK');
+    expect(classify(playing(180_000 + CALM_POINT_WINDOW_MS))).toBe('IN_SCENE');
+    expect(classify(playing(420_500))).toBe('AT_BREAK');
+  });
+
+  it('is a break at once when the programme is held on a calm point — a card must not vanish because the film stopped for it', () => {
+    expect(classify(playing(181_000, 'PAUSED', 0))).toBe('AT_BREAK');
+    expect(classify(playing(181_000, 'BUFFERING'))).toBe('AT_BREAK');
+    // Away from a calm point a short pause is still just a pause.
+    expect(classify(playing(300_000, 'PAUSED', 1_000))).toBe('IN_SCENE');
+  });
+
+  it('changes nothing for a programme that has none', () => {
+    const none: EngineInput = { appForeground: true, playback: { state: 'PLAYING', positionMs: 180_500, durationMs: 900_000, creditsPositionMs: 750_000 }, now: 0 };
+
+    expect(classify(none)).toBe('IN_SCENE');
+  });
+
+  it('INV-5, with calm points: while a programme plays before its credits, a deferred card may show only inside a calm window', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.integer({ min: 0, max: 700_000 }), { maxLength: 6 }),
+        fc.integer({ min: 0, max: 749_999 - 30_000 }),
+        (calmPointsMs, positionMs) => {
+          const state = classify({
+            appForeground: true,
+            foregroundForMs: 600_000,
+            playback: { state: 'PLAYING', positionMs, durationMs: 900_000, creditsPositionMs: 750_000, calmPointsMs },
+            now: 0,
+          });
+          const inWindow = calmPointsMs.some((at) => positionMs >= at && positionMs < at + CALM_POINT_WINDOW_MS);
+          return allowsDeferred(state) === inWindow;
+        },
+      ),
+      { numRuns: RUNS },
+    );
+  });
+});
+
+describe('holdsProgramme — when the film waits for a card', () => {
+  const at = (positionMs: number, state: 'PLAYING' | 'PAUSED' = 'PLAYING') => ({ state, positionMs, durationMs: 900_000, creditsPositionMs: 750_000 });
+
+  it('holds for a card that waited for a calm point: reading a note while the story goes on is the interruption', () => {
+    expect(holdsProgramme(card('DEFERRED'), at(181_000))).toBe(true);
+  });
+
+  it('never holds for the door: someone at the door does not stop the programme', () => {
+    expect(holdsProgramme(card('DOOR'), at(181_000))).toBe(false);
+  });
+
+  it('does not hold at the credits: the story is over, and nothing is missed', () => {
+    expect(holdsProgramme(card('DEFERRED'), at(750_000))).toBe(false);
+    expect(holdsProgramme(card('DEFERRED'), at(800_000))).toBe(false);
+  });
+
+  it('holds nothing when there is no card, or no programme', () => {
+    expect(holdsProgramme(undefined, at(181_000))).toBe(false);
+    expect(holdsProgramme(card('DEFERRED'), undefined)).toBe(false);
+    expect(holdsProgramme(card('DEFERRED'), { ...at(181_000), state: 'STOPPED' as const })).toBe(false);
   });
 });
 

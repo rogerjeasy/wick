@@ -98,6 +98,13 @@ describe('liveDeviceConnections', () => {
     expect(liveDeviceConnections(items).map((c) => c.connectionId)).toEqual(['conn-2', 'conn-1']);
   });
 
+  it('leaves out the television that was pressed, when a card is taken off the others', () => {
+    const items = [dev('bedroom', 'conn-2'), dev('living-room', 'conn-1')];
+
+    expect(liveDeviceConnections(items, 'living-room').map((c) => c.deviceSk)).toEqual(['DEV#bedroom']);
+    expect(liveDeviceConnections([dev('living-room', 'conn-1')], 'living-room')).toEqual([]);
+  });
+
   it('falls back to the card service when Wick is not on screen, and says so', () => {
     const behind = { ...dev('wick-tv'), bgConnectionId: { S: 'bg-1' }, bgTransport: { S: 'websocket' }, bgWsEndpoint: { S: WS } };
 

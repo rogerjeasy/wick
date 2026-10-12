@@ -143,6 +143,9 @@ export function routeUtterance(text, now = Date.now()) {
   // Narrow on purpose — "did anyone come to the door today" is the day's list.
   if (/\bask(?:ed|ing)? (?:me|us) to look\b|\bwho(?:'|’)?s at\b.*\bdoor\b|\bwho is at\b.*\bdoor\b|\bsomeone at\b.*\bdoor\b/.test(t)) return tool('get_door_request');
 
+  // Notifications are the app's own business with this browser.
+  if (/\bnotif(?:y|ication|ications)\b/.test(t)) return { kind: 'notifications' };
+
   // Watching a film together. Asking for one is the invitation; asking about one is the tool.
   // After "tell Mum …": a note that mentions a film is still a note.
   if (!NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said)) && (/\b(film|movie)\b/.test(t) || /\bwatch(ing)?\b.*\b(together|with)\b/.test(t))) {
@@ -429,25 +432,93 @@ function presentVisitor(v, formatTime, now) {
 }
 
 /**
- * Something's Different. The server writes every sentence and the summary;
- * this only lays them out. A usual day is said and shows no card: there is
- * nothing behind "nothing is different" to look at.
+ * What the resident asked Wick to tell (get_whats_different). The server
+ * writes every sentence and the summary; this only lays them out.
+ *
+ * Nothing told shows no card, and is never said as "nothing is different":
+ * the resident is asked first on their own television, and what they have
+ * not answered, or chose to keep, looks exactly like nothing here.
  */
 function presentDifferent(answer, formatTime) {
   const differences = answer.differences ?? [];
-  const say = typeof answer.summary === 'string' ? answer.summary : 'Nothing is different from the usual today.';
+  const say = typeof answer.summary === 'string' ? answer.summary : 'Nothing has been passed on to you.';
   if (differences.length === 0) return { say, card: null, tone: 'answer' };
   return {
     say,
     tone: 'answer',
     card: {
       kind: 'list',
-      title: differences.length === 1 ? 'One thing is different' : `${things(differences.length)} are different`,
+      title: differences.length === 1 ? 'One thing to tell you' : `${things(differences.length)} to tell you`,
       meta: '',
-      items: differences.map((d) => ({ primary: d.sentence, secondary: formatTime(d.at) })),
-      footnote: `Against the last ${answer.weeksObserved} weeks in this house, and nothing else.`,
+      items: differences.map((d) => ({ primary: d.sentence, secondary: `${formatTime(d.at)} · told ${formatTime(d.toldAt)}` })),
+      footnote: answer.weeksObserved ? `Against the last ${answer.weeksObserved} weeks in this house, and nothing else.` : '',
     },
   };
+}
+
+/**
+ * What a look at get_whats_different, made unasked when the app is opened,
+ * found to say: the things the resident asked to be told that this browser
+ * has not shown before. Returns their ids.
+ *
+ * @param {string} raw  the tool result's text
+ * @param {string[]} shown  the ids this browser has already shown
+ */
+export function toldToAnnounce(raw, shown) {
+  const answer = parseJson(raw);
+  if (!answer || !Array.isArray(answer.differences)) return [];
+  return answer.differences.map((d) => d?.id).filter((id) => typeof id === 'string' && !shown.includes(id));
+}
+
+/**
+ * Being told when Wick is closed (Web Push). What the page says about it,
+ * from what the browser and the server allow.
+ *
+ * @param {{supported?: boolean, available?: boolean, permission?: string, subscribed?: boolean}} state
+ * @param {string} residentName
+ */
+export function presentNotifications(state, residentName) {
+  const nothing = (say) => ({ offer: false, say, card: null });
+  if (!state.supported) return nothing('This browser cannot show notifications from Wick.');
+  if (!state.available) return nothing('This Wick cannot send notifications yet.');
+  // A browser asks once. After "Block", only its own settings can change it.
+  if (state.permission === 'denied') return nothing('This browser has blocked notifications for Wick. They can be allowed again in the browser’s site settings.');
+  if (state.permission === 'granted' && state.subscribed) {
+    return nothing(`Notifications are on in this browser. It will tell you when ${residentName} asks you to look at the door.`);
+  }
+  return {
+    offer: true,
+    say: `This browser can tell you when ${residentName} asks you to look at the door, even when Wick is closed.`,
+    card: {
+      title: 'Be told at once',
+      body: 'The notification says only that there is something to look at. The picture and everything else stay in Wick.',
+      confirmLabel: 'Turn on notifications',
+    },
+  };
+}
+
+/** The server's public signing key (base64url) as the bytes `pushManager.subscribe` takes. */
+export function applicationServerKey(base64url) {
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
+  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+}
+
+/**
+ * Whether a subscription this browser already holds was made with the
+ * server's present key. One made with another key — the keys were replaced,
+ * or this browser last talked to a different Wick — is refused by the push
+ * service when Wick sends to it, so it is thrown away and made again.
+ *
+ * @param {{options?: {applicationServerKey?: ArrayBuffer | null}}} subscription
+ * @param {string} publicKey  the server's key, base64url
+ */
+export function madeWithKey(subscription, publicKey) {
+  const held = subscription?.options?.applicationServerKey;
+  if (!held) return false;
+  const mine = new Uint8Array(held);
+  const theirs = applicationServerKey(publicKey);
+  return mine.length === theirs.length && mine.every((byte, i) => byte === theirs[i]);
 }
 
 /** Only a picture over https is ever drawn: the address comes from a tool result, and is put in an <img>. */
@@ -851,7 +922,7 @@ export function describeCall(toolName, args = {}) {
     case 'get_week_narrative': return 'Read the week';
     case 'get_today': return `Looked at ${dayAsked(args)}`;
     case 'list_regular_visitors': return 'Checked who visits';
-    case 'get_whats_different': return 'Looked for anything different';
+    case 'get_whats_different': return 'Looked for anything to tell you';
     case 'did_visitor_come': return `Checked ${dayAsked(args)}’s visits`;
     case 'get_replies': return 'Looked for a reply';
     case 'get_resident_shared_view': return 'Checked what is shared';

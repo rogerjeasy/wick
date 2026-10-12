@@ -88,6 +88,24 @@ export function isReplayable(item, now) {
   return true;
 }
 
+/** More than any television holds; a longer list is not read past this. */
+const MAX_HELD = 200;
+
+/**
+ * The cards a reconnecting television says it holds (`holding`) that are
+ * already finished: answered on another television in the home while this
+ * one was off, or behind another app. Reconcile sends a `revoke` for each,
+ * so a note that has had its answer does not go on asking in a second room.
+ *
+ * Only a card the server knows to be finished. One it has no row for is
+ * left alone: not finding a card is not the same as knowing it was answered.
+ */
+export function finishedAmong(items, holding) {
+  if (!Array.isArray(holding)) return [];
+  const finished = new Set(items.filter((item) => item.actedAt).map((item) => item.sk?.S?.slice('CARD#'.length)));
+  return holding.slice(0, MAX_HELD).filter((id) => typeof id === 'string' && finished.has(id));
+}
+
 /**
  * Presses that leave the card on screen: the chime's answer patches onto a
  * door card, and so does the family's when they are asked to look; the live

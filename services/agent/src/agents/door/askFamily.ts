@@ -46,6 +46,11 @@ export interface AskFamilyDeps {
   /** Conditional write of LOOK#<cardId>; false when it already existed. */
   readonly claimOnce: (request: LookRequest) => Promise<boolean>;
   readonly sendPatch: (patch: CardPatch) => Promise<void>;
+  /**
+   * Tells those people's own browsers there is something to open Wick for
+   * (egress.ts nudgeFamily). It carries nothing about the door.
+   */
+  readonly nudge: (userIds: readonly string[]) => Promise<void>;
   readonly now: () => number;
 }
 
@@ -93,7 +98,8 @@ export async function handleAskFamily(raw: Record<string, unknown>, deps: AskFam
   const expiresAt = queued.expiresAt ?? queued.queuedAt + DOOR_CARD_TTL_MS;
   if (askedAt > expiresAt) return 'stale';
 
-  const who = familyToAsk((await deps.listFamily(detail.householdId)).map((member) => member.name));
+  const family = await deps.listFamily(detail.householdId);
+  const who = familyToAsk(family.map((member) => member.name));
   if (!who) {
     // The resident still hears back, plainly, and the button that reaches
     // nobody goes.
@@ -108,5 +114,13 @@ export async function handleAskFamily(raw: Record<string, unknown>, deps: AskFam
     notice: `${who.charAt(0).toUpperCase()}${who.slice(1)} has been asked to look.`,
     actions: withoutAskButton(queued),
   });
+
+  // After the resident has been told, and never in the way of it: the
+  // question is already filed, and the family app finds it when it is open.
+  try {
+    await deps.nudge(family.map((member) => member.userId));
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', msg: 'door_look_nudge_failed', err: err instanceof Error ? err.name : 'unknown' }));
+  }
   return 'asked';
 }

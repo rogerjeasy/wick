@@ -54,6 +54,21 @@ describe('WebSocketChannel', () => {
     expect(socket.sent).toEqual([JSON.stringify({ t: 'reconcile', sinceCardId: 'c9' })]);
   });
 
+  it('says which cards it holds, so one answered on another television is taken back', async () => {
+    FakeSocket.instances = [];
+    const channel = new WebSocketChannel(
+      { url: 'wss://api.example/prod', getLastSeenCardId: () => 'c9', getHeldCardIds: async () => ['note-a', 'week-1'] },
+      fakeFactory(),
+    );
+
+    const connecting = channel.connect(TOKEN);
+    const socket = FakeSocket.instances[0]!;
+    socket.onopen?.();
+    await connecting;
+
+    expect(socket.sent).toEqual([JSON.stringify({ t: 'reconcile', sinceCardId: 'c9', holding: ['note-a', 'week-1'] })]);
+  });
+
   it("marks the card service's connection as background, and does not ask for a replay", async () => {
     FakeSocket.instances = [];
     const channel = new WebSocketChannel(

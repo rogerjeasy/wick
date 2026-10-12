@@ -17,6 +17,19 @@
  *     token that starts with "playground" is accepted and lists one
  *     simulated camera; anything else is refused, as Ring refuses a bad token
  *
+ *   - the doorbell: GET http://127.0.0.1:3300/dev/door puts a door card on
+ *     the stand-in television of every home that connected one, as if the
+ *     resident had pressed "Ask … to look" — and nudges the browsers that
+ *     turned notifications on, for real, through their own push services
+ *     (a key pair is made at start-up and forgotten at exit)
+ *
+ *   - "Shall I tell …?": GET http://127.0.0.1:3300/dev/different looks for
+ *     anything different in those homes and puts the question on the stand-in
+ *     television — the agent plane's own ask.ts, over the demo home's
+ *     history; GET /dev/tell (or /dev/tell?answer=keep) is the resident's
+ *     press on every question still open — answer.ts, which nudges the
+ *     browsers when the answer is "tell"
+ *
  *   - Watching together: GET /dev/watch stands in for the remote and the
  *     player. `?press=accept` (or decline, start, not_now, or an answer's
  *     key) presses that button on the newest invitation of every home;
@@ -49,6 +62,13 @@ import { createBedrockConverse } from '../assistant/bedrock.js';
 import { createFakeIdentity } from './harness.js';
 import { createMemoryTable } from './memoryTable.js';
 import { invokedRingLinks } from '../accounts/ringLinks.js';
+import webpush from 'web-push';
+import { PUSH_KINDS, PUSH_SK_PREFIX } from '@wick/contracts';
+import { nudge, subscriptionFromItem, type StoredSubscription } from '../../../agent/src/push/nudge.js';
+import { TELL_SK_PREFIX, tellCardId, type PushKind } from '@wick/contracts';
+import { askAboutDifferences, tellRowItem } from '../../../agent/src/agents/tell/ask.js';
+import { handleTellAnswer } from '../../../agent/src/agents/tell/answer.js';
+import { loadShareableDifferences } from '../../../agent/src/rhythm/loadDifferent.js';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { LinkError, createLinkService } from '../../../edge-ring/lambda/household-link-service.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
@@ -119,6 +139,37 @@ const ringLinks = invokedRingLinks(async (request) => {
   }
 });
 
+/**
+ * Web Push, for real: this run's own signing keys, the public half where the
+ * server reads it (accounts/push.ts), and the same nudge the agent plane
+ * sends (services/agent push/nudge.ts) with the request made here.
+ */
+const pushKeys = webpush.generateVAPIDKeys();
+table.put({ pk: { S: 'CONFIG#push' }, sk: { S: 'VAPID' }, publicKey: { S: pushKeys.publicKey } });
+
+const nudgeBrowsers = (userIds: readonly string[], kind: PushKind = PUSH_KINDS.doorLook) =>
+  nudge(userIds, kind, {
+    listSubscriptions: async (userId) =>
+      table.rows(`USER#${userId}`).filter((row) => row.sk?.S?.startsWith(PUSH_SK_PREFIX)).map(subscriptionFromItem).filter((s): s is StoredSubscription => s !== undefined),
+    post: async (subscription, payload) => {
+      try {
+        const res = await webpush.sendNotification(
+          { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
+          payload,
+          { vapidDetails: { ...pushKeys, subject: 'mailto:dev@wick.invalid' }, TTL: 300, urgency: 'high' },
+        );
+        return res.statusCode;
+      } catch (err) {
+        const status = (err as { statusCode?: unknown }).statusCode;
+        // Said here, because a push service's refusal is otherwise only a count.
+        console.log(`push service ${new URL(subscription.endpoint).host} answered ${String(status)}: ${String((err as { body?: unknown }).body ?? '').slice(0, 200)}`);
+        if (typeof status === 'number') return status;
+        throw err;
+      }
+    },
+    forget: async () => {},
+  });
+
 /** Every home that has connected the stand-in television: where /dev/door rings. */
 const homesWithATelevision = new Set<string>();
 
@@ -164,7 +215,7 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
  * Door agent and askFamily.ts would have written. The picture is a
  * placeholder, not Ring's.
  */
-app.get('/dev/door', (_req, res) => {
+app.get('/dev/door', async (_req, res) => {
   const now = Date.now();
   const cardId = `door-dev-${now.toString(36)}`;
   const asked: string[] = [];
@@ -203,7 +254,62 @@ app.get('/dev/door', (_req, res) => {
     });
     asked.push(householdId);
   }
-  res.json({ asked, cardId });
+  // Everyone allowed in those homes, as askFamily.ts would nudge them.
+  const allowed = (await Promise.all(asked.map((householdId) => store.listMembers(householdId))))
+    .flat()
+    .filter((member) => member.status === 'allowed')
+    .map((member) => member.userId);
+  res.json({ asked, cardId, nudged: await nudgeBrowsers(allowed) });
+});
+
+const allowedIn = async (householdId: string) =>
+  (await store.listMembers(householdId)).filter((member) => member.status === 'allowed').map(({ userId, name }) => ({ userId, name }));
+const tellRows = (householdId: string) => table.rows(`HH#${householdId}`).filter((row) => row.sk?.S?.startsWith(TELL_SK_PREFIX));
+
+/** As a television saying its resident is there: anything different is asked about (agents/tell/ask.ts). */
+app.get('/dev/different', async (_req, res) => {
+  const asked: Record<string, readonly string[]> = {};
+  for (const householdId of homesWithATelevision) {
+    asked[householdId] = await askAboutDifferences(householdId, {
+      loadDifferences: (hh) => loadShareableDifferences(table.ddb, 'wick', hh, Date.now(), 'Europe/London'),
+      listFamily: allowedIn,
+      claimOnce: async (row) => {
+        if (tellRows(row.householdId).some((held) => held.differenceId?.S === row.differenceId)) return false;
+        table.put(tellRowItem(row));
+        return true;
+      },
+      release: async () => {},
+      sendCard: async (card) => {
+        table.put({ pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${card.id}` }, data: { S: JSON.stringify(card) } });
+        if (card.card.type === 'TELL') console.log(`television: "${card.card.headline}" ${card.card.detail}`);
+      },
+      now: Date.now,
+      newCorrelationId: () => `dev-${Date.now().toString(36)}`,
+    });
+  }
+  res.json({ asked });
+});
+
+/** As the resident's press on every question still open: "Tell" unless ?answer=keep (agents/tell/answer.ts). */
+app.get('/dev/tell', async (req, res) => {
+  const action = req.query.answer === 'keep' ? 'keep_private' : 'tell_family';
+  const answered: Record<string, string> = {};
+  for (const householdId of homesWithATelevision) {
+    for (const row of tellRows(householdId).filter((held) => !held.answer)) {
+      const differenceId = row.differenceId?.S ?? '';
+      answered[differenceId] = await handleTellAnswer({ householdId, deviceId: 'wick-tv', cardId: tellCardId(differenceId), action, at: Date.now() }, {
+        recordAnswer: async (_hh, _id, answer, at) => {
+          table.put({ ...row, answer: { S: answer }, answeredAt: { N: String(at) } });
+          return true;
+        },
+        listFamily: allowedIn,
+        nudge: async (userIds) => void console.log('nudged:', await nudgeBrowsers(userIds, PUSH_KINDS.told)),
+        withdraw: async () => {},
+        now: Date.now,
+      });
+    }
+  }
+  res.json({ answered });
 });
 
 /**

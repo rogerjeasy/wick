@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Card, QueuedCard } from '@wick/contracts';
-import { waitingLine } from '../waiting.js';
+import { backClosesOpened, waitingLine } from '../waiting.js';
 
 const base = { id: 'c1', householdId: 'hh-1', correlationId: 'c', createdAt: 0, actions: [] } as const;
 const queued = (card: Card): QueuedCard => ({ id: card.id, urgency: 'DEFERRED', card, queuedAt: 0, shownCount: 2 });
@@ -20,9 +20,31 @@ describe('waitingLine — what the home screen says is waiting', () => {
     expect(waitingLine(queued(circle))).toBe('Tom would like to join your family circle.');
   });
 
+  it('says there is a question waiting, without saying what it is about', () => {
+    const tell: Card = { ...base, type: 'TELL', headline: 'Shall I tell Sarah?', detail: 'Maria usually comes on Friday mornings.' };
+
+    expect(waitingLine(queued(tell))).toBe('Wick has a question for you.');
+  });
+
   it('says what a watch-together card says: the server wrote the line', () => {
     const watch: Card = { ...base, type: 'WATCH', sessionId: 's-1', withName: 'Sarah', headline: 'Sarah would like to watch a film with you.' } as Card;
 
     expect(waitingLine(queued(watch))).toBe('Sarah would like to watch a film with you.');
+  });
+});
+
+describe('backClosesOpened — Back on a waiting card the resident opened', () => {
+  it('puts the card back to waiting: Back is not an answer, and must not leave Wick', () => {
+    expect(backClosesOpened({ openedId: 'note-1', shownId: 'note-1', liveOpen: false })).toBe(true);
+  });
+
+  it('is not for a card that came on screen by itself: nothing was opened', () => {
+    expect(backClosesOpened({ openedId: null, shownId: 'note-1', liveOpen: false })).toBe(false);
+    expect(backClosesOpened({ openedId: null, shownId: null, liveOpen: false })).toBe(false);
+  });
+
+  it('leaves Back alone while the door is in front of the opened card', () => {
+    expect(backClosesOpened({ openedId: 'note-1', shownId: 'door-9', liveOpen: false })).toBe(false);
+    expect(backClosesOpened({ openedId: 'note-1', shownId: 'note-1', liveOpen: true })).toBe(false);
   });
 });

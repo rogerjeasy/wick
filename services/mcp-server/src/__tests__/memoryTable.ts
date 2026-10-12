@@ -3,10 +3,11 @@
  * tools and the demo home make, so the whole server can be asked real
  * questions with no AWS (devServer.ts, and the end-to-end tests).
  *
- * It understands exactly what this server sends — PutItem and UpdateItem
- * (a `SET` of plain values or `if_not_exists`, under a condition of
- * `attribute_exists`, `attribute_not_exists` and comparisons joined by AND,
- * with OR inside brackets), GetItem, and a
+ * It understands exactly what this server sends — PutItem (with the one
+ * condition the door answer uses) and UpdateItem (a `SET` of plain values or
+ * `if_not_exists`, under a condition of `attribute_exists`,
+ * `attribute_not_exists` and comparisons joined by AND, with OR inside
+ * brackets), GetItem, DeleteItem, and a
  * Query on `pk` with a `BETWEEN` or `begins_with` on `sk`, an optional
  * filter of `name = :value` terms joined by AND, `ScanIndexForward` and
  * `Limit` — and throws on anything else, so a new kind of request fails
@@ -158,6 +159,9 @@ export function createMemoryTable(): MemoryTable {
       }
       case 'GetItemCommand':
         return { Item: items.get(keyOf(input.Key!)) };
+      case 'DeleteItemCommand':
+        items.delete(keyOf(input.Key!));
+        return {};
       case 'QueryCommand':
         return query(input);
       case 'TransactWriteItemsCommand': {

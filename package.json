@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Wick \u2014 the television as the care surface for the person being cared for.",
+  "description": "Wick — the television as the care surface for the person being cared for.",
   "license": "MIT",
   "author": "Roger Bavibidila",
   "engines": {
@@ -23,6 +23,9 @@
     "demo:capture": "vite-node -c vitest.config.ts scripts/capture-event-frame.ts",
     "demo:door": "vite-node -c vitest.config.ts scripts/door-card-demo.ts",
     "addon:check": "vite-node -c vitest.config.ts scripts/addon-check.ts --",
+    "calm:measure": "scripts/calm-points/measure.sh",
+    "calm:describe": "vite-node -c vitest.config.ts scripts/calm-points/describe.ts && npm run calm:build",
+    "calm:build": "vite-node -c vitest.config.ts scripts/calm-points/cli.ts",
     "ring:check": "vite-node -c vitest.config.ts scripts/ring-camera-check.ts",
     "demo:mcp-seed": "vite-node -c vitest.config.ts scripts/seed-mcp-stub-data.ts",
     "lint": "eslint . --max-warnings=0",
@@ -39,6 +42,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/web-push": "^3.6.4",
     "esbuild": "^0.21.5",
     "eslint": "^9.0.0",
     "fast-check": "^3.23.0",

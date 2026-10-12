@@ -1,156 +1,148 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { AttributeValue, DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { padTimestamp } from '@wick/contracts';
+import { describe, expect, it } from 'vitest';
+import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { createMemoryTable, type MemoryTable } from '../../__tests__/memoryTable.js';
 import { loadWhatsDifferent, registerGetWhatsDifferent } from '../get_whats_different.js';
 import { allowedContext } from './toolContext.js';
 
 const DAY = 86_400_000;
-const WEEK = 7 * DAY;
 const HOUR = 3_600_000;
 /** Friday 9 October 2026, two in the afternoon UTC. */
 const FRIDAY = Date.UTC(2026, 9, 9);
 const NOW = new Date(FRIDAY + 14 * HOUR);
 
-type Item = Record<string, AttributeValue>;
-const evt = (at: number, fields: Item): Item => ({ pk: { S: 'HH#hh-1' }, sk: { S: `EVT#${padTimestamp(at)}#x` }, ...fields });
-const mariaVisit = (at: number): Item => evt(at, { type: { S: 'presence' }, personId: { S: 'maria' }, personName: { S: 'Maria' } });
-const doorCall = (at: number): Item => evt(at, { type: { S: 'door' } });
+const MISSED = 'Maria usually comes on Friday mornings. There was no visit on Friday.';
+const NIGHT = 'Someone came to the door in the night, at 2:10 am on Friday. Nobody had come at night in the 6 weeks before.';
 
-/** Maria on every Tuesday and Friday for six weeks before this Friday, and this Tuesday — but not today. */
-const sixWeeksOfMaria: Item[] = [
-  ...[1, 2, 3, 4, 5, 6].flatMap((k) => [mariaVisit(FRIDAY - k * WEEK + 9 * HOUR), mariaVisit(FRIDAY - 3 * DAY - k * WEEK + 9 * HOUR)]),
-  mariaVisit(FRIDAY - 3 * DAY + 9 * HOUR),
-];
-const maria: Item = { sk: { S: 'PER#maria' }, data: { S: JSON.stringify({ personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' }) } };
-
-/** A table that answers the three reads the tool makes, and counts the ones about visitors. */
-function table(events: Item[], { policy = DEFAULT_POLICY, firstAt = FRIDAY - 8 * WEEK }: { policy?: typeof DEFAULT_POLICY; firstAt?: number } = {}) {
-  const rosterReads: string[] = [];
-  const send = vi.fn().mockImplementation((cmd: { constructor: { name: string }; input: { ExpressionAttributeValues?: Record<string, AttributeValue>; Limit?: number } }) => {
-    if (cmd.constructor.name === 'GetItemCommand') return Promise.resolve({ Item: { policy: { S: JSON.stringify(policy) } } });
-    const prefix = cmd.input.ExpressionAttributeValues?.[':prefix']?.S;
-    if (prefix === 'PER#' || prefix === 'MEM#') {
-      rosterReads.push(prefix);
-      return Promise.resolve({ Items: prefix === 'PER#' ? [maria] : [] });
-    }
-    if (prefix === 'EVT#') return Promise.resolve({ Items: [evt(firstAt, { type: { S: 'door' } })] });
-    return Promise.resolve({ Items: events });
-  });
-  return { ddb: { send } as unknown as DynamoDBClient, rosterReads };
+/** A TELL# row, as the agent plane files it (agents/tell/ask.ts) and the resident's press answers it. */
+function putTell(
+  table: MemoryTable,
+  id: string,
+  over: { kind?: string; factClass?: string; sentence?: string; at?: number; answer?: 'tell' | 'keep'; answeredAt?: number } = {},
+): void {
+  const item: Record<string, AttributeValue> = {
+    pk: { S: 'HH#hh-1' },
+    sk: { S: `TELL#${id}` },
+    differenceId: { S: id },
+    kind: { S: over.kind ?? 'missed_visit' },
+    factClass: { S: over.factClass ?? 'PRESENCE' },
+    sentence: { S: over.sentence ?? MISSED },
+    at: { N: String(over.at ?? FRIDAY + 9 * HOUR) },
+    askedAt: { N: String(FRIDAY + 12 * HOUR) },
+    weeksObserved: { N: '6' },
+  };
+  if (over.answer) {
+    item.answer = { S: over.answer };
+    item.answeredAt = { N: String(over.answeredAt ?? FRIDAY + 13 * HOUR) };
+  }
+  table.put(item);
 }
 
-describe('loadWhatsDifferent', () => {
-  it("says the visitor who did not come, in the Rhythm pillar's own words, and that nothing else is different", async () => {
-    const { ddb } = table(sixWeeksOfMaria);
+const load = (table: MemoryTable, policy = DEFAULT_POLICY, now = NOW) => loadWhatsDifferent(table.ddb, 'hh-1', now, policy, 'Margaret');
 
-    const answer = (await loadWhatsDifferent(ddb, 'hh-1', NOW, DEFAULT_POLICY))!;
+describe('loadWhatsDifferent — only what the resident chose to tell', () => {
+  it('says what the resident asked Wick to tell, in the very words they were shown', async () => {
+    const table = createMemoryTable();
+    putTell(table, 'missed_visit-maria-2026-10-09', { answer: 'tell' });
 
-    expect(answer).toEqual({
+    expect(await load(table)).toEqual({
+      differences: [{ id: 'missed_visit-maria-2026-10-09', kind: 'missed_visit', sentence: MISSED, at: FRIDAY + 9 * HOUR, toldAt: FRIDAY + 13 * HOUR }],
       weeksObserved: 6,
-      enoughHistory: true,
-      differences: [{ kind: 'missed_visit', sentence: 'Maria usually comes on Friday mornings. There has been no visit today.', at: FRIDAY + 9 * HOUR }],
       keptPrivate: [],
-      summary: 'Maria usually comes on Friday mornings. There has been no visit today. Nothing else is different from the usual.',
+      summary: `Margaret asked Wick to tell you: ${MISSED}`,
     });
   });
 
-  it('says that nothing is different on a usual day', async () => {
-    const { ddb } = table([...sixWeeksOfMaria, mariaVisit(FRIDAY + 9 * HOUR)]);
+  it('says nothing of a difference the resident has not answered yet, or chose to keep — and the two look the same as none', async () => {
+    const nothing = createMemoryTable();
+    const waiting = createMemoryTable();
+    putTell(waiting, 'missed_visit-maria-2026-10-09');
+    const kept = createMemoryTable();
+    putTell(kept, 'missed_visit-maria-2026-10-09', { answer: 'keep' });
 
-    const answer = (await loadWhatsDifferent(ddb, 'hh-1', NOW, DEFAULT_POLICY))!;
+    const none = await load(nothing);
 
-    expect(answer.differences).toEqual([]);
-    expect(answer.summary).toBe('Nothing is different from the usual today.');
+    expect(none).toEqual({ differences: [], keptPrivate: [], summary: "Margaret hasn't asked Wick to tell you anything." });
+    expect(await load(waiting)).toEqual(none);
+    expect(await load(kept)).toEqual(none);
   });
 
-  it('says it cannot tell yet, rather than "nothing", before three weeks', async () => {
-    const { ddb } = table(sixWeeksOfMaria, { firstAt: FRIDAY - 10 * DAY });
+  it('never says that nothing is different: it cannot know what was kept', async () => {
+    const summary = (await load(createMemoryTable()))!.summary;
 
-    const answer = (await loadWhatsDifferent(ddb, 'hh-1', NOW, DEFAULT_POLICY))!;
-
-    expect(answer).toMatchObject({ weeksObserved: 1, enoughHistory: false, differences: [] });
-    expect(answer.summary).toBe('Wick has been here for one week. It needs three weeks before it knows what is usual, so it cannot yet say what is different.');
+    expect(summary).not.toMatch(/nothing is different|as usual|all is well/i);
   });
 
-  it('says nothing about a visitor when the resident keeps visitors private — and does not even read who they are', async () => {
-    const policy = { ...DEFAULT_POLICY, residentExclusions: ['PRESENCE' as const] };
-    const { ddb, rosterReads } = table(sixWeeksOfMaria, { policy });
+  it('tells the newest first, and stops telling a week after the resident said so', async () => {
+    const table = createMemoryTable();
+    putTell(table, 'missed_visit-maria-2026-10-06', { answer: 'tell', answeredAt: FRIDAY - 2 * DAY, sentence: 'Maria usually comes on Tuesday mornings. There was no visit on Tuesday.' });
+    putTell(table, 'door_at_night-2026-10-09', { kind: 'door_at_night', factClass: 'DOOR_EVENT', sentence: NIGHT, answer: 'tell', answeredAt: FRIDAY + 13 * HOUR });
+    putTell(table, 'missed_visit-maria-2026-09-29', { answer: 'tell', answeredAt: FRIDAY - 9 * DAY });
 
-    const answer = (await loadWhatsDifferent(ddb, 'hh-1', NOW, policy))!;
+    const answer = (await load(table))!;
 
-    expect(answer.differences).toEqual([]);
+    expect(answer.differences.map((d) => d.id)).toEqual(['door_at_night-2026-10-09', 'missed_visit-maria-2026-10-06']);
+    expect(answer.summary).toBe(`Margaret asked Wick to tell you: ${NIGHT} Maria usually comes on Tuesday mornings. There was no visit on Tuesday.`);
+  });
+
+  it('stops telling what the resident has since made private, class by class', async () => {
+    const table = createMemoryTable();
+    putTell(table, 'missed_visit-maria-2026-10-09', { answer: 'tell' });
+    putTell(table, 'door_at_night-2026-10-09', { kind: 'door_at_night', factClass: 'DOOR_EVENT', sentence: NIGHT, answer: 'tell' });
+
+    const answer = (await load(table, { ...DEFAULT_POLICY, residentExclusions: ['PRESENCE'] }))!;
+
+    expect(answer.differences.map((d) => d.kind)).toEqual(['door_at_night']);
     expect(answer.keptPrivate).toEqual(['Who visits, by name. That is something the resident keeps to themselves.']);
-    expect(rosterReads).toEqual([]);
   });
 
-  it('gives no answer at all when the resident keeps the shape of the week private — a difference is a comparison with the usual', async () => {
-    const policy = { ...DEFAULT_POLICY, residentExclusions: ['RHYTHM' as const] };
-    const { ddb } = table(sixWeeksOfMaria, { policy });
+  it('gives no answer at all when the resident keeps the shape of the week private', async () => {
+    const table = createMemoryTable();
+    putTell(table, 'missed_visit-maria-2026-10-09', { answer: 'tell' });
 
-    expect(await loadWhatsDifferent(ddb, 'hh-1', NOW, policy)).toBeUndefined();
-    // Nothing was read to work one out: not the timeline, not who visits.
-    expect(ddb.send).not.toHaveBeenCalled();
-  });
-
-  it('keeps the door private on its own: the visitor is still said, the night call is not', async () => {
-    const policy = { ...DEFAULT_POLICY, residentExclusions: ['DOOR_EVENT' as const] };
-    const inTheNight = doorCall(FRIDAY + 1 * HOUR + 10 * 60_000);
-    const { ddb } = table([...sixWeeksOfMaria, inTheNight], { policy });
-
-    const answer = (await loadWhatsDifferent(ddb, 'hh-1', NOW, policy))!;
-
-    expect(answer.differences.map((d) => d.kind)).toEqual(['missed_visit']);
-    expect(answer.keptPrivate).toEqual(['When someone comes to the door. That is something the resident keeps to themselves.']);
-  });
-
-  it('asks for six weeks and a day of the timeline, no more', async () => {
-    const { ddb } = table([]);
-
-    await loadWhatsDifferent(ddb, 'hh-1', NOW, DEFAULT_POLICY);
-
-    const ranges = (ddb.send as ReturnType<typeof vi.fn>).mock.calls
-      .map(([cmd]) => (cmd as { input: { ExpressionAttributeValues?: Record<string, AttributeValue> } }).input.ExpressionAttributeValues)
-      .filter((v) => v?.[':from']);
-    expect(ranges).toHaveLength(1);
-    expect(ranges[0]![':from']!.S).toBe(`EVT#${padTimestamp(NOW.getTime() - 43 * DAY)}`);
+    expect(await load(table, { ...DEFAULT_POLICY, residentExclusions: ['RHYTHM'] })).toBeUndefined();
   });
 });
 
 describe('registerGetWhatsDifferent (registered tool handler, end to end)', () => {
-  it('refuses, in the words every tool uses, when the stored policy keeps the shape of the week private', async () => {
-    const { ddb } = table(sixWeeksOfMaria, { policy: { ...DEFAULT_POLICY, residentExclusions: ['RHYTHM' as const] } });
+  async function call(table: MemoryTable) {
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerGetWhatsDifferent(mcpServer, ddb, allowedContext('hh-1'), () => NOW);
+    registerGetWhatsDifferent(mcpServer, table.ddb, allowedContext('hh-1'), () => NOW);
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
     await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
-
+    const listed = (await client.listTools()).tools.find((t) => t.name === 'get_whats_different');
     const result = await client.callTool({ name: 'get_whats_different', arguments: {} });
+    return { listed, text: (result.content as { text: string }[])[0]!.text, structured: result.structuredContent };
+  }
 
-    expect((result.content as { text: string }[])[0]!.text).toBe("That's something the resident is keeping to themselves. I'm not able to share it.");
-    expect(result.structuredContent).toBeUndefined();
+  it('refuses, in the words every tool uses, when the stored policy keeps the shape of the week private', async () => {
+    const table = createMemoryTable();
+    table.put({ pk: { S: 'HH#hh-1' }, sk: { S: 'META' }, policy: { S: JSON.stringify({ ...DEFAULT_POLICY, residentExclusions: ['RHYTHM'] }) } });
+    putTell(table, 'missed_visit-maria-2026-10-09', { answer: 'tell' });
+
+    const { text, structured } = await call(table);
+
+    expect(text).toBe("That's something the resident is keeping to themselves. I'm not able to share it.");
+    expect(structured).toBeUndefined();
   });
 
-  it('answers with the sentence to say and the same answer as structured content', async () => {
-    const { ddb } = table(sixWeeksOfMaria);
-    const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerGetWhatsDifferent(mcpServer, ddb, allowedContext('hh-1'), () => NOW);
+  it('answers with the sentence to say and the same answer as structured content, and changes nothing', async () => {
+    const table = createMemoryTable();
+    putTell(table, 'missed_visit-maria-2026-10-09', { answer: 'tell' });
 
-    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-    const client = new Client({ name: 'test-client', version: '0.1.0' });
-    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+    const { listed, text, structured } = await call(table);
 
-    const listed = (await client.listTools()).tools.find((t) => t.name === 'get_whats_different');
     expect(listed?.annotations).toMatchObject({ readOnlyHint: true });
+    const said = JSON.parse(text) as { summary: string };
+    expect(said.summary).toBe(`Margaret asked Wick to tell you: ${MISSED}`);
+    expect(structured).toEqual(said);
+  });
 
-    const result = await client.callTool({ name: 'get_whats_different', arguments: {} });
-    const content = result.content as { type: string; text: string }[];
-    const said = JSON.parse(content[0]!.text) as { summary: string };
-    expect(said.summary).toBe('Maria usually comes on Friday mornings. There has been no visit today. Nothing else is different from the usual.');
-    expect(result.structuredContent).toEqual(said);
+  it('names the resident of the home the token is for', async () => {
+    expect((await call(createMemoryTable())).text).toContain("Margaret hasn't asked Wick to tell you anything.");
   });
 });

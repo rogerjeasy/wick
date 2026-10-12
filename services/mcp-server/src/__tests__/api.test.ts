@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { linkInvited, linkNewOrganiser, residentAllows, startServer, TOM, type Harness, type Linked } from './harness.js';
+import { createMemoryTable } from './memoryTable.js';
 
 const closers: (() => Promise<void>)[] = [];
 
@@ -227,5 +228,62 @@ describe('GET /api/me — where to find a television to try it on', () => {
     const sarah = await linkNewOrganiser(h);
 
     expect(await (await api(h, sarah, '/api/me')).json()).not.toHaveProperty('virtualTelevisionUrl');
+  });
+});
+
+describe('/api/push — being told when the family app is closed', () => {
+  const BROWSER = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh: 'B'.repeat(87), auth: 'a'.repeat(22) } };
+  const json = (body: unknown, method = 'POST'): RequestInit => ({ method, body: JSON.stringify(body) });
+  const send = (h: Harness, who: Linked, init: RequestInit) =>
+    fetch(`${h.base}/api/push`, { ...init, headers: { authorization: `Bearer ${who.tokens.access_token}`, 'content-type': 'application/json' } });
+
+  async function withPushKeys() {
+    const table = createMemoryTable();
+    table.put({ pk: { S: 'CONFIG#push' }, sk: { S: 'VAPID' }, publicKey: { S: 'BPublicVapidKey' } });
+    const h = await startServer({ ddb: table.ddb });
+    closers.push(h.close);
+    return { h, table };
+  }
+
+  it('says it is not available in a deployment with no push keys, and stores nothing', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+
+    expect(await (await api(h, sarah, '/api/push')).json()).toEqual({ available: false });
+    expect((await send(h, sarah, json(BROWSER))).status).toBe(503);
+  });
+
+  it('hands the page the public key it subscribes with', async () => {
+    const { h } = await withPushKeys();
+    const sarah = await linkNewOrganiser(h);
+
+    expect(await (await api(h, sarah, '/api/push')).json()).toEqual({ available: true, publicKey: 'BPublicVapidKey' });
+  });
+
+  it('keeps a browser under the person the token is for, and forgets it again', async () => {
+    const { h, table } = await withPushKeys();
+    const sarah = await linkNewOrganiser(h);
+
+    expect((await send(h, sarah, json(BROWSER))).status).toBe(204);
+    expect(table.rows(`USER#${sarah.userId}`).map((row) => row.endpoint?.S)).toEqual([BROWSER.endpoint]);
+
+    expect((await send(h, sarah, json({ endpoint: BROWSER.endpoint }, 'DELETE'))).status).toBe(204);
+    expect(table.rows(`USER#${sarah.userId}`).filter((row) => row.sk?.S?.startsWith('PUSH#'))).toEqual([]);
+  });
+
+  it('refuses an address that is not a browser push service', async () => {
+    const { h, table } = await withPushKeys();
+    const sarah = await linkNewOrganiser(h);
+
+    const res = await send(h, sarah, json({ ...BROWSER, endpoint: 'https://169.254.169.254/latest/meta-data/' }));
+
+    expect(res.status).toBe(400);
+    expect(table.rows(`USER#${sarah.userId}`).filter((row) => row.sk?.S?.startsWith('PUSH#'))).toEqual([]);
+  });
+
+  it('is for someone signed in', async () => {
+    const { h } = await withPushKeys();
+
+    expect((await fetch(`${h.base}/api/push`)).status).toBe(401);
   });
 });

@@ -97,6 +97,20 @@ export interface CircleCard extends CardBase {
 }
 
 /**
+ * "Shall I tell Sarah?" — something about today is unlike this household's
+ * usual, and the resident decides whether the family hears of it (tell.ts).
+ * `detail` is the very sentence the family would be told, so the resident
+ * reads exactly what would leave the house. The server writes every word
+ * (services/agent rhythm/tell.ts); the television only renders it. Its id is
+ * always `tell-<differenceId>` (tell.ts), so the press names what it answers.
+ */
+export interface TellCard extends CardBase {
+  readonly type: 'TELL';
+  readonly headline: string;
+  readonly detail: string;
+}
+
+/**
  * Watch together (watch.ts): one of a session's four cards. The server
  * writes every word and every button; the television only renders it. Its
  * id is `watch-<kind>-<sessionId>` (watchCardId), so a press names the
@@ -118,7 +132,7 @@ export interface WatchCard extends CardBase {
   readonly followedUntil?: number;
 }
 
-export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | WatchCard;
+export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard;
 
 export interface QueuedCard {
   readonly id: string;

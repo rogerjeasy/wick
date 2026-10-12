@@ -4,6 +4,7 @@ import {
   markCardShown,
   replayedCard,
   isReplayable,
+  finishedAmong,
   retiresCard,
   // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 } from '../card-acted.mjs';
@@ -119,5 +120,28 @@ describe('replayedCard — what reconcile sends back', () => {
 describe('retiresCard — asking the family to look', () => {
   it('keeps the door card: the answer arrives on it, so reconcile must still replay it', () => {
     expect(retiresCard('ask_family')).toBe(false);
+  });
+});
+
+describe('finishedAmong — what a reconnecting television still holds that is already finished', () => {
+  const items = [card('note-a', { actedAt: { N: '1700' } }), card('note-b'), card('week-2026-W41', { actedAt: { N: '1800' } })];
+
+  it('names the cards it holds that were answered while it was away — on another television in the home', () => {
+    expect(finishedAmong(items, ['note-a', 'note-b'])).toEqual(['note-a']);
+  });
+
+  it('names nothing the television did not say it holds', () => {
+    expect(finishedAmong(items, [])).toEqual([]);
+    expect(finishedAmong(items, ['note-b'])).toEqual([]);
+  });
+
+  it('leaves alone a card the server has no row for: not known to be finished', () => {
+    expect(finishedAmong(items, ['note-zzz', 'note-a'])).toEqual(['note-a']);
+  });
+
+  it('reads nothing into a list that is not one, as an older television sends none', () => {
+    expect(finishedAmong(items, undefined)).toEqual([]);
+    expect(finishedAmong(items, 'note-a')).toEqual([]);
+    expect(finishedAmong(items, [42, null, 'note-a'])).toEqual(['note-a']);
   });
 });

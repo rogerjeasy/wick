@@ -20,6 +20,7 @@
     "@wick/contracts": "*",
     "@wick/policy": "*",
     "@wick/ring": "*",
+    "web-push": "^3.6.7",
     "werift": "^0.24.4"
   }
 }

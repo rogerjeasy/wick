@@ -230,6 +230,9 @@ function renderCard(queuedCard) {
       wrapper.insertBefore(img, wrapper.firstChild);
     }
     if (card.description) wrapper.appendChild(el('div', 'body-text', card.description));
+    // What a press led to, as the television's own DoorCard shows it: whether
+    // the chime rang, who was asked to look, and what they answered.
+    if (card.notice) wrapper.appendChild(el('div', 'body-text notice', card.notice));
   } else if (card.type === 'MESSAGE') {
     wrapper.appendChild(el('div', 'kicker', `Message from ${card.fromName}`));
     wrapper.appendChild(el('div', 'headline', card.transcript ?? 'Tap to hear the message'));
@@ -244,6 +247,11 @@ function renderCard(queuedCard) {
   } else if (card.type === 'SHARING' || card.type === 'CIRCLE') {
     // The server wrote every word of these (sharing.mjs, accounts/circle.ts).
     wrapper.appendChild(el('div', 'kicker', card.type === 'CIRCLE' ? 'Your family circle' : 'What your family sees'));
+    wrapper.appendChild(el('div', 'headline', card.headline));
+    wrapper.appendChild(el('div', 'body-text', card.detail));
+  } else if (card.type === 'TELL') {
+    // "Shall I tell Sarah?" — the sentence shown is the one the family would be told (services/agent rhythm/tell.ts).
+    wrapper.appendChild(el('div', 'kicker', 'Something is different today'));
     wrapper.appendChild(el('div', 'headline', card.headline));
     wrapper.appendChild(el('div', 'body-text', card.detail));
   } else if (card.type === 'WATCH') {
@@ -264,8 +272,8 @@ function renderCard(queuedCard) {
         send({ t: 'card_action', cardId: card.id, action: action.id, at: Date.now() });
         // "Start the film" opens it, and from here this television says where it is (cardActions.ts startsFilm).
         if (card.type === 'WATCH' && action.id === 'start' && card.programmeId) startFilm(card);
-        // An answer to the family circle, or to anything about watching together, finishes its card, as on the television (cardActions.ts).
-        if (card.type === 'CIRCLE' || card.type === 'WATCH') {
+        // An answer to the family circle, to "Shall I tell …?", or to anything about watching together, finishes its card, as on the television (cardActions.ts).
+        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH') {
           currentQueuedCard = null;
           renderEmpty();
         }

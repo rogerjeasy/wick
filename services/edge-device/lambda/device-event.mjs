@@ -65,25 +65,29 @@
  * `card.action` — see card-action-event.mjs. Door presses that keep the card
  * on screen (the chime, Watch live) don't retire it (card-acted.mjs).
  *
- * reconcile: the client sends `{ t: 'reconcile', sinceCardId }` as a normal
+ * reconcile: the client sends `{ t: 'reconcile', sinceCardId, holding }` as a normal
  * message as soon as it is connected (WebSocketChannel.ts and MqttChannel.ts
  * in apps/tv-vega/src/transport) — which is why this lives here rather than
  * in a connect handler. Every card the resident hasn't acted on (and no door
  * card whose visitor has gone) is sent back on the channel the request came
  * by, through the `sendCard` the caller supplies. `sinceCardId` is still
  * sent but no longer filters: card ids are not time-ordered, so it dropped
- * cards (card-acted.mjs's isReplayable).
+ * cards (card-acted.mjs's isReplayable). `holding` is the cards the
+ * television has: any of them already finished — answered on another
+ * television in the home — is taken back with a `revoke`, through the
+ * `sendControl` the caller supplies (card-acted.mjs's finishedAmong).
  */
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { randomUUID } from 'node:crypto';
-import { isReplayable, markCardActed, markCardShown, replayedCard, retiresCard } from './card-acted.mjs';
+import { finishedAmong, isReplayable, markCardActed, markCardShown, replayedCard, retiresCard } from './card-acted.mjs';
 import { deviceBindingKey, isServed } from './device-standing.mjs';
 import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
-import { buildCardActionEntry, shouldPublish } from './card-action-event.mjs';
+import { announcesRetirement, buildCardActionEntry, buildCardRetiredEntry, shouldPublish } from './card-action-event.mjs';
 import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
 import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate, watchPress } from './watch-together.mjs';
 import { SHARING_CARD_ID, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
+import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
 
 const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
@@ -162,8 +166,10 @@ async function markNarrativeSeen(householdId, isoWeek, seenAt) {
  * @param {(card: object) => Promise<boolean>} input.sendCard  puts a card on
  *   that television over the channel the event arrived on; false when the
  *   television has gone
+ * @param {(control: object) => Promise<boolean>} input.sendControl  the same,
+ *   for a control message (a `revoke`)
  */
-export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, sendCard }) {
+export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, sendCard, sendControl }) {
   const device = await ddb.send(new GetItemCommand({
     TableName: TABLE,
     Key: deviceBindingKey(householdId, deviceId),
@@ -211,13 +217,21 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
       await retireActedCard(householdId, deviceEvent.cardId, deviceEvent.at);
     }
 
+    if (deviceEvent.t === 'card_action' && announcesRetirement(deviceEvent.action)) {
+      await publishCardRetired({ householdId, deviceId, cardId: deviceEvent.cardId, at: deviceEvent.at });
+    }
+
     if (deviceEvent.t === 'card_action' && typeof deviceEvent.action === 'string' && shouldPublish(deviceEvent.action)) {
       await publishCardAction({ householdId, deviceId, cardId: deviceEvent.cardId, action: deviceEvent.action, at: deviceEvent.at });
     }
 
     if (deviceEvent.t === 'card_action') {
       const decision = circleDecision(deviceEvent.cardId, deviceEvent.action);
-      if (decision) await recordCircleDecision(householdId, decision, deviceEvent.at);
+      if (decision) {
+        await recordCircleDecision(householdId, decision, deviceEvent.at);
+        // There is now somebody to tell: anything already different is asked about at once.
+        if (decision.status === 'allowed') await signalActive(householdId, deviceId, { always: true });
+      }
 
       const index = replyIndex(deviceEvent.cardId, deviceEvent.action);
       if (index !== undefined) await recordNoteReply(householdId, deviceEvent.cardId, index, deviceEvent.at);
@@ -239,11 +253,33 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
   } else if (deviceEvent.t === 'watch_position') {
     await recordWatchPosition({ sendCard, householdId, deviceEvent });
   } else if (deviceEvent.t === 'reconcile') {
-    await reconcile({ sendCard, householdId });
+    await reconcile({ sendCard, sendControl, householdId, holding: deviceEvent.holding });
   }
+
+  if (isActiveSignal(deviceEvent)) await signalActive(householdId, deviceId);
 
   return { statusCode: 200, body: '' };
 };
+
+/**
+ * Tells the agent plane the resident is at the television, so it can ask
+ * what there is to ask (television-active.mjs). At most once every little
+ * while per television — unless `always`, for the one moment that cannot
+ * wait: the resident has just allowed someone, so there is now somebody to
+ * tell. Logged, never thrown: a look that was not asked for is asked for at
+ * the next signal.
+ */
+async function signalActive(householdId, deviceId, { always = false } = {}) {
+  const now = Date.now();
+  try {
+    if (!always) await ddb.send(new UpdateItemCommand(claimActiveSignal({ table: TABLE, householdId, deviceId, now })));
+    const res = await events.send(new PutEventsCommand({ Entries: [buildTelevisionActiveEntry({ busName: BUS, householdId, deviceId, at: now })] }));
+    if (res.FailedEntryCount) console.error('television_active_publish_rejected', { code: res.Entries?.[0]?.ErrorCode });
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return; // signalled lately, or not a paired television
+    console.error('television_active_signal_failed', { householdId, err: err?.name });
+  }
+}
 
 /**
  * See card-acted.mjs markCardShown. Logged, never thrown: the showing is
@@ -442,7 +478,22 @@ async function publishCardAction(detail) {
   }
 }
 
-async function reconcile({ sendCard, householdId }) {
+/**
+ * Tell the agent plane this card is finished, so the home's other
+ * televisions put it away (card-action-event.mjs announcesRetirement).
+ * Logged, never thrown: the press is kept already, and a television that is
+ * not told now is told when it next connects (reconcile, below).
+ */
+async function publishCardRetired(detail) {
+  try {
+    const res = await events.send(new PutEventsCommand({ Entries: [buildCardRetiredEntry({ busName: BUS, ...detail })] }));
+    if (res.FailedEntryCount) console.error('card_retired_publish_rejected', { cardId: detail.cardId, code: res.Entries?.[0]?.ErrorCode });
+  } catch (err) {
+    console.error('card_retired_publish_failed', { cardId: detail.cardId, err: err?.name });
+  }
+}
+
+async function reconcile({ sendCard, sendControl, householdId, holding }) {
   // Every CARD# item for the household, page by page: a card the resident
   // hasn't acted on is replayed whatever its id (card-acted.mjs's
   // isReplayable says why the device's sinceCardId is no longer used to
@@ -459,6 +510,15 @@ async function reconcile({ sendCard, householdId }) {
     items.push(...(page.Items ?? []));
     ExclusiveStartKey = page.LastEvaluatedKey;
   } while (ExclusiveStartKey);
+
+  // First what to put away: a card this television still holds that was
+  // answered on another one while it was off (card-acted.mjs finishedAmong).
+  for (const cardId of finishedAmong(items, holding)) {
+    if (!(await sendControl({ t: 'revoke', cardId }))) {
+      console.log('reconcile: television gone mid-replay, stopping', { householdId });
+      return;
+    }
+  }
 
   const now = Date.now();
   for (const item of items) {
