@@ -29,12 +29,18 @@
  * at the weekend. Last week was like the weeks before it, so its story ends
  * the way Wick's best weeks do: nothing unusual.
  *
- * With one exception, in the week still under way: the most recent morning
- * Maria was due, she did not come. It is the one thing in this home that
- * is unlike its usual, so that "is anything different?" has something to
- * find (rhythm/different.ts) — said once, calmly, and gone again when she
- * next comes. Early in a week, before her first morning is over, there is
- * nothing different at all, which is the commoner answer.
+ * With one exception: the most recent morning Maria was due, she did not
+ * come, and she has not been since. It is the one thing in this home that
+ * is unlike its usual, so that the television has something to ask the
+ * resident about — "Shall I tell …?" (services/agent agents/tell) — and the
+ * family something to be told (rhythm/different.ts).
+ *
+ * There is always exactly one. Early in a week, before her first morning
+ * is over, the morning she missed is last Friday, and last week's story is
+ * written from the same rows — one visit, not two — so the story and the
+ * timeline cannot disagree. It used to be looked for in the current week
+ * only, which left a home made on a Monday with nothing different in it:
+ * a guest who arrived then was never asked anything.
  *
  * Deterministic: the same moment gives the same history. Only events that
  * have already happened are written, so "today" is as true at nine in the
@@ -116,21 +122,32 @@ function eventItems(householdId: string, at: number, key: string, visitor: Roste
   }];
 }
 
+/** When Maria is due in a given week: the start of her window on that slot's day, without the jitter. */
+const dueAt = (thisMonday: number, weeksAgo: number, slot: Slot, minuteOfDay: number): number =>
+  thisMonday - weeksAgo * WEEK + slot.day * DAY + minuteOfDay * MINUTE;
+
 /**
- * Which of this week's visits did not happen: the latest one that is over
- * by the rule Something's Different itself uses (her window, and the grace
- * after it), so the home never claims a visit was missed while she could
- * still be on her way. Undefined before her first morning of the week.
+ * The morning Maria did not come: the latest one that is over by the rule
+ * Something's Different itself uses (her window, and the grace after it),
+ * so the home never claims a visit was missed while she could still be on
+ * her way. Returned as the moment she was due.
+ *
+ * It is looked for in this week and, early in the week, in the last one —
+ * so there is always one. A home made on a Monday used to have nothing
+ * different in it until Tuesday's grace ran out, and a guest who arrived
+ * then was never asked "Shall I tell …?" at all.
  */
-function missedVisitSlot(thisMonday: number, now: number): number | undefined {
+function missedVisitDueAt(thisMonday: number, now: number): number | undefined {
   const pattern = parsePattern(DEMO_VISITOR.expectedPattern);
   if (!pattern) return undefined;
   let missed: number | undefined;
-  WEEK_PATTERN.forEach((slot, index) => {
-    if (!slot.visitor) return;
-    const over = thisMonday + slot.day * DAY + (pattern.minuteOfDay + pattern.windowMin) * MINUTE + VISIT_GRACE_MS;
-    if (over <= now) missed = index;
-  });
+  for (const weeksAgo of [1, 0]) {
+    for (const slot of WEEK_PATTERN) {
+      if (!slot.visitor) continue;
+      const due = dueAt(thisMonday, weeksAgo, slot, pattern.minuteOfDay);
+      if (due + pattern.windowMin * MINUTE + VISIT_GRACE_MS <= now) missed = due;
+    }
+  }
   return missed;
 }
 
@@ -144,13 +161,17 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
   const pk = { S: `HH#${householdId}` };
   const thisMonday = isoWeekRange(currentIsoWeek(new Date(now))).startMs;
 
-  const missed = missedVisitSlot(thisMonday, now);
+  const visitorMinuteOfDay = parsePattern(DEMO_VISITOR.expectedPattern)?.minuteOfDay ?? 0;
+  const missed = missedVisitDueAt(thisMonday, now);
 
   const events: Item[] = [];
   for (let weeksAgo = FIRST_WEEK_AGO; weeksAgo >= 0; weeksAgo -= 1) {
     WEEK_PATTERN.forEach((slot, index) => {
       if (slot.inWeek && !slot.inWeek(weeksAgo)) return;
-      if (weeksAgo === 0 && index === missed) return;
+      // The morning she missed, and any since: she has not come again yet.
+      // A visit after it would make "she did not come" untrue — the detector
+      // counts coming late, or on a later day, as having come.
+      if (slot.visitor && missed !== undefined && dueAt(thisMonday, weeksAgo, slot, visitorMinuteOfDay) >= missed) return;
       const at = thisMonday - weeksAgo * WEEK + slot.day * DAY + slot.hour * HOUR + (slot.minute + jitterMinutes(weeksAgo, index)) * MINUTE;
       if (at <= now) events.push(...eventItems(householdId, at, `${weeksAgo}-${index}`, slot.visitor));
     });
