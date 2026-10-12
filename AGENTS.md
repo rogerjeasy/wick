@@ -213,6 +213,20 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   row, week and household carries `simulated`, and the family app says so
   wherever it names the home. **Never** write simulated rows to a household a
   person set up, and never show a simulated week without saying it is one.
+- **The light says one thing.** The light in the window
+  (`packages/contracts/src/light.ts`) tells the family whether the
+  resident's day has begun, and nothing else: `get_light` returns lit or not
+  lit — no time, no count, no television, no programme. The resident can put
+  it out for the day (`services/edge-device/lambda/light.mjs`), and a light
+  that is out must look exactly like one not yet lit, in the same words:
+  otherwise putting it out would itself tell the family something (the same
+  reasoning as INV-10). It is not answered at all when the resident keeps
+  the shape of their week private. And it goes both ways: a question that
+  asks after the resident is noted (`gated`'s `looksIn`,
+  `services/mcp-server/src/tools/lookIn.ts`) and the resident's home screen
+  says who looked in. **Never** add a time, a reason or a second fact to the
+  light, never tell "out" from "not lit", and never hide a look from the
+  resident.
 - **Where a film has got to is the resident's.** Watching together
   (`packages/contracts/src/watch.ts`) lets one family member's player follow
   the resident's. The position of a film leaves the television only after the

@@ -27,16 +27,43 @@ export interface HomeScreenProps {
    */
   readonly waiting?: string | undefined;
   readonly onOpenWaiting?: (() => void) | undefined;
+  /**
+   * How her light in the window stands, in two words (home/light.ts) — the
+   * one button beside the question. OK opens the card that says who can
+   * see it and lets her put it out. Absent when nobody can see a light.
+   */
+  readonly light?: string | undefined;
+  readonly onOpenLight?: (() => void) | undefined;
+  /** "Sarah looked in this morning." Shown where the waiting line goes, when nothing is waiting. */
+  readonly lookedIn?: string | undefined;
 }
 
-export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn }: HomeScreenProps): React.JSX.Element {
   const focusId = lastWatchedId ?? programmes[0]?.id;
+  // One quiet row under the films, and a card waiting to be opened comes first.
+  const quiet = waiting ? undefined : lookedIn;
 
   return (
     <View style={styles.screen}>
-      <Text style={styles.question} accessibilityRole="header">
-        What would you like to watch?
-      </Text>
+      <View style={styles.top}>
+        <Text style={[styles.question, styles.questionText]} accessibilityRole="header" numberOfLines={1}>
+          What would you like to watch?
+        </Text>
+        {/* Never focused on its own: the films are what the screen is for. */}
+        {light ? (
+          <Pressable
+            onPress={onOpenLight}
+            focusable={!cardVisible}
+            accessibilityRole="button"
+            accessibilityLabel={`Your light in the window. ${light}. Press OK to see who can see it.`}
+            style={({ focused }: { focused: boolean }) => [styles.light, focused && styles.tileFocused]}
+          >
+            <Text style={styles.line} numberOfLines={1}>
+              {light}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       <View style={styles.row}>
         {programmes.map((programme) => (
@@ -49,7 +76,7 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
             accessibilityLabel={`${programme.title}. ${programme.line}`}
             style={({ focused }: { focused: boolean }) => [styles.tile, focused && styles.tileFocused]}
           >
-            <Image source={POSTERS[programme.id]} style={[styles.poster, waiting ? styles.posterWithRow : null]} resizeMode="cover" accessibilityLabel="" />
+            <Image source={POSTERS[programme.id]} style={[styles.poster, waiting || quiet ? styles.posterWithRow : null]} resizeMode="cover" accessibilityLabel="" />
             <View style={styles.caption}>
               <Text style={styles.title} numberOfLines={1}>
                 {programme.title}
@@ -78,6 +105,15 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
           <Text style={styles.title}>Open</Text>
         </Pressable>
       ) : null}
+
+      {/* Who looked in: something to read, with nothing to press. */}
+      {quiet ? (
+        <View style={styles.waiting} accessibilityRole="text">
+          <Text style={[styles.line, styles.waitingLine]} numberOfLines={1}>
+            {quiet}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -91,10 +127,27 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
     gap: 24,
   },
+  // The question, and beside it the light: one line, so the films keep their height.
+  top: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 24,
+  },
   question: {
     color: safe.ink,
     fontSize: fontSize('headline'),
     lineHeight: fontSize('headline') * 1.25,
+  },
+  questionText: {
+    flex: 1,
+  },
+  light: {
+    borderRadius: 16,
+    borderWidth: 4,
+    borderColor: 'transparent',
+    backgroundColor: safe.raised,
+    paddingHorizontal: 16,
+    paddingVertical: 2,
   },
   row: {
     flexDirection: 'row',

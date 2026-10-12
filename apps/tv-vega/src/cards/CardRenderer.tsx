@@ -13,6 +13,7 @@ import * as React from 'react';
 import type { Card } from '@wick/contracts';
 import { CircleCardView } from './CircleCard.js';
 import { DoorCardView } from './DoorCard.js';
+import { LightCardView } from './LightCard.js';
 import { MessageCardView } from './MessageCard.js';
 import { SharingCardView } from './SharingCard.js';
 import { TellCardView } from './TellCard.js';
@@ -48,5 +49,8 @@ export function CardRenderer({ card, onAction }: CardRendererProps): React.JSX.E
 
     case 'WATCH':
       return <WatchCardView card={card} onAction={handle} />;
+
+    case 'LIGHT':
+      return <LightCardView card={card} onAction={handle} />;
   }
 }

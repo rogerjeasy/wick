@@ -189,3 +189,9 @@
   border-color: transparent;
   font-weight: 600;
 }
+
+/* The home screen's quiet line: who looked in (tv-vega HomeScreen.tsx). */
+.tv-empty .home-line {
+  margin: 12px 0;
+  color: var(--ink, #f2f4f7);
+}

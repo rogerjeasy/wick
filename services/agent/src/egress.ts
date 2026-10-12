@@ -15,7 +15,7 @@
  * See docs/WICK-TECHNICAL.md §6.3, §10.2.
  */
 import { evaluate, type Audience, type HouseholdPolicy } from '@wick/policy';
-import { MAX_CARD_ACTIONS, PUSH_SK_PREFIX, type Card, type CardPatch, type DeviceWireMessage, type FactClass, type PushKind, type QueuedCard } from '@wick/contracts';
+import { MAX_CARD_ACTIONS, PUSH_SK_PREFIX, type Card, type CardPatch, type DeviceWireMessage, type FactClass, type HomeState, type PushKind, type QueuedCard } from '@wick/contracts';
 import { DeleteItemCommand, DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import { IoTDataPlaneClient, PublishCommand } from '@aws-sdk/client-iot-data-plane';
@@ -382,6 +382,19 @@ export async function sendPatchToDevice(patch: CardPatch, householdId: string): 
  */
 export async function withdrawFromDevices(cardId: string, householdId: string, exceptDeviceId?: string): Promise<void> {
   await pushToDevices(householdId, { kind: 'control', control: { t: 'revoke', cardId } }, exceptDeviceId);
+}
+
+/**
+ * Tells the household's televisions something for the home screen to say
+ * beside its cards (packages/contracts light.ts): today, that somebody in
+ * the family looked in. Resident-bound, and about the family's own act —
+ * nothing about the house leaves it this way.
+ *
+ * Only the live push. A television that is off is told when it next asks
+ * for what it is owed (the edge's reconcile works the same line out).
+ */
+export async function sendHomeToDevices(householdId: string, home: HomeState): Promise<void> {
+  await pushToDevices(householdId, { kind: 'control', control: { t: 'home', home } });
 }
 
 // ---------------------------------------------------------------------------

@@ -105,6 +105,17 @@
 
   .flame { width: 0.8em; height: 1.1em; flex: none; }
 
+  /* The light in the window: lit, or not. Not lit is quiet, never a warning. */
+  .light { display: inline-flex; align-items: center; gap: var(--s-xs); color: var(--ink-dim); }
+  .light .flame, .window .flame { filter: grayscale(1); opacity: 0.35; }
+  .light.lit { color: var(--ink); }
+  .light.lit .flame, .window.lit .flame { filter: none; opacity: 1; }
+  .light-card { text-align: center; }
+  .light-card .window { margin: var(--s-m) auto var(--s-s); width: 4.5rem; height: 6rem; display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--r-m, 12px) var(--r-m, 12px) 4px 4px; }
+  .light-card .window.lit { box-shadow: 0 0 2.5rem rgba(232, 183, 93, 0.35); border-color: rgba(232, 183, 93, 0.5); }
+  .light-card .window .flame { width: 1.8rem; height: 2.5rem; }
+  .light-card .light-note { margin: 0 0 var(--s-m); color: var(--ink-dim); }
+
   .toggle {
     display: inline-flex; align-items: center; gap: var(--s-xs);
     background: none; border: 1px solid var(--line); border-radius: var(--r-pill);
@@ -298,6 +309,7 @@
         Wick <small>· add-on for Alexa+ (simulated)</small>
       </span>
       <span class="spacer"></span>
+      <span id="light" class="light" role="img" hidden></span>
       <span id="auth-status" class="status" role="status">Not connected</span>
       <button id="speak-toggle" class="toggle" type="button" aria-pressed="false">Speak answers</button>
       <button id="sign-out" class="toggle" type="button" hidden>Sign out</button>

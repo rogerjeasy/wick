@@ -65,6 +65,12 @@
  * `card.action` — see card-action-event.mjs. Door presses that keep the card
  * on screen (the chime, Watch live) don't retire it (card-acted.mjs).
  *
+ * The light in the window: `{ t: 'light' }` is her press on the home
+ * screen's light, answered with the Light card; its two presses put the
+ * light out for the day or light it again; and every reconcile is followed
+ * by what the home screen says beside its cards — her light, and who in the
+ * family looked in today. light.mjs.
+ *
  * reconcile: the client sends `{ t: 'reconcile', sinceCardId, holding }` as a normal
  * message as soon as it is connected (WebSocketChannel.ts and MqttChannel.ts
  * in apps/tv-vega/src/transport) — which is why this lives here rather than
@@ -88,6 +94,7 @@ import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
 import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate, watchPress } from './watch-together.mjs';
 import { SHARING_CARD_ID, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
+import { buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
 
 const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
@@ -95,6 +102,8 @@ const TABLE = process.env.TABLE_NAME;
 const BUS = process.env.EVENT_BUS_NAME;
 /** The family member as the resident knows them — "What Sarah sees". */
 const FAMILY_NAME = process.env.WICK_FAMILY_NAME || undefined;
+/** Where the house is: what "today" means for the light in the window (light.mjs). */
+const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ || 'Europe/London';
 
 const WEEK_CARD_ID = /^week-(\d{4}-W\d{2})$/;
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -236,6 +245,9 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
       const index = replyIndex(deviceEvent.cardId, deviceEvent.action);
       if (index !== undefined) await recordNoteReply(householdId, deviceEvent.cardId, index, deviceEvent.at);
 
+      const light = lightPress(deviceEvent.cardId, deviceEvent.action);
+      if (light) await changeLight({ sendControl, householdId, press: light });
+
       const watch = watchPress(deviceEvent.cardId, deviceEvent.action);
       if (watch) await recordWatchPress(householdId, watch);
 
@@ -252,8 +264,11 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
     }
   } else if (deviceEvent.t === 'watch_position') {
     await recordWatchPosition({ sendCard, householdId, deviceEvent });
+  } else if (deviceEvent.t === 'light') {
+    await showLight({ sendCard, householdId });
   } else if (deviceEvent.t === 'reconcile') {
     await reconcile({ sendCard, sendControl, householdId, holding: deviceEvent.holding });
+    await tellHome({ sendControl, householdId });
   }
 
   if (isActiveSignal(deviceEvent)) await signalActive(householdId, deviceId);
@@ -476,6 +491,61 @@ async function publishCardAction(detail) {
   } catch (err) {
     console.error('card_action_publish_failed', { cardId: detail.cardId, err: err?.name });
   }
+}
+
+/**
+ * The light in the window — see light.mjs. One read of the household's rows
+ * says what her home screen is told and what the Light card says.
+ */
+async function loadHomeRows(householdId) {
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const page = await ddb.send(new QueryCommand({ ...homeRange({ table: TABLE, householdId }), ...(ExclusiveStartKey ? { ExclusiveStartKey } : {}) }));
+    items.push(...(page.Items ?? []));
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return items;
+}
+
+/**
+ * What the home screen says beside its cards: her light, and who looked in.
+ * Sent when the television asks for what it is owed, and again after she
+ * changes the light. Logged, never thrown: a home screen without the line
+ * is still a home screen.
+ */
+async function tellHome({ sendControl, householdId }) {
+  try {
+    const items = await loadHomeRows(householdId);
+    // `whole`: this is all of it, so a light she has since made private is not left showing.
+    await sendControl({ t: 'home', home: homeState({ items, now: Date.now(), timeZone: HOUSEHOLD_TZ }), whole: true });
+  } catch (err) {
+    console.error('home_state_failed', { householdId, err: err?.name });
+  }
+}
+
+/** Her press on the home screen's light: the Light card, on the television that asked. Never stored — it is hers to look at, not owed. */
+async function showLight({ sendCard, householdId }) {
+  try {
+    const items = await loadHomeRows(householdId);
+    const queued = buildLightCard({ householdId, items, now: Date.now(), timeZone: HOUSEHOLD_TZ });
+    if (queued) await sendCard(queued);
+  } catch (err) {
+    console.error('light_show_failed', { householdId, err: err?.name });
+  }
+}
+
+/** "Put it out for today" or "Light it again". The time is this server's own; then the home screen is told how it stands. */
+async function changeLight({ sendControl, householdId, press }) {
+  try {
+    await ddb.send(new UpdateItemCommand(lightUpdate({ table: TABLE, householdId, press, at: Date.now() })));
+    // The press and nothing about the household: which way the light went is hers alone.
+    console.log(JSON.stringify({ level: 'info', msg: 'light_changed' }));
+  } catch (err) {
+    console.error('light_change_failed', { householdId, err: err?.name });
+    return;
+  }
+  await tellHome({ sendControl, householdId });
 }
 
 /**

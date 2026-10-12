@@ -28,6 +28,7 @@ import {
   suggestionsFor,
   timeFormatter,
   toldToAnnounce,
+  lightToShow,
   watchStatus,
   watchToAnnounce,
 } from './surface.js';
@@ -226,6 +227,7 @@ function signedOut(reason) {
   watchLook = null;
   watchSeen.clear();
   closeSeat();
+  $('light').hidden = true;
   // A link that ended by itself cannot tell the server; the browser still stops listening.
   void forgetThisBrowser({ tellServer: false });
   enableToolButtons(false);
@@ -377,6 +379,8 @@ async function callToolOnly(name, args) {
 
 async function callTool(name, args) {
   const result = await callToolOnly(name, args);
+  // However the light was asked after, the corner of the page keeps up with the answer.
+  if (name === 'get_light') showLightInCorner(result.isError === true ? null : lightToShow(result.content?.[0]?.text ?? ''));
   // However a film watched together came to be on the page, it is not then announced as news (watchToAnnounce).
   if ((name === 'get_watch_together' || name === 'join_watch_together') && result.isError !== true) {
     const news = watchToAnnounce(result.content?.[0]?.text ?? '', watchSeen);
@@ -526,6 +530,7 @@ async function answerDoorQuestion(requestId, answer, buttons) {
 function renderCard(card) {
   if (card.kind === 'door') return renderDoorCard(card);
   if (card.kind === 'watch') return renderWatchCard(card);
+  if (card.kind === 'light') return renderLightCard(card);
   const node = el('article', 'card');
   const head = el('div', 'card-head');
   head.appendChild(el('h2', 'card-title', card.title));
@@ -1159,6 +1164,51 @@ async function lookAtSeat(ui) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The light in the window. One thing about today: lit, or not. What it says
+// is decided in surface.js (presentLight, lightToShow); this draws it — in
+// the card that answers the question, and in the corner of the page.
+// ---------------------------------------------------------------------------
+
+function renderLightCard(card) {
+  const node = el('article', 'card light-card');
+  const window_ = el('div', card.lit ? 'window lit' : 'window');
+  window_.setAttribute('role', 'img');
+  window_.setAttribute('aria-label', card.title);
+  window_.innerHTML = FLAME;
+  node.appendChild(window_);
+  node.appendChild(el('h2', 'card-title', card.title));
+  if (card.note) node.appendChild(el('p', 'light-note', card.note));
+  node.appendChild(cardFoot(card.footnote));
+  return node;
+}
+
+/** The corner of the page: lit, not lit, or — with nothing to show — nothing at all. */
+function showLightInCorner(shown) {
+  const corner = $('light');
+  if (!shown || !me) {
+    corner.hidden = true;
+    return;
+  }
+  const resident = me.household.residentName;
+  const words = shown.lit ? `${resident}’s light is on` : `${resident}’s light is not on`;
+  corner.className = shown.lit ? 'light lit' : 'light';
+  corner.innerHTML = FLAME;
+  corner.appendChild(el('span', undefined, words));
+  corner.setAttribute('aria-label', words);
+  corner.hidden = false;
+}
+
+/** Looked at once when the app is opened, like looking in at a window on the way past. The resident is told of it (get_light). */
+async function lookAtTheLight() {
+  if (!me || me.membership.status !== 'allowed') return;
+  try {
+    await callTool('get_light', {});
+  } catch {
+    // The corner stays empty; asking again is one chip away.
+  }
+}
+
 /**
  * A film watched together: the picture, one line saying what the
  * television is doing, and — when it is time — the button that takes the
@@ -1700,6 +1750,7 @@ async function welcome() {
   else $('ask-input').focus();
   watchTheDoor();
   watchForTheFilm();
+  void lookAtTheLight();
   void lookForWhatWasTold();
   offerNotificationsOnce();
 }

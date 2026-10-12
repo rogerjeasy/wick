@@ -1,0 +1,92 @@
+/**
+ * The light in the window — presence, both ways.
+ *
+ * The family sees one thing about today: a light, lit once the resident's
+ * day has begun at the television. No time, no count, no room. The resident
+ * can put it out for the day, and a light that is out looks exactly like one
+ * not yet lit — so an unlit window never says why.
+ *
+ * And it goes the other way: when someone in the family asks how the
+ * resident is, the resident's own home screen says so — "Sarah looked in
+ * this morning." Looking is not hidden from the person looked at.
+ *
+ * Nothing new is measured. The light reads what a paired television already
+ * stamps when someone is at it (`activeSignalAt`, edge-device
+ * television-active.mjs), plus two kinds of row in the household's table:
+ *
+ *   `HH#<household>` / `LIGHT`              `outAt`: when she put it out
+ *   `HH#<household>` / `LOOKIN#<userId>`    `name`, `lookedAt`: that person's latest look
+ */
+
+export const LIGHT_SK = 'LIGHT';
+export const LOOKIN_SK_PREFIX = 'LOOKIN#';
+
+/** One card, asked for from the home screen: the same id each time, like "What Sarah sees". */
+export const LIGHT_CARD_ID = 'light';
+
+export const LIGHT_ACTIONS = {
+  putOut: 'put_out',
+  lightAgain: 'light_again',
+  ok: 'ok',
+} as const;
+
+/** What the home screen is told beside its cards. Each part is absent when there is nothing to say. */
+export interface HomeState {
+  /** Her light, as the family would see it. Absent when nobody can see one. */
+  readonly light?: 'on' | 'out';
+  /**
+   * The latest person to ask after her today, by the first name she knows
+   * them by — and the sentence that says so, written where the household's
+   * time zone is known (lookedInWords), so a television whose own clock is
+   * set elsewhere still says "this morning" at the right time.
+   */
+  readonly lookedIn?: { readonly name: string; readonly at: number; readonly line: string };
+}
+
+const dayIn = (at: number, timeZone: string): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+
+/** Whether two moments fall on the same calendar day where the house is. */
+export function sameLocalDay(a: number, b: number, timeZone: string): boolean {
+  return dayIn(a, timeZone) === dayIn(b, timeZone);
+}
+
+/**
+ * Whether the light is lit now: a television in the home has been in use
+ * today, and she has not put the light out today.
+ *
+ * One answer, on purpose. Callers must not tell "out" from "not yet lit".
+ */
+export function isLit(input: {
+  /** When each of the home's televisions last said someone was at it. */
+  readonly activeAts: readonly number[];
+  readonly outAt?: number | undefined;
+  readonly now: number;
+  readonly timeZone: string;
+}): boolean {
+  const { activeAts, outAt, now, timeZone } = input;
+  if (outAt !== undefined && sameLocalDay(outAt, now, timeZone)) return false;
+  return activeAts.some((at) => sameLocalDay(at, now, timeZone));
+}
+
+/** The latest look of today, or nobody. */
+export function lookedInToday(
+  looks: readonly { readonly name: string; readonly at: number }[],
+  now: number,
+  timeZone: string,
+): { readonly name: string; readonly at: number } | undefined {
+  return looks
+    .filter((look) => sameLocalDay(look.at, now, timeZone))
+    .sort((a, b) => b.at - a.at)[0];
+}
+
+/** "this morning", "this afternoon" or "this evening", where the house is. */
+function partOfDay(at: number, timeZone: string): string {
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', hourCycle: 'h23' }).format(at));
+  return hour < 12 ? 'this morning' : hour < 18 ? 'this afternoon' : 'this evening';
+}
+
+/** "Sarah looked in this morning." — the one sentence, on her home screen and on the Light card. */
+export function lookedInWords(name: string, at: number, timeZone: string): string {
+  return `${name} looked in ${partOfDay(at, timeZone)}.`;
+}

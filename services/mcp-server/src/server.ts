@@ -51,6 +51,8 @@ import { registerAddRegularVisitor } from './tools/add_regular_visitor.js';
 import { registerExpectVisit } from './tools/expect_visit.js';
 import { createPushStore } from './accounts/push.js';
 import { registerGetDoorRequest } from './tools/get_door_request.js';
+import { registerGetLight } from './tools/get_light.js';
+import { recordLook, type SendHome } from './tools/lookIn.js';
 import { registerAnswerDoorRequest } from './tools/answer_door_request.js';
 import { registerInviteToWatch } from './tools/invite_to_watch.js';
 import { registerGetWatchTogether } from './tools/get_watch_together.js';
@@ -97,6 +99,7 @@ function createMcpServer(
   registerGetWatchTogether(mcpServer, ddb, ctx);
   registerJoinWatchTogether(mcpServer, ddb, ctx, sendCard);
   registerAnswerWatchTogether(mcpServer, ddb, ctx, sendCard);
+  registerGetLight(mcpServer, ddb, ctx);
   return mcpServer;
 }
 
@@ -132,6 +135,12 @@ export interface AppDeps {
   readonly sendCard: (card: QueuedCard) => Promise<void>;
   /** egress.ts's sendPatchToDevice — how an answer reaches a door card already on the television (INV-2). */
   readonly sendPatch: (patch: CardPatch, householdId: string) => Promise<void>;
+  /**
+   * egress.ts's sendHomeToDevices — how the resident's home screen is told
+   * who looked in (INV-2). Absent, the look is still kept, and the
+   * television reads it when it next connects.
+   */
+  readonly sendHome?: SendHome;
   /** The household's own rows, read by the tools. */
   readonly ddb: DynamoDBClient;
   /** The pairing API's POST /pair/claim, called as the signed-in person. */
@@ -232,6 +241,9 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
         householdId: grant.householdId,
         userId: grant.userId,
         access: () => checkAccess(deps.store, grant.householdId, grant.userId),
+        // The light in the window: asking after the resident is something the resident is told.
+        lookedIn: (allowed) =>
+          recordLook(ddb, { householdId: grant.householdId, userId: grant.userId, name: allowed.membership.name }, (deps.now ?? Date.now)(), deps.sendHome ?? (async () => {})),
       }, deps.sendCard, deps.sendPatch);
       // No `sessionIdGenerator` given: that is what makes it stateless.
       const transport = new StreamableHTTPServerTransport({});

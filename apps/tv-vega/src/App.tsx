@@ -23,7 +23,7 @@ import * as React from 'react';
 import { AppState, Linking } from 'react-native';
 import { BackHandler, StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
-import type { DeviceToken, QueuedCard } from '@wick/contracts';
+import type { DeviceToken, HomeState, QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
 import { LiveView } from './live/LiveView.js';
@@ -36,6 +36,7 @@ import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/Pla
 import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
 import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, waitingLine } from './home/waiting.js';
+import { answersHerPress, lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
 import { WatchScreen } from './watch/WatchScreen.js';
 import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { TogetherReporter, type Together } from './watch/togetherReporter.js';
@@ -83,6 +84,10 @@ export default function App(): React.JSX.Element {
   const [waiting, setWaiting] = React.useState<QueuedCard | null>(null);
   /** The waiting card the resident opened. A ref as well: the tick below reads it between renders. */
   const openedId = React.useRef<string | null>(null);
+  /** What the home screen says beside its cards: her light in the window, and who looked in (home/light.ts). */
+  const [home, setHome] = React.useState<HomeState>({});
+  /** When she pressed the light on the home screen. The card that answers it is opened as soon as it comes. */
+  const lightAskedAt = React.useRef<number | null>(null);
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
@@ -189,6 +194,19 @@ export default function App(): React.JSX.Element {
         cards = await store.readAll();
       }
 
+      // Her light: the card that answers her press is hers to see at once,
+      // wherever a break is. One she did not ask for is put away unseen.
+      const light = cards.find((c) => c.card.type === 'LIGHT');
+      if (light && answersHerPress(lightAskedAt.current, now)) {
+        openedId.current = light.id;
+        lightAskedAt.current = null;
+      }
+      const unasked = unaskedLightCards(cards, openedId.current);
+      if (unasked.length > 0) {
+        for (const id of unasked) await store.remove(id);
+        cards = await store.readAll();
+      }
+
       // A waiting card the resident opened is shown until it is answered —
       // unless someone is at the door, which always comes first.
       const opened = openedId.current ? cards.find((c) => c.id === openedId.current) : undefined;
@@ -197,6 +215,7 @@ export default function App(): React.JSX.Element {
       if (cancelled) return;
       setCard(shown ?? null);
       setWaiting(breakController.waiting(cards, now) ?? null);
+      setHome(store.readHome());
 
       const state = breakController.breakState(now);
       if (state !== lastSentBreakState) {
@@ -256,6 +275,13 @@ export default function App(): React.JSX.Element {
     openedId.current = waiting.id;
     setCard(waiting);
   }, [waiting]);
+
+  // The light on the home screen: ask for the card that says how it stands.
+  const handleOpenLight = React.useCallback(() => {
+    const at = Date.now();
+    lightAskedAt.current = at;
+    void store.enqueueOutbound({ t: 'light', at });
+  }, [store]);
 
   // Back on a waiting card the resident opened puts it back to waiting.
   // Registered again whenever what is on screen changes, so it is asked
@@ -318,6 +344,9 @@ export default function App(): React.JSX.Element {
           lastWatchedId={lastWatchedId}
           waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting) : undefined}
           onOpenWaiting={handleOpenWaiting}
+          light={lightLabel(home)}
+          onOpenLight={handleOpenLight}
+          lookedIn={lookedInLine(home, Date.now())}
         />
       )}
       {/* Over the programme, at the bottom, never instead of it. */}

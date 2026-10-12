@@ -25,6 +25,7 @@ import {
   toldToAnnounce,
   FILMS,
   WATCH_ANSWERS,
+  lightToShow,
   follow,
   watchStatus,
   watchToAnnounce,
@@ -890,7 +891,7 @@ describe('suggestionsFor', () => {
   it('then the app\'s own chips, without the ones that ask the same thing', () => {
     const labels = suggestionsFor(listing).slice(3).map((s: { label: string }) => s.label);
 
-    expect(labels).toEqual(['What happened today?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Watch a film with Mum', 'What can I see?', 'Family circle']);
+    expect(labels).toEqual(['What happened today?', 'Is the light on?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Watch a film with Mum', 'What can I see?', 'Family circle']);
   });
 
   it('is the app\'s own chips when there is no listing', () => {
@@ -1346,5 +1347,56 @@ describe('madeWithKey — whether a browser’s subscription still belongs to th
   it('is false when the browser does not say which key it was made with', () => {
     expect(madeWithKey({ options: {} }, key)).toBe(false);
     expect(madeWithKey({}, key)).toBe(false);
+  });
+});
+
+describe('the light in the window', () => {
+  const lit = JSON.stringify({ lit: true, summary: 'The light is on at Margaret’s: the day has begun there.', seen: 'Margaret can see that you looked in.' });
+  const unlit = JSON.stringify({ lit: false, summary: 'The light isn’t on at Margaret’s. It may not be lit yet today, or Margaret may have put it out.', seen: 'Margaret can see that you looked in.' });
+
+  it('has a chip, and sends a question about the light to its tool', () => {
+    const asked = { kind: 'tool', tool: 'get_light', args: {} };
+
+    expect(routeUtterance("Is the light on at Mum's?")).toEqual(asked);
+    expect(routeUtterance('Is Mum’s light lit?')).toEqual(asked);
+    expect(SUGGESTIONS.some((s: { utterance: string }) => routeUtterance(s.utterance).tool === 'get_light')).toBe(true);
+  });
+
+  it('leaves a note that mentions a light a note', () => {
+    expect(routeUtterance('Tell Mum to leave the porch light on').kind).toBe('compose');
+  });
+
+  it('says the server’s sentence as it stands, shows the light, and says she can see the look', () => {
+    const r = presentResult('get_light', lit, {}, at);
+
+    expect(r.say).toBe('The light is on at Margaret’s: the day has begun there.');
+    expect(r.card).toMatchObject({ kind: 'light', lit: true, title: 'The light is on', note: 'Margaret can see that you looked in.' });
+    expect(r.card.footnote).toBe('One thing about today, and nothing else: no time, and nothing about what is on.');
+  });
+
+  it('shows an unlit window without a reason of its own', () => {
+    const r = presentResult('get_light', unlit, {}, at);
+
+    expect(r.say).toBe('The light isn’t on at Margaret’s. It may not be lit yet today, or Margaret may have put it out.');
+    expect(r.card).toMatchObject({ kind: 'light', lit: false, title: 'The light is not on' });
+    expect(JSON.stringify(r.card)).not.toMatch(/asleep|not up|wrong|worry/i);
+  });
+
+  it('says a refusal as the server said it, with no light at all', () => {
+    const r = presentResult('get_light', "That's something the resident is keeping to themselves. I'm not able to share it.", {}, at);
+
+    expect(r.card).toBeNull();
+    expect(r.say).toContain('keeping to themselves');
+  });
+
+  it('knows what to show in the corner of the page: lit, not lit, or nothing when there is no light to see', () => {
+    expect(lightToShow(lit)).toEqual({ lit: true });
+    expect(lightToShow(unlit)).toEqual({ lit: false });
+    expect(lightToShow("That's something the resident is keeping to themselves. I'm not able to share it.")).toBeNull();
+    expect(lightToShow('Margaret hasn’t allowed this yet.')).toBeNull();
+  });
+
+  it('says in a few words what the step did', () => {
+    expect(describeCall('get_light')).toBe('Looked at the light');
   });
 });

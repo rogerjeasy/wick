@@ -179,6 +179,10 @@ function handleWireMessage(msg) {
     } else if (control.t === 'revoke' && currentQueuedCard?.card.id === control.cardId) {
       currentQueuedCard = null;
       renderEmpty();
+    } else if (control.t === 'home') {
+      // The light in the window, and who looked in: for the home screen, not a card (tv-vega home/light.ts).
+      home = control.whole === true ? { ...control.home } : { ...home, ...control.home };
+      if (!currentQueuedCard) renderEmpty();
     }
   }
 }
@@ -191,8 +195,30 @@ function stripUndefined(patch) {
 
 /* --- Rendering -------------------------------------------------------- */
 
+/** What the home screen is told beside its cards: her light, and who looked in (packages/contracts light.ts). */
+let home = {};
+
+/** "Sarah looked in this morning." — the server's sentence, while the look is still today's, as on the television (home/light.ts lookedInLine). */
+function lookedInLine(now = new Date()) {
+  const look = home.lookedIn;
+  if (!look || new Date(look.at).toDateString() !== now.toDateString()) return null;
+  return look.line;
+}
+
 function renderEmpty() {
-  show(film ? null : el('div', 'tv-empty', 'No card currently shown.'));
+  if (film) return show(null);
+  const wrapper = el('div', 'tv-empty');
+  wrapper.appendChild(el('div', undefined, 'No card currently shown.'));
+  const looked = lookedInLine();
+  if (looked) wrapper.appendChild(el('div', 'home-line', looked));
+  if (home.light) {
+    // The one button beside the films: OK opens the card that says who can see her light (HomeScreen.tsx).
+    const light = el('button', 'pill', home.light === 'on' ? 'Light on' : 'Light out');
+    light.type = 'button';
+    light.addEventListener('click', () => send({ t: 'light', at: Date.now() }));
+    wrapper.appendChild(light);
+  }
+  show(wrapper);
 }
 
 /** The unpaired screen: the code, and where to enter it (PairingScreen.tsx). */
@@ -259,6 +285,11 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'kicker', 'Watching together'));
     wrapper.appendChild(el('div', 'headline', card.headline));
     if (card.detail) wrapper.appendChild(el('div', 'body-text', card.detail));
+  } else if (card.type === 'LIGHT') {
+    // Her own light in the window: the server wrote every word (edge-device light.mjs).
+    wrapper.appendChild(el('div', 'kicker', 'Your light in the window'));
+    wrapper.appendChild(el('div', 'headline', card.headline));
+    wrapper.appendChild(el('div', 'body-text', card.detail));
   } else {
     wrapper.appendChild(el('div', 'body-text', `Unrecognized card type: ${card.type}`));
   }
@@ -272,8 +303,8 @@ function renderCard(queuedCard) {
         send({ t: 'card_action', cardId: card.id, action: action.id, at: Date.now() });
         // "Start the film" opens it, and from here this television says where it is (cardActions.ts startsFilm).
         if (card.type === 'WATCH' && action.id === 'start' && card.programmeId) startFilm(card);
-        // An answer to the family circle, to "Shall I tell …?", or to anything about watching together, finishes its card, as on the television (cardActions.ts).
-        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH') {
+        // An answer to the family circle, to "Shall I tell …?", to anything about watching together, or about her light, finishes its card, as on the television (cardActions.ts).
+        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH' || card.type === 'LIGHT') {
           currentQueuedCard = null;
           renderEmpty();
         }

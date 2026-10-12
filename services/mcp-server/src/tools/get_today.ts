@@ -145,6 +145,6 @@ export function registerGetToday(
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
       const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(resolved.day.start), policy);
       return data({ date: resolved.day.date, dayInWords: resolved.day.inWords, ...answer });
-    })),
+    }, { looksIn: true })),
   );
 }
