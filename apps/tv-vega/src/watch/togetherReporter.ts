@@ -5,7 +5,9 @@
  * This is the first half of the rule in packages/contracts/src/watch.ts. A
  * reporter exists only after her press on "Start the film" (App.tsx), is
  * made for the one film that card named, and says nothing about any other
- * — and nothing at all once the session's time is up. The edge keeps the
+ * — and nothing at all once she has left the film, or the session's time
+ * is up. Leaving is final: the press was for that showing of the film, and
+ * the same film chosen again from the home screen is hers alone. The edge keeps the
  * same rule again on its side (services/edge-device/lambda/
  * watch-together.mjs); neither trusts the other.
  *
@@ -38,6 +40,8 @@ const SKIP_MS = 2_000;
 export class TogetherReporter {
   readonly #session: Together;
   #last: { readonly state: PlaybackStateName; readonly positionMs: number; readonly at: number } | undefined;
+  /** She left the film. Nothing after this is said, whatever plays. */
+  #left = false;
 
   constructor(session: Together) {
     this.#session = session;
@@ -45,12 +49,14 @@ export class TogetherReporter {
 
   /** `snapshot` undefined: the player has gone — she left the film. */
   report(snapshot: PlayerSnapshot | undefined, now: number): WatchPosition | undefined {
-    if (now >= this.#session.until) return undefined;
+    if (this.#left || now >= this.#session.until) return undefined;
     const last = this.#last;
 
     if (!snapshot) {
-      if (!last || last.state === 'STOPPED') return undefined;
-      return this.#say('STOPPED', last.positionMs, now);
+      // Only a film that was on can be left; before that the player is still on its way.
+      if (!last) return undefined;
+      this.#left = true;
+      return last.state === 'STOPPED' ? undefined : this.#say('STOPPED', last.positionMs, now);
     }
     if (snapshot.contentId !== this.#session.programmeId) return undefined;
     if (!last || snapshot.state !== last.state) return this.#say(snapshot.state, snapshot.positionMs, now);

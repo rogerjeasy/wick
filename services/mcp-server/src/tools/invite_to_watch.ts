@@ -15,17 +15,24 @@
  * the name is the one the resident allowed, never one from the request
  * (send_note_to_tv.ts says why). One invitation at a time each: a
  * television that asked twice would be nagging, and "no" is an answer.
+ *
+ * That limit is kept by the write, not by looking first. The invitation and
+ * the member's "latest invitation" row (watchSession.ts latestKey) are
+ * written in one transaction, on the condition that the row still names the
+ * invitation that was just read and found settled. A second invitation sent
+ * in the same moment read the same row, loses that condition, and is told
+ * what the first one asked.
  */
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { GetItemCommand, TransactWriteItemsCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { PROGRAMMES, WATCH_ACTIONS, programmeById, watchWindow, type QueuedCard } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { WRITES, data, say } from './result.js';
 import { localToUtc } from './when.js';
-import { HOUSEHOLD_TZ, TABLE, describeWatch, firstName, invitationItem, isOpen, mySessions, watchCard, whenInWords, type WatchSession } from './watchSession.js';
+import { HOUSEHOLD_TZ, TABLE, describeWatch, firstName, invitationItem, isOpen, latestKey, mySession, watchCard, whenInWords, type WatchSession, type WatchView } from './watchSession.js';
 
 const DAY_MS = 86_400_000;
 /** "Now" said a few minutes ago is still now. */
@@ -36,6 +43,7 @@ const MAX_DAYS_AHEAD = 60;
 export const INVITE_BAD_TIME_TEXT = 'I need a day and a time for that, like Sunday at three.';
 export const INVITE_PAST_TEXT = 'That time has already passed. Which day and time did you mean?';
 export const INVITE_TOO_FAR_TEXT = 'That is more than two months away. Ask nearer the time.';
+export const INVITE_TRY_AGAIN_TEXT = 'That did not go through. Ask again.';
 
 const PROGRAMME_IDS = PROGRAMMES.map((p) => p.id) as [string, ...string[]];
 
@@ -72,11 +80,22 @@ export function registerInviteToWatch(
       if (startsAt > at + MAX_DAYS_AHEAD * DAY_MS) return say(INVITE_TOO_FAR_TEXT);
 
       const residentName = allowed.household.residentName;
-      const open = (await mySessions(ddb, ctx.householdId, ctx.userId)).map((s) => describeWatch(s, at)).find((view) => isOpen(view.state));
-      if (open) {
+      const guardKey = latestKey(ctx.householdId, ctx.userId);
+      /** The last invitation this person sent, by id, and what it is if it still has something ahead of it. */
+      const latest = async (): Promise<{ seen: string | undefined; open: WatchView | undefined }> => {
+        const guard = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: guardKey, ConsistentRead: true }));
+        const seen = guard.Item?.sessionId?.S;
+        const session = seen ? await mySession(ddb, ctx.householdId, ctx.userId, seen) : undefined;
+        const view = session ? describeWatch(session, at) : undefined;
+        return { seen, open: view && isOpen(view.state) ? view : undefined };
+      };
+      const alreadyAsked = (open: WatchView): string => {
         const answered = open.state === 'invited' ? 'It is still waiting for an answer.' : `${residentName} said yes.`;
-        return say(`You have already asked ${residentName} to watch ${open.film} on ${open.when}. ${answered}`);
-      }
+        return `You have already asked ${residentName} to watch ${open.film} on ${open.when}. ${answered}`;
+      };
+
+      const before = await latest();
+      if (before.open) return say(alreadyAsked(before.open));
 
       const session: WatchSession = {
         sessionId: randomUUID(),
@@ -89,11 +108,29 @@ export function registerInviteToWatch(
         createdAt: at,
         status: 'invited',
       };
-      await ddb.send(new PutItemCommand({
-        TableName: TABLE,
-        Item: invitationItem(ctx.householdId, session, film.creditsPositionMs),
-        ConditionExpression: 'attribute_not_exists(pk)',
-      }));
+      const item = invitationItem(ctx.householdId, session, film.creditsPositionMs);
+      try {
+        await ddb.send(new TransactWriteItemsCommand({
+          TransactItems: [
+            { Put: { TableName: TABLE, Item: item, ConditionExpression: 'attribute_not_exists(pk)' } },
+            {
+              Put: {
+                TableName: TABLE,
+                Item: { ...guardKey, sessionId: { S: session.sessionId }, ttl: item.ttl! },
+                // Still naming the invitation that was read above — or still absent, if there was none.
+                ...(before.seen === undefined
+                  ? { ConditionExpression: 'attribute_not_exists(pk)' }
+                  : { ConditionExpression: 'sessionId = :seen', ExpressionAttributeValues: { ':seen': { S: before.seen } } }),
+              },
+            },
+          ],
+        }));
+      } catch (err) {
+        if ((err as { name?: string }).name !== 'TransactionCanceledException') throw err;
+        // Another invitation from this person was written in the moment between the look and the write.
+        const now = await latest();
+        return say(now.open ? alreadyAsked(now.open) : INVITE_TRY_AGAIN_TEXT);
+      }
 
       const by = session.invitedByName;
       const when = whenInWords(startsAt, HOUSEHOLD_TZ);

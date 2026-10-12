@@ -174,7 +174,8 @@ export function createMemoryTable(): MemoryTable {
             case 'version = :seen': return held?.version?.N === values[':seen']?.N;
             case '#d = :seen': return held?.data?.S === values[':seen']?.S;
             case 'attribute_not_exists(pk) OR #s <> :allowed': return held === undefined || held.status?.S !== values[':allowed']?.S;
-            default: throw new Error(`memoryTable: unsupported condition "${op.ConditionExpression}"`);
+            // Anything else is read as an UpdateItem's condition is; what that cannot read still throws.
+            default: return conditionHolds(op.ConditionExpression, held, {}, values);
           }
         };
         if (!writes.every((w) => holds((w.Put ?? w.Delete ?? w.Update ?? w.ConditionCheck)!))) {

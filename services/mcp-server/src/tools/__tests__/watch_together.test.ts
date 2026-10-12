@@ -192,6 +192,37 @@ describe('invite_to_watch', () => {
     expect(sarah.cards).toHaveLength(1);
   });
 
+  it('asks once even when two invitations are sent in the same moment', async () => {
+    const table = createMemoryTable();
+    const other = await connected(table);
+    // The second invitation lands between this one's look and its write.
+    let raced = false;
+    const racing = {
+      send: async (command: { constructor: { name: string } }) => {
+        if (command.constructor.name === 'TransactWriteItemsCommand' && !raced) {
+          raced = true;
+          await other.call('invite_to_watch', { programme: 'big-buck-bunny', date: '2026-10-19', time: '11:00' });
+        }
+        return table.ddb.send(command as never);
+      },
+    };
+    const sarah = await connected({ ...table, ddb: racing as never });
+
+    const lost = await sarah.call('invite_to_watch', INVITE);
+
+    expect(lost.text).toBe('You have already asked Margaret to watch Big Buck Bunny on Monday 19 October at 11 am. It is still waiting for an answer.');
+    expect(sarah.cards).toHaveLength(0);
+    expect(other.cards).toHaveLength(1);
+    expect(table.rows('HH#hh-1').filter((row) => row.sk?.S?.startsWith('WATCH#'))).toHaveLength(1);
+  });
+
+  it('keeps one person’s open invitation from stopping another’s', async () => {
+    const { table } = await invited();
+    const tom = await connected(table, allowedContext('hh-1', { userId: 'u_tom', name: 'Tom' }));
+
+    expect((await tom.call('invite_to_watch', { programme: 'big-buck-bunny', date: '2026-10-19', time: '11:00' })).structured).toMatchObject({ invited: true, fromName: 'Tom' });
+  });
+
   it('can ask again once the first is settled', async () => {
     const { sarah, tv } = await invited();
     await tv.declines(NOW + MIN);

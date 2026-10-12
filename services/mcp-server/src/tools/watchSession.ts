@@ -77,6 +77,16 @@ export interface WatchSession {
 const num = (value: AttributeValue | undefined): number | undefined => (value?.N === undefined ? undefined : Number(value.N));
 const optional = <K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } => (value === undefined ? {} : ({ [key]: value } as { [P in K]: V }));
 
+/**
+ * One row per member, naming the last invitation they sent:
+ * `HH#<household>` / `WATCHLATEST#<userId>`. It is what makes "one open
+ * invitation at a time" true and not merely usual: a new invitation is
+ * written together with this row, on the condition that the row still names
+ * the invitation that was looked at and found settled (invite_to_watch.ts).
+ * Two invitations sent in the same moment cannot both hold that condition.
+ */
+export const latestKey = (householdId: string, userId: string): Item => ({ pk: { S: `HH#${householdId}` }, sk: { S: `WATCHLATEST#${userId}` } });
+
 export const sessionKey = (householdId: string, sessionId: string): Item => ({ pk: { S: `HH#${householdId}` }, sk: { S: `${WATCH_SK_PREFIX}${sessionId}` } });
 
 /** The row an invitation starts as. `creditsMs` is there for the edge, which asks the question by it and cannot read the catalogue. */

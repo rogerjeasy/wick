@@ -22,7 +22,8 @@
  *     see it — the press is the consent, as it is for the family circle;
  *   - for the one film named in the invitation she accepted, never for
  *     anything else she plays;
- *   - inside that invitation's own window (watchWindow);
+ *   - for that one showing: until she leaves the film, and never past the
+ *     invitation's own window (watchWindow);
  *   - and it is read back only to the one person who invited her.
  *
  * Each half is enforced where it can be: the television sends nothing

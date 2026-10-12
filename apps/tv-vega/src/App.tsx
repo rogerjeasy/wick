@@ -86,7 +86,12 @@ export default function App(): React.JSX.Element {
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
-  /** The watch-together session her "Start the film" press began. Gone when the app is: only that press makes one. */
+  /**
+   * The watch-together session her "Start the film" press began. Only that
+   * press makes one, and it lasts for that showing of the film: it is gone
+   * when she leaves the film or chooses anything from the home screen, so
+   * the same film started again later is not followed by anyone.
+   */
   const [together, setTogether] = React.useState<Together | null>(null);
   const togetherReporter = React.useMemo(() => (together ? new TogetherReporter(together) : null), [together]);
   /** M2: the door card whose live view is open over it. */
@@ -237,6 +242,13 @@ export default function App(): React.JSX.Element {
       if (current) setLastWatchedId(current.id);
       return null;
     });
+    // The player says it has stopped as it unmounts (WatchScreen's cleanup, through the reporter it was given); then nobody is following.
+    setTogether(null);
+  }, []);
+
+  const handleChoose = React.useCallback((programme: Programme) => {
+    setTogether(null);
+    setWatching(programme);
   }, []);
 
   const handleOpenWaiting = React.useCallback(() => {
@@ -287,7 +299,7 @@ export default function App(): React.JSX.Element {
       ) : (
         <HomeScreen
           programmes={CATALOG}
-          onChoose={setWatching}
+          onChoose={handleChoose}
           cardVisible={card !== null}
           lastWatchedId={lastWatchedId}
           waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting) : undefined}

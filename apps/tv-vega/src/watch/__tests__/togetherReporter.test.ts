@@ -108,12 +108,15 @@ describe('TogetherReporter — what the television says about the film, and only
     expect(new TogetherReporter(SESSION).report(undefined, T0)).toBeUndefined();
   });
 
-  it('picks up again if she comes back to the film', () => {
+  it('says nothing more once she has left the film: coming back to it is hers alone', () => {
     const reporter = new TogetherReporter(SESSION);
     reporter.report(snapshot('PLAYING', 60_000), T0);
     reporter.report(undefined, T0 + 1_000);
 
-    expect(reporter.report(snapshot('PLAYING', 0), T0 + 30_000)).toMatchObject({ state: 'PLAYING', positionMs: 0 });
+    // The same film, chosen again from the home screen, with no new press on "Start the film".
+    expect(reporter.report(snapshot('PLAYING', 0), T0 + 30_000)).toBeUndefined();
+    expect(reporter.report(snapshot('PAUSED', 5_000), T0 + 35_000)).toBeUndefined();
+    expect(reporter.report(undefined, T0 + 40_000)).toBeUndefined();
   });
 
   it('says nothing at all once the session is over', () => {

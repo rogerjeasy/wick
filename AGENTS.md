@@ -178,8 +178,8 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   the resident's. The position of a film leaves the television only after the
   resident's own press on "Start the film" — on a card that says who will see
   it — only for the one film named in the invitation they accepted, only
-  inside that invitation's window, and it is read back only to the person who
-  sent the invitation. Three places keep it, and none trusts another: the
+  until they leave that film and never past the invitation's window, and it
+  is read back only to the person who sent the invitation. Three places keep it, and none trusts another: the
   television says nothing without the press
   (`apps/tv-vega/src/watch/togetherReporter.ts`), the edge keeps nothing that
   does not match the session's row
