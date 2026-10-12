@@ -132,9 +132,13 @@ export function routeUtterance(text, now = Date.now()) {
   if (!said) return { kind: 'help' };
   const t = said.toLowerCase();
 
+  // Said about a film, or about watching with someone: "invite Mum to watch
+  // Sintel" asks her to a film, not into the family circle.
+  const aboutAFilm = /\b(film|movie)\b/.test(t) || /\bwatch(ing)?\b.*\b(together|with)\b/.test(t);
+
   // The circle is the app's own business, not a question for a tool. "Connect
   // a television" is; "put a note on her television" is not.
-  if (/\bcircle\b|\binvit(e|ation)\b|\bconnect\b.*\b(television|tv)\b/.test(t)) return { kind: 'circle' };
+  if (/\bcircle\b|\bconnect\b.*\b(television|tv)\b/.test(t) || (!aboutAFilm && /\binvit(e|ation)\b/.test(t))) return { kind: 'circle' };
 
   // The doorbell is the app's own business too: connecting Ring is something the organiser does here.
   if (/\b(connect|disconnect|link|unlink)\b.*\b(doorbell|ring)\b|\bdoorbell\b.*\bconnected\b/.test(t)) return { kind: 'doorbell' };
@@ -148,7 +152,7 @@ export function routeUtterance(text, now = Date.now()) {
 
   // Watching a film together. Asking for one is the invitation; asking about one is the tool.
   // After "tell Mum …": a note that mentions a film is still a note.
-  if (!NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said)) && (/\b(film|movie)\b/.test(t) || /\bwatch(ing)?\b.*\b(together|with)\b/.test(t))) {
+  if (aboutAFilm && !NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said))) {
     const asksFor = /\b(ask|invite|like to|want to|can we|could we|shall we|let(?:'|’)?s)\b/.test(t) && !/\b(did|has|have|say|said|time)\b/.test(t);
     return asksFor ? { kind: 'invite' } : tool('get_watch_together');
   }
