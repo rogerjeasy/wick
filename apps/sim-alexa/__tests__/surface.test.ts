@@ -1118,6 +1118,10 @@ describe('watching a film together', () => {
       expect(presentResult('get_watch_together', view({ state: 'declined' }), {}, at).say).toBe('The answer to Sintel on Sunday 18 October at 3 pm was: not this time.');
       expect(presentResult('get_watch_together', view({ state: 'passed' }), {}, at).say).toBe('When it came to it, the answer was: not now.');
       expect(presentResult('get_watch_together', view({ state: 'over' }), {}, at).say).toBe('The time for Sintel has passed.');
+      // She started it and left it: said plainly, with nothing to sit down to — and it can be asked again.
+      const stopped = presentResult('get_watch_together', view({ state: 'stopped' }), {}, at);
+      expect(stopped.say).toBe('Sintel was stopped on the television before the end. You can ask again whenever you like.');
+      expect(stopped.card).toBeNull();
     });
 
     it('offers the seat when it is time', () => {

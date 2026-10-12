@@ -168,6 +168,13 @@ export type WatchState =
   /** She pressed "Not now" when it came to it. */
   | 'passed'
   | 'watching'
+  /**
+   * She started the film and left it before the credits. Her television
+   * follows nobody after that (apps/tv-vega togetherReporter.ts: leaving is
+   * final), so there is nothing left to sit down to — and nothing to wait
+   * for either: another invitation can be sent at once.
+   */
+  | 'stopped'
   /** The film reached its credits: the one question, and each other's answers. */
   | 'watched'
   /** The time came and went without the film being seen through. */
@@ -230,6 +237,9 @@ export function describeWatch(session: WatchSession, now: number, timeZone: stri
   if (!open) return { ...base, state: 'over' };
   if (session.status === 'invited') return { ...base, state: 'invited' };
   if (session.passedAt !== undefined) return { ...base, state: 'passed' };
+  // A player says STOPPED only when the film has ended or been left, and one
+  // that ended passed its credits first (askedAt, above). So this is left.
+  if (session.startedAt !== undefined && session.playback?.state === 'STOPPED') return { ...base, state: 'stopped' };
   if (session.startedAt !== undefined) return { ...base, state: 'watching', ...following() };
   if (session.joinedAt !== undefined) return { ...base, state: 'ready', ...following() };
   const { opensAt } = watchWindow(session.startsAt);
