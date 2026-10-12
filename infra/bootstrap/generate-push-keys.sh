@@ -23,6 +23,10 @@ if [[ "$SUBJECT" != mailto:* && "$SUBJECT" != https://* ]]; then
   exit 1
 fi
 
+# No pager: the first call's one line of output would otherwise sit on the
+# screen until `q` is pressed, with the second half not yet written.
+export AWS_PAGER=""
+
 PROFILE="${AWS_PROFILE:-wick-dev}"
 SECRET="${PUSH_VAPID_SECRET:-wick/push/vapid}"
 TABLE="${TABLE_NAME:-wick}"
