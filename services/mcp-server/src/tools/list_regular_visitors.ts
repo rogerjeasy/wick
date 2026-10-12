@@ -13,7 +13,7 @@
  */
 import { QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { padTimestamp, parseTimestampFromSortKey, type RosterEntry } from '@wick/contracts';
-import { stillWelcome } from '@wick/agent';
+import { loadRoster as loadRosterFrom } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { expectedToday } from './did_visitor_come.js';
@@ -66,16 +66,7 @@ export function describePattern(pattern: string | undefined): string | undefined
  * author the resident no longer allows is not on it (door/roster.ts
  * stillWelcome — the Door agent reads the roster by the same rule).
  */
-export async function loadRoster(ddb: DynamoDBClient, householdId: string): Promise<RosterEntry[]> {
-  const rows = (prefix: string) => ddb.send(new QueryCommand({
-    TableName: TABLE,
-    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
-    ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':prefix': { S: prefix } },
-  }));
-  const [people, members] = await Promise.all([rows('PER#'), rows('MEM#')]);
-  const roster = (people.Items ?? []).flatMap((item) => (item.data?.S ? [JSON.parse(item.data.S) as RosterEntry] : []));
-  return stillWelcome(roster, members.Items ?? []);
-}
+export const loadRoster = (ddb: DynamoDBClient, householdId: string): Promise<RosterEntry[]> => loadRosterFrom(ddb, TABLE, householdId);
 
 export async function loadVisitors(ddb: DynamoDBClient, householdId: string, now: Date): Promise<VisitorsAnswer> {
   const roster = await loadRoster(ddb, householdId);

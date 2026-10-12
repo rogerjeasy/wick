@@ -19,4 +19,10 @@ describe('waitingLine — what the home screen says is waiting', () => {
 
     expect(waitingLine(queued(circle))).toBe('Tom would like to join your family circle.');
   });
+
+  it('says there is a question waiting, without saying what it is about', () => {
+    const tell: Card = { ...base, type: 'TELL', headline: 'Shall I tell Sarah?', detail: 'Maria usually comes on Friday mornings.' };
+
+    expect(waitingLine(queued(tell))).toBe('Wick has a question for you.');
+  });
 });

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const SOURCE = readFileSync(fileURLToPath(new URL('../sw.js', import.meta.url)), 'utf8');
 const SCOPE = 'https://family.example/';
 
-interface Page { url: string; focus: () => Promise<void> }
+interface Page { url: string; focus: () => Promise<void>; postMessage?: (message: unknown) => void }
 
 function worker(pages: Page[] = []) {
   const listeners = new Map<string, (event: unknown) => void>();
@@ -51,6 +51,19 @@ describe('the service worker — a nudge becomes a notification', () => {
     expect(options.requireInteraction).toBe(true);
   });
 
+  it('says there is something to read when the resident has chosen to tell — and not what', async () => {
+    const w = worker();
+
+    await w.push({ kind: 'told' });
+
+    const [title, options] = w.showNotification.mock.calls[0]!;
+    expect(title).toBe('Wick');
+    expect(options.body).toBe('There is something for you to read.');
+    expect(options.tag).toBe('wick-told');
+    // Nobody is waiting at a door for this one.
+    expect(options.requireInteraction).toBe(false);
+  });
+
   it('shows only its own words, whatever a payload carries', async () => {
     const w = worker();
 
@@ -71,6 +84,28 @@ describe('the service worker — a nudge becomes a notification', () => {
 
       expect(w.showNotification.mock.calls[0]![1].body).toBe('Something is waiting for you in Wick.');
     }
+  });
+});
+
+describe('the service worker — a page that is already open', () => {
+  it('is told the kind, so it can look at once instead of waiting to be looked at', async () => {
+    const postMessage = vi.fn();
+    const elsewhere = vi.fn();
+    const w = worker([{ url: `${SCOPE}`, focus: async () => {}, postMessage }, { url: 'https://elsewhere.example/', focus: async () => {}, postMessage: elsewhere }]);
+
+    await w.push({ kind: 'told', body: 'never passed on' });
+
+    expect(postMessage).toHaveBeenCalledWith({ wick: 'nudge', kind: 'told' });
+    expect(elsewhere).not.toHaveBeenCalled();
+  });
+
+  it('is told nothing for a kind the worker does not know', async () => {
+    const postMessage = vi.fn();
+    const w = worker([{ url: SCOPE, focus: async () => {}, postMessage }]);
+
+    await w.push({ kind: 'something_new' });
+
+    expect(postMessage).not.toHaveBeenCalled();
   });
 });
 

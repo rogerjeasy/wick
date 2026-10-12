@@ -22,6 +22,7 @@ import {
   applicationServerKey,
   presentNotifications,
   madeWithKey,
+  toldToAnnounce,
 } from '../surface.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -441,8 +442,6 @@ describe('adding a regular visitor', () => {
 });
 
 describe("Something's Different", () => {
-  const missed = { kind: 'missed_visit', sentence: 'Maria usually comes on Friday mornings. There has been no visit today.', at: 700 };
-
   it('is asked for in the words people use, before "today" or "Maria" can take the question', () => {
     const asked = { kind: 'tool', tool: 'get_whats_different', args: {} };
 
@@ -452,34 +451,54 @@ describe("Something's Different", () => {
     expect(routeUtterance('Anything unusual about Maria this week?')).toEqual(asked);
   });
 
-  it("says the server's own summary, and lays each difference out with when it was", () => {
-    const answer = JSON.stringify({
-      weeksObserved: 6,
-      enoughHistory: true,
-      differences: [missed],
-      keptPrivate: [],
-      summary: `${missed.sentence} Nothing else is different from the usual.`,
-    });
+  const told = { id: 'missed_visit-maria-2026-10-09', kind: 'missed_visit', sentence: 'Maria usually comes on Friday mornings. There was no visit on Friday.', at: 700, toldAt: 900 };
+
+  it("says the server's own summary, and lays out what the resident asked to be told, with when it was", () => {
+    const answer = JSON.stringify({ differences: [told], weeksObserved: 6, keptPrivate: [], summary: `Margaret asked Wick to tell you: ${told.sentence}` });
 
     const r = presentResult('get_whats_different', answer, {}, at);
 
-    expect(r.say).toBe('Maria usually comes on Friday mornings. There has been no visit today. Nothing else is different from the usual.');
-    expect(r.card.title).toBe('One thing is different');
-    expect(r.card.items).toEqual([{ primary: missed.sentence, secondary: 't700' }]);
+    expect(r.say).toBe('Margaret asked Wick to tell you: Maria usually comes on Friday mornings. There was no visit on Friday.');
+    expect(r.card.title).toBe('One thing to tell you');
+    expect(r.card.items).toEqual([{ primary: told.sentence, secondary: 't700 · told t900' }]);
     expect(r.card.footnote).toBe('Against the last 6 weeks in this house, and nothing else.');
   });
 
-  it('shows no card on a usual day: there is nothing behind "nothing is different" to look at', () => {
-    const answer = JSON.stringify({ weeksObserved: 6, enoughHistory: true, differences: [], keptPrivate: [], summary: 'Nothing is different from the usual today.' });
+  it('counts them when there are several', () => {
+    const answer = JSON.stringify({ differences: [told, { ...told, id: 'door_at_night-2026-10-09' }], weeksObserved: 6, keptPrivate: [], summary: 's' });
 
-    expect(presentResult('get_whats_different', answer, {}, at)).toMatchObject({ say: 'Nothing is different from the usual today.', card: null });
+    expect(presentResult('get_whats_different', answer, {}, at).card.title).toBe('Two things to tell you');
   });
 
-  it('says it cannot tell yet, in the server\'s words, when Wick has not been there three weeks', () => {
-    const summary = 'Wick has been here for one week. It needs three weeks before it knows what is usual, so it cannot yet say what is different.';
-    const answer = JSON.stringify({ weeksObserved: 1, enoughHistory: false, differences: [], keptPrivate: [], summary });
+  it('shows no card when nothing has been told, and never says that nothing is different', () => {
+    const summary = "Margaret hasn't asked Wick to tell you anything.";
+    const answer = JSON.stringify({ differences: [], keptPrivate: [], summary });
 
-    expect(presentResult('get_whats_different', answer, {}, at)).toMatchObject({ say: summary, card: null });
+    const r = presentResult('get_whats_different', answer, {}, at);
+
+    expect(r).toMatchObject({ say: summary, card: null });
+  });
+
+  it('has words of its own, just as careful, if the server sends no summary', () => {
+    const r = presentResult('get_whats_different', JSON.stringify({ differences: [], keptPrivate: [] }), {}, at);
+
+    expect(r.say).toBe('Nothing has been passed on to you.');
+    expect(r.say).not.toMatch(/nothing is different/i);
+  });
+});
+
+describe('toldToAnnounce — what the app says unasked when it is opened', () => {
+  const answer = (ids: string[]) => JSON.stringify({ differences: ids.map((id) => ({ id, kind: 'missed_visit', sentence: 's', at: 1, toldAt: 2 })), keptPrivate: [], summary: 's' });
+
+  it('is what the resident asked to be told that this browser has not shown yet', () => {
+    expect(toldToAnnounce(answer(['a', 'b']), ['a'])).toEqual(['b']);
+    expect(toldToAnnounce(answer(['a', 'b']), [])).toEqual(['a', 'b']);
+  });
+
+  it('is nothing when everything has been shown, nothing has been told, or the answer is a refusal', () => {
+    expect(toldToAnnounce(answer(['a']), ['a'])).toEqual([]);
+    expect(toldToAnnounce(answer([]), [])).toEqual([]);
+    expect(toldToAnnounce("That's something the resident is keeping to themselves. I'm not able to share it.", [])).toEqual([]);
   });
 });
 
@@ -489,7 +508,7 @@ describe('describeCall — what a step did, in a few words', () => {
     expect(describeCall('get_today', { day: 'yesterday' })).toBe('Looked at yesterday');
     expect(describeCall('get_today', {})).toBe('Looked at today');
     expect(describeCall('list_regular_visitors', {})).toBe('Checked who visits');
-    expect(describeCall('get_whats_different', {})).toBe('Looked for anything different');
+    expect(describeCall('get_whats_different', {})).toBe('Looked for anything to tell you');
     expect(describeCall('did_visitor_come', { personId: 'maria', day: 'tuesday' })).toBe('Checked Tuesday’s visits');
     expect(describeCall('send_note_to_tv', { message: 'Hi' })).toBe('Put a note on the television');
     expect(describeCall('expect_visit', { date: '2026-10-17', time: '15:00' })).toBe('Told the door');

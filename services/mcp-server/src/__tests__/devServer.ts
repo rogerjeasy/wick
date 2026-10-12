@@ -23,6 +23,13 @@
  *     turned notifications on, for real, through their own push services
  *     (a key pair is made at start-up and forgotten at exit)
  *
+ *   - "Shall I tell …?": GET http://127.0.0.1:3300/dev/different looks for
+ *     anything different in those homes and puts the question on the stand-in
+ *     television — the agent plane's own ask.ts, over the demo home's
+ *     history; GET /dev/tell (or /dev/tell?answer=keep) is the resident's
+ *     press on every question still open — answer.ts, which nudges the
+ *     browsers when the answer is "tell"
+ *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
  * answers; without it there is none, and the app answers by its rules.
@@ -44,6 +51,10 @@ import { invokedRingLinks } from '../accounts/ringLinks.js';
 import webpush from 'web-push';
 import { PUSH_KINDS, PUSH_SK_PREFIX } from '@wick/contracts';
 import { nudge, subscriptionFromItem, type StoredSubscription } from '../../../agent/src/push/nudge.js';
+import { TELL_SK_PREFIX, tellCardId, type PushKind } from '@wick/contracts';
+import { askAboutDifferences, tellRowItem } from '../../../agent/src/agents/tell/ask.js';
+import { handleTellAnswer } from '../../../agent/src/agents/tell/answer.js';
+import { loadShareableDifferences } from '../../../agent/src/rhythm/loadDifferent.js';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { LinkError, createLinkService } from '../../../edge-ring/lambda/household-link-service.mjs';
 
@@ -118,8 +129,8 @@ const ringLinks = invokedRingLinks(async (request) => {
 const pushKeys = webpush.generateVAPIDKeys();
 table.put({ pk: { S: 'CONFIG#push' }, sk: { S: 'VAPID' }, publicKey: { S: pushKeys.publicKey } });
 
-const nudgeBrowsers = (userIds: readonly string[]) =>
-  nudge(userIds, PUSH_KINDS.doorLook, {
+const nudgeBrowsers = (userIds: readonly string[], kind: PushKind = PUSH_KINDS.doorLook) =>
+  nudge(userIds, kind, {
     listSubscriptions: async (userId) =>
       table.rows(`USER#${userId}`).filter((row) => row.sk?.S?.startsWith(PUSH_SK_PREFIX)).map(subscriptionFromItem).filter((s): s is StoredSubscription => s !== undefined),
     post: async (subscription, payload) => {
@@ -231,6 +242,55 @@ app.get('/dev/door', async (_req, res) => {
     .filter((member) => member.status === 'allowed')
     .map((member) => member.userId);
   res.json({ asked, cardId, nudged: await nudgeBrowsers(allowed) });
+});
+
+const allowedIn = async (householdId: string) =>
+  (await store.listMembers(householdId)).filter((member) => member.status === 'allowed').map(({ userId, name }) => ({ userId, name }));
+const tellRows = (householdId: string) => table.rows(`HH#${householdId}`).filter((row) => row.sk?.S?.startsWith(TELL_SK_PREFIX));
+
+/** As a television saying its resident is there: anything different is asked about (agents/tell/ask.ts). */
+app.get('/dev/different', async (_req, res) => {
+  const asked: Record<string, readonly string[]> = {};
+  for (const householdId of homesWithATelevision) {
+    asked[householdId] = await askAboutDifferences(householdId, {
+      loadDifferences: (hh) => loadShareableDifferences(table.ddb, 'wick', hh, Date.now(), 'Europe/London'),
+      listFamily: allowedIn,
+      claimOnce: async (row) => {
+        if (tellRows(row.householdId).some((held) => held.differenceId?.S === row.differenceId)) return false;
+        table.put(tellRowItem(row));
+        return true;
+      },
+      release: async () => {},
+      sendCard: async (card) => {
+        table.put({ pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${card.id}` }, data: { S: JSON.stringify(card) } });
+        if (card.card.type === 'TELL') console.log(`television: "${card.card.headline}" ${card.card.detail}`);
+      },
+      now: Date.now,
+      newCorrelationId: () => `dev-${Date.now().toString(36)}`,
+    });
+  }
+  res.json({ asked });
+});
+
+/** As the resident's press on every question still open: "Tell" unless ?answer=keep (agents/tell/answer.ts). */
+app.get('/dev/tell', async (req, res) => {
+  const action = req.query.answer === 'keep' ? 'keep_private' : 'tell_family';
+  const answered: Record<string, string> = {};
+  for (const householdId of homesWithATelevision) {
+    for (const row of tellRows(householdId).filter((held) => !held.answer)) {
+      const differenceId = row.differenceId?.S ?? '';
+      answered[differenceId] = await handleTellAnswer({ householdId, deviceId: 'wick-tv', cardId: tellCardId(differenceId), action, at: Date.now() }, {
+        recordAnswer: async (_hh, _id, answer, at) => {
+          table.put({ ...row, answer: { S: answer }, answeredAt: { N: String(at) } });
+          return true;
+        },
+        listFamily: allowedIn,
+        nudge: async (userIds) => void console.log('nudged:', await nudgeBrowsers(userIds, PUSH_KINDS.told)),
+        now: Date.now,
+      });
+    }
+  }
+  res.json({ answered });
 });
 
 app.get('/dev/allow', async (_req, res) => {

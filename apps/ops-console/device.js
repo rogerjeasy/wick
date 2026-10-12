@@ -224,6 +224,9 @@ function renderCard(queuedCard) {
       wrapper.insertBefore(img, wrapper.firstChild);
     }
     if (card.description) wrapper.appendChild(el('div', 'body-text', card.description));
+    // What a press led to, as the television's own DoorCard shows it: whether
+    // the chime rang, who was asked to look, and what they answered.
+    if (card.notice) wrapper.appendChild(el('div', 'body-text notice', card.notice));
   } else if (card.type === 'MESSAGE') {
     wrapper.appendChild(el('div', 'kicker', `Message from ${card.fromName}`));
     wrapper.appendChild(el('div', 'headline', card.transcript ?? 'Tap to hear the message'));
@@ -240,6 +243,11 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'kicker', card.type === 'CIRCLE' ? 'Your family circle' : 'What your family sees'));
     wrapper.appendChild(el('div', 'headline', card.headline));
     wrapper.appendChild(el('div', 'body-text', card.detail));
+  } else if (card.type === 'TELL') {
+    // "Shall I tell Sarah?" — the sentence shown is the one the family would be told (services/agent rhythm/tell.ts).
+    wrapper.appendChild(el('div', 'kicker', 'Something is different today'));
+    wrapper.appendChild(el('div', 'headline', card.headline));
+    wrapper.appendChild(el('div', 'body-text', card.detail));
   } else {
     wrapper.appendChild(el('div', 'body-text', `Unrecognized card type: ${card.type}`));
   }
@@ -251,8 +259,8 @@ function renderCard(queuedCard) {
       pill.type = 'button';
       pill.addEventListener('click', () => {
         send({ t: 'card_action', cardId: card.id, action: action.id, at: Date.now() });
-        // An answer to the family circle finishes its card, as on the television (cardActions.ts).
-        if (card.type === 'CIRCLE') {
+        // An answer to the family circle, or to "Shall I tell …?", finishes its card, as on the television (cardActions.ts).
+        if (card.type === 'CIRCLE' || card.type === 'TELL') {
           currentQueuedCard = null;
           renderEmpty();
         }

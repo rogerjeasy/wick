@@ -18,6 +18,8 @@ export const PUSH_SK_PREFIX = 'PUSH#';
 export const PUSH_KINDS = {
   /** The resident pressed "Ask … to look" on a door card. */
   doorLook: 'door_look',
+  /** The resident pressed "Tell …" on a Tell card: there is something they chose to share. */
+  told: 'told',
 } as const;
 export type PushKind = (typeof PUSH_KINDS)[keyof typeof PUSH_KINDS];
 

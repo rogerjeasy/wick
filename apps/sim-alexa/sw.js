@@ -14,6 +14,8 @@
  */
 const WORDS = {
   door_look: 'You have been asked to look at the door.',
+  // The resident chose to tell the family something. What it is stays in Wick.
+  told: 'There is something for you to read.',
 };
 const OTHER = 'Something is waiting for you in Wick.';
 /** Kinds that should stay on screen until someone looks: a person is waiting on the answer. */
@@ -34,16 +36,28 @@ function kindOf(event) {
   }
 }
 
+/** This app's own pages that are open now. */
+async function openPages() {
+  const scope = self.registration.scope;
+  const pages = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  return pages.filter((page) => page.url.startsWith(scope));
+}
+
 self.addEventListener('push', (event) => {
   const kind = kindOf(event);
   event.waitUntil(
-    self.registration.showNotification('Wick', {
-      body: kind ? WORDS[kind] : OTHER,
-      // One notification per kind: a second nudge replaces the first, and says so.
-      tag: `wick-${kind ?? 'other'}`,
-      renotify: true,
-      requireInteraction: kind !== undefined && WAITS_FOR_YOU.includes(kind),
-    }),
+    Promise.all([
+      self.registration.showNotification('Wick', {
+        body: kind ? WORDS[kind] : OTHER,
+        // One notification per kind: a second nudge replaces the first, and says so.
+        tag: `wick-${kind ?? 'other'}`,
+        renotify: true,
+        requireInteraction: kind !== undefined && WAITS_FOR_YOU.includes(kind),
+      }),
+      // A page that is already open looks at once (main.js). It is told the
+      // kind and nothing else, like the worker itself.
+      kind ? openPages().then((pages) => pages.forEach((page) => page.postMessage({ wick: 'nudge', kind }))) : undefined,
+    ]),
   );
 });
 
@@ -52,11 +66,9 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     (async () => {
       // Only ever this app: the address is the worker's own scope, never one that was sent.
-      const scope = self.registration.scope;
-      const pages = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      const open = pages.find((page) => page.url.startsWith(scope));
+      const [open] = await openPages();
       if (open) return open.focus();
-      return self.clients.openWindow(scope);
+      return self.clients.openWindow(self.registration.scope);
     })(),
   );
 });

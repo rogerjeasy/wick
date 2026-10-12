@@ -99,6 +99,12 @@
   overflow-wrap: anywhere;
 }
 
+/* What a press led to ("Sarah has been asked to look."): the same size as the rest, set apart, never a colour that alarms. */
+.tv-card .body-text.notice {
+  margin-top: 0.6em;
+  font-weight: 600;
+}
+
 .tv-card ul.day-items {
   list-style: none;
   margin: 0;

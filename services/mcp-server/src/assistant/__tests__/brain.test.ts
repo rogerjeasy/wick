@@ -157,6 +157,14 @@ describe('systemPrompt', () => {
     expect(systemPrompt(WHO, lateTuesday, TZ)).toContain('Wednesday 14 October = 2026-10-14 (today)');
   });
 
+  it('never lets the model say that nothing is different: only the resident decides what is told', () => {
+    const prompt = systemPrompt(WHO, NOW, TZ);
+
+    expect(prompt).toMatch(/get_whats_different returns only what Margaret chose to tell/);
+    expect(prompt).toMatch(/never say that nothing is different/i);
+    expect(prompt).not.toMatch(/when nothing is different, say so/);
+  });
+
   it('lets the model look at a question from the door, and never answer one the person did not', () => {
     const prompt = systemPrompt(WHO, NOW, TZ);
 
