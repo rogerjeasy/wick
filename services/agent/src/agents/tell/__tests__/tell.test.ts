@@ -176,6 +176,7 @@ function answerDeps(over: Partial<AnswerDeps> = {}): AnswerDeps {
     recordAnswer: vi.fn(async () => true),
     listFamily: vi.fn(async () => [sarah, tom]),
     nudge: vi.fn(async (_userIds: readonly string[]) => {}),
+    withdraw: vi.fn(async (_householdId: string, _cardId: string) => {}),
     now: () => NOW + 60_000,
     ...over,
   };
@@ -215,6 +216,32 @@ describe('handleTellAnswer — the resident’s press is the only thing that let
     expect(await handleTellAnswer(press('dismiss'), d)).toBe('ignored');
     expect(await handleTellAnswer({ cardId: 'tell-x' }, d)).toBe('ignored');
     expect(d.recordAnswer).not.toHaveBeenCalled();
+  });
+
+  it('takes the question off the home’s other televisions once it is answered — whichever answer it was', async () => {
+    for (const action of ['tell_family', 'keep_private']) {
+      const d = answerDeps();
+
+      await handleTellAnswer(press(action), d);
+
+      expect(d.withdraw).toHaveBeenCalledWith('hh-1', 'tell-missed_visit-maria-2026-10-09');
+    }
+  });
+
+  it('withdraws nothing for a press that answered nothing', async () => {
+    const d = answerDeps({ recordAnswer: vi.fn(async () => false) });
+
+    await handleTellAnswer(press('tell_family'), d);
+
+    expect(d.withdraw).not.toHaveBeenCalled();
+  });
+
+  it('has still answered when the card cannot be withdrawn: a late press elsewhere changes nothing anyway', async () => {
+    const d = answerDeps({ withdraw: vi.fn(async () => { throw new Error('television gone'); }) });
+
+    expect(await handleTellAnswer(press('tell_family'), d)).toBe('told');
+    expect(d.nudge).toHaveBeenCalled();
+    expect(await handleTellAnswer(press('keep_private'), answerDeps({ withdraw: vi.fn(async () => { throw new Error('television gone'); }) }))).toBe('kept');
   });
 
   it('has still told when the nudge fails: the family reads it when they next open Wick', async () => {

@@ -286,6 +286,7 @@ app.get('/dev/tell', async (req, res) => {
         },
         listFamily: allowedIn,
         nudge: async (userIds) => void console.log('nudged:', await nudgeBrowsers(userIds, PUSH_KINDS.told)),
+        withdraw: async () => {},
         now: Date.now,
       });
     }
