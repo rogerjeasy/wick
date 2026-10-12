@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { currentIsoWeek } from '@wick/contracts';
+import { isoWeekRange } from '@wick/agent';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -121,7 +122,11 @@ describe('the demo button — an anonymous account in one click', () => {
       thisWeek: 'not_written',
       simulated: true,
     });
-    expect(week.text).toMatch(/Maria visited twice/);
+    // The morning Maria missed is the latest one that is over (accounts/demoHome.ts). From Tuesday's
+    // late morning that is in this week, and last week has both her visits; before then it is last
+    // Friday, and last week's story is written as it then was: one visit.
+    const tuesdayIsOver = isoWeekRange(currentIsoWeek(new Date())).startMs + 86_400_000 + (9 * 60 + 30) * 60_000 + 2 * 3_600_000;
+    expect(week.text).toMatch(Date.now() >= tuesdayIsOver ? /Maria visited twice/ : /Maria visited once/);
     expect(week.text).toMatch(/Nothing unusual/);
 
     // The carer the suggested question asks about is someone this home knows.

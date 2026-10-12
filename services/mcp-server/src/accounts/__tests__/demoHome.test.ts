@@ -152,16 +152,60 @@ describe('the demo home — one thing in it is different', () => {
     ]);
   });
 
-  it('is nothing at all early in the week, before her first morning is over', () => {
+  it('is last Friday early in the week, before her first morning is over — a guest never arrives to a home with nothing to be asked', () => {
+    const mondayMorning = W42.startMs + 30 * 60_000;
     const tuesdayAtTen = W42.startMs + DAY + 10 * 3_600_000;
 
-    expect(different(tuesdayAtTen)).toMatchObject({ enoughHistory: true, differences: [] });
+    for (const made of [mondayMorning, tuesdayAtTen]) {
+      expect(different(made).differences.map((d) => d.lasting)).toEqual([
+        'Maria usually comes on Friday mornings. There was no visit on Friday.',
+      ]);
+    }
   });
 
-  it('never touches the weeks already written: last week still has both her visits', () => {
+  it('has her not come since the morning she missed: a visit after it would make "she did not come" untrue', () => {
+    const mariaSince = (now: number, since: number) =>
+      demoHomeItems(HH, now, 'Europe/London').filter((i) => i.type?.S === 'presence' && at(i) >= since);
+
+    // Tuesday at ten: her time has passed but she may still be on her way, so Tuesday is not "missed" — and is not recorded either.
+    const tuesdayAtTen = W42.startMs + DAY + 10 * 3_600_000;
+    expect(mariaSince(tuesdayAtTen, W42.startMs - 3 * DAY)).toEqual([]);
+
+    // Friday at ten: Tuesday is the morning she missed, and this Friday has not happened.
+    const fridayAtTen = W42.startMs + 4 * DAY + 10 * 3_600_000;
+    expect(mariaSince(fridayAtTen, W42.startMs)).toEqual([]);
+    expect(different(fridayAtTen).differences.map((d) => d.lasting)).toEqual([
+      'Maria usually comes on Tuesday mornings. There was no visit on Tuesday.',
+    ]);
+  });
+
+  it('is exactly one thing — her missed visit — whatever hour of whatever day the guest arrives', () => {
+    for (let hour = 0; hour < 7 * 24; hour += 1) {
+      const made = W42.startMs + hour * 3_600_000 + 5 * 60_000;
+      const found = different(made).differences.map((d) => d.kind);
+
+      expect(found, `made ${new Date(made).toISOString()}`).toEqual(['missed_visit']);
+    }
+  });
+
+  it('never touches the weeks already written when the morning she missed is in this week: last week still has both her visits', () => {
     const lastWeek = events.filter((i) => i.type?.S === 'presence' && at(i) >= W42.startMs - WEEK && at(i) < W42.startMs);
 
     expect(lastWeek).toHaveLength(2);
+  });
+
+  it('writes last week as it then was when the morning she missed is last Friday: one visit, and the story says so', () => {
+    const made = demoHomeItems(HH, W42.startMs + 30 * 60_000, 'Europe/London');
+    const lastWeekVisits = made.filter((i) => i.type?.S === 'presence' && at(i) >= W42.startMs - WEEK && at(i) < W42.startMs);
+    const lastWeekStory = made
+      .filter((i) => i.sk!.S!.startsWith('NARR#'))
+      .map((i) => JSON.parse(i.data!.S!) as WeekNarrative)
+      .find((n) => n.isoWeek === '2026-W41')!;
+
+    expect(lastWeekVisits.map((i) => new Date(at(i)).getUTCDay())).toEqual([2]);
+    // Counted from the same rows by the Narrator's own code, so the story cannot disagree with the timeline.
+    expect(lastWeekStory.deltas.find((d) => d.metric === 'visit:maria')).toMatchObject({ thisWeek: 1 });
+    expect(lastWeekStory.simulated).toBe(true);
   });
 });
 
