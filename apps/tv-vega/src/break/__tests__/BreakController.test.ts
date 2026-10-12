@@ -253,6 +253,41 @@ describe('BreakController — calm points', () => {
     expect(bc.pickCard([messageQueued()], NOW + 61_600)).toMatchObject({ id: 'm1' });
   });
 
+  it('puts the note away the moment the resident presses Play on it', () => {
+    const bc = controller();
+    bc.setPlayback(snapshot(180_400), NOW + 61_000);
+    bc.setPlayback(snapshot(180_400, 'PAUSED'), NOW + 61_500);
+
+    bc.setPlayback(snapshot(180_900), NOW + 90_000);
+
+    expect(bc.pickCard([messageQueued()], NOW + 90_000)).toBeUndefined();
+  });
+
+  it('counts a note left for the film as one of its two showings', () => {
+    const bc = controller();
+    const queue = [messageQueued()];
+    bc.setPlayback(snapshot(180_400), NOW + 61_000);
+    bc.noteShown(bc.pickCard(queue, NOW + 61_000), queue, NOW + 61_000);
+    bc.setPlayback(snapshot(180_400, 'PAUSED'), NOW + 61_500);
+
+    bc.setPlayback(snapshot(180_900), NOW + 90_000);
+
+    expect(bc.noteShown(bc.pickCard(queue, NOW + 90_000), queue, NOW + 90_000)).toMatchObject({ ended: { id: 'm1' } });
+  });
+
+  it('is a calm point again once the film has gone on past it', () => {
+    const bc = controller();
+    bc.setPlayback(snapshot(180_400), NOW + 61_000);
+    bc.setPlayback(snapshot(180_400, 'PAUSED'), NOW + 61_500);
+    bc.setPlayback(snapshot(180_900), NOW + 90_000);
+    bc.setPlayback(snapshot(200_000), NOW + 109_000);
+
+    // Wound back, and played through the same cut a second time.
+    bc.setPlayback(snapshot(180_400), NOW + 130_000);
+
+    expect(bc.pickCard([messageQueued()], NOW + 130_000)).toMatchObject({ id: 'm1' });
+  });
+
   it('knows no calm points for a programme that has none, and none at all unless it is told where to look', () => {
     const other = controller();
     other.setPlayback({ ...snapshot(180_400), contentId: 'something-else' }, NOW + 61_000);

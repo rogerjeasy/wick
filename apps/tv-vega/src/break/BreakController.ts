@@ -21,7 +21,7 @@ import type { QueuedCard } from '@wick/contracts';
 import type { PlayerSnapshot } from '../player/PlayerService.js';
 import { MAX_CARD_SHOWS } from '@wick/contracts';
 import { allowsDeferred, classify, holdsProgramme, selectReleasable } from './NaturalBreakEngine.js';
-import type { BreakState, EngineInput } from './types.js';
+import { CALM_POINT_WINDOW_MS, type BreakState, type EngineInput } from './types.js';
 
 /**
  * What changed on screen since the last look. `began`: a card has just come
@@ -56,6 +56,12 @@ export class BreakController {
   #foregroundSinceMs: number | undefined;
   #pausedSinceMs: number | undefined;
   #lastPlayback: PlayerSnapshot | undefined;
+  /**
+   * The calm point the resident pressed Play on. They chose the film, so a
+   * note shown there goes at once instead of staying over the story until
+   * the film has run out of the calm point's few seconds.
+   */
+  #playedOnFromMs: number | undefined;
 
   setForeground(foreground: boolean, now: number): void {
     if (foreground) {
@@ -64,6 +70,7 @@ export class BreakController {
       this.#foregroundSinceMs = undefined;
       this.#pausedSinceMs = undefined;
       this.#lastPlayback = undefined;
+      this.#playedOnFromMs = undefined;
     }
   }
 
@@ -73,14 +80,27 @@ export class BreakController {
     } else {
       this.#pausedSinceMs = undefined;
     }
+    if (snapshot && snapshot.state !== 'PAUSED' && this.#lastPlayback?.state === 'PAUSED') {
+      this.#playedOnFromMs = this.#calmPointAt(snapshot);
+    } else if (!snapshot || this.#calmPointAt(snapshot) !== this.#playedOnFromMs) {
+      // The film has left it: played through again, it is a calm point again.
+      this.#playedOnFromMs = undefined;
+    }
     this.#lastPlayback = snapshot;
+  }
+
+  /** The calm point this snapshot is inside the few seconds of, if any. */
+  #calmPointAt(snapshot: PlayerSnapshot): number | undefined {
+    return this.#calmPointsOf(snapshot.contentId)?.find(
+      (at) => snapshot.positionMs >= at && snapshot.positionMs < at + CALM_POINT_WINDOW_MS,
+    );
   }
 
   /** Where the player is, with what is known about the programme it is playing. */
   #playback(): EngineInput['playback'] {
     const last = this.#lastPlayback;
     if (!last) return undefined;
-    const calmPointsMs = this.#calmPointsOf(last.contentId);
+    const calmPointsMs = this.#calmPointsOf(last.contentId)?.filter((at) => at !== this.#playedOnFromMs);
     return {
       state: last.state,
       positionMs: last.positionMs,
