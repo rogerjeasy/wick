@@ -53,6 +53,24 @@ export const DOOR_ANSWERS = {
   not_sure: "I can't tell who that is. I'll ring you now.",
 };
 
+/**
+ * The films that can be watched together, by id, and what can be answered
+ * when one is over. The server's own lists (packages/contracts
+ * programmes.ts and watch.ts), copied for the reason above and held equal
+ * by a test.
+ */
+export const FILMS = {
+  'big-buck-bunny': 'Big Buck Bunny',
+  sintel: 'Sintel',
+  'tears-of-steel': 'Tears of Steel',
+};
+
+export const WATCH_ANSWERS = {
+  loved_it: 'I loved it.',
+  all_right: 'It was all right.',
+  not_for_me: 'Not really for me.',
+};
+
 /** The chips under the conversation. Each must route to a tool (tested). */
 export const SUGGESTIONS = [
   { label: 'How’s Mum been this week?', utterance: "How's Mum been this week?" },
@@ -62,6 +80,7 @@ export const SUGGESTIONS = [
   { label: 'Send a note to her television', utterance: "Put a note on Mum's television" },
   { label: 'Has Mum replied?', utterance: 'Has Mum replied?' },
   { label: 'Did Mum ask me to look?', utterance: 'Has Mum asked me to look at the door?' },
+  { label: 'Watch a film with Mum', utterance: 'Ask Mum to watch a film with me' },
   { label: 'What can I see?', utterance: 'What can I see about Mum?' },
   { label: 'Family circle', utterance: 'Who is in the family circle?' },
 ];
@@ -126,6 +145,13 @@ export function routeUtterance(text, now = Date.now()) {
 
   // Notifications are the app's own business with this browser.
   if (/\bnotif(?:y|ication|ications)\b/.test(t)) return { kind: 'notifications' };
+
+  // Watching a film together. Asking for one is the invitation; asking about one is the tool.
+  // After "tell Mum …": a note that mentions a film is still a note.
+  if (!NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said)) && (/\b(film|movie)\b/.test(t) || /\bwatch(ing)?\b.*\b(together|with)\b/.test(t))) {
+    const asksFor = /\b(ask|invite|like to|want to|can we|could we|shall we|let(?:'|’)?s)\b/.test(t) && !/\b(did|has|have|say|said|time)\b/.test(t);
+    return asksFor ? { kind: 'invite' } : tool('get_watch_together');
+  }
 
   // Replies first: "has Mum replied to my note" mentions a note, and is not one.
   if (/\brepl(y|ied|ies)\b|\banswered\b|written back/.test(t)) return tool('get_replies');
@@ -545,6 +571,139 @@ export function doorQuestionToAnnounce(raw, announced) {
   return announced.has(request.requestId) ? null : request.requestId;
 }
 
+// ---------------------------------------------------------------------------
+// Watching a film together (get_watch_together, join_watch_together): the
+// invitation, the seat, and — while the film is on — a player that follows
+// the television's. The person here never controls it: the remote is the
+// resident's, and this page only keeps up.
+// ---------------------------------------------------------------------------
+
+/** A film is played only from an https address, or from this machine (the dev server's stand-in). The address is put in a <video>. */
+const streamUrl = (value) =>
+  typeof value === 'string' && /^(https:\/\/|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/)[^\s"'<>]+$/.test(value) ? value : null;
+
+const WATCH_PLAYBACK_STATES = ['PLAYING', 'PAUSED', 'STOPPED', 'WAITING'];
+
+function readPlayback(playback) {
+  if (!playback || !WATCH_PLAYBACK_STATES.includes(playback.state)) return null;
+  if (!Number.isFinite(playback.positionMs) || !Number.isFinite(playback.ageMs)) return null;
+  return { state: playback.state, positionMs: playback.positionMs, ageMs: playback.ageMs };
+}
+
+function readStream(stream) {
+  const url = streamUrl(stream?.url);
+  if (!url) return null;
+  return { url, durationMs: Number.isFinite(stream.durationMs) ? stream.durationMs : 0, attribution: typeof stream.attribution === 'string' ? stream.attribution : '' };
+}
+
+/** One line under the picture: what the television is doing, in words. */
+export function watchStatus(view) {
+  const playing = view.playback?.state;
+  switch (view.state) {
+    case 'accepted': return 'Sit down when you are ready.';
+    case 'ready': return 'Waiting for the film to be started on the television.';
+    case 'passed': return 'When it came to it, the answer was: not now.';
+    case 'watching':
+    case 'watched':
+      if (playing === 'PLAYING') return view.state === 'watched' ? 'The credits are playing.' : 'Playing, as on the television.';
+      if (playing === 'PAUSED') return 'Paused on the television.';
+      if (playing === 'WAITING') return 'Waiting for the television.';
+      if (playing === 'STOPPED') return 'The film was stopped on the television.';
+      return view.state === 'watched' ? 'This has finished.' : 'The film is starting on the television.';
+    default: return 'This has finished.';
+  }
+}
+
+/** Further than this from where the television is, and this screen jumps to it. */
+export const FOLLOW_DRIFT_MS = 2500;
+/** A paused picture is held to within this of the television's. */
+const FOLLOW_STILL_MS = 500;
+
+/**
+ * Where this screen should be, given where the television is.
+ *
+ * @param {{state: string, positionMs: number, ageMs: number} | null} playback  from the server: where the film was, and how long before its answer
+ * @param {number} sinceMs  how long ago that answer arrived here
+ * @param {{positionMs: number, paused: boolean}} player  this screen's own player
+ * @param {number} [durationMs]
+ * @returns {{play: boolean, seekToMs: number | null}}  whether to be playing, and where to jump to (null: stay)
+ */
+export function follow(playback, sinceMs, player, durationMs = 0) {
+  if (!playback || playback.state === 'STOPPED') return { play: false, seekToMs: null };
+  const playing = playback.state === 'PLAYING';
+  const moved = playing ? playback.ageMs + sinceMs : 0;
+  const target = durationMs > 0 ? Math.min(playback.positionMs + moved, durationMs) : playback.positionMs + moved;
+  const off = Math.abs(player.positionMs - target);
+  return { play: playing, seekToMs: off > (playing ? FOLLOW_DRIFT_MS : FOLLOW_STILL_MS) ? target : null };
+}
+
+function presentWatch(view) {
+  const film = typeof view.film === 'string' ? view.film : 'the film';
+  const when = typeof view.when === 'string' ? view.when : '';
+  const stream = readStream(view.stream);
+  const playback = readPlayback(view.playback);
+  const offered = Array.isArray(view.answers) ? view.answers : null;
+  const quiet = (say) => ({ say, card: null, tone: 'answer' });
+
+  if (view.state === 'invited') return quiet(`The invitation to watch ${film} on ${when} is on the television. It has not been answered yet.`);
+  if (view.state === 'declined') return quiet(`The answer to ${film} on ${when} was: not this time.`);
+  if (view.state === 'passed') return quiet('When it came to it, the answer was: not now.');
+  if (view.state === 'over') return quiet(`The time for ${film} has passed.`);
+  if (view.state === 'accepted' && view.canSitDown !== true) return quiet(`The answer was yes. ${film} is on ${when}; you can sit down from half an hour before.`);
+  if (view.state === 'watched' && !stream && !offered) {
+    const yours = typeof view.yourAnswer === 'string' ? ` You said: “${view.yourAnswer}”` : '';
+    const theirs = typeof view.theirAnswer === 'string' ? ` The answer on the television was: “${view.theirAnswer}”` : '';
+    return quiet(`You watched ${film} together.${yours}${theirs}`);
+  }
+
+  const say =
+    view.state === 'accepted' ? `It is time for ${film}. Sit down when you are ready.`
+    : view.state === 'ready' ? 'You are sitting down. The television says you are ready, and the film starts when it is started there.'
+    : view.state === 'watched' ? `${film} has reached its end. ${typeof view.question === 'string' ? view.question : ''}`.trim()
+    : `${film} is on. Your screen follows the television.`;
+  return {
+    say,
+    tone: 'answer',
+    card: {
+      kind: 'watch',
+      title: film,
+      meta: when,
+      sessionId: view.sessionId,
+      state: view.state,
+      canSitDown: view.canSitDown === true,
+      stream,
+      playback,
+      question: typeof view.question === 'string' ? view.question : null,
+      // The words on each button are the server's, and only for a key this page knows.
+      answers: (offered ?? []).filter((a) => Object.hasOwn(WATCH_ANSWERS, a?.key) && WATCH_ANSWERS[a.key] === a.text).map((a) => ({ key: a.key, text: a.text })),
+      yourAnswer: typeof view.yourAnswer === 'string' ? view.yourAnswer : null,
+      theirAnswer: typeof view.theirAnswer === 'string' ? view.theirAnswer : null,
+      footnote: 'Your screen follows the television. You cannot pause or skip: the remote is theirs. No camera, no microphone.',
+    },
+  };
+}
+
+/**
+ * Whether a look at get_watch_together, made unasked while the app is open,
+ * found something worth saying. It is said when there is something to do
+ * now — it is time to sit down, the film is on, there is a question to
+ * answer — and when an invitation is answered while this page is open. An
+ * answer that was already there when the page opened is not news.
+ *
+ * @param {string} raw  the tool result's text
+ * @param {Map<string, string>} seen  how each session stood at the last look
+ * @returns {{sessionId: string, key: string, announce: boolean} | null}  null when the answer is not a session
+ */
+export function watchToAnnounce(raw, seen) {
+  const view = parseJson(raw);
+  if (!view || typeof view.sessionId !== 'string' || typeof view.state !== 'string') return null;
+  const key = view.state === 'accepted' && view.canSitDown === true ? 'time' : view.state;
+  const before = seen.get(view.sessionId);
+  const toDo = key === 'time' || key === 'ready' || key === 'watching' || (key === 'watched' && Array.isArray(view.answers));
+  const answered = before === 'invited' && (key === 'accepted' || key === 'declined');
+  return { sessionId: view.sessionId, key, announce: before !== key && (toDo || answered) };
+}
+
 function presentVisitors(list, formatTime) {
   const visitors = list.visitors ?? [];
   const expected = list.expected ?? [];
@@ -702,6 +861,24 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (toolName === 'answer_door_request' && parsed.shown === true) {
     return { say: `It is on the television now: “${parsed.by} says: ${parsed.text}”`, card: null, tone: 'answer' };
   }
+  if (toolName === 'invite_to_watch' && parsed.invited === true) {
+    return {
+      say: 'Asked. The invitation will appear on the television at the next natural break, and is answered there with one button.',
+      tone: 'answer',
+      card: {
+        kind: 'confirmation',
+        title: 'Invitation sent to the television',
+        fields: [['Film', parsed.film ?? ''], ['When', parsed.when ?? ''], ['From', parsed.fromName ?? '']],
+        footnote: 'Ask “Did Mum say yes to the film?” at any time.',
+      },
+    };
+  }
+  if ((toolName === 'get_watch_together' || toolName === 'join_watch_together') && typeof parsed.sessionId === 'string' && typeof parsed.state === 'string') {
+    return presentWatch(parsed);
+  }
+  if (toolName === 'answer_watch_together' && parsed.shown === true) {
+    return { say: `It is on the television now: “${parsed.by} says: ${parsed.text}”`, card: null, tone: 'answer' };
+  }
 
   // A shape this surface does not know: say so, never render a guess.
   return { say: 'I got an answer I could not read.', card: null, tone: 'error' };
@@ -754,11 +931,22 @@ export function describeCall(toolName, args = {}) {
     case 'add_regular_visitor': return 'Added a regular visitor';
     case 'get_door_request': return 'Looked at the question from the door';
     case 'answer_door_request': return 'Answered on the television';
+    case 'invite_to_watch': return 'Asked to watch a film together';
+    case 'get_watch_together': return 'Looked at the film';
+    case 'join_watch_together': return 'Sat down to watch';
+    case 'answer_watch_together': return 'Answered on the television';
     default: return 'Asked Wick';
   }
 }
 
-const DECLINED_TRACE = { send_note_to_tv: 'Did not send the note', expect_visit: 'Did not tell the door', answer_door_request: 'Did not answer' };
+const DECLINED_TRACE = {
+  send_note_to_tv: 'Did not send the note',
+  expect_visit: 'Did not tell the door',
+  answer_door_request: 'Did not answer',
+  invite_to_watch: 'Did not ask',
+  join_watch_together: 'Did not sit down',
+  answer_watch_together: 'Did not answer',
+};
 
 /** "Saturday 17 October, 15:00" from the date and time a visit was asked for — said in full, so a wrong day is seen before it is sent. */
 function visitWhen(date, time) {
@@ -835,6 +1023,33 @@ export function confirmWrite(toolName, args = {}, title) {
       fields: [['Your answer', Object.hasOwn(DOOR_ANSWERS, key) ? DOOR_ANSWERS[key] : key], ...otherFields(args, ['answer'])],
       confirmLabel: 'Show it',
       footnote: 'It appears on the door card at once, under your name.',
+    };
+  }
+  if (toolName === 'invite_to_watch') {
+    const id = String(args.programme ?? '');
+    return {
+      title: 'Ask to watch this together?',
+      // The film by its name, for an id this page knows; otherwise the id as it would be sent.
+      fields: [['Film', Object.hasOwn(FILMS, id) ? FILMS[id] : id], ['When', visitWhen(args.date, args.time)], ...otherFields(args, ['programme', 'date', 'time'])],
+      confirmLabel: 'Ask',
+      footnote: 'The invitation appears on the television at the next natural break, and is answered there with one button.',
+    };
+  }
+  if (toolName === 'join_watch_together') {
+    return {
+      title: 'Sit down to watch now?',
+      fields: otherFields(args, []),
+      confirmLabel: 'Sit down',
+      footnote: 'The television will say you are ready. The film starts when it is started there.',
+    };
+  }
+  if (toolName === 'answer_watch_together') {
+    const key = String(args.answer ?? '');
+    return {
+      title: 'Show this on the television?',
+      fields: [['Your answer', Object.hasOwn(WATCH_ANSWERS, key) ? WATCH_ANSWERS[key] : key], ...otherFields(args, ['answer'])],
+      confirmLabel: 'Show it',
+      footnote: 'It appears on the television under your name.',
     };
   }
   return {

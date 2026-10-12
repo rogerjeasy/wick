@@ -13,6 +13,11 @@
  * family sent mid-programme waits for the credits or a long pause, and the
  * door card comes straight through over the picture. Seen on the Vega
  * Virtual Device — SP-1 in FRICTION.md.
+ *
+ * Watch together (packages/contracts/src/watch.ts): "Start the film" on the
+ * card that says someone is ready opens that film, and from then on this
+ * television says where the film is, for that one person
+ * (watch/togetherReporter.ts). Nothing else she plays is ever sent that way.
  */
 import * as React from 'react';
 import { AppState, Linking } from 'react-native';
@@ -20,7 +25,7 @@ import { BackHandler, StyleSheet, View } from '@amazon-devices/react-native-kepl
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import type { DeviceToken, QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
-import { opensLiveView, removesCard } from './cards/cardActions.js';
+import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
 import { LiveView } from './live/LiveView.js';
 import { BreakController } from './break/BreakController.js';
 import { PairingFlow, type PairingStartResponse } from './pairing/PairingFlow.js';
@@ -28,11 +33,12 @@ import { PairingScreen } from './pairing/PairingScreen.js';
 import { QueueStore } from './headless/QueueStore.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
 import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
-import { CATALOG, calmPointsOf, type Programme } from './catalog/catalog.js';
+import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
 import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, waitingLine } from './home/waiting.js';
 import { WatchScreen } from './watch/WatchScreen.js';
 import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
+import { TogetherReporter, type Together } from './watch/togetherReporter.js';
 import { createDeviceChannel } from './transport/createDeviceChannel.js';
 import { holdCardChannel } from './transport/startCardChannel.js';
 import { launchCardService } from './headless/launchCardService.js';
@@ -80,6 +86,14 @@ export default function App(): React.JSX.Element {
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
+  /**
+   * The watch-together session her "Start the film" press began. Only that
+   * press makes one, and it lasts for that showing of the film: it is gone
+   * when she leaves the film or chooses anything from the home screen, so
+   * the same film started again later is not followed by anyone.
+   */
+  const [together, setTogether] = React.useState<Together | null>(null);
+  const togetherReporter = React.useMemo(() => (together ? new TogetherReporter(together) : null), [together]);
   /** M2: the door card whose live view is open over it. */
   const [liveFor, setLiveFor] = React.useState<string | null>(null);
   // Bumped on the way back from live view: remounting the card re-applies its
@@ -199,8 +213,14 @@ export default function App(): React.JSX.Element {
   }, [screen, store, breakController]);
 
   const handleSnapshot = React.useCallback(
-    (snapshot: PlayerSnapshot | undefined) => breakController.setPlayback(snapshot, Date.now()),
-    [breakController],
+    (snapshot: PlayerSnapshot | undefined) => {
+      const now = Date.now();
+      breakController.setPlayback(snapshot, now);
+      // Only for the film she started with someone, and only what the reporter thinks worth saying.
+      const position = togetherReporter?.report(snapshot, now);
+      if (position) void store.enqueueOutbound(position);
+    },
+    [breakController, togetherReporter, store],
   );
 
   // §4.3 and §3.3: the cloud hears about it now, over the channel this
@@ -222,6 +242,13 @@ export default function App(): React.JSX.Element {
       if (current) setLastWatchedId(current.id);
       return null;
     });
+    // The player says it has stopped as it unmounts (WatchScreen's cleanup, through the reporter it was given); then nobody is following.
+    setTogether(null);
+  }, []);
+
+  const handleChoose = React.useCallback((programme: Programme) => {
+    setTogether(null);
+    setWatching(programme);
   }, []);
 
   const handleOpenWaiting = React.useCallback(() => {
@@ -246,6 +273,12 @@ export default function App(): React.JSX.Element {
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {
       if (card && card.id === cardId && opensLiveView(card.card, actionId)) setLiveFor(cardId);
+      const film = card && card.id === cardId ? startsFilm(card.card, actionId, Date.now()) : undefined;
+      const programme = film ? programmeById(film.programmeId) : undefined;
+      if (film && programme) {
+        setTogether(film.together ?? null);
+        setWatching(programme);
+      }
       if (card && card.id === cardId && removesCard(card.card, actionId)) {
         void store.remove(cardId);
         setCard(null);
@@ -274,12 +307,13 @@ export default function App(): React.JSX.Element {
           cardVisible={card !== null}
           held={breakController.holdsProgramme(card ?? undefined)}
           suspended={liveFor !== null}
+          companion={together && together.programmeId === watching.id ? together.withName : undefined}
           onExit={handleExitWatching}
         />
       ) : (
         <HomeScreen
           programmes={CATALOG}
-          onChoose={setWatching}
+          onChoose={handleChoose}
           cardVisible={card !== null}
           lastWatchedId={lastWatchedId}
           waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting) : undefined}

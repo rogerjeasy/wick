@@ -16,6 +16,7 @@ import { DoorCardView } from './DoorCard.js';
 import { MessageCardView } from './MessageCard.js';
 import { SharingCardView } from './SharingCard.js';
 import { TellCardView } from './TellCard.js';
+import { WatchCardView } from './WatchCard.js';
 import { WeekCardView } from './WeekCard.js';
 
 export interface CardRendererProps {
@@ -44,5 +45,8 @@ export function CardRenderer({ card, onAction }: CardRendererProps): React.JSX.E
 
     case 'TELL':
       return <TellCardView card={card} onAction={handle} />;
+
+    case 'WATCH':
+      return <WatchCardView card={card} onAction={handle} />;
   }
 }

@@ -25,6 +25,12 @@ describe('waitingLine — what the home screen says is waiting', () => {
 
     expect(waitingLine(queued(tell))).toBe('Wick has a question for you.');
   });
+
+  it('says what a watch-together card says: the server wrote the line', () => {
+    const watch: Card = { ...base, type: 'WATCH', sessionId: 's-1', withName: 'Sarah', headline: 'Sarah would like to watch a film with you.' } as Card;
+
+    expect(waitingLine(queued(watch))).toBe('Sarah would like to watch a film with you.');
+  });
 });
 
 describe('backClosesOpened — Back on a waiting card the resident opened', () => {

@@ -6,11 +6,13 @@
  */
 import {
   DECLINED_RESULT,
+  FILMS,
   HELP_TEXT,
   applicationServerKey,
   confirmWrite,
   describeCall,
   doorQuestionToAnnounce,
+  follow,
   inviteLink,
   madeWithKey,
   needsConfirmation,
@@ -26,6 +28,8 @@ import {
   suggestionsFor,
   timeFormatter,
   toldToAnnounce,
+  watchStatus,
+  watchToAnnounce,
 } from './surface.js';
 
 const $ = (id) => document.getElementById(id);
@@ -218,6 +222,10 @@ function signedOut(reason) {
   if (doorWatch !== null) clearInterval(doorWatch);
   doorWatch = null;
   announcedDoorQuestions.clear();
+  if (watchLook !== null) clearInterval(watchLook);
+  watchLook = null;
+  watchSeen.clear();
+  closeSeat();
   // A link that ended by itself cannot tell the server; the browser still stops listening.
   void forgetThisBrowser({ tellServer: false });
   enableToolButtons(false);
@@ -362,9 +370,19 @@ async function knownTools() {
   }
 }
 
-async function callTool(name, args) {
+async function callToolOnly(name, args) {
   await ensureMcpSession();
   return sendMcpMessage({ jsonrpc: '2.0', id: ++mcpRequestId, method: 'tools/call', params: { name, arguments: args } });
+}
+
+async function callTool(name, args) {
+  const result = await callToolOnly(name, args);
+  // However a film watched together came to be on the page, it is not then announced as news (watchToAnnounce).
+  if ((name === 'get_watch_together' || name === 'join_watch_together') && result.isError !== true) {
+    const news = watchToAnnounce(result.content?.[0]?.text ?? '', watchSeen);
+    if (news) watchSeen.set(news.sessionId, news.key);
+  }
+  return result;
 }
 
 
@@ -507,6 +525,7 @@ async function answerDoorQuestion(requestId, answer, buttons) {
 
 function renderCard(card) {
   if (card.kind === 'door') return renderDoorCard(card);
+  if (card.kind === 'watch') return renderWatchCard(card);
   const node = el('article', 'card');
   const head = el('div', 'card-head');
   head.appendChild(el('h2', 'card-title', card.title));
@@ -898,6 +917,358 @@ function watchTheDoor() {
   if (doorWatch !== null) clearInterval(doorWatch);
   doorWatch = setInterval(() => void lookForDoorQuestion(), DOOR_WATCH_MS);
   void lookForDoorQuestion();
+}
+
+// ---------------------------------------------------------------------------
+// Watching a film together. The seat is a player with no controls of its
+// own, kept where the television's player is: the remote is the resident's,
+// and this page only keeps up. What it should do is decided in surface.js
+// (follow, watchStatus); this draws it and keeps asking where the film is,
+// over the same MCP tool anyone could call.
+// ---------------------------------------------------------------------------
+
+const SEAT_LOOK_MS = 2000;
+const WATCH_LOOK_MS = 20_000;
+/**
+ * hls.js, which plays the film (openSeat says why it comes before the
+ * browser's own HLS). One pinned file, checked against this hash before it
+ * runs, and fetched only when a seat is taken.
+ */
+const HLS_SRC = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.light.min.js';
+const HLS_INTEGRITY = 'sha384-aUXIo1rkYXsnqzYlykJMPPxPku80rMufp2z0gLNU59eAyfNRhP87hllql3hwVjUZ';
+let hlsLoading = null;
+
+function loadHls() {
+  if (window.Hls) return Promise.resolve(window.Hls);
+  hlsLoading ??= new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = HLS_SRC;
+    script.integrity = HLS_INTEGRITY;
+    script.crossOrigin = 'anonymous';
+    script.onload = () => resolve(window.Hls);
+    script.onerror = () => {
+      hlsLoading = null;
+      reject(new Error('The film player could not be loaded.'));
+    };
+    document.head.appendChild(script);
+  });
+  return hlsLoading;
+}
+
+/** The one seat open in this page: its card, its player, and the timer that keeps asking. */
+let seat = null;
+/** How each session stood at the last look, so only news is said unasked. */
+const watchSeen = new Map();
+let watchLook = null;
+
+function closeSeat() {
+  if (!seat) return;
+  clearInterval(seat.timer);
+  seat.hls?.destroy();
+  seat.video.pause();
+  seat.video.removeAttribute('src');
+  seat.video.load();
+  seat.screen.hidden = true;
+  seat = null;
+}
+
+/** Puts the film in the seat's player, once, and starts asking where the television is. */
+function openSeat(ui, stream) {
+  if (seat === ui && ui.url === stream.url) return;
+  // One film at a time: a seat taken again further down the page is the seat.
+  if (seat && seat !== ui) {
+    const moved = seat;
+    closeSeat();
+    moved.status.textContent = 'This is now further down the page.';
+    moved.actions.replaceChildren();
+  }
+  seat = ui;
+  ui.url = stream.url;
+  ui.screen.hidden = false;
+  // The browser's own HLS, where it has one — the way Safari plays it, and
+  // what is left if hls.js cannot be fetched or cannot reach the film.
+  const playNatively = () => {
+    if (seat !== ui) return;
+    if (!ui.video.canPlayType('application/vnd.apple.mpegurl')) {
+      ui.problem = 'This browser cannot play the film.';
+      ui.status.textContent = ui.problem;
+      return;
+    }
+    ui.video.src = stream.url;
+  };
+  // hls.js first wherever it runs: it goes straight to the part of the film
+  // it is sent to, where Chromium's own HLS reads its way there segment by
+  // segment — a skip on the television took most of a minute to follow.
+  loadHls()
+    .then((Hls) => {
+      if (seat !== ui) return;
+      if (!Hls?.isSupported()) return playNatively();
+      const hls = new Hls();
+      ui.hls = hls;
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data.fatal || ui.hls !== hls) return;
+        hls.destroy();
+        ui.hls = null;
+        playNatively();
+      });
+      hls.loadSource(stream.url);
+      hls.attachMedia(ui.video);
+    })
+    .catch(playNatively);
+  ui.timer = setInterval(() => void lookAtSeat(ui), SEAT_LOOK_MS);
+}
+
+/**
+ * Sound needs a press in some browsers. The picture starts without it, and
+ * the sound is then one press away — never a film that silently does not start.
+ */
+function startPlaying(ui) {
+  ui.video.play().catch(() => {
+    if (seat !== ui || ui.video.muted) return;
+    ui.video.muted = true;
+    ui.video.play().then(() => {
+      if (ui.sound) return;
+      ui.sound = el('button', 'btn', 'Turn the sound on');
+      ui.sound.type = 'button';
+      ui.sound.addEventListener('click', () => {
+        ui.video.muted = false;
+        ui.sound.remove();
+        ui.sound = null;
+      });
+      ui.actions.appendChild(ui.sound);
+    }).catch(() => {});
+  });
+}
+
+/** A jump while playing aims this far ahead: about what it takes to start again, so it lands level and not behind. */
+const SEEK_LEAD_MS = 1000;
+/** After a jump the player is left to get there for this long before it is sent anywhere else. */
+const SEEK_SETTLE_MS = 8000;
+
+function keepUp(ui, card) {
+  const { video } = ui;
+  const asked = follow(card.playback, 0, { positionMs: video.currentTime * 1000, paused: video.paused }, card.stream.durationMs);
+  // Not before it knows the film's length, and not while it is still finding
+  // the last place it was sent: a new place every look would be no place at all.
+  const settling = video.seeking || (video.readyState < 3 && Date.now() - (ui.soughtAt ?? 0) < SEEK_SETTLE_MS);
+  if (asked.seekToMs !== null && !settling && video.readyState >= 1) {
+    ui.soughtAt = Date.now();
+    video.currentTime = (asked.seekToMs + (asked.play ? SEEK_LEAD_MS : 0)) / 1000;
+  }
+  if (asked.play && video.paused) startPlaying(ui);
+  else if (!asked.play && !video.paused) video.pause();
+}
+
+async function sitDown(ui, button) {
+  button.disabled = true;
+  try {
+    const result = await callTool('join_watch_together', { sessionId: ui.sessionId });
+    const presented = presentResult('join_watch_together', result.content?.[0]?.text ?? '', {}, formatTime, result.isError === true);
+    if (presented.card?.kind === 'watch') return drawSeat(ui, presented.card);
+    // Not time yet, or the answer changed: said as the server said it.
+    ui.status.textContent = presented.say;
+  } catch (err) {
+    ui.status.textContent = err.message;
+  }
+  button.disabled = false;
+}
+
+async function answerAfterWatching(ui, answer, buttons) {
+  const all = [...buttons.querySelectorAll('button')];
+  for (const button of all) button.disabled = true;
+  try {
+    const result = await callTool('answer_watch_together', { sessionId: ui.sessionId, answer: answer.key });
+    const text = result.content?.[0]?.text ?? '';
+    if (result.isError === true || !text.startsWith('{')) throw new Error(text || 'That could not be shown.');
+    ui.yourAnswer = answer.text;
+    drawQuestion(ui, { question: ui.questionText, answers: [], yourAnswer: answer.text, theirAnswer: ui.theirAnswer });
+  } catch (err) {
+    // Nothing was shown: the answers can be pressed again.
+    for (const button of all) button.disabled = false;
+    ui.status.textContent = err.message;
+  }
+}
+
+/** The one question at the end: asked once the film has got there, answered with a button that carries the very words. */
+function drawQuestion(ui, card) {
+  if (!card.question) return;
+  ui.questionText = card.question;
+  ui.theirAnswer = card.theirAnswer ?? ui.theirAnswer ?? null;
+  const yours = card.yourAnswer ?? ui.yourAnswer ?? null;
+  const shown = `${yours ?? ''}|${ui.theirAnswer ?? ''}|${card.answers.length}`;
+  if (ui.questionShown === shown) return;
+  ui.questionShown = shown;
+
+  const parts = [el('p', 'watch-asks', card.question)];
+  if (yours) parts.push(el('p', 'reply', `You said: “${yours}”`));
+  else if (card.answers.length) {
+    const buttons = el('div', 'door-answers');
+    for (const answer of card.answers) {
+      const button = el('button', 'btn', answer.text);
+      button.type = 'button';
+      button.addEventListener('click', () => void answerAfterWatching(ui, answer, buttons));
+      buttons.appendChild(button);
+    }
+    parts.push(buttons);
+  }
+  if (ui.theirAnswer) parts.push(el('p', 'reply', `On the television: “${ui.theirAnswer}”`));
+  ui.question.replaceChildren(...parts);
+  ui.question.hidden = false;
+}
+
+/** Brings a seat's card up to date with what the server last said. Called for the first drawing and after every look. */
+function drawSeat(ui, card) {
+  if (!ui.problem) ui.status.textContent = watchStatus(card);
+
+  const canSit = card.state === 'accepted' && card.canSitDown;
+  if (canSit && !ui.sit) {
+    ui.sit = el('button', 'btn final', 'Sit down');
+    ui.sit.type = 'button';
+    ui.sit.addEventListener('click', () => void sitDown(ui, ui.sit));
+    ui.actions.appendChild(ui.sit);
+  } else if (!canSit && ui.sit) {
+    ui.sit.remove();
+    ui.sit = null;
+  }
+
+  if (card.stream) {
+    ui.attribution.textContent = card.stream.attribution;
+    openSeat(ui, card.stream);
+    if (seat === ui) keepUp(ui, card);
+  } else if (seat === ui) {
+    closeSeat();
+  }
+  drawQuestion(ui, card);
+}
+
+async function lookAtSeat(ui) {
+  if (seat !== ui) return;
+  // The conversation was cleared, or the page signed out: nobody is in the seat.
+  if (!ui.node.isConnected || !me) return closeSeat();
+  try {
+    const result = await callTool('get_watch_together', { sessionId: ui.sessionId });
+    if (result.isError === true || seat !== ui) return;
+    const presented = presentResult('get_watch_together', result.content?.[0]?.text ?? '', {}, formatTime);
+    if (presented.card?.kind === 'watch') return drawSeat(ui, presented.card);
+    // Nothing left to follow: the session is over, and the last word is the server's.
+    closeSeat();
+    ui.status.textContent = presented.say;
+    ui.actions.replaceChildren();
+  } catch {
+    // A look that failed is tried again; the film plays on meanwhile.
+  }
+}
+
+/**
+ * A film watched together: the picture, one line saying what the
+ * television is doing, and — when it is time — the button that takes the
+ * seat. There is no pause and no skip, on purpose.
+ */
+function renderWatchCard(card) {
+  const node = el('article', 'card watch');
+  const head = el('div', 'card-head');
+  head.appendChild(el('h2', 'card-title', card.title));
+  head.appendChild(el('span', 'card-meta', card.meta));
+
+  const screen = el('div', 'watch-screen');
+  const video = document.createElement('video');
+  video.playsInline = true;
+  video.preload = 'auto';
+  video.setAttribute('aria-label', `${card.title}, following the television`);
+  screen.appendChild(video);
+  screen.hidden = true;
+
+  const status = el('p', 'watch-status');
+  status.setAttribute('aria-live', 'polite');
+  const actions = el('div', 'actions');
+  const question = el('div', 'watch-question');
+  question.hidden = true;
+  const attribution = el('p', 'watch-attribution');
+
+  node.append(head, screen, status, actions, question, attribution, cardFoot(card.footnote));
+  drawSeat({ node, screen, video, status, actions, question, attribution, sessionId: card.sessionId }, card);
+  return node;
+}
+
+/** While the app is open it looks, as it does for the door, and says only what is news (surface.js watchToAnnounce). */
+async function lookForTheFilm() {
+  // Not behind another tab, not across an answer being given, and not while the seat is asking for itself.
+  if (document.hidden || !me || answering || seat) return;
+  try {
+    const result = await callToolOnly('get_watch_together', {});
+    if (result.isError === true) return;
+    const text = result.content?.[0]?.text ?? '';
+    const news = watchToAnnounce(text, watchSeen);
+    if (!news) return;
+    watchSeen.set(news.sessionId, news.key);
+    if (news.announce) assistantSays(presentResult('get_watch_together', text, {}, formatTime));
+  } catch {
+    // A look that failed is tried again; nothing is said about it.
+  }
+}
+
+function watchForTheFilm() {
+  if (watchLook !== null) clearInterval(watchLook);
+  watchLook = setInterval(() => void lookForTheFilm(), WATCH_LOOK_MS);
+  void lookForTheFilm();
+}
+
+/** The invitation, as a form: which film, which day, what time. What the page offers where there is no assistant to ask. */
+function addInvitationToWatch() {
+  const turn = el('div', 'turn-assistant');
+  turn.appendChild(el('p', 'say', 'Which film, and when?'));
+
+  const card = el('article', 'card');
+  const head = el('div', 'card-head');
+  head.appendChild(el('h2', 'card-title', 'Watch a film together'));
+  card.appendChild(head);
+
+  const form = el('form', 'form');
+  const filmLabel = el('label', undefined, 'Film');
+  const film = document.createElement('select');
+  for (const [id, title] of Object.entries(FILMS)) {
+    const option = el('option', undefined, title);
+    option.value = id;
+    film.appendChild(option);
+  }
+  filmLabel.appendChild(film);
+
+  const dayLabel = el('label', undefined, 'Day');
+  const day = document.createElement('input');
+  day.type = 'date';
+  day.required = true;
+  dayLabel.appendChild(day);
+
+  const timeLabel = el('label', undefined, 'Time, where the television is');
+  const time = document.createElement('input');
+  time.type = 'time';
+  time.required = true;
+  time.value = '15:00';
+  timeLabel.appendChild(time);
+
+  const actions = el('div', 'actions');
+  const send = el('button', 'btn final', 'Ask');
+  send.type = 'submit';
+  const cancel = el('button', 'btn quiet', 'Not now');
+  cancel.type = 'button';
+  actions.append(send, cancel);
+
+  form.append(filmLabel, dayLabel, timeLabel, actions);
+  card.appendChild(form);
+  card.appendChild(cardFoot('The invitation appears on the television at the next natural break. Your screen would follow theirs: they hold the remote.'));
+  turn.appendChild(card);
+  log.appendChild(turn);
+  scrollToEnd();
+  film.focus();
+
+  cancel.addEventListener('click', () => turn.remove());
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const args = { programme: film.value, date: day.value, time: time.value };
+    turn.remove();
+    addCustomerTurn(`Ask to watch ${FILMS[args.programme]} together on ${args.date} at ${args.time}`);
+    void askTool('invite_to_watch', args, { now: Date.now() });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1328,6 +1699,7 @@ async function welcome() {
   if (me.membership.role === 'organiser' && (pair || presented.next === 'connect')) addConnectTelevision(pair ?? undefined);
   else $('ask-input').focus();
   watchTheDoor();
+  watchForTheFilm();
   void lookForWhatWasTold();
   offerNotificationsOnce();
 }
@@ -1337,6 +1709,7 @@ function answerByRules(text) {
   const route = routeUtterance(text);
   if (route.kind === 'tool') return void askTool(route.tool, route.args, { now: Date.now() });
   if (route.kind === 'compose') return addComposer(route.message);
+  if (route.kind === 'invite') return addInvitationToWatch();
   if (route.kind === 'circle') return void showCircle();
   if (route.kind === 'doorbell') return void showDoorbell();
   if (route.kind === 'notifications') return void showNotifications();

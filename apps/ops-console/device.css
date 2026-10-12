@@ -47,6 +47,43 @@
   max-width: 32ch;
 }
 
+/* A film (watching together): fills the screen, under any card. Its own controls are the remote. */
+.tv-film {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+
+.tv-film video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.tv-film .tv-film-back {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: 0.35em 0.9em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, #050403 80%, transparent);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tv-film .tv-film-with {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 0.35em 0.8em;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, #050403 80%, transparent);
+  color: var(--text);
+}
+
 /* DOOR cards: lower-third, non-blocking — never covers the whole screen,
    matching the real product's "never interrupt a scene" principle. */
 .tv-card.urgency-door {

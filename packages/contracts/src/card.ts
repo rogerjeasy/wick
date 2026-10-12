@@ -110,7 +110,29 @@ export interface TellCard extends CardBase {
   readonly detail: string;
 }
 
-export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard;
+/**
+ * Watch together (watch.ts): one of a session's four cards. The server
+ * writes every word and every button; the television only renders it. Its
+ * id is `watch-<kind>-<sessionId>` (watchCardId), so a press names the
+ * session without the television holding anything about it.
+ */
+export interface WatchCard extends CardBase {
+  readonly type: 'WATCH';
+  readonly sessionId: string;
+  readonly headline: string;
+  readonly detail?: string;
+  /** The first name of the family member who would watch along, as the resident knows them. */
+  readonly withName: string;
+  /**
+   * Only on the card whose `start` press opens the film: which film, and
+   * the moment after which that press opens it for the resident alone,
+   * because nobody is following any more (watch.ts watchWindow).
+   */
+  readonly programmeId?: string;
+  readonly followedUntil?: number;
+}
+
+export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard;
 
 export interface QueuedCard {
   readonly id: string;

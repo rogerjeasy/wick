@@ -66,7 +66,7 @@ describe('createApp', () => {
     expect(h.cards.map((c) => c.card)).toContainEqual(expect.objectContaining({ type: 'MESSAGE', transcript: 'Lunch on Sunday?', householdId: sarah.householdId }));
   });
 
-  it('exposes exactly the twelve deployed tools — the registered set IS the deploy contract', async () => {
+  it('exposes exactly the sixteen deployed tools — the registered set IS the deploy contract', async () => {
     const { h } = await server();
     const sarah = await linkNewOrganiser(h);
     const { client } = await mcpClient(h, sarah);
@@ -77,14 +77,18 @@ describe('createApp', () => {
       [
         'add_regular_visitor',
         'answer_door_request',
+        'answer_watch_together',
         'did_visitor_come',
         'expect_visit',
         'get_door_request',
         'get_replies',
         'get_resident_shared_view',
         'get_today',
+        'get_watch_together',
         'get_week_narrative',
         'get_whats_different',
+        'invite_to_watch',
+        'join_watch_together',
         'list_regular_visitors',
         'send_note_to_tv',
       ].sort(),

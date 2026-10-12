@@ -13,9 +13,11 @@
  * in place. Only Done finishes it.
  *
  * A Circle card is finished by either answer: the resident is asked once
- * (the default below), and the server records what they said.
+ * (the default below), and the server records what they said. The same goes
+ * for each of a watch-together session's cards.
  */
-import { DOOR_ACTIONS, SHARING_ACTIONS, WEEK_ACTIONS, type Card } from '@wick/contracts';
+import { DOOR_ACTIONS, SHARING_ACTIONS, WATCH_ACTIONS, WEEK_ACTIONS, type Card } from '@wick/contracts';
+import type { Together } from '../watch/togetherReporter.js';
 
 export function removesCard(card: Card, actionId: string): boolean {
   switch (card.type) {
@@ -32,4 +34,21 @@ export function removesCard(card: Card, actionId: string): boolean {
 
 export function opensLiveView(card: Card, actionId: string): boolean {
   return card.type === 'DOOR' && actionId === DOOR_ACTIONS.watchLive;
+}
+
+/**
+ * "Start the film" on the card that says someone is ready to watch with
+ * her (packages/contracts/src/watch.ts): which film to open, and — while
+ * that person can still be following — the session her player is to speak
+ * for. This press is the consent the rule there rests on, so it is this
+ * button on this card and nothing else; a card that has outlived its
+ * session still opens the film, for her alone.
+ */
+export function startsFilm(card: Card, actionId: string, now: number): { readonly programmeId: string; readonly together?: Together } | undefined {
+  if (card.type !== 'WATCH' || actionId !== WATCH_ACTIONS.start || !card.programmeId) return undefined;
+  const followed = card.followedUntil !== undefined && now < card.followedUntil;
+  return {
+    programmeId: card.programmeId,
+    ...(followed ? { together: { sessionId: card.sessionId, programmeId: card.programmeId, withName: card.withName, until: card.followedUntil! } } : {}),
+  };
 }

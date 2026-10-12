@@ -54,6 +54,12 @@
  * M3: a `reply_<n>` on a family note (`note-<uuid>`) records the reply on
  * the note's CARD# item, in the words Wick offered — note-reply.mjs.
  *
+ * Watch together: a press on one of a session's cards (`watch-<kind>-<id>`)
+ * is the resident's yes, her "Start the film" or her answer at the credits,
+ * and a `watch_position` is her player saying where that film is — kept
+ * only when the session's own row allows it, and answered with the one
+ * question when the credits begin. watch-together.mjs.
+ *
  * A card_action the agent plane must carry out (today only M1's
  * `hallway_chime`) is also published to EventBridge as `wick.device` /
  * `card.action` — see card-action-event.mjs. Door presses that keep the card
@@ -79,6 +85,7 @@ import { deviceBindingKey, isServed } from './device-standing.mjs';
 import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
 import { announcesRetirement, buildCardActionEntry, buildCardRetiredEntry, shouldPublish } from './card-action-event.mjs';
 import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
+import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate, watchPress } from './watch-together.mjs';
 import { SHARING_CARD_ID, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
 
@@ -229,6 +236,9 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
       const index = replyIndex(deviceEvent.cardId, deviceEvent.action);
       if (index !== undefined) await recordNoteReply(householdId, deviceEvent.cardId, index, deviceEvent.at);
 
+      const watch = watchPress(deviceEvent.cardId, deviceEvent.action);
+      if (watch) await recordWatchPress(householdId, watch);
+
       if (deviceEvent.action === 'sharing' && WEEK_CARD_ID.test(deviceEvent.cardId)) {
         await showSharing({ sendCard, householdId, page: 0, respondsTo: deviceEvent.cardId });
       } else if (deviceEvent.cardId === SHARING_CARD_ID) {
@@ -240,6 +250,8 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
       const weekMatch = WEEK_CARD_ID.exec(deviceEvent.cardId);
       if (weekMatch) await markNarrativeSeen(householdId, weekMatch[1], deviceEvent.at);
     }
+  } else if (deviceEvent.t === 'watch_position') {
+    await recordWatchPosition({ sendCard, householdId, deviceEvent });
   } else if (deviceEvent.t === 'reconcile') {
     await reconcile({ sendCard, sendControl, householdId, holding: deviceEvent.holding });
   }
@@ -337,6 +349,62 @@ async function recordNoteReply(householdId, cardId, index, at) {
     console.log(JSON.stringify({ level: 'info', msg: 'note_replied', cardId, index }));
   } catch (err) {
     console.error('note_reply_write_failed', { householdId, cardId, err: err?.name });
+  }
+}
+
+/**
+ * Watch together — see watch-together.mjs. The time is this server's own:
+ * whether a session is still open is not the television's to say. Logged,
+ * never thrown: the press is already on the timeline. A failed condition
+ * means the press no longer applies (answered already, nobody sat down, or
+ * the session is over), and what is on record stands.
+ */
+async function recordWatchPress(householdId, { sessionId, press, answer }) {
+  const at = Date.now();
+  const target = { table: TABLE, householdId, sessionId, at };
+  try {
+    const update =
+      press === 'accept' ? decisionUpdate({ ...target, accepted: true })
+      : press === 'decline' ? decisionUpdate({ ...target, accepted: false })
+      : press === 'start' ? startUpdate(target)
+      : press === 'not_now' ? notNowUpdate(target)
+      : answerUpdate({ ...target, answer });
+    await ddb.send(new UpdateItemCommand(update));
+    console.log(JSON.stringify({ level: 'info', msg: 'watch_press', press }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      console.log(JSON.stringify({ level: 'info', msg: 'watch_press_not_applied', press }));
+      return;
+    }
+    console.error('watch_press_write_failed', { householdId, press, err: err?.name });
+  }
+}
+
+/**
+ * Where the film is, for the one person watching along — kept only when the
+ * session's own row allows it (watch-together.mjs positionUpdate), which is
+ * what a failed condition means: not started by her, not that film, or over.
+ * At the credits the one question is put on her television, once. Logged,
+ * never thrown: a position that is lost is followed by the next.
+ */
+async function recordWatchPosition({ sendCard, householdId, deviceEvent }) {
+  const now = Date.now();
+  const update = positionUpdate({ table: TABLE, householdId, event: deviceEvent, now });
+  if (!update) return;
+  try {
+    const { Attributes: row } = await ddb.send(new UpdateItemCommand(update));
+    if (!shouldAsk(row)) return;
+    await ddb.send(new UpdateItemCommand(askedUpdate({ table: TABLE, householdId, sessionId: deviceEvent.sessionId, at: now })));
+    const queued = buildQuestionCard({ householdId, item: row, now });
+    await ddb.send(new PutItemCommand({
+      TableName: TABLE,
+      Item: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${queued.id}` }, data: { S: JSON.stringify(queued) } },
+    }));
+    await sendCard(queued);
+    console.log(JSON.stringify({ level: 'info', msg: 'watch_question_asked' }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return; // not hers to share, or already asked
+    console.error('watch_position_failed', { householdId, err: err?.name });
   }
 }
 

@@ -131,7 +131,7 @@ output "live_origin" {
 }
 
 output "programmes_origin" {
-  description = "HTTPS origin the TV's player loads its programmes from. Goes in apps/tv-vega/src/catalog/catalog.ts (PROGRAMMES_ORIGIN)."
+  description = "HTTPS origin the TV's player, and the family member's when watching together, load the programmes from. Goes in packages/contracts/src/programmes.ts (PROGRAMMES_ORIGIN)."
   value       = "https://${aws_cloudfront_distribution.programmes.domain_name}"
 }
 

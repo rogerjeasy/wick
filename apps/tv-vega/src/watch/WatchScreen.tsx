@@ -39,6 +39,12 @@ export interface WatchScreenProps {
   readonly held: boolean;
   /** Something else has the screen (the door camera, live): hold the programme. */
   readonly suspended: boolean;
+  /**
+   * Who is watching this programme along with her, from their own home
+   * (packages/contracts/src/watch.ts). Said whenever this screen says
+   * anything: nobody follows a film she has not been told they are following.
+   */
+  readonly companion?: string | undefined;
   readonly onExit: () => void;
 }
 
@@ -176,6 +182,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
           <Text style={styles.noticeText} accessibilityLiveRegion="polite">
             {notice}
           </Text>
+          {props.companion && status !== 'failed' ? <Text style={styles.noticeText}>{`${props.companion} is watching with you.`}</Text> : null}
           {status === 'paused' ? <Text style={styles.attribution}>{programme.attribution}</Text> : null}
         </View>
       ) : null}

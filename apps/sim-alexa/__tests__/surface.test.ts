@@ -23,11 +23,18 @@ import {
   presentNotifications,
   madeWithKey,
   toldToAnnounce,
+  FILMS,
+  WATCH_ANSWERS,
+  follow,
+  watchStatus,
+  watchToAnnounce,
 } from '../surface.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { REPLY_CHOICES as SERVER_REPLY_CHOICES } from '../../../services/mcp-server/src/tools/send_note_to_tv.js';
 import { DOOR_ANSWERS as CONTRACT_DOOR_ANSWERS } from '../../../packages/contracts/src/door.js';
+import { PROGRAMMES } from '../../../packages/contracts/src/programmes.js';
+import { WATCH_ANSWERS as CONTRACT_WATCH_ANSWERS, WATCH_QUESTION } from '../../../packages/contracts/src/watch.js';
 
 const at = (ms: number) => `t${ms}`;
 
@@ -883,7 +890,7 @@ describe('suggestionsFor', () => {
   it('then the app\'s own chips, without the ones that ask the same thing', () => {
     const labels = suggestionsFor(listing).slice(3).map((s: { label: string }) => s.label);
 
-    expect(labels).toEqual(['What happened today?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'What can I see?', 'Family circle']);
+    expect(labels).toEqual(['What happened today?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Watch a film with Mum', 'What can I see?', 'Family circle']);
   });
 
   it('is the app\'s own chips when there is no listing', () => {
@@ -1023,6 +1030,236 @@ describe('doorQuestionToAnnounce — what the app says unasked while it is open'
     expect(doorQuestionToAnnounce(JSON.stringify({ requestId: 'door-abc', state: 'answered', askedAt: 1, answer: {} }), none)).toBeNull();
     expect(doorQuestionToAnnounce(JSON.stringify({ requestId: 'door-abc', state: 'gone', askedAt: 1 }), none)).toBeNull();
     expect(doorQuestionToAnnounce('{"state":"waiting"}', none)).toBeNull();
+  });
+});
+
+describe('watching a film together', () => {
+  const STREAM = { url: 'https://films.example/sintel/index.m3u8', durationMs: 888_000, attribution: '© Blender Foundation | durian.blender.org' };
+  const ANSWERS = Object.entries(CONTRACT_WATCH_ANSWERS).map(([key, text]) => ({ key, text }));
+  const view = (over: object = {}) => JSON.stringify({
+    sessionId: 's-1',
+    film: 'Sintel',
+    startsAt: 5000,
+    when: 'Sunday 18 October at 3 pm',
+    state: 'invited',
+    ...over,
+  });
+
+  it('keeps the films and the answers as the server has them', () => {
+    expect(FILMS).toEqual(Object.fromEntries(PROGRAMMES.map((p) => [p.id, p.title])));
+    expect(WATCH_ANSWERS).toEqual(CONTRACT_WATCH_ANSWERS);
+  });
+
+  describe('what was said', () => {
+    it('sends a question about the film to the tool, and has a chip that starts an invitation', () => {
+      expect(routeUtterance('Did Mum say yes to the film?')).toEqual({ kind: 'tool', tool: 'get_watch_together', args: {} });
+      expect(routeUtterance('Is it time for the film?')).toEqual({ kind: 'tool', tool: 'get_watch_together', args: {} });
+      expect(routeUtterance('Are we watching together on Sunday?')).toEqual({ kind: 'tool', tool: 'get_watch_together', args: {} });
+      expect(SUGGESTIONS.some((s: { utterance: string }) => routeUtterance(s.utterance).kind === 'invite')).toBe(true);
+    });
+
+    it('offers the invitation when that is what was asked for', () => {
+      expect(routeUtterance('Ask Mum to watch a film with me')).toEqual({ kind: 'invite' });
+      expect(routeUtterance("I'd like to watch a film with Mum on Sunday")).toEqual({ kind: 'invite' });
+      expect(routeUtterance('Can we watch a movie together?')).toEqual({ kind: 'invite' });
+    });
+
+    it('leaves a note about a film a note', () => {
+      expect(routeUtterance('Tell Mum the film was lovely').kind).toBe('compose');
+    });
+  });
+
+  describe('the invitation', () => {
+    it('is shown in full before it is sent: the film by its name, the day in words', () => {
+      const asked = confirmWrite('invite_to_watch', { programme: 'sintel', date: '2026-10-18', time: '15:00' });
+
+      expect(asked.title).toBe('Ask to watch this together?');
+      expect(asked.fields).toEqual([['Film', 'Sintel'], ['When', 'Sunday 18 October, 15:00']]);
+      expect(asked.confirmLabel).toBe('Ask');
+    });
+
+    it('shows a film it does not know by the id that would be sent, never dressed up', () => {
+      expect(confirmWrite('invite_to_watch', { programme: 'casablanca', date: '2026-10-18', time: '15:00' }).fields[0]).toEqual(['Film', 'casablanca']);
+    });
+
+    it('says it was sent, and when it will be seen', () => {
+      const r = presentResult('invite_to_watch', JSON.stringify({ invited: true, sessionId: 's-1', film: 'Sintel', startsAt: 5000, when: 'Sunday 18 October at 3 pm', fromName: 'Sarah' }), {}, at);
+
+      expect(r.say).toBe('Asked. The invitation will appear on the television at the next natural break, and is answered there with one button.');
+      expect(r.card).toMatchObject({ kind: 'confirmation', title: 'Invitation sent to the television', fields: [['Film', 'Sintel'], ['When', 'Sunday 18 October at 3 pm'], ['From', 'Sarah']] });
+    });
+  });
+
+  describe('how it stands', () => {
+    it('says an invitation is still waiting, with no card: there is nothing to do', () => {
+      const r = presentResult('get_watch_together', view(), {}, at);
+
+      expect(r.say).toBe('The invitation to watch Sintel on Sunday 18 October at 3 pm is on the television. It has not been answered yet.');
+      expect(r.card).toBeNull();
+    });
+
+    it('says yes, and when to sit down, before it is time', () => {
+      const r = presentResult('get_watch_together', view({ state: 'accepted', canSitDown: false, opensAt: 4000 }), {}, at);
+
+      expect(r.say).toBe('The answer was yes. Sintel is on Sunday 18 October at 3 pm; you can sit down from half an hour before.');
+      expect(r.card).toBeNull();
+    });
+
+    it('says no as it was said', () => {
+      expect(presentResult('get_watch_together', view({ state: 'declined' }), {}, at).say).toBe('The answer to Sintel on Sunday 18 October at 3 pm was: not this time.');
+      expect(presentResult('get_watch_together', view({ state: 'passed' }), {}, at).say).toBe('When it came to it, the answer was: not now.');
+      expect(presentResult('get_watch_together', view({ state: 'over' }), {}, at).say).toBe('The time for Sintel has passed.');
+    });
+
+    it('offers the seat when it is time', () => {
+      const r = presentResult('get_watch_together', view({ state: 'accepted', canSitDown: true, opensAt: 4000 }), {}, at);
+
+      expect(r.say).toBe('It is time for Sintel. Sit down when you are ready.');
+      expect(r.card).toMatchObject({ kind: 'watch', title: 'Sintel', meta: 'Sunday 18 October at 3 pm', sessionId: 's-1', state: 'accepted', canSitDown: true, stream: null });
+    });
+
+    it('opens the seat with the film once sat down, and says who holds the remote', () => {
+      const r = presentResult('join_watch_together', view({ state: 'ready', stream: STREAM }), {}, at);
+
+      expect(r.say).toBe('You are sitting down. The television says you are ready, and the film starts when it is started there.');
+      expect(r.card).toMatchObject({ kind: 'watch', state: 'ready', stream: STREAM, playback: null });
+      expect(r.card.footnote).toBe('Your screen follows the television. You cannot pause or skip: the remote is theirs. No camera, no microphone.');
+    });
+
+    it('carries where the film is while it is on', () => {
+      const playback = { state: 'PLAYING', positionMs: 61_000, ageMs: 1_200 };
+      const r = presentResult('get_watch_together', view({ state: 'watching', stream: STREAM, playback }), {}, at);
+
+      expect(r.say).toBe('Sintel is on. Your screen follows the television.');
+      expect(r.card).toMatchObject({ kind: 'watch', state: 'watching', playback });
+    });
+
+    it('plays only from an address that is https, or this machine', () => {
+      const from = (url: string) => presentResult('get_watch_together', view({ state: 'watching', stream: { ...STREAM, url } }), {}, at).card.stream;
+
+      expect(from('https://films.example/sintel/index.m3u8')).not.toBeNull();
+      expect(from('http://127.0.0.1:3300/dev/programmes/sintel/index.m3u8')).not.toBeNull();
+      expect(from('http://films.example/sintel/index.m3u8')).toBeNull();
+      expect(from('javascript:alert(1)')).toBeNull();
+    });
+
+    it('asks the one question at the end, with only the answers this page knows', () => {
+      const r = presentResult('get_watch_together', view({
+        state: 'watched', stream: STREAM, question: WATCH_QUESTION,
+        answers: [...ANSWERS, { key: 'made_up', text: 'Sell the television.' }, { key: 'loved_it', text: 'Something else.' }],
+      }), {}, at);
+
+      expect(r.say).toBe('Sintel has reached its end. What did you think of it?');
+      expect(r.card.question).toBe(WATCH_QUESTION);
+      expect(r.card.answers).toEqual(ANSWERS);
+    });
+
+    it('says what each of them thought, once it is known', () => {
+      const r = presentResult('get_watch_together', view({ state: 'watched', question: WATCH_QUESTION, yourAnswer: 'I loved it.', theirAnswer: 'It was all right.' }), {}, at);
+
+      expect(r.say).toBe('You watched Sintel together. You said: “I loved it.” The answer on the television was: “It was all right.”');
+      expect(r.card).toBeNull();
+    });
+
+    it('says an answer is on the television', () => {
+      const r = presentResult('answer_watch_together', JSON.stringify({ shown: true, by: 'Sarah', text: 'I loved it.' }), {}, at);
+      expect(r.say).toBe('It is on the television now: “Sarah says: I loved it.”');
+    });
+
+    it('confirms an answer by its sentence, and sitting down as what it is', () => {
+      expect(confirmWrite('answer_watch_together', { sessionId: 's-1', answer: 'loved_it' }).fields[0]).toEqual(['Your answer', 'I loved it.']);
+      expect(confirmWrite('answer_watch_together', { sessionId: 's-1', answer: 'nope' }).fields[0]).toEqual(['Your answer', 'nope']);
+      expect(confirmWrite('join_watch_together', { sessionId: 's-1' }).title).toBe('Sit down to watch now?');
+    });
+
+    it('names each step in plain words', () => {
+      expect(describeCall('invite_to_watch')).toBe('Asked to watch a film together');
+      expect(describeCall('get_watch_together')).toBe('Looked at the film');
+      expect(describeCall('join_watch_together')).toBe('Sat down to watch');
+      expect(describeCall('answer_watch_together')).toBe('Answered on the television');
+    });
+  });
+
+  describe('follow — where this screen should be, given where the television is', () => {
+    it('plays on from where the television was, by as long ago as that was', () => {
+      // Heard 1.2s before the server answered, and the answer is 0.3s old: the film is 1.5s further on.
+      expect(follow({ state: 'PLAYING', positionMs: 60_000, ageMs: 1_200 }, 300, { positionMs: 61_400, paused: false })).toEqual({ play: true, seekToMs: null });
+    });
+
+    it('jumps when it has fallen behind, or the television skipped', () => {
+      expect(follow({ state: 'PLAYING', positionMs: 90_000, ageMs: 500 }, 0, { positionMs: 61_000, paused: false })).toEqual({ play: true, seekToMs: 90_500 });
+      expect(follow({ state: 'PLAYING', positionMs: 30_000, ageMs: 0 }, 0, { positionMs: 61_000, paused: false })).toEqual({ play: true, seekToMs: 30_000 });
+    });
+
+    it('starts playing when the television does', () => {
+      expect(follow({ state: 'PLAYING', positionMs: 60_000, ageMs: 0 }, 0, { positionMs: 60_000, paused: true })).toEqual({ play: true, seekToMs: null });
+    });
+
+    it('pauses where the television paused, to the frame it stopped near', () => {
+      expect(follow({ state: 'PAUSED', positionMs: 75_000, ageMs: 40_000 }, 5_000, { positionMs: 76_200, paused: false })).toEqual({ play: false, seekToMs: 75_000 });
+      expect(follow({ state: 'PAUSED', positionMs: 75_000, ageMs: 0 }, 0, { positionMs: 75_100, paused: true })).toEqual({ play: false, seekToMs: null });
+    });
+
+    it('waits where the television was when it has gone quiet, and does not run on', () => {
+      expect(follow({ state: 'WAITING', positionMs: 120_000, ageMs: 30_000 }, 0, { positionMs: 121_000, paused: false })).toEqual({ play: false, seekToMs: 120_000 });
+    });
+
+    it('stops where it is when the film is stopped, and before anything is known', () => {
+      expect(follow({ state: 'STOPPED', positionMs: 5_000, ageMs: 0 }, 0, { positionMs: 300_000, paused: false })).toEqual({ play: false, seekToMs: null });
+      expect(follow(null, 0, { positionMs: 0, paused: true })).toEqual({ play: false, seekToMs: null });
+    });
+
+    it('never asks for a place past the end of the film', () => {
+      expect(follow({ state: 'PLAYING', positionMs: 887_000, ageMs: 60_000 }, 0, { positionMs: 0, paused: true }, 888_000)).toEqual({ play: true, seekToMs: 888_000 });
+    });
+  });
+
+  describe('watchStatus — one line under the picture', () => {
+    it('says what the television is doing, in words', () => {
+      const line = (state: string, playback: object | null) => watchStatus({ state, playback });
+
+      expect(line('accepted', null)).toBe('Sit down when you are ready.');
+      expect(line('ready', null)).toBe('Waiting for the film to be started on the television.');
+      expect(line('watching', null)).toBe('The film is starting on the television.');
+      expect(line('watching', { state: 'PLAYING' })).toBe('Playing, as on the television.');
+      expect(line('watching', { state: 'PAUSED' })).toBe('Paused on the television.');
+      expect(line('watching', { state: 'WAITING' })).toBe('Waiting for the television.');
+      expect(line('watching', { state: 'STOPPED' })).toBe('The film was stopped on the television.');
+      expect(line('watched', { state: 'PLAYING' })).toBe('The credits are playing.');
+      expect(line('passed', null)).toBe('When it came to it, the answer was: not now.');
+      expect(line('over', null)).toBe('This has finished.');
+    });
+  });
+
+  describe('watchToAnnounce — what is worth saying unasked', () => {
+    const seen = (entries: [string, string][] = []) => new Map(entries);
+
+    it('says when it is time to sit down, once', () => {
+      const raw = view({ state: 'accepted', canSitDown: true });
+
+      expect(watchToAnnounce(raw, seen())).toEqual({ sessionId: 's-1', key: 'time', announce: true });
+      expect(watchToAnnounce(raw, seen([['s-1', 'time']]))).toEqual({ sessionId: 's-1', key: 'time', announce: false });
+    });
+
+    it('says a film already on is on, and that there is a question to answer', () => {
+      expect(watchToAnnounce(view({ state: 'watching' }), seen()).announce).toBe(true);
+      expect(watchToAnnounce(view({ state: 'ready' }), seen()).announce).toBe(true);
+      expect(watchToAnnounce(view({ state: 'watched', answers: [] }), seen()).announce).toBe(true);
+    });
+
+    it('says the answer to an invitation when it comes while the app is open, and not an old one on opening', () => {
+      expect(watchToAnnounce(view({ state: 'accepted', canSitDown: false }), seen([['s-1', 'invited']])).announce).toBe(true);
+      expect(watchToAnnounce(view({ state: 'declined' }), seen([['s-1', 'invited']])).announce).toBe(true);
+      expect(watchToAnnounce(view({ state: 'declined' }), seen()).announce).toBe(false);
+      expect(watchToAnnounce(view({ state: 'accepted', canSitDown: false }), seen()).announce).toBe(false);
+    });
+
+    it('says nothing about an invitation still waiting, one that is over, or an answer that is not a session', () => {
+      expect(watchToAnnounce(view(), seen()).announce).toBe(false);
+      expect(watchToAnnounce(view({ state: 'over' }), seen([['s-1', 'watching']])).announce).toBe(false);
+      expect(watchToAnnounce(view({ state: 'watched', yourAnswer: 'I loved it.' }), seen()).announce).toBe(false);
+      expect(watchToAnnounce("You haven't asked Margaret to watch anything.", seen())).toBeNull();
+    });
   });
 });
 

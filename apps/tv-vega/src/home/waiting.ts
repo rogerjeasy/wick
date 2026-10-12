@@ -22,6 +22,8 @@ export function waitingLine(queued: QueuedCard): string {
     // Not the sentence itself: the home screen can be read by anyone in the room.
     case 'TELL':
       return 'Wick has a question for you.';
+    case 'WATCH':
+      return card.headline;
     default:
       return 'Something is waiting for you.';
   }

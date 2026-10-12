@@ -52,6 +52,10 @@ import { registerExpectVisit } from './tools/expect_visit.js';
 import { createPushStore } from './accounts/push.js';
 import { registerGetDoorRequest } from './tools/get_door_request.js';
 import { registerAnswerDoorRequest } from './tools/answer_door_request.js';
+import { registerInviteToWatch } from './tools/invite_to_watch.js';
+import { registerGetWatchTogether } from './tools/get_watch_together.js';
+import { registerJoinWatchTogether } from './tools/join_watch_together.js';
+import { registerAnswerWatchTogether } from './tools/answer_watch_together.js';
 
 /**
  * A fresh `McpServer` for exactly one session's lifetime.
@@ -89,6 +93,10 @@ function createMcpServer(
   registerExpectVisit(mcpServer, ddb, ctx);
   registerGetDoorRequest(mcpServer, ddb, ctx);
   registerAnswerDoorRequest(mcpServer, ddb, ctx, sendPatch);
+  registerInviteToWatch(mcpServer, ddb, ctx, sendCard);
+  registerGetWatchTogether(mcpServer, ddb, ctx);
+  registerJoinWatchTogether(mcpServer, ddb, ctx, sendCard);
+  registerAnswerWatchTogether(mcpServer, ddb, ctx, sendCard);
   return mcpServer;
 }
 

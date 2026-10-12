@@ -4,11 +4,20 @@
  * questions with no AWS (devServer.ts, and the end-to-end tests).
  *
  * It understands exactly what this server sends — PutItem (with the one
- * condition the door answer uses), GetItem, DeleteItem, and a
+ * condition the door answer uses) and UpdateItem (a `SET` of plain values or
+ * `if_not_exists`, under a condition of `attribute_exists`,
+ * `attribute_not_exists` and comparisons joined by AND, with OR inside
+ * brackets), GetItem, DeleteItem, and a
  * Query on `pk` with a `BETWEEN` or `begins_with` on `sk`, an optional
  * filter of `name = :value` terms joined by AND, `ScanIndexForward` and
  * `Limit` — and throws on anything else, so a new kind of request fails
  * loudly here rather than quietly returning nothing.
+ *
+ * UpdateItem is here for watching together: the television's half of a
+ * session is written by the edge's own conditional updates
+ * (services/edge-device/lambda/watch-together.mjs), and a test or the dev
+ * server that runs those very updates against this table is testing the
+ * conditions themselves.
  */
 import type { AttributeValue, DynamoDBClient } from '@aws-sdk/client-dynamodb';
 
@@ -36,6 +45,63 @@ export interface MemoryTable {
 }
 
 const text = (value: AttributeValue | undefined): string => value?.S ?? '';
+
+type Names = Record<string, string>;
+type Values = Record<string, AttributeValue>;
+
+/** Splits on a separator wherever it is not inside brackets. */
+function splitOutside(expression: string, separator: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let from = 0;
+  for (let i = 0; i < expression.length; i += 1) {
+    if (expression[i] === '(') depth += 1;
+    else if (expression[i] === ')') depth -= 1;
+    else if (depth === 0 && expression.startsWith(separator, i)) {
+      parts.push(expression.slice(from, i));
+      from = i + separator.length;
+    }
+  }
+  return [...parts, expression.slice(from)].map((part) => part.trim());
+}
+
+const compare = (held: AttributeValue | undefined, wanted: AttributeValue | undefined): number | undefined => {
+  if (held?.N !== undefined && wanted?.N !== undefined) return Number(held.N) - Number(wanted.N);
+  if (held?.S !== undefined && wanted?.S !== undefined) return held.S < wanted.S ? -1 : held.S > wanted.S ? 1 : 0;
+  return undefined;
+};
+
+/** Whether a ConditionExpression holds for the row as it is held (undefined: there is no such row). */
+function conditionHolds(expression: string | undefined, held: Item | undefined, names: Names, values: Values): boolean {
+  if (expression === undefined) return true;
+  const term = (raw: string): boolean => {
+    if (raw.startsWith('(') && raw.endsWith(')')) return splitOutside(raw.slice(1, -1), ' OR ').some(term);
+    const exists = /^attribute_(not_)?exists\((#?\w+)\)$/.exec(raw);
+    if (exists) return (held?.[names[exists[2]!] ?? exists[2]!] !== undefined) === (exists[1] === undefined);
+    const compared = /^(#?\w+) (=|<>|<=|>=|<|>) (:\w+)$/.exec(raw);
+    if (!compared) throw new Error(`memoryTable: unsupported condition "${raw}"`);
+    const order = compare(held?.[names[compared[1]!] ?? compared[1]!], values[compared[3]!]);
+    if (order === undefined) return compared[2] === '<>';
+    return { '=': order === 0, '<>': order !== 0, '<=': order <= 0, '>=': order >= 0, '<': order < 0, '>': order > 0 }[compared[2]!]!;
+  };
+  return splitOutside(expression, ' AND ').every(term);
+}
+
+/** The row an UpdateExpression of `SET a = :v, b = if_not_exists(b, :w)` leaves. */
+function applySet(expression: string, held: Item, names: Names, values: Values): Item {
+  if (!expression.startsWith('SET ')) throw new Error(`memoryTable: unsupported update "${expression}"`);
+  const next = { ...held };
+  for (const assignment of splitOutside(expression.slice(4), ',')) {
+    const m = /^(#?\w+) = (?:(:\w+)|if_not_exists\((#?\w+), (:\w+)\))$/.exec(assignment);
+    if (!m) throw new Error(`memoryTable: unsupported update "${assignment}"`);
+    const name = names[m[1]!] ?? m[1]!;
+    if (m[2]) next[name] = values[m[2]]!;
+    else if (held[names[m[3]!] ?? m[3]!] === undefined) next[name] = values[m[4]!]!;
+  }
+  return next;
+}
+
+const conditionFailed = (): Error => Object.assign(new Error('The conditional request failed'), { name: 'ConditionalCheckFailedException' });
 
 export function createMemoryTable(): MemoryTable {
   const items = new Map<string, Item>();
@@ -77,14 +143,19 @@ export function createMemoryTable(): MemoryTable {
       case 'PutItemCommand': {
         const held = items.get(keyOf(input.Item!));
         const condition = (input as { ConditionExpression?: string }).ConditionExpression;
-        const holds =
-          condition === undefined ? true
-          : condition === 'attribute_exists(pk) AND attribute_not_exists(answeredAt)' ? held !== undefined && held.answeredAt === undefined
-          : undefined;
-        if (holds === undefined) throw new Error(`memoryTable: unsupported condition "${condition}"`);
-        if (!holds) throw Object.assign(new Error('The conditional request failed'), { name: 'ConditionalCheckFailedException' });
+        if (!conditionHolds(condition, held, input.ExpressionAttributeNames ?? {}, input.ExpressionAttributeValues ?? {})) throw conditionFailed();
         items.set(keyOf(input.Item!), input.Item!);
         return {};
+      }
+      case 'UpdateItemCommand': {
+        const update = input as Request['input'] & { UpdateExpression: string; ConditionExpression?: string; ReturnValues?: string };
+        const names = update.ExpressionAttributeNames ?? {};
+        const values = update.ExpressionAttributeValues ?? {};
+        const held = items.get(keyOf(update.Key!));
+        if (!conditionHolds(update.ConditionExpression, held, names, values)) throw conditionFailed();
+        const next = applySet(update.UpdateExpression, held ?? update.Key!, names, values);
+        items.set(keyOf(next), next);
+        return update.ReturnValues === 'ALL_NEW' ? { Attributes: next } : {};
       }
       case 'GetItemCommand':
         return { Item: items.get(keyOf(input.Key!)) };
@@ -107,7 +178,8 @@ export function createMemoryTable(): MemoryTable {
             case 'version = :seen': return held?.version?.N === values[':seen']?.N;
             case '#d = :seen': return held?.data?.S === values[':seen']?.S;
             case 'attribute_not_exists(pk) OR #s <> :allowed': return held === undefined || held.status?.S !== values[':allowed']?.S;
-            default: throw new Error(`memoryTable: unsupported condition "${op.ConditionExpression}"`);
+            // Anything else is read as an UpdateItem's condition is; what that cannot read still throws.
+            default: return conditionHolds(op.ConditionExpression, held, {}, values);
           }
         };
         if (!writes.every((w) => holds((w.Put ?? w.Delete ?? w.Update ?? w.ConditionCheck)!))) {

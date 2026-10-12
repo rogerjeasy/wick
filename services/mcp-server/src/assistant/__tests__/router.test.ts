@@ -58,7 +58,8 @@ describe('POST /assistant/next — one step of the stand-in assistant', () => {
     expect(await res.json()).toEqual({ done: false, calls: [{ id: 'c1', name: 'get_week_narrative', args: {} }] });
     const request = converse.mock.calls[0]![0];
     expect(request.tools.map((t) => t.name).sort()).toEqual([
-      'add_regular_visitor', 'answer_door_request', 'did_visitor_come', 'expect_visit', 'get_door_request', 'get_replies', 'get_resident_shared_view', 'get_today', 'get_week_narrative', 'get_whats_different', 'list_regular_visitors', 'send_note_to_tv',
+      'add_regular_visitor', 'answer_door_request', 'answer_watch_together', 'did_visitor_come', 'expect_visit', 'get_door_request', 'get_replies', 'get_resident_shared_view', 'get_today',
+      'get_watch_together', 'get_week_narrative', 'get_whats_different', 'invite_to_watch', 'join_watch_together', 'list_regular_visitors', 'send_note_to_tv',
     ]);
     expect(request.tools.every((t) => t.description.length > 0 && typeof t.inputSchema === 'object')).toBe(true);
     expect(request.system).toContain('Margaret');

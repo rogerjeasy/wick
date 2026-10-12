@@ -1,0 +1,52 @@
+/**
+ * MCP tool: get_watch_together — "Did Mum say yes to the film?", and, while
+ * it is on, where the film is.
+ *
+ * Reads the newest session the family member who is signed in made, or the
+ * one they name: whether the resident has answered, whether it is time to
+ * sit down, and — between her press on "Start the film" and the end of the
+ * session — where her film is, for a player that follows it. The family app
+ * asks every couple of seconds while a seat is taken; an assistant asks once.
+ *
+ * The session is kept on the server and nowhere else, so a question asked
+ * on Tuesday is answered from what was arranged on Monday.
+ *
+ * Shown to the person who made the session and to nobody else
+ * (watchSession.ts mySession): another member of the circle is told there
+ * is nothing, because for them there is not.
+ *
+ * One read and no model call, inside Alexa+'s 500ms budget (§9.3).
+ */
+import { z } from 'zod';
+import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { gated, type ToolContext } from './context.js';
+import { withFriendlyErrors } from './errors.js';
+import { READS, data, say } from './result.js';
+import { NOTHING_ASKED, describeWatch, mySession, mySessions } from './watchSession.js';
+
+export function registerGetWatchTogether(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext, now: () => number = Date.now): void {
+  mcpServer.registerTool(
+    'get_watch_together',
+    {
+      title: 'Watching a film together',
+      description:
+        'Returns the film the family member who is signed in has asked to watch with the resident (the newest, or the one named by `sessionId`), and its `state`: ' +
+        '"invited" (on the television, not yet answered), "declined", "accepted" (with `canSitDown`: whether it is time yet), ' +
+        '"ready" (they have sat down and the television is waiting for the resident to start the film), "passed" (the resident chose not to, when it came to it), ' +
+        '"watching" (with `playback`: where the resident’s film is, for a player that follows it), ' +
+        '"watched" (the film reached its end: the one `question`, the `answers` that can be given, `yourAnswer` and `theirAnswer` once given) or "over" (the time passed). ' +
+        'Sit down with join_watch_together and answer with answer_watch_together, passing this `sessionId`.',
+      inputSchema: {
+        sessionId: z.string().min(1).max(64).optional().describe('The `sessionId` of one session. Without it, the newest.'),
+      },
+      annotations: READS,
+    },
+    withFriendlyErrors(gated(ctx, async (allowed, { sessionId }: { sessionId?: string | undefined }) => {
+      const session = sessionId === undefined
+        ? (await mySessions(ddb, ctx.householdId, ctx.userId))[0]
+        : await mySession(ddb, ctx.householdId, ctx.userId, sessionId);
+      return session ? data(describeWatch(session, now())) : say(NOTHING_ASKED(allowed.household.residentName));
+    })),
+  );
+}
