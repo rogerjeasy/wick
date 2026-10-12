@@ -28,7 +28,7 @@ import { PairingScreen } from './pairing/PairingScreen.js';
 import { QueueStore } from './headless/QueueStore.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
 import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
-import { CATALOG, type Programme } from './catalog/catalog.js';
+import { CATALOG, calmPointsOf, type Programme } from './catalog/catalog.js';
 import { HomeScreen } from './home/HomeScreen.js';
 import { waitingLine } from './home/waiting.js';
 import { WatchScreen } from './watch/WatchScreen.js';
@@ -69,7 +69,7 @@ export default function App(): React.JSX.Element {
     [config],
   );
   const store = React.useMemo(() => new QueueStore(KeplerFileSystem), []);
-  const breakController = React.useMemo(() => new BreakController(), []);
+  const breakController = React.useMemo(() => new BreakController({ calmPointsOf }), []);
 
   const [screen, setScreen] = React.useState<Screen | null>(null);
   const [card, setCard] = React.useState<QueuedCard | null>(null);
@@ -259,6 +259,7 @@ export default function App(): React.JSX.Element {
           onSnapshot={handleSnapshot}
           onPlaybackEvent={handlePlaybackEvent}
           cardVisible={card !== null}
+          held={breakController.holdsProgramme(card ?? undefined)}
           suspended={liveFor !== null}
           onExit={handleExitWatching}
         />

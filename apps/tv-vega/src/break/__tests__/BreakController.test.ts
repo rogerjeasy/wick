@@ -217,3 +217,50 @@ describe('BreakController — a showing, and the two a card gets', () => {
   });
 });
 
+describe('BreakController — calm points', () => {
+  const snapshot = (positionMs: number, state: 'PLAYING' | 'PAUSED' = 'PLAYING') =>
+    ({ state, positionMs, durationMs: 900_000, creditsPositionMs: 750_000, contentId: 'sintel' }) as const;
+  const controller = () => {
+    const bc = new BreakController({ calmPointsOf: (contentId) => (contentId === 'sintel' ? [180_000] : undefined) });
+    bc.setForeground(true, NOW);
+    return bc;
+  };
+
+  it('releases a held note at the programme’s next calm point, not before', () => {
+    const bc = controller();
+
+    bc.setPlayback(snapshot(120_000), NOW + 1_000);
+    expect(bc.pickCard([messageQueued()], NOW + 1_000)).toBeUndefined();
+
+    bc.setPlayback(snapshot(180_400), NOW + 61_000);
+    expect(bc.pickCard([messageQueued()], NOW + 61_000)).toMatchObject({ id: 'm1' });
+  });
+
+  it('says the film should wait for that note, and not for the door', () => {
+    const bc = controller();
+    bc.setPlayback(snapshot(180_400), NOW + 61_000);
+
+    expect(bc.holdsProgramme(messageQueued())).toBe(true);
+    expect(bc.holdsProgramme(doorQueued())).toBe(false);
+    expect(bc.holdsProgramme(undefined)).toBe(false);
+  });
+
+  it('keeps the note on screen while the film is held on the calm point', () => {
+    const bc = controller();
+    bc.setPlayback(snapshot(180_400), NOW + 61_000);
+    bc.setPlayback(snapshot(180_400, 'PAUSED'), NOW + 61_500);
+
+    expect(bc.pickCard([messageQueued()], NOW + 61_600)).toMatchObject({ id: 'm1' });
+  });
+
+  it('knows no calm points for a programme that has none, and none at all unless it is told where to look', () => {
+    const other = controller();
+    other.setPlayback({ ...snapshot(180_400), contentId: 'something-else' }, NOW + 61_000);
+    const plain = new BreakController();
+    plain.setForeground(true, NOW);
+    plain.setPlayback(snapshot(180_400), NOW + 61_000);
+
+    expect(other.pickCard([messageQueued()], NOW + 61_000)).toBeUndefined();
+    expect(plain.pickCard([messageQueued()], NOW + 61_000)).toBeUndefined();
+  });
+});

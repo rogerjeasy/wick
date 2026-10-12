@@ -15,12 +15,19 @@
  */
 import { DOOR_CARD_TTL_MS, MAX_CARD_SHOWS, type QueuedCard } from '@wick/contracts';
 import {
+  CALM_POINT_WINDOW_MS,
   NEAR_BREAK_WINDOW_MS,
   PAUSE_IS_BREAK_MS,
   SETTLED_AFTER_MS,
   type BreakState,
   type EngineInput,
+  type PlaybackSnapshot,
 } from './types.js';
+
+/** Inside the few seconds after one of the programme's calm points. */
+function atCalmPoint(pb: PlaybackSnapshot): boolean {
+  return pb.calmPointsMs?.some((at) => pb.positionMs >= at && pb.positionMs < at + CALM_POINT_WINDOW_MS) ?? false;
+}
 
 export function classify(input: EngineInput): BreakState {
   if (!input.appForeground) return 'IDLE';
@@ -29,6 +36,11 @@ export function classify(input: EngineInput): BreakState {
   if (!pb || pb.state === 'STOPPED') {
     return (input.foregroundForMs ?? 0) >= SETTLED_AFTER_MS ? 'TV_SETTLED' : 'IDLE';
   }
+
+  // A calm point is a break whether the programme is running through it or
+  // held on it: a card shown there stops the film (holdsProgramme), and must
+  // not vanish again because the film has just stopped.
+  if (atCalmPoint(pb)) return 'AT_BREAK';
 
   if (pb.state === 'PAUSED') {
     return (input.pausedForMs ?? 0) > PAUSE_IS_BREAK_MS ? 'AT_BREAK' : 'IN_SCENE';
@@ -45,6 +57,24 @@ export function classify(input: EngineInput): BreakState {
   // No credits marker: fall back to the end of the asset.
   if (pb.durationMs > 0 && pb.positionMs >= pb.durationMs) return 'AT_BREAK';
   return 'IN_SCENE';
+}
+
+/**
+ * Whether the programme should wait while this card is on screen.
+ *
+ * At the credits a note costs nothing: the story is over, and the film runs
+ * on under it. In the middle of a programme — a calm point, or a pause the
+ * resident made — reading a note while the story goes on is exactly the
+ * interruption Wick exists to avoid. So the film is held on the cut and
+ * goes on when the card has gone (watch/WatchScreen.tsx).
+ *
+ * Never for the door. Someone at the door does not stop the programme
+ * (Principle 5): that card is drawn over it, and says so.
+ */
+export function holdsProgramme(card: QueuedCard | undefined, playback: PlaybackSnapshot | undefined): boolean {
+  if (!card || card.urgency === 'DOOR') return false;
+  if (!playback || playback.state === 'STOPPED') return false;
+  return playback.positionMs < (playback.creditsPositionMs ?? playback.durationMs);
 }
 
 /** The only states in which a DEFERRED card may be shown. */
