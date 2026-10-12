@@ -43,6 +43,12 @@
  *     The films themselves are fetched through /dev/programmes, which adds
  *     the cross-origin header a browser's HLS player needs.
  *
+ *   - The light in the window: GET /dev/light lights it, as a television in
+ *     use today does (the stamp the edge writes when someone is at it);
+ *     /dev/light?put=out is the resident putting it out for the day, and
+ *     /dev/light?put=again lighting it again. Who looked in is printed
+ *     here as the television's home screen would be told it.
+ *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
  * answers; without it there is none, and the app answers by its rules.
@@ -54,7 +60,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { UpdateItemCommand } from '@aws-sdk/client-dynamodb';
-import { DOOR_CARD_TTL_MS, DOOR_LOOK_SK_PREFIX, PROGRAMMES_ORIGIN, WATCH_HEARTBEAT_MS, WATCH_SK_PREFIX, programmeById, type PlaybackStateName, type QueuedCard } from '@wick/contracts';
+import { DOOR_CARD_TTL_MS, DOOR_LOOK_SK_PREFIX, LIGHT_SK, PROGRAMMES_ORIGIN, WATCH_HEARTBEAT_MS, WATCH_SK_PREFIX, programmeById, type PlaybackStateName, type QueuedCard } from '@wick/contracts';
 import { createApp } from '../server.js';
 import { createMemoryStore } from '../accounts/__tests__/memoryStore.js';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
@@ -190,6 +196,8 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
     table.put({ ...key, data: { S: JSON.stringify({ ...queued, card: { ...queued.card, ...patch, cardId: undefined } }) } });
     console.log(`television: door card ${patch.cardId} now says "${patch.notice ?? ''}"`);
   },
+  // As egress.ts tells the home screen: who looked in.
+  sendHome: async (householdId, home) => void console.log(`television home screen (${householdId}):`, JSON.stringify(home)),
   // A real table's worth of answers: the demo home's history is written here and read back by the tools.
   ddb: table.ddb,
   demoAccounts: true,
@@ -310,6 +318,23 @@ app.get('/dev/tell', async (req, res) => {
     }
   }
   res.json({ answered });
+});
+
+/**
+ * The light in the window: the television being in use today, and the
+ * resident's press on the Light card — the rows the edge would have written
+ * (edge-device television-active.mjs, light.mjs).
+ */
+app.get('/dev/light', (req, res) => {
+  const put = typeof req.query.put === 'string' ? req.query.put : 'lit';
+  const now = { N: String(Date.now()) };
+  for (const householdId of homesWithATelevision) {
+    const pk = { S: `HH#${householdId}` };
+    if (put === 'out') table.put({ pk, sk: { S: LIGHT_SK }, outAt: now });
+    else if (put === 'again') table.put({ pk, sk: { S: LIGHT_SK } });
+    else table.put({ pk, sk: { S: 'DEV#wick-tv' }, activeSignalAt: now });
+  }
+  res.json({ light: put, homes: [...homesWithATelevision] });
 });
 
 /**

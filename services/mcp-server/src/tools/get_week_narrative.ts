@@ -165,6 +165,6 @@ export function registerGetWeekNarrative(
       const family = familyWeek(result.narrative, await loadHouseholdPolicy(ddb, ctx.householdId), HOUSEHOLD_TZ);
       if (family.status === 'private') return say(FAMILY_REFUSAL_TEXT);
       return data({ ...family.narrative, ...(result.thisWeek ? { thisWeek: result.thisWeek } : {}) });
-    })),
+    }, { looksIn: true })),
   );
 }

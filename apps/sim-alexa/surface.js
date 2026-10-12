@@ -77,6 +77,7 @@ export const SUGGESTIONS = [
   { label: 'What happened today?', utterance: 'What happened today?' },
   { label: 'Did Maria come today?', utterance: 'Did Maria come today?' },
   { label: 'Is anything different?', utterance: 'Is anything different?' },
+  { label: 'Is the light on?', utterance: "Is the light on at Mum's?" },
   { label: 'Send a note to her television', utterance: "Put a note on Mum's television" },
   { label: 'Has Mum replied?', utterance: 'Has Mum replied?' },
   { label: 'Did Mum ask me to look?', utterance: 'Has Mum asked me to look at the door?' },
@@ -156,6 +157,9 @@ export function routeUtterance(text, now = Date.now()) {
     const asksFor = /\b(ask|invite|like to|want to|can we|could we|shall we|let(?:'|’)?s)\b/.test(t) && !/\b(did|has|have|say|said|time)\b/.test(t);
     return asksFor ? { kind: 'invite' } : tool('get_watch_together');
   }
+
+  // The light in the window. After "tell Mum …": a note that mentions a light is still a note.
+  if (/\blight\b/.test(t) && !NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said))) return tool('get_light');
 
   // Replies first: "has Mum replied to my note" mentions a note, and is not one.
   if (/\brepl(y|ied|ies)\b|\banswered\b|written back/.test(t)) return tool('get_replies');
@@ -458,6 +462,40 @@ function presentDifferent(answer, formatTime) {
       footnote: answer.weeksObserved ? `Against the last ${answer.weeksObserved} weeks in this house, and nothing else.` : '',
     },
   };
+}
+
+/**
+ * The light in the window (get_light): one thing about today. The server
+ * writes the sentence, and it is said as it stands — a window that is not
+ * lit is never given a reason here that the server did not give.
+ */
+function presentLight(answer) {
+  const lit = answer.lit === true;
+  return {
+    say: typeof answer.summary === 'string' ? answer.summary : lit ? 'The light is on.' : 'The light is not on.',
+    tone: 'answer',
+    card: {
+      kind: 'light',
+      lit,
+      title: lit ? 'The light is on' : 'The light is not on',
+      // Looking is not hidden from the person looked at, and the person looking is told so.
+      note: typeof answer.seen === 'string' ? answer.seen : '',
+      footnote: 'One thing about today, and nothing else: no time, and nothing about what is on.',
+    },
+  };
+}
+
+/**
+ * What the corner of the page shows of the light, from a get_light answer:
+ * lit or not — or null when there is no light to see (not allowed yet, or
+ * kept private), in which case the corner shows nothing at all.
+ *
+ * @param {string} raw  the tool result's text
+ * @returns {{lit: boolean} | null}
+ */
+export function lightToShow(raw) {
+  const answer = parseJson(raw);
+  return answer && typeof answer.lit === 'boolean' ? { lit: answer.lit } : null;
 }
 
 /**
@@ -859,6 +897,7 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (toolName === 'did_visitor_come' && typeof parsed.visited === 'boolean') return presentVisitor(parsed, formatTime, now);
   if (toolName === 'list_regular_visitors' && Array.isArray(parsed.visitors)) return presentVisitors(parsed, formatTime);
   if (toolName === 'get_whats_different' && Array.isArray(parsed.differences)) return presentDifferent(parsed, formatTime);
+  if (toolName === 'get_light' && typeof parsed.lit === 'boolean') return presentLight(parsed);
   if (toolName === 'expect_visit' && parsed.expected === true) return presentExpectedVisit(parsed, formatTime);
   if (toolName === 'add_regular_visitor' && parsed.added === true) return presentRegularVisitor(parsed);
   if (toolName === 'send_note_to_tv' && parsed.sent === true) return presentNoteSent(context, parsed);
@@ -930,6 +969,7 @@ export function describeCall(toolName, args = {}) {
     case 'get_today': return `Looked at ${dayAsked(args)}`;
     case 'list_regular_visitors': return 'Checked who visits';
     case 'get_whats_different': return 'Looked for anything to tell you';
+    case 'get_light': return 'Looked at the light';
     case 'did_visitor_come': return `Checked ${dayAsked(args)}’s visits`;
     case 'get_replies': return 'Looked for a reply';
     case 'get_resident_shared_view': return 'Checked what is shared';

@@ -16,6 +16,12 @@ export interface ToolContext {
   readonly householdId: string;
   readonly userId: string;
   access(): Promise<Access>;
+  /**
+   * Notes that this person asked after the resident, so the resident's own
+   * home screen can say who looked in (tools/lookIn.ts). Absent, nothing is
+   * noted.
+   */
+  lookedIn?(allowed: Extract<Access, { ok: true }>): Promise<void>;
 }
 
 export type Allowed = Extract<Access, { ok: true }>;
@@ -31,10 +37,21 @@ type Refusal = { content: [{ type: 'text'; text: string }] };
 export function gated<Args extends unknown[], R>(
   ctx: ToolContext,
   handler: (allowed: Allowed, ...args: Args) => Promise<R>,
+  /**
+   * `looksIn`: this tool asks after the resident — how the day or the week
+   * has been, whether the light is on — and asking is something the
+   * resident is told (the light in the window, packages/contracts light.ts).
+   * Not for a tool the app calls by itself to keep a card up to date.
+   */
+  options: { readonly looksIn?: boolean } = {},
 ): (...args: Args) => Promise<R | Refusal> {
   return async (...args: Args) => {
     const access = await ctx.access();
     if (!access.ok) return { content: [{ type: 'text' as const, text: access.say }] };
+    if (options.looksIn && ctx.lookedIn) {
+      // Never the reason an answer fails: the question is answered whether or not the look was noted.
+      await ctx.lookedIn(access).catch((err: unknown) => console.error(JSON.stringify({ level: 'error', msg: 'look_not_noted', err: err instanceof Error ? err.name : 'unknown' })));
+    }
     return handler(access, ...args);
   };
 }

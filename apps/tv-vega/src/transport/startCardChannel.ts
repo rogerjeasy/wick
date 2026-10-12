@@ -43,6 +43,8 @@ export function startCardChannel(store: QueueStore, channel: DeviceChannel): Run
   const unsubscribeControl = channel.onControl((msg: ControlMessage) => {
     if (msg.t === 'patch') void store.applyPatch(msg.patch);
     else if (msg.t === 'revoke') void store.remove(msg.cardId);
+    // Her light, and who looked in: for the home screen, not a card.
+    else if (msg.t === 'home') store.setHome(msg.home, { whole: msg.whole === true });
   });
 
   let flushing = false;

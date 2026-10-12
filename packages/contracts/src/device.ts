@@ -6,6 +6,7 @@
  * it and swap the implementation. See docs/WICK-TECHNICAL.md §4.1.
  */
 import type { QueuedCard, CardPatch } from './card.js';
+import type { HomeState } from './light.js';
 
 export type PlaybackStateName = 'PLAYING' | 'PAUSED' | 'STOPPED' | 'BUFFERING';
 
@@ -51,7 +52,12 @@ export type DeviceEvent =
       readonly positionMs: number;
       readonly contentId: string;
       readonly at: number;
-    };
+    }
+  /**
+   * The light in the window (light.ts): the resident asked, from the home
+   * screen, to see their own light. The answer is the Light card.
+   */
+  | { readonly t: 'light'; readonly at: number };
 
 export type ControlMessage =
   | { readonly t: 'patch'; readonly patch: CardPatch }
@@ -65,7 +71,14 @@ export type ControlMessage =
        * the home while this one was off (edge device-event.mjs reconcile).
        */
       readonly holding?: readonly string[];
-    };
+    }
+  /**
+   * What the home screen says beside its cards (light.ts): the resident's
+   * light, and who looked in. Each part given replaces what was known of
+   * it; with `whole`, what is not given is no longer so (the edge, each
+   * time the television connects).
+   */
+  | { readonly t: 'home'; readonly home: HomeState; readonly whole?: boolean };
 
 export type ChannelState = 'connecting' | 'open' | 'backoff' | 'closed';
 export type Unsubscribe = () => void;

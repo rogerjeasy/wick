@@ -93,6 +93,18 @@ describe('startCardChannel — the card channel, runnable in whichever process r
     running.stop();
   });
 
+  it('keeps what the server says for the home screen: her light, and who looked in', async () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const running = startCardChannel(store, channel);
+
+    channel.pushControl({ t: 'home', home: { light: 'on' } });
+    channel.pushControl({ t: 'home', home: { lookedIn: { name: 'Sarah', at: 7, line: 'Sarah looked in this morning.' } } });
+
+    expect(store.readHome()).toEqual({ light: 'on', lookedIn: { name: 'Sarah', at: 7, line: 'Sarah looked in this morning.' } });
+    running.stop();
+  });
+
   it('flushes outbound events the UI queued, on its poll interval', async () => {
     vi.useFakeTimers();
     const store = new QueueStore(brokenFs());

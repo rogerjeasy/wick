@@ -132,7 +132,19 @@ export interface WatchCard extends CardBase {
   readonly followedUntil?: number;
 }
 
-export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard;
+/**
+ * The light in the window (light.ts), as the resident sees their own: who
+ * can see it, who looked in today, and the one button that puts it out or
+ * lights it again. Asked for from the home screen; the server writes every
+ * word (edge-device light.mjs). Its id is always `light`.
+ */
+export interface LightCard extends CardBase {
+  readonly type: 'LIGHT';
+  readonly headline: string;
+  readonly detail: string;
+}
+
+export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard | LightCard;
 
 export interface QueuedCard {
   readonly id: string;

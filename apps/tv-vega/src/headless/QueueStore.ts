@@ -20,7 +20,7 @@
  *     its source of truth whenever disk works, re-read on every drain; only
  *     events the disk refuses fall back to this instance's memory.
  */
-import { MAX_CARD_ACTIONS, type CardPatch, type DeviceEvent, type QueuedCard } from '@wick/contracts';
+import { MAX_CARD_ACTIONS, type CardPatch, type DeviceEvent, type HomeState, type QueuedCard } from '@wick/contracts';
 
 export interface FileSystemLike {
   readFileAsString(path: string, encoding: string): Promise<string>;
@@ -52,6 +52,12 @@ export class QueueStore {
   /** Events the disk refused. Always empty on a device whose disk works. */
   #memoryOutbox: readonly DeviceEvent[] = [];
   #diskFailureLogged = false;
+  /**
+   * What the home screen says beside its cards (contracts light.ts). Kept
+   * in memory only: the server says it afresh each time the television
+   * connects, and yesterday's "Sarah looked in" is not worth a disk.
+   */
+  #home: HomeState = {};
 
   constructor(
     fs: FileSystemLike,
@@ -63,6 +69,15 @@ export class QueueStore {
     this.#queuePath = queuePath;
     this.#outboxPath = outboxPath;
     this.#highWaterMarkPath = highWaterMarkPath;
+  }
+
+  readHome(): HomeState {
+    return this.#home;
+  }
+
+  /** Each part given replaces what was known of it; with `whole`, what is not given is no longer so. */
+  setHome(home: HomeState, options: { readonly whole?: boolean } = {}): void {
+    this.#home = options.whole ? { ...home } : { ...this.#home, ...home };
   }
 
   async readAll(): Promise<readonly QueuedCard[]> {

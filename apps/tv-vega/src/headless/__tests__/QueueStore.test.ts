@@ -87,6 +87,19 @@ describe('QueueStore', () => {
     expect(q!.card.actions).toHaveLength(3);
   });
 
+  it('keeps what the home screen is told beside its cards, each part replacing what was known of it', async () => {
+    const store = new QueueStore(fakeFs());
+    expect(store.readHome()).toEqual({});
+
+    store.setHome({ light: 'on' });
+    store.setHome({ lookedIn: { name: 'Sarah', at: 5, line: 'Sarah looked in this morning.' } });
+    expect(store.readHome()).toEqual({ light: 'on', lookedIn: { name: 'Sarah', at: 5, line: 'Sarah looked in this morning.' } });
+
+    // The whole of it, as the server sends when the television connects: what is not said is not so.
+    store.setHome({ light: 'out' }, { whole: true });
+    expect(store.readHome()).toEqual({ light: 'out' });
+  });
+
   it('removes a card by id', async () => {
     const store = new QueueStore(fakeFs());
     await store.upsert(doorCard('c1'));

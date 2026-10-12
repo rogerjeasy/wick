@@ -24,6 +24,9 @@ export function waitingLine(queued: QueuedCard): string {
       return 'Wick has a question for you.';
     case 'WATCH':
       return card.headline;
+    // Never waits (home/light.ts unaskedLightCards); here only so every card has its line.
+    case 'LIGHT':
+      return card.headline;
     default:
       return 'Something is waiting for you.';
   }
