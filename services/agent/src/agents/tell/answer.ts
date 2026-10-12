@@ -24,6 +24,13 @@ export interface AnswerDeps {
   readonly listFamily: (householdId: string) => Promise<readonly FamilyMember[]>;
   /** Tells those people's own browsers there is something to open Wick for. It carries nothing about the house. */
   readonly nudge: (userIds: readonly string[]) => Promise<void>;
+  /**
+   * Takes the card off every television in the home (egress.ts
+   * withdrawFromDevices). The one that was pressed has already put it away;
+   * a second one in another room would otherwise go on asking a question
+   * that has been answered.
+   */
+  readonly withdraw: (householdId: string, cardId: string) => Promise<void>;
   readonly now: () => number;
 }
 
@@ -34,6 +41,14 @@ export async function handleTellAnswer(raw: Record<string, unknown>, deps: Answe
   if (!detail || !differenceId || !answer) return 'ignored';
 
   if (!(await deps.recordAnswer(detail.householdId, differenceId, answer, deps.now()))) return 'not_open';
+
+  // The answer is on record whatever happens next. A card that could not be
+  // withdrawn only means a late press somewhere, which changes nothing.
+  try {
+    await deps.withdraw(detail.householdId, detail.cardId);
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', msg: 'tell_card_not_withdrawn', err: err instanceof Error ? err.name : 'unknown' }));
+  }
   if (answer === 'keep') return 'kept';
 
   // After the answer is on record, and never in the way of it: what was

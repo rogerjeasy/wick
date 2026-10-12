@@ -365,6 +365,19 @@ export async function sendPatchToDevice(patch: CardPatch, householdId: string): 
   await pushToDevices(householdId, { kind: 'control', control: { t: 'patch', patch } });
 }
 
+/**
+ * Takes a card off every television in the home that is showing it — the
+ * `revoke` both televisions already understand. For a card answered on one
+ * screen while another still has it up ("Shall I tell Sarah?" in two rooms).
+ *
+ * Only the live push. The stored card is retired by the press itself (the
+ * edge's card-acted.mjs), so a television that connects later is not handed
+ * it again.
+ */
+export async function withdrawFromDevices(cardId: string, householdId: string): Promise<void> {
+  await pushToDevices(householdId, { kind: 'control', control: { t: 'revoke', cardId } });
+}
+
 // ---------------------------------------------------------------------------
 // The family's own browsers (Web Push).
 // ---------------------------------------------------------------------------

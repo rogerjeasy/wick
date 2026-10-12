@@ -21,7 +21,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { randomUUID } from 'node:crypto';
 import { DOOR_ACTIONS, PUSH_KINDS, tellAnswerOf } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
-import { nudgeFamily, sendPatchToDevice, sendToDevice } from '../../egress.js';
+import { nudgeFamily, sendPatchToDevice, sendToDevice, withdrawFromDevices } from '../../egress.js';
 import { loadShareableDifferences } from '../../rhythm/loadDifferent.js';
 import { tellStore, type TellSend } from '../../store/tells.js';
 import { handleTellAnswer, type TellAnswerResult } from '../tell/answer.js';
@@ -91,6 +91,7 @@ function tellAnswer(detail: Record<string, unknown>): Promise<TellAnswerResult> 
     recordAnswer: tells().recordAnswer,
     listFamily: looks().listFamily,
     nudge: async (userIds) => void (await nudgeFamily(userIds, PUSH_KINDS.told)),
+    withdraw: (householdId, cardId) => withdrawFromDevices(cardId, householdId),
     now: Date.now,
   });
 }
