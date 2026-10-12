@@ -17,6 +17,7 @@ import express, { type Request, type RequestHandler, type Response } from 'expre
 import { CircleError, createInvitation, describeCircle, removeMember, requireOrganiser, type CircleDeps, type CircleErrorCode } from './circle.js';
 import { isGuest } from './demo.js';
 import { grantOf } from './oauthProvider.js';
+import { parseSubscription, type PushStore } from './push.js';
 
 const CIRCLE_ERRORS: Readonly<Record<CircleErrorCode, { status: number; message: string }>> = {
   name_required: { status: 400, message: 'A name is needed.' },
@@ -117,13 +118,15 @@ export interface ApiOptions {
   readonly ringLinks?: RingLinks | undefined;
   /** A television in a browser tab, offered to anyone with no Fire TV to hand. */
   readonly virtualTelevisionUrl?: string | undefined;
+  /** The browsers that asked to be told (accounts/push.ts). Absent: nothing is offered. */
+  readonly push?: PushStore | undefined;
   /** The households' IANA time zone (one for the deployment, as the Narrator's). */
   readonly timeZone?: string | undefined;
 }
 
 export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHandler, options: ApiOptions = {}): express.Router {
   const { store } = circle;
-  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone } = options;
+  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone, push } = options;
   const router = express.Router();
   // Any origin: nothing here uses a cookie, and a token is only ever sent by
   // the page that holds it.
@@ -256,6 +259,29 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
       }
       res.json(ringLinkView(answer));
     });
+
+  // Being told when the family app is closed (Web Push). A browser is kept
+  // under the person the token is for; nothing here names a household.
+  const NO_PUSH = { error: 'push_unavailable', message: 'This Wick cannot send notifications yet.' };
+
+  router.get('/api/push', withGrant(async (_grant, _req, res) => {
+    const publicKey = await push?.publicKey();
+    res.json(publicKey ? { available: true, publicKey } : { available: false });
+  }));
+
+  router.post('/api/push', withGrant(async (grant, req, res) => {
+    if (!push || !(await push.publicKey())) return void res.status(503).json(NO_PUSH);
+    const subscription = parseSubscription(req.body);
+    if (!subscription) return void res.status(400).json({ error: 'invalid_subscription', message: 'That is not something a browser can be told through.' });
+    await push.save(grant.userId, subscription, Date.now());
+    res.status(204).end();
+  }));
+
+  router.delete('/api/push', withGrant(async (grant, req, res) => {
+    const endpoint = (req.body as { endpoint?: unknown } | undefined)?.endpoint;
+    if (push && typeof endpoint === 'string' && endpoint.length <= 2048) await push.remove(grant.userId, endpoint);
+    res.status(204).end();
+  }));
 
   router.get('/api/ring', ringAction((links, grant) => links.status(grant.householdId)));
 

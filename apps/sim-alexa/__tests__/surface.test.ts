@@ -17,10 +17,16 @@ import {
   suggestionsFor,
   REPLY_CHOICES,
   SUGGESTIONS,
+  DOOR_ANSWERS,
+  doorQuestionToAnnounce,
+  applicationServerKey,
+  presentNotifications,
+  madeWithKey,
 } from '../surface.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { REPLY_CHOICES as SERVER_REPLY_CHOICES } from '../../../services/mcp-server/src/tools/send_note_to_tv.js';
+import { DOOR_ANSWERS as CONTRACT_DOOR_ANSWERS } from '../../../packages/contracts/src/door.js';
 
 const at = (ms: number) => `t${ms}`;
 
@@ -858,10 +864,218 @@ describe('suggestionsFor', () => {
   it('then the app\'s own chips, without the ones that ask the same thing', () => {
     const labels = suggestionsFor(listing).slice(3).map((s: { label: string }) => s.label);
 
-    expect(labels).toEqual(['What happened today?', 'Send a note to her television', 'Has Mum replied?', 'What can I see?', 'Family circle']);
+    expect(labels).toEqual(['What happened today?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'What can I see?', 'Family circle']);
   });
 
   it('is the app\'s own chips when there is no listing', () => {
     expect(suggestionsFor(null)).toEqual(SUGGESTIONS);
+  });
+});
+
+describe('a question from the front door', () => {
+  const PICTURE = 'https://download.example/ring/frame.jpg?sig=abc';
+  const ANSWERS = [
+    { key: 'known', text: "It's all right, I know who that is." },
+    { key: 'dont_open', text: "Please don't open the door. I'll ring you now." },
+    { key: 'not_sure', text: "I can't tell who that is. I'll ring you now." },
+  ];
+  const waiting = (over: object = {}) => JSON.stringify({
+    requestId: 'door-abc',
+    state: 'waiting',
+    askedAt: 1000,
+    line: "Someone's at the front door.",
+    description: 'A man in a yellow jacket holding a clipboard.',
+    pictureUrl: PICTURE,
+    answers: ANSWERS,
+    ...over,
+  });
+
+  it('is asked for by name, and has a chip', () => {
+    expect(routeUtterance('Has Mum asked me to look at the door?')).toEqual({ kind: 'tool', tool: 'get_door_request', args: {} });
+    expect(routeUtterance("Who's at Mum's door?")).toEqual({ kind: 'tool', tool: 'get_door_request', args: {} });
+    expect(SUGGESTIONS.some((s: { utterance: string }) => routeUtterance(s.utterance).tool === 'get_door_request')).toBe(true);
+  });
+
+  it('leaves "did anyone come to the door today" to the day\'s list', () => {
+    expect(routeUtterance('Did anyone come to the door today?').tool).toBe('get_today');
+  });
+
+  it('shows the picture, the sentence and the answers that can be given while it waits', () => {
+    const r = presentResult('get_door_request', waiting(), {}, at);
+
+    expect(r.say).toBe('You have been asked to look at the door. A man in a yellow jacket holding a clipboard.');
+    expect(r.card).toEqual({
+      kind: 'door',
+      title: "Someone's at the front door.",
+      meta: 'Asked t1000',
+      requestId: 'door-abc',
+      pictureUrl: PICTURE,
+      description: 'A man in a yellow jacket holding a clipboard.',
+      answers: ANSWERS,
+      footnote: 'Your answer goes on the television at once, under your name.',
+    });
+  });
+
+  it('says so when the picture has not arrived yet, and draws none', () => {
+    const r = presentResult('get_door_request', waiting({ pictureUrl: undefined, description: undefined }), {}, at);
+
+    expect(r.say).toBe('You have been asked to look at the door. The picture has not arrived yet.');
+    expect(r.card.pictureUrl).toBeNull();
+    expect(r.card.description).toBeNull();
+  });
+
+  it('draws only a picture served over https — never a script or a page', () => {
+    const r = presentResult('get_door_request', waiting({ pictureUrl: 'javascript:alert(1)' }), {}, at);
+
+    expect(r.card.pictureUrl).toBeNull();
+  });
+
+  it('offers only answers it knows, in the server\'s words', () => {
+    const r = presentResult('get_door_request', waiting({ answers: [...ANSWERS, { key: 'open_up', text: 'Open the door.' }] }), {}, at);
+
+    expect(r.card.answers).toEqual(ANSWERS);
+  });
+
+  it('says who answered once someone has, and shows no card', () => {
+    const answered = JSON.stringify({ requestId: 'door-abc', state: 'answered', askedAt: 1000, answer: { by: 'Tom', text: ANSWERS[0]!.text, at: 2000 } });
+
+    expect(presentResult('get_door_request', answered, {}, at)).toMatchObject({ say: `Tom answered t2000: “${ANSWERS[0]!.text}”`, card: null, tone: 'answer' });
+  });
+
+  it('says the card has gone when nobody answered in time', () => {
+    const gone = JSON.stringify({ requestId: 'door-abc', state: 'gone', askedAt: 1000 });
+
+    expect(presentResult('get_door_request', gone, {}, at)).toMatchObject({
+      say: 'You were asked to look at the door t1000. The door card has since gone from the television.',
+      card: null,
+    });
+  });
+
+  it('says what is now on the television after an answer', () => {
+    const shown = JSON.stringify({ shown: true, by: 'Sarah', text: ANSWERS[1]!.text });
+
+    expect(presentResult('answer_door_request', shown, {}, at)).toMatchObject({
+      say: `It is on the television now: “Sarah says: ${ANSWERS[1]!.text}”`,
+      card: null,
+      tone: 'answer',
+    });
+  });
+
+  it('knows the same answers the server does, word for word', () => {
+    expect(DOOR_ANSWERS).toEqual(CONTRACT_DOOR_ANSWERS);
+  });
+
+  it('shows the sentence itself before the assistant may send it', () => {
+    const asked = confirmWrite('answer_door_request', { requestId: 'door-abc', answer: 'dont_open' }, 'Answer a question from the front door');
+
+    expect(asked.title).toBe('Show this on the television?');
+    // Every argument is on the card, as for any write: nothing is sent that was not shown.
+    expect(asked.fields).toEqual([['Your answer', ANSWERS[1]!.text], ['requestId', 'door-abc']]);
+    expect(asked.confirmLabel).toBe('Show it');
+  });
+
+  it('shows an answer it does not know as it was passed, never as one it does', () => {
+    const asked = confirmWrite('answer_door_request', { requestId: 'door-abc', answer: 'open_up' }, 'Answer');
+
+    expect(asked.fields).toEqual([['Your answer', 'open_up'], ['requestId', 'door-abc']]);
+  });
+
+  it('describes both steps in words, not tool names', () => {
+    expect(describeCall('get_door_request', {})).toBe('Looked at the question from the door');
+    expect(describeCall('answer_door_request', {})).toBe('Answered on the television');
+  });
+});
+
+describe('doorQuestionToAnnounce — what the app says unasked while it is open', () => {
+  const waiting = JSON.stringify({ requestId: 'door-abc', state: 'waiting', askedAt: 1000, line: "Someone's at the front door.", answers: [] });
+
+  it('announces a waiting question once', () => {
+    const seen = new Set<string>();
+
+    expect(doorQuestionToAnnounce(waiting, seen)).toBe('door-abc');
+    seen.add('door-abc');
+    expect(doorQuestionToAnnounce(waiting, seen)).toBeNull();
+  });
+
+  it('announces nothing that is not a waiting question', () => {
+    const none = new Set<string>();
+
+    expect(doorQuestionToAnnounce("Margaret hasn't asked anyone to look at the door.", none)).toBeNull();
+    expect(doorQuestionToAnnounce(JSON.stringify({ requestId: 'door-abc', state: 'answered', askedAt: 1, answer: {} }), none)).toBeNull();
+    expect(doorQuestionToAnnounce(JSON.stringify({ requestId: 'door-abc', state: 'gone', askedAt: 1 }), none)).toBeNull();
+    expect(doorQuestionToAnnounce('{"state":"waiting"}', none)).toBeNull();
+  });
+});
+
+describe('notifications — being told when Wick is closed', () => {
+  const ready = { supported: true, available: true, permission: 'default', subscribed: false };
+
+  it('offers to turn them on, saying exactly how little a notification says', () => {
+    const r = presentNotifications(ready, 'Margaret');
+
+    expect(r.offer).toBe(true);
+    expect(r.say).toBe('This browser can tell you when Margaret asks you to look at the door, even when Wick is closed.');
+    expect(r.card).toEqual({
+      title: 'Be told at once',
+      body: 'The notification says only that there is something to look at. The picture and everything else stay in Wick.',
+      confirmLabel: 'Turn on notifications',
+    });
+  });
+
+  it('says they are on, and offers nothing more', () => {
+    expect(presentNotifications({ ...ready, permission: 'granted', subscribed: true }, 'Margaret')).toEqual({
+      offer: false,
+      say: 'Notifications are on in this browser. It will tell you when Margaret asks you to look at the door.',
+      card: null,
+    });
+  });
+
+  it('offers again when the browser allows them but this browser is not yet registered', () => {
+    expect(presentNotifications({ ...ready, permission: 'granted', subscribed: false }, 'Margaret').offer).toBe(true);
+  });
+
+  it('says where to change it when the browser has blocked them — the page cannot ask twice', () => {
+    expect(presentNotifications({ ...ready, permission: 'denied' }, 'Margaret')).toEqual({
+      offer: false,
+      say: 'This browser has blocked notifications for Wick. They can be allowed again in the browser’s site settings.',
+      card: null,
+    });
+  });
+
+  it('says so plainly where there is nothing to offer', () => {
+    expect(presentNotifications({ supported: false }, 'Margaret')).toMatchObject({ offer: false, say: 'This browser cannot show notifications from Wick.' });
+    expect(presentNotifications({ ...ready, available: false }, 'Margaret')).toMatchObject({ offer: false, say: 'This Wick cannot send notifications yet.' });
+  });
+
+  it('is asked for by name', () => {
+    expect(routeUtterance('Turn on notifications')).toEqual({ kind: 'notifications' });
+    expect(routeUtterance('Can you notify me?')).toEqual({ kind: 'notifications' });
+  });
+});
+
+describe('applicationServerKey', () => {
+  it('turns the server’s base64url key into the bytes a browser subscribes with', () => {
+    // "hello?>" in base64url is aGVsbG8_Pg (no padding, with both url-safe characters once + is included).
+    expect([...applicationServerKey('aGVsbG8_Pg')]).toEqual([104, 101, 108, 108, 111, 63, 62]);
+    expect([...applicationServerKey('-_-_')]).toEqual([251, 255, 191]);
+  });
+});
+
+describe('madeWithKey — whether a browser’s subscription still belongs to this Wick', () => {
+  const key = 'aGVsbG8_Pg';
+  const bytes = (values: number[]) => new Uint8Array(values).buffer;
+
+  it('is true for a subscription made with the server’s present key', () => {
+    expect(madeWithKey({ options: { applicationServerKey: bytes([104, 101, 108, 108, 111, 63, 62]) } }, key)).toBe(true);
+  });
+
+  it('is false for one made with another key: Wick’s nudges to it would be refused', () => {
+    expect(madeWithKey({ options: { applicationServerKey: bytes([104, 101, 108, 108, 111, 63, 63]) } }, key)).toBe(false);
+    expect(madeWithKey({ options: { applicationServerKey: bytes([104, 101]) } }, key)).toBe(false);
+  });
+
+  it('is false when the browser does not say which key it was made with', () => {
+    expect(madeWithKey({ options: {} }, key)).toBe(false);
+    expect(madeWithKey({}, key)).toBe(false);
   });
 });

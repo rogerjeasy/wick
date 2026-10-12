@@ -41,6 +41,15 @@ Fire TV hardware) shows on-device storage actually works there.
 transport client. Everything else calls `sendToFamily()` / `sendToDevice()`.
 Enforced by an ESLint `no-restricted-imports` rule. There is no second path.
 
+`egress.ts` is also the only module that may reach a family member's own
+browser (`nudgeFamily`, Web Push). A nudge carries a kind from a fixed set
+(`packages/contracts` `PUSH_KINDS`) and no string at all — nothing about the
+house — so there is nothing in it for the Guardian to pass or refuse. The
+words a notification shows are the service worker's own
+(`apps/sim-alexa/sw.js`). **Never** put a name, a sentence, a picture address
+or a household in a push payload: what the family is told still comes only
+through the gated tools.
+
 A television is on one of two channels — MQTT over IoT Core, or the API
 Gateway WebSocket it falls back to — and `egress.ts` sends down whichever the
 television's own row names. Adding a channel means adding it there.

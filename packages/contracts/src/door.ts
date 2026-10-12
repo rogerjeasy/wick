@@ -57,3 +57,33 @@ export interface VisitorMatch {
   readonly expectedToday: boolean;
   readonly confidence: number;
 }
+
+/**
+ * "Ask Sarah to look" — the resident asks someone in the family circle to
+ * look at the picture of whoever is at the door. One row per door card:
+ * `HH#<household>` / `LOOK#<cardId>`, written by the Door agent's
+ * askFamily.ts when the button is pressed and read by the family's
+ * get_door_request / answer_door_request tools. It holds no picture and no
+ * description: those stay on the card, and go when the card does (INV-3).
+ */
+export const DOOR_LOOK_SK_PREFIX = 'LOOK#';
+
+/**
+ * Everything a family member can answer when asked to look. Wick's own
+ * sentences, chosen and never written: the answer is shown on the
+ * resident's television under the family member's name, at the moment the
+ * resident is deciding whether to open the door to a stranger. Words a
+ * caller could write there are words anyone who got hold of a family
+ * account, or talked an assistant round, could put in a daughter's mouth.
+ *
+ * Each reads on after "<name> says:". None tells the resident to open the
+ * door: the most an answer does is say the visitor is known.
+ */
+export const DOOR_ANSWERS = {
+  known: "It's all right, I know who that is.",
+  dont_open: "Please don't open the door. I'll ring you now.",
+  not_sure: "I can't tell who that is. I'll ring you now.",
+} as const;
+export type DoorAnswer = keyof typeof DOOR_ANSWERS;
+
+export const isDoorAnswer = (key: unknown): key is DoorAnswer => typeof key === 'string' && Object.hasOwn(DOOR_ANSWERS, key);

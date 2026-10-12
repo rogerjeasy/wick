@@ -4,7 +4,7 @@ import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { DEFAULT_POLICY } from '@wick/policy';
-import { sendToDevice } from '@wick/agent';
+import { sendPatchToDevice, sendToDevice } from '@wick/agent';
 import { createApp } from './server.js';
 import { createCognitoIdentity, type CognitoSend } from './accounts/identity.js';
 import { createDynamoAccountStore, type DdbSend } from './accounts/store.js';
@@ -86,6 +86,7 @@ const app = createApp(ISSUER_URL, {
   store: createDynamoAccountStore(((command) => ddb.send(command as never)) as DdbSend, TABLE_NAME),
   identity: createCognitoIdentity(((command) => cognito.send(command as never)) as CognitoSend, COGNITO_CLIENT_ID),
   sendCard: (card) => sendToDevice(card, DEFAULT_POLICY),
+  sendPatch: sendPatchToDevice,
   ddb,
   claimTelevision: async (accessToken, code) => {
     const res = await fetch(`${PAIRING_API_URL}/pair/claim`, {

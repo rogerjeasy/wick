@@ -89,6 +89,18 @@ resource "aws_s3_object" "sim_alexa_surface_js" {
   cache_control = "no-cache"
 }
 
+# The family app's service worker: turns a nudge into a notification when the
+# page is closed (infra/push.tf). Served from the app's own root, which is
+# what gives it the whole app as its scope.
+resource "aws_s3_object" "sim_alexa_sw_js" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "sw.js"
+  source        = "${path.module}/../apps/sim-alexa/sw.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/sw.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
 resource "aws_cloudfront_origin_access_control" "sim_alexa" {
   name                              = "${local.prefix}-sim-alexa"
   origin_access_control_origin_type = "s3"

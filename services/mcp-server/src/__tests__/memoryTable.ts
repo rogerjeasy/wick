@@ -3,7 +3,8 @@
  * tools and the demo home make, so the whole server can be asked real
  * questions with no AWS (devServer.ts, and the end-to-end tests).
  *
- * It understands exactly what this server sends — PutItem, GetItem, and a
+ * It understands exactly what this server sends — PutItem (with the one
+ * condition the door answer uses), GetItem, DeleteItem, and a
  * Query on `pk` with a `BETWEEN` or `begins_with` on `sk`, an optional
  * filter of `name = :value` terms joined by AND, `ScanIndexForward` and
  * `Limit` — and throws on anything else, so a new kind of request fails
@@ -73,11 +74,23 @@ export function createMemoryTable(): MemoryTable {
   const send = async (command: Request): Promise<object> => {
     const { input } = command;
     switch (command.constructor.name) {
-      case 'PutItemCommand':
+      case 'PutItemCommand': {
+        const held = items.get(keyOf(input.Item!));
+        const condition = (input as { ConditionExpression?: string }).ConditionExpression;
+        const holds =
+          condition === undefined ? true
+          : condition === 'attribute_exists(pk) AND attribute_not_exists(answeredAt)' ? held !== undefined && held.answeredAt === undefined
+          : undefined;
+        if (holds === undefined) throw new Error(`memoryTable: unsupported condition "${condition}"`);
+        if (!holds) throw Object.assign(new Error('The conditional request failed'), { name: 'ConditionalCheckFailedException' });
         items.set(keyOf(input.Item!), input.Item!);
         return {};
+      }
       case 'GetItemCommand':
         return { Item: items.get(keyOf(input.Key!)) };
+      case 'DeleteItemCommand':
+        items.delete(keyOf(input.Key!));
+        return {};
       case 'QueryCommand':
         return query(input);
       case 'TransactWriteItemsCommand': {

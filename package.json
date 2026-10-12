@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Wick \u2014 the television as the care surface for the person being cared for.",
+  "description": "Wick — the television as the care surface for the person being cared for.",
   "license": "MIT",
   "author": "Roger Bavibidila",
   "engines": {
@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/web-push": "^3.6.4",
     "esbuild": "^0.21.5",
     "eslint": "^9.0.0",
     "fast-check": "^3.23.0",

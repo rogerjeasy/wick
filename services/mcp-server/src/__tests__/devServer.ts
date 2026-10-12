@@ -17,6 +17,12 @@
  *     token that starts with "playground" is accepted and lists one
  *     simulated camera; anything else is refused, as Ring refuses a bad token
  *
+ *   - the doorbell: GET http://127.0.0.1:3300/dev/door puts a door card on
+ *     the stand-in television of every home that connected one, as if the
+ *     resident had pressed "Ask … to look" — and nudges the browsers that
+ *     turned notifications on, for real, through their own push services
+ *     (a key pair is made at start-up and forgotten at exit)
+ *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
  * answers; without it there is none, and the app answers by its rules.
@@ -27,7 +33,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { QueuedCard } from '@wick/contracts';
+import { DOOR_CARD_TTL_MS, DOOR_LOOK_SK_PREFIX, type QueuedCard } from '@wick/contracts';
 import { createApp } from '../server.js';
 import { createMemoryStore } from '../accounts/__tests__/memoryStore.js';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
@@ -35,6 +41,9 @@ import { createBedrockConverse } from '../assistant/bedrock.js';
 import { createFakeIdentity } from './harness.js';
 import { createMemoryTable } from './memoryTable.js';
 import { invokedRingLinks } from '../accounts/ringLinks.js';
+import webpush from 'web-push';
+import { PUSH_KINDS, PUSH_SK_PREFIX } from '@wick/contracts';
+import { nudge, subscriptionFromItem, type StoredSubscription } from '../../../agent/src/push/nudge.js';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { LinkError, createLinkService } from '../../../edge-ring/lambda/household-link-service.mjs';
 
@@ -101,6 +110,40 @@ const ringLinks = invokedRingLinks(async (request) => {
   }
 });
 
+/**
+ * Web Push, for real: this run's own signing keys, the public half where the
+ * server reads it (accounts/push.ts), and the same nudge the agent plane
+ * sends (services/agent push/nudge.ts) with the request made here.
+ */
+const pushKeys = webpush.generateVAPIDKeys();
+table.put({ pk: { S: 'CONFIG#push' }, sk: { S: 'VAPID' }, publicKey: { S: pushKeys.publicKey } });
+
+const nudgeBrowsers = (userIds: readonly string[]) =>
+  nudge(userIds, PUSH_KINDS.doorLook, {
+    listSubscriptions: async (userId) =>
+      table.rows(`USER#${userId}`).filter((row) => row.sk?.S?.startsWith(PUSH_SK_PREFIX)).map(subscriptionFromItem).filter((s): s is StoredSubscription => s !== undefined),
+    post: async (subscription, payload) => {
+      try {
+        const res = await webpush.sendNotification(
+          { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
+          payload,
+          { vapidDetails: { ...pushKeys, subject: 'mailto:dev@wick.invalid' }, TTL: 300, urgency: 'high' },
+        );
+        return res.statusCode;
+      } catch (err) {
+        const status = (err as { statusCode?: unknown }).statusCode;
+        // Said here, because a push service's refusal is otherwise only a count.
+        console.log(`push service ${new URL(subscription.endpoint).host} answered ${String(status)}: ${String((err as { body?: unknown }).body ?? '').slice(0, 200)}`);
+        if (typeof status === 'number') return status;
+        throw err;
+      }
+    },
+    forget: async () => {},
+  });
+
+/** Every home that has connected the stand-in television: where /dev/door rings. */
+const homesWithATelevision = new Set<string>();
+
 const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
   store,
   identity: createFakeIdentity(),
@@ -108,6 +151,15 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
     cards.push(card);
     // As egress.ts files it, so "has Mum replied?" finds the note.
     table.put({ pk: { S: `HH#${card.card.householdId}` }, sk: { S: `CARD#${card.id}` }, data: { S: JSON.stringify(card) } });
+  },
+  // As egress.ts merges it: the answer to "Ask Sarah to look" lands on the stored door card.
+  sendPatch: async (patch, householdId) => {
+    const key = { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${patch.cardId}` } };
+    const row = table.rows(key.pk.S).find((item) => item.sk?.S === key.sk.S);
+    if (!row?.data?.S) return;
+    const queued = JSON.parse(row.data.S) as QueuedCard;
+    table.put({ ...key, data: { S: JSON.stringify({ ...queued, card: { ...queued.card, ...patch, cardId: undefined } }) } });
+    console.log(`television: door card ${patch.cardId} now says "${patch.notice ?? ''}"`);
   },
   // A real table's worth of answers: the demo home's history is written here and read back by the tools.
   ddb: table.ddb,
@@ -123,8 +175,62 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
       household: { householdId: string };
     };
     store.addTelevision(me.household.householdId, { deviceId: 'wick-tv', pairedAt: Date.now(), connected: true });
+    homesWithATelevision.add(me.household.householdId);
     return { status: 200, body: JSON.stringify({ ok: true, deviceId: 'wick-tv' }) };
   },
+});
+
+/**
+ * Stands in for the doorbell and the remote: a door card on the television
+ * of every home, and the resident's press on "Ask … to look" — the rows the
+ * Door agent and askFamily.ts would have written. The picture is a
+ * placeholder, not Ring's.
+ */
+app.get('/dev/door', async (_req, res) => {
+  const now = Date.now();
+  const cardId = `door-dev-${now.toString(36)}`;
+  const asked: string[] = [];
+  for (const householdId of homesWithATelevision) {
+    const pk = { S: `HH#${householdId}` };
+    const card: QueuedCard = {
+      id: cardId,
+      urgency: 'DOOR',
+      queuedAt: now,
+      expiresAt: now + DOOR_CARD_TTL_MS,
+      shownCount: 1,
+      card: {
+        type: 'DOOR',
+        id: cardId,
+        householdId,
+        correlationId: cardId,
+        createdAt: now,
+        line: "Someone's at the front door.",
+        description: 'A man in a yellow jacket holding a clipboard.',
+        imageRef: 'https://picsum.photos/seed/wick-door/640/360',
+        notice: 'The family has been asked to look.',
+        actions: [
+          { id: 'watch_live', label: 'Watch live', kind: 'primary' },
+          { id: 'dismiss', label: 'Not now', kind: 'dismiss' },
+        ],
+      },
+    };
+    table.put({ pk, sk: { S: `CARD#${cardId}` }, data: { S: JSON.stringify(card) } });
+    table.put({
+      pk,
+      sk: { S: `${DOOR_LOOK_SK_PREFIX}${cardId}` },
+      cardId: { S: cardId },
+      askedAt: { N: String(now) },
+      expiresAt: { N: String(now + DOOR_CARD_TTL_MS) },
+      ttl: { N: String(Math.floor(now / 1000) + 86_400) },
+    });
+    asked.push(householdId);
+  }
+  // Everyone allowed in those homes, as askFamily.ts would nudge them.
+  const allowed = (await Promise.all(asked.map((householdId) => store.listMembers(householdId))))
+    .flat()
+    .filter((member) => member.status === 'allowed')
+    .map((member) => member.userId);
+  res.json({ asked, cardId, nudged: await nudgeBrowsers(allowed) });
 });
 
 app.get('/dev/allow', async (_req, res) => {

@@ -12,6 +12,8 @@ const TRANSPORT_CLIENTS = [
   '@aws-sdk/client-apigatewaymanagementapi',
   '@aws-sdk/client-iot-data-plane',
   'mqtt',
+  // Web Push: a request to a family member's browser, by way of its push service.
+  'web-push',
   '**/transport/WebSocketChannel*',
   '**/transport/MqttChannel*',
 ];

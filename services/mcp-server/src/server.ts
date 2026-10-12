@@ -27,7 +27,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { QueuedCard } from '@wick/contracts';
+import type { CardPatch, QueuedCard } from '@wick/contracts';
 import { createAuth } from './auth.js';
 import { createApiRouter, type ClaimTelevision, type RingLinks } from './accounts/apiRouter.js';
 import { checkAccess, type CircleDeps } from './accounts/circle.js';
@@ -49,6 +49,9 @@ import { registerListRegularVisitors } from './tools/list_regular_visitors.js';
 import { registerGetWhatsDifferent } from './tools/get_whats_different.js';
 import { registerAddRegularVisitor } from './tools/add_regular_visitor.js';
 import { registerExpectVisit } from './tools/expect_visit.js';
+import { createPushStore } from './accounts/push.js';
+import { registerGetDoorRequest } from './tools/get_door_request.js';
+import { registerAnswerDoorRequest } from './tools/answer_door_request.js';
 
 /**
  * A fresh `McpServer` for exactly one session's lifetime.
@@ -67,7 +70,12 @@ const TABLE = process.env.TABLE_NAME ?? 'wick';
 /** The same default as the Narrator's and get_week_narrative.ts's. */
 const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
-function createMcpServer(ddb: DynamoDBClient, ctx: ToolContext, sendCard: (card: QueuedCard) => Promise<void>): McpServer {
+function createMcpServer(
+  ddb: DynamoDBClient,
+  ctx: ToolContext,
+  sendCard: (card: QueuedCard) => Promise<void>,
+  sendPatch: (patch: CardPatch, householdId: string) => Promise<void>,
+): McpServer {
   const mcpServer = new McpServer({ name: 'wick', version: '0.2.0' });
   registerGetResidentSharedView(mcpServer, ddb, ctx);
   registerGetWeekNarrative(mcpServer, ddb, ctx);
@@ -79,6 +87,8 @@ function createMcpServer(ddb: DynamoDBClient, ctx: ToolContext, sendCard: (card:
   registerGetWhatsDifferent(mcpServer, ddb, ctx);
   registerAddRegularVisitor(mcpServer, ddb, ctx);
   registerExpectVisit(mcpServer, ddb, ctx);
+  registerGetDoorRequest(mcpServer, ddb, ctx);
+  registerAnswerDoorRequest(mcpServer, ddb, ctx, sendPatch);
   return mcpServer;
 }
 
@@ -98,7 +108,7 @@ async function listToolSpecs(ddb: DynamoDBClient): Promise<ToolSpec[]> {
   const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'wick-assistant', version: '0.1.0' });
   const nowhere = async (): Promise<void> => { throw new Error('tools/list only'); };
-  await Promise.all([createMcpServer(ddb, nobody, nowhere).connect(serverSide), client.connect(clientSide)]);
+  await Promise.all([createMcpServer(ddb, nobody, nowhere, nowhere).connect(serverSide), client.connect(clientSide)]);
   try {
     const { tools } = await client.listTools();
     return tools.map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema }));
@@ -112,6 +122,8 @@ export interface AppDeps {
   readonly identity: IdentityProvider;
   /** services/agent/src/egress.ts's sendToDevice — the only path to the television (INV-2). */
   readonly sendCard: (card: QueuedCard) => Promise<void>;
+  /** egress.ts's sendPatchToDevice — how an answer reaches a door card already on the television (INV-2). */
+  readonly sendPatch: (patch: CardPatch, householdId: string) => Promise<void>;
   /** The household's own rows, read by the tools. */
   readonly ddb: DynamoDBClient;
   /** The pairing API's POST /pair/claim, called as the signed-in person. */
@@ -158,6 +170,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     ringLinks: deps.ringLinks,
     virtualTelevisionUrl: deps.virtualTelevisionUrl,
     timeZone: HOUSEHOLD_TZ,
+    push: createPushStore(ddb, process.env.TABLE_NAME ?? 'wick'),
   }));
 
   // The tool list is the same for everyone and for the life of the process: asked for once, on first need.
@@ -211,7 +224,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
         householdId: grant.householdId,
         userId: grant.userId,
         access: () => checkAccess(deps.store, grant.householdId, grant.userId),
-      }, deps.sendCard);
+      }, deps.sendCard, deps.sendPatch);
       // No `sessionIdGenerator` given: that is what makes it stateless.
       const transport = new StreamableHTTPServerTransport({});
       res.on('close', () => {
