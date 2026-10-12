@@ -222,7 +222,8 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   is read back only to the person who sent the invitation. Three places keep it, and none trusts another: the
   television says nothing without the press
   (`apps/tv-vega/src/watch/togetherReporter.ts`), the edge keeps nothing that
-  does not match the session's row
+  does not match the session's row — and nothing at all once her player has
+  stopped: that position stamps `leftAt`, and no later one is kept
   (`services/edge-device/lambda/watch-together.mjs`), and the tools answer
   nobody else (`services/mcp-server/src/tools/watchSession.ts` `mySession`).
   The ordinary `playback` event carries a programme's id for the week's

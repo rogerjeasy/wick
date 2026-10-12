@@ -103,8 +103,10 @@ describe('positionUpdate — where the film is, kept only when the rule allows i
 
     expect(update.Key).toEqual(KEY);
     expect(update.ConditionExpression).toBe(
-      'attribute_exists(startedAt) AND programmeId = :content AND closesAt > :now AND (attribute_not_exists(pbDeviceAt) OR pbDeviceAt <= :deviceAt)',
+      'attribute_exists(startedAt) AND attribute_not_exists(leftAt) AND programmeId = :content AND closesAt > :now AND (attribute_not_exists(pbDeviceAt) OR pbDeviceAt <= :deviceAt)',
     );
+    // A film that is playing has not been left.
+    expect(update.UpdateExpression).not.toContain('leftAt');
     expect(update.ExpressionAttributeValues).toEqual({
       ':state': { S: 'PLAYING' },
       ':position': { N: '61000' },
@@ -119,6 +121,15 @@ describe('positionUpdate — where the film is, kept only when the rule allows i
   it('stamps the server’s own clock, so two clocks that disagree cannot move the film', () => {
     const update = positionUpdate({ table: 'wick', householdId: 'margaret', event: position({ at: NOW + 3_600_000 }), now: NOW });
     expect(update.UpdateExpression).toContain('pbAt = :now');
+  });
+
+  it('marks the film as left when her player stops, by the server’s clock, and keeps nothing after that', () => {
+    const update = positionUpdate({ table: 'wick', householdId: 'margaret', event: position({ state: 'STOPPED' }), now: NOW });
+
+    // Stamped with the position that says so, in one write: the row cannot say STOPPED without it.
+    expect(update.UpdateExpression).toContain('leftAt = :now');
+    // And the same condition every position carries is what then refuses the next one: leaving is final.
+    expect(update.ConditionExpression).toContain('attribute_not_exists(leftAt)');
   });
 
   it('is nothing for an event that is not a position', () => {
