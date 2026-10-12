@@ -19,6 +19,8 @@
  *
  * Three, never four (Principle 6) — the test holds the list to it.
  */
+import { CALM_POINTS } from './calmPoints.js';
+
 export interface Programme {
   readonly id: string;
   readonly title: string;
@@ -69,4 +71,14 @@ export const CATALOG: readonly Programme[] = [
 
 export function programmeById(id: string): Programme | undefined {
   return CATALOG.find((p) => p.id === id);
+}
+
+/**
+ * A programme's calm points, as positions in milliseconds — the moments
+ * inside it where a note may arrive without spoiling a scene (calmPoints.ts,
+ * measured and chosen by scripts/calm-points). Undefined for a programme
+ * Wick has not measured: for that one, a note waits for the credits as before.
+ */
+export function calmPointsOf(id: string): readonly number[] | undefined {
+  return CALM_POINTS[id]?.map((point) => point.atMs);
 }

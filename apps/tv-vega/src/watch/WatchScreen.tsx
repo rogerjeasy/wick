@@ -31,6 +31,12 @@ export interface WatchScreenProps {
   readonly onPlaybackEvent: (snapshot: PlayerSnapshot) => void;
   /** A card is on screen: OK and the arrows are the card's. */
   readonly cardVisible: boolean;
+  /**
+   * A card that waited for a calm point, or for a pause, is on screen: the
+   * programme waits on the cut while it is read, and goes on when it has
+   * gone (break/NaturalBreakEngine.ts holdsProgramme). Never for the door.
+   */
+  readonly held: boolean;
   /** Something else has the screen (the door camera, live): hold the programme. */
   readonly suspended: boolean;
   readonly onExit: () => void;
@@ -136,6 +142,22 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       void p.play();
     }
   }, [suspended]);
+
+  // A note in the middle of a programme: the film waits while it is read.
+  // If the resident had paused it themselves, it stays paused afterwards.
+  const { held } = props;
+  const resumeAfterCard = React.useRef(false);
+  React.useEffect(() => {
+    const p = playerRef.current;
+    if (!p) return;
+    if (held) {
+      resumeAfterCard.current = !p.paused;
+      p.pause();
+    } else if (resumeAfterCard.current) {
+      resumeAfterCard.current = false;
+      void p.play();
+    }
+  }, [held]);
 
   const notice =
     status === 'failed'

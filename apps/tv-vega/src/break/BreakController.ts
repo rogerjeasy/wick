@@ -20,7 +20,7 @@
 import type { QueuedCard } from '@wick/contracts';
 import type { PlayerSnapshot } from '../player/PlayerService.js';
 import { MAX_CARD_SHOWS } from '@wick/contracts';
-import { allowsDeferred, classify, selectReleasable } from './NaturalBreakEngine.js';
+import { allowsDeferred, classify, holdsProgramme, selectReleasable } from './NaturalBreakEngine.js';
 import type { BreakState, EngineInput } from './types.js';
 
 /**
@@ -34,7 +34,22 @@ export interface Showing {
   readonly ended?: QueuedCard;
 }
 
+export interface BreakControllerOptions {
+  /**
+   * The calm points of a programme, by its id (catalog/calmPoints.ts).
+   * Looked up here rather than carried on every snapshot: they are a fact
+   * about the programme, not about where the player has got to.
+   */
+  readonly calmPointsOf?: (contentId: string) => readonly number[] | undefined;
+}
+
 export class BreakController {
+  readonly #calmPointsOf: NonNullable<BreakControllerOptions['calmPointsOf']>;
+
+  constructor(options: BreakControllerOptions = {}) {
+    this.#calmPointsOf = options.calmPointsOf ?? (() => undefined);
+  }
+
   /** The DEFERRED card whose showing is under way. */
   #showingId: string | undefined;
   #lastDoorId: string | undefined;
@@ -61,24 +76,33 @@ export class BreakController {
     this.#lastPlayback = snapshot;
   }
 
+  /** Where the player is, with what is known about the programme it is playing. */
+  #playback(): EngineInput['playback'] {
+    const last = this.#lastPlayback;
+    if (!last) return undefined;
+    const calmPointsMs = this.#calmPointsOf(last.contentId);
+    return {
+      state: last.state,
+      positionMs: last.positionMs,
+      durationMs: last.durationMs,
+      ...(last.creditsPositionMs !== undefined ? { creditsPositionMs: last.creditsPositionMs } : {}),
+      ...(calmPointsMs ? { calmPointsMs } : {}),
+    };
+  }
+
+  /** Whether the programme should wait while this card is on screen (NaturalBreakEngine.holdsProgramme). */
+  holdsProgramme(card: QueuedCard | undefined): boolean {
+    return holdsProgramme(card, this.#playback());
+  }
+
   #engineInput(now: number): EngineInput {
     const appForeground = this.#foregroundSinceMs !== undefined;
+    const playback = this.#playback();
     return {
       appForeground,
       now,
       ...(appForeground ? { foregroundForMs: now - this.#foregroundSinceMs! } : {}),
-      ...(this.#lastPlayback
-        ? {
-            playback: {
-              state: this.#lastPlayback.state,
-              positionMs: this.#lastPlayback.positionMs,
-              durationMs: this.#lastPlayback.durationMs,
-              ...(this.#lastPlayback.creditsPositionMs !== undefined
-                ? { creditsPositionMs: this.#lastPlayback.creditsPositionMs }
-                : {}),
-            },
-          }
-        : {}),
+      ...(playback ? { playback } : {}),
       ...(this.#pausedSinceMs !== undefined ? { pausedForMs: now - this.#pausedSinceMs } : {}),
     };
   }
