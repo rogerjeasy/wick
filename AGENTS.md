@@ -59,7 +59,11 @@ when a television asks for the cards it is owed, or turns a page of "What
 Sarah sees", the edge answers on the channel the request came in on
 (`services/edge-device/lambda/route.mjs` for the WebSocket, `iot-events.mjs`
 for MQTT). Those answers are cards already stored for the resident's own
-television; nothing bound for the family goes that way.
+television, and the taking back of ones it still holds that were answered on
+another television in the home; nothing bound for the family goes that way.
+Taking a card off the *other* televisions the moment it is answered is not
+the edge's to do: it says so on the bus (`card.retired`), and `egress.ts`
+sends the `revoke`.
 
 ### INV-3 — No Ring media is persisted beyond 24 hours
 Enforced by S3 bucket lifecycle policy in `infra/`, not by application code.

@@ -41,7 +41,16 @@ export type DeviceEvent =
 export type ControlMessage =
   | { readonly t: 'patch'; readonly patch: CardPatch }
   | { readonly t: 'revoke'; readonly cardId: string }
-  | { readonly t: 'reconcile'; readonly sinceCardId?: string };
+  | {
+      readonly t: 'reconcile';
+      readonly sinceCardId?: string;
+      /**
+       * The cards this television holds. The server answers with a `revoke`
+       * for each one already finished — answered on another television in
+       * the home while this one was off (edge device-event.mjs reconcile).
+       */
+      readonly holding?: readonly string[];
+    };
 
 export type ChannelState = 'connecting' | 'open' | 'backoff' | 'closed';
 export type Unsubscribe = () => void;

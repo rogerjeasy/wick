@@ -185,3 +185,47 @@ resource "aws_lambda_permission" "television_active" {
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.television_active.arn
 }
+
+# ---------------------------------------------------------------------------
+# A card finished on one television comes off the others.
+#
+#   TV press that finishes a card (a note answered, a week read)
+#     -> edge card-action-event.mjs -> EventBridge (wick.device / card.retired)
+#     -> agent-card-action -> egress.ts withdrawFromDevices -> revoke -> every TV in the home
+#
+# Without it a second television in the home goes on showing a note that has
+# been answered. A television that is off at the time is told when it next
+# connects instead (edge device-event.mjs reconcile).
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudwatch_event_rule" "card_retired" {
+  name           = "${local.prefix}-card-retired"
+  description    = "A press finished a card on one television: the agent plane takes it off the home's others"
+  event_bus_name = aws_cloudwatch_event_bus.wick.name
+
+  event_pattern = jsonencode({
+    source        = ["wick.device"]
+    "detail-type" = ["card.retired"]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "card_retired" {
+  rule           = aws_cloudwatch_event_rule.card_retired.name
+  event_bus_name = aws_cloudwatch_event_bus.wick.name
+  arn            = aws_lambda_function.agent_card_action.arn
+
+  # Not replayed late: a television that missed it is put right when it next
+  # connects, and a card sent again in the meantime must not be taken away.
+  retry_policy {
+    maximum_retry_attempts       = 0
+    maximum_event_age_in_seconds = 60
+  }
+}
+
+resource "aws_lambda_permission" "card_retired" {
+  statement_id  = "AllowExecutionFromCardRetired"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.agent_card_action.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.card_retired.arn
+}

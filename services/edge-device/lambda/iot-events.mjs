@@ -17,10 +17,20 @@ const ddb = new DynamoDBClient({});
 const iot = new IoTDataPlaneClient({});
 const TABLE = process.env.TABLE_NAME;
 
-/** Puts a card on the television's own cards topic. QoS 1: the broker keeps it until the television has it. */
-const mqttSender = (deviceId) => async (card) => {
-  await iot.send(new PublishCommand({ topic: topicsOf(deviceId).cards, qos: 1, payload: Buffer.from(JSON.stringify(card)) }));
-  return true;
+/**
+ * Answers the television on its own topics: a card on `cards`, a control
+ * message on `control`, each topic's body bare (as egress.ts publishes
+ * them). QoS 1: the broker keeps it until the television has it.
+ */
+const mqttSender = (deviceId) => {
+  const publish = async (topic, body) => {
+    await iot.send(new PublishCommand({ topic, qos: 1, payload: Buffer.from(JSON.stringify(body)) }));
+    return true;
+  };
+  return {
+    sendCard: (card) => publish(topicsOf(deviceId).cards, card),
+    sendControl: (control) => publish(topicsOf(deviceId).control, control),
+  };
 };
 
 export const handler = async (event) => {
@@ -38,5 +48,5 @@ export const handler = async (event) => {
   const householdId = householdOfDevice(owner.Item);
   if (!householdId) return { statusCode: 401, body: 'unknown_device' };
 
-  return handleDeviceEvent({ householdId, deviceId, deviceEvent, sendCard: mqttSender(deviceId) });
+  return handleDeviceEvent({ householdId, deviceId, deviceEvent, ...mqttSender(deviceId) });
 };

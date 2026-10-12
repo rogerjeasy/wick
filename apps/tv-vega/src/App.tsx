@@ -16,7 +16,7 @@
  */
 import * as React from 'react';
 import { AppState, Linking } from 'react-native';
-import { StyleSheet, View } from '@amazon-devices/react-native-kepler';
+import { BackHandler, StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import type { DeviceToken, QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
@@ -30,7 +30,7 @@ import type { PlayerSnapshot } from './player/PlayerService.js';
 import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
 import { CATALOG, calmPointsOf, type Programme } from './catalog/catalog.js';
 import { HomeScreen } from './home/HomeScreen.js';
-import { waitingLine } from './home/waiting.js';
+import { backClosesOpened, waitingLine } from './home/waiting.js';
 import { WatchScreen } from './watch/WatchScreen.js';
 import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { createDeviceChannel } from './transport/createDeviceChannel.js';
@@ -229,6 +229,19 @@ export default function App(): React.JSX.Element {
     openedId.current = waiting.id;
     setCard(waiting);
   }, [waiting]);
+
+  // Back on a waiting card the resident opened puts it back to waiting.
+  // Registered again whenever what is on screen changes, so it is asked
+  // before the screens underneath; it declines anything that is not its own.
+  React.useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!backClosesOpened({ openedId: openedId.current, shownId: card?.id ?? null, liveOpen: liveFor !== null })) return false;
+      openedId.current = null;
+      setCard(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [card, liveFor]);
 
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {

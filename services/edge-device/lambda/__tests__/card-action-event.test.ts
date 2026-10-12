@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
-import { buildCardActionEntry, shouldPublish } from '../card-action-event.mjs';
+import { announcesRetirement, buildCardActionEntry, buildCardRetiredEntry, shouldPublish } from '../card-action-event.mjs';
 
 describe('card-action-event — presses the agent plane has to carry out', () => {
   it('publishes the hallway chime, and nothing the device finishes on its own', () => {
@@ -25,5 +25,33 @@ describe('card-action-event — presses the agent plane has to carry out', () =>
 describe('shouldPublish — asking the family to look', () => {
   it('hands "ask_family" to the agent plane: who is asked, and telling the resident, are decided there', () => {
     expect(shouldPublish('ask_family')).toBe(true);
+  });
+});
+
+describe('a card finished on one television', () => {
+  it('is announced, so the home’s other televisions put it away: a note answered, a week read, a door card dismissed', () => {
+    expect(announcesRetirement('reply_0')).toBe(true);
+    expect(announcesRetirement('seen')).toBe(true);
+    expect(announcesRetirement('dismiss')).toBe(true);
+  });
+
+  it('is not announced for a press that leaves the card on screen', () => {
+    expect(announcesRetirement('hallway_chime')).toBe(false);
+    expect(announcesRetirement('watch_live')).toBe(false);
+    expect(announcesRetirement('sharing')).toBe(false);
+  });
+
+  it('is not announced twice: the agent plane already hears the answer to "Shall I tell ...?" and withdraws that card itself', () => {
+    expect(announcesRetirement('tell_family')).toBe(false);
+    expect(announcesRetirement('keep_private')).toBe(false);
+  });
+
+  it('builds a wick.device / card.retired entry with ids only', () => {
+    expect(buildCardRetiredEntry({ busName: 'wick', householdId: 'margaret', deviceId: 'wick-tv', cardId: 'note-abc', at: 5 })).toEqual({
+      EventBusName: 'wick',
+      Source: 'wick.device',
+      DetailType: 'card.retired',
+      Detail: JSON.stringify({ householdId: 'margaret', deviceId: 'wick-tv', cardId: 'note-abc', at: 5 }),
+    });
   });
 });

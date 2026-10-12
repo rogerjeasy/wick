@@ -160,11 +160,16 @@ export function holdCardChannel(
   /** Given by the card service: hold the background connection, and announce instead of show. */
   announce?: (card: QueuedCard) => void,
 ): RunningCardChannel {
+  // What a reconcile says of this television: the last card it saw, and the ones it holds.
+  const reconcileWith = {
+    getLastSeenCardId: () => store.lastSeenCardId(),
+    getHeldCardIds: async () => (await store.readAll()).map((c) => c.id),
+  };
   const channelConfig: DeviceChannelConfig = announce
     ? { websocket: { url: config.websocketUrl, role: 'background' } }
     : {
-        websocket: { url: config.websocketUrl, getLastSeenCardId: () => store.lastSeenCardId() },
-        ...(config.mqttWssUrl ? { mqtt: { wssUrl: config.mqttWssUrl, getLastSeenCardId: () => store.lastSeenCardId() } } : {}),
+        websocket: { url: config.websocketUrl, ...reconcileWith },
+        ...(config.mqttWssUrl ? { mqtt: { wssUrl: config.mqttWssUrl, ...reconcileWith } } : {}),
       };
 
   let stopped = false;

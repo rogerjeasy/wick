@@ -18,19 +18,26 @@ import { handleDeviceEvent } from './device-event.mjs';
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME;
 
-/** Puts a card on the connection the event came in on. False once that connection has gone. */
+/**
+ * Answers on the connection the event came in on: a card, or a control
+ * message. Each says false once that connection has gone.
+ */
 function webSocketSender(event, connectionId) {
   const mgmt = new ApiGatewayManagementApiClient({
     endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}`,
   });
-  return async (card) => {
+  const post = async (message) => {
     try {
-      await mgmt.send(new PostToConnectionCommand({ ConnectionId: connectionId, Data: JSON.stringify({ kind: 'card', card }) }));
+      await mgmt.send(new PostToConnectionCommand({ ConnectionId: connectionId, Data: JSON.stringify(message) }));
       return true;
     } catch (err) {
       if (err?.name === 'GoneException') return false;
       throw err;
     }
+  };
+  return {
+    sendCard: (card) => post({ kind: 'card', card }),
+    sendControl: (control) => post({ kind: 'control', control }),
   };
 }
 
@@ -53,6 +60,6 @@ export const handler = async (event) => {
     householdId: lookup.Item.householdId.S,
     deviceId: lookup.Item.deviceId.S,
     deviceEvent,
-    sendCard: webSocketSender(event, connectionId),
+    ...webSocketSender(event, connectionId),
   });
 };
