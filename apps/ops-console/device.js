@@ -224,6 +224,9 @@ function renderCard(queuedCard) {
       wrapper.insertBefore(img, wrapper.firstChild);
     }
     if (card.description) wrapper.appendChild(el('div', 'body-text', card.description));
+    // What a press led to, as the television's own DoorCard shows it: whether
+    // the chime rang, who was asked to look, and what they answered.
+    if (card.notice) wrapper.appendChild(el('div', 'body-text notice', card.notice));
   } else if (card.type === 'MESSAGE') {
     wrapper.appendChild(el('div', 'kicker', `Message from ${card.fromName}`));
     wrapper.appendChild(el('div', 'headline', card.transcript ?? 'Tap to hear the message'));
