@@ -607,6 +607,7 @@ export function watchStatus(view) {
     case 'accepted': return 'Sit down when you are ready.';
     case 'ready': return 'Waiting for the film to be started on the television.';
     case 'passed': return 'When it came to it, the answer was: not now.';
+    case 'stopped': return 'The film was stopped on the television.';
     case 'watching':
     case 'watched':
       if (playing === 'PLAYING') return view.state === 'watched' ? 'The credits are playing.' : 'Playing, as on the television.';
@@ -653,6 +654,8 @@ function presentWatch(view) {
   if (view.state === 'declined') return quiet(`The answer to ${film} on ${when} was: not this time.`);
   if (view.state === 'passed') return quiet('When it came to it, the answer was: not now.');
   if (view.state === 'over') return quiet(`The time for ${film} has passed.`);
+  // She started it and left it. Her television follows nobody after that, so there is no seat to offer.
+  if (view.state === 'stopped') return quiet(`${film} was stopped on the television before the end. You can ask again whenever you like.`);
   if (view.state === 'accepted' && view.canSitDown !== true) return quiet(`The answer was yes. ${film} is on ${when}; you can sit down from half an hour before.`);
   if (view.state === 'watched' && !stream && !offered) {
     const yours = typeof view.yourAnswer === 'string' ? ` You said: “${view.yourAnswer}”` : '';

@@ -102,18 +102,27 @@ export function notNowUpdate({ table, householdId, sessionId, at }) {
  * player works out how far the film has moved on since, and two clocks that
  * disagree must not move it. The television's own `at` only orders its
  * events, so one retried late cannot wind the film back.
+ *
+ * Leaving is final, and it is this write that makes it so. A player says
+ * STOPPED only when the film has ended or she has left it; that position
+ * stamps `leftAt` in the same write, and every position is conditional on
+ * there being none. So nothing her television says afterwards is kept —
+ * the television's own rule (apps/tv-vega togetherReporter.ts), held here
+ * without trusting it — and a session the family's side has been told is
+ * over (mcp-server watchSession.ts) cannot come back.
  */
 export function positionUpdate({ table, householdId, event, now }) {
   if (typeof event?.sessionId !== 'string' || !SESSION_ID.test(event.sessionId)) return undefined;
   if (!STATES.has(event.state) || typeof event.contentId !== 'string' || !event.contentId) return undefined;
   if (typeof event.positionMs !== 'number' || !Number.isFinite(event.positionMs) || event.positionMs < 0) return undefined;
   if (typeof event.at !== 'number' || !Number.isFinite(event.at)) return undefined;
+  const left = event.state === 'STOPPED' ? ', leftAt = :now' : '';
   return {
     TableName: table,
     Key: key(householdId, event.sessionId),
-    UpdateExpression: 'SET pbState = :state, pbPositionMs = :position, pbAt = :now, pbDeviceAt = :deviceAt',
+    UpdateExpression: `SET pbState = :state, pbPositionMs = :position, pbAt = :now, pbDeviceAt = :deviceAt${left}`,
     ConditionExpression:
-      'attribute_exists(startedAt) AND programmeId = :content AND closesAt > :now AND (attribute_not_exists(pbDeviceAt) OR pbDeviceAt <= :deviceAt)',
+      'attribute_exists(startedAt) AND attribute_not_exists(leftAt) AND programmeId = :content AND closesAt > :now AND (attribute_not_exists(pbDeviceAt) OR pbDeviceAt <= :deviceAt)',
     ExpressionAttributeValues: {
       ':state': { S: event.state },
       ':position': { N: String(Math.round(event.positionMs)) },

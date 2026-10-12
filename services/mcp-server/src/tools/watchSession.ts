@@ -67,6 +67,12 @@ export interface WatchSession {
   readonly joinedAt?: number;
   readonly passedAt?: number;
   readonly startedAt?: number;
+  /**
+   * When her player stopped: the film ended, or she left it. Written once by
+   * the edge with the position that says so, after which it keeps no other
+   * (edge-device watch-together.mjs positionUpdate) — so it never unhappens.
+   */
+  readonly leftAt?: number;
   /** Where the film was, and when this server heard so. */
   readonly playback?: { readonly state: PlaybackStateName; readonly positionMs: number; readonly at: number };
   readonly askedAt?: number;
@@ -130,6 +136,7 @@ export function readSession(item: Item | undefined): WatchSession | undefined {
     ...optional('joinedAt', num(item.joinedAt)),
     ...optional('passedAt', num(item.passedAt)),
     ...optional('startedAt', num(item.startedAt)),
+    ...optional('leftAt', num(item.leftAt)),
     ...(pbState && pbPositionMs !== undefined && pbAt !== undefined ? { playback: { state: pbState, positionMs: pbPositionMs, at: pbAt } } : {}),
     ...optional('askedAt', num(item.askedAt)),
     ...(isWatchAnswer(item.residentAnswer?.S) ? { residentAnswer: item.residentAnswer.S } : {}),
@@ -168,6 +175,13 @@ export type WatchState =
   /** She pressed "Not now" when it came to it. */
   | 'passed'
   | 'watching'
+  /**
+   * She started the film and left it before the credits. Her television
+   * follows nobody after that (apps/tv-vega togetherReporter.ts: leaving is
+   * final), so there is nothing left to sit down to — and nothing to wait
+   * for either: another invitation can be sent at once.
+   */
+  | 'stopped'
   /** The film reached its credits: the one question, and each other's answers. */
   | 'watched'
   /** The time came and went without the film being seen through. */
@@ -230,6 +244,11 @@ export function describeWatch(session: WatchSession, now: number, timeZone: stri
   if (!open) return { ...base, state: 'over' };
   if (session.status === 'invited') return { ...base, state: 'invited' };
   if (session.passedAt !== undefined) return { ...base, state: 'passed' };
+  // Her player stopped before the credits (one that ended passed them first:
+  // askedAt, above). Read from `leftAt`, which is written once and closes the
+  // row to further positions — not from the last playback state, which a
+  // later report could have changed back.
+  if (session.startedAt !== undefined && session.leftAt !== undefined) return { ...base, state: 'stopped' };
   if (session.startedAt !== undefined) return { ...base, state: 'watching', ...following() };
   if (session.joinedAt !== undefined) return { ...base, state: 'ready', ...following() };
   const { opensAt } = watchWindow(session.startsAt);

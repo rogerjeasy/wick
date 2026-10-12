@@ -35,6 +35,7 @@ export function registerGetWatchTogether(mcpServer: McpServer, ddb: DynamoDBClie
         '"invited" (on the television, not yet answered), "declined", "accepted" (with `canSitDown`: whether it is time yet), ' +
         '"ready" (they have sat down and the television is waiting for the resident to start the film), "passed" (the resident chose not to, when it came to it), ' +
         '"watching" (with `playback`: where the resident’s film is, for a player that follows it), ' +
+        '"stopped" (the resident started the film and left it before the end: nothing is followed any more, and another invitation can be sent), ' +
         '"watched" (the film reached its end: the one `question`, the `answers` that can be given, `yourAnswer` and `theirAnswer` once given) or "over" (the time passed). ' +
         'Sit down with join_watch_together and answer with answer_watch_together, passing this `sessionId`.',
       inputSchema: {

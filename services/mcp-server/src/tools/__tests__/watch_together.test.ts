@@ -453,6 +453,82 @@ describe('following the film', () => {
     expect((await sarah.call('get_watch_together')).structured).toMatchObject({ playback: { positionMs: 70_000 } });
   });
 
+  describe('when she leaves the film before the end', () => {
+    it('is no longer followed: the film was stopped, and there is nothing to keep up with', async () => {
+      const { sarah, tv, clock } = await started();
+      await tv.plays('PLAYING', 61_000, clock.now);
+      await tv.plays('STOPPED', 95_000, clock.now + 34_000);
+      clock.now += 40_000;
+
+      const view = (await sarah.call('get_watch_together')).structured!;
+
+      expect(view).toMatchObject({ state: 'stopped', film: 'Sintel' });
+      expect(view).not.toHaveProperty('stream');
+      expect(view).not.toHaveProperty('playback');
+    });
+
+    it('can be asked again at once, not when the three hours are up', async () => {
+      const { sarah, tv, clock } = await started();
+      await tv.plays('PLAYING', 61_000, clock.now);
+      await tv.plays('STOPPED', 95_000, clock.now + 34_000);
+      clock.now += 40_000;
+
+      const again = await sarah.call('invite_to_watch', { programme: 'big-buck-bunny', date: '2026-10-19', time: '11:00' });
+
+      expect(again.structured).toMatchObject({ invited: true, film: 'Big Buck Bunny' });
+    });
+
+    it('is final: nothing her television says afterwards is kept, and the session stays stopped', async () => {
+      const { sarah, tv, clock } = await started();
+      await tv.plays('PLAYING', 61_000, clock.now);
+      await tv.plays('STOPPED', 95_000, clock.now + 34_000);
+
+      // A television that went on reporting — a fault, or somebody holding its token.
+      expect(await tv.plays('PLAYING', 120_000, clock.now + 60_000)).toBeUndefined();
+      clock.now += 70_000;
+
+      const view = (await sarah.call('get_watch_together')).structured!;
+      expect(view).toMatchObject({ state: 'stopped' });
+      expect(view).not.toHaveProperty('playback');
+    });
+
+    it('cannot be brought back beside the invitation that followed it: still one open at a time', async () => {
+      const { sarah, sessionId, tv, clock } = await started();
+      await tv.plays('PLAYING', 61_000, clock.now);
+      await tv.plays('STOPPED', 95_000, clock.now + 34_000);
+      clock.now += 40_000;
+      await sarah.call('invite_to_watch', { programme: 'big-buck-bunny', date: '2026-10-19', time: '11:00' });
+
+      await tv.plays('PLAYING', 120_000, clock.now + 20_000);
+      clock.now += 30_000;
+
+      expect((await sarah.call('get_watch_together', { sessionId })).structured).toMatchObject({ state: 'stopped' });
+      const third = await sarah.call('invite_to_watch', { programme: 'tears-of-steel', date: '2026-10-20', time: '11:00' });
+      expect(third.text).toContain('You have already asked Margaret to watch Big Buck Bunny');
+    });
+
+    it('is still being followed while it is only paused', async () => {
+      const { sarah, tv, clock } = await started();
+      await tv.plays('PAUSED', 95_000, clock.now);
+      clock.now += 40_000;
+
+      const again = await sarah.call('invite_to_watch', { programme: 'big-buck-bunny', date: '2026-10-19', time: '11:00' });
+
+      expect((await sarah.call('get_watch_together')).structured).toMatchObject({ state: 'watching' });
+      expect(again.text).toContain('You have already asked Margaret to watch Sintel');
+    });
+
+    it('is not what a film that played to its end is: that one keeps its question', async () => {
+      const { sarah, tv, clock } = await started();
+      await tv.plays('PLAYING', SINTEL.creditsPositionMs + 1_000, clock.now);
+      await tv.isAsked(clock.now);
+      await tv.plays('STOPPED', SINTEL.durationMs, clock.now + 60_000);
+      clock.now += 70_000;
+
+      expect((await sarah.call('get_watch_together')).structured).toMatchObject({ state: 'watched', question: 'What did you think of it?' });
+    });
+  });
+
   describe('at the credits', () => {
     async function atTheCredits() {
       const s = await started();
