@@ -140,15 +140,18 @@ const BACKGROUND_ATTRIBUTES = ['bgConnectionId', 'bgTransport', 'bgWsEndpoint', 
  * leaves the screen, so a foreground connection means the card itself will
  * be seen and a toast over it would say the same thing twice.
  *
- * And none at all for a television that has been revoked.
+ * And none at all for a television that has been revoked — nor for
+ * `exceptDeviceId`, the one a card is not being taken off because it is the
+ * one that was pressed (withdrawFromDevices).
  */
-export function liveDeviceConnections(items: readonly Record<string, AttributeValue>[]): DeviceConnection[] {
+export function liveDeviceConnections(items: readonly Record<string, AttributeValue>[], exceptDeviceId?: string): DeviceConnection[] {
   const live: DeviceConnection[] = [];
   for (const item of items) {
     const connectionId = item.connectionId?.S;
     const wsEndpoint = item.wsEndpoint?.S;
     const deviceSk = item.sk?.S;
     if (!deviceSk) continue;
+    if (exceptDeviceId !== undefined && deviceSk === `${DEVICE_SK_PREFIX}${exceptDeviceId}`) continue;
     // Revoked. connect.mjs refuses a revoked television a new connection,
     // but one it already holds stays open — the card service's for hours —
     // so it is refused here as well, on both.
@@ -172,7 +175,7 @@ export function liveDeviceConnections(items: readonly Record<string, AttributeVa
   return live;
 }
 
-async function findDeviceConnections(householdId: string): Promise<DeviceConnection[]> {
+async function findDeviceConnections(householdId: string, exceptDeviceId?: string): Promise<DeviceConnection[]> {
   const items: Record<string, AttributeValue>[] = [];
   let startKey: Record<string, AttributeValue> | undefined;
   do {
@@ -188,7 +191,7 @@ async function findDeviceConnections(householdId: string): Promise<DeviceConnect
     items.push(...(page.Items ?? []));
     startKey = page.LastEvaluatedKey;
   } while (startKey);
-  return liveDeviceConnections(items);
+  return liveDeviceConnections(items, exceptDeviceId);
 }
 
 /**
@@ -196,8 +199,8 @@ async function findDeviceConnections(householdId: string): Promise<DeviceConnect
  * fails, then the first real failure is rethrown — one broken television
  * must not keep a card off the others.
  */
-async function pushToDevices(householdId: string, payload: DeviceWireMessage): Promise<void> {
-  const conns = await findDeviceConnections(householdId);
+async function pushToDevices(householdId: string, payload: DeviceWireMessage, exceptDeviceId?: string): Promise<void> {
+  const conns = await findDeviceConnections(householdId, exceptDeviceId);
   const results = await Promise.allSettled(
     conns.map((conn) => ('mqttDeviceId' in conn ? pushOverMqtt(conn, payload) : pushOverWebSocket(householdId, conn, payload))),
   );
@@ -368,14 +371,17 @@ export async function sendPatchToDevice(patch: CardPatch, householdId: string): 
 /**
  * Takes a card off every television in the home that is showing it — the
  * `revoke` both televisions already understand. For a card answered on one
- * screen while another still has it up ("Shall I tell Sarah?" in two rooms).
+ * screen while another still has it up (a note, or "Shall I tell Sarah?",
+ * in two rooms). `exceptDeviceId` is the television that was pressed, when
+ * it is known: it has put the card away itself.
  *
  * Only the live push. The stored card is retired by the press itself (the
  * edge's card-acted.mjs), so a television that connects later is not handed
- * it again.
+ * it again — and is told to drop its own copy, if it holds one (the edge's
+ * reconcile).
  */
-export async function withdrawFromDevices(cardId: string, householdId: string): Promise<void> {
-  await pushToDevices(householdId, { kind: 'control', control: { t: 'revoke', cardId } });
+export async function withdrawFromDevices(cardId: string, householdId: string, exceptDeviceId?: string): Promise<void> {
+  await pushToDevices(householdId, { kind: 'control', control: { t: 'revoke', cardId } }, exceptDeviceId);
 }
 
 // ---------------------------------------------------------------------------

@@ -192,6 +192,24 @@ describe('holdCardChannel — what App.tsx runs once the device is ready', () =>
     held.stop();
   });
 
+  it('reports the cards it holds to reconcile, from the same store, on both channels', async () => {
+    const store = new QueueStore(brokenFs());
+    await store.upsert(doorCard('c7'));
+    await store.upsert(doorCard('c8'));
+    let overWebSocket: readonly string[] | undefined;
+    let overMqtt: readonly string[] | undefined;
+    const held = holdCardChannel(store, TOKEN, async (config) => {
+      overWebSocket = await config.websocket.getHeldCardIds?.();
+      overMqtt = await config.mqtt?.getHeldCardIds?.();
+      return new FakeChannel();
+    }, { websocketUrl: 'wss://ws.example', mqttWssUrl: 'wss://iot.example/mqtt' });
+    await settle();
+
+    expect(overWebSocket).toEqual(['c7', 'c8']);
+    expect(overMqtt).toEqual(['c7', 'c8']);
+    held.stop();
+  });
+
   it('retries a failed first connect, backing off, until it succeeds', async () => {
     vi.useFakeTimers();
     const store = new QueueStore(brokenFs());

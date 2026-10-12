@@ -24,6 +24,11 @@ export interface WebSocketChannelConfig {
   readonly url: string;
   readonly getLastSeenCardId?: () => string | undefined | Promise<string | undefined>;
   /**
+   * The cards this television holds, sent with the reconcile: the server
+   * takes back any that were answered on another television in the home.
+   */
+  readonly getHeldCardIds?: () => readonly string[] | Promise<readonly string[]>;
+  /**
    * 'background' for the card service's connection: the server keeps it
    * apart from the app's own (edge-device connection-slot.mjs) and sends to
    * it only while the app is not on screen. It never reconciles — a replay
@@ -112,7 +117,8 @@ export class WebSocketChannel implements DeviceChannel {
           this.#backoffMs = MIN_BACKOFF_MS;
           if (this.#config.role !== 'background') {
             const sinceCardId = await this.#config.getLastSeenCardId?.();
-            socket.send(JSON.stringify({ t: 'reconcile', sinceCardId }));
+            const holding = await this.#config.getHeldCardIds?.();
+            socket.send(JSON.stringify({ t: 'reconcile', sinceCardId, ...(holding ? { holding } : {}) }));
           }
           if (!settled) {
             settled = true;

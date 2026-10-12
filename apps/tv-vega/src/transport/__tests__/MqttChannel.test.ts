@@ -119,6 +119,15 @@ describe('MqttChannel', () => {
     expect(client.published).toEqual([{ topic: EVENTS, payload: JSON.stringify({ t: 'reconcile', sinceCardId: 'card-7' }) }]);
   });
 
+  it('says which cards it holds, so one answered on another television is taken back', async () => {
+    const client = new FakeMqttClient();
+    const channel = new MqttChannel({ wssUrl: WSS, getLastSeenCardId: () => 'card-7', getHeldCardIds: async () => ['note-a'] }, fakeConnector(client));
+
+    await opened(channel, client);
+
+    expect(client.published).toEqual([{ topic: EVENTS, payload: JSON.stringify({ t: 'reconcile', sinceCardId: 'card-7', holding: ['note-a'] }) }]);
+  });
+
   it('delivers a card message to onCard handlers', async () => {
     const client = new FakeMqttClient();
     const channel = new MqttChannel({ wssUrl: WSS }, fakeConnector(client));
