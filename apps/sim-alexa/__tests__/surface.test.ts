@@ -1064,6 +1064,15 @@ describe('watching a film together', () => {
       expect(routeUtterance('Can we watch a movie together?')).toEqual({ kind: 'invite' });
     });
 
+    it('knows an invitation to a film from an invitation to the family circle', () => {
+      expect(routeUtterance('Invite Mum to watch Sintel with me today at 10:45')).toEqual({ kind: 'invite' });
+      expect(routeUtterance('Invite Mum to a film on Sunday')).toEqual({ kind: 'invite' });
+      expect(routeUtterance('Did Mum accept my invitation to the film?')).toMatchObject({ kind: 'tool', tool: 'get_watch_together' });
+      // Nothing about a film: still the circle.
+      expect(routeUtterance('Invite my brother')).toEqual({ kind: 'circle' });
+      expect(routeUtterance('Send an invitation to my sister')).toEqual({ kind: 'circle' });
+    });
+
     it('leaves a note about a film a note', () => {
       expect(routeUtterance('Tell Mum the film was lovely').kind).toBe('compose');
     });

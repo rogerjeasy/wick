@@ -43,6 +43,34 @@ resource "aws_cloudfront_origin_access_control" "programmes" {
   signing_protocol                  = "sigv4"
 }
 
+# Any origin may read the films: they are public (CC BY 3.0) and carry no
+# cookie or credential.
+#
+# Wick's own policy, not AWS's Managed-SimpleCORS. That one lists no request
+# headers, and CloudFront leaves the cross-origin header off any request
+# carrying a header it does not list — which is every request Chrome makes,
+# because Chrome adds `priority` to them. The films then loaded from curl and
+# from no browser. Seen on the deployed stack on 2026-10-12.
+resource "aws_cloudfront_response_headers_policy" "programmes" {
+  name    = "${local.prefix}-programmes-any-origin"
+  comment = "The films may be read from any origin, whatever headers the browser adds"
+
+  cors_config {
+    access_control_allow_credentials = false
+    origin_override                  = true
+
+    access_control_allow_origins {
+      items = ["*"]
+    }
+    access_control_allow_methods {
+      items = ["GET", "HEAD"]
+    }
+    access_control_allow_headers {
+      items = ["*"]
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "programmes" {
   enabled = true
   comment = "Wick — programmes (Blender open films, HLS)"
@@ -62,11 +90,9 @@ resource "aws_cloudfront_distribution" "programmes" {
 
     # Watching together: the family member's player runs in a browser, on the
     # family app's origin, and a browser's HLS player (hls.js) fetches the
-    # playlist and each segment with a cross-origin request. Without this
-    # header it is refused. The films are public (CC BY 3.0) and carry no
-    # cookie or credential, so any origin may read them: AWS's own
-    # Managed-SimpleCORS policy, named by its fixed id.
-    response_headers_policy_id = "60669652-455b-4ae9-85a4-c4c02393f86c"
+    # playlist and each segment with a cross-origin request. Without the
+    # header below it is refused.
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.programmes.id
 
     forwarded_values {
       query_string = false
