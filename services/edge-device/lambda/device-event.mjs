@@ -77,6 +77,7 @@ import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
 import { buildCardActionEntry, shouldPublish } from './card-action-event.mjs';
 import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
 import { SHARING_CARD_ID, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
+import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
 
 const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
@@ -210,7 +211,11 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
 
     if (deviceEvent.t === 'card_action') {
       const decision = circleDecision(deviceEvent.cardId, deviceEvent.action);
-      if (decision) await recordCircleDecision(householdId, decision, deviceEvent.at);
+      if (decision) {
+        await recordCircleDecision(householdId, decision, deviceEvent.at);
+        // There is now somebody to tell: anything already different is asked about at once.
+        if (decision.status === 'allowed') await signalActive(householdId, deviceId, { always: true });
+      }
 
       const index = replyIndex(deviceEvent.cardId, deviceEvent.action);
       if (index !== undefined) await recordNoteReply(householdId, deviceEvent.cardId, index, deviceEvent.at);
@@ -230,8 +235,30 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
     await reconcile({ sendCard, householdId });
   }
 
+  if (isActiveSignal(deviceEvent)) await signalActive(householdId, deviceId);
+
   return { statusCode: 200, body: '' };
 };
+
+/**
+ * Tells the agent plane the resident is at the television, so it can ask
+ * what there is to ask (television-active.mjs). At most once every little
+ * while per television — unless `always`, for the one moment that cannot
+ * wait: the resident has just allowed someone, so there is now somebody to
+ * tell. Logged, never thrown: a look that was not asked for is asked for at
+ * the next signal.
+ */
+async function signalActive(householdId, deviceId, { always = false } = {}) {
+  const now = Date.now();
+  try {
+    if (!always) await ddb.send(new UpdateItemCommand(claimActiveSignal({ table: TABLE, householdId, deviceId, now })));
+    const res = await events.send(new PutEventsCommand({ Entries: [buildTelevisionActiveEntry({ busName: BUS, householdId, deviceId, at: now })] }));
+    if (res.FailedEntryCount) console.error('television_active_publish_rejected', { code: res.Entries?.[0]?.ErrorCode });
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return; // signalled lately, or not a paired television
+    console.error('television_active_signal_failed', { householdId, err: err?.name });
+  }
+}
 
 /**
  * See card-acted.mjs markCardShown. Logged, never thrown: the showing is

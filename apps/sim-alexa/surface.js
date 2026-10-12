@@ -406,25 +406,42 @@ function presentVisitor(v, formatTime, now) {
 }
 
 /**
- * Something's Different. The server writes every sentence and the summary;
- * this only lays them out. A usual day is said and shows no card: there is
- * nothing behind "nothing is different" to look at.
+ * What the resident asked Wick to tell (get_whats_different). The server
+ * writes every sentence and the summary; this only lays them out.
+ *
+ * Nothing told shows no card, and is never said as "nothing is different":
+ * the resident is asked first on their own television, and what they have
+ * not answered, or chose to keep, looks exactly like nothing here.
  */
 function presentDifferent(answer, formatTime) {
   const differences = answer.differences ?? [];
-  const say = typeof answer.summary === 'string' ? answer.summary : 'Nothing is different from the usual today.';
+  const say = typeof answer.summary === 'string' ? answer.summary : 'Nothing has been passed on to you.';
   if (differences.length === 0) return { say, card: null, tone: 'answer' };
   return {
     say,
     tone: 'answer',
     card: {
       kind: 'list',
-      title: differences.length === 1 ? 'One thing is different' : `${things(differences.length)} are different`,
+      title: differences.length === 1 ? 'One thing to tell you' : `${things(differences.length)} to tell you`,
       meta: '',
-      items: differences.map((d) => ({ primary: d.sentence, secondary: formatTime(d.at) })),
-      footnote: `Against the last ${answer.weeksObserved} weeks in this house, and nothing else.`,
+      items: differences.map((d) => ({ primary: d.sentence, secondary: `${formatTime(d.at)} · told ${formatTime(d.toldAt)}` })),
+      footnote: answer.weeksObserved ? `Against the last ${answer.weeksObserved} weeks in this house, and nothing else.` : '',
     },
   };
+}
+
+/**
+ * What a look at get_whats_different, made unasked when the app is opened,
+ * found to say: the things the resident asked to be told that this browser
+ * has not shown before. Returns their ids.
+ *
+ * @param {string} raw  the tool result's text
+ * @param {string[]} shown  the ids this browser has already shown
+ */
+export function toldToAnnounce(raw, shown) {
+  const answer = parseJson(raw);
+  if (!answer || !Array.isArray(answer.differences)) return [];
+  return answer.differences.map((d) => d?.id).filter((id) => typeof id === 'string' && !shown.includes(id));
 }
 
 /**
@@ -728,7 +745,7 @@ export function describeCall(toolName, args = {}) {
     case 'get_week_narrative': return 'Read the week';
     case 'get_today': return `Looked at ${dayAsked(args)}`;
     case 'list_regular_visitors': return 'Checked who visits';
-    case 'get_whats_different': return 'Looked for anything different';
+    case 'get_whats_different': return 'Looked for anything to tell you';
     case 'did_visitor_come': return `Checked ${dayAsked(args)}’s visits`;
     case 'get_replies': return 'Looked for a reply';
     case 'get_resident_shared_view': return 'Checked what is shared';

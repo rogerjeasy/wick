@@ -7,10 +7,10 @@
  *
  * Single GetItem over the household's policy record. No model call.
  */
-import { GetItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { isSharedWithFamily, loadHouseholdPolicy as loadPolicyFrom } from '@wick/agent';
 import type { HouseholdPolicy } from '@wick/policy';
-import { DEFAULT_POLICY } from '@wick/policy';
-import { NEVER_TO_FAMILY, type FactClass } from '@wick/contracts';
+import type { FactClass } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
@@ -29,37 +29,14 @@ export const FAMILY_REFUSAL_TEXT = "That's something the resident is keeping to 
 
 /**
  * The household's policy, with the resident's own choices from their
- * television merged in. "What Sarah sees" (services/edge-device/lambda/
- * sharing.mjs) records those as a `residentExclusions` string set on this
- * same META item, so the policy document itself is never rewritten by a
- * device. Exclusions only ever narrow (services/policy).
+ * television merged in — read as the agent plane reads it
+ * (services/agent store/household.ts), so the two cannot disagree.
  */
-export async function loadHouseholdPolicy(ddb: DynamoDBClient, householdId: string): Promise<HouseholdPolicy> {
-  const res = await ddb.send(new GetItemCommand({
-    TableName: TABLE,
-    Key: { pk: { S: `HH#${householdId}` }, sk: { S: 'META' } },
-  }));
-  const raw = res.Item?.policy?.S;
-  const policy = raw ? (JSON.parse(raw) as HouseholdPolicy) : DEFAULT_POLICY;
-  const fromTv = (res.Item?.residentExclusions?.SS ?? []) as FactClass[];
-  if (fromTv.length === 0) return policy;
-  return { ...policy, residentExclusions: [...new Set([...policy.residentExclusions, ...fromTv])] };
-}
+export const loadHouseholdPolicy = (ddb: DynamoDBClient, householdId: string): Promise<HouseholdPolicy> =>
+  loadPolicyFrom(ddb, TABLE, householdId);
 
-/**
- * Mirrors services/policy/src/evaluate.ts's order exactly: table rule allows
- * it, OR it's an explicit opt-in that is not in NEVER_TO_FAMILY (the opt-in
- * can never widen past that hard cap); resident exclusions narrow last. The
- * single source of truth for "is this FactClass visible to FAMILY" used by
- * get_resident_shared_view, get_today and did_visitor_come alike, so all
- * three surfaces can never disagree.
- */
-export function isSharedWithFamily(factClass: FactClass, policy: HouseholdPolicy): boolean {
-  const rule = policy.table[factClass].FAMILY;
-  const allowed =
-    rule.allow || (policy.familyPermitted.includes(factClass) && !NEVER_TO_FAMILY.includes(factClass));
-  return allowed && !policy.residentExclusions.includes(factClass);
-}
+/** The single source of truth for "is this FactClass visible to FAMILY" (services/agent store/household.ts). */
+export { isSharedWithFamily };
 
 /**
  * Each class in the words the television's own "What Sarah sees" screen

@@ -18,6 +18,9 @@ export function waitingLine(queued: QueuedCard): string {
       return `${card.personName} would like to join your family circle.`;
     case 'SHARING':
       return 'What your family can see is ready to look at.';
+    // Not the sentence itself: the home screen can be read by anyone in the room.
+    case 'TELL':
+      return 'Wick has a question for you.';
     default:
       return 'Something is waiting for you.';
   }

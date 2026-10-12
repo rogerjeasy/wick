@@ -1,115 +1,78 @@
 /**
  * MCP tool: get_whats_different — D1, "Something's Different" (docs/WICK.md
- * §4.4), as the family reads it.
+ * §4.4), as the family reads it: only what the resident chose to tell.
  *
- * What is unlike this household's own usual right now, each in one plain
- * sentence — or that nothing is. Never an alert: it is an answer to "is
- * everything all right?", told in the same register as the week.
+ * Wick notices when a day is unlike this household's own usual
+ * (services/agent rhythm/different.ts). It used to say so to whoever in the
+ * family asked. Now the resident is asked first, on their own television —
+ * "Shall I tell Sarah?" — and shown the very sentence (agents/tell). This
+ * tool reads the answers: a difference is here once the resident pressed
+ * "Tell", in the words they were shown, and not before.
  *
- * Nothing is decided here. The counting and every sentence are the Rhythm
- * pillar's (services/agent/src/rhythm/different.ts): against the
- * household's own last six weeks, never from fewer than three, and never by
- * a model. This file loads the six weeks, and withholds what the resident
- * does not share:
+ * What it must never do is let silence speak. A difference still waiting
+ * for an answer, and one the resident kept to themselves, are returned
+ * exactly as no difference at all is — and the summary says only that
+ * nothing has been told, never that nothing is different. Otherwise "Keep
+ * it to myself" would itself tell the family that there was something.
  *
- *   - Every difference is a comparison with the household's usual, which is
- *     the RHYTHM class — "the shape of the week" on the resident's own
- *     television. Keeping that private withholds the whole answer, exactly
- *     as it withholds the week (get_week_narrative's familyWeek), and
- *     nothing is read to work it out.
- *   - Within it, per class, as get_today does: a household can keep its
- *     visitors private and not its door.
+ * The resident's standing choices still apply on top (get_today does the
+ * same): keeping the shape of the week private withholds the whole answer,
+ * and a class made private since a difference was told withholds it again.
  *
- * Computed on request rather than by a job. The answer is about now, and
- * six weeks of a household's events is one small query (§7.3's 500 ms).
+ * Nothing is computed here, and no model is called: one Query of the
+ * household's TELL# rows, well inside §7.3's 500 ms.
  */
-import { QueryCommand, type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { padTimestamp, parseTimestampFromSortKey, type TimelineEntry } from '@wick/contracts';
-import { toTimelineEntry, whatsDifferent, type DifferenceKind } from '@wick/agent';
+import { QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { TELL_SK_PREFIX, type FactClass } from '@wick/contracts';
+import type { DifferenceKind } from '@wick/agent';
 import type { HouseholdPolicy } from '@wick/policy';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
-import { loadRoster } from './list_regular_visitors.js';
 import { withFriendlyErrors } from './errors.js';
 import { READS, data, say } from './result.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 const DAY_MS = 86_400_000;
-/** The six weeks a usual day is drawn from (rhythm/baseline.ts BASELINE_WEEKS), and today. */
-const LOOK_BACK_MS = (6 * 7 + 1) * DAY_MS;
+/** How long something told stays readable: long enough to be read by someone who looks once a week. */
+const TOLD_FOR_MS = 7 * DAY_MS;
 
 const KEPT_PRIVATE = ' That is something the resident keeps to themselves.';
 
+export interface ToldDifference {
+  /** Stable for this difference: an app can tell what it has already shown. */
+  readonly id: string;
+  readonly kind: DifferenceKind;
+  /** The sentence the resident was shown when they were asked, word for word. */
+  readonly sentence: string;
+  /** The moment the difference is about. */
+  readonly at: number;
+  /** When the resident said to tell. */
+  readonly toldAt: number;
+}
+
 export interface DifferentForFamily {
-  /** Whole weeks Wick has been watching this household, at most six. */
-  readonly weeksObserved: number;
-  /** False below three weeks: there is no usual yet. */
-  readonly enoughHistory: boolean;
-  /** Most worth knowing first. Empty on a usual day. */
-  readonly differences: readonly { readonly kind: DifferenceKind; readonly sentence: string; readonly at: number }[];
-  /** What the resident keeps private, in plain words — so "nothing different" is not read as "nothing happened". */
+  /** What the resident asked Wick to tell, newest first. Empty says nothing about whether anything is different. */
+  readonly differences: readonly ToldDifference[];
+  /** How many weeks of this household's own history the newest was measured against. Absent when nothing is told. */
+  readonly weeksObserved?: number;
+  /** What the resident keeps private as a standing choice, in plain words. */
   readonly keptPrivate: readonly string[];
   /** The whole answer in words, to be said as it stands. */
   readonly summary: string;
 }
 
-async function loadEntries(ddb: DynamoDBClient, householdId: string, now: number): Promise<TimelineEntry[]> {
-  const entries: TimelineEntry[] = [];
-  let startKey: Record<string, AttributeValue> | undefined;
-  do {
-    const page = await ddb.send(new QueryCommand({
-      TableName: TABLE,
-      KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
-      ExpressionAttributeValues: {
-        ':pk': { S: `HH#${householdId}` },
-        ':from': { S: `EVT#${padTimestamp(now - LOOK_BACK_MS)}` },
-        ':to': { S: `EVT#${padTimestamp(now)}#￿` },
-      },
-      ...(startKey ? { ExclusiveStartKey: startKey } : {}),
-    }));
-    for (const item of page.Items ?? []) {
-      const entry = toTimelineEntry(item);
-      if (entry) entries.push(entry);
-    }
-    startKey = page.LastEvaluatedKey;
-  } while (startKey);
-  return entries;
-}
-
-/** When Wick first recorded anything for this household. A week before it is a week nobody saw. */
-async function firstEventAt(ddb: DynamoDBClient, householdId: string): Promise<number | undefined> {
-  const first = await ddb.send(new QueryCommand({
-    TableName: TABLE,
-    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
-    ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':prefix': { S: 'EVT#' } },
-    Limit: 1,
-  }));
-  const sk = first.Items?.[0]?.sk?.S;
-  return sk ? parseTimestampFromSortKey(sk) : undefined;
-}
-
-function summaryOf(answer: Pick<DifferentForFamily, 'weeksObserved' | 'enoughHistory' | 'differences'>): string {
-  if (!answer.enoughHistory) {
-    const watched = answer.weeksObserved === 0 ? 'less than a week' : answer.weeksObserved === 1 ? 'one week' : `${answer.weeksObserved} weeks`;
-    return `Wick has been here for ${watched}. It needs three weeks before it knows what is usual, so it cannot yet say what is different.`;
-  }
-  if (answer.differences.length === 0) return 'Nothing is different from the usual today.';
-  return `${answer.differences.map((d) => d.sentence).join(' ')} Nothing else is different from the usual.`;
-}
-
 /**
  * The family's answer, or `undefined` when the resident keeps the shape of
- * the week private — in which case nothing has been read to work one out.
+ * the week private — in which case nothing has been read.
  */
 export async function loadWhatsDifferent(
   ddb: DynamoDBClient,
   householdId: string,
   now: Date,
   policy: HouseholdPolicy,
-  timeZone: string = HOUSEHOLD_TZ,
+  residentName: string,
 ): Promise<DifferentForFamily | undefined> {
   if (!isSharedWithFamily('RHYTHM', policy)) return undefined;
 
@@ -119,21 +82,36 @@ export async function loadWhatsDifferent(
     ...(doorShared ? [] : [`When someone comes to the door.${KEPT_PRIVATE}`]),
     ...(presenceShared ? [] : [`Who visits, by name.${KEPT_PRIVATE}`]),
   ];
+  const shared = (factClass: string | undefined): boolean =>
+    factClass === ('PRESENCE' satisfies FactClass) ? presenceShared : factClass === ('DOOR_EVENT' satisfies FactClass) ? doorShared : false;
 
-  const [entries, observedSince, roster] = await Promise.all([
-    loadEntries(ddb, householdId, now.getTime()),
-    firstEventAt(ddb, householdId),
-    // Not read at all when visitors are private: nothing about them is to be worked out, let alone said.
-    presenceShared ? loadRoster(ddb, householdId) : Promise.resolve([]),
-  ]);
+  const res = await ddb.send(new QueryCommand({
+    TableName: TABLE,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':prefix': { S: TELL_SK_PREFIX } },
+  }));
 
-  const counted = whatsDifferent({ entries, roster, now: now.getTime(), observedSince, timeZone });
-  const differences = counted.differences
-    .filter((d) => (d.factClass === 'PRESENCE' ? presenceShared : doorShared))
-    .map(({ kind, sentence, at }) => ({ kind, sentence, at }));
+  const told: (ToldDifference & { weeksObserved: number })[] = [];
+  for (const row of res.Items ?? []) {
+    // Only "tell". A question still open and one answered "keep" are both simply not here.
+    if (row.answer?.S !== 'tell' || !shared(row.factClass?.S)) continue;
+    const toldAt = Number(row.answeredAt?.N);
+    const id = row.differenceId?.S;
+    const sentence = row.sentence?.S;
+    if (!id || !sentence || !Number.isFinite(toldAt) || now.getTime() - toldAt > TOLD_FOR_MS) continue;
+    told.push({ id, kind: row.kind?.S as DifferenceKind, sentence, at: Number(row.at?.N), toldAt, weeksObserved: Number(row.weeksObserved?.N ?? 0) });
+  }
+  told.sort((a, b) => b.toldAt - a.toldAt);
 
-  const answer = { weeksObserved: counted.weeksObserved, enoughHistory: counted.enoughHistory, differences };
-  return { ...answer, keptPrivate, summary: summaryOf(answer) };
+  const differences = told.map(({ weeksObserved: _weeks, ...difference }) => difference);
+  return {
+    differences,
+    ...(told[0] ? { weeksObserved: told[0].weeksObserved } : {}),
+    keptPrivate,
+    summary: differences.length === 0
+      ? `${residentName} hasn't asked Wick to tell you anything.`
+      : `${residentName} asked Wick to tell you: ${differences.map((d) => d.sentence).join(' ')}`,
+  };
 }
 
 export function registerGetWhatsDifferent(
@@ -145,18 +123,18 @@ export function registerGetWhatsDifferent(
   mcpServer.registerTool(
     'get_whats_different',
     {
-      title: 'What is different',
+      title: 'What the resident asked to be told',
       description:
-        "Says what is unlike this household's own usual right now, each in one plain sentence: a regular visitor who did not come on one of their days, " +
-        'somebody at the door in the night, or a day at the door unlike the same weekday usually is. Compared with the household\'s own last six weeks, ' +
-        'and nothing is called different before there are three. Use it for "is anything different", "is everything all right" or "anything I should know". ' +
-        'Say `summary` as it stands. It is not an alert and must not be told as one: on most days the answer is that nothing is different.',
+        "Wick notices when a day is unlike this household's own usual: a regular visitor who did not come, somebody at the door in the night, a day at the door unlike the same weekday usually is. " +
+        'It asks the resident first, on their television, whether to tell the family. This returns only what the resident said to tell, each in the one sentence they were shown, newest first. ' +
+        'Use it for "is anything different", "is everything all right" or "anything I should know". Say `summary` as it stands. ' +
+        'An empty answer means nothing has been told — it does NOT mean nothing is different, so never say that nothing is different, that all is well, or that anything is being kept back. It is not an alert and must not be told as one.',
       inputSchema: {},
       annotations: READS,
     },
-    withFriendlyErrors(gated(ctx, async () => {
+    withFriendlyErrors(gated(ctx, async (allowed) => {
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
-      const answer = await loadWhatsDifferent(ddb, ctx.householdId, now(), policy);
+      const answer = await loadWhatsDifferent(ddb, ctx.householdId, now(), policy, allowed.household.residentName);
       return answer ? data(answer) : say(FAMILY_REFUSAL_TEXT);
     })),
   );

@@ -240,6 +240,11 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'kicker', card.type === 'CIRCLE' ? 'Your family circle' : 'What your family sees'));
     wrapper.appendChild(el('div', 'headline', card.headline));
     wrapper.appendChild(el('div', 'body-text', card.detail));
+  } else if (card.type === 'TELL') {
+    // "Shall I tell Sarah?" — the sentence shown is the one the family would be told (services/agent rhythm/tell.ts).
+    wrapper.appendChild(el('div', 'kicker', 'Something is different today'));
+    wrapper.appendChild(el('div', 'headline', card.headline));
+    wrapper.appendChild(el('div', 'body-text', card.detail));
   } else {
     wrapper.appendChild(el('div', 'body-text', `Unrecognized card type: ${card.type}`));
   }
@@ -251,8 +256,8 @@ function renderCard(queuedCard) {
       pill.type = 'button';
       pill.addEventListener('click', () => {
         send({ t: 'card_action', cardId: card.id, action: action.id, at: Date.now() });
-        // An answer to the family circle finishes its card, as on the television (cardActions.ts).
-        if (card.type === 'CIRCLE') {
+        // An answer to the family circle, or to "Shall I tell …?", finishes its card, as on the television (cardActions.ts).
+        if (card.type === 'CIRCLE' || card.type === 'TELL') {
           currentQueuedCard = null;
           renderEmpty();
         }
