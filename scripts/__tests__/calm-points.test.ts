@@ -182,3 +182,74 @@ describe('the committed calm points', () => {
     }
   });
 });
+
+describe('the break map — what a person is shown of all this', () => {
+  it('draws every calm point of every film, with the time a person would say', async () => {
+    const { renderBreakMap } = await import('../calm-points/page.js');
+    const html = renderBreakMap(
+      [film({ programmeId: 'big-buck-bunny', silences: [silenceAround(120_000), silenceAround(330_000)] })],
+      { 'big-buck-bunny': { title: 'Big Buck Bunny', attribution: '© Blender Foundation | peach.blender.org', creditsPositionMs: 540_000 } },
+      { 'big-buck-bunny': { '120000': 'A rabbit in a meadow, then the tree above it.' } },
+    );
+
+    expect(html).toContain('Big Buck Bunny');
+    expect(html).toContain('2:00');
+    expect(html).toContain('5:30');
+    expect(html).toContain('A rabbit in a meadow, then the tree above it.');
+    expect(html).toContain('frames/big-buck-bunny-120000-before.jpg');
+    expect(html).toContain('© Blender Foundation | peach.blender.org');
+  });
+
+  it('says nothing where there is no sentence fit to show, and never shows markup from one', async () => {
+    const { renderBreakMap } = await import('../calm-points/page.js');
+    const html = renderBreakMap(
+      [film({ programmeId: 'x', silences: [silenceAround(120_000), silenceAround(330_000)] })],
+      { x: { title: 'A <film>', attribution: 'someone & co', creditsPositionMs: 540_000 } },
+      { x: { '120000': '<script>alert(1)</script>' } },
+    );
+
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).toContain('A &lt;film&gt;');
+    expect(html).toContain('someone &amp; co');
+  });
+
+  it('has a sentence on file only for calm points that exist, and the page on file is the one these make', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { readMeasured } = await import('../calm-points/build.js');
+    const { BREAK_MAP_FILE, DESCRIBED_FILE, programmesForPage, renderBreakMap } = await import('../calm-points/page.js');
+    const described = JSON.parse(readFileSync(DESCRIBED_FILE, 'utf8')) as Record<string, Record<string, string>>;
+    const measured = readMeasured();
+
+    for (const m of measured) {
+      const chosen = chooseCalmPoints(m).map((p) => String(p.atMs));
+      for (const at of Object.keys(described[m.programmeId] ?? {})) expect(chosen, m.programmeId).toContain(at);
+    }
+    expect(readFileSync(BREAK_MAP_FILE, 'utf8')).toBe(renderBreakMap(measured, programmesForPage(), described));
+  });
+});
+
+describe('fitToShow — the one sentence a model may add to the break map', () => {
+  it('accepts "From … to …." in plain words', async () => {
+    const { fitToShow } = await import('../calm-points/sentence.js');
+
+    expect(fitToShow('From a rabbit holding an apple to the apple tree above it.')).toBe(true);
+  });
+
+  it('refuses anything not in that form, more than one sentence, or more words than fit under two pictures', async () => {
+    const { fitToShow } = await import('../calm-points/sentence.js');
+
+    expect(fitToShow('The first frame shows a rabbit. The second frame shows a tree.')).toBe(false);
+    expect(fitToShow('From a rabbit to a tree. It is a calm moment.')).toBe(false);
+    expect(fitToShow(`From ${'a very large and rather sleepy '.repeat(4)}rabbit to a tree.`)).toBe(false);
+    expect(fitToShow('From a rabbit')).toBe(false);
+    expect(fitToShow('')).toBe(false);
+  });
+
+  it('refuses a guess: what a character feels or means is not in a frame', async () => {
+    const { fitToShow } = await import('../calm-points/sentence.js');
+
+    expect(fitToShow('From a rabbit that seems happy to a tree.')).toBe(false);
+    expect(fitToShow('From a woman who is probably afraid to a cave.')).toBe(false);
+  });
+});

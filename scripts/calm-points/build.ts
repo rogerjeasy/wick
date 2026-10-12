@@ -10,14 +10,17 @@
  * 2. Every measured programme is put through choose.ts, and the result is
  *    written to apps/tv-vega/src/catalog/calmPoints.ts.
  *
- * Both outputs are committed. The second is generated, never edited: a
- * test rebuilds it from the first and fails if they differ.
+ * 3. The break map (page.ts) is written to docs/calm-points/index.html.
+ *
+ * All three outputs are committed. The second and third are generated,
+ * never edited: a test rebuilds each and fails if it differs.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chooseCalmPoints, type CalmPoint, type Measured } from './choose.js';
 import { parseSegments, parseSilences, parseSound } from './parse.js';
+import { BREAK_MAP_DIR, BREAK_MAP_FILE, DESCRIBED_FILE, programmesForPage, renderBreakMap, type Described } from './page.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
@@ -98,4 +101,9 @@ export function main(): void {
   const all = readMeasured();
   writeFileSync(CALM_POINTS_FILE, renderCalmPointsModule(all));
   for (const m of all) console.log(`${m.programmeId}: ${chooseCalmPoints(m).length} calm points`);
+
+  // The page people look at (page.ts), from the same measurements and the sentences on file.
+  mkdirSync(BREAK_MAP_DIR, { recursive: true });
+  const described = JSON.parse(readFileSync(DESCRIBED_FILE, 'utf8')) as Described;
+  writeFileSync(BREAK_MAP_FILE, renderBreakMap(all, programmesForPage(), described));
 }
