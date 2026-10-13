@@ -14,6 +14,13 @@ const TRANSPORT_CLIENTS = [
   'mqtt',
   // Web Push: a request to a family member's browser, by way of its push service.
   'web-push',
+  // Amazon Translate. Not a way to a screen, but held to the same rule on
+  // purpose: free text is put into the household's language on its way to
+  // the resident's television and nowhere else (packages/contracts
+  // language.ts), so the one module that sends there is the one module that
+  // may hold a translator. Nothing bound for the family can be translated,
+  // because nothing else can reach the client.
+  '@aws-sdk/client-translate',
   '**/transport/WebSocketChannel*',
   '**/transport/MqttChannel*',
 ];
