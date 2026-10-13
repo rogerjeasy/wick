@@ -453,25 +453,49 @@ function page() {
     return node;
   };
   const byId = new Map<string, Node>();
+  /** What the page listens for on the document: the keyboard, which is its remote. */
+  const keys: Record<string, Array<(event: unknown) => void>> = {};
   const document = {
     getElementById: (id: string) => byId.get(id) ?? (byId.set(id, make('div')), byId.get(id)!),
     createElement: make,
-    addEventListener() {},
+    addEventListener(type: string, listener: (event: unknown) => void) {
+      (keys[type] ??= []).push(listener);
+    },
     removeEventListener() {},
     head: make('head'),
     hidden: false,
     activeElement: null,
   };
-  return { document, screen: () => document.getElementById('tv-screen') };
+  return { document, keys, screen: () => document.getElementById('tv-screen') };
 }
 
 /** Everything written on a node and under it, in the order it is drawn. */
 const textOf = (node: Node): string[] => [...(node.textContent ? [node.textContent] : []), ...node.children.flatMap(textOf)];
 const buttonsOf = (node: Node): Node[] => [...(node.tagName === 'button' ? [node] : []), ...node.children.flatMap(buttonsOf)];
+const marksOf = (node: Node): Node[] => [...(node.tagName === 'span' && String(node.className).includes('tv-read') ? [node] : []), ...node.children.flatMap(marksOf)];
 const imagesOf = (node: Node): Node[] => [...(node.tagName === 'img' ? [node] : []), ...node.children.flatMap(imagesOf)];
 
 function television() {
-  const { document, screen } = page();
+  const { document, keys, screen } = page();
+  /** The sounds the page has made: where each is fetched from, and what was done with it. */
+  const sounds: Array<{ src: string; played: number; paused: number; onplaying?: () => void; onended?: () => void; onerror?: () => void }> = [];
+  class FakeAudio {
+    played = 0;
+    paused = 0;
+    onplaying?: () => void;
+    onended?: () => void;
+    onerror?: () => void;
+    constructor(readonly src: string) {
+      sounds.push(this);
+    }
+    play() {
+      this.played += 1;
+      return Promise.resolve();
+    }
+    pause() {
+      this.paused += 1;
+    }
+  }
   const sockets: Array<{ sent: Array<Record<string, unknown>>; onopen?: () => void; onmessage?: (event: { data: string }) => void; readyState: number }> = [];
   class FakeWebSocket {
     static OPEN = 1;
@@ -485,7 +509,7 @@ function television() {
     }
     close() {}
   }
-  const context = vm.createContext({ document, window: {}, console, URL, setInterval, clearInterval, setTimeout, WebSocket: FakeWebSocket, fetch: () => Promise.reject(new Error('a test asks nobody')) });
+  const context = vm.createContext({ document, window: {}, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, fetch: () => Promise.reject(new Error('a test asks nobody')) });
   vm.runInContext(readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8'), context, { filename: 'device.js' });
 
   // Paired as the resident's television, and connected.
@@ -499,6 +523,16 @@ function television() {
     sent: () => socket.sent.map(({ at: _at, ...event }) => event),
     card: (queued: unknown) => receive({ kind: 'card', card: queued }),
     control: (control: unknown) => receive({ kind: 'control', control }),
+    /** A key on the keyboard, which is this page's remote. */
+    key: (key: string) => {
+      for (const listener of keys.keydown ?? []) listener({ key, preventDefault() {}, target: null });
+    },
+    sounds,
+    /** The marks on the screen that are not buttons and have no words: what each is called. */
+    marks: () => marksOf(screen()).map((mark) => mark.title),
+    pressMark: () => {
+      for (const listener of marksOf(screen())[0]?.listeners.click ?? []) listener();
+    },
     /** The pictures on the screen: where each is fetched from, and what it is called. */
     pictures: () => imagesOf(screen()).map((img) => ({ src: img.src, alt: img.alt })),
     /** A picture's address stops answering. */
@@ -1037,5 +1071,189 @@ describe('the browser television — her mantelpiece', () => {
     const familyMode = script.slice(script.indexOf("/* --- A family member's own television"), script.indexOf('/* --- Telemetry'));
 
     expect(familyMode).not.toMatch(/mantel|PHOTO/i);
+  });
+});
+
+/*
+ * Read to me (packages/contracts speech.ts) on the resident's television in
+ * the browser: the P key is its Play key. No sound is made here — an
+ * `Audio` is only ever an address, and none is fetched.
+ */
+describe('the browser television — read to me', () => {
+  const SPEECH = 'https://speech.example/tts/hh-1/abc.mp3?X-Amz-Signature=s';
+  /** Connected, with a note on screen. */
+  const withNote = (home: Record<string, unknown> = { light: 'on' }) => {
+    const tv = television();
+    tv.home(home);
+    tv.card(NOTE('See you on Sunday.'));
+    return tv;
+  };
+  const asked = (tv: ReturnType<typeof television>) => tv.sent().filter((event) => event.t === 'read');
+
+  it('asks for the card on screen when P is pressed, once, and waits for the answer', () => {
+    const tv = withNote();
+
+    tv.key('p');
+
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'note-1' }]);
+    expect(tv.sounds).toEqual([]);
+  });
+
+  it('takes the browser’s own Play/Pause key and a capital P for the same thing', () => {
+    for (const key of ['P', 'MediaPlayPause']) {
+      const tv = withNote();
+      tv.key(key);
+      expect(asked(tv), key).toHaveLength(1);
+    }
+  });
+
+  it('does nothing on P when no card is on screen, and nothing on any other key', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.key('p');
+
+    const note = withNote();
+    for (const key of ['Enter', 'ArrowRight', ' ', 'x', 'Escape']) note.key(key);
+
+    expect(asked(tv)).toEqual([]);
+    expect(asked(note)).toEqual([]);
+  });
+
+  it('plays the answer for that card, from its https address', () => {
+    const tv = withNote();
+    tv.key('p');
+
+    tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+    expect(tv.sounds.map((sound) => [sound.src, sound.played])).toEqual([[SPEECH, 1]]);
+  });
+
+  it('stops on P pressed again, and asks for nothing', () => {
+    const tv = withNote();
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+    tv.key('p');
+
+    expect(tv.sounds[0]!.paused).toBe(1);
+    expect(asked(tv)).toHaveLength(1);
+    // And P after that asks again.
+    tv.key('p');
+    expect(asked(tv)).toHaveLength(2);
+  });
+
+  it('plays nothing for an answer about another card, one it did not ask for, or one with no https address', () => {
+    const tv = withNote();
+    tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'door-9', url: SPEECH });
+    tv.control({ t: 'speech', cardId: 'note-1' });
+    expect(tv.sounds).toEqual([]);
+
+    for (const url of ['http://speech.example/a.mp3', 'javascript:alert(1)', 7]) {
+      const other = withNote();
+      other.key('p');
+      other.control({ t: 'speech', cardId: 'note-1', url });
+      expect(other.sounds, String(url)).toEqual([]);
+      // A quiet nothing: she can ask again.
+      other.key('p');
+      expect(asked(other)).toHaveLength(2);
+    }
+  });
+
+  it('is cut short when the card leaves the screen: another card comes, it is taken back, or it is answered', () => {
+    const ways: Record<string, (tv: ReturnType<typeof television>) => void> = {
+      'another card': (tv) => tv.card(LANGUAGE_CARD),
+      'taken back': (tv) => tv.control({ t: 'revoke', cardId: 'note-1' }),
+    };
+    for (const [way, out] of Object.entries(ways)) {
+      const tv = withNote();
+      tv.key('p');
+      tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+      out(tv);
+
+      expect(tv.sounds[0]!.paused, way).toBe(1);
+    }
+
+    const answered = television();
+    answered.home({});
+    answered.card(LANGUAGE_CARD);
+    answered.key('p');
+    answered.control({ t: 'speech', cardId: 'language-es', url: SPEECH });
+    answered.press('No, keep English');
+    expect(answered.sounds[0]!.paused).toBe(1);
+  });
+
+  it('goes on when the same card is drawn again', () => {
+    const tv = withNote();
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+    tv.card(NOTE('See you on Sunday.'));
+    tv.home({ light: 'out' });
+
+    expect(tv.sounds[0]!.paused).toBe(0);
+  });
+
+  it('is over when the reading ends or cannot be played, and P then asks again', () => {
+    for (const how of ['onended', 'onerror'] as const) {
+      const tv = withNote();
+      tv.key('p');
+      tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+      tv.sounds[0]![how]!();
+      tv.key('p');
+
+      expect(asked(tv), how).toHaveLength(2);
+    }
+  });
+
+  it('turns a film that is playing down for the voice, and puts it back exactly — when the reading ends, and when it is stopped', () => {
+    for (const out of ['ended', 'stopped'] as const) {
+      const tv = withNote();
+      tv.evaluate('film = { video: { volume: 0.8 }, layer: null, timer: 0, together: null }, true');
+      tv.key('p');
+      tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+      expect(tv.evaluate('film.video.volume'), out).toBe(0.8);
+
+      tv.sounds[0]!.onplaying!();
+      expect(tv.evaluate('film.video.volume'), out).toBe(0.3);
+
+      if (out === 'ended') tv.sounds[0]!.onended!();
+      else tv.key('p');
+      expect(tv.evaluate('film.video.volume'), out).toBe(0.8);
+      tv.evaluate('film = null, true');
+    }
+  });
+
+  it('marks every card with the key that reads it — a mark with no words, said in her language, that is not one of the card’s buttons', () => {
+    const tv = withNote();
+    expect(tv.marks()).toEqual(['Press P to hear this.']);
+    expect(tv.buttons()).toEqual([]);
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+
+    const spanish = withNote({ language: 'es' });
+    expect(spanish.marks()).toEqual(['Presione P para oír esto.']);
+
+    const none = television();
+    none.home({ light: 'on' });
+    expect(none.marks()).toEqual([]);
+  });
+
+  it('reads on a click on that mark, as on the key', () => {
+    const tv = withNote();
+
+    tv.pressMark();
+
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'note-1' }]);
+  });
+
+  it('leaves a family member’s own television alone: P is not its key, and nothing of reading is in its part of the page', () => {
+    const script = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
+    const familyMode = script.slice(script.indexOf("/* --- A family member's own television"), script.indexOf('/* --- Telemetry'));
+
+    expect(familyMode).not.toMatch(/toggleRead|stopRead|readHint|t: 'read'/);
+    expect(script).toMatch(/function residentKey\(event\) \{\s*if \(family\) return;/);
   });
 });
