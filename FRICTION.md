@@ -74,6 +74,7 @@ leads, not entries — an entry requires that you actually hit it.
 | Important | Ring's Playground simulates cameras only — no chime, so a chime integration cannot be shown without buying hardware (FL-019) |
 | Important | Ring's Playground delivers no doorbell or motion webhook, so nothing event-driven can be shown on it without an own event source (FL-027) |
 | Important | Fire OS: a short key press reaches JavaScript as key-up only and a held key as `longSelect`, undocumented beside `useTVEventHandler` (FL-028) |
+| Important | Vega: an app can start its own service but cannot hand it anything — no launch data, no shared storage, no second message (FL-029) |
 | Important | Alexa+ MCP add-on is US-only |
 | Important | No accessibility-preference API on Vega beyond screen-reader state |
 | Nice-to-have | Ring `sub_type` taxonomy too coarse |
@@ -86,6 +87,61 @@ leads, not entries — an entry requires that you actually hit it.
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-029 — A Vega app can start its own service, but cannot hand it anything: no launch data, no shared storage, no second message
+
+**Tool / API:**      Vega OS SDK 0.24.12044 / `@amazon-devices/headless-task-manager` 1.2.8
+                     (`registerHeadlessEntryPoint2`, `…::onStartService`), `Linking.openURL` on a
+                     `pkg://` service URI, Vega Virtual Device
+
+**Task attempted:**  Give Wick's background service the token its app already holds. On a family
+                     member's own television the service asks what is waiting for that member
+                     while another app is in front, and the pairing service mints that
+                     television's token only for one that shows the token it held. The app has
+                     it; the service, a separate process, does not.
+
+**Steps taken:**     On the Vega Virtual Device, 2026-10-13:
+                     1. Read what `onStart` is given: `{id, name, type}` and nothing else.
+                     2. Put a 915-character query on the `pkg://` service URI. The service
+                        started; the query was readable nowhere in it.
+                     3. Tried `require('react-native').Linking` in the service to read the
+                        launching URL: the process aborted with signal 6, inside a try/catch.
+                     4. Wrote with `AsyncLocalStorage` in the app and read in the service: it is
+                        present in both processes and shared by neither. (The file system keeps
+                        nothing at all here — FL-013.)
+                     5. Sent a second `openURL` to the running singleton service: `onStart` was
+                        not called again.
+                     6. Put both components in one process group: one pid, two JavaScript
+                        runtimes, nothing shared.
+
+**Expected:**        One documented way for an app to pass a small value to the service it
+                     starts — launch data on the start, a message to a running service, or
+                     storage the two share.
+
+**Actual:**          None of the six works, and nothing says so. The start succeeds each time,
+                     so the failure is only that the value never arrives. One of the attempts
+                     kills the service outright.
+
+**Severity:**        Important — any service that acts for the signed-in app needs its
+                     credential, and here it must either persist one (impossible on the
+                     simulator, FL-013) or be given one some other way.
+
+**Workaround:**      The hand-off goes through Wick's own pairing service. The app, showing its
+                     token, opens a window on its television's row; for ninety seconds one
+                     request without a token, from the same network address, is answered once
+                     with a token good for a single question (`scope: 'waiting'`), which cannot
+                     be renewed once expired. Written up as a contained exception in
+                     `services/edge-device/lambda/pair-refresh.mjs` and in AGENTS.md (INV-1);
+                     the television's half is `apps/tv-vega/src/family/offScreen.ts` and
+                     `headless/waitingService.ts`.
+
+**Suggestion:**      1. Pass launch data to `onStartService` — the query of the `pkg://` URI
+                        would do — and document its size limit.
+                     2. Deliver a second launch to a running singleton service as a message.
+                     3. Document which storage, if any, an app and its service share, and make
+                        `Linking` in a headless runtime fail as a catchable error.
+
+---
 
 ## FL-028 — On Fire OS a short key press reaches JavaScript as a key-up only, and a held key under another name, and neither is said anywhere
 
