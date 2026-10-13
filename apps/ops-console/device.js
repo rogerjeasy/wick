@@ -314,6 +314,12 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'kicker', 'You held OK'));
     wrapper.appendChild(el('div', 'headline', card.headline));
     if (card.detail) wrapper.appendChild(el('div', 'body-text', card.detail));
+  } else if (card.type === 'VISIT') {
+    // The visit, witnessed: what the door noted of a regular visitor's visit, and whether it is right.
+    // The server wrote every word (services/agent agents/visit, packages/contracts visit.ts).
+    wrapper.appendChild(el('div', 'kicker', 'A visit'));
+    wrapper.appendChild(el('div', 'headline', card.headline));
+    wrapper.appendChild(el('div', 'body-text', card.detail));
   } else {
     wrapper.appendChild(el('div', 'body-text', `Unrecognized card type: ${card.type}`));
   }
@@ -331,7 +337,8 @@ function renderCard(queuedCard) {
         // On the card her hold brought, "Yes, ask …" and "Just say hello" leave it where it is: who was asked is
         // written onto that same card a moment later. Its other buttons finish it (cardActions.ts removesCard).
         const finishesReach = card.type === 'REACH' && !REACH_KEEPS_CARD.includes(action.id);
-        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH' || card.type === 'LIGHT' || finishesReach) {
+        // Her yes or her no to a visit is the whole of her answer: either finishes the card, as on the television.
+        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH' || card.type === 'LIGHT' || card.type === 'VISIT' || finishesReach) {
           currentQueuedCard = null;
           renderEmpty();
         }

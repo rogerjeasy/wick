@@ -178,6 +178,9 @@
   padding: 0.45em 1.1em;
   border-radius: 999px;
   border: 1px solid var(--border);
+  /* A pill is a button now, and a button's own background (styles.css) is the accent: without this a
+     second answer — "No, that's not right" — is muted words on amber, and reads as one that cannot be pressed. */
+  background: transparent;
   color: var(--text-muted);
   font-size: clamp(0.8rem, 0.76rem + 0.25vw, 0.95rem);
   white-space: nowrap;
