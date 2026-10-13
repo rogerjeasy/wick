@@ -212,6 +212,67 @@ describe('removeTelevision — disconnecting one from a home', () => {
   });
 });
 
+describe('family televisions — a member’s own', () => {
+  it('lists the household’s family televisions from their own rows, with whose each is, and leaves out one revoked', async () => {
+    const { sent, store } = recorder([
+      {
+        Items: [
+          { sk: { S: 'FTV#tv-sarah' }, deviceId: { S: 'tv-sarah' }, userId: { S: 'u_sarah' }, pairedAt: { N: '7' }, denylisted: { BOOL: false } },
+          { sk: { S: 'FTV#tv-tom' }, userId: { S: 'u_tom' } },
+          { sk: { S: 'FTV#tv-gone' }, deviceId: { S: 'tv-gone' }, userId: { S: 'u_tom' }, denylisted: { BOOL: true } },
+          // A row that does not say whose it is belongs to nobody, and is not listed.
+          { sk: { S: 'FTV#tv-nobody' }, deviceId: { S: 'tv-nobody' } },
+        ],
+      },
+    ]);
+
+    expect(await store.listFamilyTelevisions('hh_1')).toEqual([
+      { deviceId: 'tv-sarah', userId: 'u_sarah', pairedAt: 7 },
+      { deviceId: 'tv-tom', userId: 'u_tom' },
+    ]);
+    // Never the DEV# rows: those are the resident's televisions.
+    expect((sent[0] as QueryCommand).input).toMatchObject({
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: { ':pk': { S: 'HH#hh_1' }, ':prefix': { S: 'FTV#' } },
+    });
+  });
+
+  it('takes away the television’s row and the claim on its id together, as for the resident’s', async () => {
+    const { sent, store } = recorder();
+
+    expect(await store.removeFamilyTelevision('hh_1', 'tv-tom')).toBe(true);
+
+    expect(sent).toHaveLength(1);
+    const [row, claim] = (sent[0] as unknown as TransactWriteItemsCommand).input.TransactItems!;
+    expect(row!.Delete).toMatchObject({ Key: { pk: { S: 'HH#hh_1' }, sk: { S: 'FTV#tv-tom' } }, ConditionExpression: 'attribute_exists(pk)' });
+    expect(row!.Delete!.ExpressionAttributeValues).toBeUndefined();
+    expect(claim!.Delete).toMatchObject({
+      Key: { pk: { S: 'DEV#tv-tom' }, sk: { S: 'META' } },
+      ConditionExpression: 'attribute_not_exists(pk) OR householdId = :hh',
+      ExpressionAttributeValues: { ':hh': { S: 'hh_1' } },
+    });
+  });
+
+  it('removes it only if it is that member’s, when asked on a member’s behalf', async () => {
+    const { sent, store } = recorder();
+
+    await store.removeFamilyTelevision('hh_1', 'tv-tom', 'u_tom');
+
+    const [row] = (sent[0] as unknown as TransactWriteItemsCommand).input.TransactItems!;
+    expect(row!.Delete).toMatchObject({
+      Key: { pk: { S: 'HH#hh_1' }, sk: { S: 'FTV#tv-tom' } },
+      ConditionExpression: 'attribute_exists(pk) AND userId = :user',
+      ExpressionAttributeValues: { ':user': { S: 'u_tom' } },
+    });
+  });
+
+  it('says so when there is no such family television, or it is somebody else’s, and removes nothing', async () => {
+    const { store } = recorder([Object.assign(new Error('cancelled'), { name: 'TransactionCanceledException' })]);
+
+    expect(await store.removeFamilyTelevision('hh_1', 'tv-9', 'u_tom')).toBe(false);
+  });
+});
+
 describe('keyed records — sessions, invitations and OAuth state', () => {
   it('stores a record with DynamoDB’s expiry in seconds and its own in milliseconds', async () => {
     const { sent, store } = recorder();

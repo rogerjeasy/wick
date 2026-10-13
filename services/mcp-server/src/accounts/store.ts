@@ -6,6 +6,7 @@
  *   HH#<id>            / META           the household       (shared with its policy)
  *   HH#<id>            / MEM#<userId>   a membership        (gsi1: USER#<userId>)
  *   HH#<id>            / DEV#<deviceId> a paired television (written by the pairing Lambdas)
+ *   HH#<id>            / FTV#<deviceId> a member's own television (written by the pairing Lambdas)
  *   <KIND>#<id>        / META           a keyed record with an expiry
  *
  * `send` is a DynamoDBClient's send, injected so the exact requests are
@@ -20,9 +21,9 @@ import {
   UpdateItemCommand,
   type AttributeValue,
 } from '@aws-sdk/client-dynamodb';
-import type { CircleRole, MemberStatus } from '@wick/contracts';
+import { FAMILY_TV_SK_PREFIX, type CircleRole, type MemberStatus } from '@wick/contracts';
 import { announcedVisitPrefix } from './announcedVisits.js';
-import type { Household, Membership, RecordKind, Television, User } from './types.js';
+import type { FamilyTelevision, Household, Membership, RecordKind, Television, User } from './types.js';
 
 type Item = Record<string, AttributeValue>;
 
@@ -64,6 +65,16 @@ export interface AccountStore {
    * code again when it is next opened.
    */
   removeTelevision(householdId: string, deviceId: string): Promise<boolean>;
+
+  /** The televisions members connected as their own (`FTV#` rows) — never the resident's, which are `listTelevisions`. */
+  listFamilyTelevisions(householdId: string): Promise<FamilyTelevision[]>;
+  /**
+   * Disconnects a member's own television: its row, and the claim on its id,
+   * as `removeTelevision` does for the resident's. With `ownedBy` it is
+   * removed only if it is that member's. False when the household has no
+   * such family television — or it is somebody else's.
+   */
+  removeFamilyTelevision(householdId: string, deviceId: string, ownedBy?: string): Promise<boolean>;
 
   /** Takes every visit a person announced off the household's roster (announcedVisits.ts). */
   forgetAnnouncedVisits(householdId: string, userId: string): Promise<void>;
@@ -283,6 +294,52 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         await send(new TransactWriteItemsCommand({
           TransactItems: [
             { Delete: { TableName: table, Key: { pk: householdPk(householdId), sk: { S: `DEV#${deviceId}` } }, ConditionExpression: 'attribute_exists(pk)' } },
+            {
+              Delete: {
+                TableName: table,
+                Key: { pk: { S: `DEV#${deviceId}` }, sk: { S: 'META' } },
+                // Only this home's claim: a television since connected somewhere else keeps the one it has.
+                ConditionExpression: 'attribute_not_exists(pk) OR householdId = :hh',
+                ExpressionAttributeValues: { ':hh': { S: householdId } },
+              },
+            },
+          ],
+        }));
+        return true;
+      } catch (err) {
+        if ((err as { name?: string }).name === 'TransactionCanceledException') return false;
+        throw err;
+      }
+    },
+
+    async listFamilyTelevisions(householdId) {
+      const items = await queryAll({
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+        ExpressionAttributeValues: { ':pk': householdPk(householdId), ':prefix': { S: FAMILY_TV_SK_PREFIX } },
+      });
+      return items.flatMap((item): FamilyTelevision[] => {
+        const deviceId = item.deviceId?.S ?? item.sk?.S?.slice(FAMILY_TV_SK_PREFIX.length);
+        const userId = item.userId?.S;
+        // One revoked, or one that does not say whose it is, is nobody's television.
+        if (!deviceId || !userId || item.denylisted?.BOOL === true) return [];
+        return [{ deviceId, userId, ...(item.pairedAt?.N ? { pairedAt: Number(item.pairedAt.N) } : {}) }];
+      });
+    },
+
+    async removeFamilyTelevision(householdId, deviceId, ownedBy) {
+      try {
+        // Both or neither, as for the resident's television above.
+        await send(new TransactWriteItemsCommand({
+          TransactItems: [
+            {
+              Delete: {
+                TableName: table,
+                Key: { pk: householdPk(householdId), sk: { S: `${FAMILY_TV_SK_PREFIX}${deviceId}` } },
+                ...(ownedBy === undefined
+                  ? { ConditionExpression: 'attribute_exists(pk)' }
+                  : { ConditionExpression: 'attribute_exists(pk) AND userId = :user', ExpressionAttributeValues: { ':user': { S: ownedBy } } }),
+              },
+            },
             {
               Delete: {
                 TableName: table,

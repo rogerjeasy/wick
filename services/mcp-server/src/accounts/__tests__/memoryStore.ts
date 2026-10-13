@@ -4,11 +4,13 @@
  * expiry is gone, and a taken record is handed to one caller only.
  */
 import { HouseholdExistsError, type AccountStore } from '../store.js';
-import type { Household, Membership, Television, User } from '../types.js';
+import type { FamilyTelevision, Household, Membership, Television, User } from '../types.js';
 
 export interface MemoryStore extends AccountStore {
   /** Pretend a television was paired, as pair-claim.mjs would have done. */
   addTelevision(householdId: string, tv: Television): void;
+  /** Pretend a member connected a television of their own, as pair-claim.mjs would have done with `as: 'family'`. */
+  addFamilyTelevision(householdId: string, tv: FamilyTelevision): void;
   /** Every forgetAnnouncedVisits call, in order. */
   readonly forgottenVisits: { householdId: string; userId: string }[];
 }
@@ -19,6 +21,7 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
   const households = new Map<string, Household>();
   const memberships = new Map<string, Membership>();
   const televisions = new Map<string, Television[]>();
+  const familyTelevisions = new Map<string, FamilyTelevision[]>();
   const records = new Map<string, { value: string; expiresAt: number | undefined }>();
 
   const memberKey = (householdId: string, userId: string) => `${householdId}/${userId}`;
@@ -80,6 +83,20 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
     },
     addTelevision(householdId, tv) {
       televisions.set(householdId, [...(televisions.get(householdId) ?? []), tv]);
+    },
+    async listFamilyTelevisions(householdId) {
+      return familyTelevisions.get(householdId) ?? [];
+    },
+    async removeFamilyTelevision(householdId, deviceId, ownedBy) {
+      const held = familyTelevisions.get(householdId) ?? [];
+      const mine = (tv: FamilyTelevision) => tv.deviceId === deviceId && (ownedBy === undefined || tv.userId === ownedBy);
+      if (!held.some(mine)) return false;
+      familyTelevisions.set(householdId, held.filter((tv) => !mine(tv)));
+      return true;
+    },
+    addFamilyTelevision(householdId, tv) {
+      // One row per television, as the table's key makes it: connecting it again replaces whose it was.
+      familyTelevisions.set(householdId, [...(familyTelevisions.get(householdId) ?? []).filter((held) => held.deviceId !== tv.deviceId), tv]);
     },
     async putRecord(kind, id, value, expiresAt) {
       records.set(`${kind}#${id}`, { value: JSON.stringify(value), expiresAt });

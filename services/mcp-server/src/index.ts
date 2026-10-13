@@ -90,11 +90,13 @@ const app = createApp(ISSUER_URL, {
   withdrawCard: (householdId, cardId) => takeBackFromDevices(cardId, householdId),
   sendHome: sendHomeToDevices,
   ddb,
-  claimTelevision: async (accessToken, code) => {
+  // `as` is 'family' for a television the signed-in person connects as their own, and absent for the resident's.
+  // INV-8: the pairing API reads the household from that person's token; none is sent.
+  claimTelevision: async (accessToken, code, as) => {
     const res = await fetch(`${PAIRING_API_URL}/pair/claim`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, ...(as ? { as } : {}) }),
     });
     return { status: res.status, body: await res.text() };
   },

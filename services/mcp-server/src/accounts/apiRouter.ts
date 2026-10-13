@@ -11,10 +11,28 @@
  * (services/edge-device/lambda/pair-claim.mjs); this hands it the code with
  * the caller's own token, and the Lambda decides who they are and whether
  * they may. The family app then has one origin to talk to.
+ *
+ * A television can also be connected as the caller's own (`as: 'family'`,
+ * packages/contracts familyTelevision.ts). The Lambda decides that too; this
+ * router asks first only so the refusal can be a sentence with the
+ * resident's name in it.
  */
 import cors from 'cors';
 import express, { type Request, type RequestHandler, type Response } from 'express';
-import { CircleError, createInvitation, describeCircle, isInvitedRole, removeMember, removeTelevision, requireOrganiser, type CircleDeps, type CircleErrorCode } from './circle.js';
+import { FAMILY_TV_KIND } from '@wick/contracts';
+import {
+  CircleError,
+  accessOf,
+  createInvitation,
+  describeCircle,
+  isInvitedRole,
+  removeFamilyTelevision,
+  removeMember,
+  removeTelevision,
+  requireOrganiser,
+  type CircleDeps,
+  type CircleErrorCode,
+} from './circle.js';
 import { isGuest } from './demo.js';
 import { grantOf } from './oauthProvider.js';
 import { parseSubscription, type PushStore } from './push.js';
@@ -26,21 +44,43 @@ const CIRCLE_ERRORS: Readonly<Record<CircleErrorCode, { status: number; message:
   invitation_invalid: { status: 400, message: 'That invitation has expired. Ask for a new one.' },
   cannot_remove_self: { status: 400, message: 'You cannot remove yourself.' },
   not_a_television: { status: 404, message: 'That television is not connected to this home.' },
+  not_your_television: { status: 403, message: 'Only the person whose television it is, or the person who set this home up, can disconnect it.' },
 };
 
-/** POSTs a code to the pairing service as the caller. Returns its status and raw body. */
-export type ClaimTelevision = (accessToken: string, code: string) => Promise<{ status: number; body: string }>;
+/** What a television is connected as, when it is not the resident's: the caller's own. */
+export type TelevisionKind = typeof FAMILY_TV_KIND;
 
-/** What the pairing Lambda can answer, in words a person can act on. */
-const PAIRING_REFUSALS: Readonly<Record<string, string>> = {
+/**
+ * POSTs a code to the pairing service as the caller. Returns its status and
+ * raw body. With `as: 'family'` the television is to be the caller's own.
+ * INV-8: a token, a code and a kind — there is no household to pass.
+ */
+export type ClaimTelevision = (accessToken: string, code: string, as?: TelevisionKind) => Promise<{ status: number; body: string }>;
+
+/** Said to someone the resident has not allowed yet, by this router and for the pairing Lambda's `not_allowed_yet`. */
+const ownTelevisionOnceAllowed = (resident: string): string => `You can connect a television of your own once ${resident} has allowed you.`;
+
+/** What the pairing Lambda can answer, in words a person can act on. `resident` is the name to say, where one is said. */
+const PAIRING_REFUSALS: Readonly<Record<string, string | ((resident: string) => string)>> = {
   unknown_or_expired_code: 'That code is not on a television right now. Check the six digits.',
   code_expired: 'That code has expired. The television is showing a new one.',
   already_claimed: 'That code has already been used.',
   television_in_another_home: 'That television belongs to another home. It has to be disconnected there first.',
   only_the_organiser_can_connect_a_television: 'Only the person who set this home up can connect a television.',
+  not_allowed_yet: ownTelevisionOnceAllowed,
+  bad_kind: 'This Wick cannot connect a television of that kind.',
   sign_in_required: 'Link Wick again.',
   invalid_token: 'Link Wick again.',
 };
+
+/** Whether the pairing Lambda's answer says it connected the television as a member's own. Its word, never the request's. */
+function connectedAsFamily(body: string): boolean {
+  try {
+    return (JSON.parse(body) as { kind?: unknown } | null)?.kind === FAMILY_TV_KIND;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * What the Ring linking function answers (services/edge-ring/lambda/
@@ -203,29 +243,62 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
     res.status(201).json({ code: invitation.code, expiresAt: invitation.expiresAt, role: invitation.role ?? 'family' });
   }));
 
-  router.post('/api/televisions', withGrant(async (_grant, req, res) => {
-    const code = String((req.body as { code?: unknown } | undefined)?.code ?? '').replace(/\s+/g, '');
+  // With no `as` the television is the resident's, and the organiser's to connect — as it always was.
+  // With `as: 'family'` it is the caller's own: for the organiser or a family member the resident has allowed.
+  router.post('/api/televisions', withGrant(async (grant, req, res) => {
+    const body = req.body as { code?: unknown; as?: unknown } | undefined;
+    const code = String(body?.code ?? '').replace(/\s+/g, '');
     if (!/^\d{6}$/.test(code)) {
       res.status(400).json({ error: 'bad_code', message: 'Enter the six digits shown on the television.' });
       return;
     }
+    const as: unknown = body?.as;
+    if (as !== undefined && as !== FAMILY_TV_KIND) {
+      res.status(400).json({ error: 'bad_kind', message: PAIRING_REFUSALS.bad_kind });
+      return;
+    }
+
+    // The name said in a refusal. Read only for a television of one's own: the resident's is connected as it always was.
+    let resident = 'the person at home';
+    if (as === FAMILY_TV_KIND) {
+      const [membership, household] = await Promise.all([
+        store.getMembership(grant.householdId, grant.userId),
+        store.getHousehold(grant.householdId),
+      ]);
+      // A neighbour is asked two things and shown nothing (AGENTS.md): there is nothing for a television of theirs
+      // to show. Said first, so a neighbour still waiting is not told that being allowed would change it.
+      if (membership?.role === 'neighbour') {
+        res.status(403).json({ error: 'not_for_a_neighbour', message: 'A neighbour cannot connect a television.' });
+        return;
+      }
+      // INV-9: nothing of the home goes to a television before the resident has allowed its owner. Somebody still
+      // waiting is told what will change that; somebody turned down or removed, what stands (circle.ts's own words).
+      const access = accessOf(membership, household);
+      if (!access.ok) {
+        const message = access.reason === 'waiting' && household ? ownTelevisionOnceAllowed(household.residentName) : access.say;
+        res.status(403).json({ error: 'not_allowed_yet', message });
+        return;
+      }
+      resident = access.household.residentName;
+    }
+
     const unavailable = () =>
       res.status(502).json({ error: 'pairing_unavailable', message: 'The television could not be connected just now. Try again in a moment.' });
     if (!claimTelevision || !req.auth) return void unavailable();
 
-    const reply = await claimTelevision(req.auth.token, code);
+    const reply = as === undefined ? await claimTelevision(req.auth.token, code) : await claimTelevision(req.auth.token, code, as);
     if (reply.status === 200) {
-      res.json({ connected: true });
+      res.json({ connected: true, ...(connectedAsFamily(reply.body) ? { kind: FAMILY_TV_KIND } : {}) });
       return;
     }
     // Only an answer this server recognises is passed on. Anything else from
     // the pairing service could carry an ARN or an account id.
-    const message = PAIRING_REFUSALS[reply.body];
-    if (!message) {
+    const refusal = PAIRING_REFUSALS[reply.body];
+    if (!refusal) {
       console.error('[wick/mcp-server] pairing service answered', reply.status);
       return void unavailable();
     }
-    res.status(reply.status).json({ error: reply.body, message });
+    res.status(reply.status).json({ error: reply.body, message: typeof refusal === 'string' ? refusal : refusal(resident) });
   }));
 
   // Disconnects a television from the home in the caller's own token (INV-8): there is no household here to name.
@@ -234,6 +307,14 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
     // A television's id as pairing makes it. Anything else is not one, and is not looked for.
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) throw new CircleError('not_a_television');
     await removeTelevision(circle, grant, deviceId);
+    res.status(204).end();
+  }));
+
+  // Disconnects a member's own television: theirs to do, and the organiser's for anyone's. Never the resident's television.
+  router.delete('/api/family-televisions/:deviceId', withGrant(async (grant, req, res) => {
+    const deviceId = String(req.params.deviceId);
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) throw new CircleError('not_a_television');
+    await removeFamilyTelevision(circle, grant, deviceId);
     res.status(204).end();
   }));
 
