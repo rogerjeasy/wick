@@ -27,6 +27,7 @@
     "calm:describe": "vite-node -c vitest.config.ts scripts/calm-points/describe.ts && npm run calm:build",
     "calm:build": "vite-node -c vitest.config.ts scripts/calm-points/cli.ts",
     "phrasebook:build": "node scripts/build-phrasebook.mjs",
+    "speech:build": "node scripts/build-speech.mjs",
     "ring:check": "vite-node -c vitest.config.ts scripts/ring-camera-check.ts",
     "demo:mcp-seed": "vite-node -c vitest.config.ts scripts/seed-mcp-stub-data.ts",
     "lint": "eslint . --max-warnings=0",

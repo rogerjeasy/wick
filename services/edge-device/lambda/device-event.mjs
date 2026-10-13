@@ -94,6 +94,12 @@
  * picture's address is minted on the way out (language.mjs's one wrapper,
  * presign.mjs) and written nowhere. mantel.mjs.
  *
+ * Read to me: `{ t: 'read', cardId }` is her pressing Play on a card, and
+ * the answer — the address of a reading of that card, as her television
+ * shows it — goes to that television, on the channel it asked on, and
+ * nowhere else. Nothing of it is written but a count for the hour: no
+ * timeline row, nothing a family tool reads. speech.mjs.
+ *
  * reconcile: the client sends `{ t: 'reconcile', sinceCardId, holding }` as a normal
  * message as soon as it is connected (WebSocketChannel.ts and MqttChannel.ts
  * in apps/tv-vega/src/transport) — which is why this lives here rather than
@@ -117,7 +123,7 @@ import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
 import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate, watchPress } from './watch-together.mjs';
 import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
-import { buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
+import { LIGHT_CARD_ID, buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
 import { inHerLanguage, languageAnswerUpdate, languageOfMeta, languagePress, languageRead } from './language.mjs';
 import {
   PHOTO_ACTIONS,
@@ -143,6 +149,7 @@ import {
 // Generated from packages/contracts/src/phrasebook — the same sentences the agent plane sends.
 import { cardIn, homeIn, patchIn } from './phrasebook.generated.mjs';
 import { buildReachAskCard, firstToAsk, latestReach, reachUnderWayId, storedCardKey } from './reach.mjs';
+import { answerReading, reachOfferId, readableCard, readingAddress, readingClaim } from './speech.mjs';
 
 const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
@@ -152,6 +159,10 @@ const BUS = process.env.EVENT_BUS_NAME;
 const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ || 'Europe/London';
 /** Where the family's pictures are kept (infra/photos.tf). Without it a picture's card goes without its picture. */
 const PHOTOS_BUCKET = process.env.PHOTOS_BUCKET;
+/** Where a reading is kept for its day, under `tts/` (infra/core.tf, infra/speech.tf). Without it nothing is read aloud. */
+const MEDIA_BUCKET = process.env.MEDIA_BUCKET;
+/** The longest id a card has; anything longer is not one. */
+const MAX_CARD_ID_CHARS = 200;
 
 const WEEK_CARD_ID = /^week-(\d{4}-W\d{2})$/;
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -225,8 +236,10 @@ async function markNarrativeSeen(householdId, isoWeek, seenAt) {
  *   television has gone
  * @param {(control: object) => Promise<boolean>} input.sendControl  the same,
  *   for a control message (a `revoke`)
+ * @param {(input: object, signal: AbortSignal) => Promise<Uint8Array>} [input.synthesize]
+ *   the voice a card is read in (speech.mjs); Amazon Polly unless one is handed in
  */
-export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, sendCard: sendCardAsWritten, sendControl: sendControlAsWritten }) {
+export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, sendCard: sendCardAsWritten, sendControl: sendControlAsWritten, synthesize = pollySynthesize }) {
   const device = await ddb.send(new GetItemCommand({
     TableName: TABLE,
     Key: deviceBindingKey(householdId, deviceId),
@@ -238,7 +251,7 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
   // wrapped here, once, so every send site is covered without knowing it.
   // The same wrapper gives a picture's card its address — minted now, for
   // this household's own object and no other, and kept nowhere (mantel.mjs).
-  const { sendCard, sendControl } = inHerLanguage({
+  const { sendCard, sendControl, cardAsShown, language: householdLanguage } = inHerLanguage({
     sendCard: sendCardAsWritten,
     sendControl: sendControlAsWritten,
     readLanguage: () => readLanguage(householdId),
@@ -355,6 +368,10 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
   } else if (deviceEvent.t === 'mantel_take_down') {
     if (!isPhotoId(deviceEvent.photoId)) return { statusCode: 400, body: 'bad_device_event' };
     await takeDown({ sendControl, householdId, deviceId, photoId: deviceEvent.photoId });
+  } else if (deviceEvent.t === 'read') {
+    const { cardId } = deviceEvent;
+    if (typeof cardId !== 'string' || cardId.length === 0 || cardId.length > MAX_CARD_ID_CHARS) return { statusCode: 400, body: 'bad_device_event' };
+    await readToHer({ sendControl, cardAsShown, householdLanguage, householdId, cardId, synthesize });
   } else if (deviceEvent.t === 'reconcile') {
     await reconcile({ sendCard, sendControl, householdId, holding: deviceEvent.holding });
     await tellHome({ sendControl, householdId });
@@ -735,6 +752,12 @@ async function changeLight({ sendControl, householdId, deviceId, press }) {
 
 let s3;
 
+/** S3, loaded at the first picture or the first reading — not at every television's every event. */
+function bucketClient() {
+  s3 ??= import('@aws-sdk/client-s3').then((sdk) => ({ client: new sdk.S3Client({}), sdk }));
+  return s3;
+}
+
 /**
  * Tells the bucket what a picture now is, so its own rules keep it or let it
  * go (infra/photos.tf). `ok`; `missing` when the picture's bytes are no
@@ -745,10 +768,8 @@ async function retag(householdId, photoId, state) {
   if (!PHOTOS_BUCKET) return 'failed';
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      // Loaded at the first picture, not at every television's every event.
-      s3 ??= import('@aws-sdk/client-s3').then((sdk) => ({ client: new sdk.S3Client({}), Command: sdk.PutObjectTaggingCommand }));
-      const { client, Command } = await s3;
-      await client.send(new Command(retagInput({ bucket: PHOTOS_BUCKET, householdId, photoId, state })));
+      const { client, sdk } = await bucketClient();
+      await client.send(new sdk.PutObjectTaggingCommand(retagInput({ bucket: PHOTOS_BUCKET, householdId, photoId, state })));
       return 'ok';
     } catch (err) {
       // Not there: nothing to tag, nothing to try again, and nothing worth saying.
@@ -928,6 +949,100 @@ async function takeDown({ sendControl, householdId, deviceId, photoId }) {
   }
   await showMantel({ sendControl, householdId, consistent: true });
   if (taken) await tellEveryHome({ sendControl, householdId, deviceId, consistent: true });
+}
+
+// ---------------------------------------------------------------------------
+// Read to me — see speech.mjs, whose header says what each rule is for.
+// ---------------------------------------------------------------------------
+
+let polly;
+
+/**
+ * Amazon Polly, from the SDK the runtime brings — loaded the first time she
+ * asks for a reading, not before. A runtime that could not load it costs
+ * her a reading (speech.mjs answers with no address and says why), never
+ * anything else this function does.
+ */
+async function pollySynthesize(input, signal) {
+  polly ??= import('@aws-sdk/client-polly').then((sdk) => ({ client: new sdk.PollyClient({}), Command: sdk.SynthesizeSpeechCommand }));
+  let loaded;
+  try {
+    loaded = await polly;
+  } catch (err) {
+    // Tried again at the next asking.
+    polly = undefined;
+    throw err;
+  }
+  const spoken = await loaded.client.send(new loaded.Command(input), { abortSignal: signal });
+  return spoken.AudioStream?.transformToByteArray();
+}
+
+/**
+ * The card she is asking to have read, as it is stored — or, for the two
+ * cards that are on her screen without being stored, built again exactly as
+ * they were built for her: the Light card (showLight) and the offer her
+ * hold brought (showReach). Undefined for anything else: a card that is not
+ * there, has been answered, or is over, is not on her screen to be read.
+ */
+async function cardOnHerScreen(householdId, cardId, now) {
+  const stored = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${cardId}` } } }));
+  if (stored.Item) {
+    const queued = readableCard(stored.Item, now);
+    return queued ? { queued, from: { row: stored.Item } } : undefined;
+  }
+  if (cardId === LIGHT_CARD_ID) {
+    const rows = await loadHomeRows(householdId);
+    const queued = buildLightCard({ householdId, items: rows, now, timeZone: HOUSEHOLD_TZ });
+    return queued ? { queued, from: { rows } } : undefined;
+  }
+  const reachId = reachOfferId(cardId);
+  if (reachId) {
+    const rows = await loadHomeRows(householdId);
+    return { queued: buildReachAskCard({ householdId, reachId, first: firstToAsk(rows), now }), from: { rows } };
+  }
+  return undefined;
+}
+
+/**
+ * Her pressing Play on a card: the reading's address, to the television
+ * that asked — THE ONE PLACE the `speech` control is sent, and it is sent
+ * only as the answer to that television's own asking, on the channel it
+ * asked on (INV-2's accepted exception: a reply to the television that just
+ * spoke). The address is never put on the bus, never sent to another
+ * television, never stored and never logged; neither is the card's id, or a
+ * word of what was read.
+ *
+ * Always answered, with an address or without: without one the television
+ * says nothing and shows nothing changed. Never thrown.
+ */
+async function readToHer({ sendControl, cardAsShown, householdLanguage, householdId, cardId, synthesize }) {
+  const now = Date.now();
+  const url = await answerReading({
+    householdId,
+    // The card as her television shows it: her language, and the translation kept beside it (language.mjs).
+    card: async () => {
+      const found = await cardOnHerScreen(householdId, cardId, now);
+      return found ? (await cardAsShown(found.queued, found.from)).card : undefined;
+    },
+    language: householdLanguage,
+    claim: () => claimed(readingClaim({ table: TABLE, householdId, now })),
+    kept: async (key) => {
+      const { client, sdk } = await bucketClient();
+      await client.send(new sdk.HeadObjectCommand({ Bucket: MEDIA_BUCKET, Key: key }));
+      return true;
+    },
+    synthesize,
+    keep: async (key, bytes, signal) => {
+      const { client, sdk } = await bucketClient();
+      await client.send(new sdk.PutObjectCommand({ Bucket: MEDIA_BUCKET, Key: key, Body: bytes, ContentType: 'audio/mpeg' }), { abortSignal: signal });
+    },
+    address: (key) => readingAddress({ bucket: MEDIA_BUCKET, key }),
+  });
+  try {
+    await sendControl({ t: 'speech', cardId, ...(url ? { url } : {}) });
+  } catch (err) {
+    console.error('reading_answer_failed', { err: err?.name });
+  }
 }
 
 /**
