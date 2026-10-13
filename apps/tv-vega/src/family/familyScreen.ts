@@ -10,12 +10,20 @@
  * only says how something stands away on this screen, or takes away the
  * sentence the server answered a press with.
  *
+ * Three buttons the server writes are also the television's to answer
+ * (FAMILY_TV_OWN_ACTIONS), and send nothing: "later" puts the card away
+ * here, "read" opens its pages (reader.ts), "seat" opens the seat beside
+ * her film (seat.ts). And two presses are quiet (isFamilyTvQuietPress): the
+ * week read to its end, a wave seen — nothing is shown in answer; the
+ * screen only asks for the home again.
+ *
  * Nothing leaves the screen on a countdown. A card goes when the server
  * stops sending it or the member puts it away; a sentence goes when the
  * member presses "All right".
  */
-import type { CardAction, FamilyTvCard, FamilyTvHome, FamilyTvPress } from '@wick/contracts';
+import { FAMILY_TV_OWN_ACTIONS, FAMILY_TV_PRESSES, isFamilyTvOwnAction, isFamilyTvQuietPress, type CardAction, type FamilyTvCard, type FamilyTvHome, type FamilyTvPress } from '@wick/contracts';
 import type { PressAnswer } from './familyClient.js';
+import { openReader, type Reading } from './reader.js';
 
 /** The television's own button. Its id is never sent to the server. */
 export const ALL_RIGHT: CardAction = { id: 'wick-tv-all-right', label: 'All right', kind: 'primary' };
@@ -81,6 +89,11 @@ export function stillPutAway(put: PutAway, home: FamilyTvHome): PutAway {
   return Object.keys(kept).length === Object.keys(put).length ? put : kept;
 }
 
+/** The card in front: the first the server sent that is not put away on this screen. */
+function firstCard(home: FamilyTvHome | undefined, put: PutAway): FamilyTvCard | undefined {
+  return home?.cards.find((c) => put[c.id] === undefined || put[c.id] !== saying(c));
+}
+
 export type Showing =
   | { readonly kind: 'nothing' }
   /** The server's answer to a press, in place of the card, until "All right". */
@@ -95,7 +108,7 @@ export type Showing =
  */
 export function showing(home: FamilyTvHome | undefined, put: PutAway, said: string | undefined): Showing {
   if (said) return { kind: 'said', key: `said:${said}`, say: said, actions: [ALL_RIGHT] };
-  const card = home?.cards.find((c) => put[c.id] === undefined || put[c.id] !== saying(c));
+  const card = firstCard(home, put);
   if (!card) return { kind: 'nothing' };
   const actions = card.actions.length > 0 ? card.actions : [ALL_RIGHT];
   return { kind: 'card', key: `card:${card.id}:${actions.map((a) => a.id).join(',')}`, card, actions };
@@ -104,15 +117,29 @@ export function showing(home: FamilyTvHome | undefined, put: PutAway, said: stri
 export type Pressed =
   | { readonly do: 'send'; readonly press: FamilyTvPress }
   | { readonly do: 'putAway'; readonly card: FamilyTvCard }
+  /** Open the card's pages, at the first. */
+  | { readonly do: 'read'; readonly reading: Reading }
+  /** Open the seat beside her film. */
+  | { readonly do: 'seat' }
   | { readonly do: 'clearSaid' }
   | { readonly do: 'nothing' };
 
-/** What OK on one of the card's buttons does. Only a button the server wrote is ever sent to it. */
+/**
+ * What OK on one of the card's buttons does. Only a button the server wrote
+ * is ever sent to it — and never one of the three the television answers
+ * itself.
+ */
 export function pressed(shown: Showing, actionId: string): Pressed {
   if (shown.kind === 'said') return { do: 'clearSaid' };
   if (shown.kind !== 'card') return { do: 'nothing' };
   if (shown.card.actions.length === 0) return { do: 'putAway', card: shown.card };
   if (!shown.card.actions.some((a) => a.id === actionId)) return { do: 'nothing' };
+  if (actionId === FAMILY_TV_OWN_ACTIONS.later) return { do: 'putAway', card: shown.card };
+  if (actionId === FAMILY_TV_OWN_ACTIONS.seat) return { do: 'seat' };
+  if (actionId === FAMILY_TV_OWN_ACTIONS.read) {
+    const reading = openReader(shown.card);
+    return reading ? { do: 'read', reading } : { do: 'nothing' };
+  }
   return { do: 'send', press: { cardId: shown.card.id, action: actionId } };
 }
 
@@ -123,10 +150,81 @@ export function pressed(shown: Showing, actionId: string): Pressed {
  * and says exactly that. Nothing when the whole screen is about to change
  * (not allowed, signed out): the looker shows that instead.
  */
-export function sentenceAfterPress(answer: PressAnswer, residentName: string): string | undefined {
+export function sentenceAfterPress(answer: PressAnswer, residentName: string | undefined): string | undefined {
   if (answer.kind === 'said') return answer.say;
-  if (answer.kind === 'failed') return `Wick could not reach ${residentName}’s home, so that may not have been sent.`;
+  if (answer.kind === 'failed') return `Wick could not reach ${residentName ? `${residentName}’s home` : 'the home'}, so that may not have been sent.`;
   return undefined;
+}
+
+/**
+ * What the screen does once a press has been answered: the sentence to show
+ * in the card's place, if any, and whether to open the seat.
+ *
+ * A quiet press shows nothing, whatever came back. When it was done, its
+ * card is taken off this screen at once (`hide`) rather than a look later;
+ * when it was not — "That week is not here to read." — or may not have
+ * arrived, the card is whatever the home next says it is. Sitting down,
+ * when it was done (the first time, or when already sat), opens the seat,
+ * and the seat says its own sentence.
+ */
+export function afterPress(press: FamilyTvPress, answer: PressAnswer, residentName: string): { readonly say?: string; readonly seat: boolean; readonly hide: boolean } {
+  const done = answer.kind === 'said' && answer.done;
+  if (isFamilyTvQuietPress(press.action)) return { seat: false, hide: done };
+  if (press.action === FAMILY_TV_PRESSES.sit && done) return { seat: true, hide: false };
+  const say = sentenceAfterPress(answer, residentName);
+  return { ...(say ? { say } : {}), seat: false, hide: false };
+}
+
+/**
+ * The sentence to show in the seat after an answer at the credits, if any.
+ * None when the answer was taken: the seat's own next sentence says what
+ * each said, and goes on to say hers when it comes. The server's sentence
+ * when it was not taken; and when it may not have arrived, that — so the
+ * question is still there to answer again.
+ */
+export function afterSeatAnswer(answer: PressAnswer, residentName: string | undefined): string | undefined {
+  if (answer.kind === 'said' && answer.done) return undefined;
+  return sentenceAfterPress(answer, residentName);
+}
+
+export type Wave =
+  /** A wave can be sent: one quiet button, the server's words on it. */
+  | { readonly kind: 'button'; readonly label: string; readonly press: FamilyTvPress }
+  /** The last one is still on her television: the server's sentence in the button's place, with nothing to press. */
+  | { readonly kind: 'line'; readonly line: string };
+
+/**
+ * The wave on the home screen, for a member who may send one. It is pressed
+ * on its own card and no other (familyClient.ts takes no other from the
+ * server), so OK on it can never answer anything else.
+ */
+export function waveOf(home: FamilyTvHome | undefined): Wave | undefined {
+  const wave = home?.wave;
+  if (!wave) return undefined;
+  if (wave.cardId) return { kind: 'button', label: wave.label, press: { cardId: wave.cardId, action: FAMILY_TV_PRESSES.wave } };
+  return wave.line ? { kind: 'line', line: wave.line } : undefined;
+}
+
+/** Said over the seat, in the television's own words. */
+export const SOMETHING_WAITS = 'Something is waiting for you. Press Back to see it.';
+
+/**
+ * Whether to say, over the seat, that something waits: whether the card
+ * Back would show — the first not put away on this screen — waits for this
+ * member's answer. That is a card with a button that is an answer, not one
+ * of the television's own, and not the film's own card. Until the seat has
+ * said which card is the film's, every film card is taken for it.
+ *
+ * Only that one card is looked at, so the sentence stays true: something
+ * that ranks behind the film's own card — a wave that came back — says
+ * nothing in the middle of the film. Nothing is drawn over the film for
+ * it: one line, and Back.
+ */
+export function somethingWaits(home: FamilyTvHome | undefined, put: PutAway, seatCardId: string | undefined): boolean {
+  const card = firstCard(home, put);
+  if (!card) return false;
+  if (seatCardId === undefined ? card.kind === 'watch' : card.id === seatCardId) return false;
+  return card.actions.some((action) => !isFamilyTvOwnAction(action.id));
 }
 
 export interface ShownPicture {

@@ -297,10 +297,10 @@
   cursor: default;
 }
 
-/* Said wherever a demo home is named: its history is simulated. */
+/* Said wherever a demo home is named: its history is simulated. Small, and still 7:1 on the screen's black. */
 .tv-family .family-demo {
   margin-top: 0.4em;
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: clamp(0.75rem, 0.7rem + 0.2vw, 0.9rem);
 }
 
@@ -329,6 +329,181 @@
     max-width: 100%;
     max-height: 6em;
   }
+}
+
+/* The remote's place: always shown on a television, whichever way the button came to have it. */
+.tv-family .pill:focus {
+  outline: 3px solid var(--text);
+  outline-offset: 2px;
+}
+
+/* A wave: one quiet button under whatever a card asks, or the sentence that stands in its place. */
+.tv-family .family-wave {
+  margin-top: 0.9em;
+  align-items: center;
+}
+
+/* With a card showing, everything draws in a little so the card's answers and the wave are on one screen:
+   the tallest card there is — a picture from the door and three answers — fits with the wave under it. */
+.tv-card.tv-family.has-card {
+  padding-top: clamp(0.7rem, 0.5rem + 0.9vw, 1rem);
+  padding-bottom: clamp(0.7rem, 0.5rem + 0.9vw, 1rem);
+}
+
+.tv-family.has-card .family-wave {
+  margin-top: 0.5em;
+}
+
+.tv-family .family-wave-line {
+  font-size: clamp(0.85rem, 0.8rem + 0.35vw, 1rem);
+}
+
+/* Something to read, a screenful at a time: her week. Large calm type, the page it is at, and three buttons at most. */
+.tv-card.tv-reader {
+  gap: 0;
+}
+
+.tv-reader .reader-title {
+  color: var(--text-muted);
+  font-size: clamp(0.85rem, 0.8rem + 0.35vw, 1rem);
+  margin-bottom: 0.6em;
+}
+
+.tv-reader .reader-page {
+  color: var(--text);
+  font-size: clamp(1.1rem, 0.95rem + 1.3vw, 1.6rem);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  /* The page gives way before its buttons do: they are always on the screen. */
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* More than a card's worth of words on one page: a size smaller, still larger than a card's body text. */
+.tv-reader .reader-page.long {
+  font-size: clamp(1rem, 0.9rem + 0.75vw, 1.25rem);
+  line-height: 1.4;
+}
+
+.tv-reader .reader-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6em 1.2em;
+  margin-top: 1em;
+}
+
+.tv-reader .reader-count {
+  color: var(--text-muted);
+  font-size: clamp(0.85rem, 0.8rem + 0.35vw, 1rem);
+}
+
+.tv-reader .reader-foot .actions {
+  margin-top: 0;
+}
+
+/* The seat beside her film. Words alone while there is nothing to follow; the film, with one line over it, while there is. */
+.tv-seat .seat-film[hidden] {
+  display: none;
+}
+
+.tv-seat .seat-words {
+  position: relative;
+  margin: auto 0;
+}
+
+.tv-seat .seat-words .headline {
+  margin-bottom: 0.3em;
+}
+
+.tv-seat .seat-attribution {
+  margin-top: 1em;
+  color: var(--text-muted);
+  font-size: clamp(0.75rem, 0.7rem + 0.2vw, 0.9rem);
+}
+
+.tv-seat.is-following {
+  padding: 0;
+}
+
+.tv-seat.is-following .seat-words {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  /* The film is only looked at: nothing over it takes a press but the two buttons below. */
+  pointer-events: none;
+}
+
+/* Something on the home screen waits for an answer: one calm line, in the words' own colour. */
+.tv-seat .seat-waiting {
+  margin-top: 0.9em;
+  color: var(--text);
+}
+
+.tv-seat.is-following .seat-caption,
+.tv-seat.is-following .seat-foot,
+.tv-seat.is-following .seat-back,
+.tv-seat.is-following .seat-sound {
+  position: absolute;
+}
+
+.tv-seat.is-following .seat-caption,
+.tv-seat.is-following .seat-attribution,
+.tv-seat.is-following .seat-waiting,
+.tv-seat.is-following .seat-back,
+.tv-seat.is-following .seat-sound {
+  margin: 0;
+  padding: 0.35em 0.8em;
+  border-radius: var(--radius-md);
+  /* Dark enough behind the words to keep them 7:1 over any frame of a film. */
+  background: color-mix(in srgb, #050403 86%, transparent);
+  color: var(--text);
+  font-size: clamp(0.8rem, 0.76rem + 0.25vw, 0.95rem);
+}
+
+.tv-seat.is-following .seat-caption {
+  top: var(--space-2);
+  right: var(--space-2);
+  max-width: 62%;
+}
+
+/* Along the foot of the picture: that something waits, and — while the picture is still — who made the film. */
+.tv-seat.is-following .seat-foot {
+  left: var(--space-2);
+  bottom: var(--space-2);
+  max-width: 78%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4em;
+}
+
+.tv-seat.is-following .seat-back,
+.tv-seat.is-following .seat-sound {
+  border: 1px solid var(--border);
+  font: inherit;
+  font-size: clamp(0.8rem, 0.76rem + 0.25vw, 0.95rem);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.tv-seat.is-following .seat-back {
+  top: var(--space-2);
+  left: var(--space-2);
+}
+
+.tv-seat.is-following .seat-sound {
+  right: var(--space-2);
+  bottom: var(--space-2);
+}
+
+/* Under the screen: which keys are the remote. */
+.remote-hint {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: 0.85em;
 }
 
 /* The home screen's quiet line: who looked in (tv-vega HomeScreen.tsx). */

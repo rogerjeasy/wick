@@ -1,1 +1,1 @@
-export { PairingFlow, type PairingConfig, type PairingStartResponse, type PairingStatusResponse, type RenewResult } from './PairingFlow.js';
+export { PairingFlow, isNarrowToken, type PairingConfig, type PairingStartResponse, type PairingStatusResponse, type RenewResult, type ServiceClaim } from './PairingFlow.js';

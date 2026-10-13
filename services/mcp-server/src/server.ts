@@ -223,6 +223,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     store: deps.store,
     sendCard: deps.sendCard,
     sendPatch: deps.sendPatch,
+    withdrawCard: deps.withdrawCard,
     sendHome: deps.sendHome,
     now: circle.now,
   }));

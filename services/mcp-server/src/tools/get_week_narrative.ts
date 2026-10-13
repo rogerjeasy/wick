@@ -133,6 +133,43 @@ export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, ti
   };
 }
 
+/** What "the latest week" is for the family: the week as they may read it, or why there is none for them. */
+export type FamilyLatestWeek =
+  | { readonly status: 'available'; readonly narrative: WeekNarrative; readonly thisWeek?: ThisWeekStatus }
+  | { readonly status: 'awaiting_resident' }
+  | { readonly status: 'not_written' }
+  | { readonly status: 'private' };
+
+/**
+ * The latest week the family may read, as the tool gives it when no week is
+ * named: one the resident has read (INV-7), in the family's copy of it
+ * (familyWeek). A family member's own television asks the same question
+ * through this (accounts/familyTelevision.ts), so the two cannot disagree.
+ * `policy` is asked for only when there is a week to apply it to.
+ */
+export async function loadLatestFamilyWeek(
+  ddb: DynamoDBClient,
+  householdId: string,
+  currentWeek: string,
+  policy: () => Promise<HouseholdPolicy>,
+): Promise<FamilyLatestWeek> {
+  const latest = await loadLatestWeek(ddb, householdId, currentWeek);
+  return latest.status === 'available' ? familyCopyOfLatest(latest, await policy()) : latest;
+}
+
+/**
+ * The family's copy of a latest week already looked up: what the resident
+ * shares, applied now. Pure, so a caller that keeps the lookup for a moment
+ * (a television asking every few seconds) still applies her choices as they
+ * stand on every asking, never as they stood.
+ */
+export function familyCopyOfLatest(latest: LatestWeekResult, policy: HouseholdPolicy): FamilyLatestWeek {
+  if (latest.status !== 'available') return latest;
+  const family = familyWeek(latest.narrative, policy, HOUSEHOLD_TZ);
+  if (family.status === 'private') return { status: 'private' };
+  return { status: 'available', narrative: family.narrative, ...(latest.thisWeek ? { thisWeek: latest.thisWeek } : {}) };
+}
+
 export function registerGetWeekNarrative(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -154,17 +191,21 @@ export function registerGetWeekNarrative(
     },
     withFriendlyErrors(gated(ctx, async (_allowed, { isoWeek }: { isoWeek?: string | undefined }) => {
       const currentWeek = currentIsoWeek(now());
-      const result: LatestWeekResult = isoWeek
-        ? await loadWeekNarrative(ddb, ctx.householdId, isoWeek)
-        : await loadLatestWeek(ddb, ctx.householdId, currentWeek);
+      const policy = (): Promise<HouseholdPolicy> => loadHouseholdPolicy(ddb, ctx.householdId);
+      let result: FamilyLatestWeek;
+      if (isoWeek) {
+        const named = await loadWeekNarrative(ddb, ctx.householdId, isoWeek);
+        result = named.status === 'available' ? familyWeek(named.narrative, await policy(), HOUSEHOLD_TZ) : named;
+      } else {
+        result = await loadLatestFamilyWeek(ddb, ctx.householdId, currentWeek, policy);
+      }
 
       if (result.status === 'awaiting_resident') return say(WEEK_AWAITING_RESIDENT_TEXT);
       if (result.status === 'not_written') {
         return say(isoWeek && isoWeek !== currentWeek ? WEEK_NOT_WRITTEN_THEN_TEXT : WEEK_NOT_WRITTEN_TEXT);
       }
-      const family = familyWeek(result.narrative, await loadHouseholdPolicy(ddb, ctx.householdId), HOUSEHOLD_TZ);
-      if (family.status === 'private') return say(FAMILY_REFUSAL_TEXT);
-      return data({ ...family.narrative, ...(result.thisWeek ? { thisWeek: result.thisWeek } : {}) });
+      if (result.status === 'private') return say(FAMILY_REFUSAL_TEXT);
+      return data({ ...result.narrative, ...(result.thisWeek ? { thisWeek: result.thisWeek } : {}) });
     }, { looksIn: true })),
   );
 }

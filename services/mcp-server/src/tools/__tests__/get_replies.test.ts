@@ -50,6 +50,20 @@ describe('loadNoteReplies', () => {
     ]);
   });
 
+  it('leaves out a wave from a family member’s own television: it travels as a note, and is not one anybody wrote', async () => {
+    const wave = (id: string, reply?: { text: string; at: number }) => ({
+      pk: { S: 'HH#hh-1' },
+      sk: { S: `CARD#note-wave-${id}` },
+      data: { S: JSON.stringify({ id: `note-wave-${id}`, queuedAt: NOW - DAY, card: { type: 'MESSAGE', fromName: 'Sarah', transcript: 'Sarah is waving to you from their television.', suggestedReplies: ['Wave back', 'Not now'] } }) },
+      ...(reply ? { replyText: { S: reply.text }, repliedAt: { N: String(reply.at) } } : {}),
+    });
+    const { ddb } = ddbReturning([wave('a'), wave('b', { text: 'Wave back', at: NOW - 1 }), wave('c', { text: 'Not now', at: NOW - 2 }), note('1', NOW - 2 * DAY)]);
+
+    const notes = await loadNoteReplies(ddb, 'hh-1', NOW);
+
+    expect(notes).toEqual([{ from: 'Sarah', message: 'Note 1', sentAt: NOW - 2 * DAY, reply: null }]);
+  });
+
   it('keeps the answer short: at most five notes', async () => {
     const { ddb } = ddbReturning(Array.from({ length: 8 }, (_, i) => note(String(i), NOW - i * 60_000)));
     expect(await loadNoteReplies(ddb, 'hh-1', NOW)).toHaveLength(5);

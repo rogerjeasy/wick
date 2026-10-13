@@ -26,8 +26,10 @@ keystore) and scope accordingly.
 "Sarah's television" (`packages/contracts/src/familyTelevision.ts`) is the
 same app, connected by a member as theirs. Its token carries
 `kind: 'family'` and that member's `userId`, and it is good for exactly one
-thing: asking the Wick server for that television's home screen and telling
-it of a press (`services/mcp-server/src/accounts/familyTelevision.ts`). The
+thing: asking the Wick server what that one member's television should show
+— its home screen, the seat beside a film that member arranged with the
+resident, what is waiting for them — and telling it of a press
+(`services/mcp-server/src/accounts/familyTelevision.ts`). The
 server answers with what that one member may already read through the
 family's tools, and takes only the answers they may already give — a fixed
 list, never a tool name from the request — checking the circle again on
@@ -56,6 +58,31 @@ keep confidential (open source). Mitigated, not eliminated: a 1-hour TTL
 per-device cooldown (`REFRESH_MIN_INTERVAL_MS`) bound exposure and throttle
 abuse; they do not stop a single unauthenticated mint. Revisit if SP-8 (real
 Fire TV hardware) shows on-device storage actually works there.
+
+**A second known accepted exception, smaller than the first:** a family
+television's background service is handed a token without proof, once, by
+`POST /pair/refresh`. The app and its service are two processes that can
+share nothing on the device — no launch data, no storage, no message
+(FRICTION.md FL-013, FL-029) — so the app, proving itself with the token it
+holds, opens a window on its own `FTV#` row, and inside that window one
+unproven request for that television is answered. What bounds it: only the
+app's own proof opens it; it lasts 90 seconds and is used once; the request
+must come from the address that opened it (kept on the row as a keyed
+fingerprint, never the address); and the token it yields carries
+`scope: 'waiting'`, which the Wick server accepts on `GET /tv/waiting` and
+refuses everywhere else. That one route says, in one sentence each, what
+is waiting for that member's answer — never the picture from the door, the
+light, the week or where a film is. A scoped token is only ever exchanged
+for another scoped token, and never once it has expired. It belongs to one
+session, named on the television's row: there is one at a time, each time
+the app comes on screen the session before it is over — at the pairing
+service and at the Wick server, which checks it on every call — and none
+lasts past seven days. And its refreshes are counted apart from the app's,
+so the least trusted token on a television cannot lock its app out.
+
+**Never** widen that scope, never let a scoped token reach `/tv/home`,
+`/tv/press` or `/tv/seat`, and never answer `/tv/waiting` with anything a
+person would have to be looking to be told.
 
 ### INV-2 — Every family-bound string passes through the Guardian
 `services/agent/src/egress.ts` is the *only* module permitted to import a
@@ -270,7 +297,12 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   rhythm and is never read by a family tool. **Never** add a tool, a route or
   a field that tells the family what is playing, or where it has got to,
   outside a session the resident started. And the family member's player has
-  no pause and no skip: nobody reaches the resident's remote.
+  no pause and no skip: nobody reaches the resident's remote. The seat can
+  be taken on that member's own television too (`GET /tv/seat`,
+  `services/mcp-server/src/accounts/familyTvWatch.ts`): the same one person,
+  by the same rule — anybody else's television is answered exactly as if
+  there were no film — and that television's player follows, has no pause
+  and no skip, and reports its own playback to nobody.
 - **A request to be rung reaches one person at a time, and calls nobody.**
   Hold for Sarah (`packages/contracts/src/reach.ts`): OK held for two seconds
   brings a card that offers to ask someone to ring the resident. Holding the
@@ -291,6 +323,20 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   emergency service, sound anything, or word this as an alarm; never tell
   anyone a request exists before their turn; never carry a reason with it —
   she is not asked for one, and none may be guessed.
+- **A wave carries no words, and its fate is hers.** A family member's
+  television has one button that sends a wave
+  (`services/mcp-server/src/accounts/familyTvWave.ts`). What the resident's
+  television then says is Wick's own sentence, naming the television it
+  came from — whoever is in that room may have pressed it, a grandchild
+  included — and it waits for a quiet moment like any note (INV-5). She can
+  wave back or put it away. Only a wave back is told. A wave she put away
+  must look, on the family's television, exactly like a wave she has not
+  seen yet — the same sentence, the same button returning at the same ten
+  minutes — or putting it away would itself say something (the reasoning of
+  INV-10). One wave of a member's is on her television at a time, and a
+  wave never appears among the notes and replies. **Never** let a wave
+  carry text from the family, never tell "put away" from "not yet seen",
+  and never send one for anybody: it is a press on a remote.
 - **A neighbour is asked two things, and shown nothing.** A member whose
   role is `neighbour` (`packages/contracts/src/circle.ts`) joins by an
   invitation that says so and is allowed by the resident's own press like

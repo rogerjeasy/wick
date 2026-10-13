@@ -46,9 +46,39 @@ export function kindAskedFor(as) {
   return as === FAMILY_KIND ? FAMILY_KIND : null;
 }
 
-/** The claims a family television's token carries beside its device and household. */
-export function familyClaims(userId) {
-  return { kind: FAMILY_KIND, userId };
+/**
+ * The one narrower thing a family television's token can be for: asking the
+ * Wick server what waits for its member, in a sentence each, while the app
+ * is off the screen (`GET /tv/waiting`; contracts FAMILY_TV_WAITING_SCOPE).
+ * Held only by the television's background service (pair-refresh.mjs).
+ */
+export const WAITING_SCOPE = 'waiting';
+
+/**
+ * How long the way the app opens for its background service stays open.
+ * Longer than the half minute a service told "too soon" waits before asking
+ * again (pairing-code.mjs REFRESH_WINDOW_MS, and the television's own 32 s),
+ * and no longer than it needs to be.
+ */
+export const SERVICE_WINDOW_MS = 90 * 1000;
+
+/**
+ * The longest a background service's session lasts: from the moment the
+ * service is let in, however often its narrow token is renewed. After it,
+ * the token is not renewed again, and the service is let in afresh the next
+ * time the app is on screen. A stolen narrow token is good for this long at
+ * most — and for less, since the next hand-off ends it at once.
+ */
+export const SERVICE_SESSION_MAX_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The claims a family television's token carries beside its device and
+ * household. `scope` only ever narrows it; a narrow token also says `since`
+ * — when its service's session began, in ms — which is what the row's
+ * `serviceSince` is compared with, here and by the Wick server.
+ */
+export function familyClaims(userId, scope, since) {
+  return { kind: FAMILY_KIND, userId, ...(scope ? { scope, since } : {}) };
 }
 
 /** The member a family television belongs to, from its row — or undefined for a row that is not one, or a television revoked. */

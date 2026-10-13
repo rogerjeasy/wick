@@ -61,6 +61,44 @@ export interface LoadTokenOptions {
    * soon" is waited out and asked again instead of read as "not paired".
    */
   readonly waitIfRefreshedJustNow?: boolean;
+  /**
+   * The background service is asking (headless/CardService.ts). With no
+   * token to show it says so, and a family member's television is then
+   * handed the one narrow token the app opened the way for
+   * (`openServiceWindow`). The resident's television is answered as always.
+   */
+  readonly asService?: boolean;
+  /**
+   * Told the status the pairing service refused a refresh with, when it
+   * did. The service uses it to tell "a family television whose way is not
+   * open" (401) from "not paired" — the first is worth waiting for.
+   */
+  readonly onRefusal?: (status: number) => void;
+}
+
+/**
+ * What one knock at the pairing service came to (`claimForService`): the
+ * service's token; no way open just now; this television is no longer
+ * connected at all; or it could not be asked.
+ */
+export type ServiceClaim = { readonly token: DeviceToken } | 'no_way' | 'not_paired' | 'try_later';
+
+/** What `renew` may do to the disk. */
+export interface RenewOptions {
+  /**
+   * False for the background service: it neither writes the fresh token
+   * down nor forgets the stored one. The file is the app's.
+   */
+  readonly remember?: boolean;
+}
+
+/**
+ * A token narrowed to one purpose (edge-device pair-refresh.mjs: `waiting`,
+ * for the background service of a family member's television). The pairing
+ * service says so beside the token. It is never the television's own token.
+ */
+export function isNarrowToken(token: DeviceToken): boolean {
+  return (token as { readonly scope?: unknown }).scope !== undefined;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 3000;
@@ -104,7 +142,8 @@ export class PairingFlow {
     const stored = await this.#storedToken();
     if (stored && !(stored.expiresAt <= Date.now())) return stored;
     if (!deviceId) return null;
-    return this.#refreshToken(deviceId, options.waitIfRefreshedJustNow === true, stored?.jwt);
+    // Only a service with nothing to show says it is the service: with a token in hand it refreshes like anyone, and opens no way.
+    return this.#refreshToken(deviceId, options.waitIfRefreshedJustNow === true, stored?.jwt, options.asService === true && !stored, options.onRefusal);
   }
 
   /** The token on disk, whether or not it has run out — or null when the disk holds none. */
@@ -136,12 +175,16 @@ export class PairingFlow {
    * which can be guessed — and one that has run out will do (edge-device
    * pair-refresh.mjs). The resident's television needs none, and sending
    * one is harmless.
+   *
+   * `forService` is said in two cases only, both about a family television's
+   * background service: by the app, with its token, to open the way for it
+   * (`openServiceWindow`); and by the service, with none, to take it.
    */
-  #askForRefresh(deviceId: string, heldJwt: string | undefined): Promise<Response> {
+  #askForRefresh(deviceId: string, heldJwt: string | undefined, forService = false): Promise<Response> {
     return this.#fetch(`${this.#config.pairingApiUrl}/pair/refresh`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(heldJwt ? { Authorization: `Bearer ${heldJwt}` } : {}) },
-      body: JSON.stringify({ deviceId }),
+      body: JSON.stringify(forService ? { deviceId, forService: true } : { deviceId }),
     });
   }
 
@@ -156,8 +199,13 @@ export class PairingFlow {
     return status === 401 || status === 403 || status === 404;
   }
 
-  /** Best-effort, like every write here (FL-013): the token in hand is what counts. */
+  /**
+   * Best-effort, like every write here (FL-013): the token in hand is what
+   * counts. A narrow token is never written: this file is where the app
+   * finds its own, and the service's must not be found there instead.
+   */
   async #keep(token: DeviceToken): Promise<void> {
+    if (isNarrowToken(token)) return;
     try {
       await this.#fs.writeStringToFile(TOKEN_PATH, JSON.stringify(token), 'utf8');
     } catch (err) {
@@ -165,8 +213,14 @@ export class PairingFlow {
     }
   }
 
-  async #refreshToken(deviceId: string, patient: boolean, heldJwt: string | undefined): Promise<DeviceToken | null> {
-    const ask = (): Promise<Response> => this.#askForRefresh(deviceId, heldJwt);
+  async #refreshToken(
+    deviceId: string,
+    patient: boolean,
+    heldJwt: string | undefined,
+    asService: boolean,
+    onRefusal?: (status: number) => void,
+  ): Promise<DeviceToken | null> {
+    const ask = (): Promise<Response> => this.#askForRefresh(deviceId, heldJwt, asService);
     let res = await ask();
     // 429: this television refreshed a moment ago — where the disk keeps
     // nothing (FL-013), that was the app, a second before its card service.
@@ -183,6 +237,7 @@ export class PairingFlow {
     // and never again from here: only a 429 is ever waited out above.
     if (!res.ok) {
       if (heldJwt && PairingFlow.#saysNotConnected(res.status)) await this.clearToken();
+      onRefusal?.(res.status);
       return null;
     }
     const { token } = (await res.json()) as { token: DeviceToken };
@@ -208,22 +263,66 @@ export class PairingFlow {
    *
    * Never throws.
    */
-  async renew(deviceId: string, heldJwt?: string): Promise<RenewResult> {
+  async renew(deviceId: string, heldJwt?: string, options: RenewOptions = {}): Promise<RenewResult> {
+    const remember = options.remember !== false;
     try {
       const held = heldJwt ?? (await this.#storedToken())?.jwt;
       const res = await this.#askForRefresh(deviceId, held);
       // token_required / invalid_token, device_denylisted, device_not_paired (edge-device pair-refresh.mjs).
       if (PairingFlow.#saysNotConnected(res.status)) {
-        await this.clearToken();
+        if (remember) await this.clearToken();
         return 'not_connected';
       }
       if (!res.ok) return 'try_later';
       const { token } = (await res.json()) as { token?: DeviceToken };
       if (!token || typeof token.jwt !== 'string' || token.jwt.length === 0) return 'try_later';
-      await this.#keep(token);
+      if (remember) await this.#keep(token);
       return { token };
     } catch {
       return 'try_later';
+    }
+  }
+
+  /**
+   * Opens the way for this television's background service: a refresh that
+   * shows the app's own token and says it is for the service. The pairing
+   * service then answers one request without a token, for a short while,
+   * with a token good for one thing — asking what waits (edge-device
+   * pair-refresh.mjs). It is how a family member's television hands its
+   * service anything at all: on the television itself nothing passes from
+   * the app to the service (FL-013).
+   *
+   * The answer is not kept and not used: the app has its token already, and
+   * this one is no better. A failure is nobody's business but the service's,
+   * which then holds nothing. Never throws.
+   */
+  /**
+   * The background service knocking: one request without a token, saying it
+   * is the service. Answered with the service's narrow token only inside a
+   * way the app has opened (`openServiceWindow`), from the same address,
+   * once. The disk is neither read nor written: the file there is the app's.
+   *
+   * Never throws.
+   */
+  async claimForService(deviceId: string): Promise<ServiceClaim> {
+    try {
+      const res = await this.#askForRefresh(deviceId, undefined, true);
+      if (res.status === 401) return 'no_way';
+      if (res.status === 403 || res.status === 404) return 'not_paired';
+      if (!res.ok) return 'try_later';
+      const { token } = (await res.json()) as { token?: DeviceToken };
+      if (!token || typeof token.jwt !== 'string' || token.jwt.length === 0) return 'try_later';
+      return { token };
+    } catch {
+      return 'try_later';
+    }
+  }
+
+  async openServiceWindow(deviceId: string, heldJwt: string): Promise<void> {
+    try {
+      await this.#askForRefresh(deviceId, heldJwt, true);
+    } catch (err) {
+      console.error('pairing_service_window_failed', err);
     }
   }
 

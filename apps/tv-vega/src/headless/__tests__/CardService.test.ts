@@ -113,36 +113,168 @@ describe('CardService', () => {
   });
 
   // A family member's own television (packages/contracts/src/familyTelevision.ts)
-  // has no card channel at all: nothing of the resident's is sent to it, and
-  // it posts no toast. The app never starts this service for one
-  // (App.tsx), and if the platform does, it still holds nothing.
-  it("holds no connection on a family member's own television, from a stored token or a refreshed one", async () => {
-    const createChannel = vi.fn(async () => {
+  // has no card channel at all: nothing of the resident's is sent to it.
+  // What its service does instead is ask the Wick server what waits for
+  // that member, and say so in a toast (headless/waitingService.ts).
+  describe("on a family member's own television", () => {
+    const CONFIG = { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' };
+    const family = { jwt: 'full-jwt', deviceId: 'd1', householdId: 'h1', expiresAt: Date.now() + 100_000, kind: 'family' };
+    const narrow = { ...family, jwt: 'narrow-jwt', scope: 'waiting' };
+    const neverAChannel = vi.fn(async () => {
       throw new Error("the card channel must never be opened with a family television's token");
     });
-    const family = { jwt: 'j', deviceId: 'd1', householdId: 'h1', expiresAt: Date.now() + 100_000, kind: 'family' };
 
-    const stored = fakeFs();
-    await stored.writeStringToFile('/data/wick-token.json', JSON.stringify(family), 'utf8');
-    __setCardServiceTestDeps({
-      fs: stored,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
-      createChannel,
+    interface Asked {
+      readonly url: string;
+      readonly authorization: string | undefined;
+      readonly body: unknown;
+    }
+    /** The pairing service and the Wick server behind one fetch, each answered by the test. */
+    function network(answer: (asked: Asked) => Response) {
+      const asked: Asked[] = [];
+      const fetchImpl = (async (url: string, init?: RequestInit) => {
+        const headers = Object.fromEntries(Object.entries((init?.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v]));
+        const one = { url, authorization: headers.authorization, body: init?.body === undefined ? undefined : JSON.parse(String(init.body)) };
+        asked.push(one);
+        return answer(one);
+      }) as unknown as typeof fetch;
+      return { asked, fetchImpl };
+    }
+    const json = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status });
+    const WAITS = { waiting: [{ id: 'ftv-door_look-d1', line: 'Margaret asks who is at her door.' }] };
+
+    it('holds no connection, from a stored token or one it is given: it asks what waits, and says it in a toast', async () => {
+      const stored = fakeFs();
+      await stored.writeStringToFile('/data/wick-token.json', JSON.stringify(family), 'utf8');
+      const net = network(() => json(200, WAITS));
+      const toasts: unknown[] = [];
+      __setCardServiceTestDeps({ fs: stored, config: CONFIG, createChannel: neverAChannel, fetchImpl: net.fetchImpl, postToast: async (toast) => void toasts.push(toast) });
+
+      await onStartCardService();
+      await settle();
+
+      expect(neverAChannel).not.toHaveBeenCalled();
+      expect(net.asked).toEqual([{ url: 'https://wick.example/tv/waiting', authorization: 'Bearer full-jwt', body: undefined }]);
+      expect(toasts).toEqual([expect.objectContaining({ mTitle: 'Margaret asks who is at her door.', mDescription: 'Open Wick to answer.' })]);
     });
-    await onStartCardService();
-    await settle();
-    await onStopCardService();
 
+    it('where the disk keeps nothing, takes the narrow token the app opened the way for — and never writes it down', async () => {
+      const fs = fakeFs();
+      // Its own id: what was said once in this process is not said again, in the tests as on the television.
+      const net = network((asked) => (asked.url.endsWith('/pair/refresh') ? json(200, { token: narrow }) : json(200, { waiting: [{ id: 'ftv-wave-back-1', line: 'Margaret waved back.' }] })));
+      const toasts: unknown[] = [];
+      __setCardServiceTestDeps({ fs, config: CONFIG, createChannel: neverAChannel, fetchImpl: net.fetchImpl, postToast: async (toast) => void toasts.push(toast) });
+
+      await onStartCardService();
+      await settle();
+
+      expect(net.asked).toEqual([
+        // Without a token, and saying it is the service: answered only inside the way the app opened.
+        { url: 'https://pair.example/pair/refresh', authorization: undefined, body: { deviceId: expect.any(String), forService: true } },
+        { url: 'https://wick.example/tv/waiting', authorization: 'Bearer narrow-jwt', body: undefined },
+      ]);
+      expect(toasts).toHaveLength(1);
+      expect(await fs.exists('/data/wick-token.json')).toBe(false);
+      expect(neverAChannel).not.toHaveBeenCalled();
+    });
+
+    it('says each thing once, however often the service is stopped and started in one process', async () => {
+      const stored = fakeFs();
+      await stored.writeStringToFile('/data/wick-token.json', JSON.stringify(family), 'utf8');
+      const net = network(() => json(200, { waiting: [{ id: 'ftv-reach-once', line: 'Margaret would like you to ring her.' }] }));
+      const toasts: unknown[] = [];
+      __setCardServiceTestDeps({ fs: stored, config: CONFIG, createChannel: neverAChannel, fetchImpl: net.fetchImpl, postToast: async (toast) => void toasts.push(toast) });
+
+      await onStartCardService();
+      await settle();
+      await onStopCardService();
+      await onStartCardService();
+      await settle();
+
+      expect(net.asked.filter((a) => a.url.endsWith('/tv/waiting'))).toHaveLength(2);
+      expect(toasts).toHaveLength(1);
+    });
+
+    it('when the way is not open, waits for it: it knocks again, and takes up when it is let in', async () => {
+      vi.useFakeTimers();
+      let open = false;
+      const net = network((asked) => {
+        if (asked.url.endsWith('/pair/refresh')) return open ? json(200, { token: narrow }) : new Response('token_required', { status: 401 });
+        return json(200, { waiting: [] });
+      });
+      __setCardServiceTestDeps({ fs: fakeFs(), config: CONFIG, createChannel: neverAChannel, fetchImpl: net.fetchImpl });
+
+      await onStartCardService();
+      await vi.advanceTimersByTimeAsync(0);
+      // Refused at the start, and once more straight away as the first knock.
+      expect(net.asked.map((a) => a.url)).toEqual(['https://pair.example/pair/refresh', 'https://pair.example/pair/refresh']);
+
+      open = true;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(net.asked.at(-1)).toEqual({ url: 'https://wick.example/tv/waiting', authorization: 'Bearer narrow-jwt', body: undefined });
+      for (const knock of net.asked.filter((a) => a.url.endsWith('/pair/refresh'))) {
+        expect(knock).toEqual({ url: 'https://pair.example/pair/refresh', authorization: undefined, body: { deviceId: expect.any(String), forService: true } });
+      }
+    });
+
+    it('asks nothing more once it is stopped', async () => {
+      vi.useFakeTimers();
+      const stored = fakeFs();
+      await stored.writeStringToFile('/data/wick-token.json', JSON.stringify(family), 'utf8');
+      const net = network(() => json(200, { waiting: [] }));
+      __setCardServiceTestDeps({ fs: stored, config: CONFIG, createChannel: neverAChannel, fetchImpl: net.fetchImpl });
+
+      await onStartCardService();
+      await vi.advanceTimersByTimeAsync(0);
+      await onStopCardService();
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      expect(net.asked).toHaveLength(1);
+    });
+
+    it('renews a refused token with that token as its proof, and writes nothing down: the file is the app’s', async () => {
+      const stored = fakeFs();
+      await stored.writeStringToFile('/data/wick-token.json', JSON.stringify(family), 'utf8');
+      let refused = false;
+      const net = network((asked) => {
+        if (asked.url.endsWith('/pair/refresh')) return json(200, { token: { ...family, jwt: 'full-2' } });
+        if (!refused) {
+          refused = true;
+          return json(401, {});
+        }
+        return json(200, { waiting: [] });
+      });
+      __setCardServiceTestDeps({ fs: stored, config: CONFIG, createChannel: neverAChannel, fetchImpl: net.fetchImpl });
+
+      await onStartCardService();
+      await settle();
+      await settle();
+
+      expect(net.asked.map((a) => [a.url, a.authorization])).toEqual([
+        ['https://wick.example/tv/waiting', 'Bearer full-jwt'],
+        ['https://pair.example/pair/refresh', 'Bearer full-jwt'],
+        ['https://wick.example/tv/waiting', 'Bearer full-2'],
+      ]);
+      expect(JSON.parse(await stored.readFileAsString('/data/wick-token.json', 'utf8'))).toEqual(family);
+    });
+  });
+
+  it("does nothing on a television nobody has connected, even now that a family one's service waits", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn(async () => new Response('device_not_paired', { status: 404 }));
     __setCardServiceTestDeps({
       fs: fakeFs(),
       config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
-      createChannel,
-      fetchImpl: (async () => new Response(JSON.stringify({ token: family }), { status: 200 })) as unknown as typeof fetch,
+      createChannel: async () => {
+        throw new Error('should not be called when unpaired');
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    await onStartCardService();
-    await settle();
 
-    expect(createChannel).not.toHaveBeenCalled();
+    await onStartCardService();
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   // Seen on the Vega simulator, 2026-10-11. Opening Wick already paired, the
