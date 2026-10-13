@@ -84,6 +84,7 @@ export type LanguageRefusalCode =
   | 'declined_lately'
   | 'taken_back_lately'
   | 'no_television'
+  | 'not_sent'
   | 'changed'
   | 'not_for_a_neighbour'
   | 'not_allowed_yet';
@@ -367,12 +368,20 @@ export async function askForLanguage(deps: LanguageDeps, actor: LanguageActor, w
   } catch (err) {
     const failed = (what: string) => (undo: unknown) =>
       console.error(JSON.stringify({ level: 'error', msg: what, err: undo instanceof Error ? undo.name : 'unknown' }));
+    failed('language_card_not_sent')(err);
     // The card is stored before it is pushed (egress.ts), so a send that failed may have left one that would arrive
-    // later, with no question behind it: it is taken off again, as far as that can be done.
+    // later, or have reached one of her televisions already: it is taken off again, as far as that can be done.
     await deps.withdrawCard(actor.householdId, languageCardId(question.language)).catch(failed('language_card_not_withdrawn'));
-    // Undone only while the question is still this one. Not a taking back: she was never asked, and no wait starts.
-    await deps.store.clearLanguageQuestion(actor.householdId, question).catch(failed('language_question_not_undone'));
-    throw err;
+    // Wick cannot tell whether she saw it. So it counts: the question is closed and recorded as taken back, and
+    // the day's wait begins — a send that keeps failing would otherwise be a way to put the card on her
+    // television, and off it, without limit. If even that cannot be recorded the question is left open, never
+    // cleared: an open question cannot be asked again either, and taking it back starts the wait.
+    await deps.store.takeBackLanguageQuestion(actor.householdId, question, deps.now()).catch(failed('language_question_not_closed'));
+    throw new LanguageRefusal(
+      503,
+      'not_sent',
+      `Wick could not be sure the question reached ${resident}’s television, so it has taken it back. It can be asked again in a day.`,
+    );
   }
 
   const asked: Household = {

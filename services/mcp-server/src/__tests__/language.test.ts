@@ -295,15 +295,24 @@ describe('POST /api/language — the organiser asks, and nothing changes until s
 
     const res = await ask(h, sarah, { language: 'es' });
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     const body = await res.text();
-    expect(JSON.parse(body)).toEqual({ error: 'server_error', message: 'Something went wrong on my end — try again in a moment.' });
+    expect(JSON.parse(body)).toMatchObject({
+      error: 'not_sent',
+      message: 'Wick could not be sure the question reached Margaret’s television, so it has taken it back. It can be asked again in a day.',
+    });
     expect(body).not.toContain('arn:aws');
-    expect(await (await read(h, sarah)).json()).toEqual({ language: 'en', choices: CHOICES });
+    // No question is open, and the day's wait has begun: it counts as asked and taken back.
+    const after = (await (await read(h, sarah)).json()) as { language: string; asked?: unknown; takenBack?: { language: string } };
+    expect(after.language).toBe('en');
+    expect(after.asked).toBeUndefined();
+    expect(after.takenBack?.language).toBe('es');
 
     down = false;
-    expect((await ask(h, sarah, { language: 'es' })).status).toBe(200);
-    expect(cards.filter((card) => card.card.type === 'LANGUAGE')).toHaveLength(1);
+    const again = await ask(h, sarah, { language: 'es' });
+    expect(again.status).toBe(409);
+    expect(((await again.json()) as { error: string }).error).toBe('taken_back_lately');
+    expect(cards.filter((card) => card.card.type === 'LANGUAGE')).toHaveLength(0);
   });
 });
 
