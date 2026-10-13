@@ -36,7 +36,8 @@ export function registerGetWatchTogether(mcpServer: McpServer, ddb: DynamoDBClie
         '"ready" (they have sat down and the television is waiting for the resident to start the film), "passed" (the resident chose not to, when it came to it), ' +
         '"watching" (with `playback`: where the resident’s film is, for a player that follows it), ' +
         '"stopped" (the resident started the film and left it before the end: nothing is followed any more, and another invitation can be sent), ' +
-        '"watched" (the film reached its end: the one `question`, the `answers` that can be given, `yourAnswer` and `theirAnswer` once given) or "over" (the time passed). ' +
+        '"watched" (the film reached its end: the one `question`, the `answers` that can be given, and who has answered what) or "over" (the time passed). ' +
+        'Once the question has been asked, `answersInWords` is the sentence to say for who answered what: say it as it stands. `yourAnswer` is the signed-in family member’s own answer, and `theirAnswer` is the resident’s answer: never say one as the other’s. ' +
         'Sit down with join_watch_together and answer with answer_watch_together, passing this `sessionId`.',
       inputSchema: {
         sessionId: z.string().min(1).max(64).optional().describe('The `sessionId` of one session. Without it, the newest.'),
@@ -47,7 +48,8 @@ export function registerGetWatchTogether(mcpServer: McpServer, ddb: DynamoDBClie
       const session = sessionId === undefined
         ? (await mySessions(ddb, ctx.householdId, ctx.userId))[0]
         : await mySession(ddb, ctx.householdId, ctx.userId, sessionId);
-      return session ? data(describeWatch(session, now())) : say(NOTHING_ASKED(allowed.household.residentName));
+      const residentName = allowed.household.residentName;
+      return session ? data(describeWatch(session, now(), residentName)) : say(NOTHING_ASKED(residentName));
     })),
   );
 }

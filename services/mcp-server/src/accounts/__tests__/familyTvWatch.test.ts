@@ -478,6 +478,25 @@ describe('GET /tv/seat', () => {
     });
   });
 
+  it('says the very sentence get_watch_together gives for the same film, on the seat and on the home screen’s card', async () => {
+    const w = await seated();
+    await hers(w.table).starts(OPENS + MIN);
+    await hers(w.table).isAsked(OPENS + 20 * MIN);
+    w.clock = OPENS + 21 * MIN;
+    await press(w, 'loved_it');
+    const toolsSentence = (): string | undefined => describeWatch(session(w.table)!, w.clock, 'Margaret').answersInWords;
+
+    expect(toolsSentence()).toBe(`You said: “${WATCH_ANSWERS.loved_it}” Margaret has not answered yet.`);
+    expect((await seatOf(w)).seat!.line).toBe(toolsSentence());
+    expect((await watchCardOf(w))[0]!.headline).toBe(`Sintel. ${toolsSentence()}`);
+
+    await hers(w.table).answers('all_right', OPENS + 22 * MIN);
+
+    expect(toolsSentence()).toBe(`You said: “${WATCH_ANSWERS.loved_it}” Margaret said: “${WATCH_ANSWERS.all_right}”`);
+    expect((await seatOf(w)).seat!.line).toBe(toolsSentence());
+    expect((await watchCardOf(w))[0]!.headline).toBe(`Sintel. ${toolsSentence()}`);
+  });
+
   it('keeps the question open, in the question’s own words, when only she has answered: no more than the tool gives', async () => {
     const w = await seated();
     await hers(w.table).starts(OPENS + MIN);
@@ -491,7 +510,7 @@ describe('GET /tv/seat', () => {
     expect(seat!.answers).toHaveLength(3);
     expect(seat!.line).not.toContain(WATCH_ANSWERS.not_for_me);
     // The one place her answer is: the field get_watch_together itself carries at this moment.
-    expect(describeWatch(session(w.table)!, w.clock).theirAnswer).toBe(WATCH_ANSWERS.not_for_me);
+    expect(describeWatch(session(w.table)!, w.clock, 'Margaret').theirAnswer).toBe(WATCH_ANSWERS.not_for_me);
     expect(seat!.theirAnswer).toBe(WATCH_ANSWERS.not_for_me);
   });
 
