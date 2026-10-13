@@ -13,6 +13,12 @@
  * from the Wick server (see "A family member's own television" below): what
  * is waiting for them, her week to read, a wave, and the seat beside a film.
  *
+ * As the resident's television it speaks her language (packages/contracts
+ * language.ts), as the television app does: the language comes from the
+ * `home` message and from nowhere else, this page's own few words are said
+ * in it (TV_WORDS below), and everything on a card is the server's and comes
+ * already in it. A family member's own television stays English.
+ *
  * All DOM content is built with createElement/textContent, never
  * innerHTML — card content originates from the real backend, not a user,
  * but there's no reason to reintroduce the risk class for convenience.
@@ -132,6 +138,8 @@ function connectWebSocket(jwt, deviceId) {
     connDetail.textContent = `paired as ${deviceId}`;
     disconnectBtn.disabled = false;
     setTelemetryEnabled(true);
+    // A new connection learns the home's language afresh, with the cards it is sent.
+    languageKnown = false;
     send({ t: 'reconcile' });
   };
 
@@ -174,6 +182,12 @@ function disconnect() {
 
 function handleWireMessage(msg) {
   if (msg.kind === 'card') {
+    // A card of a kind this page does not know is dropped: not drawn, not said to have been shown, and never in
+    // the place of the card that is on screen. Its buttons would be live with nothing to say what they do.
+    if (!isKnownCard(msg.card)) {
+      log('!', `a card of a kind this television does not know was not shown (${String(msg.card?.card?.type)})`);
+      return;
+    }
     // Every card is drawn as it arrives: this page has no programme to wait
     // for a break in. So the card her hold brings is on screen at once, and
     // one that arrives with the id of the card already shown — who was asked,
@@ -196,9 +210,22 @@ function handleWireMessage(msg) {
       currentQueuedCard = null;
       renderEmpty();
     } else if (control.t === 'home') {
-      // The light in the window, and who looked in: for the home screen, not a card (tv-vega home/light.ts).
+      // The light in the window, who looked in, and the language she chose: for the home screen, not a card
+      // (tv-vega home/light.ts, headless/QueueStore.ts setHome).
+      const before = tvLanguage();
       home = control.whole === true ? { ...control.home } : { ...home, ...control.home };
+      // Only the whole of a home, or a part that names a language, says what the language is.
+      const saysLanguage = control.whole === true || control.home?.language !== undefined;
+      const differs = tvLanguage() !== before;
+      const changed = saysLanguage && languageKnown && differs;
+      if (saysLanguage) languageKnown = true;
       if (!currentQueuedCard) renderEmpty();
+      // This page's own words on the card that is on screen follow the language at once.
+      else if (differs) renderCard(currentQueuedCard);
+      // The cards the server holds for this television are asked for again, once, so they come in the language she
+      // has now — the request made on connecting (tv-vega transport/startCardChannel.ts). Learning the language of
+      // a home just connected to is not a change: its cards are on their way in that language already.
+      if (changed) send({ t: 'reconcile' });
     }
   }
 }
@@ -209,9 +236,97 @@ function stripUndefined(patch) {
   );
 }
 
+/* --- The television's own words --------------------------------------- */
+
+/** packages/contracts language.ts LANGUAGES. */
+const TV_LANGUAGES = ['en', 'es'];
+
+/**
+ * The few words on the resident's screen that are this page's own, in each
+ * language a household can choose — what apps/tv-vega/src/words/words.ts is
+ * to the television app, and where the two say the same thing they say it
+ * in the same words (__tests__/device.test.ts holds them to it). English is
+ * what this page said before there was a table. Spanish is written by hand:
+ * plain, to usted, and with no sentence that would have to agree with a
+ * name's gender. A value is named in braces.
+ *
+ * Everything else on a card is the server's, and comes in her language. The
+ * pairing screen, the page around the television and a family member's own
+ * television are not in this table: they stay English.
+ */
+const TV_WORDS = {
+  en: {
+    empty: 'No card currently shown.',
+    lightOn: 'Light on',
+    lightOut: 'Light out',
+    door: 'Someone is at the door',
+    doorPicture: 'Door camera still',
+    message: 'Message from {name}',
+    messageUnheard: 'Tap to hear the message',
+    week: 'Your week — {week}',
+    circle: 'Your family circle',
+    sharing: 'What your family sees',
+    tell: 'Something is different today',
+    watch: 'Watching together',
+    light: 'Your light in the window',
+    reach: 'You held OK',
+    visit: 'A visit',
+    filmBack: 'Back',
+    filmWith: '{name} is watching with you.',
+  },
+  es: {
+    empty: 'No hay ninguna tarjeta en pantalla.',
+    lightOn: 'Luz encendida',
+    lightOut: 'Luz apagada',
+    door: 'Hay alguien en la puerta',
+    doorPicture: 'Imagen fija de la cámara de la puerta',
+    message: 'Mensaje de {name}',
+    messageUnheard: 'Toque para oír el mensaje',
+    week: 'Su semana — {week}',
+    circle: 'Su círculo familiar',
+    sharing: 'Lo que ve su familia',
+    tell: 'Hoy hay algo distinto',
+    watch: 'Una película en compañía',
+    light: 'Su luz en la ventana',
+    reach: 'Mantuvo presionado OK',
+    visit: 'Una visita',
+    filmBack: 'Atrás',
+    filmWith: '{name} ve la película con usted.',
+  },
+};
+
+/**
+ * Over the question that asks which language: each language by its own name
+ * (packages/contracts language.ts LANGUAGE_NAMES), so it reads the same
+ * whichever of them she reads.
+ */
+const TV_LANGUAGE_KICKER = 'English · español';
+
+/** Whether the language has been told on this connection yet: until it has, being told is learning it, not a change. */
+let languageKnown = false;
+
+/** The language her television speaks: what the home says, and English when it names none — or one this page has no words in. */
+function tvLanguage() {
+  return TV_LANGUAGES.includes(home.language) ? home.language : 'en';
+}
+
+/** One of this page's own sentences, in her language, with what it names put in. */
+function tvSay(key, values = {}) {
+  const sentence = TV_WORDS[tvLanguage()][key] ?? TV_WORDS.en[key];
+  return sentence.replace(/\{(\w+)\}/g, (place, name) => (Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : place));
+}
+
+/** The kinds of card this page can draw (packages/contracts card.ts `Card`; tv-vega cards/knownCards.ts). */
+const TV_CARD_TYPES = ['DOOR', 'MESSAGE', 'WEEK', 'SHARING', 'CIRCLE', 'TELL', 'WATCH', 'LIGHT', 'REACH', 'VISIT', 'LANGUAGE'];
+
+/** Whether this is a card, of a kind this page has a drawing for. Anything else is dropped, never drawn. */
+function isKnownCard(queued) {
+  return typeof queued?.card?.id === 'string' && TV_CARD_TYPES.includes(queued.card.type);
+}
+
 /* --- Rendering -------------------------------------------------------- */
 
-/** What the home screen is told beside its cards: her light, and who looked in (packages/contracts light.ts). */
+/** What the home screen is told beside its cards: her light, who looked in, and her language (packages/contracts light.ts). */
 let home = {};
 
 /**
@@ -226,16 +341,16 @@ function lookedInLine(now = Date.now()) {
   return todays ? look.line : null;
 }
 
-/** "Light on" or "Light out" — out only for the day she put it out, which the server says the end of (home/light.ts lightLabel). */
+/** "Light on" or "Light out", in her language — out only for the day she put it out, which the server says the end of (home/light.ts lightLabel). */
 function lightLabel(now = Date.now()) {
-  if (home.light === 'out' && !(typeof home.lightOutUntil === 'number' && now >= home.lightOutUntil)) return 'Light out';
-  return 'Light on';
+  if (home.light === 'out' && !(typeof home.lightOutUntil === 'number' && now >= home.lightOutUntil)) return tvSay('lightOut');
+  return tvSay('lightOn');
 }
 
 function renderEmpty() {
   if (film) return show(null);
   const wrapper = el('div', 'tv-empty');
-  wrapper.appendChild(el('div', undefined, 'No card currently shown.'));
+  wrapper.appendChild(el('div', undefined, tvSay('empty')));
   const looked = lookedInLine();
   if (looked) wrapper.appendChild(el('div', 'home-line', looked));
   if (home.light) {
@@ -268,17 +383,19 @@ function renderPairingCode(code, url) {
 const REACH_KEEPS_CARD = ['ring_me', 'say_hello'];
 
 function renderCard(queuedCard) {
+  // Never a card of a kind this page does not know: there is nothing to draw, so its buttons are not drawn either.
+  if (!isKnownCard(queuedCard)) return;
   const card = queuedCard.card;
   const urgencyClass = queuedCard.urgency === 'DOOR' ? 'urgency-door' : 'urgency-deferred';
   const wrapper = el('div', `tv-card ${urgencyClass}`);
 
   if (card.type === 'DOOR') {
-    wrapper.appendChild(el('div', 'kicker', 'Someone is at the door'));
+    wrapper.appendChild(el('div', 'kicker', tvSay('door')));
     wrapper.appendChild(el('div', 'headline', card.line));
     if (card.imageRef) {
       const img = el('img');
       img.src = card.imageRef;
-      img.alt = 'Door camera still';
+      img.alt = tvSay('doorPicture');
       img.style.maxHeight = '40%';
       img.style.borderRadius = 'var(--radius-md)';
       img.style.marginBottom = '0.75em';
@@ -290,50 +407,55 @@ function renderCard(queuedCard) {
     // the chime rang, who was asked to look, and what they answered.
     if (card.notice) wrapper.appendChild(el('div', 'body-text notice', card.notice));
   } else if (card.type === 'MESSAGE') {
-    wrapper.appendChild(el('div', 'kicker', `Message from ${card.fromName}`));
-    wrapper.appendChild(el('div', 'headline', card.transcript ?? 'Tap to hear the message'));
+    wrapper.appendChild(el('div', 'kicker', tvSay('message', { name: card.fromName })));
+    wrapper.appendChild(el('div', 'headline', card.transcript ?? tvSay('messageUnheard')));
     if (card.suggestedReplies?.length) {
       const list = el('ul', 'day-items');
       for (const reply of card.suggestedReplies) list.appendChild(el('li', undefined, reply));
       wrapper.appendChild(list);
     }
   } else if (card.type === 'WEEK') {
-    wrapper.appendChild(el('div', 'kicker', `Your week — ${card.isoWeek}`));
+    wrapper.appendChild(el('div', 'kicker', tvSay('week', { week: card.isoWeek })));
     wrapper.appendChild(el('div', 'body-text', card.text));
   } else if (card.type === 'SHARING' || card.type === 'CIRCLE') {
     // The server wrote every word of these (sharing.mjs, accounts/circle.ts).
-    wrapper.appendChild(el('div', 'kicker', card.type === 'CIRCLE' ? 'Your family circle' : 'What your family sees'));
+    wrapper.appendChild(el('div', 'kicker', tvSay(card.type === 'CIRCLE' ? 'circle' : 'sharing')));
     wrapper.appendChild(el('div', 'headline', card.headline));
     wrapper.appendChild(el('div', 'body-text', card.detail));
   } else if (card.type === 'TELL') {
     // "Shall I tell Sarah?" — the sentence shown is the one the family would be told (services/agent rhythm/tell.ts).
-    wrapper.appendChild(el('div', 'kicker', 'Something is different today'));
+    wrapper.appendChild(el('div', 'kicker', tvSay('tell')));
     wrapper.appendChild(el('div', 'headline', card.headline));
     wrapper.appendChild(el('div', 'body-text', card.detail));
   } else if (card.type === 'WATCH') {
     // Watch together: the server wrote every word (mcp-server tools, edge-device watch-together.mjs).
-    wrapper.appendChild(el('div', 'kicker', 'Watching together'));
+    wrapper.appendChild(el('div', 'kicker', tvSay('watch')));
     wrapper.appendChild(el('div', 'headline', card.headline));
     if (card.detail) wrapper.appendChild(el('div', 'body-text', card.detail));
   } else if (card.type === 'LIGHT') {
     // Her own light in the window: the server wrote every word (edge-device light.mjs).
-    wrapper.appendChild(el('div', 'kicker', 'Your light in the window'));
+    wrapper.appendChild(el('div', 'kicker', tvSay('light')));
     wrapper.appendChild(el('div', 'headline', card.headline));
     wrapper.appendChild(el('div', 'body-text', card.detail));
   } else if (card.type === 'REACH') {
     // Hold for Sarah: the offer her hold brings, then who was asked and what they answered.
     // The server wrote every word (edge-device reach.mjs, services/agent agents/reach).
-    wrapper.appendChild(el('div', 'kicker', 'You held OK'));
+    wrapper.appendChild(el('div', 'kicker', tvSay('reach')));
     wrapper.appendChild(el('div', 'headline', card.headline));
     if (card.detail) wrapper.appendChild(el('div', 'body-text', card.detail));
   } else if (card.type === 'VISIT') {
     // The visit, witnessed: what the door noted of a regular visitor's visit, and whether it is right.
     // The server wrote every word (services/agent agents/visit, packages/contracts visit.ts).
-    wrapper.appendChild(el('div', 'kicker', 'A visit'));
+    wrapper.appendChild(el('div', 'kicker', tvSay('visit')));
     wrapper.appendChild(el('div', 'headline', card.headline));
     wrapper.appendChild(el('div', 'body-text', card.detail));
-  } else {
-    wrapper.appendChild(el('div', 'body-text', `Unrecognized card type: ${card.type}`));
+  } else if (card.type === 'LANGUAGE') {
+    // The television speaks her language: the organiser has asked for another, and it is put to her in both at
+    // once. The server wrote every word (packages/contracts language.ts languageQuestion) — the question and the
+    // first button in the language asked for — so nothing here is from this page's own table but the two names.
+    wrapper.appendChild(el('div', 'kicker', TV_LANGUAGE_KICKER));
+    wrapper.appendChild(el('div', 'headline', card.headline));
+    wrapper.appendChild(el('div', 'body-text', card.detail));
   }
 
   if (card.actions?.length) {
@@ -350,7 +472,8 @@ function renderCard(queuedCard) {
         // written onto that same card a moment later. Its other buttons finish it (cardActions.ts removesCard).
         const finishesReach = card.type === 'REACH' && !REACH_KEEPS_CARD.includes(action.id);
         // Her yes or her no to a visit is the whole of her answer: either finishes the card, as on the television.
-        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH' || card.type === 'LIGHT' || card.type === 'VISIT' || finishesReach) {
+        // So does her yes or her no to another language: what a yes changes comes afterwards, on the home message.
+        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH' || card.type === 'LIGHT' || card.type === 'VISIT' || card.type === 'LANGUAGE' || finishesReach) {
           currentQueuedCard = null;
           renderEmpty();
         }
@@ -434,13 +557,13 @@ function startFilm(card) {
   video.controls = true;
   video.playsInline = true;
   layer.appendChild(video);
-  const back = el('button', 'pill tv-film-back', 'Back');
+  const back = el('button', 'pill tv-film-back', tvSay('filmBack'));
   back.type = 'button';
   back.addEventListener('click', stopFilm);
   layer.appendChild(back);
   // Someone follows only while the card says they can: after that the film is this television's alone.
   const followed = typeof card.followedUntil === 'number' && Date.now() < card.followedUntil;
-  if (followed) layer.appendChild(el('div', 'tv-film-with', `${card.withName} is watching with you.`));
+  if (followed) layer.appendChild(el('div', 'tv-film-with', tvSay('filmWith', { name: card.withName })));
   tvScreen.insertBefore(layer, tvScreen.firstChild);
 
   film = {
