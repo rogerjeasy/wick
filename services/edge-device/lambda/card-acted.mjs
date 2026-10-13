@@ -114,8 +114,10 @@ export function finishedAmong(items, holding) {
  * (sharing.mjs). Retiring those would stop reconcile replaying a card the
  * resident is still looking at — and `sharing` retiring the Week card would
  * release nothing, but would hide the week before the resident pressed OK.
+ * And "Yes, ask Sarah" and "Just say hello" on the card her hold brought
+ * (reach.mjs): who was asked is written onto that same card a moment later.
  */
-const KEEPS_CARD = new Set(['hallway_chime', 'ask_family', 'watch_live', 'sharing', 'toggle', 'next']);
+const KEEPS_CARD = new Set(['hallway_chime', 'ask_family', 'watch_live', 'sharing', 'toggle', 'next', 'ring_me', 'say_hello']);
 
 /** Whether a card_action finishes its card server-side (stamps actedAt). */
 export function retiresCard(action) {
