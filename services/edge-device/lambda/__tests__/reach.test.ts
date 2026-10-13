@@ -106,6 +106,11 @@ describe('a request already under way', () => {
     expect(reachUnderWayId(reachRow(NOW - REACH_UNDER_WAY_MS), NOW)).toBeUndefined();
   });
 
+  it('is over at once when it was a hello: nobody else will be asked, and she may want to be rung now', () => {
+    expect(reachUnderWayId(reachRow(NOW - 60_000, { kind: { S: 'hello' } }), NOW)).toBeUndefined();
+    expect(reachUnderWayId(reachRow(NOW - 60_000, { kind: { S: 'ring' } }), NOW)).toBe(String(NOW - 60_000));
+  });
+
   it('is nothing when there has never been one, or the row is not a request', () => {
     expect(reachUnderWayId(undefined, NOW)).toBeUndefined();
     expect(reachUnderWayId({ pk: { S: 'HH#hh-1' }, sk: { S: 'REACH#x' } }, NOW)).toBeUndefined();

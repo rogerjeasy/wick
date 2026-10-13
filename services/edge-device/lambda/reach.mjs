@@ -49,14 +49,15 @@ export function latestReach({ table, householdId }) {
 
 /**
  * The id of a request still under way, from its row — or undefined when
- * there is none to show: answered, everyone asked in vain, or so long ago
- * that the asking must have gone wrong (contracts reachUnderWay).
+ * there is none to show: answered, everyone asked in vain, so long ago that
+ * the asking must have gone wrong, or a hello, after which nobody else is
+ * asked (contracts reachUnderWay).
  */
 export function reachUnderWayId(item, now) {
   const reachId = item?.reachId?.S;
   const askedAt = Number(item?.askedAt?.N);
   if (!reachId || !Number.isFinite(askedAt)) return undefined;
-  if (item.answeredAt || item.doneAt) return undefined;
+  if (item.kind?.S === 'hello' || item.answeredAt || item.doneAt) return undefined;
   return now - askedAt < REACH_UNDER_WAY_MS ? reachId : undefined;
 }
 

@@ -135,9 +135,14 @@ export function wasAsked(request: ReachRequest, userId: string): boolean {
   return reachAsked(request).some((person) => person.userId === userId);
 }
 
-/** Whether somebody may yet be asked: not answered, not exhausted, and not long ago. */
+/**
+ * Whether somebody may yet be asked: a request to ring that is not answered,
+ * not exhausted, and not long ago. Never a hello — nobody is asked after
+ * the one person it went to, so there is nothing under way, and holding the
+ * button again must offer a new request at once: she may want to be rung now.
+ */
 export function reachUnderWay(request: ReachRequest, now: number): boolean {
-  return request.answer === undefined && request.doneAt === undefined && now - request.askedAt < REACH_UNDER_WAY_MS;
+  return request.kind === 'ring' && request.answer === undefined && request.doneAt === undefined && now - request.askedAt < REACH_UNDER_WAY_MS;
 }
 
 const firstName = (name: string): string => name.trim().split(/\s+/)[0] || 'Someone';

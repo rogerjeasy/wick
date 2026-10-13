@@ -108,6 +108,12 @@ describe('whether a request is still under way', () => {
   });
 });
 
+describe('a hello', () => {
+  it('is never under way: nobody else will be asked, so holding the button again offers a new request at once', () => {
+    expect(reachUnderWay(request({ kind: 'hello', order: [sarah] }), NOW + 1)).toBe(false);
+  });
+});
+
 describe('the answers', () => {
   it('are chosen, never written: two to a request to ring, one to a hello', () => {
     expect(answersFor('ring')).toEqual(['now', 'soon']);
