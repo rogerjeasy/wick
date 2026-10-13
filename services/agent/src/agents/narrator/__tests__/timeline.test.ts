@@ -34,6 +34,18 @@ describe('toTimelineEntry', () => {
     expect(toTimelineEntry(item({ type: { S: 'card_action' }, cardId: { S: 'door-1' }, action: { S: 'dismiss' } }))).toBeUndefined();
   });
 
+  it('never puts her answer to a picture in the week: neither press, with or without its button, is an entry (mantel.ts, THE RULE)', () => {
+    // The edge writes a picture's press without its button (device-event.mjs); even with one, nothing of it is narrated.
+    for (const attrs of [
+      { type: { S: 'card_action' }, cardId: { S: 'photo-p1' } },
+      { type: { S: 'card_action' }, cardId: { S: 'photo-p1' }, action: { S: 'keep' } },
+      { type: { S: 'card_action' }, cardId: { S: 'photo-p1' }, action: { S: 'thanks' } },
+      { type: { S: 'card_shown' }, cardId: { S: 'photo-p1' } },
+    ]) {
+      expect(toTimelineEntry(item(attrs))).toBeUndefined();
+    }
+  });
+
   it('ignores an item with no recognised type rather than guessing', () => {
     expect(toTimelineEntry(item({ type: { S: 'something_new' } }))).toBeUndefined();
   });

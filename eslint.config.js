@@ -21,6 +21,13 @@ const TRANSPORT_CLIENTS = [
   // may hold a translator. Nothing bound for the family can be translated,
   // because nothing else can reach the client.
   '@aws-sdk/client-translate',
+  // The S3 presigner: what makes a short-lived address to one of the family's
+  // pictures (packages/contracts mantel.ts). Held to the same rule for the
+  // same reason — an address is minted for the resident's television on the
+  // way out, and nothing else in the agent plane or the Wick server can make
+  // one. (The edge mints its own, by hand, for the television it is
+  // answering: services/edge-device/lambda/presign.mjs.)
+  '@aws-sdk/s3-request-presigner',
   '**/transport/WebSocketChannel*',
   '**/transport/MqttChannel*',
 ];
