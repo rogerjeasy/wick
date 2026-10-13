@@ -111,6 +111,8 @@ export class QueueStore {
   readonly #showingFrom = new Map<string, number>();
   /** Memory only, on purpose: the addresses in it are written nowhere. */
   #mantel: Mantel | undefined;
+  /** Who is listening for the reading she asked for (onSpeech). Nothing of an answer is kept. */
+  readonly #speechListeners = new Set<(cardId: string, url: string | undefined) => void>();
 
   constructor(
     fs: FileSystemLike,
@@ -168,6 +170,31 @@ export class QueueStore {
   setMantel(items: readonly MantelItem[], receivedAt: number): void {
     const after = this.#mantel === undefined ? receivedAt : Math.max(receivedAt, this.#mantel.receivedAt + 1);
     this.#mantel = { items: [...items], receivedAt: after };
+  }
+
+  /**
+   * Read to me (packages/contracts speech.ts): listens for the server's
+   * answer to her asking — the card it is for and, when there is something
+   * to read, a short-lived address of the reading. Handed over as it comes
+   * and kept nowhere: not in memory, not on disk, not in a log. An answer
+   * nobody is listening for is simply gone.
+   */
+  onSpeech(listener: (cardId: string, url: string | undefined) => void): () => void {
+    this.#speechListeners.add(listener);
+    return () => {
+      this.#speechListeners.delete(listener);
+    };
+  }
+
+  /** The channel's half of it (transport/startCardChannel.ts). */
+  heardSpeech(cardId: string, url: string | undefined): void {
+    for (const listener of [...this.#speechListeners]) {
+      try {
+        listener(cardId, url);
+      } catch {
+        // One listener failing is not the next one's business — and nothing of the answer is logged.
+      }
+    }
   }
 
   /**

@@ -7,7 +7,7 @@ Android in place of the three Amazon packages that source was written against:
 | The Vega app imports | On Fire OS that is | File |
 |---|---|---|
 | `@amazon-devices/react-native-kepler` — View, Text, Pressable, the remote's key events | React Native's own (`react-native-tvos`), with the media keys renamed | `src/adapters/kepler.ts` |
-| `@amazon-devices/react-native-w3cmedia` — `VideoPlayer`, `KeplerVideoView` | ExoPlayer through `react-native-video`, behind the same object | `src/adapters/w3cmedia.tsx`, `videoPlayer.ts` |
+| `@amazon-devices/react-native-w3cmedia` — `VideoPlayer`, `KeplerVideoView`, `AudioPlayer` | ExoPlayer through `react-native-video`, behind the same objects | `src/adapters/w3cmedia.tsx`, `videoPlayer.ts`, `audioPlayer.ts`, `AudioHost.tsx` |
 | `@amazon-devices/kepler-file-system` — three file calls | the app's key-value storage | `src/adapters/fileSystem.ts` |
 
 One shared file is replaced outright: `headless/launchCardService.ts`, which on
@@ -110,6 +110,19 @@ screen that is all picture keeps one focused view, because Android gives a key
 to nothing when nothing is focused; and the key that ends the idle screen is
 taken whole, whether it arrives as down-then-up, up only, or `longSelect`. None
 of it has been seen on the emulator yet.
+
+"Read to me" (`packages/contracts/src/speech.ts`) is the one place where
+Fire OS needed something of its own. On Vega a card is read aloud by an
+`AudioPlayer` object; Android's player is a component and plays only while it
+is on the screen. So `src/adapters/audioPlayer.ts` is that object, and
+`src/adapters/AudioHost.tsx` an unseen view it plays through, which
+`src/Root.tsx` puts beside the app — the app itself is still the Vega app,
+unchanged. The view sets react-native-video's `disableFocus`, so the reading
+does not ask Android for the sound and the film under the door's card keeps
+playing. The object's logic is tested, and the shared reader is run through
+it (`src/__tests__/audioPlayer.test.ts`); **nothing of it has been heard**: it
+has not run on the emulator or a device, and whether a second ExoPlayer mixes
+with the film's as intended is unverified.
 
 ## Not a workspace
 

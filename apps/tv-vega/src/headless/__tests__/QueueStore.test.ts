@@ -589,3 +589,62 @@ describe('QueueStore — two answers about her mantelpiece in the same instant',
     expect(store.readMantel()!.receivedAt).toBeGreaterThan(second.receivedAt);
   });
 });
+
+describe('QueueStore — the reading she asked for (packages/contracts speech.ts)', () => {
+  const URL = 'https://speech.example/tts/hh-1/abc.mp3?X-Amz-Signature=secret';
+
+  it('hands the answer to whoever is listening, as it comes', () => {
+    const store = new QueueStore(fakeFs());
+    const heard: unknown[] = [];
+    store.onSpeech((cardId, url) => heard.push([cardId, url]));
+
+    store.heardSpeech('note-1', URL);
+    store.heardSpeech('note-2', undefined);
+
+    expect(heard).toEqual([['note-1', URL], ['note-2', undefined]]);
+  });
+
+  it('stops handing it over to a listener that has gone', () => {
+    const store = new QueueStore(fakeFs());
+    const heard: unknown[] = [];
+    const stop = store.onSpeech((cardId) => heard.push(cardId));
+
+    stop();
+    store.heardSpeech('note-1', URL);
+
+    expect(heard).toEqual([]);
+  });
+
+  it('keeps none of it: an answer nobody was listening for is gone, and nothing of an address is ever written', async () => {
+    const files = new Map<string, string>();
+    const fs: FileSystemLike = {
+      exists: async (path) => files.has(path),
+      readFileAsString: async (path) => files.get(path) ?? '',
+      writeStringToFile: async (path, content) => (files.set(path, content), content.length),
+    };
+    const store = new QueueStore(fs);
+    await store.upsert(doorCard('c1'));
+
+    store.heardSpeech('c1', URL);
+    const late: unknown[] = [];
+    store.onSpeech((cardId) => late.push(cardId));
+    await store.enqueueOutbound({ t: 'read', cardId: 'c1', at: 1 });
+    await store.readAll();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(late).toEqual([]);
+    expect([...files.values()].join('\n')).not.toMatch(/speech\.example|Signature|\.mp3/);
+  });
+
+  it('is not stopped by a listener that fails', () => {
+    const store = new QueueStore(fakeFs());
+    const heard: string[] = [];
+    store.onSpeech(() => {
+      throw new Error('listener failed');
+    });
+    store.onSpeech((cardId) => heard.push(cardId));
+
+    expect(() => store.heardSpeech('note-1', URL)).not.toThrow();
+    expect(heard).toEqual(['note-1']);
+  });
+});

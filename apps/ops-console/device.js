@@ -28,6 +28,11 @@
  * her pictures fill a television left untouched, is the television's only:
  * this page has no home screen to sit idle.
  *
+ * And it reads a card aloud when asked (packages/contracts speech.ts): the
+ * P key is this page's Play key — and so is the keyboard's own Play/Pause,
+ * and a click on the small mark each card carries, which is not one of the
+ * card's buttons. P again stops it. Nothing is ever read unasked.
+ *
  * All DOM content is built with createElement/textContent, never
  * innerHTML — card content originates from the real backend, not a user,
  * but there's no reason to reintroduce the risk class for convenience.
@@ -164,6 +169,7 @@ function connectWebSocket(jwt, deviceId) {
   };
 
   ws.onclose = () => {
+    stopRead();
     setConnBadge('disconnected');
     connDetail.textContent = 'connection closed';
     disconnectBtn.disabled = true;
@@ -241,6 +247,10 @@ function handleWireMessage(msg) {
       // Her mantelpiece, answered to this page's own asking (packages/contracts mantel.ts): only what is well
       // formed, kept in this page's memory and nowhere else — each address in it is good for an hour.
       takeMantel(readMantelItems(control.items));
+    } else if (control.t === 'speech') {
+      // The reading she asked for (packages/contracts speech.ts): played only if it is the one asked for, for
+      // the card still on screen. Its address is kept nowhere but in the player.
+      hearSpeech(control);
     }
   }
 }
@@ -301,6 +311,8 @@ const TV_WORDS = {
     mantelChoiceDetail: 'Nobody is told if you take it down.',
     mantelLeave: 'Leave it',
     mantelTakeDown: 'Take it down',
+    // Read to me (packages/contracts speech.ts): what the mark on a card is called. P is this page's Play key.
+    readHint: 'Press P to hear this.',
   },
   es: {
     empty: 'No hay ninguna tarjeta en pantalla.',
@@ -333,6 +345,7 @@ const TV_WORDS = {
     mantelChoiceDetail: 'Nadie se entera si la quita.',
     mantelLeave: 'Dejarla',
     mantelTakeDown: 'Quitarla',
+    readHint: 'Presione P para oír esto.',
   },
 };
 
@@ -389,6 +402,8 @@ function lightLabel(now = Date.now()) {
 }
 
 function renderEmpty() {
+  // No card is on screen: a reading of one is over.
+  stopRead();
   // Her mantelpiece, while she has it open: the home screen is what it goes back to.
   if (mantelView) return renderMantel();
   if (film) return show(null);
@@ -602,8 +617,18 @@ function renderCard(queuedCard) {
   // Never a card of a kind this page does not know: there is nothing to draw, so its buttons are not drawn either.
   if (!isKnownCard(queuedCard)) return;
   const card = queuedCard.card;
+  // A reading of any other card is over: this one has the screen now.
+  if (reading && reading.cardId !== card.id) stopRead();
   const urgencyClass = queuedCard.urgency === 'DOOR' ? 'urgency-door' : 'urgency-deferred';
   const wrapper = el('div', `tv-card ${urgencyClass}`);
+  // The mark of the key that reads this card aloud. Not one of the card's buttons, and it has no words: what it
+  // is called is said in her language to whoever cannot see it (apps/tv-vega/src/read/ReadHint.tsx).
+  const mark = el('span', 'tv-read');
+  mark.title = tvSay('readHint');
+  mark.setAttribute('role', 'img');
+  mark.setAttribute('aria-label', mark.title);
+  mark.addEventListener('click', toggleRead);
+  wrapper.appendChild(mark);
 
   if (card.type === 'DOOR') {
     wrapper.appendChild(el('div', 'kicker', tvSay('door')));
@@ -710,6 +735,89 @@ function renderCard(queuedCard) {
 
   show(wrapper);
 }
+
+/* --- Read to me -------------------------------------------------------- */
+
+/*
+ * A card read aloud, when she asks (packages/contracts speech.ts), as the
+ * television does it (apps/tv-vega/src/read/reading.ts, which is the tested
+ * one — keep the two in step). P asks for the card on screen: `read` is sent
+ * once, and the answer for that card is played from its https address. P
+ * again stops it. It is cut short when the card leaves the screen, and it
+ * fails quietly: no answer, no address or an address that will not play
+ * say nothing and show nothing, and she can ask again. A film that is
+ * playing is turned down for the voice and put back exactly after it.
+ */
+
+/** How long an answer is waited for, and how long an address may take to start playing (reading.ts). */
+const READ_ANSWER_WAIT_MS = 10000;
+const READ_START_WAIT_MS = 6000;
+/** How loud a film is while a card is read over it (tv-vega watch/filmVolume.ts). */
+const FILM_VOLUME_WHILE_READING = 0.3;
+
+/** The reading under way: which card, its player once the answer has come, and the film's volume as it was. */
+let reading = null;
+
+function toggleRead() {
+  if (reading) return stopRead();
+  const card = currentQueuedCard?.card;
+  if (!card || !ws || ws.readyState !== WebSocket.OPEN) return;
+  reading = { cardId: card.id, audio: null, filmWas: null, timer: null };
+  const mine = reading;
+  // An answer that never comes: the next P asks again, instead of "stopping" nothing.
+  mine.timer = setTimeout(() => reading === mine && stopRead(), READ_ANSWER_WAIT_MS);
+  send({ t: 'read', cardId: card.id, at: Date.now() });
+}
+
+function hearSpeech(control) {
+  if (!reading || reading.audio || control.cardId !== reading.cardId || currentQueuedCard?.card.id !== control.cardId) return;
+  const url = httpsUrl(control.url);
+  // Nothing to read, or it could not be made: nothing is said, and nothing shown.
+  if (!url) return stopRead();
+  const mine = reading;
+  const over = () => reading === mine && stopRead();
+  clearTimeout(mine.timer);
+  mine.timer = setTimeout(over, READ_START_WAIT_MS);
+  const audio = new Audio(url);
+  mine.audio = audio;
+  audio.onplaying = () => {
+    if (reading !== mine || mine.filmWas !== null) return;
+    clearTimeout(mine.timer);
+    // The film under the door's card: down for the voice, never up.
+    if (film?.video && film.video.volume > FILM_VOLUME_WHILE_READING) {
+      mine.filmWas = { video: film.video, volume: film.video.volume };
+      film.video.volume = FILM_VOLUME_WHILE_READING;
+    }
+  };
+  audio.onended = over;
+  audio.onerror = over;
+  Promise.resolve(audio.play()).catch(over);
+}
+
+/** Every way out: the timer, the film's sound put back exactly, the player silenced. */
+function stopRead() {
+  const was = reading;
+  if (!was) return;
+  reading = null;
+  clearTimeout(was.timer);
+  if (was.filmWas && film?.video === was.filmWas.video) was.filmWas.video.volume = was.filmWas.volume;
+  if (was.audio) {
+    was.audio.onplaying = null;
+    was.audio.onended = null;
+    was.audio.onerror = null;
+    was.audio.pause();
+  }
+}
+
+/** The keyboard as the resident's remote: P is Play. A family member's own television has its own keys, below. */
+function residentKey(event) {
+  if (family) return;
+  if (event.key !== 'p' && event.key !== 'P' && event.key !== 'MediaPlayPause') return;
+  if (!currentQueuedCard) return;
+  event.preventDefault();
+  toggleRead();
+}
+document.addEventListener('keydown', residentKey);
 
 /* --- Watching together ------------------------------------------------ */
 

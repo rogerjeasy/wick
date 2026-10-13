@@ -248,13 +248,30 @@ export function inHerLanguage({ sendCard, sendControl, readLanguage, phrasebook,
     return { ...queued, card: minted ? { ...words, photoUrl } : words };
   };
 
+  /** The card in her language: the stored English as it is, or put through the phrasebook with the free text kept beside it. */
+  const worded = async (queued, from) => {
+    if (from.rows) learn(languageOfRows(from.rows));
+    const spoken = await language();
+    if (spoken === DEFAULT_LANGUAGE) return queued;
+    return said(queued, () => ({ ...queued, card: phrasebook.cardIn(spoken, queued.card, freeOfRow(from.row, spoken)) }));
+  };
+
   return {
     async sendCard(queued, from = {}) {
-      if (from.rows) learn(languageOfRows(from.rows));
-      const spoken = await language();
-      if (spoken === DEFAULT_LANGUAGE) return sendCard(framed(queued));
-      return sendCard(framed(said(queued, () => ({ ...queued, card: phrasebook.cardIn(spoken, queued.card, freeOfRow(from.row, spoken)) }))));
+      return sendCard(framed(await worded(queued, from)));
     },
+
+    /**
+     * The card as her television shows it, without sending it: the very
+     * words `sendCard` would send. For "Read to me" (speech.mjs), which
+     * reads what is on her screen — so it is made here, by the same step,
+     * and cannot come to differ. No picture's address: a reading has no use
+     * for one.
+     */
+    cardAsShown: (queued, from = {}) => worded(queued, from),
+
+    /** The household's language, as this event knows it (read once, at most). */
+    language,
 
     async sendControl(control) {
       if (control?.t === 'home') {

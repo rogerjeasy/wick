@@ -633,3 +633,61 @@ describe('asking for the cards again, from the app — a picture whose address h
     running.stop();
   });
 });
+
+describe('startCardChannel — read to me (packages/contracts speech.ts)', () => {
+  const URL = 'https://speech.example/tts/h1/abc.mp3';
+
+  it('sends her asking like any other event, once', async () => {
+    vi.useFakeTimers();
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const running = startCardChannel(store, channel);
+
+    await store.enqueueOutbound({ t: 'read', cardId: 'note-1', at: 1 });
+    await vi.advanceTimersByTimeAsync(2_100);
+
+    expect(channel.sent).toEqual([{ t: 'read', cardId: 'note-1', at: 1 }]);
+    running.stop();
+  });
+
+  it('hands the answer to the app as it arrives, with the card it is for', () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const running = startCardChannel(store, channel);
+    const heard: unknown[] = [];
+    store.onSpeech((cardId, url) => heard.push([cardId, url]));
+
+    channel.pushControl({ t: 'speech', cardId: 'note-1', url: URL });
+    channel.pushControl({ t: 'speech', cardId: 'note-2' });
+
+    expect(heard).toEqual([['note-1', URL], ['note-2', undefined]]);
+    running.stop();
+  });
+
+  it('takes no notice of an answer that names no card', () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const running = startCardChannel(store, channel);
+    const heard: unknown[] = [];
+    store.onSpeech((cardId) => heard.push(cardId));
+
+    channel.pushControl({ t: 'speech', url: URL } as unknown as ControlMessage);
+    channel.pushControl({ t: 'speech', cardId: 7, url: URL } as unknown as ControlMessage);
+
+    expect(heard).toEqual([]);
+    running.stop();
+  });
+
+  it('is not the card service’s to hear: behind another app nothing is read aloud', () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const running = startBackgroundChannel(store, channel, () => undefined);
+    const heard: unknown[] = [];
+    store.onSpeech((cardId) => heard.push(cardId));
+
+    channel.pushControl({ t: 'speech', cardId: 'note-1', url: URL });
+
+    expect(heard).toEqual([]);
+    running.stop();
+  });
+});

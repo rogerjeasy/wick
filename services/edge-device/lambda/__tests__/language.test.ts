@@ -475,6 +475,61 @@ describe('inHerLanguage — every card and every home message the edge sends, pu
     });
   });
 
+  describe('the card as her television shows it, without sending it — what "Read to me" reads', () => {
+    it('is the stored card itself in an English household', async () => {
+      const tv = television('en');
+
+      expect(await tv.cardAsShown(queuedNote, { row: { tr_es: { S: '{"transcript":"Llámame."}' } } })).toBe(queuedNote);
+      expect(await tv.language()).toBe('en');
+      expect(tv.cards).toEqual([]);
+    });
+
+    it('is the card in her language, with the free text kept beside it — exactly what sendCard would have sent', async () => {
+      const row = { data: { S: JSON.stringify(queuedNote) }, tr_es: { S: '{"transcript":"Llámame esta noche, mamá."}' } };
+      const shown = television('es');
+      const sent = television('es');
+
+      const asShown = await shown.cardAsShown(queuedNote, { row });
+      await sent.sendCard(queuedNote, { row });
+
+      expect(asShown).toEqual(sent.cards[0]);
+      expect(asShown.card.transcript).toBe('Llámame esta noche, mamá.');
+      expect(await shown.language()).toBe('es');
+      // Nothing was sent to find that out, and the language was read once.
+      expect(shown.cards).toEqual([]);
+      expect(shown.controls).toEqual([]);
+      expect(shown.readLanguage).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks for no picture’s address: a reading has no use for one', async () => {
+      const asked: string[] = [];
+      const voice = inHerLanguage({
+        sendCard: async () => true,
+        sendControl: async () => true,
+        readLanguage: async () => 'en',
+        phrasebook,
+        pictureAddress: (photoId: string) => { asked.push(photoId); return 'https://photos.example/x'; },
+        log: () => {},
+      });
+      const photo = { id: 'photo-p1', urgency: 'DEFERRED', queuedAt: 1, shownCount: 0, card: { type: 'PHOTO', id: 'photo-p1', photoId: 'p1', headline: 'A picture from Sarah.', actions: [] } };
+
+      const shown = await voice.cardAsShown(photo);
+
+      expect(shown.card).not.toHaveProperty('photoUrl');
+      expect(asked).toEqual([]);
+    });
+
+    it('hands on the answer to her asking exactly as it was built: the reading’s address is not Wick’s words', async () => {
+      const tv = television('es');
+      const control = { t: 'speech', cardId: 'note-1', url: 'https://media.example/tts/x.mp3?sig=1' };
+
+      await tv.sendControl(control);
+
+      expect(tv.controls[0]).toBe(control);
+      expect(tv.readLanguage).not.toHaveBeenCalled();
+    });
+  });
+
   it('leaves a revoke as it is — it carries no words — and reads nothing for it', async () => {
     const tv = television('es');
     const revoke = { t: 'revoke', cardId: 'note-1' };

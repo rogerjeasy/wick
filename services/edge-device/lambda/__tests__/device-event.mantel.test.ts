@@ -600,6 +600,65 @@ describe('when the bucket cannot be told', () => {
   });
 });
 
+describe('a picture that is gone, and a bucket that refuses, are not the same answer', () => {
+  /**
+   * The distinction the whole "does not loop" rule rests on. S3 answers a
+   * missing object with 404 only to a caller that may list the bucket — the
+   * edge's roles are given that, on the pictures' bucket, for this alone
+   * (infra/photos.tf, statement `TellAMissingPictureFromARefusal`). Without
+   * it both cases answer 403 and could not be told apart; with it, a 403 is
+   * a real refusal and must never be taken for "gone".
+   */
+  const refused = { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } };
+  const gone = { name: 'NoSuchKey', $metadata: { httpStatusCode: 404 } };
+
+  it('403 on "Keep it": refused, not gone — the card comes back unanswered, nothing is finished, nothing is kept', async () => {
+    sent('p1');
+    aws.s3.fails = refused;
+
+    const tv = await press('p1', 'keep');
+
+    expect(row('CARD#photo-p1')!.actedAt).toBeUndefined();
+    expect(busOf('card.retired')).toEqual([]);
+    expect(onTheMantel()).toEqual([]);
+    expect(row('MANTEL')).toBeUndefined();
+    expect(tv.cards.map((card) => [card.id, card.card.notice, card.respondsTo])).toEqual([['photo-p1', undefined, 'photo-p1']]);
+    // An ordinary failure: tried twice, and said.
+    expect(aws.s3.asked).toBe(2);
+    expect(said.some((line) => line.includes('photo_retag_failed'))).toBe(true);
+
+    // The picture is still there: once the bucket answers, the same press keeps it.
+    aws.s3.fails = undefined;
+    await press('p1', 'keep');
+    expect(onTheMantel()).toEqual(['p1']);
+  });
+
+  it('404 on "Keep it": gone — the card is finished, nothing is kept, and it does not come back', async () => {
+    sent('p1');
+    aws.s3.fails = gone;
+
+    const tv = await press('p1', 'keep');
+
+    expect(row('CARD#photo-p1')!.actedAt).toBeDefined();
+    expect(busOf('card.retired').map((detail) => detail.cardId)).toEqual(['photo-p1']);
+    expect(onTheMantel()).toEqual([]);
+    expect(tv.cards).toEqual([]);
+    expect(aws.s3.asked).toBe(1);
+  });
+
+  it('403 on "Thank you": still her answer — the card is finished and seen, and the failure is said, since the picture may still be there', async () => {
+    sent('p1');
+    aws.s3.fails = refused;
+
+    await press('p1', 'thanks');
+
+    expect(row('CARD#photo-p1')!.actedAt).toBeDefined();
+    expect(row('PHOTO#p1')!.seenAt).toBeDefined();
+    expect(aws.s3.asked).toBe(2);
+    expect(said.some((line) => line.includes('photo_retag_failed'))).toBe(true);
+  });
+});
+
 describe('when the picture’s bytes are gone — the bucket let go of it before she answered', () => {
   const missing = [
     ['by name', 'NoSuchKey'],

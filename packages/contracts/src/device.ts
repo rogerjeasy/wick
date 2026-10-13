@@ -71,7 +71,13 @@ export type DeviceEvent =
    */
   | { readonly t: 'mantel'; readonly at: number }
   /** She took one thing down, with her own press. The answer is the mantelpiece as it now stands. */
-  | { readonly t: 'mantel_take_down'; readonly photoId: string; readonly at: number };
+  | { readonly t: 'mantel_take_down'; readonly photoId: string; readonly at: number }
+  /**
+   * Read to me (speech.ts): she pressed Play while this card was on her
+   * screen. The answer is a `speech` control with the address of the
+   * reading, for this television only.
+   */
+  | { readonly t: 'read'; readonly cardId: string; readonly at: number };
 
 export type ControlMessage =
   | { readonly t: 'patch'; readonly patch: CardPatch }
@@ -98,7 +104,13 @@ export type ControlMessage =
    * ever as the answer to its asking, on the channel it asked on: the
    * addresses in it are never sent across the bus or to another television.
    */
-  | { readonly t: 'mantel'; readonly items: readonly import('./mantel.js').MantelItem[] };
+  | { readonly t: 'mantel'; readonly items: readonly import('./mantel.js').MantelItem[] }
+  /**
+   * The reading she asked for (speech.ts). `url` is absent when there is
+   * nothing to read or it could not be made: the television then says
+   * nothing, and shows nothing changed.
+   */
+  | { readonly t: 'speech'; readonly cardId: string; readonly url?: string };
 
 export type ChannelState = 'connecting' | 'open' | 'backoff' | 'closed';
 export type Unsubscribe = () => void;

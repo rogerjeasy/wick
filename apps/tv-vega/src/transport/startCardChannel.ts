@@ -71,6 +71,8 @@ export function startCardChannel(store: QueueStore, channel: ReconcilingChannel)
     // Her mantelpiece, answered to this television's own asking (packages/contracts mantel.ts): only what is
     // well formed, kept in memory with the moment it came — the addresses in it are good for an hour.
     else if (msg.t === 'mantel') store.setMantel(readMantelItems(msg.items), Date.now());
+    // The reading she asked for (packages/contracts speech.ts): handed to the app as it arrives, and kept nowhere.
+    else if (msg.t === 'speech' && typeof msg.cardId === 'string') store.heardSpeech(msg.cardId, typeof msg.url === 'string' ? msg.url : undefined);
   });
 
   let flushing = false;

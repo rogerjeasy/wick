@@ -53,6 +53,18 @@
  * look picks cards exactly as before underneath it, and a card that can be
  * shown ends it. Any key ends it too, and that key press does nothing
  * else: every key is heard here, in one place, and only listened to.
+ *
+ * Read to me (packages/contracts/src/speech.ts). While a card is on screen
+ * Play asks for it to be read aloud (read/reading.ts) — the one thing a key
+ * heard here does. On the home screen, and on the door's card over a film
+ * that is playing, Play again stops the reading, and the film is never
+ * paused by it. Over a note that is holding the film Play is the card's
+ * once: the first reads the note, and the next is her way back to the film
+ * as Play there always was — the film goes on and the note is put away —
+ * whether the reading is still going, is over, or never started
+ * (watch/remoteKeys.ts playIsTheCards). Only when she asks: nothing here
+ * ever starts a reading by itself. And where reading cannot work the mark
+ * of the key is not drawn and Play is the film's from the first press.
  */
 import * as React from 'react';
 import { Linking } from 'react-native';
@@ -72,6 +84,11 @@ import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, waitingLine } from './home/waiting.js';
 import { answersHerPress, lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
 import { backAnswersReach, holdGuard, newestReachCard, reachOffersToPutAway } from './home/reach.js';
+import { ReadHint } from './read/ReadHint.js';
+import { Reader, type ReadingState } from './read/reading.js';
+import { canRead, createSpeechPlayer } from './read/speechPlayer.js';
+import { lowerFilm, type HasVolume } from './watch/filmVolume.js';
+import { playIsTheCards, readCommand } from './watch/remoteKeys.js';
 import { IdleScreen } from './mantel/IdleScreen.js';
 import { MantelScreen } from './mantel/MantelScreen.js';
 import { IDLE_OFF, blocksHome, idleOnBack, idleOnKey, lookAtIdle, type Idle } from './mantel/idle.js';
@@ -413,11 +430,70 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   // OK came up: after a hold, the card that arrives may now be pressed.
   const handleKeyUp = React.useCallback(() => guard.released(Date.now()), [guard]);
 
-  // Every key, wherever the focus is — and only listened to. It says she is there, which is what the idle
-  // screen waits for the absence of; and it is what ends the idle screen (mantel/idle.ts).
+  // Read to me (read/reading.ts). One reader for the life of the app: her asking is sent like any event, the
+  // player is the platform's, and a film that is playing is turned down for the voice and put back after it.
+  const filmPlayer = React.useRef<HasVolume | null>(null);
+  const handleFilmPlayer = React.useCallback((player: HasVolume | null) => {
+    filmPlayer.current = player;
+  }, []);
+  /** How the reading stands, as the reader says it: a key needs to know whether one is under way. */
+  const [readingState, setReadingState] = React.useState<ReadingState>('idle');
+  /**
+   * The card Play has already asked to have read, during this showing of
+   * it. Over a film that card is holding, the next Play is then the film's
+   * again. Forgotten when the card leaves the screen: another card, or the
+   * same one shown again later, starts with reading.
+   */
+  const [askedFor, setAskedFor] = React.useState<string | null>(null);
+  const reader = React.useMemo(
+    () =>
+      new Reader({
+        onChange: setReadingState,
+        createPlayer: createSpeechPlayer,
+        ask: (cardId) => void store.enqueueOutbound({ t: 'read', cardId, at: Date.now() }),
+        lowerFilm: () => {
+          const film = filmPlayer.current;
+          return lowerFilm(film, () => filmPlayer.current === film);
+        },
+      }),
+    [store],
+  );
+  // The server's answer, as it comes: it is played only if it is the one asked for, for the card still on screen.
+  React.useEffect(() => store.onSpeech((cardId, url) => reader.speech(cardId, url)), [store, reader]);
+  // The card that can be read just now. None while the door camera is over the card, while Wick is behind
+  // another app, or where reading cannot work — and a reading of any other card is over.
+  const readable = canRead();
+  const readingCard = readable && onScreen && card !== null && liveFor === null ? card.id : undefined;
+  // Whose the next Play is (watch/remoteKeys.ts): the card's — or, over a film the card is holding, once Play
+  // has asked for it, the film's again.
+  const holdsFilm = watching !== null && breakController.holdsProgramme(card ?? undefined);
+  const playReads = playIsTheCards({ card: readingCard, holdsFilm, askedFor });
+  const reading = readingState !== 'idle';
+  /** What a key needs to know, for the handler below, which runs between renders. The film's screen is given the same. */
+  const keysNow = React.useRef<{ cardVisible: boolean; playReads: boolean; reading: boolean; card: string | undefined }>({ cardVisible: false, playReads: false, reading: false, card: undefined });
+  keysNow.current = { cardVisible: card !== null, playReads, reading, card: readingCard };
+  React.useEffect(() => {
+    reader.showing(readingCard);
+    setAskedFor((asked) => (asked !== null && asked !== readingCard ? null : asked));
+  }, [reader, readingCard]);
+  React.useEffect(() => {
+    return () => reader.stop();
+  }, [reader]);
+
+  // Every key, wherever the focus is. It says she is there, which is what the idle screen waits for the
+  // absence of; it is what ends the idle screen (mantel/idle.ts); and Play, while a card is on screen, asks
+  // for the card to be read or ends the reading. Nothing else is done from a key heard here: what Play does
+  // to the film is the film's screen's, which is given the same three things to decide by.
   useTVEventHandler((event) => {
     const now = Date.now();
     lastActiveAt.current = now;
+    const at = keysNow.current;
+    const command = readCommand(event, at);
+    if (command) {
+      reader.press(command);
+      // Play has now asked for this showing of this card: over a film it holds, the next Play is her way back to the film.
+      if (command === 'toggle' && at.card !== undefined) setAskedFor(at.card);
+    }
     const next = idleOnKey(idleNow.current, event, now);
     if (next !== idleNow.current) {
       idleNow.current = next;
@@ -530,7 +606,10 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
           onSnapshot={handleSnapshot}
           onPlaybackEvent={handlePlaybackEvent}
           cardVisible={card !== null}
-          held={breakController.holdsProgramme(card ?? undefined)}
+          playReads={playReads}
+          reading={reading}
+          onPlayer={handleFilmPlayer}
+          held={holdsFilm}
           suspended={liveFor !== null}
           companion={together && together.programmeId === watching.id ? together.withName : undefined}
           onHold={handleHold}
@@ -578,6 +657,8 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       {card && !liveFor ? (
         <View style={styles.cardLayer} pointerEvents="box-none">
           <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} language={language} onAction={handleAction} onPictureFailed={handlePictureFailed} />
+          {/* The mark of the Play key: Play reads this card aloud. Only where it can. */}
+          {readable ? <ReadHint cardType={card.card.type} language={language} /> : null}
         </View>
       ) : null}
       {/* Back returns to the card as it was. */}

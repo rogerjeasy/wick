@@ -26,6 +26,7 @@ import {
   PHOTO_SK_PREFIX,
   PHOTO_STATE_TAG,
   cardBack,
+  isMissingObject,
   isPhotoId,
   keepOutcome,
   keepWrite,
@@ -366,6 +367,33 @@ describe('what S3 is told of a picture — so that the bucket keeps what she kep
   it('gives a picture no state the bucket’s rules do not know', () => {
     expect(() => retagInput({ bucket: 'b', householdId: 'hh-1', photoId: 'p1', state: 'archived' })).toThrow();
     expect(() => retagInput({ bucket: 'b', householdId: 'hh-1', photoId: 'p1', state: undefined })).toThrow();
+  });
+});
+
+describe('isMissingObject — a picture that is not there, told apart from a refusal', () => {
+  /**
+   * S3 only says "not found" to a caller that may list the bucket; to one
+   * that may not, a missing object and a forbidden one both answer 403. The
+   * edge's roles are given that listing on the pictures' bucket for exactly
+   * this (infra/photos.tf, `TellAMissingPictureFromARefusal`) — so here a
+   * 404 means the bytes are gone, and a 403 means what it says.
+   */
+  it('is so for S3’s "no such key", by name or by a plain 404', () => {
+    expect(isMissingObject({ name: 'NoSuchKey' })).toBe(true);
+    expect(isMissingObject({ name: 'NotFound' })).toBe(true);
+    expect(isMissingObject({ name: 'UnknownError', $metadata: { httpStatusCode: 404 } })).toBe(true);
+  });
+
+  it('is never so for a refusal: a 403 is not "gone", and must not finish a card over a picture that is still there', () => {
+    expect(isMissingObject({ name: 'AccessDenied', $metadata: { httpStatusCode: 403 } })).toBe(false);
+    expect(isMissingObject({ name: 'Forbidden', $metadata: { httpStatusCode: 403 } })).toBe(false);
+    expect(isMissingObject({ name: '403' })).toBe(false);
+  });
+
+  it('nor for anything else that went wrong, or nothing at all', () => {
+    for (const err of [{ name: 'ServiceUnavailable', $metadata: { httpStatusCode: 503 } }, { name: 'SlowDown' }, new Error('socket'), undefined, null]) {
+      expect(isMissingObject(err)).toBe(false);
+    }
   });
 });
 

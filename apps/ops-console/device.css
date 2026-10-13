@@ -531,3 +531,17 @@
   max-height: 22em;
   cursor: pointer;
 }
+
+/* Read to me: the mark of the key that reads a card aloud, in the card's corner (a card is positioned already).
+   Not one of the card's buttons. */
+.tv-read {
+  position: absolute;
+  top: 0.6em;
+  right: 0.8em;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.tv-read::before {
+  content: '\25B6';
+}

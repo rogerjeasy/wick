@@ -27,6 +27,11 @@ const MANTEL_WORDS = {
   'mantel.takeDown': 'Take it down',
 } as const;
 
+/** "Read to me": one sentence, said by the screen reader for the mark of the Play key on a card (read/ReadHint.tsx). */
+const READ_WORDS = {
+  'read.hint': 'Press Play to hear this.',
+} as const;
+
 describe('the words table — English, exactly as the television said it before there was a table', () => {
   it('says every sentence as it was written in the component it came from', () => {
     expect(WORDS.en).toEqual({
@@ -74,7 +79,12 @@ describe('the words table — English, exactly as the television said it before 
       // A programme's line on the home screen (packages/contracts programmes.ts: "10 minutes").
       'programme.minutes': '{count} minutes',
       ...MANTEL_WORDS,
+      ...READ_WORDS,
     });
+  });
+
+  it('says what "Read to me" added (packages/contracts speech.ts), and nothing else', () => {
+    expect(Object.keys(WORDS.en).filter((key) => key.startsWith('read.'))).toEqual(Object.keys(READ_WORDS));
   });
 
   it('says what the mantelpiece added (packages/contracts mantel.ts), and nothing else', () => {
@@ -140,6 +150,10 @@ describe('Spanish — plain, to usted, and no longer than the place it goes', ()
     expect(es['mantel.takeDown']).toBe('Quitarla');
     // "La", for la foto: nothing here has to agree with whoever sent it.
     expect(es['mantel.choiceDetail']).toBe('Nadie se entera si la quita.');
+  });
+
+  it('calls the key what is said of it in a Spanish-speaking home in the United States: Play', () => {
+    expect(es['read.hint']).toBe('Presione Play para oír esto.');
   });
 
   it('addresses her as usted: never tú', () => {

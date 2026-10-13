@@ -208,11 +208,48 @@ data "aws_iam_policy_document" "edge_photos" {
     # (presign.mjs) — the function reads no picture. PutObjectTagging: her
     # press — kept, or gone (mantel.mjs retagInput).
     #
-    # No DeleteObject: the edge deletes no picture; the rules above do. And
+    # No DeleteObject: the edge deletes no picture; the rules do. And
     # no dynamodb:DeleteItem either — a thing taken down is marked and the
     # table clears its row away (mantel.mjs says why).
     actions   = ["s3:GetObject", "s3:PutObjectTagging"]
     resources = [local.photo_objects_arn]
+  }
+
+  statement {
+    sid = "TellAMissingPictureFromARefusal"
+    # Here for one reason. S3 answers a request for an object that is not
+    # there with "404, no such key" only to a caller that may list the
+    # bucket; to one that may not, it answers "403, access denied" — the
+    # same as a real refusal. The edge has to tell the two apart: "Keep it"
+    # on a picture whose bytes are gone must finish the card and keep
+    # nothing, while a refusal must leave the card to be pressed again
+    # (mantel.mjs isMissingObject; device-event.mjs answerPhoto). Without
+    # this, a picture that outlived its bytes would come back for ever.
+    #
+    # What it lets these two functions do beyond that: list the names of the
+    # keys under `photos/` — `photos/<household>/<id>.jpg`, ids they already
+    # hold in rows. Nothing is listed by any code; no object is readable
+    # that was not already; nothing else of S3 is touched. The Wick server
+    # is not given it: it never asks after a picture that might be gone.
+    #
+    # `StringLikeIfExists`, not `StringLike`, on purpose. `s3:prefix` is a
+    # key of a ListBucket request. The question S3 asks itself when an
+    # object is missing — "may this caller list the bucket?" — is not such a
+    # request and carries no prefix, so a plain `StringLike` would not match
+    # it, and the 404 this statement exists for would stay a 403. With
+    # `IfExists` that question is answered yes, and a listing that does name
+    # a prefix must still name one under `photos/`. A listing that names
+    # none is allowed too; the bucket holds nothing outside `photos/`
+    # (every writer and both lifecycle rules use that prefix), so it shows
+    # the same names.
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.photos.arn]
+
+    condition {
+      test     = "StringLikeIfExists"
+      variable = "s3:prefix"
+      values   = ["photos/*"]
+    }
   }
 }
 

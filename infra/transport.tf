@@ -188,6 +188,10 @@ resource "aws_lambda_function" "ws_route" {
       # The mantelpiece: where a picture's address is signed for, and what
       # her press re-tags (infra/photos.tf, mantel.mjs).
       PHOTOS_BUCKET = aws_s3_bucket.photos.bucket
+      # Read to me: where a reading is kept for its day, under tts/
+      # (infra/speech.tf, speech.mjs). The name the live bridge already
+      # knows this bucket by (infra/live.tf).
+      MEDIA_BUCKET = aws_s3_bucket.media.id
     }
   }
 

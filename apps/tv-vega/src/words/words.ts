@@ -106,6 +106,11 @@ const en = {
   'mantel.choiceDetail': 'Nobody is told if you take it down.',
   'mantel.leave': 'Leave it',
   'mantel.takeDown': 'Take it down',
+
+  // Read to me (packages/contracts speech.ts). What the screen reader says for the mark of the Play key that
+  // stands on every card (read/ReadHint.tsx): the sentence itself is not written on a card, because no card
+  // has a line to spare for it at 32pt.
+  'read.hint': 'Press Play to hear this.',
 } as const;
 
 export type WordKey = keyof typeof en;
@@ -169,6 +174,9 @@ const es: Readonly<Record<WordKey, string>> = {
   'mantel.choiceDetail': 'Nadie se entera si la quita.',
   'mantel.leave': 'Dejarla',
   'mantel.takeDown': 'Quitarla',
+
+  // "Play": the key carries a mark and no word, and Play is what it is called.
+  'read.hint': 'Presione Play para oír esto.',
 };
 
 /** Every language's table. A language added to the contract does not compile until it has one. */
