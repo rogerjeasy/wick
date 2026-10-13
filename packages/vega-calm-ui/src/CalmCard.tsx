@@ -11,13 +11,7 @@
  */
 import * as React from 'react';
 import { Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
-import {
-  assertActionLimit,
-  assertContrast,
-  assertNoAlarmColour,
-  fontSize,
-  safe,
-} from './constraints.js';
+import { assertActionLimit, assertContrast, assertNoAlarmColour, fontSize, safe, actionColours } from './constraints.js';
 import { layout, limits } from './tokens.js';
 
 export interface CalmAction {
@@ -57,6 +51,11 @@ export function CalmCard(props: CalmCardProps): React.JSX.Element {
   assertActionLimit(actions.length);
   assertContrast(safe.ink, safe.raised);
   assertContrast(safe.inkDim, safe.raised);
+  // And every button's words against the button itself.
+  for (const action of actions) {
+    const colours = actionColours(action.kind);
+    assertContrast(colours.label, colours.background);
+  }
   assertNoAlarmColour(safe.accent);
 
   const focusId = initialFocusId ?? actions[0]?.id;
@@ -95,7 +94,7 @@ export function CalmCard(props: CalmCardProps): React.JSX.Element {
               focused && styles.actionFocused,
             ]}
           >
-            <Text style={styles.actionLabel}>{action.label}</Text>
+            <Text style={[styles.actionLabel, { color: actionColours(action.kind).label }]}>{action.label}</Text>
           </Pressable>
         ))}
       </View>

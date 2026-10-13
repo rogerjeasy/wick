@@ -37,10 +37,11 @@ nothing, wear nothing and change nothing.
 | **The Family** | A distant daughter asks Alexa+ *"how's Mum been this week?"* and gets a truthful, unsensational narrative. (Here she asks a simulated Alexa+ surface; the MCP server behind it is the real one — see [what is real, and what is simulated](#what-is-real-and-what-is-simulated).) Notes go back the other way — at the end of an episode, never mid-scene — and the resident replies with one button. |
 | **The Rhythm** | Wick learns what a normal week looks like in this house, so it can stay silent when nothing is wrong — and so the weekly narrative can say *"that's up from last week"* and mean it. |
 
-### Seven things built on those three
+### Eight things built on those three
 
-Each of these runs today on the deployed stack. Each is something the resident
-does with one button, on their own television.
+Each of these runs today on the deployed stack. The first seven are something
+the resident does with one button, on their own television. The eighth is the
+same app in the family member's living room.
 
 | | What happens | What it never does |
 |---|---|---|
@@ -51,6 +52,7 @@ does with one button, on their own television.
 | **The light in the window** | The family sees one thing about today: a light, lit once the resident's day has begun. No time, no room, no programme. She can put it out for the day — and a light that is out looks exactly like one not yet lit, so an unlit window never says why. | Looking is never hidden from the person looked at. Her home screen says *"Sarah looked in this morning."* |
 | **Hold for Sarah** | The remote is the button she already holds. OK held for two seconds, on the home screen or over a film, brings one card: *"Ask Sarah to ring you?"* Yes tells one person that she would like a call. If they have not answered in three minutes the next person in her circle is asked, and a neighbour last — someone invited for exactly this, who can also be asked to look at the door. Whoever answers chooses one sentence — *"I’m ringing you now."* — and it appears on her television under their name. *"Just say hello"* does exactly that, to one person. | Wick rings nobody, calls no service and sounds nothing, and the card says so. Nobody is told why she asked. Someone not yet asked is not told there is a request at all. A neighbour sees nothing else about the house. The hold is heard while Wick is on screen, not from inside another app. |
 | **The visit, witnessed** | The carer rings at 9:02 and the door knows her from the roster. The door next sees somebody at 9:47: she has left. At the next natural break the television asks: *"Is this right? Maria was here on Tuesday from 9:02 am to 9:47 am."* One press — *"Yes, that’s right"* — makes it a visit the resident herself confirmed, and the family can ask *"were this week’s visits confirmed?"* (The two door events come from a signed stand-in for the doorbell, `scripts/visit-sighting.sh`: Ring's Playground sends none — [FL-027](FRICTION.md).) | The times are the door's reading, never called a fact, and nothing but her press confirms one. *"No, that’s not right"* tells nobody: whether the family hears she disputed a visit is hers to decide, and until then it looks exactly like one she has not been asked about. It is not a clinical or billing record. |
+| **Sarah's television** | The same app, connected by a family member as their own: the family app asks *"Whose television is it?"* and they choose *Mine*. Its home screen says one sentence about the light in Mum's window. When she asks them to look at the door, the picture and the three answers come up there; when she asks to be rung, that does. They answer with the remote, and the sentence appears on her television under their name. Seen working on the Fire OS emulator and on the television in a browser tab. | It is never her television. It is given none of her cards and cannot be turned into hers, and its token is good for asking one server for one member's view ([`AGENTS.md`](AGENTS.md), INV-1). It shows only what that member may already read, asks again on every look whether she still allows them, and a neighbour cannot connect one. A look from it is noted on her home screen like any other. It asks every eight seconds while the app is on screen, so nothing reaches it when the app is off. On the Vega simulator, which keeps nothing on disk ([FL-013](FRICTION.md)), it has to be connected again each time the app starts. |
 
 The family reaches all of it through the MCP server's twenty-one tools — the week,
 today, visitors and their visits, notes and replies, the door, watching together,
@@ -65,6 +67,7 @@ No account and no hardware are needed.
 1. Open the [family app](https://dmaz25jvryojp.cloudfront.net/) and choose **Try the demo**. You get a guest account and a demo home of your own, with six weeks of simulated history.
 2. Open [a television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/device.html), press **Pair & connect**, and enter its code in the family app.
 3. On the television, allow yourself. From then on, ask the family app anything — *"How has my mum been this week?"*, *"Is the light on?"*, *"Ask Mum to watch Sintel with me on Sunday at three"* — and answer on the television.
+4. For the family's side on a television, open a second television tab, press **Pair & connect**, and in the family app answer *"Whose television is it?"* with **Mine**.
 
 ## Why this needs Amazon
 

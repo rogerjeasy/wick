@@ -121,3 +121,14 @@ export function assertNoAlarmColour(hex: string): void {
 
 /** The palette, pre-checked, so a component never has to think about it. */
 export const safe = palette;
+
+/**
+ * A button's own two colours: what it is drawn in, and what its words are
+ * written in. The floor is 7:1 between those two — the words sit on the
+ * button, not on the card behind it. The first button is amber, and light
+ * ink on amber is 1.6:1, so its words are written in the dark of the ground
+ * instead; every other button is the ground with light ink, as before.
+ */
+export function actionColours(kind: 'primary' | 'secondary' | 'dismiss'): { readonly background: string; readonly label: string } {
+  return kind === 'primary' ? { background: palette.accent, label: palette.ground } : { background: palette.ground, label: palette.ink };
+}

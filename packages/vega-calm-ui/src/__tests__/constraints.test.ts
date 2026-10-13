@@ -8,6 +8,7 @@ import {
   contrastRatio,
   fontSize,
   maxCardHeightDp,
+  actionColours,
 } from '../constraints.js';
 import { layout, palette, type } from '../tokens.js';
 
@@ -77,3 +78,24 @@ describe('no red', () => {
     expect(() => assertNoAlarmColour('#FFF')).toThrow(CalmViolation);
   });
 });
+
+describe('actionColours — a button’s words against the button itself', () => {
+  it('holds the 7:1 floor on every kind of button — not only on the card behind it', () => {
+    for (const kind of ['primary', 'secondary', 'dismiss'] as const) {
+      const { background, label } = actionColours(kind);
+      expect(contrastRatio(label, background)).toBeGreaterThanOrEqual(7);
+      expect(() => assertContrast(label, background)).not.toThrow();
+    }
+  });
+
+  it('writes dark on the amber of the first button: light ink there was 1.6:1, and it is the button she is most likely to press', () => {
+    expect(contrastRatio(palette.ink, palette.accent)).toBeLessThan(2);
+    expect(actionColours('primary')).toEqual({ background: palette.accent, label: palette.ground });
+  });
+
+  it('leaves the other buttons as they were', () => {
+    expect(actionColours('secondary')).toEqual({ background: palette.ground, label: palette.ink });
+    expect(actionColours('dismiss')).toEqual({ background: palette.ground, label: palette.ink });
+  });
+});
+

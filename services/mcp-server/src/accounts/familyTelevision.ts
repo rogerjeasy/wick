@@ -309,10 +309,13 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
       };
     }
     if (request.state === 'answered' && at - request.answer.at < SETTLED_SHOWN_MS) {
-      // Who answered is on the row, not in what the tool hands out.
+      // Who answered is on the row, not in what the tool hands out. The member
+      // who answered was told so in the sentence their press came back with;
+      // a card saying it again is one more thing to put away, and it would
+      // come back each time the television is started. Everyone else is told who.
       const row = await loadLookRow(ddb, who.householdId, request.requestId);
-      const by = row?.answeredBy?.S === who.userId ? 'You' : request.answer.by;
-      return { id, kind: 'door_look', headline: `${by} answered: “${request.answer.text}”`, actions: [] };
+      if (row?.answeredBy?.S === who.userId) return undefined;
+      return { id, kind: 'door_look', headline: `${request.answer.by} answered: “${request.answer.text}”`, actions: [] };
     }
     // Gone from her television unanswered, or settled a while ago.
     return undefined;
@@ -333,8 +336,9 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
         actions: reach.answers.map(({ key, text }, index) => action(key, text, index)),
       };
     }
-    if (at - reach.answer.at < SETTLED_SHOWN_MS) {
-      return { id, kind: 'reach', headline: `${reach.answer.yours ? 'You' : reach.answer.by} answered: “${reach.answer.text}”`, actions: [] };
+    // As at the door: nothing more for the member who answered, the name for everyone else.
+    if (!reach.answer.yours && at - reach.answer.at < SETTLED_SHOWN_MS) {
+      return { id, kind: 'reach', headline: `${reach.answer.by} answered: “${reach.answer.text}”`, actions: [] };
     }
     return undefined;
   }
