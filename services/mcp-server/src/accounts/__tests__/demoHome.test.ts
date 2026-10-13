@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { MAX_NARRATIVE_CHARS, currentIsoWeek, parseTimestampFromSortKey, type RosterEntry, type WeekNarrative } from '@wick/contracts';
-import { factsWeekNarrative, isoWeekRange, toTimelineEntry, whatsDifferent } from '@wick/agent';
-import { DEMO_HISTORY_TTL_MS, DEMO_HISTORY_WEEKS, DEMO_VISITOR, demoHomeItems, seedDemoHome } from '../demoHome.js';
+import { MAX_NARRATIVE_CHARS, VISIT_ASK_WITHIN_MS, VISIT_SETTLED_MS, VISIT_SK_PREFIX, currentIsoWeek, parseTimestampFromSortKey, readyToAsk, type RosterEntry, type Visit, type WeekNarrative } from '@wick/contracts';
+import { factsWeekNarrative, isoWeekRange, toTimelineEntry, visitFromItem, whatsDifferent } from '@wick/agent';
+import { DEMO_HISTORY_TTL_MS, DEMO_HISTORY_WEEKS, DEMO_VISITOR, DEMO_VISIT_RECORD_DAYS, demoHomeItems, seedDemoHome } from '../demoHome.js';
 
 type Item = Record<string, AttributeValue>;
 
@@ -69,6 +69,7 @@ describe('the demo home — a history to ask about, from the first minute', () =
 
   it('marks every event and every week as simulated — nobody lived these weeks', () => {
     expect(events.every((i) => i.simulated?.BOOL === true)).toBe(true);
+    expect(items.filter((i) => i.sk!.S!.startsWith(VISIT_SK_PREFIX)).every((i) => i.simulated?.BOOL === true)).toBe(true);
     expect(narratives.every((n) => n.simulated === true)).toBe(true);
   });
 
@@ -206,6 +207,66 @@ describe('the demo home — one thing in it is different', () => {
     // Counted from the same rows by the Narrator's own code, so the story cannot disagree with the timeline.
     expect(lastWeekStory.deltas.find((d) => d.metric === 'visit:maria')).toMatchObject({ thisWeek: 1 });
     expect(lastWeekStory.simulated).toBe(true);
+  });
+});
+
+describe('the demo home — the visits Maria made, already confirmed (The visit, witnessed)', () => {
+  const MIN = 60_000;
+  /** The visit rows of a demo home made at `now`, as the family's get_visits reads them. */
+  const visitsOf = (made: Item[]): Visit[] => made.filter((i) => i.sk!.S!.startsWith(VISIT_SK_PREFIX)).flatMap((i) => visitFromItem(i) ?? []);
+  const mariaCame = (made: Item[], since: number): number[] => made.filter((i) => i.type?.S === 'presence' && at(i) >= since).map(at);
+  const visits = visitsOf(items);
+
+  it('has a visit on record for each time Maria came in the last fortnight, and for nothing else', () => {
+    expect(DEMO_VISIT_RECORD_DAYS).toBe(14);
+    // Made on Wednesday the 14th: Friday the 9th, Tuesday the 6th and Friday the 2nd. Tuesday the 13th is the morning she missed.
+    expect(visits.map((v) => new Date(v.arrivedAt).toISOString().slice(0, 10))).toEqual(['2026-10-02', '2026-10-06', '2026-10-09']);
+    expect(visits.map((v) => v.arrivedAt)).toEqual(mariaCame(items, NOW - DEMO_VISIT_RECORD_DAYS * DAY));
+    for (const visit of visits) expect(visit).toMatchObject({ householdId: HH, personId: 'maria', name: 'Maria' });
+  });
+
+  it('marks each one simulated: nobody made these visits', () => {
+    expect(visits.length).toBeGreaterThan(0);
+    expect(visits.every((v) => v.simulated === true)).toBe(true);
+  });
+
+  it('has her leave between forty-five and fifty-five minutes after she came — and not after the same time every visit', () => {
+    const stayed = visits.map((v) => (v.leftAt! - v.arrivedAt) / MIN);
+
+    for (const minutes of stayed) {
+      expect(Number.isInteger(minutes)).toBe(true);
+      expect(minutes).toBeGreaterThanOrEqual(45);
+      expect(minutes).toBeLessThanOrEqual(55);
+    }
+    expect(new Set(stayed).size).toBeGreaterThan(1);
+  });
+
+  it('has each one asked about once the leaving had stood, and confirmed by the resident', () => {
+    for (const visit of visits) {
+      expect(visit.answer).toBe('confirmed');
+      expect(visit.askedAt!).toBeGreaterThanOrEqual(visit.leftAt! + VISIT_SETTLED_MS);
+      expect(visit.answeredAt!).toBeGreaterThan(visit.askedAt!);
+      expect(visit.answeredAt!).toBeLessThanOrEqual(NOW);
+    }
+  });
+
+  it('leaves no question open, whatever hour of whatever day the guest arrives — her latest visit is always too long ago to ask about', () => {
+    for (let hour = 0; hour < 7 * 24; hour += 1) {
+      const made = W42.startMs + hour * 3_600_000 + 5 * 60_000;
+      const home = demoHomeItems(HH, made, 'Europe/London');
+      const seeded = visitsOf(home);
+      const label = `made ${new Date(made).toISOString()}`;
+
+      // The morning she missed, and any since, are left out of the history: so the latest visit there is to
+      // seed is at least three days old, and a visit is only asked about within a day of it (visit.ts readyToAsk).
+      const latest = Math.max(...mariaCame(home, 0));
+      expect(made - latest, label).toBeGreaterThan(VISIT_ASK_WITHIN_MS);
+
+      expect(seeded.length, label).toBeGreaterThan(0);
+      expect(seeded.map((v) => v.arrivedAt), label).toEqual(mariaCame(home, made - DEMO_VISIT_RECORD_DAYS * DAY));
+      expect(seeded.every((v) => v.simulated === true && v.answer === 'confirmed' && v.answeredAt! <= made), label).toBe(true);
+      expect(seeded.some((v) => readyToAsk(v, made)), label).toBe(false);
+    }
   });
 });
 
