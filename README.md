@@ -28,8 +28,8 @@ nothing, wear nothing and change nothing.
 
 | Pillar | What happens |
 |---|---|
-| **The Door** | A Ring doorbell press puts a card on the television in under three seconds — a live still and one plain sentence describing who is actually there. One button rings the Ring Chime in the hallway, so whoever else is home knows someone is at the door — and the card says whether it rang. *(Built and tested against Ring's chime contract; not in the demo, because Ring's only simulator has no chime — [FL-019](FRICTION.md).)* Another opens the doorbell camera live, full screen, and Back returns to the card. |
-| **The Family** | A distant daughter asks her own Echo *"how's Mum been this week?"* and gets a truthful, unsensational narrative. Notes go back the other way — at the end of an episode, never mid-scene — and the resident replies with one button. |
+| **The Door** | A Ring doorbell press puts a card on the television within a few seconds. A still from the doorbell and one plain sentence describing who is actually there are added to it as soon as they are ready — about ten seconds in our tests on the simulators. One button rings the Ring Chime in the hallway, so whoever else is home knows someone is at the door — and the card says whether it rang. *(Built and tested against Ring's chime contract; not in the demo, because Ring's only simulator has no chime — [FL-019](FRICTION.md).)* Another opens the doorbell camera live, full screen, and Back returns to the card. |
+| **The Family** | A distant daughter asks Alexa+ *"how's Mum been this week?"* and gets a truthful, unsensational narrative. (Here she asks a simulated Alexa+ surface; the MCP server behind it is the real one — see [what is real, and what is simulated](#what-is-real-and-what-is-simulated).) Notes go back the other way — at the end of an episode, never mid-scene — and the resident replies with one button. |
 | **The Rhythm** | Wick learns what a normal week looks like in this house, so it can stay silent when nothing is wrong — and so the weekly narrative can say *"that's up from last week"* and mean it. |
 
 ## Why this needs Amazon
@@ -52,16 +52,21 @@ TV sits at the centre of the Amazon home.
 ```
    Margaret's house                                          Sarah, anywhere
  ┌────────────┐          ┌─────────────────────────┐          ┌──────────┐
- │ Fire TV    │◀──WSS───▶│  Agent plane            │◀─MCP────▶│ Alexa+   │
- │ (Vega OS)  │          │   Door · Narrator       │  HTTPS   │ (Echo)   │
+ │ Fire TV    │◀──MQTT──▶│  Agent plane            │◀─MCP────▶│ Alexa+   │
+ │ (Vega OS)  │          │   Door · Narrator       │  HTTPS   │          │
  └────────────┘          │   ───────────────────   │          └──────────┘
  ┌────────────┐          │   GUARDIAN  (policy)    │
  │ Ring       │─webhook─▶│   ───────────────────   │
  │ + Chime    │◀──REST───│  Memory plane           │
- └────────────┘          │   DynamoDB · Timestream │
-                         │   Knowledge Base        │
+ └────────────┘          │   DynamoDB: events,     │
+                         │   rhythm, weeks, cards  │
                          └─────────────────────────┘
 ```
+
+In this submission the Fire TV is the Vega Virtual Device and a Fire OS
+emulator, Ring is Ring's Developer Playground, and Alexa+ is a simulated
+surface. Everything between them is deployed and real —
+[what is real, and what is simulated](#what-is-real-and-what-is-simulated).
 
 Four planes with load-bearing boundaries: the **device** renders and never
 decides; the **edge** authenticates and acknowledges inside Ring's 5-second
@@ -92,11 +97,24 @@ Deliberately **not** built: indoor camera streaming, fall detection, a chatbot o
 the television, a wellness score, gamification, location tracking, sentiment
 inference. Reasoning in [`docs/WICK.md`](docs/WICK.md) §4.6.
 
-## Real data only
+## What is real, and what is simulated
 
-Every figure, event and narrative in the demo comes from a real household with a
-real Ring doorbell and a real Fire TV — with the resident's
-written, informed, revocable consent. Nothing is simulated.
+Wick was built and tested without hardware, which the hackathon allows. There
+is no physical Fire TV, no physical Ring doorbell, and no real resident: nobody's
+home was recorded to make this.
+
+| | In this submission |
+|---|---|
+| **Television** | The Vega Virtual Device and a Fire OS emulator, running the same builds a Fire TV would (`apps/tv-vega`, `apps/tv-fireos`). For anyone with neither, a virtual television in a browser tab (`apps/ops-console/device.html`) pairs with the same code and is sent the same cards. |
+| **Doorbell** | Ring's Developer Playground: a simulated camera behind Ring's real Partner API, linked by Ring's real OAuth. The Playground has no chime, so the hallway chime is built and contract-tested but not shown ([FL-019](FRICTION.md)). |
+| **Alexa+** | A simulated Alexa+ surface (`apps/sim-alexa`): the add-on surface is open to select partners only ([FL-001](FRICTION.md)). It signs in to a real account by OAuth 2.1, a model chooses which of Wick's tools to call, and each call goes to the real MCP server. |
+| **The household** | A demo home. Its six weeks of history are simulated — written as the Door agent's own event rows and counted by the Narrator's own code — and every such row, week and home is marked `simulated`. The family app says so wherever it names the home. |
+| **The films** | Blender Foundation's open films — Big Buck Bunny, Sintel, Tears of Steel — shown with their attribution. |
+
+What is not simulated is everything in between: the deployed AWS stack, the
+MCP server, the agents and the models they call, the Guardian, accounts and
+pairing, and the channel to the television. Every press in the demo, on either
+simulator, travels through it.
 
 Test fixtures exist (redacted, under `__tests__`) but no mock path is reachable at
 runtime: `npm run check:no-mocks` fails the build if Vega runtime code imports
@@ -108,6 +126,7 @@ anything matching `/mock/i`.
 apps/tv-vega        Vega OS application — cards, player, break engine, headless services
 apps/tv-fireos      Fire OS companion build
 apps/sim-alexa      Simulated Alexa+ surface — a client of the real MCP server
+apps/ops-console    A virtual television in a browser tab, for anyone with no Fire TV to hand
 services/edge-ring  Ring webhook receiver — HMAC verify, idempotency, sub-5s ACK
 services/edge-device The television's two channels: IoT Core (MQTT) authorizer, presence and events; WebSocket connect/disconnect/route
 services/mcp-server Alexa+ MCP add-on backend
@@ -116,7 +135,7 @@ services/connectors Ring client
 services/policy     The Guardian — pure, AWS-free, exhaustively tested
 packages/contracts  Shared types
 packages/vega-calm-ui  ← open-source extraction: accessible 10-foot components
-infra               AWS CDK
+infra               Terraform
 addon-package       Alexa+ add-on manifest; the family app draws Wick's listing from it
 ```
 
@@ -127,10 +146,10 @@ nvm use && npm install
 npm run verify            # typecheck + lint + no-mocks guard + tests
 
 # Vega application
-cd apps/tv-vega && npm run build && npm run start   # Vega Virtual Device or real Fire TV
+cd apps/tv-vega && npm run build && npm run start   # Vega Virtual Device, or a Fire TV
 
-# Infrastructure
-cd infra && npx cdk deploy WickCore WickEdge
+# Infrastructure (Terraform; see infra/README.md for the first run)
+cd infra && terraform init && terraform apply
 ```
 
 Full setup, including Ring OAuth and the Alexa+ add-on,
