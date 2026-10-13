@@ -836,6 +836,9 @@ function presentWatch(view) {
     };
   }
   if (view.state === 'watched' && !stream && !offered) {
+    // Who has answered, in the server's own sentence, which names who has not as well: an answer of one's own
+    // is then never read as theirs. A sentence made here is only for a Wick that does not send one.
+    if (typeof view.answersInWords === 'string') return quiet(`You watched ${film} together. ${view.answersInWords}`);
     const yours = typeof view.yourAnswer === 'string' ? ` You said: “${view.yourAnswer}”` : '';
     const theirs = typeof view.theirAnswer === 'string' ? ` The answer on the television was: “${view.theirAnswer}”` : '';
     return quiet(`You watched ${film} together.${yours}${theirs}`);
@@ -1706,6 +1709,70 @@ export function presentDoorbell(link, me, formatTime = defaultFormatTime) {
       actions: { connectRing: false, playground: false, disconnect: true },
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Waiting for the Wick server. A request that never answers must not leave
+// the app waiting for ever — the field off, a button disabled, "thinking"
+// on the screen: each is given up after a time that suits what was asked,
+// and fails in words a person can act on.
+// ---------------------------------------------------------------------------
+
+/**
+ * How long each kind of request is waited for:
+ *
+ *   - `api`: the app's own business with the server (who am I, the circle,
+ *     connecting a television, signing in). A table read or two: fifteen
+ *     seconds is already a long time to look at nothing.
+ *   - `tool`: one MCP tool call. Most are as quick, but some have a
+ *     television or a doorbell to reach before they can answer.
+ *   - `assistant`: one step of the conversation. The server gives the model
+ *     twenty seconds for it (services/mcp-server/src/assistant/bedrock.ts
+ *     STEP_TIMEOUT_MS) and then answers that there is nobody to ask; the page
+ *     outwaits that, so it never gives up on an answer that is about to come.
+ */
+export const REQUEST_LIMITS_MS = { api: 15_000, tool: 20_000, assistant: 30_000 };
+
+/** Said when a request was given up. The app's own sentence: the server said nothing. */
+export const NO_ANSWER_TEXT = 'Wick did not answer in time. Try again in a moment.';
+
+/** The limit for a request, from where on the server it is going. */
+export function requestLimitFor(path) {
+  if (path.startsWith('/assistant/')) return REQUEST_LIMITS_MS.assistant;
+  if (path === '/mcp') return REQUEST_LIMITS_MS.tool;
+  return REQUEST_LIMITS_MS.api;
+}
+
+/** Statuses whose answer has no body, and may be given none. */
+const NO_BODY = [101, 204, 205, 304];
+
+/**
+ * `fetch`, given up after `ms`. The limit covers the whole answer — an
+ * answer that begins and never finishes is no answer — so what comes back
+ * has its words already read: the same status and headers, to be used as
+ * any response is. A request given up fails with NO_ANSWER_TEXT (and
+ * `timedOut`); any other failure is left exactly as it was.
+ *
+ * @param {number} ms
+ * @param {string} url
+ * @param {RequestInit} [init]
+ * @param {{fetch?: typeof fetch, setTimeout?: typeof setTimeout, clearTimeout?: typeof clearTimeout}} [deps]  the page's own, unless a test stands in for them
+ * @returns {Promise<Response>}
+ */
+export async function fetchWithin(ms, url, init = {}, deps = {}) {
+  const ask = deps.fetch ?? ((input, options) => fetch(input, options));
+  const givenUp = new AbortController();
+  const limit = (deps.setTimeout ?? setTimeout)(() => givenUp.abort(), ms);
+  try {
+    const res = await ask(url, { ...init, signal: givenUp.signal });
+    const words = NO_BODY.includes(res.status) ? null : await res.text();
+    return new Response(words, { status: res.status, statusText: res.statusText, headers: res.headers });
+  } catch (err) {
+    if (givenUp.signal.aborted) throw Object.assign(new Error(NO_ANSWER_TEXT), { timedOut: true });
+    throw err;
+  } finally {
+    (deps.clearTimeout ?? clearTimeout)(limit);
+  }
 }
 
 export function inviteLink(here, code) {
