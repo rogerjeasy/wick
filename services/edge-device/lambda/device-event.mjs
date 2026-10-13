@@ -115,7 +115,7 @@
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { randomUUID } from 'node:crypto';
-import { finishedAmong, isReplayable, markCardActed, markCardShown, replayedCard, retiresCard } from './card-acted.mjs';
+import { finishedAmong, finishedSince, isReplayable, markCardActed, markCardShown, replayedCard, retiresCard } from './card-acted.mjs';
 import { deviceBindingKey, isServed } from './device-standing.mjs';
 import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
 import { announcesRetirement, buildCardActionEntry, buildCardRetiredEntry, shouldPublish } from './card-action-event.mjs';
@@ -1072,11 +1072,13 @@ async function publishCardRetired(detail) {
   }
 }
 
-async function reconcile({ sendCard, sendControl, householdId, holding }) {
-  // Every CARD# item for the household, page by page: a card the resident
-  // hasn't acted on is replayed whatever its id (card-acted.mjs's
-  // isReplayable says why the device's sinceCardId is no longer used to
-  // filter). The device upserts by id, so a card it already holds is a no-op.
+/**
+ * Every CARD# item of the household, as it is this instant, page by page.
+ * A consistent read: what a television is handed, and what is taken back
+ * from it, is decided by whether a card has been answered — and an answer
+ * given a moment ago, on another television, must count.
+ */
+async function loadCardRows(householdId) {
   const items = [];
   let ExclusiveStartKey;
   do {
@@ -1084,11 +1086,21 @@ async function reconcile({ sendCard, sendControl, householdId, holding }) {
       TableName: TABLE,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
       ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':prefix': { S: 'CARD#' } },
+      ConsistentRead: true,
       ...(ExclusiveStartKey ? { ExclusiveStartKey } : {}),
     }));
     items.push(...(page.Items ?? []));
     ExclusiveStartKey = page.LastEvaluatedKey;
   } while (ExclusiveStartKey);
+  return items;
+}
+
+async function reconcile({ sendCard, sendControl, householdId, holding }) {
+  // Every CARD# item for the household: a card the resident
+  // hasn't acted on is replayed whatever its id (card-acted.mjs's
+  // isReplayable says why the device's sinceCardId is no longer used to
+  // filter). The device upserts by id, so a card it already holds is a no-op.
+  const items = await loadCardRows(householdId);
 
   // First what to put away: a card this television still holds that was
   // answered on another one while it was off (card-acted.mjs finishedAmong).
@@ -1100,11 +1112,32 @@ async function reconcile({ sendCard, sendControl, householdId, holding }) {
   }
 
   const now = Date.now();
+  const replayed = [];
   for (const item of items) {
     if (!isReplayable(item, now)) continue;
     // The stored card is English; it goes out in her language, with the free
     // text the agent plane translated and kept on this same row (language.mjs).
-    if (!(await sendCard(replayedCard(item), { row: item }))) {
+    const queued = replayedCard(item);
+    if (!(await sendCard(queued, { row: item }))) {
+      console.log('reconcile: television gone mid-replay, stopping', { householdId });
+      return;
+    }
+    replayed.push(queued.id);
+  }
+
+  // The cards were read, then handed over one by one — and in that time a
+  // card can be answered on another television of the home, taken back by
+  // its sender, or (a door card) be over. Its own `revoke` may have reached
+  // this television before the card did, which would leave a finished card
+  // on her screen until she next reconnects. So the rows are read once more
+  // — one read for all of them, and none when nothing was handed over — and
+  // anything just replayed that is finished by now is taken back
+  // (card-acted.mjs finishedSince). What is left is the instant between
+  // this read and the `revoke` arriving; a press in it changes nothing,
+  // since every answer is written only while its question is open.
+  if (replayed.length === 0) return;
+  for (const cardId of finishedSince(replayed, await loadCardRows(householdId), Date.now())) {
+    if (!(await sendControl({ t: 'revoke', cardId }))) {
       console.log('reconcile: television gone mid-replay, stopping', { householdId });
       return;
     }

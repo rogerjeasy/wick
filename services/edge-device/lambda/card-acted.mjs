@@ -107,6 +107,27 @@ export function finishedAmong(items, holding) {
 }
 
 /**
+ * The cards just replayed to a television (`replayedIds`, in order) that
+ * are no longer hers to answer, by the rows as they are now (`itemsNow`):
+ * answered in the meantime on another television of the home, gone
+ * altogether — taken back by their sender — or, for a door card, over.
+ * Reconcile sends a `revoke` for each, so a card that finished in the
+ * instant it was being handed over does not stay on this screen until the
+ * television next connects.
+ *
+ * Unlike `finishedAmong`, a card with no row IS named here: these are cards
+ * this very replay read a row for a moment ago, so a row that is gone is a
+ * card that was taken back — not one the server never knew.
+ */
+export function finishedSince(replayedIds, itemsNow, now) {
+  const bySk = new Map((itemsNow ?? []).map((item) => [item.sk?.S, item]));
+  return [...new Set(replayedIds)].filter((id) => {
+    const item = bySk.get(`CARD#${id}`);
+    return !item || !isReplayable(item, now);
+  });
+}
+
+/**
  * Presses that leave the card on screen: the chime's answer patches onto a
  * door card, and so does the family's when they are asked to look; the live
  * view opens over it; "What Sarah sees" opens over

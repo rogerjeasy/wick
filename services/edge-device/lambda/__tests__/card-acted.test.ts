@@ -5,6 +5,7 @@ import {
   replayedCard,
   isReplayable,
   finishedAmong,
+  finishedSince,
   retiresCard,
   // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 } from '../card-acted.mjs';
@@ -143,5 +144,40 @@ describe('finishedAmong — what a reconnecting television still holds that is a
     expect(finishedAmong(items, undefined)).toEqual([]);
     expect(finishedAmong(items, 'note-a')).toEqual([]);
     expect(finishedAmong(items, [42, null, 'note-a'])).toEqual(['note-a']);
+  });
+});
+
+describe('finishedSince — what was replayed a moment ago and is no longer hers to answer', () => {
+  const door = (id: string, expiresAt: number, extra: Record<string, unknown> = {}) => ({
+    pk: { S: 'HH#margaret' },
+    sk: { S: `CARD#${id}` },
+    data: { S: JSON.stringify({ id, urgency: 'DOOR', queuedAt: 1000, expiresAt }) },
+    ...extra,
+  });
+
+  it('names nothing when every card replayed is as it was', () => {
+    expect(finishedSince(['note-a', 'door-1'], [card('note-a'), door('door-1', 9000)], 2000)).toEqual([]);
+  });
+
+  it('names one answered in the meantime — on another television in the home', () => {
+    expect(finishedSince(['note-a', 'note-b'], [card('note-a', { actedAt: { N: '1900' } }), card('note-b')], 2000)).toEqual(['note-a']);
+  });
+
+  it('names one that is gone altogether: taken back by its sender, or cleared away', () => {
+    expect(finishedSince(['note-a', 'note-b'], [card('note-b')], 2000)).toEqual(['note-a']);
+  });
+
+  it('names a door card whose visitor has gone since', () => {
+    expect(finishedSince(['door-1'], [door('door-1', 2000)], 1999)).toEqual([]);
+    expect(finishedSince(['door-1'], [door('door-1', 2000)], 2000)).toEqual(['door-1']);
+  });
+
+  it('names only what was replayed: a finished card that was never sent just now is not this function’s to take back', () => {
+    expect(finishedSince(['note-b'], [card('note-a', { actedAt: { N: '1900' } }), card('note-b')], 2000)).toEqual([]);
+    expect(finishedSince([], [card('note-a', { actedAt: { N: '1900' } })], 2000)).toEqual([]);
+  });
+
+  it('keeps the order the cards were replayed in, and names each once', () => {
+    expect(finishedSince(['note-c', 'note-a', 'note-c'], [], 2000)).toEqual(['note-c', 'note-a']);
   });
 });
