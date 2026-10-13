@@ -7,7 +7,9 @@
  * provider whose confirmation code is always 123456) on :3300, and serves
  * apps/sim-alexa on :4173. Two stand-ins for what is not running here:
  *
- *   - the television's code is always 123456
+ *   - the television's code is always 123456 — for the resident's television,
+ *     and for one connected as "Mine" (a family member's own), which is filed
+ *     apart and has no screen here
  *   - GET http://127.0.0.1:3300/dev/allow presses Allow, as the resident,
  *     for everyone who is waiting (it is also what the family app's
  *     "virtual television" link opens here)
@@ -250,11 +252,21 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
     ? { assistant: { converse: createBedrockConverse(new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? 'us-east-1' }), process.env.WICK_ASSISTANT_MODEL_ID) } }
     : {}),
   virtualTelevisionUrl: `http://127.0.0.1:${API_PORT}/dev/allow`,
-  claimTelevision: async (accessToken, code) => {
+  claimTelevision: async (accessToken, code, as) => {
     if (code !== '123456') return { status: 404, body: 'unknown_or_expired_code' };
     const me = (await (await fetch(`http://127.0.0.1:${API_PORT}/api/me`, { headers: { authorization: `Bearer ${accessToken}` } })).json()) as {
+      user: { userId: string };
       household: { householdId: string };
+      membership: { role: string; status: string };
     };
+    if (as === 'family') {
+      // "Mine": a television of the signed-in person's own, decided as the pairing function decides it
+      // (edge-device wick-auth.mjs mayConnectOwnTelevision) and filed as it files it — never among the resident's.
+      if (me.membership.status !== 'allowed' || me.membership.role === 'neighbour') return { status: 403, body: 'not_allowed_yet' };
+      const deviceId = `wick-family-tv-${me.user.userId}`;
+      store.addFamilyTelevision(me.household.householdId, { deviceId, userId: me.user.userId, pairedAt: Date.now() });
+      return { status: 200, body: JSON.stringify({ ok: true, deviceId, kind: 'family' }) };
+    }
     store.addTelevision(me.household.householdId, { deviceId: 'wick-tv', pairedAt: Date.now(), connected: true });
     homesWithATelevision.add(me.household.householdId);
     return { status: 200, body: JSON.stringify({ ok: true, deviceId: 'wick-tv' }) };
