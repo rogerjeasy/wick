@@ -22,6 +22,27 @@ keystore) and scope accordingly.
 **Never** put a Ring token, AWS key or Bedrock credential in
 `apps/tv-vega` or `apps/tv-fireos`.
 
+**A family member's own television holds one token too, of another kind.**
+"Sarah's television" (`packages/contracts/src/familyTelevision.ts`) is the
+same app, connected by a member as theirs. Its token carries
+`kind: 'family'` and that member's `userId`, and it is good for exactly one
+thing: asking the Wick server for that television's home screen and telling
+it of a press (`services/mcp-server/src/accounts/familyTelevision.ts`). The
+server answers with what that one member may already read through the
+family's tools, and takes only the answers they may already give — a fixed
+list, never a tool name from the request — checking the circle again on
+every call (INV-9) and that the television is still connected. It is never
+used on the resident's card channel: a family television has no `DEV#` row,
+which is what every card for the resident and every press that counts as
+hers is keyed on, so those paths refuse it without having to know it
+exists. Assume this token is extractable as well: what it can reach is one
+member's view of one home, and it ends when the television is disconnected,
+the member is removed, or the resident stops allowing them.
+
+**Never** key anything of the resident's on a family television's row
+(`FTV#`), never send a family television a card meant for the resident, and
+never let a family television's token call a tool by name.
+
 **Known accepted exception:** `POST /pair/refresh` (`services/edge-device/
 lambda/pair-refresh.mjs`) mints a device-bound JWT from `{deviceId}` alone —
 no proof of possession. (The household is looked up from the device id; it is
@@ -302,6 +323,15 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   unconfirmed states apart on the family side, and never present the record
   as a clinical or billing document: it says who the door saw, when, and
   that she agreed.
+- **Which kind of television it is comes from its row, never from a request.**
+  The resident's television is `HH#<household>`/`DEV#<deviceId>`; a family
+  member's own is `HH#<household>`/`FTV#<deviceId>` with the `userId` of the
+  member who connected it (`services/edge-device/lambda/family-television.mjs`).
+  Connecting one as a family television is for a member the resident has
+  already allowed, and not for a neighbour. A refreshed token keeps the kind
+  its row gives it, so no request can turn a family television into the
+  resident's or the other way round. The resident's televisions and the
+  family's are never counted or listed together.
 - **Never commit real household data.** No captures, no HAR files, no Ring
   snapshots. `.gitignore` covers the common cases; you are still
   responsible.
