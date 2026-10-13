@@ -24,7 +24,7 @@
  * the place of the one held under its id, and what was counted of its
  * showings is kept (QueueStore.upsert).
  */
-import type { ControlMessage, DeviceToken, QueuedCard } from '@wick/contracts';
+import { readMantelItems, type ControlMessage, type DeviceToken, type QueuedCard } from '@wick/contracts';
 import type { QueueStore } from '../headless/QueueStore.js';
 import type { DeviceConfig } from '../config.js';
 import type { DeviceChannelConfig } from './createDeviceChannel.js';
@@ -39,6 +39,14 @@ export type ChannelFactory = (config: DeviceChannelConfig, token: DeviceToken) =
 export interface RunningCardChannel {
   /** Closes the channel and stops flushing. Idempotent. */
   stop(): void;
+  /**
+   * Asks the server for this television's cards again — the request the
+   * channel makes by itself when it connects. For the app, when a picture
+   * card's address has run out (mantel/mantel.ts pictureRefresher): the
+   * server sends the card back with a new one. Does nothing when there is
+   * no connection to ask on, and never throws.
+   */
+  reconcile(): void;
 }
 
 export function startCardChannel(store: QueueStore, channel: ReconcilingChannel): RunningCardChannel {
@@ -60,6 +68,9 @@ export function startCardChannel(store: QueueStore, channel: ReconcilingChannel)
       // Once per change — the answer brings the home again, in the same language, and that is no change.
       if (languageChanged) void channel.reconcile?.().catch(() => undefined);
     }
+    // Her mantelpiece, answered to this television's own asking (packages/contracts mantel.ts): only what is
+    // well formed, kept in memory with the moment it came — the addresses in it are good for an hour.
+    else if (msg.t === 'mantel') store.setMantel(readMantelItems(msg.items), Date.now());
   });
 
   let flushing = false;
@@ -82,6 +93,10 @@ export function startCardChannel(store: QueueStore, channel: ReconcilingChannel)
       unsubscribeCard();
       unsubscribeControl();
       channel.close();
+    },
+    reconcile() {
+      if (stopped) return;
+      void channel.reconcile?.().catch(() => undefined);
     },
   };
 }
@@ -147,6 +162,8 @@ export function startBackgroundChannel(
       unsubscribeControl();
       channel.close();
     },
+    // It shows no card, so it never asks for them: a replay would be announced as if somebody had just rung.
+    reconcile() {},
   };
 }
 
@@ -219,6 +236,10 @@ export function holdCardChannel(
       clearTimeout(retryTimer);
       running?.stop();
       running = undefined;
+    },
+    // Not connected yet, or let go: there is nothing to ask on, and connecting asks anyway.
+    reconcile() {
+      running?.reconcile();
     },
   };
 }

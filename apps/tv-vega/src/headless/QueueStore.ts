@@ -34,6 +34,11 @@
  *   - The language her television speaks (packages/contracts language.ts):
  *     what the home message says, remembered on a disk that works so the
  *     next launch does not begin in English.
+ *
+ * And one thing is kept here that is never written anywhere: her
+ * mantelpiece, as the server last answered (packages/contracts mantel.ts).
+ * Each picture in it has an address minted for that one asking, good for an
+ * hour — so it lives in this instance's memory and nowhere else.
  */
 import {
   DEFAULT_LANGUAGE,
@@ -43,6 +48,7 @@ import {
   type DeviceEvent,
   type HomeState,
   type HouseholdLanguage,
+  type MantelItem,
   type QueuedCard,
 } from '@wick/contracts';
 import { isKnownCard } from '../cards/knownCards.js';
@@ -61,6 +67,12 @@ const HIGH_WATER_MARK_PATH = '/data/wick-lastSeenCardId.json';
 /** Beside the token (pairing/PairingFlow.ts), through the same file system: kept on Fire OS, never on the Vega simulator (FL-013). */
 const LANGUAGE_PATH = '/data/wick-language.json';
 const ENCODING = 'utf8';
+
+/** Her mantelpiece as the server last answered, and when the answer came (by this television's clock). */
+export interface Mantel {
+  readonly items: readonly MantelItem[];
+  readonly receivedAt: number;
+}
 
 interface State {
   queue: readonly QueuedCard[];
@@ -97,6 +109,8 @@ export class QueueStore {
   #languageTold = false;
   /** What each card's count was when its showing under way began (beginShowing). */
   readonly #showingFrom = new Map<string, number>();
+  /** Memory only, on purpose: the addresses in it are written nowhere. */
+  #mantel: Mantel | undefined;
 
   constructor(
     fs: FileSystemLike,
@@ -138,6 +152,22 @@ export class QueueStore {
     this.#languageTold = true;
     if (now !== before) void this.#persist(this.#languagePath, JSON.stringify(now));
     return { languageChanged: before !== undefined && before !== now };
+  }
+
+  /** Her mantelpiece, as the server last answered this television's asking — or nothing, if it has not been asked. */
+  readMantel(): Mantel | undefined {
+    return this.#mantel;
+  }
+
+  /**
+   * The whole of it, each time: what is not in the answer is no longer on
+   * it. Never persisted. Each answer is later than the one before, even
+   * when two come in the same instant or the clock has gone back: when it
+   * came is how one answer is told from another (mantel/mantel.ts).
+   */
+  setMantel(items: readonly MantelItem[], receivedAt: number): void {
+    const after = this.#mantel === undefined ? receivedAt : Math.max(receivedAt, this.#mantel.receivedAt + 1);
+    this.#mantel = { items: [...items], receivedAt: after };
   }
 
   /**

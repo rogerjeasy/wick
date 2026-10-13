@@ -63,13 +63,18 @@ export interface CardShape {
   readonly compact?: boolean | undefined;
   /** Lines of detail. Five unless the card asks for more (CalmCard's `detailLines`). */
   readonly detailLines?: number | undefined;
+  /**
+   * The height of a picture beside the words (CalmCard's `media`). The card
+   * is as tall as whichever of the two is taller.
+   */
+  readonly mediaHeightDp?: number | undefined;
 }
 
 /**
- * The height of a text-only card of that shape: padding, a one-line
- * headline, the detail at its line limit, and one row of actions — from the
- * tokens CalmCard's own styles are built from. With nothing asked for it is
- * maxCardHeightDp().
+ * The height of a card of that shape: padding, a one-line headline and the
+ * detail at its line limit — or the picture beside them, if that is taller
+ * — and one row of actions, from the tokens CalmCard's own styles are built
+ * from. With nothing asked for it is maxCardHeightDp().
  */
 export function cardHeightDp(shape: CardShape): number {
   const compact = shape.compact === true;
@@ -77,11 +82,10 @@ export function cardHeightDp(shape: CardShape): number {
   const body = type.bodyPt * layout.lineHeight.body;
   const headline = compact ? body : type.headlinePt * layout.lineHeight.headline;
   const actionRow = layout.actionPaddingVerticalDp * 2 + body;
+  const words = headline + (compact ? layout.compactTextGapDp : layout.textGapDp) + lines * body;
   return (
     (compact ? layout.compactPaddingDp : layout.cardPaddingDp) * 2 +
-    headline +
-    (compact ? layout.compactTextGapDp : layout.textGapDp) +
-    lines * body +
+    Math.max(words, shape.mediaHeightDp ?? 0) +
     (compact ? layout.compactGapDp : layout.sectionGapDp) +
     actionRow
   );
@@ -98,11 +102,15 @@ export function assertCardFits(shape: CardShape): void {
   if (!Number.isInteger(lines) || lines < 1) {
     throw new CalmViolation(`${lines} lines of detail: a card shows a whole number of lines, and at least one.`);
   }
+  const media = shape.mediaHeightDp;
+  if (media !== undefined && !(media >= 0)) {
+    throw new CalmViolation(`A picture ${media}dp tall: a picture's height is a number, and not less than nothing.`);
+  }
   const height = cardHeightDp(shape);
   const room = layout.screenHeightDp - 2 * layout.screenMarginDp;
   if (height > room) {
     throw new CalmViolation(
-      `${lines} lines of detail make ${shape.compact ? 'a compact' : 'a'} card ${height.toFixed(0)}dp tall; ` +
+      `${lines} lines of detail${media ? ` and a picture ${media}dp tall` : ''} make ${shape.compact ? 'a compact' : 'a'} card ${height.toFixed(0)}dp tall; ` +
         `the screen has ${room}dp for it. The buttons would be pushed off the screen.`,
     );
   }

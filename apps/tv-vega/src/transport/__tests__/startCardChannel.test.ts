@@ -512,3 +512,124 @@ describe('startCardChannel — when her language changes (packages/contracts lan
     running.stop();
   });
 });
+
+describe('startCardChannel — her mantelpiece (packages/contracts mantel.ts)', () => {
+  const item = (photoId: string, over: Record<string, unknown> = {}) => ({ photoId, fromName: 'Sarah', keptAt: 5, url: `https://pictures.example/${photoId}.jpg`, ...over });
+
+  it('keeps the answer to its asking, with the moment it came', async () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const running = startCardChannel(store, channel);
+    const before = Date.now();
+
+    channel.pushControl({ t: 'mantel', items: [item('p1'), item('p2')] });
+
+    const mantel = store.readMantel()!;
+    expect(mantel.items.map((i) => i.photoId)).toEqual(['p1', 'p2']);
+    expect(mantel.receivedAt).toBeGreaterThanOrEqual(before);
+    running.stop();
+  });
+
+  it('keeps only what is well formed: an address that is not https is not a picture', async () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const running = startCardChannel(store, channel);
+
+    channel.pushControl({ t: 'mantel', items: [item('p1', { url: 'http://pictures.example/p1.jpg' }), item('p2'), null, { photoId: 'p3' }] } as unknown as ControlMessage);
+    expect(store.readMantel()!.items.map((i) => i.photoId)).toEqual(['p2']);
+
+    channel.pushControl({ t: 'mantel', items: 'none' } as unknown as ControlMessage);
+    expect(store.readMantel()!.items).toEqual([]);
+    running.stop();
+  });
+
+  it('sends her asking, and her taking one down, like any other event', async () => {
+    vi.useFakeTimers();
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const running = startCardChannel(store, channel);
+
+    await store.enqueueOutbound({ t: 'mantel', at: 1 });
+    await store.enqueueOutbound({ t: 'mantel_take_down', photoId: 'p1', at: 2 });
+    await vi.advanceTimersByTimeAsync(1_100);
+
+    expect(channel.sent).toEqual([{ t: 'mantel', at: 1 }, { t: 'mantel_take_down', photoId: 'p1', at: 2 }]);
+    running.stop();
+  });
+
+  it('is not the card service’s to keep: behind another app nothing is shown, and nothing was asked', async () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const running = startBackgroundChannel(store, channel, () => undefined);
+
+    channel.pushControl({ t: 'mantel', items: [item('p1')] });
+
+    expect(store.readMantel()).toBeUndefined();
+    running.stop();
+  });
+});
+
+describe('asking for the cards again, from the app — a picture whose address has run out (packages/contracts mantel.ts)', () => {
+  class AskingChannel extends FakeChannel {
+    asked = 0;
+    failAsking = false;
+    async reconcile(): Promise<void> {
+      this.asked += 1;
+      if (this.failAsking) throw new Error('not_connected');
+    }
+  }
+
+  it('asks the channel, once for each asking', () => {
+    const channel = new AskingChannel();
+    const running = startCardChannel(new QueueStore(brokenFs()), channel);
+
+    running.reconcile();
+    expect(channel.asked).toBe(1);
+    running.reconcile();
+    expect(channel.asked).toBe(2);
+    running.stop();
+  });
+
+  it('carries on when it cannot be sent, with a channel that cannot ask, and after it has stopped', async () => {
+    const failing = new AskingChannel();
+    failing.failAsking = true;
+    const running = startCardChannel(new QueueStore(brokenFs()), failing);
+    expect(() => running.reconcile()).not.toThrow();
+    await settle();
+    running.stop();
+    running.reconcile();
+    expect(failing.asked).toBe(1);
+
+    const plain = startCardChannel(new QueueStore(brokenFs()), new FakeChannel());
+    expect(() => plain.reconcile()).not.toThrow();
+    plain.stop();
+  });
+
+  it('is asked through the channel the app holds — and does nothing before it is connected, or once it is let go', async () => {
+    const channel = new AskingChannel();
+    let connect: (c: AskingChannel) => void = () => undefined;
+    const held = holdCardChannel(new QueueStore(brokenFs()), TOKEN, () => new Promise((resolve) => (connect = resolve)), { websocketUrl: 'wss://x' });
+
+    held.reconcile();
+    expect(channel.asked).toBe(0);
+
+    connect(channel);
+    await settle();
+    held.reconcile();
+    expect(channel.asked).toBe(1);
+
+    held.stop();
+    held.reconcile();
+    expect(channel.asked).toBe(1);
+  });
+
+  it('is never the card service’s to ask: it shows no card, so it has no picture to miss', () => {
+    const channel = new AskingChannel();
+    const running = startBackgroundChannel(new QueueStore(brokenFs()), channel, () => undefined);
+
+    running.reconcile();
+
+    expect(channel.asked).toBe(0);
+    running.stop();
+  });
+});

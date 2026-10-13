@@ -26,6 +26,7 @@ import { DoorCardView } from './DoorCard.js';
 import { LanguageCardView } from './LanguageCard.js';
 import { LightCardView } from './LightCard.js';
 import { MessageCardView } from './MessageCard.js';
+import { PhotoCardView } from './PhotoCard.js';
 import { ReachCardView } from './ReachCard.js';
 import { SharingCardView } from './SharingCard.js';
 import { TellCardView } from './TellCard.js';
@@ -38,6 +39,8 @@ export interface CardRendererProps {
   /** The language she chose, for the words that are this television's own. */
   readonly language: HouseholdLanguage;
   readonly onAction: (cardId: string, actionId: string) => void;
+  /** A picture card's picture cannot be shown: its address is missing or has run out (PhotoCard.tsx). */
+  readonly onPictureFailed?: ((cardId: string) => void) | undefined;
 }
 
 /** Nothing — and, to the compiler, unreachable: a kind of card added to the contract must be given a view above. */
@@ -45,8 +48,10 @@ function unknownCard(_card: never): null {
   return null;
 }
 
-export function CardRenderer({ card, language, onAction }: CardRendererProps): React.JSX.Element | null {
+export function CardRenderer({ card, language, onAction, onPictureFailed }: CardRendererProps): React.JSX.Element | null {
   const handle = (actionId: string) => onAction(card.id, actionId);
+  // The same function from one drawing to the next: the card says it once, not at every second's look.
+  const pictureFailed = React.useCallback(() => onPictureFailed?.(card.id), [onPictureFailed, card.id]);
 
   switch (card.type) {
     case 'DOOR':
@@ -81,6 +86,9 @@ export function CardRenderer({ card, language, onAction }: CardRendererProps): R
 
     case 'LANGUAGE':
       return <LanguageCardView card={card} onAction={handle} />;
+
+    case 'PHOTO':
+      return <PhotoCardView card={card} language={language} onAction={handle} onPictureFailed={pictureFailed} />;
 
     default:
       return unknownCard(card);

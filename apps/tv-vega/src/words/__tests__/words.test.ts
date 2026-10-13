@@ -7,6 +7,26 @@ import { WORDS, programmeLine, words, type WordKey } from '../words.js';
 const named = (sentence: string): string[] => [...sentence.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!).sort();
 const keys = Object.keys(WORDS.en) as WordKey[];
 
+/** The mantelpiece's words: new with it, so pinned here and not among the sentences older than the table. */
+const MANTEL_WORDS = {
+  // home/HomeScreen.tsx: the pill that opens it, and what the screen reader says of it.
+  'home.mantel': 'Mantelpiece',
+  'home.mantelLabel': 'Your mantelpiece. Press OK to see the pictures you have kept.',
+  // home/waiting.ts
+  'waiting.photo': 'A picture from {name} is waiting.',
+  // cards/PhotoCard.tsx, mantel/Picture.tsx
+  'photo.unavailable': 'The picture cannot be shown just now.',
+  'photo.pictureLabel': 'A picture from {name}',
+  // mantel/MantelScreen.tsx, mantel/IdleScreen.tsx
+  'mantel.from': 'From {name}',
+  'mantel.place': '{place} of {count}',
+  'mantel.viewLabel': 'A picture from {name}, {place} of {count}. Left and right move between pictures. Press OK to leave it or take it down.',
+  'mantel.choice': 'A picture from {name}.',
+  'mantel.choiceDetail': 'Nobody is told if you take it down.',
+  'mantel.leave': 'Leave it',
+  'mantel.takeDown': 'Take it down',
+} as const;
+
 describe('the words table — English, exactly as the television said it before there was a table', () => {
   it('says every sentence as it was written in the component it came from', () => {
     expect(WORDS.en).toEqual({
@@ -53,7 +73,12 @@ describe('the words table — English, exactly as the television said it before 
       'live.ended': 'Live view has ended.',
       // A programme's line on the home screen (packages/contracts programmes.ts: "10 minutes").
       'programme.minutes': '{count} minutes',
+      ...MANTEL_WORDS,
     });
+  });
+
+  it('says what the mantelpiece added (packages/contracts mantel.ts), and nothing else', () => {
+    expect(Object.keys(WORDS.en).filter((key) => /^(photo|mantel)\.|^home\.mantel|^waiting\.photo$/.test(key)).sort()).toEqual(Object.keys(MANTEL_WORDS).sort());
   });
 
   it('says a programme’s line exactly as the catalogue has it', () => {
@@ -103,6 +128,18 @@ describe('Spanish — plain, to usted, and no longer than the place it goes', ()
     expect(es['waiting.question']).toBe('Wick tiene una pregunta para usted.');
     expect(es['watch.paused']).toBe('En pausa — {title}');
     expect(es['programme.minutes']).toBe('{count} minutos');
+  });
+
+  it('calls the mantelpiece the shelf where the family’s pictures stand, and a picture una foto', () => {
+    expect(es['home.mantel']).toBe('Repisa');
+    expect(es['waiting.photo']).toBe('Hay una foto de {name} esperando.');
+    expect(es['photo.unavailable']).toBe('La foto no se puede mostrar ahora.');
+    expect(es['mantel.from']).toBe('De {name}');
+    expect(es['mantel.place']).toBe('{place} de {count}');
+    expect(es['mantel.leave']).toBe('Dejarla');
+    expect(es['mantel.takeDown']).toBe('Quitarla');
+    // "La", for la foto: nothing here has to agree with whoever sent it.
+    expect(es['mantel.choiceDetail']).toBe('Nadie se entera si la quita.');
   });
 
   it('addresses her as usted: never tú', () => {

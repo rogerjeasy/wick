@@ -16,7 +16,7 @@ const queued = (type: string, over: Record<string, unknown> = {}): QueuedCard =>
 
 describe('isKnownCard — a card this build can draw', () => {
   it('knows every card it has a view for, the question about her language among them', () => {
-    expect([...KNOWN_CARD_TYPES].sort()).toEqual(['CIRCLE', 'DOOR', 'LANGUAGE', 'LIGHT', 'MESSAGE', 'REACH', 'SHARING', 'TELL', 'VISIT', 'WATCH', 'WEEK']);
+    expect([...KNOWN_CARD_TYPES].sort()).toEqual(['CIRCLE', 'DOOR', 'LANGUAGE', 'LIGHT', 'MESSAGE', 'PHOTO', 'REACH', 'SHARING', 'TELL', 'VISIT', 'WATCH', 'WEEK']);
     for (const type of KNOWN_CARD_TYPES) expect(isKnownCard(queued(type)), type).toBe(true);
   });
 

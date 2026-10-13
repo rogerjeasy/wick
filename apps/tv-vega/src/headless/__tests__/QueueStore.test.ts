@@ -455,3 +455,137 @@ describe('QueueStore — a card sent again (a reconcile: on connecting, and when
     expect((await only(store)).shownCount).toBe(1);
   });
 });
+
+describe('QueueStore — her mantelpiece, as the server last said it (packages/contracts mantel.ts)', () => {
+  const item = (photoId: string) => ({ photoId, fromName: 'Sarah', keptAt: 5, url: `https://pictures.example/${photoId}.jpg?sig=secret` });
+
+  it('knows nothing of it until the server answers', () => {
+    expect(new QueueStore(fakeFs()).readMantel()).toBeUndefined();
+  });
+
+  it('keeps what the server answered, and when', () => {
+    const store = new QueueStore(fakeFs());
+
+    store.setMantel([item('p1'), item('p2')], 1_000);
+
+    expect(store.readMantel()).toEqual({ items: [item('p1'), item('p2')], receivedAt: 1_000 });
+  });
+
+  it('replaces it whole with each answer — an empty one too: nothing is left on it', () => {
+    const store = new QueueStore(fakeFs());
+    store.setMantel([item('p1'), item('p2')], 1_000);
+
+    store.setMantel([item('p2')], 2_000);
+    expect(store.readMantel()).toEqual({ items: [item('p2')], receivedAt: 2_000 });
+
+    store.setMantel([], 3_000);
+    expect(store.readMantel()).toEqual({ items: [], receivedAt: 3_000 });
+  });
+
+  it('writes none of it down: an address is minted for one asking and kept nowhere', async () => {
+    const files = new Map<string, string>();
+    const fs: FileSystemLike = {
+      exists: async (path) => files.has(path),
+      readFileAsString: async (path) => files.get(path) ?? '',
+      writeStringToFile: async (path, content) => (files.set(path, content), content.length),
+    };
+    const store = new QueueStore(fs);
+    await store.upsert(doorCard('c1'));
+    store.setHome({ mantel: 2 }, { whole: true });
+
+    store.setMantel([item('p1'), item('p2')], 1_000);
+    await store.enqueueOutbound({ t: 'mantel', at: 1 });
+    await store.readAll();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const written = [...files.values()].join('\n');
+    expect(written).not.toMatch(/pictures\.example|sig=secret|p1\.jpg/);
+    expect(await new QueueStore(fs).readAll().then(() => new QueueStore(fs).readMantel())).toBeUndefined();
+  });
+
+  it('is told how many things are on it beside the light, and forgets that when the whole of a home names none', () => {
+    const store = new QueueStore(fakeFs());
+
+    store.setHome({ light: 'on', mantel: 3 }, { whole: true });
+    expect(store.readHome().mantel).toBe(3);
+    store.setHome({ light: 'out' });
+    expect(store.readHome().mantel).toBe(3);
+    store.setHome({ light: 'on' }, { whole: true });
+    expect(store.readHome().mantel).toBeUndefined();
+  });
+});
+
+describe('QueueStore — a picture sent back after its own press (her mantelpiece was full)', () => {
+  const photo = (over: Partial<QueuedCard> = {}): QueuedCard => ({
+    id: 'photo-p1',
+    urgency: 'DEFERRED',
+    card: {
+      type: 'PHOTO', id: 'photo-p1', householdId: 'hh-1', correlationId: 'c', createdAt: 0, photoId: 'p1', fromName: 'Sarah',
+      headline: 'A picture from Sarah.', actions: [{ id: 'keep', label: 'Keep it', kind: 'primary' }, { id: 'thanks', label: 'Thank you', kind: 'secondary' }],
+    },
+    queuedAt: 100,
+    shownCount: 0,
+    ...over,
+  });
+  const withNotice = (over: Partial<QueuedCard> = {}): QueuedCard => ({ ...photo(over), card: { ...photo().card, notice: 'Your mantelpiece is full. Take one down, then you can keep this.' } as QueuedCard['card'] });
+
+  it('is held again under its id: nothing here remembers that it was answered', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(photo());
+    await store.beginShowing('photo-p1');
+    // "Keep it": the card is put away, and the press goes to the server.
+    await store.remove('photo-p1');
+    expect(await store.readAll()).toEqual([]);
+
+    // The mantelpiece was full: the same card, with the line that says so.
+    await store.upsert(withNotice({ shownCount: 1 }));
+
+    const [held] = await store.readAll();
+    expect(held!.id).toBe('photo-p1');
+    expect((held!.card as { notice?: string }).notice).toMatch(/full/);
+  });
+
+  it('comes with the server’s count of its showings, and each showing after that is counted once', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(photo());
+    await store.beginShowing('photo-p1');
+    await store.remove('photo-p1');
+
+    // The server counted the showing she answered.
+    await store.upsert(withNotice({ shownCount: 1 }));
+    expect((await store.readAll())[0]!.shownCount).toBe(1);
+
+    // Shown again, and left this time.
+    await store.beginShowing('photo-p1');
+    await store.countShowing('photo-p1');
+    expect((await store.readAll())[0]!.shownCount).toBe(2);
+  });
+
+  it('does not count the answered showing against the card that comes back, when the server sends it afresh', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(photo());
+    await store.beginShowing('photo-p1');
+    await store.remove('photo-p1');
+
+    await store.upsert(withNotice({ queuedAt: 200, shownCount: 0 }));
+    // The break ends with nothing more shown: no showing of this card was under way.
+    expect((await store.readAll())[0]!.shownCount).toBe(0);
+  });
+});
+
+describe('QueueStore — two answers about her mantelpiece in the same instant', () => {
+  it('are still two answers: the later one is told apart from the earlier by when it came', () => {
+    const store = new QueueStore(fakeFs());
+    const item = { photoId: 'p1', fromName: 'Sarah', keptAt: 5, url: 'https://pictures.example/p1.jpg' };
+
+    store.setMantel([item], 1_000);
+    const first = store.readMantel()!;
+    store.setMantel([], 1_000);
+    const second = store.readMantel()!;
+
+    expect(second.receivedAt).toBeGreaterThan(first.receivedAt);
+    // And a clock that went back does not make a new answer look older than the last.
+    store.setMantel([item], 500);
+    expect(store.readMantel()!.receivedAt).toBeGreaterThan(second.receivedAt);
+  });
+});

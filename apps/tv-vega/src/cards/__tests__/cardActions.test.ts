@@ -110,3 +110,26 @@ describe('the question about her language (packages/contracts language.ts)', () 
     }
   });
 });
+
+describe('a picture from the family (packages/contracts mantel.ts)', () => {
+  const photo = {
+    type: 'PHOTO', id: 'photo-p1', householdId: 'h', correlationId: 'c', createdAt: 0, photoId: 'p1', fromName: 'Sarah',
+    headline: 'A picture from Sarah.', photoUrl: 'https://pictures.example/p1.jpg',
+    actions: [
+      { id: 'keep', label: 'Keep it', kind: 'primary' },
+      { id: 'thanks', label: 'Thank you', kind: 'secondary' },
+    ],
+  } as Card;
+
+  it('is put away by either answer: keeping it and thanking for it look the same from here', () => {
+    expect(removesCard(photo, 'keep')).toBe(true);
+    expect(removesCard(photo, 'thanks')).toBe(true);
+  });
+
+  it('opens nothing: no door camera, no film', () => {
+    for (const action of ['keep', 'thanks', 'watch_live', 'start']) {
+      expect(opensLiveView(photo, action)).toBe(false);
+      expect(startsFilm(photo, action, 0)).toBeUndefined();
+    }
+  });
+});

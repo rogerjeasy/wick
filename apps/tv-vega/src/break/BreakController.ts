@@ -208,6 +208,17 @@ export class BreakController {
   }
 
   /**
+   * She answered this card: its showing is over, there and then. Without
+   * this, a card the server sends back under the same id before the next
+   * look — a picture she pressed "Keep it" on, with her mantelpiece full
+   * (packages/contracts mantel.ts) — would be taken for the one still on
+   * screen: never said to be shown, and counted wrongly when the break ends.
+   */
+  answered(cardId: string): void {
+    if (this.#showingId === cardId) this.#showingId = undefined;
+  }
+
+  /**
    * The card that has had its two showings and now waits to be asked for —
    * the longest-waiting one, for the home screen's quiet row. Never a door
    * card: a visitor who has gone is not waiting.

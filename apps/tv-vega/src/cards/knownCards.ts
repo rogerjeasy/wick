@@ -31,6 +31,7 @@ const KNOWN: Readonly<Record<Card['type'], true>> = {
   REACH: true,
   VISIT: true,
   LANGUAGE: true,
+  PHOTO: true,
 };
 
 export const KNOWN_CARD_TYPES: readonly Card['type'][] = Object.keys(KNOWN) as Card['type'][];

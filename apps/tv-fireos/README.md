@@ -100,6 +100,17 @@ keeps nothing, and is English for the moment before the home message). It
 typechecks here and its decisions are tested; it has not yet been seen on the
 emulator.
 
+The mantelpiece (`packages/contracts/src/mantel.ts`) — the picture card, the
+screen that shows what she has kept, and her pictures filling a home screen
+left untouched — is the Vega app's code here too, and needed no adapter: it is
+built from `View`, `Image`, `Text`, `Pressable` and `Animated`. Two things in
+it were written with Android in mind and are tested as decisions only
+(`src/__tests__/idle.test.ts`, on keys as `remoteEvents.ts` says them): a
+screen that is all picture keeps one focused view, because Android gives a key
+to nothing when nothing is focused; and the key that ends the idle screen is
+taken whole, whether it arrives as down-then-up, up only, or `longSelect`. None
+of it has been seen on the emulator yet.
+
 ## Not a workspace
 
 `apps/tv-fireos` is deliberately left out of the root `package.json`'s
