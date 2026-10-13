@@ -252,7 +252,7 @@ describe('HomeScreen.tsx — the memory, as kept', () => {
   it('writes it down only through the rule: no item sets where she was by itself', () => {
     expect(screen).not.toMatch(/focused\.current\s*=/);
     expect(screen.match(/focus\.current = /g)).toHaveLength(2);
-    expect(screen).toMatch(/focus\.current = reachChanged\(focus\.current, drawn && !cardVisible, Date\.now\(\)\);/);
+    expect(screen).toMatch(/focus\.current = reachChanged\(focus\.current, drawn && !cardVisible && inFront, Date\.now\(\)\);/);
     expect(screen).toMatch(/focus\.current = focusReported\(focus\.current, item, Date\.now\(\)\);/);
   });
 

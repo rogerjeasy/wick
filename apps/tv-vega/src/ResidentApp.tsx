@@ -704,6 +704,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       ) : (
         <HomeScreen
           drawn={behind.rows}
+          inFront={onScreen}
           language={language}
           programmes={CATALOG}
           onChoose={handleChoose}

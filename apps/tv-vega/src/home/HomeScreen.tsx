@@ -26,6 +26,15 @@
  * to where she was — not to the first film, and not to wherever the
  * platform passed the focus on its way to the card (home/focusMemory.ts).
  *
+ * And for one second after the remote comes back, nothing here takes a
+ * press (press/settle.ts): after a card goes, her mantelpiece closes, the
+ * idle screen ends, a film closes, or Wick returns from behind another app
+ * — and the first time the screen appears. A second OK meant for the card
+ * that has just gone must not start the film underneath. Only presses: the
+ * D-pad moves the focus as always, and OK held for two seconds is still
+ * the hold. It counts from the same moment the focus memory counts from —
+ * one notion of "the home has just come back".
+ *
  * And while a card is on screen nothing of this screen is partly visible
  * (home/behind.ts): its rows are left out whole and the card is alone on
  * the ground colour. A card's top edge can fall anywhere, and it used to
@@ -37,6 +46,7 @@ import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-
 import type { HouseholdLanguage } from '@wick/contracts';
 import { fontSize, safe } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
+import { pressActs } from '../press/settle.js';
 import { HOLD_MS } from '../watch/hold.js';
 import { HOME_FOCUS_START, focusOnReturn, focusReported, reachChanged, type HomeFocus } from './focusMemory.js';
 import { programmeLine, words } from '../words/words.js';
@@ -49,6 +59,11 @@ export interface HomeScreenProps {
    * else — nothing to see part of, to focus, or for a screen reader to find.
    */
   readonly drawn: boolean;
+  /**
+   * Wick is the app on screen. Coming back from behind another app, the
+   * home has come back within the remote's reach like after anything else.
+   */
+  readonly inFront: boolean;
   /**
    * The language she chose (packages/contracts language.ts). This screen's
    * own words are said in it (words/words.ts); `waiting`, `light` and
@@ -95,7 +110,7 @@ export interface HomeScreenProps {
   readonly onKeyUp?: (() => void) | undefined;
 }
 
-export function HomeScreen({ drawn, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ drawn, inFront, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
   const say = words(language);
   // One quiet row under the films, and a card waiting to be opened comes first.
   const quiet = waiting ? undefined : lookedIn;
@@ -108,10 +123,17 @@ export function HomeScreen({ drawn, language, programmes, onChoose, cardVisible,
   // remembered: one reported while the screen is out of the remote's reach, or in the moment after it comes
   // back, is the platform handing the focus along, and is not hers.
   const focus = React.useRef<HomeFocus>(HOME_FOCUS_START);
-  focus.current = reachChanged(focus.current, drawn && !cardVisible, Date.now());
+  focus.current = reachChanged(focus.current, drawn && !cardVisible && inFront, Date.now());
   const reportFocus = (item: string): void => {
     focus.current = focusReported(focus.current, item, Date.now());
   };
+  // A press on anything here, seen now. In the home's first second back within reach it does nothing at all —
+  // nothing is started, opened or sent, and the second is not made longer by it (press/settle.ts).
+  const press =
+    (act: (() => void) | undefined) =>
+    (): void => {
+      if (pressActs(focus.current.reachableSince, Date.now())) act?.();
+    };
   const here = [...programmes.map((programme) => `programme:${programme.id}`), ...(light ? ['light'] : []), ...(waiting ? ['waiting'] : []), ...(mantel ? ['mantel'] : [])];
   const preferred = focusOnReturn(focus.current, here, start);
 
@@ -127,7 +149,7 @@ export function HomeScreen({ drawn, language, programmes, onChoose, cardVisible,
         {/* Never focused on its own: the films are what the screen is for. */}
         {light ? (
           <Pressable
-            onPress={onOpenLight}
+            onPress={press(onOpenLight)}
             onLongPress={onHold}
             delayLongPress={HOLD_MS}
             onPressOut={onKeyUp}
@@ -149,7 +171,7 @@ export function HomeScreen({ drawn, language, programmes, onChoose, cardVisible,
         {programmes.map((programme) => (
           <Pressable
             key={programme.id}
-            onPress={() => onChoose(programme)}
+            onPress={press(() => onChoose(programme))}
             onLongPress={onHold}
             delayLongPress={HOLD_MS}
             onPressOut={onKeyUp}
@@ -178,7 +200,7 @@ export function HomeScreen({ drawn, language, programmes, onChoose, cardVisible,
           {/* Quiet, and never focused on its own: it is there to be found, not to ask again. */}
           {waiting ? (
             <Pressable
-              onPress={onOpenWaiting}
+              onPress={press(onOpenWaiting)}
               onLongPress={onHold}
               delayLongPress={HOLD_MS}
               onPressOut={onKeyUp}
@@ -210,7 +232,7 @@ export function HomeScreen({ drawn, language, programmes, onChoose, cardVisible,
           {/* Her mantelpiece. Found with the D-pad, never focused on its own. */}
           {mantel ? (
             <Pressable
-              onPress={onOpenMantel}
+              onPress={press(onOpenMantel)}
               onLongPress={onHold}
               delayLongPress={HOLD_MS}
               onPressOut={onKeyUp}
