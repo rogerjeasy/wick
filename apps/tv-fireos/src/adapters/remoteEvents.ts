@@ -18,6 +18,18 @@
  * (apps/tv-vega/src/watch/hold.ts). The Vega app acts on key down only
  * (remoteKeys.ts), so nothing takes it for a second press.
  *
+ * Two things about OK, both found on the emulator and neither in React
+ * Native's TV guidance (FRICTION.md FL-028):
+ *
+ *   - A short press reaches JavaScript as the key coming up and nothing
+ *     else: React Native sends no key-down unless a flag is set. So a
+ *     key-up with no key-down before it is the whole press, and is said
+ *     as one: down, then up. Saying only the down would leave the key
+ *     "held" for ever — and two seconds later that was a hold.
+ *   - A press that lasts is reported under another name: "longSelect"
+ *     going down once Android notices the hold, and coming up when it is
+ *     let go. It is OK all the same, and is said as OK.
+ *
  * No React and no native module here, so it is tested as plain code.
  */
 export interface RemoteEvent {
@@ -34,6 +46,8 @@ const VEGA_NAME: Readonly<Record<string, string>> = {
   playPause: 'playpause',
   fastForward: 'skip_forward',
   rewind: 'skip_backward',
+  // A held OK: the same button under the name Android gives a long press.
+  longSelect: 'select',
 };
 
 /** Android's KeyEvent.ACTION_DOWN and ACTION_UP. */
@@ -43,37 +57,42 @@ const KEY_UP = 1;
 const VEGA_KEY_DOWN = 0;
 const VEGA_KEY_UP = 1;
 
-/** The event with the name and shape the Vega app expects. */
-function renamed(type: string, action: number = VEGA_KEY_DOWN): RemoteEvent {
-  return { eventType: VEGA_NAME[type] ?? type, eventKeyAction: action };
-}
+/** The key as the Vega app names it. */
+const vegaName = (type: string): string => VEGA_NAME[type] ?? type;
+
+const NOTHING: readonly RemoteEvent[] = [];
 
 /**
- * Turns Android's stream of key events into presses: one key-down out for
- * each press of a key, as the Vega app expects it, then its key-up when
- * that comes, and nothing for the rest — a key held down repeating, and
- * focus moving, which React Native reports through the same channel.
+ * Turns Android's stream of key events into the one the Vega app expects:
+ * for each press of a key its key-down, then its key-up, and nothing for
+ * the rest — a key held down repeating, and focus moving, which React
+ * Native reports through the same channel. One Android event becomes none,
+ * one or two of these.
  *
- * Holds which keys are down, so one is made per television screen that
- * listens (adapters/kepler.ts keeps it for the life of the component).
+ * Holds which keys are down, by their Vega names, so one is made per
+ * television screen that listens (adapters/kepler.ts keeps it for the life
+ * of the component).
  */
-export function remotePresses(): (event: AndroidRemoteEvent | null | undefined) => RemoteEvent | undefined {
+export function remoteKeyEvents(): (event: AndroidRemoteEvent | null | undefined) => readonly RemoteEvent[] {
   const down = new Set<string>();
   return (event) => {
     const type = event?.eventType;
-    if (!type || type === 'focus' || type === 'blur') return undefined;
+    if (!type || type === 'focus' || type === 'blur') return NOTHING;
+    const key = vegaName(type);
+    const keyDown: RemoteEvent = { eventType: key, eventKeyAction: VEGA_KEY_DOWN };
+    const keyUp: RemoteEvent = { eventType: key, eventKeyAction: VEGA_KEY_UP };
 
     if (event.eventKeyAction === KEY_UP) {
-      // The end of a press already acted on, said as the key coming up —
-      // or the whole of one whose start never arrived.
-      return down.delete(type) ? renamed(type, VEGA_KEY_UP) : renamed(type);
+      // The end of a press already said — or the whole of one whose start
+      // never arrived, said whole so that no key is ever left down.
+      return down.delete(key) ? [keyUp] : [keyDown, keyUp];
     }
     if (event.eventKeyAction === KEY_DOWN) {
-      if (down.has(type)) return undefined; // held: Android repeats the key going down
-      down.add(type);
-      return renamed(type);
+      if (down.has(key)) return NOTHING; // held: Android repeats the key going down, and renames it
+      down.add(key);
+      return [keyDown];
     }
-    // No action given: the event is the press.
-    return renamed(type);
+    // No action given: the event is the whole press.
+    return [keyDown, keyUp];
   };
 }
