@@ -98,7 +98,9 @@ import { REACH_ACTIONS, reachCardId, reachUnderWay } from '@wick/contracts';
 import { reachStore, type ReachSend } from '@wick/agent';
 import { VISIT_ACTIONS, VISIT_ASK_WITHIN_MS, isVisitPersonId, userIdOfMemberPerson, visitCardId, visitId, type RosterEntry, type VisitorMatch } from '@wick/contracts';
 import { isSharedWithFamily, loadHouseholdPolicy, visitStore, type VisitSend } from '@wick/agent';
+import { randomUUID } from 'node:crypto';
 import { noteDoorSighting } from '../../../agent/src/agents/visit/note.js';
+import { buildDoorEventItem, buildPresenceItem } from '../../../agent/src/agents/door/presence.js';
 import { askAboutVisits } from '../../../agent/src/agents/visit/ask.js';
 import { handleVisitAnswer } from '../../../agent/src/agents/visit/answer.js';
 import { buildTellCard } from '../../../agent/src/agents/tell/ask.js';
@@ -517,6 +519,14 @@ app.get('/dev/visit', async (req, res) => {
       // Somebody at the door again, and the door cannot tell who: taken as the visitor leaving.
       await noteDoorSighting({ householdId, match: undefined, at: now - VISIT_LEFT_AGO_MS }, visits),
     ];
+    // The timeline rows the Door function writes for the same two sightings (door/lambda.ts): the arrival as a
+    // door event and the visitor's presence, the leaving as a door event. Without them this home would say
+    // Maria has not come today (did_visitor_come) while listing her visit (get_visits).
+    if (door[0] === 'arrived') {
+      table.put(buildDoorEventItem(householdId, now - VISIT_BEGAN_AGO_MS, randomUUID()));
+      table.put(buildPresenceItem(householdId, match, now - VISIT_BEGAN_AGO_MS, randomUUID()));
+    }
+    if (door[1] === 'left') table.put(buildDoorEventItem(householdId, now - VISIT_LEFT_AGO_MS, randomUUID()));
     const television: string[] = [];
     const asked = await askAboutVisits(householdId, {
       recent: visits.recent,
