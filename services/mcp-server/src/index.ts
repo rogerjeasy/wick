@@ -3,6 +3,8 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
+import { RekognitionClient } from '@aws-sdk/client-rekognition';
+import { S3Client } from '@aws-sdk/client-s3';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { sendHomeToDevices, sendPatchToDevice, sendToDevice, takeBackFromDevices } from '@wick/agent';
 import { createApp } from './server.js';
@@ -10,6 +12,8 @@ import { createCognitoIdentity, type CognitoSend } from './accounts/identity.js'
 import { createDynamoAccountStore, type DdbSend } from './accounts/store.js';
 import { createBedrockConverse } from './assistant/bedrock.js';
 import { invokedRingLinks } from './accounts/ringLinks.js';
+import { createRekognitionModeration, type RekognitionSend } from './photos/moderation.js';
+import { createS3PhotoObjects, type S3Send } from './photos/objects.js';
 
 // Every read-tool file (get_resident_shared_view.ts, get_today.ts,
 // did_visitor_come.ts, get_week_narrative.ts) defaults an unset TABLE_NAME to
@@ -55,6 +59,24 @@ const assistant = ASSISTANT_MODEL_ID
         ASSISTANT_MODEL_ID,
       ),
     }
+  : undefined;
+
+// The mantelpiece (photos/send.ts): the bucket a picture is put in
+// (infra names it), and Rekognition, which takes the one look at a picture
+// before it is stored. Unset, the family app is told this Wick cannot send
+// pictures: there is no sending without the check. This server only ever
+// puts a picture there, and deletes one to undo a sending that failed — it
+// is given no way to read one back.
+const PHOTOS_BUCKET = process.env.PHOTOS_BUCKET || undefined;
+const photos = PHOTOS_BUCKET
+  ? (() => {
+      const s3 = new S3Client({});
+      const rekognition = new RekognitionClient(process.env.WICK_REKOGNITION_REGION ? { region: process.env.WICK_REKOGNITION_REGION } : {});
+      return {
+        objects: createS3PhotoObjects(((command) => s3.send(command as never)) as S3Send, PHOTOS_BUCKET),
+        moderate: createRekognitionModeration(((command, options) => rekognition.send(command, options)) as RekognitionSend),
+      };
+    })()
   : undefined;
 
 // A home's own Ring link (accounts/apiRouter.ts `/api/ring`). The function
@@ -103,6 +125,7 @@ const app = createApp(ISSUER_URL, {
   demoAccounts: DEMO_ACCOUNTS,
   ...(assistant ? { assistant } : {}),
   ...(ringLinks ? { ringLinks } : {}),
+  ...(photos ? { photos } : {}),
   ...(VIRTUAL_TELEVISION_URL ? { virtualTelevisionUrl: VIRTUAL_TELEVISION_URL } : {}),
 });
 

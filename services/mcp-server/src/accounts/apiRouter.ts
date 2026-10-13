@@ -41,6 +41,7 @@ import { isGuest } from './demo.js';
 import { LanguageRefusal, askForLanguage, readLanguage, takeBackLanguageQuestion, type LanguageDeps } from './language.js';
 import { grantOf } from './oauthProvider.js';
 import { parseSubscription, type PushStore } from './push.js';
+import type { PhotoRoutes } from '../photos/routes.js';
 
 const CIRCLE_ERRORS: Readonly<Record<CircleErrorCode, { status: number; message: string }>> = {
   name_required: { status: 400, message: 'A name is needed.' },
@@ -175,11 +176,13 @@ export interface ApiOptions {
    * be taken back is not one this server will ask.
    */
   readonly withdrawCard?: LanguageDeps['withdrawCard'] | undefined;
+  /** The mantelpiece: a picture for her television, and how the sender's own stand (photos/routes.ts). */
+  readonly photos?: PhotoRoutes | undefined;
 }
 
 export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHandler, options: ApiOptions = {}): express.Router {
   const { store } = circle;
-  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone, push, withdrawCard } = options;
+  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone, push, withdrawCard, photos } = options;
   const router = express.Router();
   // Any origin: nothing here uses a cookie, and a token is only ever sent by
   // the page that holds it.
@@ -369,6 +372,15 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
       const { view, say } = await takeBackLanguageQuestion(language, grant);
       return { ...view, say };
     }));
+  }
+
+  // --- The mantelpiece: a picture for her television -------------------------
+  //
+  // Behind the same sign-in as everything above. What the two routes do,
+  // and why the body of one is read the way it is, is photos/routes.ts.
+  if (photos) {
+    router.post('/api/photos', ...photos.send);
+    router.get('/api/photos', photos.list);
   }
 
   // --- The home's own Ring link -------------------------------------------

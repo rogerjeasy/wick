@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { DeleteItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { visitFromItem, visitItem, visitStore, type VisitSend } from '@wick/agent';
 import type { Visit } from '@wick/contracts';
 import { createMemoryTable } from './memoryTable.js';
@@ -73,5 +73,81 @@ describe('memoryTable — an update that sets and removes at once', () => {
     await update('es');
 
     expect(table.rows('HH#hh-1')).toEqual([{ ...key, name: { S: 'Mum’s house' }, languageTakenBack: { S: 'es' }, languageTakenBackAt: { N: '9' } }]);
+  });
+});
+
+/** The picture rows' requests (photos/rows.ts): a delete that only undoes its own sending, and a consistent read of a household's pictures. */
+describe('memoryTable — a delete under a condition', () => {
+  const key = { pk: { S: 'HH#hh-1' }, sk: { S: 'PHOTO#abc' } };
+  const remove = (table: ReturnType<typeof createMemoryTable>, sentAt: string) =>
+    table.ddb.send(new DeleteItemCommand({
+      TableName: 'wick',
+      Key: key,
+      ConditionExpression: 'sentBy = :by AND sentAt = :at AND attribute_not_exists(seenAt)',
+      ExpressionAttributeValues: { ':by': { S: 'u_sarah' }, ':at': { N: sentAt } },
+    }));
+
+  it('deletes the row only while the condition holds', async () => {
+    const table = createMemoryTable();
+    table.put({ ...key, sentBy: { S: 'u_sarah' }, sentAt: { N: '5' } });
+
+    await expect(remove(table, '6')).rejects.toMatchObject({ name: 'ConditionalCheckFailedException' });
+    expect(table.rows('HH#hh-1')).toHaveLength(1);
+
+    await remove(table, '5');
+    expect(table.rows('HH#hh-1')).toEqual([]);
+  });
+
+  it('leaves a row she has since seen', async () => {
+    const table = createMemoryTable();
+    table.put({ ...key, sentBy: { S: 'u_sarah' }, sentAt: { N: '5' }, seenAt: { N: '9' } });
+
+    await expect(remove(table, '5')).rejects.toMatchObject({ name: 'ConditionalCheckFailedException' });
+    expect(table.rows('HH#hh-1')).toHaveLength(1);
+  });
+
+  it('answers a consistent query like any other', async () => {
+    const table = createMemoryTable();
+    table.put({ ...key, sentBy: { S: 'u_sarah' }, sentAt: { N: '5' } });
+
+    const res = await table.ddb.send(new QueryCommand({
+      TableName: 'wick',
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: { ':pk': { S: 'HH#hh-1' }, ':prefix': { S: 'PHOTO#' } },
+      ConsistentRead: true,
+    }));
+
+    expect(res.Items).toHaveLength(1);
+  });
+});
+
+/** The count of a member's tries at sending a picture (photos/tries.ts): added to under a condition, with its expiry set once. */
+describe('memoryTable — a number added to, under a condition', () => {
+  const key = { pk: { S: 'HH#hh-1' }, sk: { S: 'TRY#PHOTO#u_sarah#2026-09-21' } };
+  const tryOnce = (table: ReturnType<typeof createMemoryTable>, cap: number, ttl = '111') =>
+    table.ddb.send(new UpdateItemCommand({
+      TableName: 'wick',
+      Key: key,
+      UpdateExpression: 'ADD #tries :one SET #ttl = if_not_exists(#ttl, :ttl)',
+      ConditionExpression: '(attribute_not_exists(#tries) OR #tries < :cap)',
+      ExpressionAttributeNames: { '#tries': 'tries', '#ttl': 'ttl' },
+      ExpressionAttributeValues: { ':one': { N: '1' }, ':cap': { N: String(cap) }, ':ttl': { N: ttl } },
+    }));
+
+  it('starts the number where there was none, adds to it after, and sets the expiry only the first time', async () => {
+    const table = createMemoryTable();
+
+    await tryOnce(table, 3, '111');
+    await tryOnce(table, 3, '999');
+
+    expect(table.rows('HH#hh-1')).toEqual([{ ...key, tries: { N: '2' }, ttl: { N: '111' } }]);
+  });
+
+  it('refuses to add past the condition, and leaves the number where it was', async () => {
+    const table = createMemoryTable();
+    for (let i = 0; i < 3; i += 1) await tryOnce(table, 3);
+
+    await expect(tryOnce(table, 3)).rejects.toMatchObject({ name: 'ConditionalCheckFailedException' });
+    expect(table.rows('HH#hh-1')[0]!.tries).toEqual({ N: '3' });
   });
 });

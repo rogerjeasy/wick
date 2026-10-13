@@ -51,6 +51,9 @@ import { registerGetWhatsDifferent } from './tools/get_whats_different.js';
 import { registerAddRegularVisitor } from './tools/add_regular_visitor.js';
 import { registerExpectVisit } from './tools/expect_visit.js';
 import { createPushStore } from './accounts/push.js';
+import { createPhotoRoutes } from './photos/routes.js';
+import type { Moderation } from './photos/moderation.js';
+import type { PhotoObjects } from './photos/objects.js';
 import { registerGetDoorRequest } from './tools/get_door_request.js';
 import { registerGetLight } from './tools/get_light.js';
 import { recordLook, type SendHome } from './tools/lookIn.js';
@@ -63,6 +66,7 @@ import { registerWithdrawWatchInvitation } from './tools/withdraw_watch_invitati
 import { registerGetReachRequest } from './tools/get_reach_request.js';
 import { registerAnswerReachRequest } from './tools/answer_reach_request.js';
 import { registerGetVisits } from './tools/get_visits.js';
+import { registerGetPictures } from './tools/get_pictures.js';
 
 /**
  * A fresh `McpServer` for exactly one session's lifetime.
@@ -110,6 +114,7 @@ function createMcpServer(
   registerGetReachRequest(mcpServer, ddb, ctx);
   registerAnswerReachRequest(mcpServer, ddb, ctx, sendCard);
   registerGetVisits(mcpServer, ddb, ctx);
+  registerGetPictures(mcpServer, ddb, ctx);
   return mcpServer;
 }
 
@@ -165,6 +170,12 @@ export interface AppDeps {
   readonly assistant?: AssistantDeps;
   /** A television in a browser tab, for someone with no Fire TV to hand (apps/ops-console/device.html). */
   readonly virtualTelevisionUrl?: string;
+  /**
+   * The mantelpiece (photos/send.ts): the bucket a picture is put in, and
+   * the one look taken at it first. Absent — or with either half missing —
+   * a picture is refused in words: nothing is ever sent unchecked.
+   */
+  readonly photos?: { readonly objects: PhotoObjects; readonly moderate: Moderation } | undefined;
   readonly now?: () => number;
   readonly newId?: () => string;
 }
@@ -202,6 +213,18 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     push: createPushStore(ddb, process.env.TABLE_NAME ?? 'wick'),
     // The language of her television (accounts/language.ts): a question the organiser can take back again.
     withdrawCard: deps.withdrawCard,
+    // The mantelpiece: a picture reaches her television through the same sender as a note (INV-2).
+    photos: createPhotoRoutes({
+      ddb,
+      store: deps.store,
+      objects: deps.photos?.objects,
+      moderate: deps.photos?.moderate,
+      sendCard: deps.sendCard,
+      withdrawCard: deps.withdrawCard,
+      now: circle.now,
+      newId: circle.newId,
+      timeZone: HOUSEHOLD_TZ,
+    }),
   }));
 
   // The tool list is the same for everyone and for the life of the process: asked for once, on first need.
