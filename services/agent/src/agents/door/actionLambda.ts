@@ -13,6 +13,7 @@
  *                              → visit/ask.ts too: a visit that is ready is put to her
  *   card.retired               → egress.ts, here: the home's other televisions put the card away
  *   home.changed               → egress.ts, here: the home's other televisions are told how the home screen stands
+ *     … languageChangedTo      → egress.ts, here: the cards she has not answered are put into the language she has just chosen
  *   reach.due                  → reach/due.ts, here: three minutes on and no answer → the next person is asked
  *                                (not from the bus: the one-time schedule reach/timer.ts set calls this function)
  *
@@ -27,9 +28,9 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { CreateScheduleCommand, SchedulerClient } from '@aws-sdk/client-scheduler';
 import { randomUUID } from 'node:crypto';
-import { DOOR_ACTIONS, PUSH_KINDS, reachKindOf, readHomeState, tellAnswerOf, visitAnswerOf, type HomeState } from '@wick/contracts';
+import { DEFAULT_LANGUAGE, DOOR_ACTIONS, PUSH_KINDS, isHouseholdLanguage, reachKindOf, readHomeState, tellAnswerOf, visitAnswerOf, type HomeState, type HouseholdLanguage } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
-import { nudgeFamily, sendHomeToDevices, sendPatchToDevice, sendToDevice, withdrawFromDevices } from '../../egress.js';
+import { nudgeFamily, sendHomeToDevices, sendPatchToDevice, sendToDevice, sendWaitingCardsInLanguage, withdrawFromDevices } from '../../egress.js';
 import { loadShareableDifferences } from '../../rhythm/loadDifferent.js';
 import { tellStore, type TellSend } from '../../store/tells.js';
 import { handleTellAnswer, type TellAnswerResult } from '../tell/answer.js';
@@ -68,6 +69,12 @@ export interface CardActionRoutes {
   readonly withdraw: (householdId: string, cardId: string, pressedOn?: string) => Promise<void>;
   /** Tells the home's other televisions how the home screen now stands, whole (egress.ts sendHomeToDevices). */
   readonly tellHome: (householdId: string, home: HomeState, pressedOn?: string) => Promise<void>;
+  /**
+   * Her press changed the language her television speaks, to one that is not
+   * English: the cards she has not yet answered are put into it and sent
+   * again (egress.ts sendWaitingCardsInLanguage). Absent, nothing more is done.
+   */
+  readonly languageChanged?: (householdId: string, language: HouseholdLanguage, correlationId?: string) => Promise<{ readonly sent: number }>;
   /** The resident's "Yes, ask Sarah" or "Just say hello" on the card her hold brought (reach/ask.ts). */
   readonly reachAsk: (detail: Record<string, unknown>) => Promise<ReachAskResult>;
   /** Three minutes on and no answer: the next person is asked (reach/due.ts). */
@@ -108,7 +115,23 @@ export async function routeCardAction(evt: DeviceBusEvent, routes: CardActionRou
     const home = readHomeState(evt.detail.home);
     if (typeof householdId !== 'string' || !householdId || !home) return { result: 'ignored' };
     await routes.tellHome(householdId, home, typeof deviceId === 'string' ? deviceId : undefined);
-    return { result: 'home_told' };
+
+    // The edge says so when — and only when — her press changed the language
+    // (edge-device light.mjs buildHomeChangedEntry). It is what the event
+    // says changed that counts here, never the language the home state
+    // carries: every home message of a Spanish household names Spanish.
+    // English needs nothing: what is stored is English.
+    const { languageChangedTo, correlationId } = evt.detail;
+    if (!routes.languageChanged || !isHouseholdLanguage(languageChangedTo) || languageChangedTo === DEFAULT_LANGUAGE) return { result: 'home_told' };
+    const follow = typeof correlationId === 'string' && correlationId ? correlationId : undefined;
+    try {
+      const { sent } = await routes.languageChanged(householdId, languageChangedTo, follow);
+      return { result: 'home_told', cardsSentAgain: sent };
+    } catch (err) {
+      // The televisions have heard of the language; a card left as it was is put right when it is next sent.
+      console.error(JSON.stringify({ level: 'error', msg: 'cards_not_put_in_her_language', correlationId: follow, err: err instanceof Error ? err.name : 'unknown' }));
+      return { result: 'home_told' };
+    }
   }
   // A timer, and so never a press — whatever else it may carry.
   if (evt['detail-type'] === REACH_DUE) return { result: await routes.reachDue(evt.detail) };
@@ -270,6 +293,7 @@ export const handler = async (evt: DeviceBusEvent): Promise<void> => {
     askResident,
     withdraw: (householdId, cardId, pressedOn) => withdrawFromDevices(cardId, householdId, pressedOn),
     tellHome: (householdId, home, pressedOn) => sendHomeToDevices(householdId, home, { whole: true, exceptDeviceId: pressedOn }),
+    languageChanged: sendWaitingCardsInLanguage,
     reachAsk,
     reachDue,
     visitAnswer,

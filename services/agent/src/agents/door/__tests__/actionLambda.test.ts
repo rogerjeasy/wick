@@ -156,6 +156,90 @@ describe('routeCardAction — the home screen changed on one television', () => 
   });
 });
 
+describe('routeCardAction — her press changed the language her television speaks', () => {
+  const routes = () => ({
+    invoke: vi.fn(),
+    askFamily: vi.fn(),
+    tellAnswer: vi.fn(),
+    askResident: vi.fn(),
+    withdraw: vi.fn(),
+    tellHome: vi.fn(async () => undefined),
+    languageChanged: vi.fn(async () => ({ waiting: 3, translated: 1, sent: 1 })),
+    reachAsk: vi.fn(),
+    reachDue: vi.fn(),
+    visitAnswer: vi.fn(),
+    askVisits: vi.fn(async () => []),
+  });
+  const changed = (detail: Record<string, unknown>) => ({ 'detail-type': 'home.changed', detail: { householdId: 'margaret', deviceId: 'wick-tv', home: { light: 'on', language: 'es' }, at: 5, ...detail } });
+
+  it('tells the home’s other televisions first, then has the cards she has not answered put into it — under the change’s own id', async () => {
+    const r = routes();
+    const order: string[] = [];
+    r.tellHome.mockImplementation(async () => { order.push('home told'); });
+    r.languageChanged.mockImplementation(async () => { order.push('cards caught up'); return { waiting: 3, translated: 1, sent: 1 }; });
+
+    const out = await routeCardAction(changed({ languageChangedTo: 'es', correlationId: 'corr-9' }), r);
+
+    expect(order).toEqual(['home told', 'cards caught up']);
+    expect(r.tellHome).toHaveBeenCalledWith('margaret', { light: 'on', language: 'es' }, 'wick-tv');
+    // Every television of the home, the one she pressed included: the cards on it are in the old language too.
+    expect(r.languageChanged).toHaveBeenCalledWith('margaret', 'es', 'corr-9');
+    expect(out).toEqual({ result: 'home_told', cardsSentAgain: 1 });
+    expect(r.invoke).not.toHaveBeenCalled();
+  });
+
+  it('does nothing more for a change to English: the stored cards are English already', async () => {
+    const r = routes();
+
+    const out = await routeCardAction({ 'detail-type': 'home.changed', detail: { householdId: 'margaret', deviceId: 'wick-tv', home: { light: 'on' }, languageChangedTo: 'en', correlationId: 'corr-9' } }, r);
+
+    expect(r.tellHome).toHaveBeenCalledTimes(1);
+    expect(r.languageChanged).not.toHaveBeenCalled();
+    expect(out).toEqual({ result: 'home_told' });
+  });
+
+  it('does nothing more when the event does not say the language changed, or names one that is not a language', async () => {
+    const r = routes();
+
+    for (const detail of [{}, { languageChangedTo: undefined }, { languageChangedTo: 'fr' }, { languageChangedTo: 7 }, { languageChangedTo: '' }]) {
+      expect(await routeCardAction(changed(detail), r)).toEqual({ result: 'home_told' });
+    }
+
+    expect(r.languageChanged).not.toHaveBeenCalled();
+    expect(r.tellHome).toHaveBeenCalledTimes(5);
+  });
+
+  it('goes by what the event says changed, never by what the home state happens to carry: every home message of a Spanish household names Spanish', async () => {
+    const r = routes();
+
+    // The light put out in a household that already speaks Spanish.
+    await routeCardAction({ 'detail-type': 'home.changed', detail: { householdId: 'margaret', deviceId: 'wick-tv', home: { light: 'out', lightOutUntil: 9000, language: 'es' } } }, r);
+
+    expect(r.languageChanged).not.toHaveBeenCalled();
+  });
+
+  it('still tells the home when the catching-up fails: the televisions hear of the language whatever becomes of the cards', async () => {
+    const r = routes();
+    r.languageChanged.mockRejectedValue(Object.assign(new Error('for margaret'), { name: 'ThrottlingException' }));
+    const said = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const out = await routeCardAction(changed({ languageChangedTo: 'es', correlationId: 'corr-9' }), r);
+
+    expect(out).toEqual({ result: 'home_told' });
+    expect(r.tellHome).toHaveBeenCalledTimes(1);
+    expect(said.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([{ level: 'error', msg: 'cards_not_put_in_her_language', correlationId: 'corr-9', err: 'ThrottlingException' }]);
+    said.mockRestore();
+  });
+
+  it('carries the change without an id as well: one is not required to act on it', async () => {
+    const r = routes();
+
+    await routeCardAction(changed({ languageChangedTo: 'es' }), r);
+
+    expect(r.languageChanged).toHaveBeenCalledWith('margaret', 'es', undefined);
+  });
+});
+
 describe('routeCardAction — "Hold for Sarah"', () => {
   const others = { invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(), visitAnswer: vi.fn(), askVisits: vi.fn(async () => []) };
   const reach = { ...detail, cardId: 'reach-1790000000000' };
