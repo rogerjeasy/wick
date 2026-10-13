@@ -72,6 +72,8 @@ leads, not entries — an entry requires that you actually hit it.
 | Important | AgentCore Runtime (PUBLIC) gets no outbound UDP — no WebRTC/RTP in the agent runtime (FL-017) |
 | Important | Vega: a missing `com.amazon.mediatransform.service` declaration fails every video decode as MediaError 3, nothing at build time (FL-018) |
 | Important | Ring's Playground simulates cameras only — no chime, so a chime integration cannot be shown without buying hardware (FL-019) |
+| Important | Ring's Playground delivers no doorbell or motion webhook, so nothing event-driven can be shown on it without an own event source (FL-027) |
+| Important | Fire OS: a short key press reaches JavaScript as key-up only and a held key as `longSelect`, undocumented beside `useTVEventHandler` (FL-028) |
 | Important | Alexa+ MCP add-on is US-only |
 | Important | No accessibility-preference API on Vega beyond screen-reader state |
 | Nice-to-have | Ring `sub_type` taxonomy too coarse |
@@ -84,6 +86,109 @@ leads, not entries — an entry requires that you actually hit it.
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-028 — On Fire OS a short key press reaches JavaScript as a key-up only, and a held key under another name, and neither is said anywhere
+
+**Tool / API:**      Fire OS build of a React Native TV app (`react-native-tvos` 0.83.0-0, `useTVEventHandler`),
+                     Android TV emulator image, a virtual remote made with Android's `uinput`
+
+**Task attempted:**  Tell OK held for two seconds from OK pressed, while a programme plays and nothing
+                     on screen has the focus ("Hold for Sarah", `apps/tv-vega/src/watch/hold.ts`). On
+                     Vega this is two events, key down then key up (FL-021), and timing them works.
+
+**Steps taken:**     1. Timed the hold from `eventKeyAction` 0 to `eventKeyAction` 1, passed through the
+                        Fire OS remote adapter (`apps/tv-fireos/src/adapters/remoteEvents.ts`).
+                     2. On the emulator, during a film: a SHORT press paused the film, un-paused it by
+                        itself two seconds later and brought the card for a hold. A real 2.5-second
+                        hold did nothing at all — not even a pause.
+                     3. Read the native side. `ReactAndroidHWInputDeviceHelper` sends a key-down to
+                        JavaScript only when `ReactFeatureFlags.enableKeyDownEvents` is set, and it
+                        defaults to false: a short press is one `select` event with action 1. And once
+                        Android's key repeat starts (about 0.3 s), the same key is reported as
+                        `longSelect`, down and then up, and never as `select`.
+
+**Expected:**        A press to arrive the same way whatever its length — the same event name, a
+                     key-down when it starts and a key-up when it ends — or the Fire TV guidance for
+                     React Native to say that it does not, next to `useTVEventHandler`.
+
+**Actual:**          Three different shapes for one button: up only (short), `longSelect` down/up
+                     (held), or down then up (with a flag nobody mentions). Code that waits for a
+                     key-up to end a press never sees the press begin; code that treats the first
+                     event as the press, as ours did, takes a short press for a key still held. The
+                     failure is silent and only on a device: unit tests of the handler pass.
+                     `adb shell input keyevent` cannot show it either — this `input` has no way to
+                     hold a key, so finding it needed a kernel-level virtual remote.
+
+**Severity:**        Important — "long-press OK" is a natural gesture on a remote with five buttons,
+                     and the first attempt at it ships a short press that misfires.
+
+**Workaround:**      In the Fire OS adapter only; the shared screens are unchanged. A key-up with no
+                     key-down before it is said as a whole press (down, then up), and `longSelect` is
+                     said as `select`. Tests in `apps/tv-fireos/src/__tests__/adapters.test.ts` feed
+                     the adapter's output through the hold detector itself.
+
+**Suggestion:**      1. In the Fire TV React Native guidance, a table per remote button: which
+                        `eventType` and `eventKeyAction` arrive for a short press, a long press and a
+                        repeat, on Fire OS and on Vega, side by side.
+                     2. Document `enableKeyDownEvents`, and say what changes when it is on.
+                     3. Give `adb shell input` (or the Fire TV tooling) a real key hold, as Vega's
+                        `inputd-cli button_press --holdDuration` has — that one made the Vega half of
+                        this a five-minute test.
+
+---
+
+## FL-027 — The Ring Developer Playground delivers no doorbell or motion webhook, so nothing event-driven can be shown on it
+
+**Tool / API:**      Ring Partner API webhooks (`button_press`, `motion_detected` with `sub_type`), Ring
+                     Developer Playground, October 2026
+
+**Task attempted:**  Record a carer's visit from the two things a doorbell sees: the press when they
+                     arrive, and a person at the door again when they leave ("The visit, witnessed",
+                     `packages/contracts/src/visit.ts`). Then show it without owning a Ring device,
+                     which the hackathon allows.
+
+**Steps taken:**     1. Built the path Ring's webhook documentation describes: HMAC-SHA256
+                        verification, idempotency on `request_id`, a 200 inside five seconds, and
+                        the Door agent behind it (`services/edge-ring`, `services/agent`).
+                     2. Linked the Playground's simulated doorbell by Ring's real OAuth and
+                        registered the webhook URL.
+                     3. Looked for a way to make the Playground press its doorbell or see a person.
+                        It offers a simulated camera and live-view sessions. No press, no motion,
+                        and no webhook of either kind reaches the registered URL.
+                     4. Asked in the hackathon forum (topic 45309). Amazon's answer: the Playground
+                        simulates live view sessions only — no chime target, no `motion_detected`
+                        webhooks (so no `sub_type`), no sensors.
+
+**Expected:**        The simulator listed in Ring's developer documentation to be able to produce the
+                     events the same documentation tells a partner to build on, at least on demand:
+                     a button to "press the doorbell" and one to "walk past", each sending the
+                     documented webhook to the registered URL.
+
+**Actual:**          The whole event half of the Partner API — the half the rubric calls creative
+                     ("event-based triggers", "care-taking monitoring") — cannot be exercised
+                     against anything Ring provides without buying a doorbell. A developer learns
+                     this only after building the webhook receiver, or by asking.
+
+**Severity:**        Important — it does not block building, but it means every Playground-only
+                     entrant either skips events or writes their own event source and has to
+                     explain it. The forum shows several did (topics 45309, 45511).
+
+**Workaround:**      `scripts/visit-sighting.sh` (and the older `scripts/test-ring-webhook.sh`) post
+                     the JSON Ring documents, signed with the real HMAC key, to the real webhook.
+                     Everything after the webhook is the deployed path. Amazon confirmed in the
+                     forum (topic 45511) that an entrant's own simulator is acceptable. The README
+                     and the video say which events came from this stand-in.
+
+**Suggestion:**      1. Give each Playground device "Press doorbell" and "Person detected" buttons
+                        that send the real, signed webhook to the registered URL, with a chosen
+                        `sub_type`.
+                     2. Failing that, publish a signed-event CLI (`ring webhook send --type
+                        button_press --device <id>`) so every partner tests against the same
+                        payloads rather than each guessing them from the documentation.
+                     3. Say on the Playground's own page, in one line, which of the Partner API's
+                        capabilities it does not simulate.
+
+---
 
 ## FL-026 — A Vega service whose start takes longer than eight seconds is killed as "not responding", and nothing in the package says a start has a time limit
 
