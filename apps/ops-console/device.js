@@ -432,8 +432,12 @@ function handleWireMessage(msg) {
       const differs = tvLanguage() !== before;
       const changed = saysLanguage && languageKnown && differs;
       if (saysLanguage) languageKnown = true;
+      // This page's own words follow the language at once, wherever they are on the screen. The film's two lines
+      // are said again where they stand: the film is not drawn again, it goes on playing.
+      if (differs) sayFilmWords();
+      // The home screen, or her mantelpiece if that is open, is drawn again whatever the home said.
       if (!currentQueuedCard) renderEmpty();
-      // This page's own words on the card that is on screen follow the language at once.
+      // And so is the card that is on screen, when the language is what changed.
       else if (differs) renderCard(currentQueuedCard);
       // The cards the server holds for this television are asked for again, once, so they come in the language she
       // has now — the request made on connecting (tv-vega transport/startCardChannel.ts). Learning the language of
@@ -551,6 +555,58 @@ const TV_WORDS = {
  * whichever of them she reads.
  */
 const TV_LANGUAGE_KICKER = 'English · español';
+
+/**
+ * The sentence each language's half of that question closes with
+ * (packages/contracts language.ts languageQuestion; __tests__/device.test.ts
+ * holds these to it). The question's detail is one string: two sentences in
+ * the language asked for, a space, and two in the other.
+ */
+const TV_LANGUAGE_CLOSES = {
+  en: 'Nothing changes unless you say yes.',
+  es: 'Solo cambia si usted dice que sí.',
+};
+
+/**
+ * The question's detail as this page draws it: a paragraph for each
+ * language, the one asked for first — `{ text, language }` for each, parted
+ * at the one space where the second language begins and with nothing else
+ * changed. Where that is is the contract's own shape, never a guess at
+ * punctuation (a name can hold a full stop): the closing sentence of the
+ * language asked for stands once in the text, after who asked and what for,
+ * with one space and then the other language behind it; and the closing
+ * sentence of that other language stands once, at the very end. Text that
+ * is not of that shape is one paragraph, as it came and with no language
+ * said of it — and a detail that is not text is no paragraph at all.
+ */
+function languageParagraphs(card) {
+  const detail = card?.detail;
+  if (typeof detail !== 'string') return [];
+  const whole = [{ text: detail }];
+  const asked = card.language;
+  if (!TV_LANGUAGES.includes(asked)) return whole;
+  /** Where a sentence stands, if it stands exactly once. */
+  const once = (sentence) => {
+    const at = detail.indexOf(sentence);
+    return at >= 0 && at === detail.lastIndexOf(sentence) ? at : -1;
+  };
+  const close = TV_LANGUAGE_CLOSES[asked];
+  const at = once(close);
+  if (at < 2 || detail[at - 1] !== ' ' || detail[at + close.length] !== ' ') return whole;
+  const first = detail.slice(0, at + close.length);
+  const second = detail.slice(first.length + 1);
+  const other = TV_LANGUAGES.find((language) => {
+    if (language === asked) return false;
+    const ends = TV_LANGUAGE_CLOSES[language];
+    // Its own two sentences: something, a space, and the closing one — which is the last thing in the text.
+    return second.endsWith(` ${ends}`) && second.trim() === second && once(ends) === detail.length - ends.length;
+  });
+  if (!other) return whole;
+  return [
+    { text: first, language: asked },
+    { text: second, language: other },
+  ];
+}
 
 /** Whether the language has been told on this connection yet: until it has, being told is learning it, not a change. */
 let languageKnown = false;
@@ -817,6 +873,8 @@ function renderCard(queuedCard) {
   if (reading && reading.cardId !== card.id) stopRead();
   const urgencyClass = queuedCard.urgency === 'DOOR' ? 'urgency-door' : 'urgency-deferred';
   const wrapper = el('div', `tv-card ${urgencyClass}`);
+  /** What is left to do once the card is on the screen and can be measured, if anything is. */
+  let onceShown = null;
   // The mark of the key that reads this card aloud. Not one of the card's buttons, and it has no words: what it
   // is called is said in her language to whoever cannot see it (apps/tv-vega/src/read/ReadHint.tsx).
   const mark = el('span', 'tv-read');
@@ -895,7 +953,25 @@ function renderCard(queuedCard) {
     // first button in the language asked for — so nothing here is from this page's own table but the two names.
     wrapper.appendChild(el('div', 'kicker', TV_LANGUAGE_KICKER));
     wrapper.appendChild(el('div', 'headline', card.headline));
-    wrapper.appendChild(el('div', 'body-text', card.detail));
+    // One paragraph for each language, so the one she reads is found at a glance — every word still the server's,
+    // in the server's order (languageParagraphs). Each says which language it is in, for whatever reads it aloud.
+    const drawn = languageParagraphs(card).map((paragraph, i) => {
+      const node = el('div', i === 0 ? 'body-text' : 'body-text next-language', paragraph.text);
+      if (paragraph.language) node.lang = paragraph.language;
+      return wrapper.appendChild(node);
+    });
+    // Two paragraphs can be a line taller than one, and this screen does not grow: what does not fit is cut off,
+    // and on this card that could be her yes and her no. So once the card is on the screen it is measured, and
+    // if any of it is off the screen the detail goes back to the one paragraph it was sent as — never worse
+    // than before there were two. It is decided each time the card is drawn, not when the window changes size.
+    if (drawn.length > 1) {
+      onceShown = () => {
+        if (cardFitsScreen(wrapper)) return;
+        drawn[0].textContent = card.detail;
+        drawn[0].removeAttribute('lang');
+        for (const node of drawn.slice(1)) node.remove();
+      };
+    }
   }
 
   const buttons = cardButtons(card);
@@ -926,6 +1002,16 @@ function renderCard(queuedCard) {
   }
 
   show(wrapper);
+  if (onceShown) onceShown();
+}
+
+/** Whether every part of a card that is on the screen is inside the screen, top and bottom. */
+function cardFitsScreen(wrapper) {
+  const screen = tvScreen.getBoundingClientRect();
+  return [...wrapper.children].every((part) => {
+    const box = part.getBoundingClientRect();
+    return box.top >= screen.top - 0.5 && box.bottom <= screen.bottom + 0.5;
+  });
 }
 
 /* --- Read to me -------------------------------------------------------- */
@@ -1071,6 +1157,19 @@ function stopFilm() {
   if (!currentQueuedCard) renderEmpty();
 }
 
+/**
+ * The film's own two lines — the way back, and who is watching beside her —
+ * in the language her television speaks now. They stay on the screen for as
+ * long as the film does, so they are said again when the language changes
+ * under them (handleWireMessage, `home`), where they stand: the film itself
+ * is left alone.
+ */
+function sayFilmWords() {
+  if (!film) return;
+  film.back.textContent = tvSay('filmBack');
+  if (film.withLine) film.withLine.textContent = tvSay('filmWith', { name: film.withName });
+}
+
 function startFilm(card) {
   stopFilm();
   // The id goes into an address: only what a programme id can be.
@@ -1082,23 +1181,28 @@ function startFilm(card) {
   video.controls = true;
   video.playsInline = true;
   layer.appendChild(video);
-  const back = el('button', 'pill tv-film-back', tvSay('filmBack'));
+  // What the two lines over the film say is written by sayFilmWords, below and at every change of language.
+  const back = el('button', 'pill tv-film-back');
   back.type = 'button';
   back.addEventListener('click', stopFilm);
   layer.appendChild(back);
   // Someone follows only while the card says they can: after that the film is this television's alone.
   const followed = typeof card.followedUntil === 'number' && Date.now() < card.followedUntil;
-  if (followed) layer.appendChild(el('div', 'tv-film-with', tvSay('filmWith', { name: card.withName })));
+  const withLine = followed ? layer.appendChild(el('div', 'tv-film-with')) : null;
   tvScreen.insertBefore(layer, tvScreen.firstChild);
 
   film = {
     layer,
     video,
+    back,
+    withLine,
+    withName: card.withName,
     hls: null,
     last: null,
     together: followed ? { sessionId: card.sessionId, programmeId: card.programmeId, until: card.followedUntil } : null,
     timer: setInterval(() => reportFilm(), 1000),
   };
+  sayFilmWords();
   for (const type of ['play', 'pause', 'playing', 'waiting', 'seeked', 'ended']) video.addEventListener(type, () => reportFilm());
 
   const mine = film;

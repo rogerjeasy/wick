@@ -402,6 +402,8 @@ interface Node {
 }
 
 function page() {
+  /** Where a thing is on the page, top and bottom. Nothing is laid out here: everything is at 0 until a test says where things are. */
+  const places: { of: (node: Node) => { top: number; bottom: number } } = { of: () => ({ top: 0, bottom: 0 }) };
   const make = (tagName: string): Node => {
     const node: Node = {
       tagName,
@@ -415,6 +417,10 @@ function page() {
       classList: { add() {}, remove() {} },
       disabled: false,
       setAttribute() {},
+      removeAttribute(name: string) {
+        delete node[name];
+      },
+      getBoundingClientRect: () => places.of(node),
       focus() {},
       blur() {},
       contains: () => false,
@@ -468,7 +474,7 @@ function page() {
     hidden: false,
     activeElement: null,
   };
-  return { document, keys, screen: () => document.getElementById('tv-screen') };
+  return { document, keys, places, screen: () => document.getElementById('tv-screen') };
 }
 
 /** Everything written on a node and under it, in the order it is drawn. */
@@ -476,9 +482,10 @@ const textOf = (node: Node): string[] => [...(node.textContent ? [node.textConte
 const buttonsOf = (node: Node): Node[] => [...(node.tagName === 'button' ? [node] : []), ...node.children.flatMap(buttonsOf)];
 const marksOf = (node: Node): Node[] => [...(node.tagName === 'span' && String(node.className).includes('tv-read') ? [node] : []), ...node.children.flatMap(marksOf)];
 const imagesOf = (node: Node): Node[] => [...(node.tagName === 'img' ? [node] : []), ...node.children.flatMap(imagesOf)];
+const paragraphsOf = (node: Node): Node[] => [...(String(node.className).split(' ').includes('body-text') ? [node] : []), ...node.children.flatMap(paragraphsOf)];
 
 function television() {
-  const { document, keys, screen } = page();
+  const { document, keys, places, screen } = page();
   /** The sounds the page has made: where each is fetched from, and what was done with it. */
   const sounds: Array<{ src: string; played: number; paused: number; onplaying?: () => void; onended?: () => void; onerror?: () => void }> = [];
   class FakeAudio {
@@ -547,6 +554,12 @@ function television() {
       if (!img) throw new Error('no picture on the screen');
       for (const listener of img.listeners.click ?? []) listener();
     },
+    /** Says where things are on the page: the screen itself, and each thing drawn on it. */
+    laidOut: (of: (node: Node, isScreen: boolean) => { top: number; bottom: number }) => {
+      places.of = (node) => of(node, node === screen());
+    },
+    /** The paragraphs under a card's headline: what each says, how it is set, and the language it is marked as being in. */
+    paragraphs: () => paragraphsOf(screen()).map((node) => ({ lang: node.lang as string | undefined, className: node.className, text: node.textContent })),
     home: (home: Record<string, unknown>, whole = true) => receive({ kind: 'control', control: { t: 'home', home, ...(whole ? { whole: true } : {}) } }),
     says: () => textOf(screen()),
     buttons: () => buttonsOf(screen()).map((button) => button.textContent),
@@ -728,10 +741,12 @@ describe('the browser television — the question that asks which language', () 
 
     tv.card(LANGUAGE_CARD);
 
+    // Every word of the detail, in the order the server wrote it: the language asked for first, each in a paragraph of its own.
     expect(tv.says()).toEqual([
       'English · español',
       '¿Quiere que Wick le hable en español?',
-      'Sarah ha pedido que este televisor le hable en español. Solo cambia si usted dice que sí. Sarah asks whether this television should use Spanish. Nothing changes unless you say yes.',
+      'Sarah ha pedido que este televisor le hable en español. Solo cambia si usted dice que sí.',
+      'Sarah asks whether this television should use Spanish. Nothing changes unless you say yes.',
       'Sí, en español',
       'No, keep English',
     ]);
@@ -772,6 +787,579 @@ describe('the browser television — the question that asks which language', () 
 
     expect(tv.sent().slice(2)).toEqual([{ t: 'card_action', cardId: 'language-es', action: LANGUAGE_ACTIONS.no }]);
     expect(tv.says()).toEqual(['No card currently shown.', 'Light on']);
+  });
+});
+
+/*
+ * The question's detail is one string from the contract with the two
+ * languages one after the other (languageQuestion): the language asked for,
+ * two sentences, then the other, two sentences. This page draws each
+ * language as a paragraph of its own — split by the contract's own shape,
+ * the sentence each half closes with, and never by guessing at punctuation:
+ * a name can hold a full stop. Text that is not of that shape is drawn as
+ * the one paragraph it came as.
+ */
+describe('the browser television — the two languages of the question, a paragraph each', () => {
+  const CLOSES = { es: 'Solo cambia si usted dice que sí.', en: 'Nothing changes unless you say yes.' } as const;
+  const OTHER = { es: 'en', en: 'es' } as const;
+  const questionCard = (language: 'en' | 'es', askedBy: string, over: Record<string, unknown> = {}) => ({
+    id: languageCardId(language),
+    type: 'LANGUAGE',
+    language,
+    ...languageQuestion(language, askedBy),
+    ...over,
+  });
+  const NAMES = [
+    'Sarah',
+    'Tom',
+    'María José',
+    'O’Brien',
+    // Full stops, and three dots of its own.
+    'Dr. J. Smith',
+    'Ana… y Luis',
+    // Longer than the contract carries: cut at 24 characters, the last of them "…".
+    'Maximiliano Bartholomew Fitzgerald',
+    // Names made of the question's own words, as near to its closing sentences as 24 characters allow.
+    'you say yes. Solo cambia',
+    'dice que sí. Nothing',
+    'Sí. Yes.',
+    'Nothing changes unless you say yes. Solo cambia si usted dice que sí.',
+    'Solo cambia si usted dice que sí. Nothing changes unless you say yes.',
+  ];
+
+  it('knows the sentence each language’s half closes with, as the contract writes it', () => {
+    const closes = device.constant('TV_LANGUAGE_CLOSES') as Record<string, string>;
+
+    expect(Object.keys(closes).sort()).toEqual([...LANGUAGES].sort());
+    for (const language of LANGUAGES) {
+      const { detail } = languageQuestion(language, 'Sarah');
+      // The half in the language asked for closes with its sentence; the whole closes with the other's.
+      expect(detail).toContain(`${closes[language]} `);
+      expect(detail.endsWith(closes[OTHER[language]]!)).toBe(true);
+      expect(closes[language]).toBe(CLOSES[language]);
+    }
+  });
+
+  it('splits the contract’s question in two where the second language begins, whoever asked — the language asked for first', () => {
+    for (const language of LANGUAGES) {
+      for (const name of NAMES) {
+        const card = questionCard(language, name);
+        const shown = name.length > 24 ? `${name.slice(0, 23)}…` : name;
+
+        const drawn = device.languageParagraphs!(card) as Array<{ text: string; language?: string }>;
+        const paragraphs = drawn.map((paragraph) => paragraph.text);
+
+        expect(paragraphs, `${language} ${name}`).toHaveLength(2);
+        expect(drawn.map((paragraph) => paragraph.language), `${language} ${name}`).toEqual([language, OTHER[language]]);
+        // Nothing added, nothing lost, nothing moved: the two paragraphs are the server's string, parted at one space.
+        expect(paragraphs.join(' '), `${language} ${name}`).toBe(card.detail);
+        // Each is two whole sentences of one language, beginning with who asked.
+        expect(paragraphs[0]!.endsWith(CLOSES[language]), `${language} ${name}`).toBe(true);
+        expect(paragraphs[1]!.endsWith(CLOSES[OTHER[language]]), `${language} ${name}`).toBe(true);
+        expect(paragraphs[0], `${language} ${name}`).toBe(
+          language === 'es'
+            ? `${shown} ha pedido que este televisor le hable en español. Solo cambia si usted dice que sí.`
+            : `${shown} asks whether this television should go back to English. Nothing changes unless you say yes.`,
+        );
+        expect(paragraphs[1], `${language} ${name}`).toBe(
+          language === 'es'
+            ? `${shown} asks whether this television should use Spanish. Nothing changes unless you say yes.`
+            : `${shown} pregunta si este televisor debe volver al inglés. Solo cambia si usted dice que sí.`,
+        );
+      }
+    }
+  });
+
+  it('carries the longest name the contract writes — cut at 24 characters — in both paragraphs', () => {
+    const paragraphs = device.languageParagraphs!(questionCard('es', 'Maximiliano Bartholomew Fitzgerald'));
+
+    expect(paragraphs).toEqual([
+      { language: 'es', text: 'Maximiliano Bartholomew… ha pedido que este televisor le hable en español. Solo cambia si usted dice que sí.' },
+      { language: 'en', text: 'Maximiliano Bartholomew… asks whether this television should use Spanish. Nothing changes unless you say yes.' },
+    ]);
+  });
+
+  it('leaves text that is not of that shape as the one paragraph it came as', () => {
+    const es = languageQuestion('es', 'Sarah').detail;
+    const en = languageQuestion('en', 'Sarah').detail;
+    const [esFirst, esSecond] = [es.slice(0, es.indexOf(CLOSES.es) + CLOSES.es.length), es.slice(es.indexOf(CLOSES.es) + CLOSES.es.length + 1)];
+    const one = (language: string, detail: unknown) => device.languageParagraphs!({ id: `language-${language}`, type: 'LANGUAGE', language, detail });
+
+    for (const [why, language, detail] of [
+      ['some other sentence', 'es', 'Sarah would like the television to speak Spanish.'],
+      ['only the first language', 'es', esFirst],
+      ['only the second language', 'es', esSecond],
+      ['the other language first: not what this card asked for', 'es', en],
+      ['the other language first: not what this card asked for', 'en', es],
+      ['the halves the wrong way round', 'es', `${esSecond} ${esFirst}`],
+      ['the first half twice', 'es', `${esFirst} ${es}`],
+      ['the whole question twice', 'es', `${es} ${es}`],
+      ['something after the last sentence', 'es', `${es} And one thing more.`],
+      ['nothing before the first closing sentence', 'es', `${CLOSES.es} ${esSecond}`],
+      ['nothing between the two closing sentences', 'es', `${esFirst} ${CLOSES.en}`],
+      ['the first closing sentence run on from the word before it', 'es', `Sarah lo ha pedido.${CLOSES.es} ${esSecond}`],
+      ['the last closing sentence run on from the word before it', 'es', `${esFirst} Sarah asks.${CLOSES.en}`],
+      ['no space between the halves', 'es', `${esFirst}${esSecond}`],
+      ['two spaces between the halves', 'es', `${esFirst}  ${esSecond}`],
+      ['a line break between the halves', 'es', `${esFirst}\n${esSecond}`],
+      ['a language this page has no words in', 'fr', es],
+      ['no language at all', 'undefined', es],
+      ['an empty detail', 'es', ''],
+    ] as const) {
+      // One paragraph, the text as it came, and no language said of it.
+      expect(one(language, detail), why).toStrictEqual([{ text: detail }]);
+    }
+  });
+
+  it('goes by the language the card says was asked for, not by its id, and draws nothing for a detail that is not text', () => {
+    const es = languageQuestion('es', 'Sarah').detail;
+
+    expect(device.languageParagraphs!({ id: 'language-en', type: 'LANGUAGE', language: 'es', detail: es })).toHaveLength(2);
+    expect(device.languageParagraphs!({ id: 'language-es', type: 'LANGUAGE', language: 'en', detail: es })).toStrictEqual([{ text: es }]);
+    for (const detail of [undefined, null, 7, { text: es }, [es]]) {
+      expect(device.languageParagraphs!({ id: 'language-es', type: 'LANGUAGE', language: 'es', detail })).toEqual([]);
+    }
+  });
+
+  it('draws the question to go back to English with English first, each paragraph marked with its language', () => {
+    const tv = television();
+    tv.home({ light: 'on', language: 'es' });
+
+    tv.card(queuedCard(questionCard('en', 'Sarah')));
+
+    expect(tv.says()).toEqual([
+      'English · español',
+      'Shall Wick speak English again?',
+      'Sarah asks whether this television should go back to English. Nothing changes unless you say yes.',
+      'Sarah pregunta si este televisor debe volver al inglés. Solo cambia si usted dice que sí.',
+      'Yes, in English',
+      'No, seguir en español',
+    ]);
+    expect(tv.paragraphs()).toEqual([
+      { lang: 'en', className: 'body-text', text: 'Sarah asks whether this television should go back to English. Nothing changes unless you say yes.' },
+      { lang: 'es', className: 'body-text next-language', text: 'Sarah pregunta si este televisor debe volver al inglés. Solo cambia si usted dice que sí.' },
+    ]);
+  });
+
+  it('marks the Spanish paragraph and the English one on the question for Spanish, and sets the second apart from the first', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+
+    tv.card(LANGUAGE_CARD);
+
+    expect(tv.paragraphs().map((paragraph) => paragraph.lang)).toEqual(['es', 'en']);
+    expect(tv.paragraphs().map((paragraph) => paragraph.className)).toEqual(['body-text', 'body-text next-language']);
+    const css = readFileSync(fileURLToPath(new URL('../device.css', import.meta.url)), 'utf8');
+    expect(css).toMatch(/\.tv-card \.body-text\.next-language\s*\{[^}]*margin-top:/);
+  });
+
+  /*
+   * Two paragraphs can be a line taller than one, and the screen does not grow: what does not fit on it is cut
+   * off, and on this card that could be her yes and her no. So where the two paragraphs would put any part of
+   * the card off the screen, it is drawn as the one paragraph it was sent as — never worse than before.
+   */
+  describe('where two paragraphs would not fit the screen', () => {
+    const DETAIL = languageQuestion('es', 'Sarah').detail;
+    /** A screen 300 high, with the card's buttons ending where the test says for each number of paragraphs. */
+    const screenOf = (tv: ReturnType<typeof television>, buttonsEnd: (paragraphs: number) => number, kickerStarts: (paragraphs: number) => number = () => 20) => {
+      tv.laidOut((node, isScreen) => {
+        if (isScreen) return { top: 0, bottom: 300 };
+        const paragraphs = tv.paragraphs().length;
+        if (node.className === 'actions') return { top: 240, bottom: buttonsEnd(paragraphs) };
+        if (node.className === 'kicker') return { top: kickerStarts(paragraphs), bottom: 40 };
+        return { top: 40, bottom: 240 };
+      });
+    };
+
+    it('draws two when all of the card is on the screen', () => {
+      const tv = television();
+      tv.home({ light: 'on' });
+      screenOf(tv, () => 300);
+
+      tv.card(LANGUAGE_CARD);
+
+      expect(tv.paragraphs().map((paragraph) => paragraph.lang)).toEqual(['es', 'en']);
+    });
+
+    it('draws the one paragraph the server sent when two would put her buttons past the bottom of the screen', () => {
+      const tv = television();
+      tv.home({ light: 'on' });
+      screenOf(tv, (paragraphs) => (paragraphs === 2 ? 312 : 290));
+
+      tv.card(LANGUAGE_CARD);
+
+      expect(tv.paragraphs()).toEqual([{ lang: undefined, className: 'body-text', text: DETAIL }]);
+      expect(tv.says()).toEqual(['English · español', '¿Quiere que Wick le hable en español?', DETAIL, 'Sí, en español', 'No, keep English']);
+      // Nothing else about the card changes: it was shown once, and its buttons answer as they did.
+      tv.press('Sí, en español');
+      expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'card_shown', cardId: 'language-es' }, { t: 'card_action', cardId: 'language-es', action: LANGUAGE_ACTIONS.yes }]);
+    });
+
+    it('and when two would push its first line past the top', () => {
+      const tv = television();
+      tv.home({ light: 'on' });
+      screenOf(tv, () => 300, (paragraphs) => (paragraphs === 2 ? -6 : 20));
+
+      tv.card(LANGUAGE_CARD);
+
+      expect(tv.paragraphs().map((paragraph) => paragraph.text)).toEqual([DETAIL]);
+    });
+
+    it('is the one paragraph it always was when that does not fit either', () => {
+      const tv = television();
+      tv.home({ light: 'on' });
+      screenOf(tv, () => 340);
+
+      tv.card(LANGUAGE_CARD);
+
+      expect(tv.paragraphs()).toEqual([{ lang: undefined, className: 'body-text', text: DETAIL }]);
+    });
+
+    it('decides again each time the card is drawn: sent again, or drawn again in another language', () => {
+      const tv = television();
+      tv.home({ light: 'on' });
+      let room = 290;
+      screenOf(tv, (paragraphs) => (paragraphs === 2 ? room + 22 : room));
+
+      tv.card(LANGUAGE_CARD);
+      expect(tv.paragraphs()).toHaveLength(1);
+
+      room = 260;
+      tv.home({ light: 'on', language: 'es' });
+      expect(tv.paragraphs().map((paragraph) => paragraph.lang)).toEqual(['es', 'en']);
+
+      room = 290;
+      tv.card(LANGUAGE_CARD);
+      expect(tv.paragraphs().map((paragraph) => paragraph.text)).toEqual([DETAIL]);
+    });
+
+    it('measures no other card: only the question has two ways to be drawn', () => {
+      const tv = television();
+      tv.home({ light: 'on' });
+      let measured = 0;
+      tv.laidOut(() => ((measured += 1), { top: 0, bottom: 0 }));
+
+      tv.card(NOTE('See you on Sunday.'));
+      tv.card(queuedCard({ id: 'tell-1', type: 'TELL', headline: 'Shall I tell Sarah?', detail: DETAIL }));
+
+      expect(measured).toBe(0);
+    });
+  });
+
+  it('draws a question that is not of the contract’s shape as one paragraph, with no language marked on it', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+
+    tv.card(queuedCard(questionCard('es', 'Sarah', { detail: 'Sarah would like the television to speak Spanish.' })));
+
+    expect(tv.says()).toEqual(['English · español', '¿Quiere que Wick le hable en español?', 'Sarah would like the television to speak Spanish.', 'Sí, en español', 'No, keep English']);
+    expect(tv.paragraphs()).toEqual([{ lang: undefined, className: 'body-text', text: 'Sarah would like the television to speak Spanish.' }]);
+  });
+
+  it('leaves every other card’s detail as one paragraph, whatever it says', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    const detail = languageQuestion('es', 'Sarah').detail;
+
+    tv.card(queuedCard({ id: 'tell-1', type: 'TELL', headline: 'Shall I tell Sarah?', detail }));
+
+    expect(tv.says()).toEqual(['Something is different today', 'Shall I tell Sarah?', detail]);
+  });
+});
+
+/*
+ * The words that are this page's own (TV_WORDS) are written when a thing is
+ * drawn, and the home's language can change while that thing is still on
+ * the screen: she answers the question with a film open, or with her
+ * mantelpiece open on another television's say-so. Each of them is put on
+ * the screen here, the language is changed under it and changed back, and
+ * the page is read each time. The card's own words are the server's and
+ * stay as they came until it sends the card again.
+ */
+describe('the browser television — its own words follow the language while they are on screen', () => {
+  const table = device.constant('TV_WORDS') as Record<'en' | 'es', Record<string, string>>;
+  const fill = (sentence: string, values: Record<string, unknown> = {}) => sentence.replace(/\{(\w+)\}/g, (_place, name: string) => String(values[name]));
+  /** Everything on the page that is words: what is written, what each picture is called, what each mark is called. */
+  const read = (tv: ReturnType<typeof television>) => ({ says: tv.says(), pictures: tv.pictures().map((picture) => picture.alt), marks: tv.marks() });
+  type Reading = Partial<ReturnType<typeof read>>;
+  const whole = (reading: Reading) => ({ says: [], pictures: [], marks: [], ...reading });
+  const HOME = { light: 'on', mantel: 3 };
+  const FILM = queuedCard({
+    id: 'watch-s1',
+    type: 'WATCH',
+    sessionId: 's1',
+    headline: 'Sintel is ready.',
+    withName: 'Sarah',
+    programmeId: 'sintel',
+    followedUntil: Date.now() + 3_600_000,
+    actions: [{ id: 'start', label: 'Start the film', kind: 'primary' }],
+  });
+  const HINT = { en: 'Press P to hear this.', es: 'Presione P para oír esto.' };
+  const plainCard = (type: string, over: Record<string, unknown> = {}) => queuedCard({ id: `${type.toLowerCase()}-1`, type, headline: 'A headline.', detail: 'A detail.', ...over });
+  /** A card with a kicker of this page's own, the server's two lines under it, and the mark that reads it. */
+  const labelled = (type: string, key: string) => ({
+    name: `the ${type} card’s label, and what its mark is called`,
+    keys: [[key], ['readHint']] as Array<[string, Record<string, unknown>?]>,
+    on: (tv: ReturnType<typeof television>) => tv.card(plainCard(type)),
+    en: { says: [table.en[key]!, 'A headline.', 'A detail.'], marks: [HINT.en] },
+    es: { says: [table.es[key]!, 'A headline.', 'A detail.'], marks: [HINT.es] },
+  });
+
+  const SCENES: Array<{
+    name: string;
+    /** The sentences of the table this puts on the screen, with what they name. */
+    keys: Array<[string, Record<string, unknown>?]>;
+    on: (tv: ReturnType<typeof television>) => void;
+    en: Reading;
+    es: Reading;
+    /** What may be sent while the language changes twice, besides asking for the cards again. */
+    off?: (tv: ReturnType<typeof television>) => void;
+  }> = [
+    {
+      name: 'the empty screen, her light and the way to her mantelpiece',
+      keys: [['empty'], ['lightOn'], ['mantel']],
+      on: () => {},
+      en: { says: ['No card currently shown.', 'Light on', 'Mantelpiece'] },
+      es: { says: ['No hay ninguna tarjeta en pantalla.', 'Luz encendida', 'Repisa'] },
+    },
+    {
+      name: 'her light, put out',
+      keys: [['lightOut']],
+      on: (tv) => tv.home({ light: 'out' }, false),
+      en: { says: ['No card currently shown.', 'Light out', 'Mantelpiece'] },
+      es: { says: ['No hay ninguna tarjeta en pantalla.', 'Luz apagada', 'Repisa'] },
+    },
+    {
+      name: 'the film, with someone watching beside her',
+      keys: [['filmBack'], ['filmWith', { name: 'Sarah' }]],
+      on: (tv) => {
+        tv.card(FILM);
+        tv.press('Start the film');
+      },
+      en: { says: ['Back', 'Sarah is watching with you.'] },
+      es: { says: ['Atrás', 'Sarah ve la película con usted.'] },
+      off: (tv) => tv.press('Back'),
+    },
+    {
+      name: 'the film, watched alone',
+      keys: [['filmBack']],
+      on: (tv) => {
+        tv.card(queuedCard({ ...FILM.card, followedUntil: Date.now() - 1 }));
+        tv.press('Start the film');
+      },
+      en: { says: ['Back'] },
+      es: { says: ['Atrás'] },
+      off: (tv) => tv.press('Back'),
+    },
+    {
+      name: 'the film, under a note that came while it played',
+      keys: [['filmBack'], ['filmWith', { name: 'Sarah' }], ['message', { name: 'Sarah' }], ['readHint']],
+      on: (tv) => {
+        tv.card(FILM);
+        tv.press('Start the film');
+        tv.card(NOTE('See you on Sunday.'));
+      },
+      en: { says: ['Back', 'Sarah is watching with you.', 'Message from Sarah', 'See you on Sunday.'], marks: [HINT.en] },
+      es: { says: ['Atrás', 'Sarah ve la película con usted.', 'Mensaje de Sarah', 'See you on Sunday.'], marks: [HINT.es] },
+      off: (tv) => tv.press('Back'),
+    },
+    {
+      name: 'her mantelpiece, before the server has answered',
+      keys: [['filmBack']],
+      on: (tv) => tv.press('Mantelpiece'),
+      en: { says: ['…', 'Back'] },
+      es: { says: ['…', 'Atrás'] },
+    },
+    {
+      name: 'a picture on her mantelpiece: who it is from, where it stands, and the three buttons',
+      keys: [['mantelFrom', { name: 'Tom' }], ['mantelPlace', { place: 2, count: 3 }], ['mantelPrevious'], ['mantelNext'], ['filmBack'], ['photoPicture', { name: 'Tom' }]],
+      on: (tv) => {
+        tv.press('Mantelpiece');
+        tv.control({ t: 'mantel', items: [kept('p1'), kept('p2', 'Tom'), kept('p3')] });
+        tv.press('Next');
+      },
+      en: { says: ['From Tom · 2 of 3', 'Previous', 'Next', 'Back'], pictures: ['A picture from Tom'] },
+      es: { says: ['De Tom · 2 de 3', 'Anterior', 'Siguiente', 'Atrás'], pictures: ['Una foto de Tom'] },
+    },
+    {
+      name: 'the choice over a picture on her mantelpiece',
+      keys: [['mantelFrom', { name: 'Sarah' }], ['mantelPlace', { place: 1, count: 2 }], ['mantelChoice', { name: 'Sarah' }], ['mantelChoiceDetail'], ['mantelLeave'], ['mantelTakeDown']],
+      on: (tv) => {
+        tv.press('Mantelpiece');
+        tv.control({ t: 'mantel', items: [kept('p1'), kept('p2', 'Tom')] });
+        tv.pressPicture();
+      },
+      en: { says: ['From Sarah · 1 of 2', 'A picture from Sarah.', 'Nobody is told if you take it down.', 'Leave it', 'Take it down'], pictures: ['A picture from Sarah'] },
+      es: { says: ['De Sarah · 1 de 2', 'Una foto de Sarah.', 'Nadie se entera si la quita.', 'Dejarla', 'Quitarla'], pictures: ['Una foto de Sarah'] },
+    },
+    {
+      name: 'a picture on her mantelpiece whose address has no https',
+      keys: [['photoUnavailable'], ['mantelFrom', { name: 'Sarah' }], ['mantelPlace', { place: 1, count: 1 }]],
+      on: (tv) => {
+        tv.press('Mantelpiece');
+        tv.control({ t: 'mantel', items: [kept('p1')] });
+        // What the server sends is always https (readMantelItems keeps nothing else): the address goes bad in the page's memory.
+        tv.evaluate("(mantel.items[0].url = 'http://pictures.example/p1.jpg', renderMantel())");
+      },
+      en: { says: ['The picture cannot be shown just now.', 'From Sarah · 1 of 1', 'Previous', 'Next', 'Back'] },
+      es: { says: ['La foto no se puede mostrar ahora.', 'De Sarah · 1 de 1', 'Anterior', 'Siguiente', 'Atrás'] },
+    },
+    {
+      name: 'a picture’s card: its label, what the picture is called, and its mark',
+      keys: [['photo'], ['photoPicture', { name: 'Sarah' }], ['readHint']],
+      on: (tv) => tv.card(PHOTO()),
+      en: { says: ['A picture', 'A picture from Sarah.', 'Keep it', 'Thank you'], pictures: ['A picture from Sarah'], marks: [HINT.en] },
+      es: { says: ['Una foto', 'A picture from Sarah.', 'Keep it', 'Thank you'], pictures: ['Una foto de Sarah'], marks: [HINT.es] },
+    },
+    {
+      name: 'a picture’s card with no picture to show: the calm line in its place',
+      keys: [['photo'], ['photoUnavailable'], ['readHint']],
+      on: (tv) => tv.card(PHOTO({ photoUrl: undefined })),
+      en: { says: ['A picture', 'A picture from Sarah.', 'The picture cannot be shown just now.', 'Keep it', 'Thank you'], marks: [HINT.en] },
+      es: { says: ['Una foto', 'A picture from Sarah.', 'La foto no se puede mostrar ahora.', 'Keep it', 'Thank you'], marks: [HINT.es] },
+    },
+    {
+      name: 'the door’s card: its label, what its picture is called, and its mark',
+      keys: [['door'], ['doorPicture'], ['readHint']],
+      on: (tv) => tv.card(queuedCard({ id: 'door-1', type: 'DOOR', line: 'Someone is at the front door.', imageRef: 'https://ring.example/still.jpg' }, 'DOOR')),
+      en: { says: ['Someone is at the door', 'Someone is at the front door.'], pictures: ['Door camera still'], marks: [HINT.en] },
+      es: { says: ['Hay alguien en la puerta', 'Someone is at the front door.'], pictures: ['Imagen fija de la cámara de la puerta'], marks: [HINT.es] },
+    },
+    {
+      name: 'a note not yet heard: its label and the line in place of its words',
+      keys: [['message', { name: 'Sarah' }], ['messageUnheard'], ['readHint']],
+      on: (tv) => tv.card(queuedCard({ id: 'note-2', type: 'MESSAGE', fromName: 'Sarah', suggestedReplies: [] })),
+      en: { says: ['Message from Sarah', 'Tap to hear the message'], marks: [HINT.en] },
+      es: { says: ['Mensaje de Sarah', 'Toque para oír el mensaje'], marks: [HINT.es] },
+    },
+    {
+      name: 'the week’s card: its label, with the week in it',
+      keys: [['week', { week: '2026-W41' }], ['readHint']],
+      on: (tv) => tv.card(queuedCard({ id: 'week-1', type: 'WEEK', isoWeek: '2026-W41', text: 'A quiet week.' })),
+      en: { says: ['Your week — 2026-W41', 'A quiet week.'], marks: [HINT.en] },
+      es: { says: ['Su semana — 2026-W41', 'A quiet week.'], marks: [HINT.es] },
+    },
+    labelled('CIRCLE', 'circle'),
+    labelled('SHARING', 'sharing'),
+    labelled('TELL', 'tell'),
+    labelled('WATCH', 'watch'),
+    labelled('LIGHT', 'light'),
+    labelled('REACH', 'reach'),
+    labelled('VISIT', 'visit'),
+  ];
+
+  for (const scene of SCENES) {
+    it(`${scene.name}`, () => {
+      const tv = television();
+      tv.home(HOME);
+      scene.on(tv);
+      const home = tv.evaluate('home') as Record<string, unknown>;
+      const before = tv.sent();
+      expect(read(tv)).toEqual(whole(scene.en));
+
+      // She says yes on another television, or with this still open: the home says Spanish.
+      tv.home({ ...home, language: 'es' });
+      expect(read(tv)).toEqual(whole(scene.es));
+
+      // And she goes back to English.
+      tv.home(home);
+      expect(read(tv)).toEqual(whole(scene.en));
+
+      // What changed is what the page says: nothing was pressed for her, nothing called shown again, nothing asked
+      // for but the cards in the language she has now, once for each change.
+      expect(tv.sent().slice(before.length)).toEqual([{ t: 'reconcile' }, { t: 'reconcile' }]);
+
+      // And each sentence it was meant to show is on the page, in each language.
+      for (const language of ['en', 'es'] as const) {
+        const reading = whole(scene[language]);
+        const drawn = [...reading.says, ...reading.pictures, ...reading.marks];
+        for (const [key, values] of scene.keys) {
+          const sentence = fill(table[language][key]!, values);
+          expect(drawn.some((text) => text === sentence || text.split(' · ').includes(sentence)), `${language} ${key}: ${sentence}`).toBe(true);
+        }
+      }
+      scene.off?.(tv);
+    });
+  }
+
+  it('has every sentence of the table on the screen in one of those: a sentence added to it is one more to follow', () => {
+    const followed = new Set(SCENES.flatMap((scene) => scene.keys.map(([key]) => key)));
+
+    expect([...followed].sort()).toEqual(Object.keys(table.en).sort());
+  });
+
+  it('follows from Spanish to English with the film open — the way round it was first seen to stay behind', () => {
+    const tv = television();
+    tv.home({ light: 'on', language: 'es' });
+    tv.card(queuedCard({ ...FILM.card, headline: 'Sintel está lista.', actions: [{ id: 'start', label: 'Empezar la película', kind: 'primary' }] }));
+    tv.press('Empezar la película');
+    expect(tv.says()).toEqual(['Atrás', 'Sarah ve la película con usted.']);
+
+    tv.home({ light: 'on' });
+
+    expect(tv.says()).toEqual(['Back', 'Sarah is watching with you.']);
+    // The same film, where it was: the layer and its player were not made again.
+    expect(tv.evaluate('[...tvScreen.children].filter((child) => child.className === "tv-film").length')).toBe(1);
+    tv.press('Back');
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on']);
+  });
+
+  it('leaves the film where it is when its words change: the same layer, the same player, and nothing said of where it has got to', () => {
+    const tv = television();
+    tv.home(HOME);
+    tv.card(FILM);
+    tv.press('Start the film');
+    tv.evaluate('(film.video.marked = true, film.layer.marked = true)');
+    const before = tv.sent().length;
+
+    tv.home({ ...HOME, language: 'es' });
+
+    expect(tv.evaluate('[film.video.marked, film.layer.marked, tvScreen.children[0] === film.layer]')).toEqual([true, true, true]);
+    expect(tv.sent().slice(before)).toEqual([{ t: 'reconcile' }]);
+    tv.press('Atrás');
+  });
+
+  it('keeps her place on the mantelpiece and the choice she had open, and asks the server for nothing more', () => {
+    const tv = television();
+    tv.home(HOME);
+    tv.press('Mantelpiece');
+    tv.control({ t: 'mantel', items: [kept('p1'), kept('p2', 'Tom'), kept('p3')] });
+    tv.press('Next');
+    tv.pressPicture();
+
+    tv.home({ ...HOME, language: 'es' });
+
+    expect(tv.says()).toEqual(['De Tom · 2 de 3', 'Una foto de Tom.', 'Nadie se entera si la quita.', 'Dejarla', 'Quitarla']);
+    expect(tv.pictures()).toEqual([{ src: 'https://pictures.example/p2.jpg', alt: 'Una foto de Tom' }]);
+    expect(tv.sent().filter((event) => event.t === 'mantel' || event.t === 'mantel_take_down')).toEqual([{ t: 'mantel' }]);
+  });
+
+  it('says the calm line in her language when a picture’s address stops answering again after the change', () => {
+    const tv = television();
+    tv.home(HOME);
+    tv.card(PHOTO());
+    tv.failPicture();
+    expect(tv.says()).toContain('The picture cannot be shown just now.');
+
+    // Drawn again in her language, the card tries its picture once more: the address may be a new one by then.
+    tv.home({ ...HOME, language: 'es' });
+    expect(tv.pictures()).toEqual([{ src: PICTURE, alt: 'Una foto de Sarah' }]);
+    tv.failPicture();
+
+    expect(tv.says()).toEqual(['Una foto', 'A picture from Sarah.', 'La foto no se puede mostrar ahora.', 'Keep it', 'Thank you']);
+    expect(tv.says()).not.toContain('The picture cannot be shown just now.');
+  });
+
+  it('leaves the question about her language as it is: it reads the same whichever language the television is in', () => {
+    const tv = television();
+    tv.home(HOME);
+    tv.card(LANGUAGE_CARD);
+    const asked = tv.says();
+
+    tv.home({ ...HOME, language: 'es' });
+
+    expect(tv.says()).toEqual(asked);
+    expect(tv.marks()).toEqual([HINT.es]);
   });
 });
 
