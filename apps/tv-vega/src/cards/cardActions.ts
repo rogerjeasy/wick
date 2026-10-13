@@ -23,6 +23,14 @@
  * The question about her language (packages/contracts/src/language.ts) is
  * finished by either answer, like the Circle card. What her yes changes
  * arrives afterwards, on the home message.
+ *
+ * A picture from the family (packages/contracts/src/mantel.ts) is put away
+ * by either answer too: "Keep it" and "Thank you" look the same from the
+ * screen, as they do from outside. If she pressed "Keep it" and her
+ * mantelpiece is full, the server sends the card again with a line that
+ * says so, and it is shown again by the ordinary rules — nothing here
+ * remembers that it was answered (ResidentApp tells the break engine the
+ * showing is over, BreakController.answered).
  */
 import { DOOR_ACTIONS, REACH_ACTIONS, SHARING_ACTIONS, WATCH_ACTIONS, WEEK_ACTIONS, type Card } from '@wick/contracts';
 import type { Together } from '../watch/togetherReporter.js';
@@ -38,6 +46,8 @@ export function removesCard(card: Card, actionId: string): boolean {
     case 'REACH':
       return actionId !== REACH_ACTIONS.ring && actionId !== REACH_ACTIONS.hello;
     case 'LANGUAGE':
+      return true;
+    case 'PHOTO':
       return true;
     default:
       return true;

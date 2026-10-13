@@ -1,9 +1,10 @@
 /**
- * Wick on Fire OS. The app is the Vega app: this registers its root
- * component, and metro.config.js gives it Android in place of the three
- * Amazon packages it was written against.
+ * Wick on Fire OS. The app is the Vega app: this registers it, with the one
+ * unseen view Android needs beside it (src/Root.tsx), and metro.config.js
+ * gives it Android in place of the three Amazon packages it was written
+ * against.
  */
 import { AppRegistry } from 'react-native';
-import App from '../tv-vega/src/App';
+import { Root } from './src/Root';
 
-AppRegistry.registerComponent('Wick', () => App);
+AppRegistry.registerComponent('Wick', () => Root);

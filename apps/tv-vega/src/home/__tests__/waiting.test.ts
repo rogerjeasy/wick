@@ -94,3 +94,12 @@ describe('waitingLine — the question that asks which language', () => {
     expect(waitingLine(queued(toEnglish), 'es')).toBe('Shall Wick speak English again?');
   });
 });
+
+describe('waitingLine — a picture that has waited through two breaks', () => {
+  const photo = { ...base, id: 'photo-p1', type: 'PHOTO', photoId: 'p1', fromName: 'Sarah', headline: 'A picture from Sarah.' } as Card;
+
+  it('says who it is from, in her language — and nothing of the picture', () => {
+    expect(waitingLine(queued(photo))).toBe('A picture from Sarah is waiting.');
+    expect(waitingLine(queued(photo), 'es')).toBe('Hay una foto de Sarah esperando.');
+  });
+});

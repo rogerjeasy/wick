@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_CARD_DETAIL_CHARS,
+  MANTEL_FULL_NOTICE,
   cardIn,
   freeTextOf,
   homeIn,
   languageCardId,
   languageQuestion,
   patchIn,
+  photoCardId,
+  photoCardWords,
   sayIn,
   type Card,
   type CardPatch,
@@ -14,6 +17,7 @@ import {
   type HomeState,
   type LanguageCard,
   type MessageCard,
+  type PhotoCard,
   type TellCard,
   type WeekCard,
 } from '../../index.js';
@@ -448,6 +452,61 @@ const tell: TellCard = {
     { id: 'keep_private', label: 'Keep it to myself', kind: 'dismiss' },
   ],
 };
+
+const photo: PhotoCard = { ...base, type: 'PHOTO', id: photoCardId('p_8Jk2-xQ9a'), photoId: 'p_8Jk2-xQ9a', fromName: 'Sarah Hughes', photoUrl: 'https://photos.example/p_8Jk2-xQ9a.jpg?sig=abc', ...photoCardWords('Sarah Hughes') };
+
+describe('a picture for the mantelpiece (mantel.ts)', () => {
+  it('says who it is from — from, not of — and offers to keep it or to say thank you', () => {
+    expect(es('A picture from Sarah.')).toBe('Una foto de parte de Sarah.');
+    expect(es('A picture from Anne-Marie.')).toBe('Una foto de parte de Anne-Marie.');
+    expect(es('Keep it')).toBe('Guardarla');
+    expect(es('Thank you')).toBe('Gracias');
+  });
+
+  it('"Thank you" is its own button: not the reply to a note, and not the way out of a question', () => {
+    expect(es('Thank you!')).toBe('¡Gracias!');
+    expect(es('No, thank you')).toBe('No, gracias');
+    expect(es('No, thank you.')).toBe('No, gracias.');
+    expect(es('Thank you.')).toBeUndefined();
+  });
+
+  it('says so when the mantelpiece is full, and what to do', () => {
+    expect(es(MANTEL_FULL_NOTICE)).toBe('Su repisa está llena. Quite una foto, y entonces podrá guardar esta.');
+    expect(es('Your mantelpiece is full.')).toBeUndefined();
+    expect(es('Your mantelpiece is full. Take two down, then you can keep this.')).toBeUndefined();
+  });
+
+  it('the card: its headline and its two buttons, and nothing else of it', () => {
+    expect(cardIn('es', photo)).toEqual({
+      ...photo,
+      headline: 'Una foto de parte de Sarah.',
+      actions: [
+        { id: 'keep', label: 'Guardarla', kind: 'primary' },
+        { id: 'thanks', label: 'Gracias', kind: 'secondary' },
+      ],
+    });
+    expect('notice' in cardIn('es', photo)).toBe(false);
+  });
+
+  it('the card with the notice on it, when "Keep it" found no room', () => {
+    const full: PhotoCard = { ...photo, notice: MANTEL_FULL_NOTICE };
+    const shown = cardIn('es', full) as PhotoCard;
+    expect(shown.notice).toBe('Su repisa está llena. Quite una foto, y entonces podrá guardar esta.');
+    expect(shown.headline).toBe('Una foto de parte de Sarah.');
+    expect(shown).toMatchObject({ id: full.id, photoId: 'p_8Jk2-xQ9a', fromName: 'Sarah Hughes', photoUrl: 'https://photos.example/p_8Jk2-xQ9a.jpg?sig=abc' });
+  });
+
+  it('the notice as a patch to the card she has open', () => {
+    expect(patchIn('es', { cardId: photo.id, notice: MANTEL_FULL_NOTICE })).toEqual({ cardId: photo.id, notice: 'Su repisa está llena. Quite una foto, y entonces podrá guardar esta.' });
+    expect(patchIn('es', { cardId: photo.id })).toEqual({ cardId: photo.id });
+  });
+
+  it('has no free text: a picture carries no words of the family’s, so no machine is handed any of it', () => {
+    expect(freeTextOf(photo)).toEqual({});
+    expect(freeTextOf({ ...photo, notice: MANTEL_FULL_NOTICE })).toEqual({});
+    expect(cardIn('es', photo, { transcript: 'x', description: 'y', text: 'z' })).toEqual(cardIn('es', photo));
+  });
+});
 
 describe('freeTextOf — what on a card is not Wick’s own sentence', () => {
   it('is the note the family wrote', () => {

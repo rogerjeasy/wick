@@ -1,7 +1,8 @@
 /**
  * Stands in for `@amazon-devices/react-native-w3cmedia` on Fire OS: the
  * `VideoPlayer` object the screens drive (videoPlayer.ts) and the view that
- * shows its picture, which here is ExoPlayer through react-native-video.
+ * shows its picture, which here is ExoPlayer through react-native-video —
+ * and the `AudioPlayer` a card is read aloud with (audioPlayer.ts).
  *
  * The view does what the player object says — its source, whether it is
  * paused, how loud — and tells the object what the real player did.
@@ -12,6 +13,9 @@ import Video, { ResizeMode, type VideoRef } from 'react-native-video';
 import { VideoPlayer } from './videoPlayer';
 
 export { VideoPlayer };
+// "Read to me": the audio player the shared code makes for a reading, and Vega's two names for what it plays.
+// It plays through AudioHost.tsx, which Root.tsx puts beside the app.
+export { AudioContentType, AudioPlayer, AudioUsageType } from './audioPlayer';
 
 /** How often the position is reported. The Natural-Break Engine samples once a second; this keeps a seek's arithmetic fresh. */
 const PROGRESS_INTERVAL_MS = 250;

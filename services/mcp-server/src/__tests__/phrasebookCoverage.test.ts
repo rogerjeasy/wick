@@ -2,7 +2,7 @@
  * Everything the Wick server writes for her television is in the
  * phrasebook: a note's replies, the Circle card, the four cards of watching
  * a film together, a family member's answer about the door or to a request
- * to ring, who looked in, and a wave.
+ * to ring, who looked in, a wave, and a picture for her mantelpiece.
  *
  * The real builders and tools are run against a table in memory, and what
  * they send is put through `cardIn` / `patchIn` / `homeIn`
@@ -15,19 +15,23 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   DOOR_ANSWERS,
+  MANTEL_FULL_NOTICE,
   MAX_CARD_DETAIL_CHARS,
+  PHOTO_ACTIONS,
   REACH_ANSWERS,
   WATCH_ANSWERS,
   cardIn,
   freeTextOf,
   homeIn,
   patchIn,
+  photoCardId,
   type Card,
   type CardPatch,
   type CircleCard,
   type DoorAnswer,
   type HomeState,
   type MessageCard,
+  type PhotoCard,
   type QueuedCard,
   type ReachAnswer,
   type ReachPerson,
@@ -41,8 +45,12 @@ import { COVERED_IN, cardTypesInTheUnion, coverageOf } from '../../../../package
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { askedUpdate, buildQuestionCard, decisionUpdate, startUpdate } from '../../../edge-device/lambda/watch-together.mjs';
 import { buildCircleCard } from '../accounts/circle.js';
+import { createMemoryStore } from '../accounts/__tests__/memoryStore.js';
 import { WAVE_CARD_PREFIX, sendWave } from '../accounts/familyTvWave.js';
 import type { Household, Membership } from '../accounts/types.js';
+import { createS3PhotoObjects } from '../photos/objects.js';
+import { buildPhotoCard, sendPhoto } from '../photos/send.js';
+import { createMemoryObjects } from '../photos/__tests__/memoryObjects.js';
 import { answerDoorRequest } from '../tools/answer_door_request.js';
 import { answerReachRequest } from '../tools/answer_reach_request.js';
 import { registerAnswerWatchTogether } from '../tools/answer_watch_together.js';
@@ -368,6 +376,70 @@ describe('who looked in (tools/lookIn.ts)', () => {
       expect(home).toEqual({ ...english, lookedIn: { ...english.lookedIn, line: spanish } });
     }
     expect(said).toHaveLength(3);
+  });
+});
+
+describe('a picture for her mantelpiece (photos/send.ts)', () => {
+  /** Bytes that are a JPEG by their markers and nothing else: made here, never a photograph. */
+  const jpeg = (): Uint8Array => {
+    const bytes = new Uint8Array(64).fill(7);
+    bytes.set([0xff, 0xd8, 0xff, 0xe0], 0);
+    bytes.set([0xff, 0xd9], 62);
+    return bytes;
+  };
+
+  /** The whole sending, as `POST /api/photos` does it: an allowed member, a television, a picture that passes. */
+  async function sent(name: string): Promise<PhotoCard> {
+    const store = createMemoryStore(() => NOW);
+    await store.createHousehold(household);
+    await store.putMembership({ ...member(name), status: 'allowed' });
+    store.addTelevision('hh-1', { deviceId: 'tv-1', pairedAt: 5, connected: true });
+    const bucket = createMemoryObjects();
+    const cards: QueuedCard[] = [];
+    const outcome = await sendPhoto(
+      {
+        ddb: createMemoryTable().ddb,
+        store,
+        objects: createS3PhotoObjects((command) => bucket.send(command), 'wick-photos-test'),
+        moderate: async () => 'pass',
+        sendCard: async (card) => void cards.push(card),
+        withdrawCard: async () => undefined,
+        now: () => NOW,
+        newId: () => 'p_8Jk2-xQ9a',
+      },
+      { householdId: 'hh-1', userId: 'u_sarah' },
+      jpeg(),
+      undefined,
+    );
+    expect(outcome.sent).toBe(true);
+    expect(cards).toHaveLength(1);
+    return cardOf(cards[0], 'PHOTO');
+  }
+
+  it('reaches her television in Wick’s own words, under the first name of who sent it', async () => {
+    const english = await sent('Sarah Hughes');
+    const card = coverage.spanish(english);
+    expect(card.headline).toBe('Una foto de parte de Sarah.');
+    expect(labels(card)).toEqual(['Guardarla', 'Gracias']);
+    expect(card.actions.map((a) => a.id)).toEqual([PHOTO_ACTIONS.keep, PHOTO_ACTIONS.thanks]);
+    // The picture itself is not the phrasebook's: its id, and the name it came under.
+    expect(card).toMatchObject({ id: english.id, photoId: english.photoId, fromName: english.fromName });
+    expect(freeTextOf(english)).toEqual({});
+  });
+
+  it('whoever sent it', async () => {
+    for (const name of ['Anne-Marie O’Brien', "D'Arcy", 'José María', 'Bartholomew-Fitzgerald24']) {
+      expect(coverage.spanish(await sent(name)).headline).toBe(`Una foto de parte de ${name.split(' ')[0]}.`);
+      const built = coverage.spanish(cardOf(buildPhotoCard(household, 'p_1', name, NOW), 'PHOTO'));
+      expect(built).toMatchObject({ id: photoCardId('p_1'), photoId: 'p_1', fromName: name, headline: `Una foto de parte de ${name.split(' ')[0]}.` });
+    }
+  });
+
+  it('and says so in her language when it comes back because her mantelpiece is full', () => {
+    const stored = cardOf(buildPhotoCard(household, 'p_1', 'Sarah Hughes', NOW), 'PHOTO');
+    const card = coverage.spanish({ ...stored, notice: MANTEL_FULL_NOTICE });
+    expect(card.notice).toBe('Su repisa está llena. Quite una foto, y entonces podrá guardar esta.');
+    expect(card.notice!.length).toBeLessThanOrEqual(MAX_CARD_DETAIL_CHARS);
   });
 });
 

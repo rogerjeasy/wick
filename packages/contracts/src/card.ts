@@ -183,7 +183,26 @@ export interface LanguageCard extends CardBase {
   readonly detail: string;
 }
 
-export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard | LightCard | ReachCard | VisitCard | LanguageCard;
+/**
+ * The mantelpiece (mantel.ts): a picture someone in the family sent. Its
+ * words are Wick's own (photoCardWords); the picture carries none of the
+ * family's. Its id is always `photo-<photoId>`, so the press names the
+ * picture. `photoUrl` is minted for the television on the way out and is
+ * never in the stored card: the stored card has the id and nothing else of
+ * the picture.
+ */
+export interface PhotoCard extends CardBase {
+  readonly type: 'PHOTO';
+  readonly photoId: string;
+  readonly fromName: string;
+  readonly headline: string;
+  /** A short-lived address for this television, absent in every stored copy. */
+  readonly photoUrl?: string;
+  /** Said under the picture when "Keep it" found the mantelpiece full. */
+  readonly notice?: string;
+}
+
+export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard | LightCard | ReachCard | VisitCard | LanguageCard | PhotoCard;
 
 export interface QueuedCard {
   readonly id: string;

@@ -5,7 +5,7 @@
  *
  * It understands exactly what this server sends — PutItem (with the one
  * condition the door answer uses) and UpdateItem (a `SET` of plain values or
- * `if_not_exists`, a `REMOVE` of attributes, or a `SET … REMOVE …` of both, under a condition of `attribute_exists`,
+ * `if_not_exists`, a `REMOVE` of attributes, a `SET … REMOVE …` of both, or an `ADD` of a number with a `SET` beside it, under a condition of `attribute_exists`,
  * `attribute_not_exists` and comparisons joined by AND, with OR inside
  * brackets), GetItem, DeleteItem, and a
  * Query on `pk` with a `BETWEEN` or `begins_with` on `sk`, an optional
@@ -92,6 +92,16 @@ function applySet(expression: string, held: Item, names: Names, values: Values):
   // Both at once (`SET a = :v REMOVE b`): the question's taking back records and clears in one update.
   const both = /^(SET .+?) (REMOVE .+)$/.exec(expression);
   if (both) return applySet(both[2]!, applySet(both[1]!, held, names, values), names, values);
+  // A number added to, and whatever is set beside it (`ADD n :one SET t = if_not_exists(t, :ttl)`): a count of tries.
+  const added = /^ADD (#?\w+) (:\w+)(?: (SET .+))?$/.exec(expression);
+  if (added) {
+    const name = names[added[1]!] ?? added[1]!;
+    const by = Number(values[added[2]!]?.N);
+    if (!Number.isFinite(by)) throw new Error(`memoryTable: unsupported update "${expression}"`);
+    // As DynamoDB does it: a number that is not there yet is taken as nought. What is set beside it sees the row as it was.
+    const counted = { ...held, [name]: { N: String(Number(held[name]?.N ?? 0) + by) } };
+    return added[3] ? { ...applySet(added[3], held, names, values), [name]: counted[name]! } : counted;
+  }
   if (expression.startsWith('REMOVE ')) {
     // Taking an attribute off again (the visit store's releaseAsk): names only, nothing to evaluate.
     const next = { ...held };
@@ -172,9 +182,14 @@ export function createMemoryTable(): MemoryTable {
       }
       case 'GetItemCommand':
         return { Item: items.get(keyOf(input.Key!)) };
-      case 'DeleteItemCommand':
+      case 'DeleteItemCommand': {
+        // Under its condition, when it has one (a picture's row is only undone by the sending that made it).
+        const remove = input as Request['input'] & { ConditionExpression?: string };
+        const held = items.get(keyOf(input.Key!));
+        if (!conditionHolds(remove.ConditionExpression, held, input.ExpressionAttributeNames ?? {}, input.ExpressionAttributeValues ?? {})) throw conditionFailed();
         items.delete(keyOf(input.Key!));
         return {};
+      }
       case 'QueryCommand':
         return query(input);
       case 'TransactWriteItemsCommand': {

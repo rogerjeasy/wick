@@ -129,3 +129,24 @@ describe('card height — a card that must be read whole', () => {
     for (const lines of [0, -1, 2.5, Number.NaN]) expect(() => assertCardFits({ compact: true, detailLines: lines })).toThrow(CalmViolation);
   });
 });
+
+describe('card height — a card with a picture beside its words', () => {
+  it('is as tall as its picture when the picture is taller than the words', () => {
+    const words = cardHeightDp({ compact: true });
+
+    expect(cardHeightDp({ compact: true, mediaHeightDp: 100 })).toBe(words);
+    expect(cardHeightDp({ compact: true, mediaHeightDp: 320 })).toBeGreaterThan(words);
+    expect(cardHeightDp({ compact: true, mediaHeightDp: 320 }) - cardHeightDp({ compact: true, mediaHeightDp: 310 })).toBeCloseTo(10, 5);
+  });
+
+  it('lets a compact card hold a picture 320dp tall, and refuses one that would push the buttons off the screen', () => {
+    expect(() => assertCardFits({ compact: true, mediaHeightDp: 320 })).not.toThrow();
+    expect(() => assertCardFits({ compact: true, mediaHeightDp: 340 })).toThrow(CalmViolation);
+    // The ordinary card has less room around its words, so less for a picture.
+    expect(() => assertCardFits({ mediaHeightDp: 320 })).toThrow(CalmViolation);
+  });
+
+  it('refuses a picture height that is not one', () => {
+    for (const height of [-1, Number.NaN]) expect(() => assertCardFits({ compact: true, mediaHeightDp: height })).toThrow(CalmViolation);
+  });
+});

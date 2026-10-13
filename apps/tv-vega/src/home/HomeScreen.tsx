@@ -12,6 +12,18 @@
  * card that offers to ask someone to ring her (packages/contracts/src/
  * reach.ts). The platform's own long press tells the two apart, so the film
  * under her thumb does not start when she lets go.
+ *
+ * Her mantelpiece (packages/contracts/src/mantel.ts) is opened from a pill
+ * at the right-hand end of the quiet row under the films — there whenever
+ * she has kept something, and never where the focus starts. Not in the
+ * title row beside the light's: at 32pt a second pill does not fit there
+ * (home/__tests__/homeLayout.test.ts has the numbers), and the question is
+ * not what should be cut.
+ *
+ * The remote is not always this screen's: a card, the mantelpiece, or her
+ * pictures filling an idle screen may have it (`cardVisible`). Then nothing
+ * here can be focused; and when the remote comes back, the focus goes back
+ * to where it was — not to the first film.
  */
 import * as React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
@@ -31,7 +43,10 @@ export interface HomeScreenProps {
   readonly language: HouseholdLanguage;
   readonly programmes: readonly Programme[];
   readonly onChoose: (programme: Programme) => void;
-  /** A card is on screen: it owns the remote. */
+  /**
+   * Something else owns the remote: a card, the mantelpiece, or the idle
+   * screen (and, for a moment after it, the key that ended it — mantel/idle.ts).
+   */
   readonly cardVisible: boolean;
   /** The programme to return focus to after watching it. */
   readonly lastWatchedId?: string | undefined;
@@ -50,6 +65,12 @@ export interface HomeScreenProps {
   readonly onOpenLight?: (() => void) | undefined;
   /** "Sarah looked in this morning." Shown where the waiting line goes, when nothing is waiting. */
   readonly lookedIn?: string | undefined;
+  /**
+   * The word on the pill that opens her mantelpiece (words/words.ts) —
+   * present only when she has kept at least one picture.
+   */
+  readonly mantel?: string | undefined;
+  readonly onOpenMantel?: (() => void) | undefined;
   /** OK was held for two seconds on whatever has the focus (watch/hold.ts HOLD_MS). */
   readonly onHold?: (() => void) | undefined;
   /**
@@ -60,11 +81,19 @@ export interface HomeScreenProps {
   readonly onKeyUp?: (() => void) | undefined;
 }
 
-export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
   const say = words(language);
-  const focusId = lastWatchedId ?? programmes[0]?.id;
   // One quiet row under the films, and a card waiting to be opened comes first.
   const quiet = waiting ? undefined : lookedIn;
+  // With anything in that row the films' pictures are thirty dp shorter, so the screen stays inside 540dp.
+  const row = waiting !== undefined || quiet !== undefined || mantel !== undefined;
+
+  // Where the focus starts: the film she last watched, or the first. Never a pill.
+  const start = `programme:${lastWatchedId ?? programmes[0]?.id}`;
+  // And where it was when the remote was last this screen's. Kept only while it is still something on the screen.
+  const focused = React.useRef<string | undefined>(undefined);
+  const here = [...programmes.map((programme) => `programme:${programme.id}`), ...(light ? ['light'] : []), ...(waiting ? ['waiting'] : []), ...(mantel ? ['mantel'] : [])];
+  const preferred = focused.current !== undefined && here.includes(focused.current) ? focused.current : start;
 
   return (
     <View style={styles.screen}>
@@ -79,10 +108,14 @@ export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWa
             onLongPress={onHold}
             delayLongPress={HOLD_MS}
             onPressOut={onKeyUp}
+            onFocus={() => {
+              focused.current = 'light';
+            }}
             focusable={!cardVisible}
+            hasTVPreferredFocus={!cardVisible && preferred === 'light'}
             accessibilityRole="button"
             accessibilityLabel={say('home.lightLabel', { light })}
-            style={({ focused }: { focused: boolean }) => [styles.light, focused && styles.tileFocused]}
+            style={({ focused: on }: { focused: boolean }) => [styles.light, on && styles.tileFocused]}
           >
             <Text style={styles.line} numberOfLines={1}>
               {light}
@@ -99,13 +132,16 @@ export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWa
             onLongPress={onHold}
             delayLongPress={HOLD_MS}
             onPressOut={onKeyUp}
+            onFocus={() => {
+              focused.current = `programme:${programme.id}`;
+            }}
             focusable={!cardVisible}
-            hasTVPreferredFocus={!cardVisible && programme.id === focusId}
+            hasTVPreferredFocus={!cardVisible && preferred === `programme:${programme.id}`}
             accessibilityRole="button"
             accessibilityLabel={`${programme.title}. ${programmeLine(programme, language)}`}
-            style={({ focused }: { focused: boolean }) => [styles.tile, focused && styles.tileFocused]}
+            style={({ focused: on }: { focused: boolean }) => [styles.tile, on && styles.tileFocused]}
           >
-            <Image source={POSTERS[programme.id]} style={[styles.poster, waiting || quiet ? styles.posterWithRow : null]} resizeMode="cover" accessibilityLabel="" />
+            <Image source={POSTERS[programme.id]} style={[styles.poster, row ? styles.posterWithRow : null]} resizeMode="cover" accessibilityLabel="" />
             <View style={styles.caption}>
               <Text style={styles.title} numberOfLines={1}>
                 {programme.title}
@@ -118,32 +154,63 @@ export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWa
         ))}
       </View>
 
-      {/* Quiet, and never focused on its own: it is there to be found, not to ask again. */}
-      {waiting ? (
-        <Pressable
-          onPress={onOpenWaiting}
-          onLongPress={onHold}
-          delayLongPress={HOLD_MS}
-          onPressOut={onKeyUp}
-          focusable={!cardVisible}
-          accessibilityRole="button"
-          accessibilityLabel={say('home.waitingLabel', { line: waiting })}
-          style={({ focused }: { focused: boolean }) => [styles.waiting, focused && styles.tileFocused]}
-        >
-          {/* The line gets the width; "Open" says what OK does, and is never what is cut. */}
-          <Text style={[styles.line, styles.waitingLine]} numberOfLines={1}>
-            {waiting}
-          </Text>
-          <Text style={styles.title}>{say('home.open')}</Text>
-        </Pressable>
-      ) : null}
+      {row ? (
+        <View style={styles.quietRow}>
+          {/* Quiet, and never focused on its own: it is there to be found, not to ask again. */}
+          {waiting ? (
+            <Pressable
+              onPress={onOpenWaiting}
+              onLongPress={onHold}
+              delayLongPress={HOLD_MS}
+              onPressOut={onKeyUp}
+              onFocus={() => {
+                focused.current = 'waiting';
+              }}
+              focusable={!cardVisible}
+              hasTVPreferredFocus={!cardVisible && preferred === 'waiting'}
+              accessibilityRole="button"
+              accessibilityLabel={say('home.waitingLabel', { line: waiting })}
+              style={({ focused: on }: { focused: boolean }) => [styles.waiting, styles.quietLine, on && styles.tileFocused]}
+            >
+              {/* The line gets the width; "Open" says what OK does, and is never what is cut. */}
+              <Text style={[styles.line, styles.waitingLine]} numberOfLines={1}>
+                {waiting}
+              </Text>
+              <Text style={styles.title}>{say('home.open')}</Text>
+            </Pressable>
+          ) : quiet ? (
+            // Who looked in: something to read, with nothing to press.
+            <View style={[styles.waiting, styles.quietLine]} accessibilityRole="text">
+              <Text style={[styles.line, styles.waitingLine]} numberOfLines={1}>
+                {quiet}
+              </Text>
+            </View>
+          ) : (
+            // Nothing to say: the pill keeps its place at the right-hand end.
+            <View style={styles.quietLine} />
+          )}
 
-      {/* Who looked in: something to read, with nothing to press. */}
-      {quiet ? (
-        <View style={styles.waiting} accessibilityRole="text">
-          <Text style={[styles.line, styles.waitingLine]} numberOfLines={1}>
-            {quiet}
-          </Text>
+          {/* Her mantelpiece. Found with the D-pad, never focused on its own. */}
+          {mantel ? (
+            <Pressable
+              onPress={onOpenMantel}
+              onLongPress={onHold}
+              delayLongPress={HOLD_MS}
+              onPressOut={onKeyUp}
+              onFocus={() => {
+                focused.current = 'mantel';
+              }}
+              focusable={!cardVisible}
+              hasTVPreferredFocus={!cardVisible && preferred === 'mantel'}
+              accessibilityRole="button"
+              accessibilityLabel={say('home.mantelLabel')}
+              style={({ focused: on }: { focused: boolean }) => [styles.light, on && styles.tileFocused]}
+            >
+              <Text style={styles.line} numberOfLines={1}>
+                {mantel}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -219,6 +286,15 @@ const styles = StyleSheet.create({
     gap: 24,
   },
   waitingLine: {
+    flex: 1,
+  },
+  // The row under the films: one quiet thing on the left, and at its right-hand end the mantelpiece's pill.
+  quietRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 24,
+  },
+  quietLine: {
     flex: 1,
   },
   caption: {

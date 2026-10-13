@@ -88,6 +88,22 @@
  *     server's real route: that language is refused for a day, and the card
  *     says when it can be asked again.
  *
+ *   - The mantelpiece: the family app's own card sends a picture ("send Mum
+ *     a picture") through the server's real POST /api/photos, into a bucket
+ *     kept in memory here, past a stand-in for the one look taken at it.
+ *     GET /dev/photos says what the bucket holds — each picture's size, its
+ *     tag, and whether its bytes still carry anything of where or when it
+ *     was taken. /dev/photos?moderation=refuse makes that look refuse every
+ *     picture, ?moderation=down makes it fail (and so refuse: it fails
+ *     closed), ?moderation=pass puts it back. Every picture that gets as far
+ *     as that look is a try, and a member has twenty a day: the twenty-first
+ *     is refused before the look, as it is deployed. /dev/photos?press=keep and
+ *     ?press=thanks are her press on every picture still waiting, in every
+ *     home that connected the stand-in television — what the edge will do
+ *     with it: either marks the picture seen, and "Keep it" also puts it on
+ *     her mantelpiece; ?press=take_down takes everything off it again. The
+ *     family app says the same thing after all three: that she has seen it.
+ *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
  * answers; without it there is none, and the app answers by its rules.
@@ -116,6 +132,10 @@ import { reachStore, type ReachSend } from '@wick/agent';
 import { VISIT_ACTIONS, VISIT_ASK_WITHIN_MS, isVisitPersonId, userIdOfMemberPerson, visitCardId, visitId, type RosterEntry, type VisitorMatch } from '@wick/contracts';
 import { isSharedWithFamily, loadHouseholdPolicy, visitStore, type VisitSend } from '@wick/agent';
 import { randomUUID } from 'node:crypto';
+import { MANTEL_SK_PREFIX, PHOTO_ACTIONS, PHOTO_SK_PREFIX } from '@wick/contracts';
+import { createS3PhotoObjects } from '../photos/objects.js';
+import type { ModerationVerdict } from '../photos/moderation.js';
+import { createMemoryObjects } from '../photos/__tests__/memoryObjects.js';
 import { noteDoorSighting } from '../../../agent/src/agents/visit/note.js';
 import { buildDoorEventItem, buildPresenceItem } from '../../../agent/src/agents/door/presence.js';
 import { askAboutVisits } from '../../../agent/src/agents/visit/ask.js';
@@ -230,6 +250,10 @@ const nudgeBrowsers = (userIds: readonly string[], kind: PushKind = PUSH_KINDS.d
     forget: async () => {},
   });
 
+/** The photos bucket, in memory, and the stand-in for the one look taken at a picture (GET /dev/photos?moderation=…). */
+const photoBucket = createMemoryObjects();
+let photoVerdict: ModerationVerdict = 'pass';
+
 /** Every home that has connected the stand-in television: where /dev/door rings. */
 const homesWithATelevision = new Set<string>();
 
@@ -240,6 +264,8 @@ const sendCard = async (card: QueuedCard): Promise<void> => {
   table.put({ pk: { S: `HH#${card.card.householdId}` }, sk: { S: `CARD#${card.id}` }, data: { S: JSON.stringify(card) } });
   // Hold for Sarah: each state of the one card, as the television would now show it.
   if (card.card.type === 'REACH') console.log(`television: "${card.card.headline}"${card.card.detail ? ` ${card.card.detail}` : ''}`);
+  // A picture: Wick's own words, and the two buttons that both put it away (GET /dev/photos?press=keep|thanks presses one).
+  if (card.card.type === 'PHOTO') console.log(`television: "${card.card.headline}" [${card.card.actions.map((action) => action.label).join('] [')}]`);
   // The language question: both languages at once, and the two buttons she can press (GET /dev/language presses the first).
   if (card.card.type === 'LANGUAGE') {
     console.log(`television: "${card.card.headline}" ${card.card.detail} [${card.card.actions.map((action) => action.label).join('] [')}]`);
@@ -267,6 +293,14 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
   ddb: table.ddb,
   demoAccounts: true,
   ringLinks,
+  // The mantelpiece: a bucket in memory, and a look that says whatever /dev/photos?moderation= last told it to.
+  photos: {
+    objects: createS3PhotoObjects(photoBucket.send, 'dev-photos'),
+    moderate: async (bytes) => {
+      console.log(`moderation: looked at ${bytes.length} bytes and said "${photoVerdict}"`);
+      return photoVerdict;
+    },
+  },
   ...(process.env.WICK_DEV_ASSISTANT === 'on'
     ? { assistant: { converse: createBedrockConverse(new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? 'us-east-1' }), process.env.WICK_ASSISTANT_MODEL_ID) } }
     : {}),
@@ -575,6 +609,64 @@ app.get('/dev/visit', async (req, res) => {
     noted[householdId] = { visitor: visitor.name, door, asked, television };
   }
   res.json({ noted });
+});
+
+/**
+ * The mantelpiece: what the bucket holds, the stand-in for moderation, and
+ * the resident's press on every picture still waiting — the rows the edge
+ * will write (packages/contracts mantel.ts): `seenAt` on the picture's own
+ * row at either press, and a row on her mantelpiece when she keeps it. The
+ * server reads only the first, so the family app cannot tell which it was.
+ */
+app.get('/dev/photos', (req, res) => {
+  const moderation = typeof req.query.moderation === 'string' ? req.query.moderation : undefined;
+  if (moderation !== undefined) {
+    if (moderation !== 'pass' && moderation !== 'refuse' && moderation !== 'down') return void res.status(400).json({ error: 'moderation=pass|refuse|down' });
+    photoVerdict = moderation === 'down' ? 'unchecked' : moderation;
+    return void res.json({ moderation: photoVerdict });
+  }
+
+  const press = typeof req.query.press === 'string' ? req.query.press : undefined;
+  if (press !== undefined) {
+    if (press !== PHOTO_ACTIONS.keep && press !== PHOTO_ACTIONS.thanks && press !== 'take_down') return void res.status(400).json({ error: 'press=keep|thanks|take_down' });
+    const pressed: Record<string, string[]> = {};
+    for (const householdId of homesWithATelevision) {
+      const pk = { S: `HH#${householdId}` };
+      const rows = table.rows(pk.S);
+      if (press === 'take_down') {
+        const kept = rows.filter((row) => row.sk?.S?.startsWith(MANTEL_SK_PREFIX));
+        for (const row of kept) void table.ddb.send({ constructor: { name: 'DeleteItemCommand' }, input: { Key: { pk, sk: row.sk! } } } as never);
+        pressed[householdId] = kept.map((row) => row.sk!.S!.slice(MANTEL_SK_PREFIX.length));
+        continue;
+      }
+      const waiting = rows.filter((row) => row.sk?.S?.startsWith(PHOTO_SK_PREFIX) && row.seenAt === undefined);
+      const now = { N: String(Date.now()) };
+      for (const row of waiting) {
+        const photoId = row.sk!.S!.slice(PHOTO_SK_PREFIX.length);
+        table.put({ ...row, seenAt: now });
+        if (press === PHOTO_ACTIONS.keep) table.put({ pk, sk: { S: `${MANTEL_SK_PREFIX}${photoId}` }, photoId: { S: photoId }, keptAt: now });
+        console.log(`television (${householdId}): she pressed "${press === PHOTO_ACTIONS.keep ? 'Keep it' : 'Thank you'}" on a picture`);
+      }
+      pressed[householdId] = waiting.map((row) => row.sk!.S!.slice(PHOTO_SK_PREFIX.length));
+    }
+    return void res.json({ press, pressed });
+  }
+
+  // What is in the bucket. Never the bytes: their size, their tag, and whether they still say where or when.
+  const has = (bytes: Uint8Array, text: string): boolean => Buffer.from(bytes).includes(Buffer.from(text, 'latin1'));
+  res.json({
+    moderation: photoVerdict,
+    objects: [...photoBucket.objects].map(([key, object]) => ({
+      key,
+      bytes: object.bytes.length,
+      contentType: object.contentType,
+      tagging: object.tagging,
+      jpeg: object.bytes[0] === 0xff && object.bytes[1] === 0xd8,
+      exif: has(object.bytes, 'Exif'),
+      gps: has(object.bytes, 'GPS'),
+    })),
+    requests: photoBucket.sent.map((request) => request.name),
+  });
 });
 
 /**

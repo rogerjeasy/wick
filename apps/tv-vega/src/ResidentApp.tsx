@@ -41,18 +41,42 @@
  * the home is drawn until it has been read back — so a relaunch does not
  * begin in English; on the Vega simulator, which keeps nothing, it is
  * English for the moment before the home message.
+ *
+ * The mantelpiece (packages/contracts/src/mantel.ts). A picture the family
+ * sends is a card like any note. What she keeps is opened from the home
+ * screen (mantel/MantelScreen.tsx): a screen she asked for, so a note that
+ * becomes showable while it is open waits until she leaves it, and the
+ * door comes over it at once. And when the home screen has sat untouched
+ * for a few minutes her pictures fill it (mantel/IdleScreen.tsx) — worked
+ * out in the one-second look below from a pure rule (mantel/idle.ts), with
+ * no timer of its own. It makes nothing disappear and delays nothing: the
+ * look picks cards exactly as before underneath it, and a card that can be
+ * shown ends it. Any key ends it too, and that key press does nothing
+ * else: every key is heard here, in one place, and only listened to.
+ *
+ * Read to me (packages/contracts/src/speech.ts). While a card is on screen
+ * Play asks for it to be read aloud (read/reading.ts) — the one thing a key
+ * heard here does. On the home screen, and on the door's card over a film
+ * that is playing, Play again stops the reading, and the film is never
+ * paused by it. Over a note that is holding the film Play is the card's
+ * once: the first reads the note, and the next is her way back to the film
+ * as Play there always was — the film goes on and the note is put away —
+ * whether the reading is still going, is over, or never started
+ * (watch/remoteKeys.ts playIsTheCards). Only when she asks: nothing here
+ * ever starts a reading by itself. And where reading cannot work the mark
+ * of the key is not drawn and Play is the film's from the first press.
  */
 import * as React from 'react';
 import { Linking } from 'react-native';
-import { BackHandler, StyleSheet, View } from '@amazon-devices/react-native-kepler';
+import { BackHandler, StyleSheet, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
-import type { DeviceEvent, DeviceToken, HouseholdLanguage, QueuedCard } from '@wick/contracts';
+import type { DeviceEvent, DeviceToken, HomeState, HouseholdLanguage, MantelItem, QueuedCard } from '@wick/contracts';
 import { safe } from '@wick/vega-calm-ui';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
 import { LiveView } from './live/LiveView.js';
 import { BreakController } from './break/BreakController.js';
-import { QueueStore } from './headless/QueueStore.js';
+import { QueueStore, type Mantel } from './headless/QueueStore.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
 import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
 import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
@@ -62,11 +86,21 @@ import { asking } from './home/asked.js';
 import { pressSettle } from './press/settle.js';
 import { lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
 import { backAnswersReach, holdGuard, newestReachCard, reachOffersToPutAway } from './home/reach.js';
+import { ReadHint } from './read/ReadHint.js';
+import { Reader, type ReadingState } from './read/reading.js';
+import { canRead, createSpeechPlayer } from './read/speechPlayer.js';
+import { lowerFilm, type HasVolume } from './watch/filmVolume.js';
+import { playIsTheCards, readCommand } from './watch/remoteKeys.js';
+import { IdleScreen } from './mantel/IdleScreen.js';
+import { MantelScreen } from './mantel/MantelScreen.js';
+import { IDLE_OFF, blocksHome, idleOnBack, idleOnKey, lookAtIdle, type Idle } from './mantel/idle.js';
+import { mantelToShow, offersMantel, overMantel, pictureRefresher } from './mantel/mantel.js';
+import { words } from './words/words.js';
 import { WatchScreen } from './watch/WatchScreen.js';
 import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { TogetherReporter, type Together } from './watch/togetherReporter.js';
 import { createDeviceChannel } from './transport/createDeviceChannel.js';
-import { holdCardChannel } from './transport/startCardChannel.js';
+import { holdCardChannel, type RunningCardChannel } from './transport/startCardChannel.js';
 import { launchCardService } from './headless/launchCardService.js';
 import type { DeviceConfig } from './config.js';
 import { useOnScreen } from './useOnScreen.js';
@@ -112,6 +146,32 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
    * remembered. Nothing of the home is drawn until then.
    */
   const [language, setLanguage] = React.useState<HouseholdLanguage | null>(null);
+  /** The home, as the server last said it: for what the home screen offers beside its films. */
+  const [home, setHome] = React.useState<HomeState>({});
+  /**
+   * Her mantelpiece (packages/contracts mantel.ts), as the server last
+   * answered this television's asking — kept in memory only: the addresses
+   * in it are written nowhere.
+   */
+  const [mantel, setMantel] = React.useState<Mantel | undefined>(undefined);
+  /** She has it open, and since when: what is shown is the answer to that opening (mantel/mantel.ts). */
+  const [mantelOpen, setMantelOpen] = React.useState(false);
+  const [mantelOpenedAt, setMantelOpenedAt] = React.useState(0);
+  /** When the server was last asked for it, so it is not asked every second. */
+  const mantelAskedAt = React.useRef<number | null>(null);
+  /**
+   * The idle screen (mantel/idle.ts): off, on, or ending — a key has ended
+   * it and has not yet come up. A ref as well: the look and the key handler
+   * read it between renders.
+   */
+  const [idle, setIdle] = React.useState<Idle>(IDLE_OFF);
+  const idleNow = React.useRef<Idle>(IDLE_OFF);
+  /** The picture the idle screen has up. */
+  const [idleItem, setIdleItem] = React.useState<MantelItem | undefined>(undefined);
+  /** Pictures of the current answer whose address did not load on the idle screen, which has no words to say so. */
+  const idleFailed = React.useRef<{ readonly receivedAt: number | undefined; readonly ids: readonly string[] }>({ receivedAt: undefined, ids: [] });
+  /** The last key press, or the last moment the home screen was not quiet: what the few idle minutes are counted from. */
+  const lastActiveAt = React.useRef(Date.now());
   /**
    * Her press on the light on the home screen. The card that answers it is
    * opened as soon as it comes — waited for from when her question leaves
@@ -169,6 +229,11 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   // connection left open by an app that is no longer running would swallow
   // the card instead.
   const onScreen = useOnScreen();
+  /** What is on screen now, for the look below, which runs between renders. */
+  const screenNow = React.useRef({ watching: false, mantelOpen: false, liveOpen: false, onScreen: true });
+  screenNow.current = { watching: watching !== null, mantelOpen, liveOpen: liveFor !== null, onScreen };
+  /** The channel while it is held, for the one thing the app asks on it by itself: its cards again (below). */
+  const cardChannel = React.useRef<RunningCardChannel | null>(null);
   // Back on screen: whatever card is there, she is looking at it afresh, and its first second starts again.
   const wasOnScreen = React.useRef(onScreen);
   React.useEffect(() => {
@@ -178,8 +243,23 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   React.useEffect(() => {
     if (!onScreen) return;
     const held = holdCardChannel(store, token, createDeviceChannel, config, undefined, questionLeft);
-    return () => held.stop();
+    cardChannel.current = held;
+    return () => {
+      cardChannel.current = null;
+      held.stop();
+    };
   }, [token, onScreen, store, config, questionLeft]);
+
+  // A picture card whose address is missing or has run out — a card may wait for days, an address lives an
+  // hour. The server mints a new one each time it sends the card, so the cards are asked for again: once for a
+  // card, and not again while that new address would still be good (mantel/mantel.ts).
+  const pictureRefresh = React.useMemo(() => pictureRefresher(), []);
+  const handlePictureFailed = React.useCallback(
+    (cardId: string) => {
+      if (pictureRefresh.due(cardId, Date.now())) cardChannel.current?.reconcile();
+    },
+    [pictureRefresh],
+  );
 
   // Once paired, and again each time Wick comes back on screen.
   React.useEffect(() => {
@@ -210,8 +290,10 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
 
     const tick = async () => {
       const now = Date.now();
+      const on = screenNow.current;
       let cards = await store.readAll();
-      const picked = breakController.pickCard(cards, now);
+      // The mantelpiece is a screen she asked for: a note waits behind it, the door does not (mantel/mantel.ts).
+      const picked = overMantel(breakController.pickCard(cards, now), on.mantelOpen);
 
       // Rule 3 of the Natural-Break Engine, made real: the server is told
       // when a card is really on screen, and a showing that ends unanswered
@@ -257,14 +339,47 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       const shown = picked?.urgency === 'DOOR' ? picked : opened ?? picked;
       if (cancelled) return;
       setCard(shown ?? null);
-      setWaiting(breakController.waiting(cards, now) ?? null);
+      const waitingCard = breakController.waiting(cards, now);
+      setWaiting(waitingCard ?? null);
       const home = store.readHome();
+      setHome(home);
       // Her language, as the home says it: read here, so the app's own words change at the next look after she says yes.
       const language = store.language();
       setLanguage(language);
       setLight(lightLabel(home, now, language));
       // The server's sentence, already in her language.
       setLookedIn(lookedInLine(home, now));
+
+      // Her mantelpiece, and the idle screen. Everything above has already happened exactly as it would without
+      // them: this only decides whether her pictures may fill a home screen that has nothing else on it.
+      const mantel = store.readMantel();
+      setMantel(mantel);
+      if (idleFailed.current.receivedAt !== mantel?.receivedAt) idleFailed.current = { receivedAt: mantel?.receivedAt, ids: [] };
+      const seen = lookAtIdle({
+        foreground: on.onScreen,
+        watching: on.watching,
+        mantelOpen: on.mantelOpen,
+        liveOpen: on.liveOpen,
+        cardShowing: shown !== undefined,
+        waiting: waitingCard !== undefined,
+        home,
+        now,
+        idle: idleNow.current,
+        lastActiveAt: lastActiveAt.current,
+        mantel,
+        askedAt: mantelAskedAt.current,
+        failed: idleFailed.current.ids,
+      });
+      lastActiveAt.current = seen.lastActiveAt;
+      if (seen.ask) {
+        mantelAskedAt.current = now;
+        void store.enqueueOutbound({ t: 'mantel', at: now });
+      }
+      if (seen.idle !== idleNow.current) {
+        idleNow.current = seen.idle;
+        setIdle(seen.idle);
+      }
+      setIdleItem(seen.picture);
 
       const state = breakController.breakState(now);
       if (state !== lastSentBreakState) {
@@ -343,10 +458,122 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   // OK came up: after a hold, the card that arrives may now be pressed.
   const handleKeyUp = React.useCallback(() => guard.released(Date.now()), [guard]);
 
+  // Read to me (read/reading.ts). One reader for the life of the app: her asking is sent like any event, the
+  // player is the platform's, and a film that is playing is turned down for the voice and put back after it.
+  const filmPlayer = React.useRef<HasVolume | null>(null);
+  const handleFilmPlayer = React.useCallback((player: HasVolume | null) => {
+    filmPlayer.current = player;
+  }, []);
+  /** How the reading stands, as the reader says it: a key needs to know whether one is under way. */
+  const [readingState, setReadingState] = React.useState<ReadingState>('idle');
+  /**
+   * The card Play has already asked to have read, during this showing of
+   * it. Over a film that card is holding, the next Play is then the film's
+   * again. Forgotten when the card leaves the screen: another card, or the
+   * same one shown again later, starts with reading.
+   */
+  const [askedFor, setAskedFor] = React.useState<string | null>(null);
+  const reader = React.useMemo(
+    () =>
+      new Reader({
+        onChange: setReadingState,
+        createPlayer: createSpeechPlayer,
+        ask: (cardId) => void store.enqueueOutbound({ t: 'read', cardId, at: Date.now() }),
+        lowerFilm: () => {
+          const film = filmPlayer.current;
+          return lowerFilm(film, () => filmPlayer.current === film);
+        },
+      }),
+    [store],
+  );
+  // The server's answer, as it comes: it is played only if it is the one asked for, for the card still on screen.
+  React.useEffect(() => store.onSpeech((cardId, url) => reader.speech(cardId, url)), [store, reader]);
+  // The card that can be read just now. None while the door camera is over the card, while Wick is behind
+  // another app, or where reading cannot work — and a reading of any other card is over.
+  const readable = canRead();
+  const readingCard = readable && onScreen && card !== null && liveFor === null ? card.id : undefined;
+  // Whose the next Play is (watch/remoteKeys.ts): the card's — or, over a film the card is holding, once Play
+  // has asked for it, the film's again.
+  const holdsFilm = watching !== null && breakController.holdsProgramme(card ?? undefined);
+  const playReads = playIsTheCards({ card: readingCard, holdsFilm, askedFor });
+  const reading = readingState !== 'idle';
+  /** What a key needs to know, for the handler below, which runs between renders. The film's screen is given the same. */
+  const keysNow = React.useRef<{ cardVisible: boolean; playReads: boolean; reading: boolean; card: string | undefined }>({ cardVisible: false, playReads: false, reading: false, card: undefined });
+  keysNow.current = { cardVisible: card !== null, playReads, reading, card: readingCard };
+  React.useEffect(() => {
+    reader.showing(readingCard);
+    setAskedFor((asked) => (asked !== null && asked !== readingCard ? null : asked));
+  }, [reader, readingCard]);
+  React.useEffect(() => {
+    return () => reader.stop();
+  }, [reader]);
+
+  // Every key, wherever the focus is. It says she is there, which is what the idle screen waits for the
+  // absence of; it is what ends the idle screen (mantel/idle.ts); and Play, while a card is on screen, asks
+  // for the card to be read or ends the reading. Nothing else is done from a key heard here: what Play does
+  // to the film is the film's screen's, which is given the same three things to decide by.
+  useTVEventHandler((event) => {
+    const now = Date.now();
+    lastActiveAt.current = now;
+    const at = keysNow.current;
+    const command = readCommand(event, at);
+    // A key the idle screen takes — the one that ends it, and any other until that one is up — does nothing
+    // else (mantel/idle.ts): it is not Play for a card that arrived in that moment.
+    if (command && !blocksHome(idleNow.current)) {
+      reader.press(command);
+      // Play has now asked for this showing of this card: over a film it holds, the next Play is her way back to the film.
+      if (command === 'toggle' && at.card !== undefined) setAskedFor(at.card);
+    }
+    const next = idleOnKey(idleNow.current, event, now);
+    if (next !== idleNow.current) {
+      idleNow.current = next;
+      setIdle(next);
+    }
+  });
+
+  const askMantel = React.useCallback(() => {
+    const at = Date.now();
+    mantelAskedAt.current = at;
+    void store.enqueueOutbound({ t: 'mantel', at });
+  }, [store]);
+
+  // The pill on the home screen: open her mantelpiece, and ask what is on it.
+  const handleOpenMantel = React.useCallback(() => {
+    setMantelOpenedAt(Date.now());
+    setMantelOpen(true);
+    askMantel();
+  }, [askMantel]);
+
+  const handleCloseMantel = React.useCallback(() => {
+    setMantelOpen(false);
+    lastActiveAt.current = Date.now();
+  }, []);
+
+  // "Take it down": the picture's id, and nothing else. The answer is the mantelpiece as it now stands.
+  const handleTakeDown = React.useCallback(
+    (photoId: string) => {
+      void store.enqueueOutbound({ t: 'mantel_take_down', photoId, at: Date.now() });
+    },
+    [store],
+  );
+
+  // A picture on the idle screen did not load: it is left out, and — once for each answer — asked for again.
+  const handleIdleFailed = React.useCallback(
+    (photoId: string) => {
+      const failed = idleFailed.current;
+      if (failed.ids.includes(photoId)) return;
+      idleFailed.current = { ...failed, ids: [...failed.ids, photoId] };
+      if (failed.ids.length === 0) askMantel();
+    },
+    [askMantel],
+  );
+
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {
       // Her thumb coming up from the hold, not a press: nothing is pressed, nothing is sent.
       if (guard.swallows(Date.now())) return;
+      // Nor is the key that ended the idle screen, coming up on a card that arrived in that moment.
+      if (blocksHome(idleNow.current)) return;
       // Pressed in the card's first second: begun before she could have read it. Nothing happens, and the next press works.
       if (!settle.acts(Date.now())) return;
       if (card && card.id === cardId && opensLiveView(card.card, actionId)) setLiveFor(cardId);
@@ -359,6 +586,8 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       // Any answer on the card her hold brought ends the little while in which the newest one is brought forward.
       if (card && card.id === cardId && card.card.type === 'REACH') reachAsked.done();
       if (card && card.id === cardId && removesCard(card.card, actionId)) {
+        // Her answer ends the showing, so the same card sent back — a picture, when her mantelpiece is full — is shown afresh.
+        breakController.answered(cardId);
         void store.remove(cardId);
         setCard(null);
       }
@@ -366,7 +595,7 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       // one, since FL-014 (holdCardChannel above).
       void store.enqueueOutbound({ t: 'card_action', cardId, action: actionId, at: Date.now() });
     },
-    [store, card, guard, reachAsked, settle],
+    [store, card, guard, breakController, reachAsked, settle],
   );
 
   // Back on a waiting card the resident opened puts it back to waiting.
@@ -374,6 +603,14 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   // before the screens underneath; it declines anything that is not its own.
   React.useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      // Back ends the idle screen like any key, and goes no further: it must not leave Wick.
+      const back = idleOnBack(idleNow.current);
+      if (back.consumed) {
+        idleNow.current = back.idle;
+        setIdle(back.idle);
+        lastActiveAt.current = Date.now();
+        return true;
+      }
       if (!backClosesOpened({ openedId: openedId.current, shownId: card?.id ?? null, liveOpen: liveFor !== null })) return false;
       // On the card her hold brought, Back is an answer: an offer or a request left half read would come back at the next break (home/reach.ts).
       const reachAnswer = backAnswersReach(card?.card);
@@ -390,6 +627,7 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
 
   // Not yet known which language to say it in: a moment, at launch. Nothing is drawn in the wrong one.
   if (language === null) return <View style={styles.unlit} />;
+  const say = words(language);
 
   return (
     <View style={styles.screen}>
@@ -400,7 +638,10 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
           onSnapshot={handleSnapshot}
           onPlaybackEvent={handlePlaybackEvent}
           cardVisible={card !== null}
-          held={breakController.holdsProgramme(card ?? undefined)}
+          playReads={playReads}
+          reading={reading}
+          onPlayer={handleFilmPlayer}
+          held={holdsFilm}
           suspended={liveFor !== null}
           companion={together && together.programmeId === watching.id ? together.withName : undefined}
           onHold={handleHold}
@@ -412,23 +653,44 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
           language={language}
           programmes={CATALOG}
           onChoose={handleChoose}
-          cardVisible={card !== null}
+          cardVisible={card !== null || mantelOpen || blocksHome(idle)}
           lastWatchedId={lastWatchedId}
           waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting, language) : undefined}
           onOpenWaiting={handleOpenWaiting}
           light={light}
           onOpenLight={handleOpenLight}
           lookedIn={lookedIn}
+          mantel={offersMantel(home) ? say('home.mantel') : undefined}
+          onOpenMantel={handleOpenMantel}
           onHold={handleHold}
           onKeyUp={handleKeyUp}
         />
       )}
+      {/* Her mantelpiece, over the home screen she opened it from. */}
+      {mantelOpen && !watching ? (
+        <MantelScreen
+          language={language}
+          mantel={mantelToShow(mantel, mantelOpenedAt, Date.now())}
+          cardVisible={card !== null}
+          onAsk={askMantel}
+          onTakeDown={handleTakeDown}
+          onClose={handleCloseMantel}
+          onHold={handleHold}
+          onKeyUp={handleKeyUp}
+        />
+      ) : null}
+      {/* Her pictures, when the home screen has sat untouched — and, unseen, until the key that ended them is up. */}
+      {blocksHome(idle) ? (
+        <IdleScreen language={language} visible={idle.phase === 'on'} item={idleItem} onFailed={handleIdleFailed} />
+      ) : null}
       {/* Over the programme, at the bottom, never instead of it. */}
       {/* Not while live view is open: a card left underneath keeps the remote's
           focus, and OK then presses "Watch live" again instead of Back. */}
       {card && !liveFor ? (
         <View style={styles.cardLayer} pointerEvents="box-none">
-          <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} language={language} onAction={handleAction} />
+          <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} language={language} onAction={handleAction} onPictureFailed={handlePictureFailed} />
+          {/* The mark of the Play key: Play reads this card aloud. Only where it can. */}
+          {readable ? <ReadHint cardType={card.card.type} language={language} /> : null}
         </View>
       ) : null}
       {/* Back returns to the card as it was. */}

@@ -96,6 +96,10 @@ function translated(language: OtherLanguage, card: Fields, free: FreeText | unde
     else freely('transcript');
   } else if (card.type === 'WEEK') {
     freely('text');
+  } else if (card.type === 'PHOTO') {
+    // A picture carries no words of the family's (mantel.ts): the headline and the notice are Wick's, and nothing is free.
+    wicks('headline');
+    wicks('notice');
   } else if (typeof card.type === 'string' && HEADLINE_CARDS.includes(card.type)) {
     wicks('headline');
     wicks('detail');

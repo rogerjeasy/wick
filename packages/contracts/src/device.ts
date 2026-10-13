@@ -63,7 +63,21 @@ export type DeviceEvent =
    * answer is the Reach card — the offer to ask someone to ring, or where
    * a request already under way stands.
    */
-  | { readonly t: 'reach'; readonly at: number };
+  | { readonly t: 'reach'; readonly at: number }
+  /**
+   * The mantelpiece (mantel.ts): the resident opened it, or the home screen
+   * has sat idle and is about to show it. The answer is a `mantel` control
+   * with what she has kept, each with an address minted for this asking.
+   */
+  | { readonly t: 'mantel'; readonly at: number }
+  /** She took one thing down, with her own press. The answer is the mantelpiece as it now stands. */
+  | { readonly t: 'mantel_take_down'; readonly photoId: string; readonly at: number }
+  /**
+   * Read to me (speech.ts): she pressed Play while this card was on her
+   * screen. The answer is a `speech` control with the address of the
+   * reading, for this television only.
+   */
+  | { readonly t: 'read'; readonly cardId: string; readonly at: number };
 
 export type ControlMessage =
   | { readonly t: 'patch'; readonly patch: CardPatch }
@@ -84,7 +98,19 @@ export type ControlMessage =
    * it; with `whole`, what is not given is no longer so (the edge, each
    * time the television connects).
    */
-  | { readonly t: 'home'; readonly home: HomeState; readonly whole?: boolean };
+  | { readonly t: 'home'; readonly home: HomeState; readonly whole?: boolean }
+  /**
+   * What is on her mantelpiece, for the television that asked — and only
+   * ever as the answer to its asking, on the channel it asked on: the
+   * addresses in it are never sent across the bus or to another television.
+   */
+  | { readonly t: 'mantel'; readonly items: readonly import('./mantel.js').MantelItem[] }
+  /**
+   * The reading she asked for (speech.ts). `url` is absent when there is
+   * nothing to read or it could not be made: the television then says
+   * nothing, and shows nothing changed.
+   */
+  | { readonly t: 'speech'; readonly cardId: string; readonly url?: string };
 
 export type ChannelState = 'connecting' | 'open' | 'backoff' | 'closed';
 export type Unsubscribe = () => void;

@@ -25,6 +25,7 @@ import {
 } from '../../../packages/contracts/src/familyTelevision.js';
 import { MAX_CARD_ACTIONS, type Card } from '../../../packages/contracts/src/card.js';
 import { LANGUAGES, LANGUAGE_ACTIONS, LANGUAGE_NAMES, languageCardId, languageQuestion } from '../../../packages/contracts/src/language.js';
+import { MAX_MANTEL, MANTEL_FULL_NOTICE, PHOTO_ACTIONS, photoCardId, photoCardWords, readMantelItems } from '../../../packages/contracts/src/mantel.js';
 import { WORDS } from '../../tv-vega/src/words/words.js';
 import { replyActions } from '../../tv-vega/src/cards/messageActions.js';
 import { removesCard } from '../../tv-vega/src/cards/cardActions.js';
@@ -454,24 +455,49 @@ function page() {
     return node;
   };
   const byId = new Map<string, Node>();
+  /** What the page listens for on the document: the keyboard, which is its remote. */
+  const keys: Record<string, Array<(event: unknown) => void>> = {};
   const document = {
     getElementById: (id: string) => byId.get(id) ?? (byId.set(id, make('div')), byId.get(id)!),
     createElement: make,
-    addEventListener() {},
+    addEventListener(type: string, listener: (event: unknown) => void) {
+      (keys[type] ??= []).push(listener);
+    },
     removeEventListener() {},
     head: make('head'),
     hidden: false,
     activeElement: null,
   };
-  return { document, screen: () => document.getElementById('tv-screen') };
+  return { document, keys, screen: () => document.getElementById('tv-screen') };
 }
 
 /** Everything written on a node and under it, in the order it is drawn. */
 const textOf = (node: Node): string[] => [...(node.textContent ? [node.textContent] : []), ...node.children.flatMap(textOf)];
 const buttonsOf = (node: Node): Node[] => [...(node.tagName === 'button' ? [node] : []), ...node.children.flatMap(buttonsOf)];
+const marksOf = (node: Node): Node[] => [...(node.tagName === 'span' && String(node.className).includes('tv-read') ? [node] : []), ...node.children.flatMap(marksOf)];
+const imagesOf = (node: Node): Node[] => [...(node.tagName === 'img' ? [node] : []), ...node.children.flatMap(imagesOf)];
 
 function television() {
-  const { document, screen } = page();
+  const { document, keys, screen } = page();
+  /** The sounds the page has made: where each is fetched from, and what was done with it. */
+  const sounds: Array<{ src: string; played: number; paused: number; onplaying?: () => void; onended?: () => void; onerror?: () => void }> = [];
+  class FakeAudio {
+    played = 0;
+    paused = 0;
+    onplaying?: () => void;
+    onended?: () => void;
+    onerror?: () => void;
+    constructor(readonly src: string) {
+      sounds.push(this);
+    }
+    play() {
+      this.played += 1;
+      return Promise.resolve();
+    }
+    pause() {
+      this.paused += 1;
+    }
+  }
   const sockets: Array<{ sent: Array<Record<string, unknown>>; onopen?: () => void; onmessage?: (event: { data: string }) => void; readyState: number }> = [];
   class FakeWebSocket {
     static OPEN = 1;
@@ -485,7 +511,7 @@ function television() {
     }
     close() {}
   }
-  const context = vm.createContext({ document, window: {}, console, URL, setInterval, clearInterval, setTimeout, WebSocket: FakeWebSocket, fetch: () => Promise.reject(new Error('a test asks nobody')) });
+  const context = vm.createContext({ document, window: {}, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, fetch: () => Promise.reject(new Error('a test asks nobody')) });
   vm.runInContext(readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8'), context, { filename: 'device.js' });
 
   // Paired as the resident's television, and connected.
@@ -498,6 +524,29 @@ function television() {
     /** What was sent since connecting, without the times. */
     sent: () => socket.sent.map(({ at: _at, ...event }) => event),
     card: (queued: unknown) => receive({ kind: 'card', card: queued }),
+    control: (control: unknown) => receive({ kind: 'control', control }),
+    /** A key on the keyboard, which is this page's remote. */
+    key: (key: string) => {
+      for (const listener of keys.keydown ?? []) listener({ key, preventDefault() {}, target: null });
+    },
+    sounds,
+    /** The marks on the screen that are not buttons and have no words: what each is called. */
+    marks: () => marksOf(screen()).map((mark) => mark.title),
+    pressMark: () => {
+      for (const listener of marksOf(screen())[0]?.listeners.click ?? []) listener();
+    },
+    /** The pictures on the screen: where each is fetched from, and what it is called. */
+    pictures: () => imagesOf(screen()).map((img) => ({ src: img.src, alt: img.alt })),
+    /** A picture's address stops answering. */
+    failPicture: () => {
+      for (const img of imagesOf(screen())) (img.onerror as (() => void) | undefined)?.();
+    },
+    /** A click on the picture itself: OK, on the television. */
+    pressPicture: () => {
+      const img = imagesOf(screen())[0];
+      if (!img) throw new Error('no picture on the screen');
+      for (const listener of img.listeners.click ?? []) listener();
+    },
     home: (home: Record<string, unknown>, whole = true) => receive({ kind: 'control', control: { t: 'home', home, ...(whole ? { whole: true } : {}) } }),
     says: () => textOf(screen()),
     buttons: () => buttonsOf(screen()).map((button) => button.textContent),
@@ -549,6 +598,16 @@ describe('the browser television’s own words (the television’s are apps/tv-v
       expect(table[language]!.lightOut).toBe(WORDS[language]['home.lightOut']);
       expect(table[language]!.filmBack).toBe(WORDS[language]['live.back']);
       expect(table[language]!.filmWith).toBe(WORDS[language]['watch.companion']);
+      // The mantelpiece (packages/contracts mantel.ts).
+      expect(table[language]!.mantel).toBe(WORDS[language]['home.mantel']);
+      expect(table[language]!.photoUnavailable).toBe(WORDS[language]['photo.unavailable']);
+      expect(table[language]!.photoPicture).toBe(WORDS[language]['photo.pictureLabel']);
+      expect(table[language]!.mantelFrom).toBe(WORDS[language]['mantel.from']);
+      expect(table[language]!.mantelPlace).toBe(WORDS[language]['mantel.place']);
+      expect(table[language]!.mantelChoice).toBe(WORDS[language]['mantel.choice']);
+      expect(table[language]!.mantelChoiceDetail).toBe(WORDS[language]['mantel.choiceDetail']);
+      expect(table[language]!.mantelLeave).toBe(WORDS[language]['mantel.leave']);
+      expect(table[language]!.mantelTakeDown).toBe(WORDS[language]['mantel.takeDown']);
     }
   });
 
@@ -722,7 +781,7 @@ describe('the browser television — a card of a kind it does not know', () => {
   it('knows the kinds of card the contract has today', () => {
     const tv = television();
 
-    expect((tv.evaluate('TV_CARD_TYPES') as string[]).sort()).toEqual(['CIRCLE', 'DOOR', 'LANGUAGE', 'LIGHT', 'MESSAGE', 'REACH', 'SHARING', 'TELL', 'VISIT', 'WATCH', 'WEEK']);
+    expect((tv.evaluate('TV_CARD_TYPES') as string[]).sort()).toEqual(['CIRCLE', 'DOOR', 'LANGUAGE', 'LIGHT', 'MESSAGE', 'PHOTO', 'REACH', 'SHARING', 'TELL', 'VISIT', 'WATCH', 'WEEK']);
   });
 
   it('is not drawn, has no buttons, and is not said to have been shown', () => {
@@ -754,6 +813,450 @@ describe('the browser television — a card of a kind it does not know', () => {
     const script = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
 
     expect(script).not.toMatch(/Unrecognized card type/);
+  });
+});
+
+/*
+ * The mantelpiece (packages/contracts mantel.ts) on the resident's
+ * television in the browser: the picture card, the pill, and a simple
+ * viewer. No photograph is used here or anywhere in these tests — a picture
+ * is only ever an address, and none is fetched.
+ */
+const PICTURE = 'https://pictures.example/photos/hh-1/p1.jpg?X-Amz-Signature=abc';
+const PHOTO = (over: Record<string, unknown> = {}) =>
+  queuedCard({ id: photoCardId('p1'), type: 'PHOTO', photoId: 'p1', fromName: 'Sarah', photoUrl: PICTURE, ...photoCardWords('Sarah'), ...over });
+const kept = (photoId: string, fromName = 'Sarah') => ({ photoId, fromName, keptAt: 5, url: `https://pictures.example/${photoId}.jpg` });
+
+describe('the browser television — a picture from the family', () => {
+  it('is drawn with its picture, the server’s headline and its two buttons', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+
+    tv.card(PHOTO());
+
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'Keep it', 'Thank you']);
+    expect(tv.pictures()).toEqual([{ src: PICTURE, alt: 'A picture from Sarah' }]);
+    expect(tv.buttons()).toEqual(['Keep it', 'Thank you']);
+    expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'card_shown', cardId: 'photo-p1' }]);
+  });
+
+  it('fetches a picture only from an https address: anything else is a calm line in its place, and the buttons still work', () => {
+    for (const photoUrl of [undefined, '', 'http://pictures.example/p1.jpg', 'javascript:alert(1)', 'data:image/jpeg;base64,AAAA', 7]) {
+      const tv = television();
+      tv.home({});
+
+      tv.card(PHOTO({ photoUrl }));
+
+      expect(tv.pictures(), String(photoUrl)).toEqual([]);
+      expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'The picture cannot be shown just now.', 'Keep it', 'Thank you']);
+      tv.press('Thank you');
+      expect(tv.sent().slice(2)).toEqual([{ t: 'card_action', cardId: 'photo-p1', action: PHOTO_ACTIONS.thanks }]);
+    }
+  });
+
+  it('takes the picture away when its address stops answering — one lives an hour — and says so calmly', () => {
+    const tv = television();
+    tv.home({});
+    tv.card(PHOTO());
+
+    tv.failPicture();
+
+    expect(tv.pictures()).toEqual([]);
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'The picture cannot be shown just now.', 'Keep it', 'Thank you']);
+    expect(tv.buttons()).toEqual(['Keep it', 'Thank you']);
+  });
+
+  it('is put away by either answer, and sends which', () => {
+    for (const [label, action] of [['Keep it', PHOTO_ACTIONS.keep], ['Thank you', PHOTO_ACTIONS.thanks]] as const) {
+      const tv = television();
+      tv.home({ light: 'on' });
+      tv.card(PHOTO());
+
+      tv.press(label);
+
+      expect(tv.sent().slice(2)).toEqual([{ t: 'card_action', cardId: 'photo-p1', action }]);
+      expect(tv.says()).toEqual(['No card currently shown.', 'Light on']);
+    }
+  });
+
+  it('is shown again when the server sends it back because her mantelpiece is full, with the line that says so', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(PHOTO());
+    tv.press('Keep it');
+
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
+
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
+    expect(tv.pictures()).toHaveLength(1);
+    expect(tv.sent().slice(2)).toEqual([{ t: 'card_action', cardId: 'photo-p1', action: 'keep' }, { t: 'card_shown', cardId: 'photo-p1' }]);
+  });
+
+  it('says its own two lines in Spanish, and the card’s words as the server sent them', () => {
+    const tv = television();
+    tv.home({ language: 'es' });
+
+    tv.card(PHOTO({ photoUrl: undefined, headline: 'Una foto de Sarah.' }));
+
+    expect(tv.says().slice(0, 3)).toEqual(['Una foto', 'Una foto de Sarah.', 'La foto no se puede mostrar ahora.']);
+  });
+});
+
+describe('the browser television — her mantelpiece', () => {
+  /** Connected, with things on her mantelpiece, and the pill pressed. */
+  const opened = (items: unknown[] | undefined, home: Record<string, unknown> = { light: 'on', mantel: 3 }) => {
+    const tv = television();
+    tv.home(home);
+    tv.press(home.language === 'es' ? 'Repisa' : 'Mantelpiece');
+    if (items) tv.control({ t: 'mantel', items });
+    return tv;
+  };
+
+  it('is offered on the home screen only when the home says she has kept something', () => {
+    const tv = television();
+
+    tv.home({ light: 'on' });
+    expect(tv.buttons()).toEqual(['Light on']);
+    tv.home({ light: 'on', mantel: 2 });
+    expect(tv.buttons()).toEqual(['Light on', 'Mantelpiece']);
+    tv.home({ light: 'on' });
+    expect(tv.buttons()).toEqual(['Light on']);
+  });
+
+  it('asks the server when it is opened, and waits with three dots until it answers', () => {
+    const tv = opened(undefined);
+
+    expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'mantel' }]);
+    expect(tv.says()).toEqual(['…', 'Back']);
+    expect(tv.pictures()).toEqual([]);
+  });
+
+  it('shows one picture at a time, who it is from and where it stands', () => {
+    const tv = opened([kept('p1'), kept('p2', 'Tom'), kept('p3')]);
+
+    expect(tv.pictures()).toEqual([{ src: 'https://pictures.example/p1.jpg', alt: 'A picture from Sarah' }]);
+    expect(tv.says()).toEqual(['From Sarah · 1 of 3', 'Previous', 'Next', 'Back']);
+
+    tv.press('Next');
+    expect(tv.pictures()[0]!.src).toBe('https://pictures.example/p2.jpg');
+    expect(tv.says()[0]).toBe('From Tom · 2 of 3');
+  });
+
+  it('stays at either end', () => {
+    const tv = opened([kept('p1'), kept('p2')]);
+
+    tv.press('Previous');
+    expect(tv.says()[0]).toBe('From Sarah · 1 of 2');
+    tv.press('Next');
+    tv.press('Next');
+    tv.press('Next');
+    expect(tv.says()[0]).toBe('From Sarah · 2 of 2');
+  });
+
+  it('opens a choice on the picture — "Leave it" first — and leaving it sends nothing', () => {
+    const tv = opened([kept('p1'), kept('p2')]);
+
+    tv.pressPicture();
+    expect(tv.buttons()).toEqual(['Leave it', 'Take it down']);
+    expect(tv.says()).toEqual(['From Sarah · 1 of 2', 'A picture from Sarah.', 'Nobody is told if you take it down.', 'Leave it', 'Take it down']);
+
+    tv.press('Leave it');
+    expect(tv.buttons()).toEqual(['Previous', 'Next', 'Back']);
+    expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'mantel' }]);
+  });
+
+  it('takes one down by its id, waits, and shows the mantelpiece as the server says it now stands', () => {
+    const tv = opened([kept('p1'), kept('p2'), kept('p3')]);
+    tv.press('Next');
+    tv.pressPicture();
+
+    tv.press('Take it down');
+
+    expect(tv.sent().slice(2)).toEqual([{ t: 'mantel_take_down', photoId: 'p2' }]);
+    expect(tv.says()).toEqual(['…', 'Back']);
+
+    tv.control({ t: 'mantel', items: [kept('p1'), kept('p3')] });
+    expect(tv.pictures()[0]!.src).toBe('https://pictures.example/p3.jpg');
+    expect(tv.says()[0]).toBe('From Sarah · 2 of 2');
+  });
+
+  it('goes back to the home screen when nothing is left on it, or the answer is an empty mantelpiece', () => {
+    const tv = opened([kept('p1')]);
+    tv.pressPicture();
+    tv.press('Take it down');
+
+    tv.control({ t: 'mantel', items: [] });
+    tv.home({ light: 'on' });
+
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on']);
+
+    const empty = opened([]);
+    expect(empty.says()).toEqual(['No card currently shown.', 'Light on', 'Mantelpiece']);
+  });
+
+  it('closes on Back, and stays open through a change to the rest of the home', () => {
+    const tv = opened([kept('p1')]);
+
+    tv.home({ light: 'out', mantel: 3 });
+    expect(tv.says()[0]).toBe('From Sarah · 1 of 1');
+
+    tv.press('Back');
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light out', 'Mantelpiece']);
+  });
+
+  it('reads the server’s answer as the contract does: what is well formed, in order, and no more than a mantelpiece holds', () => {
+    const tv = television();
+    const answers: unknown[] = [
+      [kept('p1'), { ...kept('p2'), url: 'http://pictures.example/p2.jpg' }, null, 'x', { photoId: 'p3' }, { ...kept('p4'), fromName: '' }, { ...kept('p5'), keptAt: 0 }, { ...kept('bad id!') }, kept('p6')],
+      Array.from({ length: MAX_MANTEL + 3 }, (_, i) => kept(`p${i}`)),
+      'none',
+      null,
+      {},
+    ];
+
+    for (const answer of answers) {
+      tv.evaluate(`globalThis.__answer = ${JSON.stringify(answer)}`);
+      expect(tv.evaluate('readMantelItems(globalThis.__answer)')).toEqual(readMantelItems(answer));
+    }
+    expect(tv.evaluate('MAX_MANTEL')).toBe(MAX_MANTEL);
+  });
+
+  it('says so calmly when a picture’s address has stopped answering, and asks the server again — once', () => {
+    const tv = opened([kept('p1'), kept('p2')]);
+
+    tv.failPicture();
+    expect(tv.pictures()).toEqual([]);
+    expect(tv.says()).toEqual(['The picture cannot be shown just now.', 'From Sarah · 1 of 2', 'Previous', 'Next', 'Back']);
+    expect(tv.sent().slice(2)).toEqual([{ t: 'mantel' }]);
+
+    // The next picture of the same answer fails too: it has been asked already.
+    tv.press('Next');
+    tv.failPicture();
+    expect(tv.sent().slice(2)).toEqual([{ t: 'mantel' }]);
+
+    // The new answer brings new addresses, and the picture is tried again.
+    tv.control({ t: 'mantel', items: [kept('p1'), { ...kept('p2'), url: 'https://pictures.example/p2.jpg?again=1' }] });
+    expect(tv.pictures()).toEqual([{ src: 'https://pictures.example/p2.jpg?again=1', alt: 'A picture from Sarah' }]);
+  });
+
+  it('gives way to a card: on this page every card is drawn as it arrives', () => {
+    const tv = opened([kept('p1')]);
+
+    tv.card(NOTE('See you on Sunday.'));
+
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    // And the mantelpiece is not what is underneath when the card is gone.
+    tv.control({ t: 'revoke', cardId: 'note-1' });
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on', 'Mantelpiece']);
+  });
+
+  it('keeps an answer that comes when the mantelpiece is not open off the screen', () => {
+    const tv = television();
+    tv.home({ light: 'on', mantel: 1 });
+
+    tv.control({ t: 'mantel', items: [kept('p1')] });
+
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on', 'Mantelpiece']);
+    expect(tv.pictures()).toEqual([]);
+  });
+
+  it('is in Spanish when her television is', () => {
+    const tv = opened([kept('p1'), kept('p2')], { mantel: 2, language: 'es' });
+
+    expect(tv.says()).toEqual(['De Sarah · 1 de 2', 'Anterior', 'Siguiente', 'Atrás']);
+    tv.pressPicture();
+    expect(tv.says().slice(1)).toEqual(['Una foto de Sarah.', 'Nadie se entera si la quita.', 'Dejarla', 'Quitarla']);
+  });
+
+  it('leaves a family member’s own television alone: nothing of the mantelpiece is in its part of the page', () => {
+    const script = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
+    const familyMode = script.slice(script.indexOf("/* --- A family member's own television"), script.indexOf('/* --- Telemetry'));
+
+    expect(familyMode).not.toMatch(/mantel|PHOTO/i);
+  });
+});
+
+/*
+ * Read to me (packages/contracts speech.ts) on the resident's television in
+ * the browser: the P key is its Play key. No sound is made here — an
+ * `Audio` is only ever an address, and none is fetched.
+ */
+describe('the browser television — read to me', () => {
+  const SPEECH = 'https://speech.example/tts/hh-1/abc.mp3?X-Amz-Signature=s';
+  /** Connected, with a note on screen. */
+  const withNote = (home: Record<string, unknown> = { light: 'on' }) => {
+    const tv = television();
+    tv.home(home);
+    tv.card(NOTE('See you on Sunday.'));
+    return tv;
+  };
+  const asked = (tv: ReturnType<typeof television>) => tv.sent().filter((event) => event.t === 'read');
+
+  it('asks for the card on screen when P is pressed, once, and waits for the answer', () => {
+    const tv = withNote();
+
+    tv.key('p');
+
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'note-1' }]);
+    expect(tv.sounds).toEqual([]);
+  });
+
+  it('takes the browser’s own Play/Pause key and a capital P for the same thing', () => {
+    for (const key of ['P', 'MediaPlayPause']) {
+      const tv = withNote();
+      tv.key(key);
+      expect(asked(tv), key).toHaveLength(1);
+    }
+  });
+
+  it('does nothing on P when no card is on screen, and nothing on any other key', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.key('p');
+
+    const note = withNote();
+    for (const key of ['Enter', 'ArrowRight', ' ', 'x', 'Escape']) note.key(key);
+
+    expect(asked(tv)).toEqual([]);
+    expect(asked(note)).toEqual([]);
+  });
+
+  it('plays the answer for that card, from its https address', () => {
+    const tv = withNote();
+    tv.key('p');
+
+    tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+    expect(tv.sounds.map((sound) => [sound.src, sound.played])).toEqual([[SPEECH, 1]]);
+  });
+
+  it('stops on P pressed again, and asks for nothing', () => {
+    const tv = withNote();
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+    tv.key('p');
+
+    expect(tv.sounds[0]!.paused).toBe(1);
+    expect(asked(tv)).toHaveLength(1);
+    // And P after that asks again.
+    tv.key('p');
+    expect(asked(tv)).toHaveLength(2);
+  });
+
+  it('plays nothing for an answer about another card, one it did not ask for, or one with no https address', () => {
+    const tv = withNote();
+    tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'door-9', url: SPEECH });
+    tv.control({ t: 'speech', cardId: 'note-1' });
+    expect(tv.sounds).toEqual([]);
+
+    for (const url of ['http://speech.example/a.mp3', 'javascript:alert(1)', 7]) {
+      const other = withNote();
+      other.key('p');
+      other.control({ t: 'speech', cardId: 'note-1', url });
+      expect(other.sounds, String(url)).toEqual([]);
+      // A quiet nothing: she can ask again.
+      other.key('p');
+      expect(asked(other)).toHaveLength(2);
+    }
+  });
+
+  it('is cut short when the card leaves the screen: another card comes, it is taken back, or it is answered', () => {
+    const ways: Record<string, (tv: ReturnType<typeof television>) => void> = {
+      'another card': (tv) => tv.card(LANGUAGE_CARD),
+      'taken back': (tv) => tv.control({ t: 'revoke', cardId: 'note-1' }),
+    };
+    for (const [way, out] of Object.entries(ways)) {
+      const tv = withNote();
+      tv.key('p');
+      tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+      out(tv);
+
+      expect(tv.sounds[0]!.paused, way).toBe(1);
+    }
+
+    const answered = television();
+    answered.home({});
+    answered.card(LANGUAGE_CARD);
+    answered.key('p');
+    answered.control({ t: 'speech', cardId: 'language-es', url: SPEECH });
+    answered.press('No, keep English');
+    expect(answered.sounds[0]!.paused).toBe(1);
+  });
+
+  it('goes on when the same card is drawn again', () => {
+    const tv = withNote();
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+    tv.card(NOTE('See you on Sunday.'));
+    tv.home({ light: 'out' });
+
+    expect(tv.sounds[0]!.paused).toBe(0);
+  });
+
+  it('is over when the reading ends or cannot be played, and P then asks again', () => {
+    for (const how of ['onended', 'onerror'] as const) {
+      const tv = withNote();
+      tv.key('p');
+      tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+      tv.sounds[0]![how]!();
+      tv.key('p');
+
+      expect(asked(tv), how).toHaveLength(2);
+    }
+  });
+
+  it('turns a film that is playing down for the voice, and puts it back exactly — when the reading ends, and when it is stopped', () => {
+    for (const out of ['ended', 'stopped'] as const) {
+      const tv = withNote();
+      tv.evaluate('film = { video: { volume: 0.8 }, layer: null, timer: 0, together: null }, true');
+      tv.key('p');
+      tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+      expect(tv.evaluate('film.video.volume'), out).toBe(0.8);
+
+      tv.sounds[0]!.onplaying!();
+      expect(tv.evaluate('film.video.volume'), out).toBe(0.3);
+
+      if (out === 'ended') tv.sounds[0]!.onended!();
+      else tv.key('p');
+      expect(tv.evaluate('film.video.volume'), out).toBe(0.8);
+      tv.evaluate('film = null, true');
+    }
+  });
+
+  it('marks every card with the key that reads it — a mark with no words, said in her language, that is not one of the card’s buttons', () => {
+    const tv = withNote();
+    expect(tv.marks()).toEqual(['Press P to hear this.']);
+    expect(tv.buttons()).toEqual([]);
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+
+    const spanish = withNote({ language: 'es' });
+    expect(spanish.marks()).toEqual(['Presione P para oír esto.']);
+
+    const none = television();
+    none.home({ light: 'on' });
+    expect(none.marks()).toEqual([]);
+  });
+
+  it('reads on a click on that mark, as on the key', () => {
+    const tv = withNote();
+
+    tv.pressMark();
+
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'note-1' }]);
+  });
+
+  it('leaves a family member’s own television alone: P is not its key, and nothing of reading is in its part of the page', () => {
+    const script = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
+    const familyMode = script.slice(script.indexOf("/* --- A family member's own television"), script.indexOf('/* --- Telemetry'));
+
+    expect(familyMode).not.toMatch(/toggleRead|stopRead|readHint|t: 'read'/);
+    expect(script).toMatch(/function residentKey\(event\) \{\s*if \(family\) return;/);
   });
 });
 
@@ -975,8 +1478,8 @@ describe('a note’s replies are its buttons — as on the television (apps/tv-v
 });
 
 describe('finishesCard — what a press does to the card, as the television’s own app decides it (cardActions.ts removesCard)', () => {
-  const PRESSES = ['reply_0', 'reply_1', 'dismiss', 'watch_live', 'hallway_chime', 'ask_family', 'seen', 'sharing', 'toggle', 'next', 'done', 'ring_me', 'say_hello', 'not_now', 'ok', 'allow', 'decline', 'tell_family', 'keep_private', 'accept', 'start', 'loved_it', 'right', 'wrong', ...Object.values(LANGUAGE_ACTIONS)];
-  const TYPES = ['DOOR', 'MESSAGE', 'WEEK', 'SHARING', 'CIRCLE', 'TELL', 'WATCH', 'LIGHT', 'REACH', 'VISIT', 'LANGUAGE'];
+  const PRESSES = ['reply_0', 'reply_1', 'dismiss', 'watch_live', 'hallway_chime', 'ask_family', 'seen', 'sharing', 'toggle', 'next', 'done', 'ring_me', 'say_hello', 'not_now', 'ok', 'allow', 'decline', 'tell_family', 'keep_private', 'accept', 'start', 'loved_it', 'right', 'wrong', ...Object.values(LANGUAGE_ACTIONS), ...Object.values(PHOTO_ACTIONS)];
+  const TYPES = ['DOOR', 'MESSAGE', 'WEEK', 'SHARING', 'CIRCLE', 'TELL', 'WATCH', 'LIGHT', 'REACH', 'VISIT', 'LANGUAGE', 'PHOTO'];
 
   it.each(TYPES)('agrees with it for every press on a %s card', (type) => {
     for (const press of PRESSES) {
@@ -990,6 +1493,10 @@ describe('finishesCard — what a press does to the card, as the television’s 
 
   it('finishes the question about her language on either answer: her yes and her no are both the whole of it', () => {
     for (const press of Object.values(LANGUAGE_ACTIONS)) expect(device.finishesCard!({ type: 'LANGUAGE', id: languageCardId('es') }, press)).toBe(true);
+  });
+
+  it('finishes a picture’s card on either answer: “Keep it” and “Thank you” both put it away', () => {
+    for (const press of Object.values(PHOTO_ACTIONS)) expect(device.finishesCard!({ type: 'PHOTO', id: photoCardId('p1') }, press)).toBe(true);
   });
 });
 
@@ -1177,5 +1684,209 @@ describe('the browser television — the cards it keeps, and her language', () =
 
     expect(tv.says()).toEqual(['No card currently shown.', 'Light on']);
     expect(tv.evaluate('keptCards')).toEqual([]);
+  });
+});
+
+/*
+ * Where three things meet on the resident's television in the browser: the
+ * cards it keeps until they are finished (keptCards), a picture from the
+ * family and her mantelpiece, and a card read aloud. Each is tested by
+ * itself above; here, what one does to another.
+ */
+describe('the browser television — a picture among the cards it keeps', () => {
+  const keptIds = (tv: ReturnType<typeof television>) => tv.evaluate('keptCards.map((queued) => queued.card.id)');
+
+  it('brings back the card under a picture she has answered, and shows the picture again over it when the server sends it back because her mantelpiece is full', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(NOTE('See you on Sunday.'));
+    tv.card(PHOTO());
+
+    tv.press('Keep it');
+    // Her answer finishes the picture's card; the note it covered is back, and said to be shown again.
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(keptIds(tv)).toEqual(['note-1']);
+
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
+
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
+    expect(keptIds(tv)).toEqual(['note-1', 'photo-p1']);
+    expect(tv.sent().slice(3)).toEqual([
+      { t: 'card_action', cardId: 'photo-p1', action: PHOTO_ACTIONS.keep },
+      { t: 'card_shown', cardId: 'note-1' },
+      { t: 'card_shown', cardId: 'photo-p1' },
+    ]);
+
+    // "Thank you" then puts it away for good, and the note is still there under it.
+    tv.press('Thank you');
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(keptIds(tv)).toEqual(['note-1']);
+  });
+
+  it('replaces the copy it keeps when a picture is sent again under the same id, and shows it as the newest — once', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(PHOTO());
+    tv.card(NOTE('See you on Sunday.'));
+    expect(keptIds(tv)).toEqual(['photo-p1', 'note-1']);
+
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
+
+    // One copy, the one with the line that says so, and it is the one on screen.
+    expect(keptIds(tv)).toEqual(['note-1', 'photo-p1']);
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
+    expect(tv.sent().slice(1)).toEqual([
+      { t: 'card_shown', cardId: 'photo-p1' },
+      { t: 'card_shown', cardId: 'note-1' },
+      { t: 'card_shown', cardId: 'photo-p1' },
+    ]);
+
+    // Sent once more while it is the card on screen: drawn again in place, and not said to be shown anew.
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
+    expect(keptIds(tv)).toEqual(['note-1', 'photo-p1']);
+    expect(tv.sent()).toHaveLength(4);
+  });
+
+  it('closes her mantelpiece for any card that arrives, and it is the card kept under that one — never the mantelpiece — that comes back', () => {
+    const tv = television();
+    tv.home({ light: 'on', mantel: 3 });
+    tv.press('Mantelpiece');
+    tv.control({ t: 'mantel', items: [kept('p1')] });
+
+    tv.card(NOTE('See you on Sunday.'));
+    tv.card(PHOTO());
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'Keep it', 'Thank you']);
+
+    tv.press('Thank you');
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+
+    tv.control({ t: 'revoke', cardId: 'note-1' });
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on', 'Mantelpiece']);
+    expect(keptIds(tv)).toEqual([]);
+  });
+
+  it('leaves her mantelpiece open for a card of a kind it does not know: nothing arrived that can be shown', () => {
+    const tv = television();
+    tv.home({ light: 'on', mantel: 3 });
+    tv.press('Mantelpiece');
+    tv.control({ t: 'mantel', items: [kept('p1')] });
+    const open = tv.says();
+
+    tv.card(queuedCard({ id: 'new-1', type: 'SOMETHING_NEW', headline: 'A new thing', actions: [] }));
+
+    expect(tv.says()).toEqual(open);
+    expect(keptIds(tv)).toEqual([]);
+  });
+});
+
+describe('the browser television — a reading, and the cards it keeps', () => {
+  const SPEECH = 'https://speech.example/tts/hh-1/abc.mp3?X-Amz-Signature=s';
+  const OTHER = 'https://speech.example/tts/hh-1/def.mp3?X-Amz-Signature=s';
+  const asked = (tv: ReturnType<typeof television>) => tv.sent().filter((event) => event.t === 'read');
+  /** Connected, with a note kept under the question about her language, and that question being read aloud. */
+  const readingOverANote = () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(NOTE('See you on Sunday.'));
+    tv.card(LANGUAGE_CARD);
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'language-es', url: SPEECH });
+    return tv;
+  };
+
+  it('is cut short when the card on screen is answered and the one kept under it comes back — which is not read unasked', () => {
+    const tv = readingOverANote();
+    tv.evaluate('film = { video: { volume: 0.8 }, layer: null, timer: 0, together: null }, true');
+    tv.sounds[0]!.onplaying!();
+    expect(tv.evaluate('film.video.volume')).toBe(0.3);
+
+    tv.press('No, keep English');
+
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.sounds[0]!.paused).toBe(1);
+    // The film's sound is put back exactly, and nothing is asked or played for the card that came back.
+    expect(tv.evaluate('film.video.volume')).toBe(0.8);
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'language-es' }]);
+    expect(tv.sounds).toHaveLength(1);
+  });
+
+  it('reads the card that is on screen after the queue brings one back: P asks for that card, once, and only its answer is played', () => {
+    const tv = readingOverANote();
+    tv.press('No, keep English');
+
+    tv.key('p');
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'language-es' }, { t: 'read', cardId: 'note-1' }]);
+
+    // An answer that comes late for the card she has put away is not played over this one.
+    tv.control({ t: 'speech', cardId: 'language-es', url: SPEECH });
+    expect(tv.sounds).toHaveLength(1);
+
+    tv.control({ t: 'speech', cardId: 'note-1', url: OTHER });
+    expect(tv.sounds.map((sound) => [sound.src, sound.played, sound.paused])).toEqual([[SPEECH, 1, 1], [OTHER, 1, 0]]);
+  });
+
+  it('is cut short when a card arrives over the one being read, and is not taken up again when that card is put away', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(NOTE('See you on Sunday.'));
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+    tv.card(PHOTO());
+    expect(tv.sounds[0]!.paused).toBe(1);
+
+    tv.press('Thank you');
+
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.sounds).toHaveLength(1);
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'note-1' }]);
+    // She can ask again, for the note that is back.
+    tv.key('p');
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'note-1' }, { t: 'read', cardId: 'note-1' }]);
+  });
+
+  it('goes on while a card kept underneath is changed or taken back, and stops when the one on screen is — the one under it then shows', () => {
+    const tv = readingOverANote();
+
+    tv.control({ t: 'patch', patch: { cardId: 'note-1', transcript: 'See you on Monday.' } });
+    expect(tv.sounds[0]!.paused).toBe(0);
+    expect(tv.says()[0]).toBe('English · español');
+
+    tv.control({ t: 'revoke', cardId: 'language-es' });
+    expect(tv.sounds[0]!.paused).toBe(1);
+    // The note, as the patch left it while it was covered.
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Monday.']);
+
+    const other = readingOverANote();
+    other.control({ t: 'revoke', cardId: 'note-1' });
+    expect(other.sounds[0]!.paused).toBe(0);
+    expect(other.evaluate('keptCards.map((queued) => queued.card.id)')).toEqual(['language-es']);
+  });
+
+  it('goes on through a picture sent again under the id of the one being read, with the line that says her mantelpiece is full', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(PHOTO());
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'photo-p1', url: SPEECH });
+
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
+
+    expect(tv.says()).toContain(MANTEL_FULL_NOTICE);
+    expect(tv.sounds[0]!.paused).toBe(0);
+  });
+});
+
+describe('device.html — what the page says about the resident’s television', () => {
+  const html = readFileSync(fileURLToPath(new URL('../device.html', import.meta.url)), 'utf8');
+  const count = (said: string): number => html.split(said).length - 1;
+
+  it('says each thing once: the cards it keeps, the key that reads a card, and the mantelpiece', () => {
+    expect(count('one still unanswered is kept')).toBe(1);
+    expect(count('Reloading the tab keeps its television')).toBe(1);
+    expect(count('<strong>P</strong> is the Play key')).toBe(1);
+    expect(count('On the mantelpiece, a click on the picture is OK')).toBe(1);
+    expect(count('As the resident’s television,')).toBe(2);
+    expect(count('class="muted remote-hint"')).toBe(4);
   });
 });

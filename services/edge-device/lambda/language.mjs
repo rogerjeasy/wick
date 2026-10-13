@@ -187,13 +187,21 @@ export function freeOfRow(item, language) {
  * And nothing here can cost her a card: a language that cannot be read, or
  * a phrasebook that fails, sends the English.
  *
+ * It is also the one place a picture's card is given its address
+ * (packages/contracts mantel.ts): minted now, for the television being
+ * answered, by `pictureAddress` — after the phrasebook has had the card, in
+ * every language, English included. An address that arrived with the card
+ * is never passed on; a card no address can be minted for goes without one.
+ * Nothing here stores anything, so the address is in no row.
+ *
  * @param {object} input
  * @param {(card: object) => Promise<boolean>} input.sendCard
  * @param {(control: object) => Promise<boolean>} input.sendControl
  * @param {() => Promise<string>} input.readLanguage  the household's language, from its row
  * @param {{ cardIn: Function, patchIn: Function, homeIn: Function }} input.phrasebook
+ * @param {(photoId: string) => string | undefined} [input.pictureAddress]  a short-lived address for one of this household's pictures (mantel.mjs)
  */
-export function inHerLanguage({ sendCard, sendControl, readLanguage, phrasebook, log = (line) => console.error(JSON.stringify(line)) }) {
+export function inHerLanguage({ sendCard, sendControl, readLanguage, phrasebook, pictureAddress, log = (line) => console.error(JSON.stringify(line)) }) {
   /** What this event knows of the household's language; nothing until it has to. */
   let known;
 
@@ -222,13 +230,48 @@ export function inHerLanguage({ sendCard, sendControl, readLanguage, phrasebook,
     }
   };
 
+  /** A picture's card with an address minted for this sending; every other card exactly as it is. */
+  const framed = (queued) => {
+    const card = queued?.card;
+    if (card?.type !== 'PHOTO') return queued;
+    let photoUrl;
+    try {
+      photoUrl = pictureAddress?.(card.photoId);
+    } catch (err) {
+      // Why, and never which picture.
+      log({ level: 'error', msg: 'picture_address_failed', reason: err?.name });
+    }
+    const minted = typeof photoUrl === 'string' && photoUrl.length > 0;
+    // Nothing to add and nothing to take away: the card as it was handed in.
+    if (!minted && !('photoUrl' in card)) return queued;
+    const words = Object.fromEntries(Object.entries(card).filter(([name]) => name !== 'photoUrl'));
+    return { ...queued, card: minted ? { ...words, photoUrl } : words };
+  };
+
+  /** The card in her language: the stored English as it is, or put through the phrasebook with the free text kept beside it. */
+  const worded = async (queued, from) => {
+    if (from.rows) learn(languageOfRows(from.rows));
+    const spoken = await language();
+    if (spoken === DEFAULT_LANGUAGE) return queued;
+    return said(queued, () => ({ ...queued, card: phrasebook.cardIn(spoken, queued.card, freeOfRow(from.row, spoken)) }));
+  };
+
   return {
     async sendCard(queued, from = {}) {
-      if (from.rows) learn(languageOfRows(from.rows));
-      const spoken = await language();
-      if (spoken === DEFAULT_LANGUAGE) return sendCard(queued);
-      return sendCard(said(queued, () => ({ ...queued, card: phrasebook.cardIn(spoken, queued.card, freeOfRow(from.row, spoken)) })));
+      return sendCard(framed(await worded(queued, from)));
     },
+
+    /**
+     * The card as her television shows it, without sending it: the very
+     * words `sendCard` would send. For "Read to me" (speech.mjs), which
+     * reads what is on her screen — so it is made here, by the same step,
+     * and cannot come to differ. No picture's address: a reading has no use
+     * for one.
+     */
+    cardAsShown: (queued, from = {}) => worded(queued, from),
+
+    /** The household's language, as this event knows it (read once, at most). */
+    language,
 
     async sendControl(control) {
       if (control?.t === 'home') {

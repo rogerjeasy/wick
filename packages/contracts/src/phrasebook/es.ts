@@ -46,6 +46,8 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
     b('Not now', 'Ahora no'),
     b('All right', 'De acuerdo'),
     b('OK', 'Entendido'),
+    // Under an answer to a request to ring (contracts reach.ts), and under a picture (contracts mantel.ts).
+    b('Thank you', 'Gracias'),
     // The door card's notice (agent askFamily.ts) and the Reach card's headline (contracts reach.ts, edge reach.mjs).
     s('There is nobody Wick can ask just now.', 'Ahora mismo no hay nadie a quien Wick pueda pedírselo.'),
     // The home screen and the Light card (contracts light.ts lookedInWords, edge light.mjs, mcp-server lookIn.ts).
@@ -69,7 +71,6 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
     b('Just say hello', 'Solo saludar'),
     b('No, not now', 'No, ahora no'),
     s('When you have allowed someone in your family circle, you can ask them here to ring you.', 'Cuando haya aceptado a alguien en su círculo familiar, podrá pedirle aquí que le llame.'),
-    b('Thank you', 'Gracias'),
     s('{first} says: I’m ringing you now.', '{first|cap} dice: Ya estoy llamando por teléfono.'),
     s('{first} says: I’ll ring you within the hour.', '{first|cap} dice: Llamaré por teléfono en menos de una hora.'),
     s('{first} says: Hello to you too.', '{first|cap} dice: Hola, igualmente.'),
@@ -112,6 +113,15 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
     s('{first} says: “I loved it.”', '{first|cap} dice: “Me encantó.”'),
     s('{first} says: “It was all right.”', '{first|cap} dice: “Estuvo bien.”'),
     s('{first} says: “Not really for me.”', '{first|cap} dice: “No fue muy de mi gusto.”'),
+  ],
+
+  // The mantelpiece: a picture the family sent, and what is said when there is no room to keep it.
+  'packages/contracts/src/mantel.ts': [
+    // "de parte de": from Sarah. "Una foto de Sarah" would as easily be a picture of her.
+    s('A picture from {first}.', 'Una foto de parte de {first}.'),
+    // The picture: "la foto".
+    b('Keep it', 'Guardarla'),
+    s('Your mantelpiece is full. Take one down, then you can keep this.', 'Su repisa está llena. Quite una foto, y entonces podrá guardar esta.'),
   ],
 
   'services/agent/src/agents/door/index.ts': [

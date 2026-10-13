@@ -299,3 +299,52 @@ describe('BreakController — calm points', () => {
     expect(plain.pickCard([messageQueued()], NOW + 61_000)).toBeUndefined();
   });
 });
+
+describe('BreakController — a card answered, and sent back under the same id', () => {
+  const SETTLED = NOW + 60_000;
+  const controller = () => {
+    const bc = new BreakController();
+    bc.setForeground(true, NOW);
+    return bc;
+  };
+
+  it('begins a new showing when the card comes back before the next look: her press ended the first', () => {
+    const bc = controller();
+    const queue = [messageQueued()];
+    expect(bc.noteShown(bc.pickCard(queue, SETTLED), queue, SETTLED)).toEqual({ began: queue[0] });
+
+    // She presses "Keep it": the card is put away at once, and the server sends it back within the second.
+    bc.answered('m1');
+    const back = [messageQueued({ shownCount: 1 })];
+
+    expect(bc.noteShown(bc.pickCard(back, SETTLED + 500), back, SETTLED + 500)).toEqual({ began: back[0] });
+  });
+
+  it('would otherwise take the card that came back for the one still showing, and never say it was shown', () => {
+    const bc = controller();
+    const queue = [messageQueued()];
+    bc.noteShown(bc.pickCard(queue, SETTLED), queue, SETTLED);
+
+    const back = [messageQueued({ shownCount: 1 })];
+
+    expect(bc.noteShown(bc.pickCard(back, SETTLED + 500), back, SETTLED + 500)).toEqual({});
+  });
+
+  it('leaves another card’s showing alone', () => {
+    const bc = controller();
+    const queue = [messageQueued()];
+    bc.noteShown(bc.pickCard(queue, SETTLED), queue, SETTLED);
+
+    bc.answered('something-else');
+
+    expect(bc.noteShown(bc.pickCard(queue, SETTLED + 500), queue, SETTLED + 500)).toEqual({});
+  });
+
+  it('still shows a card that comes back for the second time and lets it go to the waiting row after that', () => {
+    const bc = controller();
+    const twice = [messageQueued({ shownCount: 2 })];
+
+    expect(bc.pickCard(twice, SETTLED)).toBeUndefined();
+    expect(bc.waiting(twice, SETTLED)).toMatchObject({ id: 'm1' });
+  });
+});

@@ -85,6 +85,34 @@ const en = {
 
   // Under a film's title on the home screen.
   'programme.minutes': '{count} minutes',
+
+  // The mantelpiece (packages/contracts mantel.ts). The picture card's
+  // headline, its two buttons and its notice are the server's; these are the
+  // television's own.
+  /** The pill on the home screen that opens it. */
+  'home.mantel': 'Mantelpiece',
+  /** Spoken on that pill. */
+  'home.mantelLabel': 'Your mantelpiece. Press OK to see the pictures you have kept.',
+  'waiting.photo': 'A picture from {name} is waiting.',
+  /** In the picture's place when it has no address, or its address no longer answers. */
+  'photo.unavailable': 'The picture cannot be shown just now.',
+  /** Spoken for the picture itself. */
+  'photo.pictureLabel': 'A picture from {name}',
+  /** The one quiet line under a picture on the mantelpiece: "From Sarah · 2 of 5". */
+  'mantel.from': 'From {name}',
+  'mantel.place': '{place} of {count}',
+  /** Spoken for the picture in view on the mantelpiece. */
+  'mantel.viewLabel': 'A picture from {name}, {place} of {count}. Left and right move between pictures. Press OK to leave it or take it down.',
+  /** The choice OK opens. "Leave it" comes first and holds the focus. */
+  'mantel.choice': 'A picture from {name}.',
+  'mantel.choiceDetail': 'Nobody is told if you take it down.',
+  'mantel.leave': 'Leave it',
+  'mantel.takeDown': 'Take it down',
+
+  // Read to me (packages/contracts speech.ts). What the screen reader says for the mark of the Play key that
+  // stands on every card (read/ReadHint.tsx): the sentence itself is not written on a card, because no card
+  // has a line to spare for it at 32pt.
+  'read.hint': 'Press Play to hear this.',
 } as const;
 
 export type WordKey = keyof typeof en;
@@ -134,6 +162,24 @@ const es: Readonly<Record<WordKey, string>> = {
   'live.ended': 'La vista en vivo terminó.',
 
   'programme.minutes': '{count} minutos',
+
+  // "Repisa": the shelf where the family's pictures stand. "Foto", as she would say it.
+  'home.mantel': 'Repisa',
+  'home.mantelLabel': 'Su repisa. Presione OK para ver las fotos que guardó.',
+  'waiting.photo': 'Hay una foto de {name} esperando.',
+  'photo.unavailable': 'La foto no se puede mostrar ahora.',
+  'photo.pictureLabel': 'Una foto de {name}',
+  'mantel.from': 'De {name}',
+  'mantel.place': '{place} de {count}',
+  'mantel.viewLabel': 'Una foto de {name}, {place} de {count}. Izquierda y derecha cambian de foto. Presione OK para dejarla o quitarla.',
+  'mantel.choice': 'Una foto de {name}.',
+  // "La", for la foto: nothing here has to agree with whoever sent it.
+  'mantel.choiceDetail': 'Nadie se entera si la quita.',
+  'mantel.leave': 'Dejarla',
+  'mantel.takeDown': 'Quitarla',
+
+  // "Play": the key carries a mark and no word, and Play is what it is called.
+  'read.hint': 'Presione Play para oír esto.',
 };
 
 /** Every language's table. A language added to the contract does not compile until it has one. */

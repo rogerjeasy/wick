@@ -17,12 +17,15 @@
 import { evaluate, type Audience, type HouseholdPolicy } from '@wick/policy';
 import {
   DEFAULT_LANGUAGE,
+  MANTEL_URL_TTL_SEC,
   MAX_CARD_ACTIONS,
   PUSH_SK_PREFIX,
   cardIn,
   freeTextOf,
   homeIn,
+  isPhotoId,
   patchIn,
+  photoObjectKey,
   type Card,
   type CardPatch,
   type DeviceWireMessage,
@@ -39,6 +42,7 @@ import { DeleteItemCommand, DynamoDBClient, GetItemCommand, PutItemCommand, Quer
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import { IoTDataPlaneClient, PublishCommand } from '@aws-sdk/client-iot-data-plane';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import type { S3Client } from '@aws-sdk/client-s3';
 import type { TranslateClient, TranslateTextCommand } from '@aws-sdk/client-translate';
 import webpush from 'web-push';
 import { languageCache } from './language/householdLanguage.js';
@@ -374,6 +378,12 @@ export interface DeviceEgressDeps {
   /** One call to Amazon Translate (language/translate.ts). */
   readonly translate: TranslateCall;
   readonly phrasebook: Phrasebook;
+  /**
+   * A short-lived address for one of a household's pictures (packages/contracts
+   * mantel.ts) — or nothing, when one cannot be made. Without it a picture's
+   * card goes with its words and no picture.
+   */
+  readonly pictureAddress?: (householdId: string, photoId: string) => Promise<string | undefined>;
   readonly log?: (line: Record<string, unknown>) => void;
 }
 
@@ -398,13 +408,46 @@ function storedTranslations(value: AttributeValue | undefined): FreeText {
   }
 }
 
+/**
+ * A picture's card as it is kept: its id and Wick's words, and nothing else
+ * of the picture. An address is for a television, for an hour — it is never
+ * in a row, whoever handed the card in with one. Every other card is
+ * returned as it is, the same object.
+ */
+function asStored(card: QueuedCard): QueuedCard {
+  if (card.card.type !== 'PHOTO' || !('photoUrl' in card.card)) return card;
+  const { photoUrl: _never, ...words } = card.card;
+  return { ...card, card: words };
+}
+
 export function deviceEgress(deps: DeviceEgressDeps) {
-  const { table, db, push, languageOf, translate, phrasebook, log } = deps;
+  const { table, db, push, languageOf, translate, phrasebook, pictureAddress, log } = deps;
   const inHerLanguage = (free: FreeText, language: OtherLanguage, names: readonly string[]): Promise<FreeText> =>
     translateFree({ free, language, names, call: translate, ...(log ? { log } : {}) });
 
+  /**
+   * The last step before a card is pushed, in every language: a picture's
+   * card is given an address minted now (packages/contracts mantel.ts). It
+   * is added to what is pushed and to nothing else — not the row, not a bus
+   * event, not a log. A card no address can be minted for still goes, with
+   * its words. Every other card passes as it is, the same object.
+   */
+  const withPicture = async (queued: QueuedCard): Promise<QueuedCard> => {
+    if (queued.card.type !== 'PHOTO') return queued;
+    let photoUrl: string | undefined;
+    try {
+      photoUrl = await pictureAddress?.(queued.card.householdId, queued.card.photoId);
+    } catch (err) {
+      // Why, and never which picture or whose.
+      (log ?? ((line) => console.error(JSON.stringify(line))))({ level: 'error', msg: 'picture_address_failed', reason: (err as { name?: unknown } | undefined)?.name?.toString() ?? 'error' });
+    }
+    return photoUrl ? { ...queued, card: { ...queued.card, photoUrl } } : queued;
+  };
+
   return {
-    async sendToDevice(card: QueuedCard, _policy: HouseholdPolicy, serverOnly: ServerOnly = {}): Promise<void> {
+    async sendToDevice(handed: QueuedCard, _policy: HouseholdPolicy, serverOnly: ServerOnly = {}): Promise<void> {
+      // What is stored, translated and built on is the card without any address (asStored).
+      const card = asStored(handed);
       const householdId = card.card.householdId;
       const english = freeWords(phrasebook.freeTextOf(card.card));
 
@@ -420,14 +463,14 @@ export function deviceEgress(deps: DeviceEgressDeps) {
           db.send(new PutItemCommand({ TableName: table, Item: cardItem(card, serverOnly) })),
         ]);
         // No live device: reconcile delivers it the moment one is next seen.
-        await push(householdId, { kind: 'card', card: language === DEFAULT_LANGUAGE ? card : { ...card, card: phrasebook.cardIn(language, card.card) } });
+        await push(householdId, { kind: 'card', card: await withPicture(language === DEFAULT_LANGUAGE ? card : { ...card, card: phrasebook.cardIn(language, card.card) }) });
         return;
       }
 
       const language = await languageOf(householdId);
       if (language === DEFAULT_LANGUAGE) {
         await db.send(new PutItemCommand({ TableName: table, Item: cardItem(card, serverOnly) }));
-        await push(householdId, { kind: 'card', card });
+        await push(householdId, { kind: 'card', card: await withPicture(card) });
         return;
       }
 
@@ -436,7 +479,7 @@ export function deviceEgress(deps: DeviceEgressDeps) {
       // her language without asking anyone (edge-device language.mjs).
       const free = await inHerLanguage(english, language, knownNames(card.card));
       await db.send(new PutItemCommand({ TableName: table, Item: cardItem(card, serverOnly, { language, free }) }));
-      await push(householdId, { kind: 'card', card: { ...card, card: phrasebook.cardIn(language, card.card, free) } });
+      await push(householdId, { kind: 'card', card: await withPicture({ ...card, card: phrasebook.cardIn(language, card.card, free) }) });
     },
 
     async sendPatchToDevice(patch: CardPatch, householdId: string): Promise<void> {
@@ -532,6 +575,40 @@ const callTranslate: TranslateCall = async (input, signal) => {
   return loaded.client.send(new loaded.Command({ ...input, ...(input.Settings ? { Settings: { ...input.Settings } } : {}) }), { abortSignal: signal });
 };
 
+/**
+ * What is signed for a picture: a GET of its own object in the pictures'
+ * bucket (infra/photos.tf), good for an hour. Nothing, without a bucket or
+ * for an id that is not a picture's — the key is built from the card's own
+ * household and an id Wick made, and nothing in a card can name another
+ * object. Pure.
+ */
+export function pictureRequest(input: { readonly bucket: string | undefined; readonly householdId: string; readonly photoId: string }):
+  | { readonly Bucket: string; readonly Key: string; readonly expiresIn: number }
+  | undefined {
+  if (!input.bucket || !input.householdId || !isPhotoId(input.photoId)) return undefined;
+  return { Bucket: input.bucket, Key: photoObjectKey(input.householdId, input.photoId), expiresIn: MANTEL_URL_TTL_SEC };
+}
+
+let pictures: S3Client | undefined;
+
+/**
+ * A presigned address for one picture. The signer, like every transport, is
+ * reached from this module and no other (eslint.config.js): an address to a
+ * family's picture can only be made on its way to the resident's television.
+ * It is returned to the push and goes nowhere else.
+ *
+ * Loaded at the first picture, not before — nothing else pays for it. The
+ * address is good for no longer than the credentials that sign it: see
+ * infra/photos.tf for what that means for an hour's address.
+ */
+async function signPictureAddress(householdId: string, photoId: string): Promise<string | undefined> {
+  const request = pictureRequest({ bucket: process.env.PHOTOS_BUCKET, householdId, photoId });
+  if (!request) return undefined;
+  const [{ S3Client: Client, GetObjectCommand }, { getSignedUrl }] = await Promise.all([import('@aws-sdk/client-s3'), import('@aws-sdk/s3-request-presigner')]);
+  pictures ??= new Client({});
+  return getSignedUrl(pictures, new GetObjectCommand({ Bucket: request.Bucket, Key: request.Key }), { expiresIn: request.expiresIn });
+}
+
 const languages = languageCache({ read: (householdId, options) => loadHouseholdLanguage(ddb, TABLE, householdId, options) });
 
 const toDevices = deviceEgress({
@@ -541,6 +618,7 @@ const toDevices = deviceEgress({
   languageOf: languages.of,
   translate: callTranslate,
   phrasebook: { freeTextOf, cardIn, patchIn, homeIn },
+  pictureAddress: signPictureAddress,
 });
 
 /**

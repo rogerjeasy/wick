@@ -16,15 +16,22 @@ import {
   confirmWrite,
   describeCall,
   doorQuestionToAnnounce,
+  encodeWithin,
   follow,
   inviteLink,
   languageNews,
   languageOffer,
   madeWithKey,
   needsConfirmation,
+  newPhotoKey,
+  photoNews,
+  photoOffer,
+  photoRetry,
   presentCircle,
   presentConnect,
   presentPairLink,
+  presentPhotoComposer,
+  presentSentPictures,
   presentConnected,
   presentDoorbell,
   presentInvitation,
@@ -242,6 +249,7 @@ function signedOut(reason) {
   watchSeen.clear();
   closeSeat();
   stopLookingAtLanguage();
+  stopLookingAtPictures();
   $('light').hidden = true;
   // A link that ended by itself cannot tell the server; the browser still stops listening.
   void forgetThisBrowser({ tellServer: false });
@@ -259,12 +267,13 @@ function signedOut(reason) {
  *
  * Every request has a time limit that suits what it asks (surface.js
  * requestLimitFor): one that never answers fails in the app's own words
- * instead of leaving the field off and the page waiting.
+ * instead of leaving the field off and the page waiting. A picture being
+ * sent is given longer than a question, for the size of what it carries.
  */
 async function authorizedFetch(path, init = {}) {
   if (!link) throw new Error('Link Wick first.');
   const send = () =>
-    fetchWithin(requestLimitFor(path), `${link.serverUrl}${path}`, { ...init, headers: { ...(init.headers ?? {}), authorization: `Bearer ${link.accessToken}` } });
+    fetchWithin(requestLimitFor(path, init.method), `${link.serverUrl}${path}`, { ...init, headers: { ...(init.headers ?? {}), authorization: `Bearer ${link.accessToken}` } });
   let res = await send();
   if (res.status === 401 && (await refreshTokens())) res = await send();
   if (res.status === 401) {
@@ -1033,6 +1042,8 @@ document.addEventListener('visibilitychange', () => {
   void lookForReach();
   // And she may have answered about the language while this page was behind another.
   void languageCard?.look();
+  // Or seen a picture that was waiting on her television.
+  void pictureCard?.look();
 });
 
 // A nudge that arrives while this page is open (sw.js): look at once.
@@ -2269,6 +2280,281 @@ async function showLanguage() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The mantelpiece: a picture for her television. What is said is decided in
+// surface.js (presentPhotoComposer, presentSentPictures, photoNews), and so
+// is how a picture is made small enough (encodeWithin); the server decides
+// who may send and what is sent on (POST and GET /api/photos).
+//
+// The file that is chosen never leaves this page. It is drawn onto a canvas
+// here and saved again as a JPEG, and that new picture is what is shown
+// before sending and what is sent: nothing the camera wrote into the file
+// goes with it.
+// ---------------------------------------------------------------------------
+
+/** As often as the door is looked at: her press is one press, and may be hours away. */
+const PICTURE_LOOK_MS = 5000;
+/** The latest picture card on the page — the only one that goes on looking: `{ turn, timer, busy, look, stop }`. */
+let pictureCard = null;
+
+function stopLookingAtPictures() {
+  if (pictureCard && pictureCard.timer !== null) clearInterval(pictureCard.timer);
+  if (pictureCard) pictureCard.timer = null;
+}
+
+/** Opens a chosen file as a picture, the right way up, with its own width and height — or throws. */
+async function openPicture(chosenFile) {
+  if ('createImageBitmap' in window) {
+    try {
+      // Turned as the camera held it, so that the turning is in the picture and not in what the camera wrote beside it.
+      const bitmap = await createImageBitmap(chosenFile, { imageOrientation: 'from-image' });
+      return { source: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close() };
+    } catch {
+      // A kind of picture this cannot open that way: tried the other way below.
+    }
+  }
+  const url = URL.createObjectURL(chosenFile);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    return { source: image, width: image.naturalWidth, height: image.naturalHeight, close: () => {} };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** Puts the card under a turn: choosing, seeing, sending, and how the pictures already sent stand. */
+function addPictureCard(turn) {
+  const words = presentPhotoComposer(me);
+  const { card, body } = plainCard(words.title, words.footnote);
+  card.classList.add('picture');
+
+  const chooseLabel = el('label', undefined, words.choose);
+  const file = document.createElement('input');
+  file.type = 'file';
+  file.accept = 'image/*';
+  chooseLabel.appendChild(file);
+
+  const preview = el('img', 'picture-preview');
+  preview.alt = words.preview;
+  preview.hidden = true;
+
+  // What happens to the picture, said as it happens, in one live region; and what went wrong, in the alert.
+  const line = el('p', 'watch-status');
+  line.setAttribute('role', 'status');
+  line.setAttribute('aria-live', 'polite');
+  const problem = el('p', 'problem');
+  problem.setAttribute('role', 'alert');
+
+  const actions = el('div', 'actions');
+  const send = el('button', 'btn final', words.confirm);
+  send.type = 'button';
+  send.disabled = true;
+  const cancel = el('button', 'btn quiet', words.cancel);
+  cancel.type = 'button';
+  actions.append(send, cancel);
+
+  const sentTitle = el('p', 'empty', words.sentTitle);
+  const sentRows = el('ul', 'rows');
+  sentTitle.hidden = true;
+  sentRows.hidden = true;
+
+  body.append(chooseLabel, preview, el('p', 'empty', words.privacy), line, actions, problem, sentTitle, sentRows);
+  turn.appendChild(card);
+
+  // A card opened earlier stops looking: one card on the page is kept true, and it is this one.
+  stopLookingAtPictures();
+  const state = { turn, timer: null, busy: false, list: null, look: () => look(), stop: () => forget() };
+  pictureCard = state;
+
+  /** The picture as it will be sent: the blob the canvas made, its key, and the address the preview shows it from. */
+  let chosen = null;
+  /** Which choosing is the current one: a slow one that finishes after a newer has started is dropped. */
+  let choosing = 0;
+
+  function forget() {
+    if (chosen) URL.revokeObjectURL(chosen.url);
+    chosen = null;
+    preview.hidden = true;
+    preview.removeAttribute('src');
+    send.disabled = true;
+    file.value = '';
+  }
+
+  file.addEventListener('change', async () => {
+    const picked = file.files?.[0];
+    const mine = (choosing += 1);
+    if (chosen) URL.revokeObjectURL(chosen.url);
+    chosen = null;
+    preview.hidden = true;
+    send.disabled = true;
+    problem.textContent = '';
+    if (!picked) return void (line.textContent = '');
+    line.textContent = words.preparing;
+
+    let opened;
+    try {
+      opened = await openPicture(picked);
+    } catch {
+      if (mine === choosing) {
+        line.textContent = '';
+        problem.textContent = words.unreadable;
+      }
+      return;
+    }
+    // Drawn again, no larger than a television shows, as a new JPEG: small enough to send, and carrying nothing but the picture.
+    const canvas = document.createElement('canvas');
+    const made = await encodeWithin(
+      (width, height, quality) =>
+        new Promise((resolve) => {
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext('2d').drawImage(opened.source, 0, 0, width, height);
+          canvas.toBlob(resolve, 'image/jpeg', quality);
+        }),
+      opened,
+    ).catch(() => null);
+    opened.close();
+    if (mine !== choosing) return;
+    if (!made) {
+      line.textContent = '';
+      problem.textContent = words.tooLarge;
+      return;
+    }
+    chosen = { blob: made.blob, key: newPhotoKey(crypto.getRandomValues(new Uint8Array(16))), url: URL.createObjectURL(made.blob) };
+    preview.src = chosen.url;
+    preview.hidden = false;
+    line.textContent = words.ready;
+    send.disabled = false;
+    send.focus();
+  });
+
+  send.addEventListener('click', async () => {
+    if (!chosen || state.busy) return;
+    state.busy = true;
+    send.disabled = true;
+    file.disabled = true;
+    problem.textContent = '';
+    line.textContent = words.sending;
+    let again = true;
+    try {
+      const res = await authorizedFetch('/api/photos', {
+        method: 'POST',
+        headers: { 'content-type': 'image/jpeg', 'idempotency-key': chosen.key },
+        body: chosen.blob,
+      });
+      const answer = await res.json().catch(() => ({}));
+      if (res.ok && answer.sent === true) {
+        // Sent: the picture is put away here, and the list below says how it stands.
+        forget();
+        line.textContent = answer.say ?? '';
+        if (answer.say) speak(answer.say);
+        again = false;
+        await refresh({ quietly: true });
+      } else {
+        line.textContent = '';
+        problem.textContent = answer.message ?? (res.status === 404 ? words.unavailable : words.unreachable);
+        const retry = photoRetry(answer.error);
+        again = retry.again;
+        if (retry.newKey && chosen) chosen.key = newPhotoKey(crypto.getRandomValues(new Uint8Array(16)));
+      }
+    } catch (err) {
+      // No answer at all. The same key is kept: if the first try did arrive, a second sends nothing again.
+      line.textContent = '';
+      problem.textContent = me ? words.unreachable : err.message;
+    }
+    state.busy = false;
+    file.disabled = false;
+    send.disabled = !chosen || !again;
+    // Back to where the next thing is done: sending again, or choosing a picture.
+    (send.disabled ? file : send).focus();
+  });
+
+  cancel.addEventListener('click', () => {
+    forget();
+    if (state.timer !== null) clearInterval(state.timer);
+    state.timer = null;
+    if (pictureCard === state) pictureCard = null;
+    turn.remove();
+    $('ask-input').focus();
+  });
+
+  /** Draws the pictures already sent, and keeps looking only while one is still waiting on her television. */
+  function draw(answer) {
+    state.list = answer;
+    const shown = presentSentPictures(answer, formatTime);
+    sentRows.replaceChildren(...shown.rows.map((row) => {
+      const li = el('li', 'row');
+      li.append(el('span', 'primary', row.primary), el('span', 'secondary', row.secondary));
+      return li;
+    }));
+    sentTitle.hidden = shown.rows.length === 0;
+    sentRows.hidden = shown.rows.length === 0;
+    if (shown.waiting && pictureCard === state) {
+      if (state.timer === null) state.timer = setInterval(() => void look(), PICTURE_LOOK_MS);
+    } else if (state.timer !== null) {
+      clearInterval(state.timer);
+      state.timer = null;
+    }
+  }
+
+  /** Reads the list. `quietly`: drawn without anything being said about it (it was just sent from here). */
+  async function refresh({ quietly = false } = {}) {
+    try {
+      const answer = await api('/api/photos');
+      if (pictureCard !== state && state.list !== null) return;
+      const news = state.list && !quietly ? photoNews(state.list, answer) : null;
+      draw(answer);
+      if (news?.say) {
+        line.textContent = news.say;
+        speak(news.say);
+      }
+    } catch (err) {
+      // Refused: she has stopped allowing this person. The card says so, sends nothing more and stops looking.
+      if (err.status === 403) {
+        if (state.timer !== null) clearInterval(state.timer);
+        state.timer = null;
+        forget();
+        file.disabled = true;
+        line.textContent = err.message;
+      }
+      // Any other look that failed is tried again; nothing is said about it.
+    }
+  }
+
+  /** Has she seen one? Asked of the server, which says again on every look who may know (INV-9). */
+  async function look() {
+    // No longer the latest card, gone from the page, or signed out: this card has stopped being kept true.
+    if (pictureCard !== state || !turn.isConnected || !me) {
+      if (state.timer !== null) clearInterval(state.timer);
+      state.timer = null;
+      return;
+    }
+    // Not behind another tab, not across a sending, and not once there is nothing left to wait for.
+    if (document.hidden || state.busy || state.timer === null) return;
+    await refresh();
+  }
+
+  void refresh({ quietly: true });
+  file.focus();
+}
+
+async function showPictures() {
+  const turn = addThinking();
+  try {
+    me = await api('/api/me');
+    // A neighbour never sees it, and nobody she has not allowed does: for them the server is not even asked.
+    const offer = photoOffer(me);
+    if (!offer.offered) return void fillAssistantTurn(turn, { say: offer.say, card: null, tone: offer.tone });
+    fillAssistantTurn(turn, { say: presentPhotoComposer(me).say, card: null, tone: 'answer' });
+    addPictureCard(turn);
+    scrollToEnd();
+  } catch (err) {
+    fillAssistantTurn(turn, { say: err.message, card: null, tone: err.status === 403 ? 'waiting' : 'error' });
+  }
+}
+
 async function showCircle() {
   const turn = addThinking();
   try {
@@ -2331,6 +2617,7 @@ function answerByRules(text) {
   if (route.kind === 'connect') return addConnectTelevision({ wanted: route.as });
   if (route.kind === 'doorbell') return void showDoorbell();
   if (route.kind === 'language') return void showLanguage();
+  if (route.kind === 'picture') return void showPictures();
   if (route.kind === 'notifications') return void showNotifications();
   assistantSays({ say: HELP_TEXT, tone: 'answer' });
 }
@@ -2350,6 +2637,8 @@ async function handleUtterance(text) {
   if (routeUtterance(text).kind === 'doorbell') return void showDoorbell();
   // And so is the language her television speaks: the organiser asks here, and she answers there.
   if (routeUtterance(text).kind === 'language') return void showLanguage();
+  // And so is a picture for her television: a picture is a file, and no assistant can be handed one.
+  if (routeUtterance(text).kind === 'picture') return void showPictures();
   // And so are this browser's notifications.
   if (routeUtterance(text).kind === 'notifications') return void showNotifications();
   if (noAssistant) return answerByRules(text);

@@ -37,6 +37,9 @@ export function waitingLine(queued: QueuedCard, language: HouseholdLanguage = DE
     // the one she does not read, and this line is how she finds the card.
     case 'LANGUAGE':
       return card.headline;
+    // Who it is from, and nothing of the picture: the home screen can be read by anyone in the room.
+    case 'PHOTO':
+      return say('waiting.photo', { name: card.fromName });
     // What was said about a request of her own (home/reach.ts): the card's own sentence.
     case 'REACH':
       return card.headline;

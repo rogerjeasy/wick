@@ -98,6 +98,7 @@ export const SUGGESTIONS = [
   { label: 'What can I see?', utterance: 'What can I see about Mum?' },
   { label: 'Family circle', utterance: 'Who is in the family circle?' },
   { label: 'Television language', utterance: "What language is Mum's television in?" },
+  { label: 'Send a picture', utterance: 'Send Mum a picture' },
 ];
 
 const tool = (name, args = {}) => ({ kind: 'tool', tool: name, args });
@@ -177,6 +178,17 @@ export function routeUtterance(text, now = Date.now()) {
     !/\bnote\b|\bmessage\b/.test(t) &&
     !NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said))
   ) return { kind: 'language' };
+
+  // A picture for her television — sending one, or asking after one sent — is
+  // the app's own business too: a picture is a file, and no tool can be handed
+  // one. A note that mentions a picture is still a note, the picture from the
+  // door is the door's, and a film is a film.
+  if (
+    /\b(pictures?|photos?|photographs?)\b/.test(t) &&
+    !aboutAFilm &&
+    !/\bdoor\b|\bnote\b|\bmessage\b/.test(t) &&
+    !NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said))
+  ) return { kind: 'picture' };
 
   // "Ask Sarah to look": the resident's question about who is at the door.
   // Narrow on purpose — "did anyone come to the door today" is the day's list.
@@ -326,7 +338,7 @@ export function suggestionsFor(listing) {
 export const HELP_TEXT =
   'I can tell you how the week has been, what happened today, whether Maria came, whether her visits were confirmed, whether anything is different, ' +
   'put a note on the television, tell you if there is a reply, show what you are able to see, ' +
-  'open the family circle, or show which language the television speaks.';
+  'send a picture to the television, open the family circle, or show which language the television speaks.';
 
 const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 const count = (n) => NUMBER_WORDS[n] ?? String(n);
@@ -1118,6 +1130,7 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (toolName === 'add_regular_visitor' && parsed.added === true) return presentRegularVisitor(parsed);
   if (toolName === 'send_note_to_tv' && parsed.sent === true) return presentNoteSent(context, parsed);
   if (toolName === 'get_replies' && Array.isArray(parsed.notes)) return presentReplies(parsed, formatTime);
+  if (toolName === 'get_pictures' && typeof parsed.summary === 'string' && Array.isArray(parsed.pictures)) return presentPictures(parsed, formatTime);
   if (toolName === 'get_resident_shared_view' && Array.isArray(parsed.sharedWithFamily)) return presentSharedView(parsed);
   if (toolName === 'get_door_request' && typeof parsed.requestId === 'string' && typeof parsed.state === 'string') return presentDoorRequest(parsed, formatTime);
   if (toolName === 'answer_door_request' && parsed.shown === true) {
@@ -1199,6 +1212,7 @@ export function describeCall(toolName, args = {}) {
     case 'did_visitor_come': return `Checked ${dayAsked(args)}’s visits`;
     case 'get_visits': return 'Looked at the visits';
     case 'get_replies': return 'Looked for a reply';
+    case 'get_pictures': return 'Looked at your pictures';
     case 'get_resident_shared_view': return 'Checked what is shared';
     case 'send_note_to_tv': return 'Put a note on the television';
     case 'expect_visit': return 'Told the door';
@@ -1886,6 +1900,208 @@ export function languageNews(before, after, resident) {
 }
 
 // ---------------------------------------------------------------------------
+// The mantelpiece: a picture for her television. The app's own business
+// with the Wick server (POST and GET /api/photos), not a tool — a picture
+// is a file, and a model cannot hand one over.
+//
+// What leaves this page is never the file that was chosen. It is drawn
+// again here, no larger than a television shows, and saved as a new JPEG:
+// that is what makes it small enough to send, and it is also what leaves
+// behind everything the camera wrote into the file — where it was taken,
+// and when.
+//
+// And what comes back is one thing: that she has seen it. Whether she kept
+// it is hers; this page is not told, and has nothing to show of it.
+// ---------------------------------------------------------------------------
+
+/**
+ * The largest picture the server takes, and the longest side a television
+ * has any use for. The server's own numbers (packages/contracts mantel.ts),
+ * copied because this page has no build step, and held equal by a test.
+ */
+export const MAX_PHOTO_BYTES = 1_500_000;
+export const PHOTO_MAX_EDGE_PX = 1920;
+
+/** The qualities a picture is tried at, best first, before it is made smaller instead. */
+const PHOTO_QUALITIES = [0.86, 0.78, 0.7, 0.6, 0.5];
+/** How much smaller each further try is, and the longest side below which it is no longer worth sending. */
+const PHOTO_SHRINK = 0.8;
+const PHOTO_MIN_EDGE_PX = 640;
+
+/**
+ * Who the card is for: the family she has allowed, the organiser among
+ * them. Never a neighbour, who sends nothing; and nobody she has not
+ * allowed — an organiser still waiting included. They are told what the
+ * server would tell them (INV-9), without it being asked.
+ *
+ * @param me  GET /api/me
+ */
+export function photoOffer(me) {
+  const resident = me.household.residentName;
+  const { role, status } = me.membership;
+  if (role === 'neighbour') return { offered: false, say: 'A neighbour cannot send a picture.', tone: 'answer' };
+  if (status === 'allowed') return { offered: true };
+  if (status === 'declined') return { offered: false, say: `${resident} chose not to share this with you.`, tone: 'private' };
+  if (status === 'removed') return { offered: false, say: 'You are no longer part of this family circle.', tone: 'private' };
+  return {
+    offered: false,
+    say: `${resident} hasn’t allowed this yet. A card is waiting on the television, and it only takes one press.`,
+    tone: 'waiting',
+  };
+}
+
+/**
+ * Every word the card says for itself. What the server says — that it is on
+ * its way, or why it was not sent — is said as the server said it.
+ *
+ * @param me  GET /api/me
+ */
+export function presentPhotoComposer(me) {
+  const resident = me.household.residentName;
+  return {
+    say: `Choose a picture for ${resident}’s television.`,
+    title: `Send a picture to ${resident}’s television`,
+    choose: 'Choose a picture',
+    preview: 'The picture as it will be sent',
+    privacy: 'Wick sends only the picture itself — not where or when it was taken.',
+    footnote: 'It arrives at a quiet moment. She can keep it or simply thank you. You are told only that she has seen it.',
+    confirm: 'Send it to her television',
+    cancel: 'Not now',
+    preparing: 'Getting the picture ready…',
+    ready: 'This is the picture as it will be sent.',
+    sending: `Sending it to ${resident}’s television…`,
+    unreadable: 'This browser cannot open that file as a picture. Choose another.',
+    tooLarge: 'That picture could not be made small enough to send. Choose another.',
+    unreachable: 'The picture could not be sent just now. Check the connection, and press send again: it will only be sent once.',
+    // Said against a Wick server from before this: the page is published by itself, and may be the newer of the two.
+    unavailable: 'This Wick cannot send pictures yet.',
+    sentTitle: 'Pictures you have sent',
+  };
+}
+
+/**
+ * The size a picture is drawn at: its longest side no more than a
+ * television shows, its shape kept, and never larger than it was. Null for
+ * a size that is not one.
+ */
+export function photoFit(width, height, maxEdge = PHOTO_MAX_EDGE_PX) {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  const scale = Math.min(1, maxEdge / Math.max(width, height));
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+/**
+ * Draws a picture again until it is small enough to send: at each size, the
+ * qualities from best to least; then a smaller size, and the qualities
+ * again. Null when nothing fits before the picture would be too small to be
+ * worth a television — or when what comes back is not a JPEG at all.
+ *
+ * `encode(width, height, quality)` is the canvas (main.js): it draws the
+ * picture at that size and hands back the JPEG, or nothing.
+ *
+ * @param {(width: number, height: number, quality: number) => Promise<{size: number, type: string} | null>} encode
+ * @param {{width: number, height: number}} picture  the picture's own size
+ * @param {{maxBytes?: number, maxEdge?: number}} [limits]
+ */
+export async function encodeWithin(encode, picture, { maxBytes = MAX_PHOTO_BYTES, maxEdge = PHOTO_MAX_EDGE_PX } = {}) {
+  let size = photoFit(picture.width, picture.height, maxEdge);
+  while (size) {
+    for (const quality of PHOTO_QUALITIES) {
+      const blob = await encode(size.width, size.height, quality);
+      // A browser that cannot make a JPEG hands back something else, or nothing: that is not sent.
+      if (!blob || blob.type !== 'image/jpeg') return null;
+      if (blob.size <= maxBytes) return { blob, width: size.width, height: size.height, quality };
+    }
+    const edge = Math.floor(Math.max(size.width, size.height) * PHOTO_SHRINK);
+    if (edge < PHOTO_MIN_EDGE_PX) return null;
+    size = photoFit(size.width, size.height, edge);
+  }
+  return null;
+}
+
+/**
+ * The id the app makes for one picture (the `Idempotency-Key` header), so
+ * that pressing send twice, or sending again after a lost connection, sends
+ * it once. Sixteen random bytes, written as the server expects an id.
+ *
+ * @param {Uint8Array} random  from crypto.getRandomValues
+ */
+export function newPhotoKey(random) {
+  return Array.from(random, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** Refusals after which sending the same picture again would be answered the same way: another picture, or another day. */
+const PHOTO_REFUSALS_THAT_STAND = new Set([
+  'not_sendable', 'too_many_today', 'too_many_tries', 'too_large', 'not_a_jpeg', 'not_allowed_yet', 'not_for_a_neighbour', 'no_television', 'photos_unavailable',
+]);
+
+/**
+ * What pressing send again can do, after the server's answer `code` (none
+ * when there was no answer at all). Where a first try may have got
+ * somewhere, the same key is kept: it is what makes a second try safe.
+ * Where the server would not have this key, a new one is made.
+ */
+export function photoRetry(code) {
+  if (PHOTO_REFUSALS_THAT_STAND.has(code)) return { again: false, newKey: false };
+  return { again: true, newKey: code === 'key_in_use' || code === 'bad_key' };
+}
+
+const isSentPicture = (photo) =>
+  photo !== null && typeof photo === 'object' && typeof photo.photoId === 'string' && Number.isFinite(photo.sentAt) && typeof photo.seen === 'boolean' && typeof photo.say === 'string';
+
+/**
+ * The pictures the person sent, as the server lists them (GET /api/photos):
+ * when each was sent, and the server's own sentence for how it stands.
+ * Nothing else is shown, whatever else an answer carried.
+ *
+ * @param {{photos?: unknown[]} | null} answer
+ * @param {(atMs: number) => string} formatTime
+ */
+export function presentSentPictures(answer, formatTime = defaultFormatTime) {
+  const photos = (Array.isArray(answer?.photos) ? answer.photos : []).filter(isSentPicture);
+  return {
+    rows: photos.map((photo) => ({ photoId: photo.photoId, primary: `Sent ${formatTime(photo.sentAt)}`, secondary: photo.say, seen: photo.seen })),
+    // One is still waiting on her television: the card keeps looking.
+    waiting: photos.some((photo) => !photo.seen),
+  };
+}
+
+/**
+ * What the card says when it looks again and the list has changed. Null
+ * while it has not. A picture that was waiting and has been seen is said in
+ * the server's own sentence — the one thing there is to say. Any other
+ * change is drawn, and nothing is said.
+ *
+ * @param before  GET /api/photos, as the list was drawn
+ * @param after   GET /api/photos, now
+ */
+export function photoNews(before, after) {
+  const was = (Array.isArray(before?.photos) ? before.photos : []).filter(isSentPicture);
+  const now = (Array.isArray(after?.photos) ? after.photos : []).filter(isSentPicture);
+  const key = (photos) => photos.map((photo) => `${photo.photoId}:${photo.seen}`).join(',');
+  if (key(was) === key(now)) return null;
+  const waiting = new Set(was.filter((photo) => !photo.seen).map((photo) => photo.photoId));
+  const seen = now.find((photo) => photo.seen && waiting.has(photo.photoId));
+  return { say: seen ? seen.say : '' };
+}
+
+/** get_pictures, when an assistant asks on the person's behalf: the server's summary, and each picture by when it was sent. */
+function presentPictures(answer, formatTime) {
+  return {
+    say: answer.summary,
+    tone: 'answer',
+    card: {
+      kind: 'list',
+      title: 'Pictures you have sent',
+      meta: '',
+      items: answer.pictures
+        .filter((picture) => picture && Number.isFinite(picture.sentAt) && typeof picture.say === 'string')
+        .map((picture) => ({ primary: `Sent ${formatTime(picture.sentAt)}`, secondary: picture.say })),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Waiting for the Wick server. A request that never answers must not leave
 // the app waiting for ever — the field off, a button disabled, "thinking"
 // on the screen: each is given up after a time that suits what was asked,
@@ -1904,16 +2120,28 @@ export function languageNews(before, after, resident) {
  *     twenty seconds for it (services/mcp-server/src/assistant/bedrock.ts
  *     STEP_TIMEOUT_MS) and then answers that there is nobody to ask; the page
  *     outwaits that, so it never gives up on an answer that is about to come.
+ *   - `upload`: a picture on its way to her television (POST /api/photos).
+ *     It carries up to MAX_PHOTO_BYTES, and on a slow connection that alone
+ *     takes longer than the fifteen seconds a table read is given: a minute.
+ *     Looking at the pictures already sent (GET) is the app's ordinary
+ *     business, and waits as long as that does.
  */
-export const REQUEST_LIMITS_MS = { api: 15_000, tool: 20_000, assistant: 30_000 };
+export const REQUEST_LIMITS_MS = { api: 15_000, tool: 20_000, assistant: 30_000, upload: 60_000 };
 
 /** Said when a request was given up. The app's own sentence: the server said nothing. */
 export const NO_ANSWER_TEXT = 'Wick did not answer in time. Try again in a moment.';
 
-/** The limit for a request, from where on the server it is going. */
-export function requestLimitFor(path) {
+/**
+ * The limit for a request, from where on the server it is going — and, for
+ * a picture, from whether it is being sent or only looked for.
+ *
+ * @param {string} path
+ * @param {string} [method]  as `fetch` takes it; GET when none is given
+ */
+export function requestLimitFor(path, method = 'GET') {
   if (path.startsWith('/assistant/')) return REQUEST_LIMITS_MS.assistant;
   if (path === '/mcp') return REQUEST_LIMITS_MS.tool;
+  if (path === '/api/photos' && String(method).toUpperCase() === 'POST') return REQUEST_LIMITS_MS.upload;
   return REQUEST_LIMITS_MS.api;
 }
 

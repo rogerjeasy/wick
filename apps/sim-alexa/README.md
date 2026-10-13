@@ -49,14 +49,14 @@ type scale), that:
    HTTP, spec 2025-11-25, after a real OAuth 2.1 link — no shortcuts, no direct
    database reads;
 2. takes a question from a suggestion chip or the text field and lets a
-   **model choose** among Wick's twenty-one tools (`get_week_narrative`,
+   **model choose** among Wick's twenty-two tools (`get_week_narrative`,
    `get_today`, `get_whats_different`, `did_visitor_come`, `get_visits`,
    `list_regular_visitors`, `add_regular_visitor`, `expect_visit`,
    `send_note_to_tv`, `get_replies`, `get_resident_shared_view`,
    `get_door_request`, `answer_door_request`, `invite_to_watch`,
    `get_watch_together`, `join_watch_together`, `answer_watch_together`,
    `withdraw_watch_invitation`, `get_light`, `get_reach_request`,
-   `answer_reach_request`). The model
+   `answer_reach_request`, `get_pictures`). The model
    runs on the Wick server (`services/mcp-server/src/assistant`, Bedrock
    Converse) and only decides: **this page makes every call itself, over
    MCP, with the signed-in person's own token**, so the model can reach
