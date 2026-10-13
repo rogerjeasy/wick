@@ -225,6 +225,9 @@ resource "aws_apprunner_service" "mcp_server" {
             # (infra/edge.tf household_link). Unset, the family app is told
             # the doorbell cannot be reached.
             WICK_RING_LINK_FUNCTION = aws_lambda_function.household_link.function_name
+            # Where the family's pictures are kept (infra/photos.tf). Unset,
+            # no picture can be sent, and a picture's card goes without one.
+            PHOTOS_BUCKET = aws_s3_bucket.photos.bucket
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
         )

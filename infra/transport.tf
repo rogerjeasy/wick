@@ -70,6 +70,9 @@ data "aws_iam_policy_document" "ws_route" {
     # `sk BETWEEN :since AND :max` query in route.mjs). UpdateItem: S6's ADD
     # counter onto RHYTHM#tv_activity bucket items (route.mjs's
     # recordTvActivity) — same table, no separate grant needed.
+    # The mantelpiece's two transactions (mantel.mjs keepWrite, takeDownWrite)
+    # are made of PutItem and UpdateItem and need nothing more — and there is
+    # no DeleteItem here, on purpose.
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }
@@ -182,6 +185,9 @@ resource "aws_lambda_function" "ws_route" {
       EVENT_BUS_NAME = aws_cloudwatch_event_bus.wick.name
       # The light in the window: what "today" means where the house is (light.mjs).
       WICK_HOUSEHOLD_TZ = var.household_time_zone
+      # The mantelpiece: where a picture's address is signed for, and what
+      # her press re-tags (infra/photos.tf, mantel.mjs).
+      PHOTOS_BUCKET = aws_s3_bucket.photos.bucket
     }
   }
 

@@ -188,13 +188,15 @@ resource "aws_lambda_function" "iot_events" {
   timeout     = 10
   memory_size = 256
 
-  # The same three the WebSocket route is given: it runs the same handler.
+  # The same four the WebSocket route is given: it runs the same handler.
   environment {
     variables = {
       TABLE_NAME     = aws_dynamodb_table.wick.name
       EVENT_BUS_NAME = aws_cloudwatch_event_bus.wick.name
       # The light in the window: what "today" means where the house is (light.mjs).
       WICK_HOUSEHOLD_TZ = var.household_time_zone
+      # The mantelpiece (infra/photos.tf, mantel.mjs).
+      PHOTOS_BUCKET = aws_s3_bucket.photos.bucket
     }
   }
 
