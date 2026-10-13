@@ -219,6 +219,14 @@ From `docs/WICK.md` Part 5. The ones that most often get violated by accident:
 - **No red, no badges, no beeps.** Not in any component, not ever.
 - **Minimum 32pt type, ≥7:1 contrast.** `packages/vega-calm-ui` enforces this; use it.
 - **One button.** Every resident action is reachable with D-pad + OK. No text entry anywhere.
+- **A press answers only what she has had time to see.** A card's buttons
+  take no press for one second after that card comes on screen
+  (`apps/tv-vega/src/press/settle.ts`), on her television and on a family
+  member's: a double press, a bouncing key or a thumb already on its way
+  down must never answer the next question — some of those questions are
+  her consent. And nothing acts by being handed the focus: on a family
+  television the wave is sent only after a D-pad move to it
+  (`family/presses.ts`). A swallowed press does nothing at all.
 - **When unsure, say so.** Never emit a confident guess. Silence beats a wrong description.
 - **No mood or sentiment inference is ever reported to anyone.**
 
