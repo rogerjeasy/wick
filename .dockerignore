@@ -17,3 +17,5 @@ infra/.build
 services/agent/.build
 apps/tv-vega/android
 apps/tv-vega/ios
+# Film originals and transcodes (scripts/publish-programmes.sh): gigabytes, and no image needs them.
+.programmes
