@@ -64,6 +64,52 @@ describe('the service worker — a nudge becomes a notification', () => {
     expect(options.requireInteraction).toBe(false);
   });
 
+  it('says she has asked to be rung, and waits to be looked at: she is waiting on the answer', async () => {
+    const w = worker();
+
+    await w.push({ kind: 'reach_ring' });
+
+    const [title, options] = w.showNotification.mock.calls[0]!;
+    expect(title).toBe('Wick');
+    expect(options.body).toBe('You have been asked to ring.');
+    expect(options.tag).toBe('wick-reach_ring');
+    expect(options.requireInteraction).toBe(true);
+  });
+
+  it('says there is a hello, and does not wait: nobody is waiting on it', async () => {
+    const w = worker();
+
+    await w.push({ kind: 'reach_hello' });
+
+    const [title, options] = w.showNotification.mock.calls[0]!;
+    expect(title).toBe('Wick');
+    expect(options.body).toBe('Someone at home says hello.');
+    expect(options.tag).toBe('wick-reach_hello');
+    expect(options.requireInteraction).toBe(false);
+  });
+
+  it('says nothing about the house for a request to ring, whatever the payload carries', async () => {
+    const w = worker();
+
+    await w.push({ kind: 'reach_ring', name: 'Margaret', householdId: 'hh-1', body: 'Margaret is asking for Sarah' });
+
+    const [, options] = w.showNotification.mock.calls[0]!;
+    expect(options.body).toBe('You have been asked to ring.');
+    expect(JSON.stringify(options)).not.toContain('Margaret');
+    expect(JSON.stringify(options)).not.toContain('hh-1');
+  });
+
+  it('tells an open page which of the two it was, so it can look at once', async () => {
+    for (const kind of ['reach_ring', 'reach_hello']) {
+      const postMessage = vi.fn();
+      const w = worker([{ url: SCOPE, focus: async () => {}, postMessage }]);
+
+      await w.push({ kind, body: 'never passed on' });
+
+      expect(postMessage).toHaveBeenCalledWith({ wick: 'nudge', kind });
+    }
+  });
+
   it('shows only its own words, whatever a payload carries', async () => {
     const w = worker();
 

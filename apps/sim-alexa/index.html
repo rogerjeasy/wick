@@ -212,6 +212,8 @@
   .door-description { margin: 0; }
   .door-answers { display: flex; flex-direction: column; gap: var(--s-xs); }
   .door-answers .btn { text-align: left; }
+  /* Under a request to ring: answering is not ringing. Quiet, like a footnote. */
+  .reach-note { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
   /* A film watched together: the picture, one line about the television, and no controls — the remote is theirs. */
   .watch-screen { width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r-m); background: #000; overflow: hidden; }
   .watch-screen[hidden] { display: none; }
@@ -253,7 +255,8 @@
     width: 100%;
   }
   .form textarea { resize: vertical; min-height: 4.5em; }
-  .form .actions, .card > .actions { display: flex; gap: var(--s-s); align-items: center; }
+  /* Wraps: the circle card has four, and a phone has no room for them in a row. */
+  .form .actions, .card > .actions { display: flex; flex-wrap: wrap; gap: var(--s-s); align-items: center; }
   .counter { color: var(--ink-dim); font-size: var(--t-small); margin-left: auto; }
   /* The six digits on the television: large, spaced, impossible to misread. */
   .form input.code { font-size: var(--t-display); letter-spacing: 0.18em; max-width: 9em; }

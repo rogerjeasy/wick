@@ -54,6 +54,17 @@ export const DOOR_ANSWERS = {
 };
 
 /**
+ * What can be answered when the resident holds the button on the remote and
+ * asks to be rung, or says hello. The server's own list (packages/contracts
+ * reach.ts), copied for the reason above and held equal to it by a test.
+ */
+export const REACH_ANSWERS = {
+  now: 'I’m ringing you now.',
+  soon: 'I’ll ring you within the hour.',
+  hello: 'Hello to you too.',
+};
+
+/**
  * The films that can be watched together, by id, and what can be answered
  * when one is over. The server's own lists (packages/contracts
  * programmes.ts and watch.ts), copied for the reason above and held equal
@@ -81,6 +92,7 @@ export const SUGGESTIONS = [
   { label: 'Send a note to her television', utterance: "Put a note on Mum's television" },
   { label: 'Has Mum replied?', utterance: 'Has Mum replied?' },
   { label: 'Did Mum ask me to look?', utterance: 'Has Mum asked me to look at the door?' },
+  { label: 'Did Mum ask for me?', utterance: 'Did Mum ask for me?' },
   { label: 'Watch a film with Mum', utterance: 'Ask Mum to watch a film with me' },
   { label: 'What can I see?', utterance: 'What can I see about Mum?' },
   { label: 'Family circle', utterance: 'Who is in the family circle?' },
@@ -147,6 +159,14 @@ export function routeUtterance(text, now = Date.now()) {
   // "Ask Sarah to look": the resident's question about who is at the door.
   // Narrow on purpose — "did anyone come to the door today" is the day's list.
   if (/\bask(?:ed|ing)? (?:me|us) to look\b|\bwho(?:'|’)?s at\b.*\bdoor\b|\bwho is at\b.*\bdoor\b|\bsomeone at\b.*\bdoor\b/.test(t)) return tool('get_door_request');
+
+  // "Hold for Sarah": the resident held the button on the remote and asked to
+  // be rung, or said hello. After the door, so "ask me to look" stays the
+  // door's; and after "tell Mum …", because a note that says hello is a note.
+  if (
+    (/\bask(?:s|ed|ing)? (?:for|after) (?:me|us)\b|\b(?:wants?|wanted|like|ask(?:s|ed|ing)?) (?:me|us) to (?:ring|call|phone|telephone)\b|\bbeen in touch\b|^(?:did|has|have)\b.*\bsa(?:y|id) hello\b/.test(t)) &&
+    !NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said))
+  ) return tool('get_reach_request');
 
   // Notifications are the app's own business with this browser.
   if (/\bnotif(?:y|ication|ications)\b/.test(t)) return { kind: 'notifications' };
@@ -528,11 +548,11 @@ export function presentNotifications(state, residentName) {
   // A browser asks once. After "Block", only its own settings can change it.
   if (state.permission === 'denied') return nothing('This browser has blocked notifications for Wick. They can be allowed again in the browser’s site settings.');
   if (state.permission === 'granted' && state.subscribed) {
-    return nothing(`Notifications are on in this browser. It will tell you when ${residentName} asks you to look at the door.`);
+    return nothing(`Notifications are on in this browser. It will tell you when ${residentName} asks you to look at the door or to ring.`);
   }
   return {
     offer: true,
-    say: `This browser can tell you when ${residentName} asks you to look at the door, even when Wick is closed.`,
+    say: `This browser can tell you when ${residentName} asks you to look at the door or to ring, even when Wick is closed.`,
     card: {
       title: 'Be told at once',
       body: 'The notification says only that there is something to look at. The picture and everything else stay in Wick.',
@@ -613,6 +633,76 @@ export function doorQuestionToAnnounce(raw, announced) {
   const request = parseJson(raw);
   if (!request || request.state !== 'waiting' || typeof request.requestId !== 'string') return null;
   return announced.has(request.requestId) ? null : request.requestId;
+}
+
+/**
+ * A request to ring, or a hello, from the television (get_reach_request):
+ * the resident held the button on the remote. While it waits it is a card
+ * with the server's one sentence and the answers that can be given — as
+ * buttons, each showing the very words that will appear on the television.
+ * It carries no reason, and none is ever added here.
+ */
+function presentReachRequest(request, formatTime) {
+  if (request.state === 'answered') {
+    const who = request.answer.yours === true ? 'You' : request.answer.by;
+    return { say: `${who} answered ${formatTime(request.answer.at)}: “${request.answer.text}”`, card: null, tone: 'answer' };
+  }
+  const ring = request.kind !== 'hello';
+  const offered = Array.isArray(request.answers) ? request.answers : [];
+  return {
+    say: ring ? 'You have been asked to ring.' : 'You have been sent a hello.',
+    tone: 'answer',
+    card: {
+      kind: 'reach',
+      title: request.summary,
+      meta: `${ring ? 'Asked' : 'Sent'} ${formatTime(request.askedAt)}`,
+      requestId: request.requestId,
+      // The words on each button are the server's, and only for a key this page knows.
+      answers: offered.filter((a) => Object.hasOwn(REACH_ANSWERS, a?.key) && REACH_ANSWERS[a.key] === a.text).map((a) => ({ key: a.key, text: a.text })),
+      // Answering is not ringing: said under the buttons, where it is read before one is pressed.
+      note: ring ? 'This does not make the call. Ring her yourself.' : null,
+      footnote: 'Your answer goes on the television at once, under your name.',
+    },
+  };
+}
+
+/** Whether a get_reach_request result is one of the two shapes this page draws. Anything else is said to be unreadable, never guessed at. */
+const isReachRequest = (parsed) =>
+  typeof parsed.requestId === 'string' &&
+  ((parsed.state === 'waiting' && typeof parsed.summary === 'string') ||
+    (parsed.state === 'answered' && typeof parsed.answer?.by === 'string' && typeof parsed.answer.text === 'string'));
+
+/**
+ * Whether the app looks, unasked, for a request to ring. An older Wick
+ * server has no such tool: asking it would be refused on every turn of the
+ * timer, for as long as the page is open — so it is not asked at all. When
+ * the server could not say what it has, the look is made; one that fails is
+ * passed over in silence (main.js lookForReach).
+ *
+ * @param {Iterable<string>} toolNames  the server's tools (tools/list); none when it could not be asked
+ */
+export function looksForReach(toolNames) {
+  const names = [...toolNames];
+  return names.length === 0 || names.includes('get_reach_request');
+}
+
+/**
+ * Whether a look at get_reach_request, made unasked while the app is open,
+ * found something worth saying. A request still waiting is said once. So is
+ * somebody else's answer to a request that is on this page — its buttons are
+ * no longer the thing to press. An answer already given when the page
+ * opened is not news, and this person's own answer is not said back to them.
+ *
+ * @param {string} raw  the tool result's text
+ * @param {Map<string, string>} seen  how each request stood at the last look
+ * @returns {{requestId: string, state: string, announce: boolean} | null}  null when the answer is not a request
+ */
+export function reachToAnnounce(raw, seen) {
+  const request = parseJson(raw);
+  if (!request || !isReachRequest(request)) return null;
+  const before = seen.get(request.requestId);
+  const announce = request.state === 'waiting' ? before === undefined : before === 'waiting' && request.answer.yours !== true;
+  return { requestId: request.requestId, state: request.state, announce };
 }
 
 // ---------------------------------------------------------------------------
@@ -940,6 +1030,10 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (toolName === 'answer_door_request' && parsed.shown === true) {
     return { say: `It is on the television now: “${parsed.by} says: ${parsed.text}”`, card: null, tone: 'answer' };
   }
+  if (toolName === 'get_reach_request' && isReachRequest(parsed)) return presentReachRequest(parsed, formatTime);
+  if (toolName === 'answer_reach_request' && parsed.shown === true) {
+    return { say: `It is on the television now: “${parsed.by} says: ${parsed.text}”`, card: null, tone: 'answer' };
+  }
   if (toolName === 'invite_to_watch' && parsed.invited === true) {
     return {
       say: 'Asked. The invitation will appear on the television at the next natural break, and is answered there with one button.',
@@ -1017,6 +1111,8 @@ export function describeCall(toolName, args = {}) {
     case 'add_regular_visitor': return 'Added a regular visitor';
     case 'get_door_request': return 'Looked at the question from the door';
     case 'answer_door_request': return 'Answered on the television';
+    case 'get_reach_request': return 'Looked for a request to ring';
+    case 'answer_reach_request': return 'Answered on the television';
     case 'invite_to_watch': return 'Asked to watch a film together';
     case 'get_watch_together': return 'Looked at the film';
     case 'join_watch_together': return 'Sat down to watch';
@@ -1030,6 +1126,7 @@ const DECLINED_TRACE = {
   send_note_to_tv: 'Did not send the note',
   expect_visit: 'Did not tell the door',
   answer_door_request: 'Did not answer',
+  answer_reach_request: 'Did not answer',
   invite_to_watch: 'Did not ask',
   join_watch_together: 'Did not sit down',
   answer_watch_together: 'Did not answer',
@@ -1111,6 +1208,16 @@ export function confirmWrite(toolName, args = {}, title) {
       fields: [['Your answer', Object.hasOwn(DOOR_ANSWERS, key) ? DOOR_ANSWERS[key] : key], ...otherFields(args, ['answer'])],
       confirmLabel: 'Show it',
       footnote: 'It appears on the door card at once, under your name.',
+    };
+  }
+  if (toolName === 'answer_reach_request') {
+    const key = String(args.answer ?? '');
+    return {
+      title: 'Show this on the television?',
+      // As for the door: the sentence for a key this page knows, otherwise the key as it was passed.
+      fields: [['Your answer', Object.hasOwn(REACH_ANSWERS, key) ? REACH_ANSWERS[key] : key], ...otherFields(args, ['answer'])],
+      confirmLabel: 'Show it',
+      footnote: 'It appears on the television under your name. It does not make the call.',
     };
   }
   if (toolName === 'invite_to_watch') {
@@ -1227,10 +1334,11 @@ function memberLine(member, resident) {
     member.status === 'allowed'
       ? `allowed by ${resident}`
       : member.status === 'pending'
-        ? `Waiting for ${resident}`
+        ? `waiting for ${resident}`
         : `${resident} said no`;
-  if (member.role === 'organiser') return member.status === 'allowed' ? `Organiser · ${said}` : `Organiser · ${lowerFirst(said)}`;
-  return sentenceCase(said);
+  // A part worth saying is said first: the organiser's, and a neighbour's — who is there for the door and for ringing only.
+  const part = member.role === 'organiser' ? 'Organiser' : member.role === 'neighbour' ? 'Neighbour' : null;
+  return part ? `${part} · ${said}` : sentenceCase(said);
 }
 
 function televisionLine(televisions) {
@@ -1297,7 +1405,29 @@ export function presentCircle(circle, me) {
   };
 }
 
-/** The link an organiser sends: this same app, with the invitation in the address. */
+/**
+ * What is said and shown with an invitation link (POST /api/circle/invitations).
+ * A neighbour's is shown as a family one is, with one line saying what a
+ * neighbour is for. The kind shown is the kind the server made, never the
+ * kind that was asked for: an older Wick knows no neighbours and would make
+ * a family invitation — and that link is not handed out as a neighbour's.
+ *
+ * @param {'neighbour' | undefined} asked  the role asked for; none for family
+ * @param {{role?: string}} invitation  the server's answer
+ * @param {string} resident
+ */
+export function presentInvitation(asked, invitation, resident) {
+  const neighbour = invitation?.role === 'neighbour';
+  if (asked === 'neighbour' && !neighbour) return { offered: false, say: 'This Wick cannot invite a neighbour yet.' };
+  return {
+    offered: true,
+    say: 'Here is a link to send them. It works for seven days.',
+    title: neighbour ? 'An invitation for a neighbour' : 'An invitation',
+    note: neighbour ? 'A neighbour can be asked to look at who is at the door, and to ring. They see nothing else.' : null,
+    footnote: `They sign in, and ${resident} is asked on the television whether to allow them.`,
+  };
+}
+
 /**
  * The home's doorbell, for its organiser: whether Ring is connected, how,
  * and what can be done about it. `link` is GET /api/ring's answer.

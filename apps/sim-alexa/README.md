@@ -49,7 +49,7 @@ type scale), that:
    HTTP, spec 2025-11-25, after a real OAuth 2.1 link — no shortcuts, no direct
    database reads;
 2. takes a question from a suggestion chip or the text field and lets a
-   **model choose** among Wick's eighteen tools (`get_week_narrative`,
+   **model choose** among Wick's twenty tools (`get_week_narrative`,
    `get_today`, `get_whats_different`, `did_visitor_come`,
    `list_regular_visitors`, `add_regular_visitor`, `expect_visit`,
    `send_note_to_tv`, `get_replies`, `get_resident_shared_view`,
