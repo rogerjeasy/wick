@@ -18,6 +18,7 @@ import { MessageCardView } from './MessageCard.js';
 import { ReachCardView } from './ReachCard.js';
 import { SharingCardView } from './SharingCard.js';
 import { TellCardView } from './TellCard.js';
+import { VisitCardView } from './VisitCard.js';
 import { WatchCardView } from './WatchCard.js';
 import { WeekCardView } from './WeekCard.js';
 
@@ -56,5 +57,8 @@ export function CardRenderer({ card, onAction }: CardRendererProps): React.JSX.E
 
     case 'REACH':
       return <ReachCardView card={card} onAction={handle} />;
+
+    case 'VISIT':
+      return <VisitCardView card={card} onAction={handle} />;
   }
 }

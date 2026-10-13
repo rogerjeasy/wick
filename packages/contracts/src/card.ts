@@ -156,7 +156,19 @@ export interface ReachCard extends CardBase {
   readonly detail?: string;
 }
 
-export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard | LightCard | ReachCard;
+/**
+ * The visit, witnessed (visit.ts): what the door noted of a regular visitor's
+ * visit, put to the resident to say whether it is right. The server writes
+ * every word; the television only renders it. Its id is always
+ * `visit-<arrivedAt>-<personId>`, so the press names the visit.
+ */
+export interface VisitCard extends CardBase {
+  readonly type: 'VISIT';
+  readonly headline: string;
+  readonly detail: string;
+}
+
+export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard | LightCard | ReachCard | VisitCard;
 
 export interface QueuedCard {
   readonly id: string;

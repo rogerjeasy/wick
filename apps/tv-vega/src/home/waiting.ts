@@ -27,6 +27,9 @@ export function waitingLine(queued: QueuedCard): string {
     // Never waits (home/light.ts unaskedLightCards); here only so every card has its line.
     case 'LIGHT':
       return card.headline;
+    // Not who came or when: the home screen can be read by anyone in the room.
+    case 'VISIT':
+      return 'Wick has a question for you.';
     // What was said about a request of her own (home/reach.ts): the card's own sentence.
     case 'REACH':
       return card.headline;
