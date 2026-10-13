@@ -87,6 +87,10 @@ television is given a fresh token only when it shows the one it held, so it
 stays connected across relaunches only where that token is kept — here, in the
 app's own storage (`src/adapters/fileSystem.ts`). The Vega simulator keeps
 nothing, and a family member's television there is paired again each time.
+The same goes for its later screens — something to read, the wave, and the
+seat beside the resident's film, which plays through `src/adapters/w3cmedia.tsx`
+and follows her player (`apps/tv-vega/src/family/seat.ts`): typechecked and
+tested as decisions, not yet seen on the emulator.
 
 ## Not a workspace
 
@@ -101,6 +105,11 @@ directory's `node_modules`.
 
 - **A door alert while Wick is not on screen.** On Vega a background service
   posts a system toast. See `docs/superpowers/specs/2026-10-11-tv-fireos-design.md` §6.
+- **What waits for a family member, said while Wick is not on screen.** On
+  Vega the same background service asks and posts a toast
+  (`apps/tv-vega/src/headless/waitingService.ts`). Here there is no service
+  (`src/overrides/launchCardService.ts` gives it no address), so the app
+  neither starts one nor opens the way for one at the pairing service.
 - **Content Personalization** — a Vega API. Fire TV's equivalent is a separate
   integration.
 - Amazon Device Messaging, the Fire TV Integration SDK, camera, voice.

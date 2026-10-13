@@ -3,10 +3,13 @@
  * everything it hears back (packages/contracts/src/familyTelevision.ts).
  * Pure and RN-import-free, like live/liveClient.ts.
  *
- *   GET  <server>/tv/home    what this one member may see, and what is waiting for them
- *   POST <server>/tv/press   { cardId, action } — their press on one of those cards
+ *   GET  <server>/tv/home     what this one member may see, and what is waiting for them
+ *   POST <server>/tv/press    { cardId, action } — their press on one of those cards
+ *   GET  <server>/tv/seat     the seat beside her film, while this member is sat at it
+ *   GET  <server>/tv/waiting  a sentence for each thing that waits — asked by the
+ *                             background service while the app is off the screen
  *
- * Both carry `Authorization: Bearer <the device token>` and nothing else
+ * All carry `Authorization: Bearer <the device token>` and nothing else
  * that says who is asking: the household and the member are the ones in
  * that token (INV-8), and the server checks the circle again on every call
  * (INV-9). The television renders and never decides.
@@ -23,7 +26,7 @@
  *
  * Every other failure is only a look that failed: nothing here throws.
  */
-import type { CardAction, FamilyTvCard, FamilyTvHome, FamilyTvPress } from '@wick/contracts';
+import { FAMILY_TV_WAVE_CARD, type CardAction, type FamilyTvCard, type FamilyTvHome, type FamilyTvPress, type FamilyTvSeat, type FamilyTvWaiting, type FamilyTvWave } from '@wick/contracts';
 
 /** Under the eight seconds between looks (FAMILY_TV_LOOK_EVERY_MS): a look that hangs is over before the next is due. */
 export const FAMILY_REQUEST_TIMEOUT_MS = 6000;
@@ -52,9 +55,30 @@ export type PressAnswer =
 /** What asking for a fresh token came to (PairingFlow.renew, narrowed to a family television's). */
 export type Renewed = { readonly jwt: string } | 'not_connected' | 'try_later';
 
+export type SeatAnswer =
+  /** The seat as it stands — or none: there is no film, or it is over, or it is not this member's to sit at. */
+  | { readonly kind: 'seat'; readonly seat?: FamilyTvSeat }
+  | { readonly kind: 'notAllowed'; readonly say: string }
+  | { readonly kind: 'signedOut' }
+  | { readonly kind: 'failed' };
+
+export type WaitingAnswer =
+  | { readonly kind: 'waiting'; readonly waiting: FamilyTvWaiting['waiting'] }
+  /** The token is refused and a fresh one cannot be had: whoever asks stops asking. */
+  | { readonly kind: 'signedOut' }
+  | { readonly kind: 'failed' };
+
 export interface FamilyClient {
   home(): Promise<HomeAnswer>;
   press(press: FamilyTvPress): Promise<PressAnswer>;
+  seat(): Promise<SeatAnswer>;
+  waiting(): Promise<WaitingAnswer>;
+  /**
+   * A fresh token now, before the one in hand is refused — for a token that
+   * cannot be brought back once it has run out (the background service's).
+   * 'signedOut': there is none to be had, for good. 'later': it could not be asked.
+   */
+  renewNow(): Promise<'renewed' | 'signedOut' | 'later'>;
 }
 
 export interface FamilyClientArgs {
@@ -75,6 +99,8 @@ const record = (value: unknown): value is Record<string, unknown> => typeof valu
 
 const ACTION_KINDS: readonly CardAction['kind'][] = ['primary', 'secondary', 'dismiss'];
 const MAX_ACTIONS = 3;
+/** More pages than this is not something to read with a remote: the card is left out. */
+export const MAX_PAGES = 12;
 
 function readAction(value: unknown): CardAction | undefined {
   if (!record(value) || !text(value.id) || !text(value.label)) return undefined;
@@ -82,18 +108,51 @@ function readAction(value: unknown): CardAction | undefined {
   return { id: value.id, label: value.label, kind };
 }
 
+/** A list of at most three whole actions, or undefined. */
+function readActions(value: unknown): CardAction[] | undefined {
+  if (!Array.isArray(value) || value.length > MAX_ACTIONS) return undefined;
+  const actions = value.map(readAction);
+  return actions.some((a) => a === undefined) ? undefined : (actions as CardAction[]);
+}
+
+/**
+ * Something to read, a page at a time: every page words, and not too many.
+ * 'none' for a card that brings none; undefined when what it brought is not
+ * that — and then the card is not shown, rather than shown with half of it.
+ */
+function readPages(value: unknown): readonly string[] | 'none' | undefined {
+  if (value === undefined || value === null) return 'none';
+  if (!Array.isArray(value) || value.length > MAX_PAGES || !value.every(text)) return undefined;
+  return value.length === 0 ? 'none' : (value as string[]);
+}
+
 function readCard(value: unknown): FamilyTvCard | undefined {
   if (!record(value) || !text(value.id) || !text(value.kind) || !text(value.headline)) return undefined;
-  if (!Array.isArray(value.actions) || value.actions.length > MAX_ACTIONS) return undefined;
-  const actions = value.actions.map(readAction);
-  if (actions.some((a) => a === undefined)) return undefined;
+  const actions = readActions(value.actions);
+  const pages = readPages(value.pages);
+  if (!actions || !pages) return undefined;
   return {
     id: value.id,
     kind: value.kind as FamilyTvCard['kind'],
     headline: value.headline,
     ...(text(value.detail) ? { detail: value.detail } : {}),
     ...(text(value.pictureUrl) ? { pictureUrl: value.pictureUrl } : {}),
-    actions: actions as CardAction[],
+    ...(pages === 'none' ? {} : { pages }),
+    actions,
+  };
+}
+
+/**
+ * The wave: its words, and — only while one can be sent — the one card it is
+ * pressed on. Any other card named there is not taken: a press on the wave
+ * must never be able to answer something else.
+ */
+function readWave(value: unknown): FamilyTvWave | undefined {
+  if (!record(value) || !text(value.label)) return undefined;
+  return {
+    label: value.label,
+    ...(value.cardId === FAMILY_TV_WAVE_CARD ? { cardId: FAMILY_TV_WAVE_CARD } : {}),
+    ...(text(value.line) ? { line: value.line } : {}),
   };
 }
 
@@ -107,12 +166,50 @@ function readCard(value: unknown): FamilyTvCard | undefined {
 export function readHome(body: unknown): FamilyTvHome | undefined {
   if (!record(body) || !text(body.residentName) || !text(body.memberName) || !Array.isArray(body.cards)) return undefined;
   const light = record(body.light) && text(body.light.line) && typeof body.light.lit === 'boolean' ? { lit: body.light.lit, line: body.light.line } : undefined;
+  const wave = readWave(body.wave);
   return {
     residentName: body.residentName,
     memberName: body.memberName,
     ...(light ? { light } : {}),
     cards: body.cards.map(readCard).filter((card): card is FamilyTvCard => card !== undefined),
+    ...(wave ? { wave } : {}),
     ...(body.simulated === true ? { simulated: true as const } : {}),
+  };
+}
+
+const SEAT_STATES: readonly FamilyTvSeat['state'][] = ['waiting', 'watching', 'asked', 'over'];
+const PLAYBACK_STATES: readonly NonNullable<FamilyTvSeat['playback']>['state'][] = ['PLAYING', 'PAUSED', 'STOPPED', 'WAITING'];
+const number = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+/**
+ * The seat beside her film, with only what the contract names — or
+ * undefined when it is not one. A film is played only from an https
+ * address (this player drops anything else without a word, FL-016), and
+ * followed only by a place in it that can be read; without either, the seat
+ * still says its sentence.
+ */
+export function readSeat(value: unknown): FamilyTvSeat | undefined {
+  if (!record(value) || !text(value.cardId) || !text(value.film) || !text(value.line)) return undefined;
+  const state = SEAT_STATES.find((s) => s === value.state);
+  if (!state) return undefined;
+  const { stream, playback } = value;
+  const playbackState = record(playback) ? PLAYBACK_STATES.find((s) => s === playback.state) : undefined;
+  const answers = readActions(value.answers);
+  return {
+    cardId: value.cardId,
+    film: value.film,
+    state,
+    line: value.line,
+    ...(record(stream) && text(stream.url) && /^https:\/\/[^\s"'<>]+$/.test(stream.url)
+      ? { stream: { url: stream.url, durationMs: number(stream.durationMs) ? stream.durationMs : 0, attribution: text(stream.attribution) ? stream.attribution : '' } }
+      : {}),
+    ...(record(playback) && playbackState && number(playback.positionMs) && number(playback.ageMs)
+      ? { playback: { state: playbackState, positionMs: playback.positionMs, ageMs: playback.ageMs } }
+      : {}),
+    ...(text(value.question) ? { question: value.question } : {}),
+    ...(answers && answers.length > 0 ? { answers } : {}),
+    ...(text(value.yourAnswer) ? { yourAnswer: value.yourAnswer } : {}),
+    ...(text(value.theirAnswer) ? { theirAnswer: value.theirAnswer } : {}),
   };
 }
 
@@ -208,6 +305,37 @@ export function createFamilyClient(args: FamilyClientArgs): FamilyClient {
       const body = heard.body;
       if (heard.status === 200 && record(body) && text(body.say)) return { kind: 'said', done: body.done === true, say: body.say };
       return { kind: 'failed' };
+    },
+
+    async seat(): Promise<SeatAnswer> {
+      const heard = await asked('/tv/seat', 'GET');
+      if (heard === 'signedOut') return { kind: 'signedOut' };
+      if (heard === 'nothing') return { kind: 'failed' };
+      if (heard.status === 403) return notAllowed(heard.body);
+      const body = heard.body;
+      if (heard.status !== 200 || !record(body)) return { kind: 'failed' };
+      if (body.seat === undefined || body.seat === null) return { kind: 'seat' };
+      const seat = readSeat(body.seat);
+      return seat ? { kind: 'seat', seat } : { kind: 'failed' };
+    },
+
+    async renewNow(): Promise<'renewed' | 'signedOut' | 'later'> {
+      const renewed = await renewOnce(jwt);
+      if (renewed === 'not_connected') return 'signedOut';
+      if (renewed === 'try_later') return 'later';
+      jwt = renewed.jwt;
+      return 'renewed';
+    },
+
+    async waiting(): Promise<WaitingAnswer> {
+      const heard = await asked('/tv/waiting', 'GET');
+      if (heard === 'signedOut') return { kind: 'signedOut' };
+      const body = heard === 'nothing' ? undefined : heard.body;
+      if (heard === 'nothing' || heard.status !== 200 || !record(body) || !Array.isArray(body.waiting)) return { kind: 'failed' };
+      return {
+        kind: 'waiting',
+        waiting: body.waiting.flatMap((one: unknown) => (record(one) && text(one.id) && text(one.line) ? [{ id: one.id, line: one.line }] : [])),
+      };
     },
   };
 }
