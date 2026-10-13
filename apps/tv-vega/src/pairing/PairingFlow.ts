@@ -6,6 +6,13 @@
  * extractable — Vega documents no hardware-backed keystore (Q4) — and scope
  * accordingly. It grants nothing over Ring or any family surface.
  *
+ * The same six digits connect a television as a family member's own
+ * (packages/contracts/src/familyTelevision.ts). Which it is, is chosen in
+ * the family app; the token then carries `kind: 'family'`, and it is kept
+ * exactly as the server wrote it — from the poll, from disk and from a
+ * refresh — because that one field decides what this television runs
+ * (family/mode.ts). A token with no kind is the resident's.
+ *
  * See docs/WICK-TECHNICAL.md §4.2.
  */
 import type { DeviceToken } from '@wick/contracts';
@@ -39,6 +46,13 @@ export interface PairingConfig {
   /** Injectable so tests do not sit through the wait. */
   readonly wait?: (ms: number) => Promise<void>;
 }
+
+/**
+ * What asking for a fresh token came to (`renew`). "Not connected" is the
+ * server saying so; a request that failed or was asked too soon is only
+ * "not now", and must never be read as the television having been removed.
+ */
+export type RenewResult = { readonly token: DeviceToken } | 'not_connected' | 'try_later';
 
 export interface LoadTokenOptions {
   /**
@@ -82,21 +96,25 @@ export class PairingFlow {
    * already writes — the server, not this device's broken local disk, is
    * the actual source of truth for "is this device paired," and for which
    * household it belongs to (INV-8: the television only says who it is).
+   *
+   * A token on disk that has run out is not thrown away: it is shown to the
+   * server as the proof a refresh needs (`#askForRefresh`).
    */
   async loadToken(deviceId?: string, options: LoadTokenOptions = {}): Promise<DeviceToken | null> {
-    const cached = await this.#loadTokenFromDisk();
-    if (cached) return cached;
+    const stored = await this.#storedToken();
+    if (stored && !(stored.expiresAt <= Date.now())) return stored;
     if (!deviceId) return null;
-    return this.#refreshToken(deviceId, options.waitIfRefreshedJustNow === true);
+    return this.#refreshToken(deviceId, options.waitIfRefreshedJustNow === true, stored?.jwt);
   }
 
-  async #loadTokenFromDisk(): Promise<DeviceToken | null> {
+  /** The token on disk, whether or not it has run out — or null when the disk holds none. */
+  async #storedToken(): Promise<DeviceToken | null> {
     try {
       if (!(await this.#fs.exists(TOKEN_PATH))) return null;
       const raw = await this.#fs.readFileAsString(TOKEN_PATH, 'utf8');
       if (!raw) return null;
       const token = JSON.parse(raw) as DeviceToken;
-      if (token.expiresAt <= Date.now()) return null;
+      if (typeof token?.jwt !== 'string' || token.jwt.length === 0) return null;
       return token;
     } catch {
       // A throwing exists()/readFileAsString() (observed on-device as the
@@ -109,13 +127,46 @@ export class PairingFlow {
     }
   }
 
-  async #refreshToken(deviceId: string, patient: boolean): Promise<DeviceToken | null> {
-    const ask = (): Promise<Response> =>
-      this.#fetch(`${this.#config.pairingApiUrl}/pair/refresh`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ deviceId }),
-      });
+  /**
+   * `POST /pair/refresh`. The body is the device id and nothing else (INV-8).
+   *
+   * `heldJwt` is the token this television holds, or held: whenever there is
+   * one to hand it goes as the bearer. A family member's own television is
+   * minted a token only on that proof — never from the device id alone,
+   * which can be guessed — and one that has run out will do (edge-device
+   * pair-refresh.mjs). The resident's television needs none, and sending
+   * one is harmless.
+   */
+  #askForRefresh(deviceId: string, heldJwt: string | undefined): Promise<Response> {
+    return this.#fetch(`${this.#config.pairingApiUrl}/pair/refresh`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(heldJwt ? { Authorization: `Bearer ${heldJwt}` } : {}) },
+      body: JSON.stringify({ deviceId }),
+    });
+  }
+
+  /**
+   * The server, shown the token this television held, says it is no longer
+   * connected: 401 (not this television's token), 403 (revoked), 404 (not
+   * paired). Only then is a stored token forgotten — one that has merely run
+   * out is the proof for the next refresh, and "not now" (429, a server
+   * error, no network) says nothing about whether it is still good.
+   */
+  static #saysNotConnected(status: number): boolean {
+    return status === 401 || status === 403 || status === 404;
+  }
+
+  /** Best-effort, like every write here (FL-013): the token in hand is what counts. */
+  async #keep(token: DeviceToken): Promise<void> {
+    try {
+      await this.#fs.writeStringToFile(TOKEN_PATH, JSON.stringify(token), 'utf8');
+    } catch (err) {
+      console.error('pairing_token_persist_failed', err);
+    }
+  }
+
+  async #refreshToken(deviceId: string, patient: boolean, heldJwt: string | undefined): Promise<DeviceToken | null> {
+    const ask = (): Promise<Response> => this.#askForRefresh(deviceId, heldJwt);
     let res = await ask();
     // 429: this television refreshed a moment ago — where the disk keeps
     // nothing (FL-013), that was the app, a second before its card service.
@@ -126,20 +177,68 @@ export class PairingFlow {
     }
     // Never paired, denylisted, or the refresh call itself failed — the
     // pairing screen is the safe, fail-closed fallback in every case here.
-    if (!res.ok) return null;
-    const { token } = (await res.json()) as { token: DeviceToken };
-    try {
-      await this.#fs.writeStringToFile(TOKEN_PATH, JSON.stringify(token), 'utf8');
-    } catch (err) {
-      console.error('pairing_token_persist_failed', err);
+    // So is 401: a family member's television with no token to show
+    // (`token_required` — every relaunch on the Vega simulator, whose disk
+    // keeps nothing, FL-013) or one whose token is not its own. Asked once
+    // and never again from here: only a 429 is ever waited out above.
+    if (!res.ok) {
+      if (heldJwt && PairingFlow.#saysNotConnected(res.status)) await this.clearToken();
+      return null;
     }
+    const { token } = (await res.json()) as { token: DeviceToken };
+    await this.#keep(token);
     return token;
   }
 
-  /** Called when the transport rejects the stored token (revoked, expired, denylisted). */
+  /**
+   * A fresh token for a television that is already on screen and has just
+   * been told its token is no good — a refresh's token lasts an hour, and a
+   * family member's television asks the Wick server something every few
+   * seconds (family/familyClient.ts). The same request as the launch-time
+   * fallback above, whatever the disk holds, and with the three answers kept
+   * apart. The token comes back as the server wrote it: a family member's
+   * television keeps its `kind`.
+   *
+   * `heldJwt` is the token the television has in its hand — the one just
+   * refused, which is its proof. Where the disk keeps nothing (FL-013) that
+   * is the only copy; handed none, the one on disk is shown instead.
+   *
+   * Asked once. A refusal is final: the caller is signed out, and nothing
+   * here or there asks again on the strength of the same token.
+   *
+   * Never throws.
+   */
+  async renew(deviceId: string, heldJwt?: string): Promise<RenewResult> {
+    try {
+      const held = heldJwt ?? (await this.#storedToken())?.jwt;
+      const res = await this.#askForRefresh(deviceId, held);
+      // token_required / invalid_token, device_denylisted, device_not_paired (edge-device pair-refresh.mjs).
+      if (PairingFlow.#saysNotConnected(res.status)) {
+        await this.clearToken();
+        return 'not_connected';
+      }
+      if (!res.ok) return 'try_later';
+      const { token } = (await res.json()) as { token?: DeviceToken };
+      if (!token || typeof token.jwt !== 'string' || token.jwt.length === 0) return 'try_later';
+      await this.#keep(token);
+      return { token };
+    } catch {
+      return 'try_later';
+    }
+  }
+
+  /**
+   * Called when the stored token is refused for good (revoked, removed,
+   * denylisted). Never throws: storage that cannot be written (FL-013) holds
+   * no token to forget.
+   */
   async clearToken(): Promise<void> {
-    if (await this.#fs.exists(TOKEN_PATH)) {
-      await this.#fs.writeStringToFile(TOKEN_PATH, '', 'utf8');
+    try {
+      if (await this.#fs.exists(TOKEN_PATH)) {
+        await this.#fs.writeStringToFile(TOKEN_PATH, '', 'utf8');
+      }
+    } catch (err) {
+      console.error('pairing_token_clear_failed', err);
     }
   }
 
@@ -176,11 +275,7 @@ export class PairingFlow {
         // native "Application data root path is not set" error that leaves
         // the app stuck on the pairing screen forever despite a real,
         // server-confirmed claim. See FRICTION.md.
-        try {
-          await this.#fs.writeStringToFile(TOKEN_PATH, JSON.stringify(body.token), 'utf8');
-        } catch (err) {
-          console.error('pairing_token_persist_failed', err);
-        }
+        await this.#keep(body.token);
         return body.token;
       }
       await new Promise((resolve) => setTimeout(resolve, interval));
