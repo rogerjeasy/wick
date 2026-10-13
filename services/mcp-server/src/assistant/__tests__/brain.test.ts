@@ -182,6 +182,19 @@ describe('systemPrompt', () => {
     expect(prompt).toMatch(/does not make the telephone call/);
   });
 
+  it('tells the model what a confirmed visit is, and never to read anything into one that is not', () => {
+    const prompt = systemPrompt(WHO, NOW, TZ);
+
+    expect(prompt).toContain('get_visits');
+    expect(prompt).toMatch(/"did Maria come this week", "how long was the carer here" or "has Margaret confirmed Maria's visits"/);
+    expect(prompt).toMatch(/say its `summary` as it stands/);
+    expect(prompt).toMatch(/A visit that is not confirmed means only that/);
+    expect(prompt).toMatch(/never say or guess that Margaret disputed it, forgot, or that anything is wrong/);
+    expect(prompt).toMatch(/what the doorbell noted, not a clinical or billing record/);
+    // One day's yes or no is still did_visitor_come's.
+    expect(prompt).toMatch(/whether someone came on one particular day, use did_visitor_come/);
+  });
+
   it('tells the model a demo home’s history is simulated', () => {
     expect(systemPrompt({ ...WHO, simulated: true }, NOW, TZ)).toMatch(/simulated/);
     expect(systemPrompt(WHO, NOW, TZ)).not.toMatch(/simulated/);
