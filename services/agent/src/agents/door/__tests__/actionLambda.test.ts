@@ -165,6 +165,8 @@ describe('routeCardAction — her press changed the language her television spea
     withdraw: vi.fn(),
     tellHome: vi.fn(async () => undefined),
     languageChanged: vi.fn(async () => ({ waiting: 3, translated: 1, sent: 1 })),
+    // A second after the press (`at: 5` below).
+    now: () => 1005,
     reachAsk: vi.fn(),
     reachDue: vi.fn(),
     visitAnswer: vi.fn(),
@@ -229,6 +231,38 @@ describe('routeCardAction — her press changed the language her television spea
     expect(r.tellHome).toHaveBeenCalledTimes(1);
     expect(said.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([{ level: 'error', msg: 'cards_not_put_in_her_language', correlationId: 'corr-9', err: 'ThrottlingException' }]);
     said.mockRestore();
+  });
+
+  describe('an old event is not acted on: a change of language is put into her cards when it happens, or not at all', () => {
+    const pressedAt = 1_800_000_000_000;
+    const at = (ageMs: number) => ({ ...routes(), now: () => pressedAt + ageMs });
+
+    it('acts on one that has just happened', async () => {
+      for (const age of [0, 1000, 119_999]) {
+        const r = at(age);
+        await routeCardAction(changed({ languageChangedTo: 'es', correlationId: 'c', at: pressedAt }), r);
+        expect(r.languageChanged).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it('does not act on one delivered again minutes, or days, later — today’s cards are not translated and re-sent for a change that is long past', async () => {
+      for (const age of [120_001, 3_600_000, 3 * 24 * 3_600_000]) {
+        const r = at(age);
+
+        const out = await routeCardAction(changed({ languageChangedTo: 'es', correlationId: 'c', at: pressedAt }), r);
+
+        expect(r.languageChanged).not.toHaveBeenCalled();
+        expect(out).toEqual({ result: 'home_told' });
+      }
+    });
+
+    it('nor on one that does not say when it happened, or claims to be from the future', async () => {
+      for (const when of [undefined, 'yesterday', Number.NaN, pressedAt + 10 * 60_000]) {
+        const r = at(0);
+        await routeCardAction(changed({ languageChangedTo: 'es', correlationId: 'c', at: when }), r);
+        expect(r.languageChanged).not.toHaveBeenCalled();
+      }
+    });
   });
 
   it('carries the change without an id as well: one is not required to act on it', async () => {

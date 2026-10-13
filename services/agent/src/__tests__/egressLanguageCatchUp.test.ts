@@ -81,7 +81,16 @@ const translator = () => vi.fn<TranslateCall>(async (input) => ({ TranslatedText
 
 const keyOf = (key: Row): string => `${key.pk!.S}|${key.sk!.S}`;
 
-function world(options: { readonly language?: HouseholdLanguage; readonly translate?: TranslateCall; readonly rows?: readonly Row[]; readonly beforeUpdate?: (table: Map<string, Row>, key: string) => void } = {}) {
+interface Hooks {
+  /** Just before the translation is kept: between the first reading of the cards and that write. */
+  readonly beforeUpdate?: (table: Map<string, Row>, key: string) => void;
+  /** Just after it is kept: between that write and the look that comes before the push. */
+  readonly afterUpdate?: (table: Map<string, Row>, key: string) => void;
+  /** Just after something is pushed: between the push and the look that comes after it. `nth` counts pushes from 1. */
+  readonly afterPush?: (table: Map<string, Row>, message: DeviceWireMessage, nth: number) => void;
+}
+
+function world(options: { readonly language?: HouseholdLanguage; readonly translate?: TranslateCall; readonly rows?: readonly Row[]; readonly clock?: () => number } & Hooks = {}) {
   const table = new Map<string, Row>((options.rows ?? []).map((row) => [keyOf(row), row]));
   const commands: { readonly name: string; readonly input: Record<string, unknown> }[] = [];
   const pushed: { readonly bytes: string; readonly exceptDeviceId: string | undefined }[] = [];
@@ -112,6 +121,7 @@ function world(options: { readonly language?: HouseholdLanguage; readonly transl
       expect(UpdateExpression).toBe('SET #tr = :tr');
       if (!row || row.actedAt || row.data?.S !== values[':data']!.S) throw Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException' });
       table.set(key, { ...row, [names['#tr']!]: values[':tr']! });
+      options.afterUpdate?.(table, key);
       return {};
     }
     throw new Error(`unexpected command ${(command as object).constructor.name}`);
@@ -120,11 +130,15 @@ function world(options: { readonly language?: HouseholdLanguage; readonly transl
   const egress = deviceEgress({
     table: 'wick',
     db: { send } as unknown as DeviceEgressDeps['db'],
-    push: async (_householdId, payload, exceptDeviceId) => { pushed.push({ bytes: JSON.stringify(await payload), exceptDeviceId }); },
+    push: async (_householdId, payload, exceptDeviceId) => {
+      const message = await payload;
+      pushed.push({ bytes: JSON.stringify(message), exceptDeviceId });
+      options.afterPush?.(table, message, pushed.length);
+    },
     languageOf: async () => language,
     translate,
     phrasebook,
-    now: () => NOW,
+    now: options.clock ?? (() => NOW),
     log: (line) => { said.push(line); },
   });
 
@@ -138,7 +152,8 @@ function world(options: { readonly language?: HouseholdLanguage; readonly transl
     sheSays: (next: HouseholdLanguage) => { language = next; },
     forget: () => { commands.length = 0; pushed.length = 0; said.length = 0; },
     row: (sk: string): Row | undefined => table.get(`HH#hh-1|${sk}`),
-    cards: (): QueuedCard[] => pushed.map(({ bytes }) => { const message = JSON.parse(bytes) as DeviceWireMessage; if (message.kind !== 'card') throw new Error('not a card'); return message.card; }),
+    cards: (): QueuedCard[] => pushed.flatMap(({ bytes }) => { const message = JSON.parse(bytes) as DeviceWireMessage; return message.kind === 'card' ? [message.card] : []; }),
+    messages: (): DeviceWireMessage[] => pushed.map(({ bytes }) => JSON.parse(bytes) as DeviceWireMessage),
     snapshot: (): string => JSON.stringify([...table.entries()]),
     catchUp: (to: HouseholdLanguage = 'es') => egress.catchUpInLanguage('hh-1', to, { correlationId: 'corr-change' }),
   };
@@ -205,8 +220,8 @@ describe('the note from the emulator: sent while the home was English, unanswere
 
     const [again] = w.cards();
     expect({ id: again!.id, urgency: again!.urgency, queuedAt: again!.queuedAt, shownCount: again!.shownCount }).toEqual({ id: 'note-1', urgency: 'DEFERRED', queuedAt: 500, shownCount: 0 });
-    // Nothing is stored again: one update of the translation, and no card written.
-    expect(w.commands.map((command) => command.name)).toEqual(['QueryCommand', 'UpdateItemCommand']);
+    // Nothing is stored again: one update of the translation, and no card written — then a look before the push, and one after.
+    expect(w.commands.map((command) => command.name)).toEqual(['QueryCommand', 'UpdateItemCommand', 'GetItemCommand', 'GetItemCommand']);
     expect((w.commands[1]!.input as { ExpressionAttributeNames: Record<string, string> }).ExpressionAttributeNames).toEqual({ '#tr': 'tr_es', '#data': 'data' });
   });
 
@@ -426,6 +441,156 @@ describe('a card that changes while it is being translated', () => {
     expect(await w.catchUp()).toEqual({ waiting: 1, translated: 0, sent: 0 });
 
     expect(w.row('CARD#door-1')!.tr_es).toBeUndefined();
+    expect(w.pushed).toEqual([]);
+  });
+});
+
+describe('nothing finished is put back on her screen — the card is looked at again at the moment of pushing, and once more after', () => {
+  const answered = (table: Map<string, Row>, key: string) => { table.set(key, { ...table.get(key)!, actedAt: { N: '999' } }); };
+  const NOTE = 'HH#hh-1|CARD#note-1';
+  const revokes = (w: ReturnType<typeof world>) => w.messages().flatMap((message) => (message.kind === 'control' && message.control.t === 'revoke' ? [message.control.cardId] : []));
+
+  it('looks at the row as it is that instant, both times: consistent reads of that one card', async () => {
+    const w = world({ rows: [stored(queuedNote)] });
+
+    await w.catchUp();
+
+    const looks = w.commands.filter((command) => command.name === 'GetItemCommand').map((command) => command.input);
+    expect(looks).toEqual([
+      { TableName: 'wick', Key: { pk: { S: 'HH#hh-1' }, sk: { S: 'CARD#note-1' } }, ConsistentRead: true },
+      { TableName: 'wick', Key: { pk: { S: 'HH#hh-1' }, sk: { S: 'CARD#note-1' } }, ConsistentRead: true },
+    ]);
+    // One before the push, one after it.
+    const order = w.commands.map((command) => command.name);
+    expect(order.indexOf('GetItemCommand')).toBeGreaterThan(order.indexOf('UpdateItemCommand'));
+    expect(w.cards()).toHaveLength(1);
+    expect(revokes(w)).toEqual([]);
+  });
+
+  it('a card whose translation could not be kept — answered before it was — is never pushed', async () => {
+    const w = world({ rows: [stored(queuedNote)], beforeUpdate: answered });
+
+    expect(await w.catchUp()).toEqual({ waiting: 1, translated: 0, sent: 0 });
+
+    expect(w.pushed).toEqual([]);
+    // Not even looked at again: there is nothing to send.
+    expect(w.commands.filter((command) => command.name === 'GetItemCommand')).toEqual([]);
+  });
+
+  it('answered between the translation being kept and the push: not pushed', async () => {
+    const w = world({ rows: [stored(queuedNote)], afterUpdate: answered });
+
+    expect(await w.catchUp()).toEqual({ waiting: 1, translated: 1, sent: 0 });
+
+    expect(w.pushed).toEqual([]);
+  });
+
+  it('answered between the push and the look after it: taken back off her televisions, the way a withdrawn card is', async () => {
+    const w = world({ rows: [stored(queuedNote)], afterPush: (table, _message, nth) => { if (nth === 1) answered(table, NOTE); } });
+
+    expect(await w.catchUp()).toEqual({ waiting: 1, translated: 1, sent: 0 });
+
+    expect(w.messages().map((message) => (message.kind === 'card' ? `card ${message.card.id}` : `${message.control.t} ${'cardId' in message.control ? message.control.cardId : ''}`))).toEqual(['card note-1', 'revoke note-1']);
+    // To every television of the home: whichever of them was pressed, each may have been handed the copy.
+    expect(w.pushed.map((push) => push.exceptDeviceId)).toEqual([undefined, undefined]);
+  });
+
+  it('taken back by its sender before the push — the row gone altogether: not pushed, and nothing to take back', async () => {
+    const w = world({ rows: [stored(queuedNote)], afterUpdate: (table, key) => { table.delete(key); } });
+
+    expect(await w.catchUp()).toEqual({ waiting: 1, translated: 1, sent: 0 });
+
+    expect(w.pushed).toEqual([]);
+  });
+
+  it('gone after the push: taken back', async () => {
+    const w = world({ rows: [stored(queuedNote)], afterPush: (table, _message, nth) => { if (nth === 1) table.delete(NOTE); } });
+
+    expect(await w.catchUp()).toEqual({ waiting: 1, translated: 1, sent: 0 });
+
+    expect(revokes(w)).toEqual(['note-1']);
+  });
+
+  it('a door card whose visitor has gone by the time of pushing is not pushed', async () => {
+    const times = [NOW, NOW + 10 * 60_000];
+    const w = world({ rows: [stored(queued(door, NOW - 1000, { expiresAt: NOW + 60_000 }))], clock: () => times.shift() ?? NOW + 10 * 60_000 });
+
+    expect(await w.catchUp()).toEqual({ waiting: 1, translated: 1, sent: 0 });
+
+    expect(w.pushed).toEqual([]);
+  });
+
+  it('changed between the translation being kept and the push — its words patched: not pushed; whoever changed it sent the change', async () => {
+    const described = queued(door, NOW - 1000, { expiresAt: NOW + 60_000 });
+    const w = world({
+      rows: [stored(described)],
+      afterUpdate: (table, key) => { table.set(key, { ...table.get(key)!, data: { S: JSON.stringify({ ...described, card: { ...door, notice: 'The hallway chime rang.' } }) } }); },
+    });
+
+    expect(await w.catchUp()).toEqual({ waiting: 1, translated: 1, sent: 0 });
+
+    expect(w.pushed).toEqual([]);
+  });
+
+  it('changed between the push and the look after it: sent once more as it now stands, so the copy just pushed does not hide the change', async () => {
+    const described = queued(door, NOW - 1000, { expiresAt: NOW + 60_000 });
+    const patched = { ...described, card: { ...door, notice: 'The hallway chime rang.' } };
+    const w = world({
+      rows: [stored(described)],
+      afterPush: (table, _message, nth) => { if (nth === 1) table.set('HH#hh-1|CARD#door-1', { ...table.get('HH#hh-1|CARD#door-1')!, data: { S: JSON.stringify(patched) } }); },
+    });
+
+    expect(await w.catchUp()).toEqual({ waiting: 1, translated: 1, sent: 1 });
+
+    expect(w.cards()).toHaveLength(2);
+    expect(w.cards()[0]!.card).not.toHaveProperty('notice');
+    expect(w.cards()[1]!.card).toMatchObject({ notice: 'The hallway chime rang.', description: 'Una mujer con un abrigo rojo.', line: '[es] Maria is at the front door.' });
+    // And that is what the edge would replay from the row as it now is.
+    expect(JSON.stringify(w.cards()[1])).toBe(JSON.stringify(await replayedByTheEdge(w.row('CARD#door-1')!, 'es')));
+    expect(revokes(w)).toEqual([]);
+  });
+
+  it('changed and then answered: the last word is a take-back', async () => {
+    const w = world({
+      rows: [stored(queuedNote)],
+      afterPush: (table, _message, nth) => {
+        if (nth === 1) table.set(NOTE, { ...table.get(NOTE)!, shown: { N: '2' }, data: { S: JSON.stringify({ ...queuedNote, queuedAt: 501 }) } });
+        if (nth === 2) answered(table, NOTE);
+      },
+    });
+
+    expect(await w.catchUp()).toEqual({ waiting: 1, translated: 1, sent: 0 });
+
+    expect(w.messages().map((message) => message.kind === 'card' ? 'card' : message.control.t)).toEqual(['card', 'card', 'revoke']);
+  });
+});
+
+describe('an opposite answer while the cards are being caught up', () => {
+  it('she went back to English before the push: nothing is pushed in the language she has left', async () => {
+    // Back to English the instant the translation is kept.
+    const w = world({ rows: [stored(queuedNote)], afterUpdate: () => { w.sheSays('en'); } });
+
+    expect(await w.catchUp()).toEqual({ waiting: 1, translated: 1, sent: 0 });
+
+    expect(w.pushed).toEqual([]);
+  });
+
+  it('she went back to English just after the push: the card is sent once more as it now stands — in English, to the byte', async () => {
+    const w = world({ rows: [stored(queuedNote)], afterPush: (_table, _message, nth) => { if (nth === 1) w.sheSays('en'); } });
+
+    await w.catchUp();
+
+    expect(w.cards()).toHaveLength(2);
+    expect(w.cards()[0]!.card).toMatchObject({ transcript: NOTE_IN_SPANISH });
+    expect(JSON.stringify(w.cards()[1])).toBe(JSON.stringify(queuedNote));
+  });
+
+  it('she had already gone back when the event arrived: nothing at all', async () => {
+    const w = world({ language: 'en', rows: [stored(queuedNote)] });
+
+    expect(await w.catchUp('es')).toEqual({ waiting: 0, translated: 0, sent: 0 });
+
+    expect(w.translate).not.toHaveBeenCalled();
     expect(w.pushed).toEqual([]);
   });
 });
