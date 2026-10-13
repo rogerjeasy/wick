@@ -7,6 +7,10 @@
  * reads those items back. It is one Query and no model call, so it stays
  * inside Alexa+'s 500ms budget (§9.3).
  *
+ * A wave (accounts/familyTvWave.ts) is kept under a note's key so that the
+ * edge records her press on it, and is left out here: it is not a note
+ * anybody wrote.
+ *
  * No Guardian class applies. A reply is something the resident chose to
  * send to the family, by pressing it, so passing it on is the point.
  */
@@ -16,6 +20,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { READS, data, say } from './result.js';
+import { isWaveCardId } from '../accounts/familyTvWave.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -42,6 +47,9 @@ export async function loadNoteReplies(ddb: DynamoDBClient, householdId: string, 
     if (!raw) continue;
     const queued = JSON.parse(raw) as QueuedCard;
     if (queued.card.type !== 'MESSAGE' || now - queued.queuedAt > WINDOW_MS) continue;
+    // A wave from a family member's own television is a note only in how it travels (accounts/familyTvWave.ts):
+    // nobody wrote it, and what she pressed on it is told on that television, not read out as a reply.
+    if (isWaveCardId(queued.id)) continue;
 
     const text = item.replyText?.S;
     const at = item.repliedAt?.N;

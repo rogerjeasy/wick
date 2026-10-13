@@ -21,7 +21,82 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { WRITES, data, say } from './result.js';
-import { CANCELLED_TEXT, NOTHING_ASKED, TABLE, WITHDRAWN_TEXT, describeWatch, mySession, sessionKey, watchCard } from './watchSession.js';
+import { CANCELLED_TEXT, NOTHING_ASKED, TABLE, WITHDRAWN_TEXT, describeWatch, mySession, sessionKey, watchCard, type WatchView } from './watchSession.js';
+
+/**
+ * What became of sitting down: the session as it now stands — `already`
+ * when the seat had been taken before, so her television was told then and
+ * is told nothing more — or the one sentence that says why not.
+ */
+export type SitDownOutcome =
+  | { readonly sat: true; readonly already: boolean; readonly view: WatchView }
+  | { readonly sat: false; readonly say: string };
+
+/**
+ * Sits the person who sent an invitation down to it — the whole of what the
+ * tool does, and of what "Sit down" on that person's own television does
+ * (accounts/familyTelevision.ts). Whoever calls it has already asked
+ * whether the resident allows this person; a session is only ever found
+ * for the one who made it (watchSession.ts mySession).
+ */
+export async function sitDownToWatch(
+  ddb: DynamoDBClient,
+  who: { readonly householdId: string; readonly userId: string; readonly residentName: string },
+  sessionId: string,
+  sendCard: (card: QueuedCard) => Promise<void>,
+  at: number,
+): Promise<SitDownOutcome> {
+  const { householdId, userId, residentName } = who;
+  const no = (say: string): SitDownOutcome => ({ sat: false, say });
+  const session = await mySession(ddb, householdId, userId, sessionId);
+  if (!session) return no(NOTHING_ASKED(residentName));
+
+  const view = describeWatch(session, at);
+  if (view.state === 'invited') return no(`${residentName} hasn't answered the invitation yet. It is on the television.`);
+  if (view.state === 'declined') return no(`${residentName} said not this time.`);
+  if (view.state === 'withdrawn') return no(WITHDRAWN_TEXT);
+  if (view.state === 'cancelled') return no(CANCELLED_TEXT);
+  if (view.state === 'passed') return no(`${residentName} chose not to watch just now.`);
+  if (view.state === 'over') return no(`The time for ${view.film} has passed. You can ask again for another day.`);
+  if (view.state !== 'accepted') return { sat: true, already: true, view }; // already sat down
+  if (!view.canSitDown) {
+    return no(`It is not time yet. ${view.film} with ${residentName} is on ${view.when}; you can sit down from half an hour before.`);
+  }
+
+  try {
+    await ddb.send(new UpdateItemCommand({
+      TableName: TABLE,
+      Key: sessionKey(householdId, sessionId),
+      UpdateExpression: 'SET joinedAt = :at',
+      ConditionExpression: '#status = :accepted AND attribute_not_exists(joinedAt)',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: { ':accepted': { S: 'accepted' }, ':at': { N: String(at) } },
+    }));
+  } catch (err) {
+    if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
+    // Sat down a moment ago, from another window: the television has been told.
+    const settled = await mySession(ddb, householdId, userId, sessionId);
+    return settled ? { sat: true, already: true, view: describeWatch(settled, at) } : no(NOTHING_ASKED(residentName));
+  }
+
+  const by = session.invitedByName;
+  await sendCard(watchCard({
+    kind: 'ready',
+    householdId,
+    session,
+    headline: `${by} is ready to watch ${session.programmeTitle} with you.`,
+    // The press on "Start the film" is the consent, so this is where it is said what it shares.
+    detail: `From when you start it, ${by} sees the film as you play it: where you pause, it pauses for ${by} too. Only this film, and only this time.`,
+    actions: [
+      { id: WATCH_ACTIONS.start, label: 'Start the film', kind: 'primary' },
+      { id: WATCH_ACTIONS.notNow, label: 'Not now', kind: 'dismiss' },
+    ],
+    now: at,
+    starts: { programmeId: session.programmeId, followedUntil: session.closesAt },
+  }));
+
+  return { sat: true, already: false, view: describeWatch({ ...session, joinedAt: at }, at) };
+}
 
 export function registerJoinWatchTogether(
   mcpServer: McpServer,
@@ -45,56 +120,14 @@ export function registerJoinWatchTogether(
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { sessionId }: { sessionId: string }) => {
-      const residentName = allowed.household.residentName;
-      const at = now();
-      const session = await mySession(ddb, ctx.householdId, ctx.userId, sessionId);
-      if (!session) return say(NOTHING_ASKED(residentName));
-
-      const view = describeWatch(session, at);
-      if (view.state === 'invited') return say(`${residentName} hasn't answered the invitation yet. It is on the television.`);
-      if (view.state === 'declined') return say(`${residentName} said not this time.`);
-      if (view.state === 'withdrawn') return say(WITHDRAWN_TEXT);
-      if (view.state === 'cancelled') return say(CANCELLED_TEXT);
-      if (view.state === 'passed') return say(`${residentName} chose not to watch just now.`);
-      if (view.state === 'over') return say(`The time for ${view.film} has passed. You can ask again for another day.`);
-      if (view.state !== 'accepted') return data(view); // already sat down
-      if (!view.canSitDown) {
-        return say(`It is not time yet. ${view.film} with ${residentName} is on ${view.when}; you can sit down from half an hour before.`);
-      }
-
-      try {
-        await ddb.send(new UpdateItemCommand({
-          TableName: TABLE,
-          Key: sessionKey(ctx.householdId, sessionId),
-          UpdateExpression: 'SET joinedAt = :at',
-          ConditionExpression: '#status = :accepted AND attribute_not_exists(joinedAt)',
-          ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: { ':accepted': { S: 'accepted' }, ':at': { N: String(at) } },
-        }));
-      } catch (err) {
-        if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
-        // Sat down a moment ago, from another window: the television has been told.
-        const settled = await mySession(ddb, ctx.householdId, ctx.userId, sessionId);
-        return settled ? data(describeWatch(settled, at)) : say(NOTHING_ASKED(residentName));
-      }
-
-      const by = session.invitedByName;
-      await sendCard(watchCard({
-        kind: 'ready',
-        householdId: ctx.householdId,
-        session,
-        headline: `${by} is ready to watch ${session.programmeTitle} with you.`,
-        // The press on "Start the film" is the consent, so this is where it is said what it shares.
-        detail: `From when you start it, ${by} sees the film as you play it: where you pause, it pauses for ${by} too. Only this film, and only this time.`,
-        actions: [
-          { id: WATCH_ACTIONS.start, label: 'Start the film', kind: 'primary' },
-          { id: WATCH_ACTIONS.notNow, label: 'Not now', kind: 'dismiss' },
-        ],
-        now: at,
-        starts: { programmeId: session.programmeId, followedUntil: session.closesAt },
-      }));
-
-      return data(describeWatch({ ...session, joinedAt: at }, at));
+      const outcome = await sitDownToWatch(
+        ddb,
+        { householdId: ctx.householdId, userId: ctx.userId, residentName: allowed.household.residentName },
+        sessionId,
+        sendCard,
+        now(),
+      );
+      return outcome.sat ? data(outcome.view) : say(outcome.say);
     })),
   );
 }
