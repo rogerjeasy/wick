@@ -24,6 +24,12 @@
  * pictures filling an idle screen may have it (`cardVisible`). Then nothing
  * here can be focused; and when the remote comes back, the focus goes back
  * to where it was — not to the first film.
+ *
+ * And while a card is on screen nothing of this screen is partly visible
+ * (home/behind.ts): its rows are left out whole and the card is alone on
+ * the ground colour. A card's top edge can fall anywhere, and it used to
+ * fall across the question. The screen itself stays, so it still knows
+ * where the focus was when its rows come back.
  */
 import * as React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
@@ -35,6 +41,12 @@ import { programmeLine, words } from '../words/words.js';
 import { POSTERS } from './posters.js';
 
 export interface HomeScreenProps {
+  /**
+   * Whether this screen's rows are drawn at all (home/behind.ts): not while
+   * a card is on screen over it. Then it is the ground colour and nothing
+   * else — nothing to see part of, to focus, or for a screen reader to find.
+   */
+  readonly drawn: boolean;
   /**
    * The language she chose (packages/contracts language.ts). This screen's
    * own words are said in it (words/words.ts); `waiting`, `light` and
@@ -81,7 +93,7 @@ export interface HomeScreenProps {
   readonly onKeyUp?: (() => void) | undefined;
 }
 
-export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ drawn, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
   const say = words(language);
   // One quiet row under the films, and a card waiting to be opened comes first.
   const quiet = waiting ? undefined : lookedIn;
@@ -94,6 +106,9 @@ export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWa
   const focused = React.useRef<string | undefined>(undefined);
   const here = [...programmes.map((programme) => `programme:${programme.id}`), ...(light ? ['light'] : []), ...(waiting ? ['waiting'] : []), ...(mantel ? ['mantel'] : [])];
   const preferred = focused.current !== undefined && here.includes(focused.current) ? focused.current : start;
+
+  // A card is on screen: nothing of this screen is drawn behind it. Left out whole, never partly covered.
+  if (!drawn) return <View style={styles.screen} />;
 
   return (
     <View style={styles.screen}>

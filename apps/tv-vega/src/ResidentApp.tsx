@@ -80,6 +80,7 @@ import { QueueStore, type Mantel } from './headless/QueueStore.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
 import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
 import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
+import { homeBehind } from './home/behind.js';
 import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, waitingLine } from './home/waiting.js';
 import { asking } from './home/asked.js';
@@ -628,6 +629,8 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   // Not yet known which language to say it in: a moment, at launch. Nothing is drawn in the wrong one.
   if (language === null) return <View style={styles.unlit} />;
   const say = words(language);
+  // The home screen behind whatever is over it (home/behind.ts): while a card is on screen, none of it is drawn.
+  const behind = homeBehind({ card: card !== null, mantelOpen, idle });
 
   return (
     <View style={styles.screen}>
@@ -650,10 +653,11 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
         />
       ) : (
         <HomeScreen
+          drawn={behind.rows}
           language={language}
           programmes={CATALOG}
           onChoose={handleChoose}
-          cardVisible={card !== null || mantelOpen || blocksHome(idle)}
+          cardVisible={!behind.reach}
           lastWatchedId={lastWatchedId}
           waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting, language) : undefined}
           onOpenWaiting={handleOpenWaiting}
