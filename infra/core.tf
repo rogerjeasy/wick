@@ -158,8 +158,13 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
     }
   }
 
+  # Read to me (infra/speech.tf, packages/contracts speech.ts): a card read
+  # aloud when she asks. A reading is a cache of words already on her screen
+  # — made once, so the same card read twice does not ask the voice twice —
+  # and nothing else: it is let go after one day. Versioning is on, so an
+  # earlier version of a reading made again goes within the day too.
   rule {
-    id     = "tts-30d"
+    id     = "tts-1d"
     status = "Enabled"
 
     filter {
@@ -167,11 +172,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
     }
 
     expiration {
-      days = 30
+      days = 1
     }
 
     noncurrent_version_expiration {
-      noncurrent_days = 30
+      noncurrent_days = 1
     }
   }
 
