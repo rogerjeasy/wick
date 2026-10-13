@@ -49,6 +49,18 @@ export interface Television {
 }
 
 /**
+ * A television a member connected as their own (packages/contracts
+ * familyTelevision.ts). Never one of the resident's: nothing meant for the
+ * resident is sent to it, and it is not counted among the home's televisions.
+ */
+export interface FamilyTelevision {
+  readonly deviceId: string;
+  /** The member whose television it is. */
+  readonly userId: string;
+  readonly pairedAt?: number;
+}
+
+/**
  * Short-lived state, each kept as `<KIND>#<id>` / `META` with an expiry.
  * `OAUTH#AT` is read by the television-pairing Lambda as well
  * (packages/contracts/src/circle.ts ACCESS_TOKEN_KEY_PREFIX).

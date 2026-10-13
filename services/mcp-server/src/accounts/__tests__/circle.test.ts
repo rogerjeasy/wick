@@ -287,6 +287,52 @@ describe('describeCircle', () => {
     expect(circle.televisions).toEqual([{ deviceId: 'tv-1', pairedAt: 5, connected: true }]);
   });
 
+  it('lists the family’s own televisions apart from the resident’s, oldest first, by whose each is', async () => {
+    const { deps, store } = setup();
+    const household = await createHousehold(deps, SARAH, { residentName: 'Margaret' });
+    await residentAnswers(deps, household.householdId, 'u_sarah', 'allowed');
+    const invitation = await createInvitation(deps, { householdId: household.householdId, userId: 'u_sarah' });
+    await acceptInvitation(deps, TOM, invitation.code);
+    await residentAnswers(deps, household.householdId, 'u_tom', 'allowed');
+    store.addTelevision(household.householdId, { deviceId: 'tv-1', pairedAt: 5, connected: true });
+    store.addFamilyTelevision(household.householdId, { deviceId: 'tv-tom', userId: 'u_tom', pairedAt: 9 });
+    store.addFamilyTelevision(household.householdId, { deviceId: 'tv-sarah', userId: 'u_sarah', pairedAt: 7 });
+
+    const circle = await describeCircle(deps, household.householdId, 'u_sarah');
+
+    // The resident's televisions are counted in sentences; a family member's is never one of them.
+    expect(circle.televisions).toEqual([{ deviceId: 'tv-1', pairedAt: 5, connected: true }]);
+    expect(circle.familyTelevisions).toEqual([
+      { deviceId: 'tv-sarah', userId: 'u_sarah', memberName: 'Sarah Bennett', pairedAt: 7, yours: true },
+      { deviceId: 'tv-tom', userId: 'u_tom', memberName: 'Tom', pairedAt: 9, yours: false },
+    ]);
+  });
+
+  it('still names whose it is when a television outlives its member — one connected after they were removed, or left by a removal that did not finish', async () => {
+    const { deps, store } = setup();
+    const household = await createHousehold(deps, SARAH, { residentName: 'Margaret' });
+    await residentAnswers(deps, household.householdId, 'u_sarah', 'allowed');
+    const invitation = await createInvitation(deps, { householdId: household.householdId, userId: 'u_sarah' });
+    await acceptInvitation(deps, TOM, invitation.code);
+    await residentAnswers(deps, household.householdId, 'u_tom', 'allowed');
+    await removeMember(deps, { householdId: household.householdId, userId: 'u_sarah' }, 'u_tom');
+    // The row is there although the member is not: the organiser has to be able to see it to disconnect it.
+    store.addFamilyTelevision(household.householdId, { deviceId: 'tv-tom', userId: 'u_tom', pairedAt: 9 });
+
+    const circle = await describeCircle(deps, household.householdId, 'u_sarah');
+
+    expect(circle.members.map((m) => m.userId)).toEqual(['u_sarah']);
+    expect(circle.familyTelevisions).toEqual([{ deviceId: 'tv-tom', userId: 'u_tom', memberName: 'Tom', pairedAt: 9, yours: false }]);
+  });
+
+  it('INV-9: tells nobody about the family’s televisions before the resident has allowed them', async () => {
+    const { deps, store } = setup();
+    const household = await createHousehold(deps, SARAH, { residentName: 'Margaret' });
+    store.addFamilyTelevision(household.householdId, { deviceId: 'tv-tom', userId: 'u_tom', pairedAt: 9 });
+
+    expect((await describeCircle(deps, household.householdId, 'u_sarah')).familyTelevisions).toEqual([]);
+  });
+
   it('leaves out people who were removed', async () => {
     const { deps } = setup();
     const household = await createHousehold(deps, SARAH, { residentName: 'Margaret' });
@@ -377,6 +423,40 @@ describe('a neighbour', () => {
     const asFamily = await createInvitation(deps, { householdId: household.householdId, userId: 'u_sarah' }, 'family');
     expect(await acceptInvitation(deps, TOM, asFamily.code)).toMatchObject({ role: 'family', status: 'pending' });
     expect(await store.getMembership(household.householdId, 'u_tom')).toMatchObject({ role: 'family' });
+  });
+});
+
+describe('family televisions — who is shown them, and what becomes of one', () => {
+  async function home() {
+    const t = setup();
+    const household = await createHousehold(t.deps, SARAH, { residentName: 'Margaret' });
+    await residentAnswers(t.deps, household.householdId, 'u_sarah', 'allowed');
+    return { ...t, household };
+  }
+
+  it('are not shown to a neighbour: a neighbour is asked things, and shown nothing', async () => {
+    const { deps, store, household } = await home();
+    const invitation = await createInvitation(deps, { householdId: household.householdId, userId: 'u_sarah' }, 'neighbour');
+    await acceptInvitation(deps, TOM, invitation.code);
+    await residentAnswers(deps, household.householdId, 'u_tom', 'allowed');
+    store.addFamilyTelevision(household.householdId, { deviceId: 'tv-sarah', userId: 'u_sarah', pairedAt: 7 });
+
+    expect((await describeCircle(deps, household.householdId, 'u_tom')).familyTelevisions).toEqual([]);
+    expect((await describeCircle(deps, household.householdId, 'u_sarah')).familyTelevisions).toHaveLength(1);
+  });
+
+  it('are disconnected with their member: somebody removed from the circle keeps no television of the house', async () => {
+    const { deps, store, household } = await home();
+    const invitation = await createInvitation(deps, { householdId: household.householdId, userId: 'u_sarah' });
+    await acceptInvitation(deps, TOM, invitation.code);
+    await residentAnswers(deps, household.householdId, 'u_tom', 'allowed');
+    store.addFamilyTelevision(household.householdId, { deviceId: 'tv-tom', userId: 'u_tom', pairedAt: 9 });
+    store.addFamilyTelevision(household.householdId, { deviceId: 'tv-tom-2', userId: 'u_tom', pairedAt: 10 });
+    store.addFamilyTelevision(household.householdId, { deviceId: 'tv-sarah', userId: 'u_sarah', pairedAt: 7 });
+
+    await removeMember(deps, { householdId: household.householdId, userId: 'u_sarah' }, 'u_tom');
+
+    expect((await store.listFamilyTelevisions(household.householdId)).map((tv) => tv.deviceId)).toEqual(['tv-sarah']);
   });
 });
 

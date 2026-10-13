@@ -70,3 +70,14 @@ export function mayConnectTelevision(memberItem) {
   const status = memberItem?.status?.S;
   return memberItem?.role?.S === 'organiser' && (status === 'pending' || status === 'allowed');
 }
+
+/**
+ * A television of a family member's own — "Sarah's television"
+ * (family-television.mjs). Only somebody the resident has already allowed
+ * (INV-9: it shows what that person may read, so not while they wait), and
+ * not a neighbour, who is asked things and shown nothing.
+ */
+export function mayConnectOwnTelevision(memberItem) {
+  const role = memberItem?.role?.S;
+  return memberItem?.status?.S === 'allowed' && (role === 'organiser' || role === 'family');
+}

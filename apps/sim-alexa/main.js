@@ -17,6 +17,9 @@ import {
   madeWithKey,
   needsConfirmation,
   presentCircle,
+  presentConnect,
+  presentPairLink,
+  presentConnected,
   presentDoorbell,
   presentInvitation,
   presentListing,
@@ -1649,13 +1652,103 @@ function plainCard(title, footnote) {
   return { card, body };
 }
 
-/** Ask for the six digits on the television. */
-function addConnectTelevision(prefill) {
-  const resident = me?.household.residentName ?? 'their';
+/**
+ * A code that came in a link: show it, and ask whether it is the one on the
+ * television in front of the person, before it can go anywhere. What is said
+ * is decided in surface.js (presentPairLink). Somebody who is offered no
+ * television at all is told so at once, without being shown the code.
+ */
+function addPairLinkGate(code) {
+  if (!me) return;
+  const resident = me.household.residentName;
+  if (!presentConnect(me).offered) return void addConnectTelevision();
+  const gate = presentPairLink(code, resident);
+  if (!gate.offered) return void addConnectTelevision();
+
   const turn = el('div', 'turn-assistant');
-  const { card, body } = plainCard('Connect a television', `${resident} is then asked, on it, whether to allow you.`);
-  body.appendChild(el('p', 'empty', 'Open Wick on the television. It shows a six-digit code.'));
-  if (me?.virtualTelevisionUrl) {
+  const { card, body } = plainCard(gate.title, gate.warning);
+  body.appendChild(el('p', undefined, gate.question));
+  const actions = el('div', 'actions');
+  const yes = el('button', 'btn final', gate.confirm);
+  yes.type = 'button';
+  const no = el('button', 'btn quiet', gate.refuse);
+  no.type = 'button';
+  actions.append(no, yes);
+  body.appendChild(actions);
+  turn.appendChild(card);
+  log.appendChild(turn);
+  scrollToEnd();
+  // The way out has the focus: a press made without reading connects nothing.
+  no.focus();
+
+  no.addEventListener('click', () => {
+    turn.remove();
+    assistantSays({ say: gate.refused, tone: 'answer' });
+    $('ask-input').focus();
+  });
+  yes.addEventListener('click', () => {
+    turn.remove();
+    addConnectTelevision({ prefill: gate.shown });
+  });
+}
+
+/**
+ * Ask whose television it is — the resident's, or the signed-in person's own
+ * — and for the six digits on it. Who is offered which, and every sentence,
+ * is decided in surface.js (presentConnect); the server decides again when
+ * the code is sent.
+ *
+ * @param {{ prefill?: string, wanted?: 'family' }} [options]  the code from a television's pairing link; 'family' when the person said the television is theirs
+ */
+function addConnectTelevision({ prefill, wanted } = {}) {
+  if (!me) return;
+  const resident = me.household.residentName;
+  const view = presentConnect(me, wanted);
+  if (!view.offered) {
+    assistantSays({ say: view.say, tone: view.tone });
+    $('ask-input').focus();
+    return;
+  }
+  if (view.say) assistantSays({ say: view.say, tone: 'waiting' });
+
+  /** Whose it is to be: 'resident', 'family', or nothing while an organiser has not said. */
+  let as = view.as;
+  const turn = el('div', 'turn-assistant');
+  const { card, body } = plainCard(view.title, as ? view.footnote[as] : '');
+  const footnote = card.querySelector('.card-foot .note');
+  const lead = el('p', 'empty', view.lead[as ?? 'resident']);
+  // The code is asked for once it is known whose television it is.
+  const rest = el('div', 'form');
+  rest.hidden = !as;
+
+  const choices = [];
+  if (view.whose) {
+    const group = el('div', 'form');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', view.whose.question);
+    group.appendChild(el('p', undefined, view.whose.question));
+    const options = el('div', 'actions');
+    for (const option of view.whose.options) {
+      const choice = el('button', 'btn quiet choice', option.label);
+      choice.type = 'button';
+      choice.setAttribute('aria-pressed', String(as === option.as));
+      choice.addEventListener('click', () => {
+        as = option.as;
+        for (const other of choices) other.button.setAttribute('aria-pressed', String(other.as === as));
+        lead.textContent = view.lead[as];
+        footnote.textContent = view.footnote[as];
+        rest.hidden = false;
+        input.focus();
+      });
+      choices.push({ as: option.as, button: choice });
+      options.appendChild(choice);
+    }
+    group.appendChild(options);
+    body.appendChild(group);
+  }
+
+  rest.appendChild(lead);
+  if (me.virtualTelevisionUrl) {
     // Nobody needs a Fire TV to see the resident's side: a television in a
     // browser tab pairs with the same code and shows the same cards.
     const hint = el('p', 'empty', 'No Fire TV to hand? ');
@@ -1664,7 +1757,7 @@ function addConnectTelevision(prefill) {
     tv.target = '_blank';
     tv.rel = 'noopener';
     hint.append(tv, ', press “Pair & connect” there, and enter its code here.');
-    body.appendChild(hint);
+    rest.appendChild(hint);
   }
 
   const form = el('form', 'form');
@@ -1686,21 +1779,33 @@ function addConnectTelevision(prefill) {
   const problem = el('p', 'problem');
   problem.setAttribute('role', 'alert');
   form.append(label, actions, problem);
-  body.appendChild(form);
+  rest.appendChild(form);
+  body.appendChild(rest);
   turn.appendChild(card);
   log.appendChild(turn);
   scrollToEnd();
-  input.focus();
+  // With a choice still to make, the first of the two answers; otherwise the code.
+  if (as) input.focus();
+  else choices[0]?.button.focus();
 
   cancel.addEventListener('click', () => turn.remove());
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (!as) return;
     go.disabled = true;
     problem.textContent = '';
     try {
-      await api('/api/televisions', { method: 'POST', body: JSON.stringify({ code: input.value }) });
+      // The resident's television is asked for exactly as it always was: a code, and nothing else.
+      const answer = await api('/api/televisions', {
+        method: 'POST',
+        body: JSON.stringify(as === 'family' ? { code: input.value, as: 'family' } : { code: input.value }),
+      });
       turn.remove();
-      await welcome();
+      const connected = presentConnected(as, answer, resident);
+      if (connected.say) assistantSays({ say: connected.say, tone: connected.tone });
+      // The resident's television changes what comes next (she is asked, on it); a television of one's own does not.
+      if (connected.kind === 'resident') await welcome();
+      else $('ask-input').focus();
     } catch (err) {
       problem.textContent = err.message;
       go.disabled = false;
@@ -1779,10 +1884,10 @@ function renderCircleCard(view) {
   body.appendChild(rows);
   body.appendChild(el('p', 'empty', view.television));
 
-  // Each television, and — for the organiser — the way to disconnect one that was replaced or only ever a test.
-  if (view.televisions.length > 0) {
+  /** A list of televisions, each with — for whoever may — the way to disconnect it. */
+  const televisionList = (televisions, route) => {
     const sets = el('ul', 'rows');
-    for (const tv of view.televisions) {
+    for (const tv of televisions) {
       const li = el('li', 'row');
       li.appendChild(el('span', 'primary', tv.primary));
       li.appendChild(el('span', 'secondary', tv.secondary));
@@ -1797,7 +1902,7 @@ function renderCircleCard(view) {
             return;
           }
           try {
-            await api(`/api/televisions/${encodeURIComponent(tv.deviceId)}`, { method: 'DELETE' });
+            await api(`${route}/${encodeURIComponent(tv.deviceId)}`, { method: 'DELETE' });
             await showCircle();
           } catch (err) {
             assistantSays({ say: err.message, tone: 'error' });
@@ -1807,7 +1912,17 @@ function renderCircleCard(view) {
       }
       sets.appendChild(li);
     }
-    body.appendChild(sets);
+    return sets;
+  };
+
+  // Each television, and — for the organiser — the way to disconnect one that was replaced or only ever a test.
+  if (view.televisions.length > 0) body.appendChild(televisionList(view.televisions, '/api/televisions'));
+
+  // The family's own televisions, in a list of their own: never the resident's, and not counted above.
+  // Each can be disconnected by whoever it belongs to, and by the organiser.
+  if (view.familyTelevisions.length > 0) {
+    body.appendChild(el('p', 'empty', view.familyTelevisionsTitle));
+    body.appendChild(televisionList(view.familyTelevisions, '/api/family-televisions'));
   }
 
   if (view.organiser) {
@@ -1826,6 +1941,14 @@ function renderCircleCard(view) {
     doorbell.type = 'button';
     doorbell.addEventListener('click', () => void showDoorbell());
     actions.append(invite, inviteNeighbour, connectTv, doorbell);
+    body.appendChild(actions);
+  } else if (view.connect === 'family') {
+    // A family member the resident has allowed: a television of their own, and no other.
+    const actions = el('div', 'actions');
+    const connectOwn = el('button', 'btn quiet', 'Connect my own television');
+    connectOwn.type = 'button';
+    connectOwn.addEventListener('click', () => addConnectTelevision());
+    actions.appendChild(connectOwn);
     body.appendChild(actions);
   }
   return card;
@@ -2001,7 +2124,11 @@ async function welcome() {
 
   const pair = sessionStorage.getItem('wick_pair');
   sessionStorage.removeItem('wick_pair');
-  if (me.membership.role === 'organiser' && (pair || presented.next === 'connect')) addConnectTelevision(pair ?? undefined);
+  // A television's pairing link leads to the same card as asking for it — the choice for an organiser, their own
+  // for a family member, one sentence for somebody offered neither — but never straight to it: the code in a
+  // link is first shown and confirmed (addPairLinkGate), because anybody can send such a link.
+  if (pair) addPairLinkGate(pair);
+  else if (me.membership.role === 'organiser' && presented.next === 'connect') addConnectTelevision();
   else $('ask-input').focus();
   watchTheDoor();
   watchForTheFilm();
@@ -2017,6 +2144,7 @@ function answerByRules(text) {
   if (route.kind === 'compose') return addComposer(route.message);
   if (route.kind === 'invite') return addInvitationToWatch();
   if (route.kind === 'circle') return void showCircle();
+  if (route.kind === 'connect') return addConnectTelevision({ wanted: route.as });
   if (route.kind === 'doorbell') return void showDoorbell();
   if (route.kind === 'notifications') return void showNotifications();
   assistantSays({ say: HELP_TEXT, tone: 'answer' });
@@ -2032,6 +2160,8 @@ async function handleUtterance(text) {
   addCustomerTurn(text);
   // The circle is this app's own business with the server, not a question for a tool.
   if (routeUtterance(text).kind === 'circle') return void showCircle();
+  // And so is a television of one's own: "connect my television" opens the card with "Mine" chosen.
+  if (routeUtterance(text).kind === 'connect') return addConnectTelevision({ wanted: routeUtterance(text).as });
   if (routeUtterance(text).kind === 'doorbell') return void showDoorbell();
   // And so are this browser's notifications.
   if (routeUtterance(text).kind === 'notifications') return void showNotifications();

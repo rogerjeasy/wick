@@ -37,11 +37,19 @@
  */
 import { DynamoDBClient, GetItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { signJwt } from './jwt.mjs';
+import { signJwt, verifyJwt } from './jwt.mjs';
 import { REFRESH_TOKEN_TTL_SEC, nextRefreshWindow } from './pairing-code.mjs';
 import { deviceOwnerKey, householdOfDevice } from './device-owner.mjs';
+import { FAMILY_KIND, familyClaims, familyTelevisionKey } from './family-television.mjs';
 
-export function createHandler({ send, privateKey, now, table }) {
+/** The bearer token of a request, whatever case the header arrived in. */
+function bearer(headers) {
+  const value = Object.entries(headers ?? {}).find(([name]) => name.toLowerCase() === 'authorization')?.[1];
+  const match = typeof value === 'string' ? /^Bearer\s+(\S+)$/i.exec(value) : null;
+  return match ? match[1] : undefined;
+}
+
+export function createHandler({ send, privateKey, publicKey, now, table }) {
   return async (event) => {
     let body;
     try {
@@ -56,7 +64,14 @@ export function createHandler({ send, privateKey, now, table }) {
     const householdId = householdOfDevice(owner.Item);
     if (!householdId) return { statusCode: 404, body: 'device_not_paired' };
 
-    const bindingKey = { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } };
+    // Which kind of television this is comes from which row it has — never from
+    // the request. The resident's is a DEV# row; a family member's own is an
+    // FTV# row that says whose (family-television.mjs), and its token keeps
+    // saying so: refreshing can never turn one kind into the other.
+    const residentKey = { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } };
+    const isResidents = Boolean((await send(new GetItemCommand({ TableName: table, Key: residentKey }))).Item);
+    const bindingKey = isResidents ? residentKey : familyTelevisionKey(householdId, deviceId);
+    let familyUserId;
 
     // Counted on the binding row, and written only if the row still says
     // what was read: the app and its card service ask a second apart, and
@@ -65,6 +80,26 @@ export function createHandler({ send, privateKey, now, table }) {
       const item = (await send(new GetItemCommand({ TableName: table, Key: bindingKey }))).Item;
       if (!item) return { statusCode: 404, body: 'device_not_paired' };
       if (item.denylisted?.BOOL) return { statusCode: 403, body: 'device_denylisted' };
+      if (!isResidents) {
+        familyUserId = item.userId?.S;
+        if (!familyUserId) return { statusCode: 404, body: 'device_not_paired' };
+        // A family television shows one person's view of a home, so its token
+        // is never minted from the device id alone — an id can be guessed.
+        // It shows the token it held (one that has run out will do: the
+        // question is whether it ever held one), and that token must be this
+        // television's, this member's, and Wick's.
+        const heldToken = bearer(event.headers);
+        if (!heldToken) return { statusCode: 401, body: 'token_required' };
+        let held;
+        try {
+          held = verifyJwt(heldToken, await publicKey(), { ignoreExpiry: true });
+        } catch {
+          return { statusCode: 401, body: 'invalid_token' };
+        }
+        if (held.kind !== FAMILY_KIND || held.deviceId !== deviceId || held.householdId !== householdId || held.userId !== familyUserId) {
+          return { statusCode: 401, body: 'invalid_token' };
+        }
+      }
 
       const next = nextRefreshWindow(item, now());
       if (!next) return { statusCode: 429, body: 'refresh_rate_limited' };
@@ -90,8 +125,9 @@ export function createHandler({ send, privateKey, now, table }) {
       }
     }
 
-    const jwt = signJwt({ deviceId, householdId }, await privateKey(), { expiresInSec: REFRESH_TOKEN_TTL_SEC });
-    const token = { jwt, deviceId, householdId, expiresAt: now() + REFRESH_TOKEN_TTL_SEC * 1000 };
+    const claims = { deviceId, householdId, ...(familyUserId ? familyClaims(familyUserId) : {}) };
+    const jwt = signJwt(claims, await privateKey(), { expiresInSec: REFRESH_TOKEN_TTL_SEC });
+    const token = { jwt, deviceId, householdId, expiresAt: now() + REFRESH_TOKEN_TTL_SEC * 1000, ...(familyUserId ? { kind: FAMILY_KIND } : {}) };
 
     return { statusCode: 200, body: JSON.stringify({ token }) };
   };
@@ -100,17 +136,20 @@ export function createHandler({ send, privateKey, now, table }) {
 const ddb = new DynamoDBClient({});
 const sm = new SecretsManagerClient({});
 
-let cachedPrivateKey = null;
-async function privateKey() {
-  if (cachedPrivateKey) return cachedPrivateKey;
+let cachedKeys = null;
+async function keys() {
+  if (cachedKeys) return cachedKeys;
   const r = await sm.send(new GetSecretValueCommand({ SecretId: process.env.PAIRING_SIGNING_KEY_SECRET_ARN }));
-  cachedPrivateKey = JSON.parse(r.SecretString).privateKeyPem;
-  return cachedPrivateKey;
+  cachedKeys = JSON.parse(r.SecretString);
+  return cachedKeys;
 }
+const privateKey = async () => (await keys()).privateKeyPem;
+const publicKey = async () => (await keys()).publicKeyPem;
 
 export const handler = createHandler({
   send: (command) => ddb.send(command),
   privateKey,
+  publicKey,
   now: Date.now,
   table: process.env.TABLE_NAME,
 });

@@ -19,7 +19,7 @@ import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } fro
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { verifyJwt } from './jwt.mjs';
 import { setExpression, slotForRole } from './connection-slot.mjs';
-import { deviceBindingKey, isServed } from './device-standing.mjs';
+import { deviceBindingKey, isResidentsToken, isServed } from './device-standing.mjs';
 
 const ddb = new DynamoDBClient({});
 const sm = new SecretsManagerClient({});
@@ -44,6 +44,8 @@ export const handler = async (event) => {
   } catch {
     return { statusCode: 401, body: 'invalid_token' };
   }
+  // The resident's channel is for the resident's television (device-standing.mjs).
+  if (!isResidentsToken(claims)) return { statusCode: 403, body: 'not_this_channel' };
   const { deviceId, householdId } = claims;
 
   // Fast path only: this GetItem is eventually consistent, so a denylist

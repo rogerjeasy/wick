@@ -150,6 +150,15 @@ export function routeUtterance(text, now = Date.now()) {
   // Sintel" asks her to a film, not into the family circle.
   const aboutAFilm = /\b(film|movie)\b/.test(t) || /\bwatch(ing)?\b.*\b(together|with)\b/.test(t);
 
+  // A television said to be one's own — "connect my television", "this is my
+  // TV" — goes straight to connecting it as mine. Before the circle, which
+  // has "connect a television"; and "my" must be the television's, so
+  // "connect my mum's television" stays hers. A note that says so is a note.
+  if (
+    /\b(?:connect|pair|add|set up)\b.*\bmy (?:own )?(?:television|tv|telly)\b|\bthis is my (?:own )?(?:television|tv|telly)\b/.test(t) &&
+    !NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said))
+  ) return { kind: 'connect', as: 'family' };
+
   // The circle is the app's own business, not a question for a tool. "Connect
   // a television" is; "put a note on her television" is not.
   if (/\bcircle\b|\bconnect\b.*\b(television|tv)\b/.test(t) || (!aboutAFilm && /\binvit(e|ation)\b/.test(t))) return { kind: 'circle' };
@@ -1446,6 +1455,134 @@ function televisionRows(televisions, organiser) {
 }
 
 /**
+ * The televisions members connected as their own, as the server lists them
+ * (oldest first). Each is named by whose it is. Its owner can disconnect
+ * it, and so can the organiser.
+ */
+function familyTelevisionRows(familyTelevisions, organiser) {
+  return familyTelevisions.map((tv) => ({
+    deviceId: tv.deviceId,
+    primary: `${tv.memberName}’s television`,
+    secondary: Number.isFinite(tv.pairedAt) ? `Connected ${dayConnected(tv.pairedAt)}` : '',
+    removable: organiser || tv.yours === true,
+  }));
+}
+
+/**
+ * Who is offered which television to connect:
+ *
+ *   'choice'    an organiser the resident has allowed — the resident's, or their own
+ *   'resident'  an organiser still waiting — the resident's, which is how anyone comes to be asked
+ *   'family'    a family member the resident has allowed — their own, and no other
+ *   null        a neighbour, and anyone still waiting, turned down or removed
+ *
+ * The server decides again when the code is sent (POST /api/televisions).
+ *
+ * @param me  GET /api/me
+ */
+export function televisionOffer(me) {
+  const { role, status } = me.membership;
+  if (role === 'organiser') return status === 'allowed' ? 'choice' : status === 'pending' ? 'resident' : null;
+  return role === 'family' && status === 'allowed' ? 'family' : null;
+}
+
+/**
+ * A pairing code that arrived in a link — the address on a television's
+ * pairing screen, opened on a telephone.
+ *
+ * Such a link can be sent by anybody. If its code went straight into the
+ * form, one press on "Connect" would connect whichever television the code
+ * belongs to: somebody else's, showing them this person's view of the home,
+ * or — for an organiser — standing in for the resident's own. So the code
+ * from a link is never used by itself. It is shown, the person is asked
+ * whether it is the code on the television in front of them, and only their
+ * "Yes" carries it on to the connect card.
+ *
+ * Anything that is not six digits is not a code: it is dropped, and never
+ * drawn.
+ */
+export function presentPairLink(code, residentName) {
+  const digits = typeof code === 'string' ? code.replace(/\s+/g, '') : '';
+  if (!/^\d{6}$/.test(digits)) return { offered: false };
+  const shown = `${digits.slice(0, 3)} ${digits.slice(3)}`;
+  return {
+    offered: true,
+    code: digits,
+    shown,
+    title: 'A code from a link',
+    question: `Is ${shown} the code showing on the television in front of you?`,
+    warning:
+      `Only go on if you can see this code on that television yourself. A link from somebody else can carry the code of their television, and connecting it would show them what you see of ${residentName}’s home.`,
+    confirm: 'Yes, it is on my television',
+    refuse: 'No',
+    refused: 'Nothing was connected.',
+  };
+}
+
+/**
+ * The card that connects a television, and whose it is going to be — asked
+ * in plain words before the code is sent. `as` is what is chosen to begin
+ * with: nothing for an organiser, who has to say; "Mine" when that is what
+ * they said; and the only thing on offer for everyone else.
+ *
+ * @param me      GET /api/me
+ * @param {'family' | undefined} wanted  'family' when the person said the television is their own
+ */
+export function presentConnect(me, wanted) {
+  const resident = me.household.residentName;
+  const offer = televisionOffer(me);
+  if (!offer) {
+    const { role, status } = me.membership;
+    // A neighbour's is not "not yet": being allowed does not change it. The resident's no is said as the welcome says it.
+    if (role === 'neighbour') return { offered: false, say: 'A neighbour cannot connect a television.', tone: 'answer' };
+    if (status === 'declined') return { offered: false, say: `${resident} chose not to share this with you.`, tone: 'private' };
+    if (status === 'removed') return { offered: false, say: 'You are no longer part of this family circle.', tone: 'private' };
+    return { offered: false, say: `You can connect a television of your own once ${resident} has allowed you.`, tone: 'waiting' };
+  }
+  return {
+    offered: true,
+    // Said first to an organiser who asked for their own before the resident has allowed them.
+    say: offer === 'resident' && wanted === 'family'
+      ? `Connect ${resident}’s television first. You can connect one of your own once ${resident} has allowed you.`
+      : null,
+    title: offer === 'family' ? 'Connect my own television' : 'Connect a television',
+    whose: offer === 'choice'
+      ? { question: 'Whose television is it?', options: [{ as: 'resident', label: `${resident}’s` }, { as: 'family', label: 'Mine' }] }
+      : null,
+    as: offer === 'choice' ? (wanted === 'family' ? 'family' : null) : offer,
+    lead: {
+      resident: 'Open Wick on the television. It shows a six-digit code.',
+      family: 'Open Wick on your television. It shows a six-digit code.',
+    },
+    footnote: {
+      resident: `${resident} is then asked, on it, whether to allow you.`,
+      family: `Your television will show you ${resident}’s light and anything she asks of you. It is never used to reach her.`,
+    },
+  };
+}
+
+/**
+ * What is said once a television is connected (POST /api/televisions). The
+ * kind said is the kind the server connected, never the kind that was asked
+ * for: an older Wick knows no kinds and connects the resident's television —
+ * and that one is not called yours.
+ *
+ * @param {'resident' | 'family'} asked
+ * @param {{kind?: string}} answer  the server's
+ * @param {string} resident
+ */
+export function presentConnected(asked, answer, resident) {
+  if (answer?.kind === 'family') {
+    return { say: `This television is now yours. It will show you ${resident}’s home.`, tone: 'answer', kind: 'family' };
+  }
+  if (asked === 'family') {
+    return { say: `This Wick cannot connect a television of your own yet. It was connected as ${resident}’s.`, tone: 'waiting', kind: 'resident' };
+  }
+  // The resident's own: the welcome says what comes next, as it always has.
+  return { say: null, tone: 'answer', kind: 'resident' };
+}
+
+/**
  * @param circle  GET /api/circle
  * @param me      GET /api/me
  */
@@ -1469,7 +1606,11 @@ export function presentCircle(circle, me) {
       })),
       television: televisionLine(circle.televisions),
       televisions: televisionRows(circle.televisions, organiser),
+      // A list of its own: a member's television is never one of the resident's, and is not counted above.
+      familyTelevisionsTitle: 'Family televisions',
+      familyTelevisions: familyTelevisionRows(circle.familyTelevisions ?? [], organiser),
       organiser,
+      connect: televisionOffer(me),
       footnote: `${resident} allows each person on the television, one press each.`,
     },
   };

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   deviceBindingKey,
+  isResidentsToken,
   isServed,
   // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 } from '../device-standing.mjs';
@@ -67,3 +68,26 @@ describe('every way a television is served checks its standing', () => {
     expect(events).toMatch(/householdOfDevice\(/);
   });
 });
+
+describe('isResidentsToken — whose channel this is', () => {
+  it('is a token with a television and a home, and no kind', () => {
+    expect(isResidentsToken({ deviceId: 'tv-1', householdId: 'hh_1' })).toBe(true);
+  });
+
+  it('is never a family member’s own television, whatever rows the device may have', () => {
+    expect(isResidentsToken({ deviceId: 'tv-1', householdId: 'hh_1', kind: 'family', userId: 'u_sarah' })).toBe(false);
+  });
+
+  it('is never a kind it has not heard of, nor a token with something missing', () => {
+    for (const claims of [{ deviceId: 'tv-1', householdId: 'hh_1', kind: 'resident' }, { deviceId: 'tv-1', householdId: 'hh_1', kind: '' }, { deviceId: 'tv-1' }, { householdId: 'hh_1' }, null, undefined]) {
+      expect(isResidentsToken(claims)).toBe(false);
+    }
+  });
+
+  it('is asked wherever a television comes onto the resident’s channel', () => {
+    for (const file of ['connect.mjs', 'iot-authorize.mjs']) {
+      expect(readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')).toMatch(/isResidentsToken\(claims\)/);
+    }
+  });
+});
+

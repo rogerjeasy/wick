@@ -34,7 +34,7 @@ describe('CardService', () => {
     const fs = fakeFs();
     __setCardServiceTestDeps({
       fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
       createChannel: async () => {
         throw new Error('should not be called when unpaired');
       },
@@ -96,7 +96,7 @@ describe('CardService', () => {
     const toasts: unknown[] = [];
     __setCardServiceTestDeps({
       fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
       createChannel: channel.createChannel,
       postToast: async (toast) => {
         toasts.push(toast);
@@ -110,6 +110,39 @@ describe('CardService', () => {
 
     expect(channel.asked).toEqual([{ websocket: { url: 'wss://ws.example', role: 'background' } }]);
     expect(toasts).toEqual([expect.objectContaining({ mTitle: "Someone's at the front door." })]);
+  });
+
+  // A family member's own television (packages/contracts/src/familyTelevision.ts)
+  // has no card channel at all: nothing of the resident's is sent to it, and
+  // it posts no toast. The app never starts this service for one
+  // (App.tsx), and if the platform does, it still holds nothing.
+  it("holds no connection on a family member's own television, from a stored token or a refreshed one", async () => {
+    const createChannel = vi.fn(async () => {
+      throw new Error("the card channel must never be opened with a family television's token");
+    });
+    const family = { jwt: 'j', deviceId: 'd1', householdId: 'h1', expiresAt: Date.now() + 100_000, kind: 'family' };
+
+    const stored = fakeFs();
+    await stored.writeStringToFile('/data/wick-token.json', JSON.stringify(family), 'utf8');
+    __setCardServiceTestDeps({
+      fs: stored,
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
+      createChannel,
+    });
+    await onStartCardService();
+    await settle();
+    await onStopCardService();
+
+    __setCardServiceTestDeps({
+      fs: fakeFs(),
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
+      createChannel,
+      fetchImpl: (async () => new Response(JSON.stringify({ token: family }), { status: 200 })) as unknown as typeof fetch,
+    });
+    await onStartCardService();
+    await settle();
+
+    expect(createChannel).not.toHaveBeenCalled();
   });
 
   // Seen on the Vega simulator, 2026-10-11. Opening Wick already paired, the
@@ -129,7 +162,7 @@ describe('CardService', () => {
     const fetchImpl = vi.fn(async () => answers.shift()!);
     __setCardServiceTestDeps({
       fs: fakeFs(),
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
       createChannel: channel.createChannel,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
@@ -159,7 +192,7 @@ describe('CardService', () => {
     ];
     __setCardServiceTestDeps({
       fs: fakeFs(),
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
       createChannel: channel.createChannel,
       fetchImpl: (async () => answers.shift()!) as unknown as typeof fetch,
     });
@@ -177,7 +210,7 @@ describe('CardService', () => {
     const channel = listeningChannel();
     __setCardServiceTestDeps({
       fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
       createChannel: channel.createChannel,
       postToast: async () => undefined,
     });
@@ -197,7 +230,7 @@ describe('CardService', () => {
     const toasts: unknown[] = [];
     __setCardServiceTestDeps({
       fs,
-      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example' },
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
       createChannel: channel.createChannel,
       postToast: async (toast) => {
         toasts.push(toast);

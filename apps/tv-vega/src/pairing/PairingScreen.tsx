@@ -3,9 +3,12 @@
  * and nothing else — S4's pairing gate ("unpaired devices show the code and
  * nothing else") already constrains what this may render.
  *
- * The code is entered in the family app by the organiser, who is signed in
- * there (services/edge-device/lambda/pair-claim.mjs). The link opens that
- * app with the code filled in.
+ * The code is entered in the family app by someone signed in there
+ * (services/edge-device/lambda/pair-claim.mjs): the organiser, for the
+ * resident's television, or any member the resident has allowed, for a
+ * television of their own. Which of the two this television becomes is
+ * chosen there, not here — so the sentence below names no button, and is
+ * true of both. The link opens that app with the code filled in.
  */
 import * as React from 'react';
 import { StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
@@ -23,7 +26,7 @@ export function PairingScreen({ info }: PairingScreenProps): React.JSX.Element {
       {info ? (
         <>
           <Text style={styles.code}>{info.code}</Text>
-          <Text style={styles.body}>In the Wick family app, choose “Connect a television” and enter this code.</Text>
+          <Text style={styles.body}>Enter this code in the Wick family app. There you say whose television this is.</Text>
           <Text style={styles.link}>{info.url}</Text>
         </>
       ) : (

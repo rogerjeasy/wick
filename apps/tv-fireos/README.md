@@ -16,7 +16,10 @@ The whole table is `adapters.config.js`, and `metro.config.js` applies exactly
 that.
 
 So pairing, the home screen, playback, the Natural-Break Engine, every card and
-Watch live are the Vega app's code, unchanged. Two things hold the swap honest:
+Watch live are the Vega app's code, unchanged. So is the screen of a television
+a family member connects as their own (`apps/tv-vega/src/family`): it uses the
+same components and `fetch`, and needed no adapter of its own. Two things hold
+the swap honest:
 
 - `npm run typecheck` here compiles the Vega source a second time, against the
   adapters' types.
@@ -77,6 +80,13 @@ the deployed stack.
 Two things Android does differently from Vega, both handled in the adapters
 and written up in `FRICTION.md` FL-025: a key press reaches only what holds
 focus, and play/pause arrives as the key coming up.
+
+Not yet run on the emulator: a television connected as a family member's own.
+It typechecks here and its decisions are tested, and that is all. Such a
+television is given a fresh token only when it shows the one it held, so it
+stays connected across relaunches only where that token is kept — here, in the
+app's own storage (`src/adapters/fileSystem.ts`). The Vega simulator keeps
+nothing, and a family member's television there is paired again each time.
 
 ## Not a workspace
 

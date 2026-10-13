@@ -193,6 +193,144 @@
   font-weight: 600;
 }
 
+/* A family member's own television: their home screen, full-screen and calm — the resident's name, whose
+   television this is, her light in one sentence, and at most one card. No colour here says anything by itself. */
+.tv-card.tv-family {
+  position: absolute;
+  inset: 0;
+  background: #050403;
+  padding: clamp(0.9rem, 0.7rem + 1.2vw, 1.5rem) clamp(0.9rem, 0.7rem + 1.6vw, 2rem);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* Centred by its margins, not by the container: when a card is taller than the screen, the top stays
+   reachable instead of being cut off above it. */
+.tv-card.tv-family > :first-child {
+  margin-top: auto;
+}
+
+.tv-card.tv-family > :last-child {
+  margin-bottom: auto;
+}
+
+.tv-family .family-head .headline {
+  margin-bottom: 0.3em;
+}
+
+.tv-family .family-light {
+  color: var(--text);
+}
+
+/* With a card waiting, the home's own lines step back to one row, and the card has the room. */
+.tv-family.has-card .family-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 1.2em;
+}
+
+.tv-family.has-card .family-head .headline {
+  flex-basis: 100%;
+  font-size: clamp(1rem, 0.92rem + 0.9vw, 1.4rem);
+  margin-bottom: 0.15em;
+}
+
+.tv-family.has-card .family-head .body-text {
+  font-size: clamp(0.85rem, 0.8rem + 0.35vw, 1rem);
+}
+
+.tv-family .family-quiet {
+  margin-top: 1em;
+}
+
+/* The one card waiting for this member, or the sentence that answered their press. */
+.tv-family .family-card {
+  margin-top: 0.8em;
+  padding-top: 0.8em;
+  border-top: 1px solid var(--border);
+}
+
+/* The picture from the door sits beside the words, so the answers stay on the screen with it. */
+.tv-family .family-card.with-picture {
+  display: grid;
+  grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
+  gap: 1em;
+  align-items: start;
+}
+
+.tv-family .family-card .headline {
+  font-size: clamp(1.05rem, 0.95rem + 1.1vw, 1.5rem);
+  margin-bottom: 0.3em;
+}
+
+/* Beside a picture there is less room across: the words are a size smaller, so the answers stay in sight. */
+.tv-family .family-card.with-picture .headline {
+  font-size: clamp(1rem, 0.92rem + 0.7vw, 1.25rem);
+}
+
+.tv-family .family-card.with-picture .body-text {
+  font-size: clamp(0.9rem, 0.86rem + 0.3vw, 1rem);
+}
+
+.tv-family .family-picture {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+}
+
+.tv-family .actions {
+  margin-top: 0.7em;
+  gap: 0.5em;
+}
+
+.tv-family .actions .pill {
+  cursor: pointer;
+  font: inherit;
+  font-size: clamp(0.8rem, 0.76rem + 0.25vw, 0.95rem);
+}
+
+.tv-family .actions .pill:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Said wherever a demo home is named: its history is simulated. */
+.tv-family .family-demo {
+  margin-top: 0.4em;
+  color: var(--text-dim);
+  font-size: clamp(0.75rem, 0.7rem + 0.2vw, 0.9rem);
+}
+
+.tv-family.has-card .family-demo {
+  margin-top: 0;
+}
+
+@media (max-width: 560px) {
+  /* On a phone the sixteen-by-nine screen is too short for a card: the family screen is as tall as what it says. */
+  .tv-screen:has(> .tv-family) {
+    aspect-ratio: auto;
+    display: block;
+  }
+
+  .tv-card.tv-family {
+    position: static;
+  }
+
+  /* And too narrow for a picture beside the words: it goes above them, small. */
+  .tv-family .family-card.with-picture {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tv-family .family-picture {
+    width: auto;
+    max-width: 100%;
+    max-height: 6em;
+  }
+}
+
 /* The home screen's quiet line: who looked in (tv-vega HomeScreen.tsx). */
 .tv-empty .home-line {
   margin: 12px 0;

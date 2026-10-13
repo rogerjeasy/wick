@@ -7,6 +7,9 @@ import {
   inviteLink,
   needsConfirmation,
   presentCircle,
+  presentConnect,
+  presentPairLink,
+  presentConnected,
   presentDoorbell,
   presentInvitation,
   presentListing,
@@ -277,6 +280,112 @@ describe('routeUtterance — the family circle', () => {
   it('still sends a note when the television is only where the note is going', () => {
     expect(routeUtterance("Put a note on Mum's television")).toEqual({ kind: 'compose' });
   });
+
+  it('takes a television said to be one’s own straight to connecting it as mine', () => {
+    for (const said of ['Connect my television', 'this is my television', 'connect my own tv', 'Can I connect my own television?', 'This is my TV']) {
+      expect(routeUtterance(said)).toEqual({ kind: 'connect', as: 'family' });
+    }
+  });
+
+  it('does not take the resident’s television, or a note, for one’s own', () => {
+    expect(routeUtterance('Connect a television')).toEqual({ kind: 'circle' });
+    expect(routeUtterance('connect the tv')).toEqual({ kind: 'circle' });
+    // "my" here is whose mother, not whose television.
+    expect(routeUtterance("Connect my mum's television")).toEqual({ kind: 'circle' });
+    expect(routeUtterance('Put a note on my television')).toEqual({ kind: 'compose' });
+    expect(routeUtterance('Tell Mum this is my television programme')).toMatchObject({ kind: 'compose' });
+  });
+});
+
+describe('presentConnect — whose television it is, asked before the code is sent', () => {
+  const QUIET = 'Your television will show you Margaret’s light and anything she asks of you. It is never used to reach her.';
+  const HERS = 'Margaret is then asked, on it, whether to allow you.';
+
+  it('asks an organiser Margaret has allowed whose it is, in plain words, and chooses for nobody', () => {
+    expect(presentConnect(me('organiser', 'allowed'))).toEqual({
+      offered: true,
+      say: null,
+      title: 'Connect a television',
+      whose: { question: 'Whose television is it?', options: [{ as: 'resident', label: 'Margaret’s' }, { as: 'family', label: 'Mine' }] },
+      as: null,
+      lead: { resident: 'Open Wick on the television. It shows a six-digit code.', family: 'Open Wick on your television. It shows a six-digit code.' },
+      footnote: { resident: HERS, family: QUIET },
+    });
+  });
+
+  it('has "Mine" chosen already when that is what was said — and it can still be changed', () => {
+    const r = presentConnect(me('organiser', 'allowed'), 'family');
+
+    expect(r.as).toBe('family');
+    expect(r.whose.options.map((o: { as: string }) => o.as)).toEqual(['resident', 'family']);
+  });
+
+  it('offers a family member Margaret has allowed their own television and nothing else: there is no choice to make', () => {
+    for (const wanted of [undefined, 'family']) {
+      expect(presentConnect(me('family', 'allowed'), wanted)).toEqual({
+        offered: true,
+        say: null,
+        title: 'Connect my own television',
+        whose: null,
+        as: 'family',
+        lead: { resident: 'Open Wick on the television. It shows a six-digit code.', family: 'Open Wick on your television. It shows a six-digit code.' },
+        footnote: { resident: HERS, family: QUIET },
+      });
+    }
+  });
+
+  it('keeps a new organiser on Margaret’s television, as before: nobody has a television of their own until she allows them', () => {
+    const first = presentConnect(me('organiser', 'pending'));
+    expect(first).toMatchObject({ offered: true, say: null, title: 'Connect a television', whose: null, as: 'resident' });
+
+    expect(presentConnect(me('organiser', 'pending'), 'family')).toMatchObject({
+      offered: true,
+      say: 'Connect Margaret’s television first. You can connect one of your own once Margaret has allowed you.',
+      whose: null,
+      as: 'resident',
+    });
+  });
+
+  it('offers a neighbour nothing, and says so — plainly, not as something that is only "not yet"', () => {
+    for (const status of ['allowed', 'pending']) {
+      expect(presentConnect(me('neighbour', status))).toEqual({ offered: false, say: 'A neighbour cannot connect a television.', tone: 'answer' });
+    }
+  });
+
+  it('offers nothing to someone still waiting, turned down or removed', () => {
+    expect(presentConnect(me('family', 'pending'))).toEqual({
+      offered: false,
+      say: 'You can connect a television of your own once Margaret has allowed you.',
+      tone: 'waiting',
+    });
+    // Her answer, in the words and the tone the welcome uses for it.
+    expect(presentConnect(me('family', 'declined'))).toEqual({ offered: false, say: 'Margaret chose not to share this with you.', tone: 'private' });
+    expect(presentConnect(me('family', 'removed'))).toEqual({ offered: false, say: 'You are no longer part of this family circle.', tone: 'private' });
+    expect(presentConnect(me('organiser', 'declined')).offered).toBe(false);
+  });
+});
+
+describe('presentConnected — what is said once a television is connected', () => {
+  it('says the television is now the member’s own, and what it will show', () => {
+    expect(presentConnected('family', { connected: true, kind: 'family' }, 'Margaret')).toEqual({
+      say: 'This television is now yours. It will show you Margaret’s home.',
+      tone: 'answer',
+      kind: 'family',
+    });
+  });
+
+  it('never calls a television yours that the server did not connect as yours', () => {
+    // An older Wick knows no kinds: it connected the resident's television, and its answer names none.
+    expect(presentConnected('family', { connected: true }, 'Margaret')).toEqual({
+      say: 'This Wick cannot connect a television of your own yet. It was connected as Margaret’s.',
+      tone: 'waiting',
+      kind: 'resident',
+    });
+  });
+
+  it('says nothing of its own for the resident’s television: the welcome says what comes next, as before', () => {
+    expect(presentConnected('resident', { connected: true }, 'Margaret')).toEqual({ say: null, tone: 'answer', kind: 'resident' });
+  });
 });
 
 describe('presentResult — waiting for the resident (INV-9)', () => {
@@ -409,6 +518,53 @@ describe('presentCircle', () => {
     const family = presentCircle(circle, me('family', 'allowed'));
     expect(family.card.organiser).toBe(false);
     expect(family.card.members.every((m: { removable: boolean }) => !m.removable)).toBe(true);
+  });
+
+  describe('family televisions — a list of its own under the resident’s', () => {
+    const withFamily = {
+      ...circle,
+      familyTelevisions: [
+        { deviceId: 'tv-sarah', userId: 'u_sarah', memberName: 'Sarah', pairedAt: Date.UTC(2026, 9, 12, 10), yours: true },
+        { deviceId: 'tv-tom', userId: 'u_tom', memberName: 'Tom', pairedAt: Date.UTC(2026, 9, 13, 10), yours: false },
+      ],
+    };
+    const yoursIs = (deviceId: string) => ({ ...withFamily, familyTelevisions: withFamily.familyTelevisions.map((tv) => ({ ...tv, yours: tv.deviceId === deviceId })) });
+
+    it('names each by whose it is, and lets the organiser disconnect anyone’s', () => {
+      const card = presentCircle(withFamily, me('organiser', 'allowed')).card;
+
+      expect(card.familyTelevisionsTitle).toBe('Family televisions');
+      expect(card.familyTelevisions).toEqual([
+        { deviceId: 'tv-sarah', primary: 'Sarah’s television', secondary: 'Connected 12 October', removable: true },
+        { deviceId: 'tv-tom', primary: 'Tom’s television', secondary: 'Connected 13 October', removable: true },
+      ]);
+    });
+
+    it('lets a family member disconnect their own, and nobody else’s', () => {
+      const rows = presentCircle(yoursIs('tv-tom'), me('family', 'allowed')).card.familyTelevisions;
+
+      expect(rows.map((tv: { deviceId: string; removable: boolean }) => [tv.deviceId, tv.removable])).toEqual([['tv-sarah', false], ['tv-tom', true]]);
+    });
+
+    it('never counts one among the resident’s televisions', () => {
+      const card = presentCircle(withFamily, me('organiser', 'allowed')).card;
+
+      expect(card.television).toBe('One television connected, and on now.');
+      expect(card.televisions).toHaveLength(1);
+    });
+
+    it('is simply empty for a Wick that lists none, and one with no date says no date', () => {
+      expect(presentCircle(circle, me('organiser', 'allowed')).card.familyTelevisions).toEqual([]);
+      const undated = { ...circle, familyTelevisions: [{ deviceId: 'tv-tom', userId: 'u_tom', memberName: 'Tom', yours: false }] };
+      expect(presentCircle(undated, me('organiser', 'allowed')).card.familyTelevisions[0].secondary).toBe('');
+    });
+
+    it('says who is offered a television to connect: the organiser the choice, a family member their own, a neighbour none', () => {
+      expect(presentCircle(circle, me('organiser', 'allowed')).card.connect).toBe('choice');
+      expect(presentCircle(circle, me('organiser', 'pending')).card.connect).toBe('resident');
+      expect(presentCircle(circle, me('family', 'allowed')).card.connect).toBe('family');
+      expect(presentCircle(circle, me('neighbour', 'allowed')).card.connect).toBe(null);
+    });
   });
 });
 
@@ -1888,3 +2044,42 @@ describe('the visit, witnessed — which visits were made, and which she confirm
     expect(describeCall('get_visits', {})).toBe('Looked at the visits');
   });
 });
+
+describe('presentPairLink — a code that arrived in a link is not a code she read off her television', () => {
+  it('shows the code, and asks whether it is the one on the television in front of her — before anything can be connected', () => {
+    const gate = presentPairLink('123456', 'Margaret');
+    expect(gate).toEqual({
+      offered: true,
+      code: '123456',
+      shown: '123 456',
+      title: 'A code from a link',
+      question: 'Is 123 456 the code showing on the television in front of you?',
+      warning:
+        'Only go on if you can see this code on that television yourself. A link from somebody else can carry the code of their television, and connecting it would show them what you see of Margaret’s home.',
+      confirm: 'Yes, it is on my television',
+      refuse: 'No',
+      refused: 'Nothing was connected.',
+    });
+  });
+
+  it('takes the code as written on a television, with its space', () => {
+    expect(presentPairLink('123 456', 'Margaret')).toMatchObject({ offered: true, code: '123456', shown: '123 456' });
+  });
+
+  it('offers nothing for something that is not six digits — and never puts it on the page', () => {
+    for (const code of ['', '12345', '1234567', 'abcdef', '123456<script>', '12 34 56 78', null, undefined]) {
+      expect(presentPairLink(code, 'Margaret')).toEqual({ offered: false });
+    }
+  });
+});
+
+describe('a pairing link in the family app', () => {
+  const main = readFileSync(fileURLToPath(new URL('../main.js', import.meta.url)), 'utf8');
+
+  it('never fills the code in from a link by itself: the code reaches the form only through the confirming press', () => {
+    // The one place a link's code enters the app after sign-in.
+    expect(main).toMatch(/if \(pair\) addPairLinkGate\(pair\);/);
+    expect(main).not.toMatch(/if \(pair\) addConnectTelevision\(/);
+  });
+});
+

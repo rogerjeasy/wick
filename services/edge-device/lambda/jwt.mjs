@@ -18,10 +18,26 @@ export function signJwt(claims, privateKeyPem, { expiresInSec }) {
   return `${signingInput}.${signature.toString('base64url')}`;
 }
 
-export function verifyJwt(token, publicKeyPem) {
-  const parts = token.split('.');
+/**
+ * `ignoreExpiry` is for one question only: did this television once hold a
+ * token of Wick's? (pair-refresh.mjs, for a family member's own
+ * television.) The signature is checked exactly as always.
+ */
+export function verifyJwt(token, publicKeyPem, { ignoreExpiry = false } = {}) {
+  const parts = String(token).split('.');
   if (parts.length !== 3) throw new Error('malformed_token');
   const [headerB64, payloadB64, sigB64] = parts;
+
+  // One way of signing, and it is said before anything is checked: a token
+  // that names another (`none`, or a shared secret made of the public key)
+  // is not weighed at all.
+  let header;
+  try {
+    header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf8'));
+  } catch {
+    throw new Error('malformed_token');
+  }
+  if (header?.alg !== 'RS256') throw new Error('unsupported_alg');
 
   const signingInput = `${headerB64}.${payloadB64}`;
   const signature = Buffer.from(sigB64, 'base64url');
@@ -30,6 +46,6 @@ export function verifyJwt(token, publicKeyPem) {
 
   const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
   const now = Math.floor(Date.now() / 1000);
-  if (typeof payload.exp === 'number' && payload.exp < now) throw new Error('expired');
+  if (!ignoreExpiry && typeof payload.exp === 'number' && payload.exp < now) throw new Error('expired');
   return payload;
 }

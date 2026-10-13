@@ -33,7 +33,14 @@ export interface CircleDeps {
   readonly newId: () => string;
 }
 
-export type CircleErrorCode = 'name_required' | 'not_organiser' | 'not_a_member' | 'invitation_invalid' | 'cannot_remove_self' | 'not_a_television';
+export type CircleErrorCode =
+  | 'name_required'
+  | 'not_organiser'
+  | 'not_a_member'
+  | 'invitation_invalid'
+  | 'cannot_remove_self'
+  | 'not_a_television'
+  | 'not_your_television';
 
 export class CircleError extends Error {
   readonly code: CircleErrorCode;
@@ -270,6 +277,13 @@ export async function removeMember(deps: CircleDeps, actor: { householdId: strin
   // they announced must not have the door go on saying a caller looks like
   // them (tools/expect_visit.ts).
   await deps.store.forgetAnnouncedVisits(actor.householdId, userId);
+  // And a television of their own stops being one of this home's. It was
+  // already shown nothing — every call checks the circle (INV-9) — but it
+  // should not go on being listed, nor keep the device from being connected
+  // anywhere else.
+  for (const tv of await deps.store.listFamilyTelevisions(actor.householdId)) {
+    if (tv.userId === userId) await deps.store.removeFamilyTelevision(actor.householdId, tv.deviceId);
+  }
 }
 
 /**
@@ -284,6 +298,26 @@ export async function removeTelevision(deps: CircleDeps, actor: { householdId: s
   if (!(await deps.store.removeTelevision(actor.householdId, deviceId))) throw new CircleError('not_a_television');
 }
 
+/**
+ * Disconnects a television a member connected as their own (packages/contracts
+ * familyTelevision.ts). It is the member's whose television it is, and the
+ * organiser's for anyone's — one somebody left connected, or the television
+ * of someone since removed. The household is the actor's (INV-8). Nothing
+ * here can touch the resident's own television: that is a row of another
+ * kind, and `removeTelevision`'s to remove.
+ */
+export async function removeFamilyTelevision(deps: CircleDeps, actor: { householdId: string; userId: string }, deviceId: string): Promise<void> {
+  const membership = await deps.store.getMembership(actor.householdId, actor.userId);
+  // The organiser as everywhere else here: allowed, or still waiting for the resident.
+  const organiser = membership?.role === 'organiser' && (membership.status === 'allowed' || membership.status === 'pending');
+  if (!organiser && membership?.status !== 'allowed') throw new CircleError('not_your_television');
+
+  // For a member, removed only if it is theirs: the condition is the store's, so there is no moment between looking and removing.
+  if (await deps.store.removeFamilyTelevision(actor.householdId, deviceId, organiser ? undefined : actor.userId)) return;
+  const held = organiser ? undefined : (await deps.store.listFamilyTelevisions(actor.householdId)).find((tv) => tv.deviceId === deviceId);
+  throw new CircleError(held ? 'not_your_television' : 'not_a_television');
+}
+
 export interface CircleView {
   readonly household: Household;
   readonly members: readonly {
@@ -293,16 +327,34 @@ export interface CircleView {
     readonly status: MemberStatus;
     readonly you: boolean;
   }[];
+  /** The resident's televisions, and only those: they are what "two televisions connected" counts. */
   readonly televisions: readonly Television[];
+  /**
+   * The televisions members connected as their own, oldest first — a list
+   * of its own, never among the resident's. Empty for a viewer the resident
+   * has not allowed yet (INV-9).
+   */
+  readonly familyTelevisions: readonly {
+    readonly deviceId: string;
+    readonly userId: string;
+    /** The member's name as the circle shows it. */
+    readonly memberName: string;
+    readonly pairedAt?: number;
+    /** Whether it is the viewer's own. */
+    readonly yours: boolean;
+  }[];
 }
 
 export async function describeCircle(deps: Pick<CircleDeps, 'store'>, householdId: string, viewerId: string): Promise<CircleView> {
-  const [household, members, televisions] = await Promise.all([
+  const [household, members, televisions, familyTelevisions] = await Promise.all([
     deps.store.getHousehold(householdId),
     deps.store.listMembers(householdId),
     deps.store.listTelevisions(householdId),
+    deps.store.listFamilyTelevisions(householdId),
   ]);
   if (!household) throw new CircleError('not_a_member');
+  // Shown to somebody the resident allows — and not to a neighbour, who is asked things and shown nothing.
+  const allowed = members.some((m) => m.userId === viewerId && m.status === 'allowed' && m.role !== 'neighbour');
   return {
     household,
     members: members
@@ -310,6 +362,18 @@ export async function describeCircle(deps: Pick<CircleDeps, 'store'>, householdI
       .sort((a, b) => a.requestedAt - b.requestedAt || a.userId.localeCompare(b.userId))
       .map((m) => ({ userId: m.userId, name: m.name, role: m.role, status: m.status, you: m.userId === viewerId })),
     televisions,
+    familyTelevisions: !allowed
+      ? []
+      : [...familyTelevisions]
+          .sort((a, b) => (a.pairedAt ?? 0) - (b.pairedAt ?? 0) || a.deviceId.localeCompare(b.deviceId))
+          .map((tv) => ({
+            deviceId: tv.deviceId,
+            userId: tv.userId,
+            // Someone since removed is still named: the organiser has to know whose television they are disconnecting.
+            memberName: members.find((m) => m.userId === tv.userId)?.name ?? 'Someone',
+            ...(tv.pairedAt === undefined ? {} : { pairedAt: tv.pairedAt }),
+            yours: tv.userId === viewerId,
+          })),
   };
 }
 
@@ -323,6 +387,11 @@ export type Access =
  */
 export async function checkAccess(store: AccountStore, householdId: string, userId: string): Promise<Access> {
   const [membership, household] = await Promise.all([store.getMembership(householdId, userId), store.getHousehold(householdId)]);
+  return accessOf(membership, household);
+}
+
+/** The same gate, for a caller that has already read the membership and the household. */
+export function accessOf(membership: Membership | undefined, household: Household | undefined): Access {
   if (!membership || !household) {
     return { ok: false, reason: 'not_a_member', say: 'You are not part of this family circle.' };
   }

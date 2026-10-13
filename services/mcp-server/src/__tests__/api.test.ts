@@ -17,10 +17,14 @@ afterEach(async () => {
 const api = (h: Harness, who: Linked, path: string, init: RequestInit = {}) =>
   fetch(`${h.base}${path}`, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), authorization: `Bearer ${who.tokens.access_token}` } });
 
-async function invite(h: Harness, organiser: Linked): Promise<string> {
-  const res = await api(h, organiser, '/api/circle/invitations', { method: 'POST' });
+async function invite(h: Harness, organiser: Linked, role?: 'neighbour'): Promise<string> {
+  const res = await api(h, organiser, '/api/circle/invitations', role
+    ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role }) }
+    : { method: 'POST' });
   return ((await res.json()) as { code: string }).code;
 }
+
+const JUNE = { name: 'June', email: 'june@example.com', password: 'a neighbourly passphrase' };
 
 describe('GET /api/circle', () => {
   it('shows the organiser their circle while they wait, so they can see the television connect', async () => {
@@ -217,10 +221,10 @@ describe('INV-8: one household per token, and no way to name another', () => {
 
 describe('POST /api/televisions — connecting a television with its six-digit code', () => {
   async function serverWithPairing(reply: { status: number; body: string }) {
-    const calls: { accessToken: string; code: string }[] = [];
+    const calls: { accessToken: string; code: string; as?: string }[] = [];
     const harness = await startServer({
-      claimTelevision: async (accessToken, code) => {
-        calls.push({ accessToken, code });
+      claimTelevision: async (accessToken, code, as) => {
+        calls.push({ accessToken, code, ...(as ? { as } : {}) });
         return reply;
       },
     });
@@ -280,6 +284,218 @@ describe('POST /api/televisions — connecting a television with its six-digit c
 
     expect(res.status).toBe(502);
     expect(JSON.stringify(await res.json())).not.toContain('arn:aws');
+  });
+
+  describe('as a television of one’s own — `as: \'family\'`', () => {
+    const FAMILY_REPLY = { status: 200, body: JSON.stringify({ ok: true, deviceId: 'tv-sarah', kind: 'family' }) };
+
+    it('passes it on for an organiser the resident has allowed, and says it was connected as theirs', async () => {
+      const { h, calls } = await serverWithPairing(FAMILY_REPLY);
+      const sarah = await linkNewOrganiser(h);
+      await residentAllows(h, sarah.householdId, sarah.userId);
+
+      const res = await connect(h, sarah, { code: '123 456', as: 'family' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ connected: true, kind: 'family' });
+      // INV-8: a token, a code and a kind. There is no household to send.
+      expect(calls).toEqual([{ accessToken: sarah.tokens.access_token, code: '123456', as: 'family' }]);
+    });
+
+    it('is for a family member the resident has allowed too — not the organiser’s alone', async () => {
+      const { h, calls } = await serverWithPairing(FAMILY_REPLY);
+      const sarah = await linkNewOrganiser(h);
+      const tom = await linkInvited(h, TOM, await invite(h, sarah));
+      await residentAllows(h, tom.householdId, tom.userId);
+
+      const res = await connect(h, tom, { code: '123456', as: 'family' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ connected: true, kind: 'family' });
+      expect(calls).toEqual([{ accessToken: tom.tokens.access_token, code: '123456', as: 'family' }]);
+    });
+
+    it('INV-9: is for nobody the resident has not allowed yet — not even the organiser — and the pairing service is not asked', async () => {
+      const { h, calls } = await serverWithPairing(FAMILY_REPLY);
+      const sarah = await linkNewOrganiser(h);
+      const tom = await linkInvited(h, TOM, await invite(h, sarah));
+
+      for (const who of [sarah, tom]) {
+        const res = await connect(h, who, { code: '123456', as: 'family' });
+
+        expect(res.status).toBe(403);
+        expect(await res.json()).toEqual({ error: 'not_allowed_yet', message: 'You can connect a television of your own once Margaret has allowed you.' });
+      }
+      expect(calls).toEqual([]);
+    });
+
+    it('is not for a neighbour, who is shown nothing', async () => {
+      const { h, calls } = await serverWithPairing(FAMILY_REPLY);
+      const sarah = await linkNewOrganiser(h);
+      const june = await linkInvited(h, JUNE, await invite(h, sarah, 'neighbour'));
+      await residentAllows(h, june.householdId, june.userId);
+
+      const res = await connect(h, june, { code: '123456', as: 'family' });
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'not_for_a_neighbour', message: 'A neighbour cannot connect a television.' });
+      expect(calls).toEqual([]);
+    });
+
+    it('says so, in the resident’s own words for it, to someone they turned down or who was removed', async () => {
+      const { h, calls } = await serverWithPairing(FAMILY_REPLY);
+      const sarah = await linkNewOrganiser(h);
+      const tom = await linkInvited(h, TOM, await invite(h, sarah));
+      await h.store.setMemberStatus(tom.householdId, tom.userId, 'declined', Date.now());
+
+      const res = await connect(h, tom, { code: '123456', as: 'family' });
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'not_allowed_yet', message: 'Margaret chose not to share this with you.' });
+      expect(calls).toEqual([]);
+    });
+
+    it('refuses a kind it has not heard of without bothering the pairing service', async () => {
+      const { h, calls } = await serverWithPairing(FAMILY_REPLY);
+      const sarah = await linkNewOrganiser(h);
+      await residentAllows(h, sarah.householdId, sarah.userId);
+
+      for (const as of ['resident', 'FAMILY', '', null, 7, ['family']]) {
+        const res = await connect(h, sarah, { code: '123456', as });
+
+        expect(res.status).toBe(400);
+        expect(await res.json()).toMatchObject({ error: 'bad_kind' });
+      }
+      expect(calls).toEqual([]);
+    });
+
+    it.each([
+      [403, 'not_allowed_yet', 'You can connect a television of your own once Margaret has allowed you.'],
+      [400, 'bad_kind', 'This Wick cannot connect a television of that kind.'],
+      [409, 'television_in_another_home', 'That television belongs to another home. It has to be disconnected there first.'],
+    ])('says what the pairing service refused in words: %i %s', async (status, body, message) => {
+      const { h } = await serverWithPairing({ status, body });
+      const sarah = await linkNewOrganiser(h);
+      await residentAllows(h, sarah.householdId, sarah.userId);
+
+      const res = await connect(h, sarah, { code: '123456', as: 'family' });
+
+      expect(res.status).toBe(status);
+      expect(await res.json()).toEqual({ error: body, message });
+    });
+
+    it('says a television is somebody’s own only when the pairing service says it connected it as one', async () => {
+      // A pairing service that has not heard of kinds connects the resident's television, and says no kind.
+      const { h } = await serverWithPairing({ status: 200, body: JSON.stringify({ ok: true, deviceId: 'tv-1' }) });
+      const sarah = await linkNewOrganiser(h);
+      await residentAllows(h, sarah.householdId, sarah.userId);
+
+      const res = await connect(h, sarah, { code: '123456', as: 'family' });
+
+      expect(await res.json()).toEqual({ connected: true });
+    });
+
+    it('leaves the resident’s own television as it was: no kind sent, none answered', async () => {
+      const { h, calls } = await serverWithPairing({ status: 200, body: JSON.stringify({ ok: true, deviceId: 'tv-1' }) });
+      const sarah = await linkNewOrganiser(h);
+
+      const res = await connect(h, sarah, { code: '123456' });
+
+      expect(await res.json()).toEqual({ connected: true });
+      expect(calls).toEqual([{ accessToken: sarah.tokens.access_token, code: '123456' }]);
+    });
+  });
+});
+
+describe('family televisions — a member’s own, listed apart from the resident’s', () => {
+  async function home() {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+    await residentAllows(h, sarah.householdId, sarah.userId);
+    const tom = await linkInvited(h, TOM, await invite(h, sarah));
+    await residentAllows(h, tom.householdId, tom.userId);
+    h.store.addTelevision(sarah.householdId, { deviceId: 'tv-margaret', pairedAt: 5, connected: true });
+    h.store.addFamilyTelevision(sarah.householdId, { deviceId: 'tv-sarah', userId: sarah.userId, pairedAt: 7 });
+    h.store.addFamilyTelevision(sarah.householdId, { deviceId: 'tv-tom', userId: tom.userId, pairedAt: 9 });
+    return { h, sarah, tom };
+  }
+  type Circle = { televisions: { deviceId: string }[]; familyTelevisions: { deviceId: string; userId: string; memberName: string; pairedAt?: number; yours: boolean }[] };
+  const circleOf = async (h: Harness, who: Linked) => (await (await api(h, who, '/api/circle')).json()) as Circle;
+
+  it('GET /api/circle lists them on their own, by whose they are — never among the resident’s televisions', async () => {
+    const { h, sarah, tom } = await home();
+
+    const seen = await circleOf(h, tom);
+
+    expect(seen.televisions.map((tv) => tv.deviceId)).toEqual(['tv-margaret']);
+    expect(seen.familyTelevisions).toEqual([
+      { deviceId: 'tv-sarah', userId: sarah.userId, memberName: 'Sarah', pairedAt: 7, yours: false },
+      { deviceId: 'tv-tom', userId: tom.userId, memberName: 'Tom', pairedAt: 9, yours: true },
+    ]);
+  });
+
+  it('INV-9: shows none of them to an organiser the resident has not allowed yet', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+    const tom = await linkInvited(h, TOM, await invite(h, sarah));
+    await residentAllows(h, tom.householdId, tom.userId);
+    h.store.addFamilyTelevision(sarah.householdId, { deviceId: 'tv-tom', userId: tom.userId, pairedAt: 9 });
+
+    expect((await circleOf(h, sarah)).familyTelevisions).toEqual([]);
+    expect((await circleOf(h, tom)).familyTelevisions).toHaveLength(1);
+  });
+
+  it('DELETE /api/family-televisions/:deviceId lets a member disconnect their own', async () => {
+    const { h, sarah, tom } = await home();
+
+    const res = await api(h, tom, '/api/family-televisions/tv-tom', { method: 'DELETE' });
+
+    expect(res.status).toBe(204);
+    expect((await circleOf(h, sarah)).familyTelevisions.map((tv) => tv.deviceId)).toEqual(['tv-sarah']);
+    // The resident's own television is not this route's to touch.
+    expect(await h.store.listTelevisions(sarah.householdId)).toHaveLength(1);
+  });
+
+  it('lets the organiser disconnect anyone’s', async () => {
+    const { h, sarah } = await home();
+
+    const res = await api(h, sarah, '/api/family-televisions/tv-tom', { method: 'DELETE' });
+
+    expect(res.status).toBe(204);
+    expect((await circleOf(h, sarah)).familyTelevisions.map((tv) => tv.deviceId)).toEqual(['tv-sarah']);
+  });
+
+  it('does not let one family member disconnect another’s', async () => {
+    const { h, sarah, tom } = await home();
+
+    const res = await api(h, tom, '/api/family-televisions/tv-sarah', { method: 'DELETE' });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: 'not_your_television',
+      message: 'Only the person whose television it is, or the person who set this home up, can disconnect it.',
+    });
+    expect(await h.store.listFamilyTelevisions(sarah.householdId)).toHaveLength(2);
+  });
+
+  it('is not a way to disconnect the resident’s television: that one is not a family television', async () => {
+    const { h, sarah } = await home();
+
+    const res = await api(h, sarah, '/api/family-televisions/tv-margaret', { method: 'DELETE' });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_a_television', message: 'That television is not connected to this home.' });
+    expect(await h.store.listTelevisions(sarah.householdId)).toHaveLength(1);
+  });
+
+  it('INV-8: cannot disconnect another home’s family television by knowing its id', async () => {
+    const { h, sarah } = await home();
+    const other = await linkNewOrganiser(h, { name: 'Priya', email: 'priya@example.com', password: 'another long passphrase' }, 'Asha');
+
+    const res = await api(h, other, '/api/family-televisions/tv-tom', { method: 'DELETE' });
+
+    expect(res.status).toBe(404);
+    expect(await h.store.listFamilyTelevisions(sarah.householdId)).toHaveLength(2);
   });
 });
 

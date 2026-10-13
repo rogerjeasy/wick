@@ -25,7 +25,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { NOBODY_ASKED, describeLook, loadLookRow } from './get_door_request.js';
-import { WRITES, data, say } from './result.js';
+import { WRITES, data, say, type AnswerOutcome } from './result.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -35,6 +35,65 @@ const alreadyAnswered = (answer: { by: string; text: string }): string => `${ans
 
 /** The name the resident reads on the card: a first name, as the door card's own button used. */
 const firstName = (name: string): string => name.trim().split(/\s+/)[0] ?? name;
+
+/** Who is answering: the household and the member of a verified token (INV-8), by the names the resident allowed (INV-9). */
+export interface DoorAnswerer {
+  readonly householdId: string;
+  readonly userId: string;
+  /** The member's name as the circle holds it; the card shows its first word. */
+  readonly memberName: string;
+  readonly residentName: string;
+}
+
+/**
+ * Puts one chosen answer on the door card — the whole of what the tool
+ * does, and of what a press on a family member's own television does
+ * (accounts/familyTelevision.ts). Whoever calls it has already asked
+ * whether the resident allows this person; this decides only whether the
+ * question is still open, and the first answer is the answer.
+ */
+export async function answerDoorRequest(
+  ddb: DynamoDBClient,
+  who: DoorAnswerer,
+  requestId: string,
+  answer: DoorAnswer,
+  sendPatch: (patch: CardPatch, householdId: string) => Promise<void>,
+  now: number,
+): Promise<AnswerOutcome> {
+  const { householdId, residentName } = who;
+  const row = await loadLookRow(ddb, householdId, requestId);
+  const request = row ? await describeLook(ddb, householdId, row, now) : undefined;
+  if (!row || !request) return { shown: false, say: NOBODY_ASKED(residentName) };
+  if (request.state === 'answered') return { shown: false, say: alreadyAnswered(request.answer) };
+  if (request.state === 'gone') {
+    return { shown: false, say: `The door card has already gone from the television, so an answer cannot be shown on it. A note or a telephone call will still reach ${residentName}.` };
+  }
+
+  const by = firstName(who.memberName);
+  try {
+    await ddb.send(new PutItemCommand({
+      TableName: TABLE,
+      Item: {
+        ...row,
+        answerKey: { S: answer },
+        answeredAt: { N: String(now) },
+        answeredBy: { S: who.userId },
+        answeredByName: { S: by },
+      },
+      ConditionExpression: 'attribute_exists(pk) AND attribute_not_exists(answeredAt)',
+    }));
+  } catch (err) {
+    if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
+    // Someone answered in the moment between the read and the write.
+    const latest = await loadLookRow(ddb, householdId, requestId);
+    const settled = latest ? await describeLook(ddb, householdId, latest, now) : undefined;
+    return { shown: false, say: settled?.state === 'answered' ? alreadyAnswered(settled.answer) : NOBODY_ASKED(residentName) };
+  }
+
+  const text = DOOR_ANSWERS[answer];
+  await sendPatch({ cardId: request.requestId, notice: `${by} says: ${text}` }, householdId);
+  return { shown: true, by, text };
+}
 
 export function registerAnswerDoorRequest(
   mcpServer: McpServer,
@@ -59,39 +118,15 @@ export function registerAnswerDoorRequest(
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { requestId, answer }: { requestId: string; answer: DoorAnswer }) => {
-      const residentName = allowed.household.residentName;
-      const row = await loadLookRow(ddb, ctx.householdId, requestId);
-      const request = row ? await describeLook(ddb, ctx.householdId, row, now()) : undefined;
-      if (!row || !request) return say(NOBODY_ASKED(residentName));
-      if (request.state === 'answered') return say(alreadyAnswered(request.answer));
-      if (request.state === 'gone') {
-        return say(`The door card has already gone from the television, so an answer cannot be shown on it. A note or a telephone call will still reach ${residentName}.`);
-      }
-
-      const by = firstName(allowed.membership.name);
-      try {
-        await ddb.send(new PutItemCommand({
-          TableName: TABLE,
-          Item: {
-            ...row,
-            answerKey: { S: answer },
-            answeredAt: { N: String(now()) },
-            answeredBy: { S: ctx.userId },
-            answeredByName: { S: by },
-          },
-          ConditionExpression: 'attribute_exists(pk) AND attribute_not_exists(answeredAt)',
-        }));
-      } catch (err) {
-        if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
-        // Someone answered in the moment between the read and the write.
-        const latest = await loadLookRow(ddb, ctx.householdId, requestId);
-        const settled = latest ? await describeLook(ddb, ctx.householdId, latest, now()) : undefined;
-        return say(settled?.state === 'answered' ? alreadyAnswered(settled.answer) : NOBODY_ASKED(residentName));
-      }
-
-      const text = DOOR_ANSWERS[answer];
-      await sendPatch({ cardId: request.requestId, notice: `${by} says: ${text}` }, ctx.householdId);
-      return data({ shown: true, by, text });
+      const outcome = await answerDoorRequest(
+        ddb,
+        { householdId: ctx.householdId, userId: ctx.userId, memberName: allowed.membership.name, residentName: allowed.household.residentName },
+        requestId,
+        answer,
+        sendPatch,
+        now(),
+      );
+      return outcome.shown ? data({ shown: true, by: outcome.by, text: outcome.text }) : say(outcome.say);
     }, { neighbour: true })),
   );
 }

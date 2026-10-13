@@ -25,6 +25,7 @@ import { QueueStore, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
 import { resolveDeviceId } from '../deviceId.js';
+import { televisionMode } from '../family/mode.js';
 
 interface TestDeps {
   readonly fs: FileSystemLike;
@@ -79,6 +80,10 @@ export async function onStartCardService(): Promise<void> {
   const holding = (async () => {
     const token = await pairing.loadToken(await resolveDeviceId(fs), { waitIfRefreshedJustNow: true });
     if (!token) return; // genuinely unpaired — App.tsx shows the pairing screen; nothing to hold open yet
+    // A family member's own television has no card channel: nothing of the
+    // resident's is sent to it. The app never starts this service for one
+    // (App.tsx); if anything else does, it still holds nothing.
+    if (televisionMode(token) !== 'resident') return;
     if (starting !== starts) return; // stopped, or started again, while waiting
     running = holdCardChannel(store, token, createChannel, config, (card) => {
       const toast = doorToast(card);
