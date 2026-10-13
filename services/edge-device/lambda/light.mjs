@@ -17,6 +17,7 @@
  *
  * Pure: device-event.mjs owns the DynamoDB client.
  */
+import { DEFAULT_LANGUAGE, languageOfMeta } from './language.mjs';
 import { readExclusions, visibleClasses } from './sharing.mjs';
 
 export const LIGHT_SK = 'LIGHT';
@@ -102,6 +103,8 @@ function read(items, now, timeZone) {
     seen: allowed.length > 0 && shared,
     out: Number.isFinite(outAt) && sameLocalDay(outAt, now, timeZone),
     lookedIn,
+    // The language her television speaks (language.mjs): the household's own row is among these.
+    language: languageOfMeta(meta),
   };
 }
 
@@ -109,13 +112,22 @@ function read(items, now, timeZone) {
  * What her home screen is told beside its cards (contracts HomeState). She
  * is at the television, so her day has begun: the light is on unless she
  * put it out today. No `light` at all when nobody could see one.
+ *
+ * And the language her television speaks, when it is not English: this is
+ * the one thing every television of the home is told whole, at every
+ * connection and after every press that changes it — so it is how each of
+ * them learns the language, and hears that she has changed it. Everything
+ * here is still said in English; it is put into her language on its way
+ * out (language.mjs inHerLanguage; services/agent egress.ts for the home's
+ * other televisions).
  */
 export function homeState({ items, now, timeZone }) {
-  const { seen, out, lookedIn } = read(items, now, timeZone);
+  const { seen, out, lookedIn, language } = read(items, now, timeZone);
   return {
     // Out, and until when: it lights again by itself, and a television left on overnight has to know.
     ...(seen ? (out ? { light: 'out', lightOutUntil: endOfLocalDay(now, timeZone) } : { light: 'on' }) : {}),
     ...(lookedIn ? { lookedIn } : {}),
+    ...(language !== DEFAULT_LANGUAGE ? { language } : {}),
   };
 }
 
