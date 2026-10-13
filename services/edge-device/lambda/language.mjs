@@ -51,6 +51,9 @@ export const HOUSEHOLD_LANGUAGE_ATTRS = {
   askedAt: 'languageAskedAt',
   declined: 'languageDeclined',
   declinedAt: 'languageDeclinedAt',
+  // Written by the Wick server when the organiser takes a question back; named here only so the copy stays whole.
+  takenBack: 'languageTakenBack',
+  takenBackAt: 'languageTakenBackAt',
 };
 export const LANGUAGE_ACTIONS = { yes: 'yes', no: 'no' };
 

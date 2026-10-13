@@ -2173,6 +2173,8 @@ describe('presentLanguage — which language her television speaks, and asking f
         status: '',
         note: null,
         declined: null,
+        takenBack: null,
+        waits: [],
         asks: [{ language: 'es', label: 'Ask Margaret for Spanish' }],
         takeBack: null,
         waiting: false,
@@ -2189,7 +2191,8 @@ describe('presentLanguage — which language her television speaks, and asking f
     expect(out.card.status).toBe('I have asked Margaret on her television. Nothing changes until she says yes.');
     expect(out.card.rows.map((row: { secondary: string }) => row.secondary)).toEqual(['On her television now', 'Asked · waiting for her answer']);
     expect(out.card.asks).toEqual([]);
-    expect(out.card.takeBack).toEqual({ label: 'Take the question back' });
+    // Two presses, and the second says what it costs: taking it back is kept, and the question waits a day.
+    expect(out.card.takeBack).toEqual({ label: 'Take the question back', confirm: 'Take it back — sure? It cannot be asked again for a day.' });
     expect(out.card.waiting).toBe(true);
     expect(out.card.footnote).toBe(CHANGES);
   });
@@ -2267,6 +2270,58 @@ describe('presentLanguage — which language her television speaks, and asking f
     });
   });
 
+  describe('a question the organiser took back, while the day runs', () => {
+    const TOOK_BACK = 'You took that question back this afternoon. You can ask Margaret again tomorrow afternoon.';
+    const TAKEN = { ...ENGLISH, takenBack: { language: 'es', at: 5, askAgainAt: 9, say: TOOK_BACK } };
+
+    it('shows the organiser the server’s sentence in place of the button for that language', () => {
+      const out = presentLanguage(TAKEN, me('organiser', 'allowed'));
+
+      expect(out.say).toBe(`Margaret’s television speaks English. ${TOOK_BACK}`);
+      expect(out.card.takenBack).toEqual({ language: 'es', say: TOOK_BACK });
+      expect(out.card.waits).toEqual([TOOK_BACK]);
+      expect(out.card.asks).toEqual([]);
+      expect(out.card.takeBack).toBeNull();
+      expect(out.card.waiting).toBe(false);
+      expect(out.card.rows.map((row: { secondary: string }) => row.secondary)).toEqual(['On her television now', 'You took the question back']);
+    });
+
+    it('is the same for an organiser Margaret has not allowed yet', () => {
+      expect(presentLanguage(TAKEN, me('organiser', 'pending')).card.asks).toEqual([]);
+    });
+
+    it('still offers any other language there is to ask for', () => {
+      const three = [...CHOICES, { language: 'cy', name: 'Welsh', own: 'Cymraeg' }];
+
+      expect(presentLanguage({ ...TAKEN, choices: three }, me('organiser', 'allowed')).card.asks).toEqual([{ language: 'cy', label: 'Ask Margaret for Welsh' }]);
+    });
+
+    it('says both waits when both run, her no first', () => {
+      const three = [...CHOICES, { language: 'cy', name: 'Welsh', own: 'Cymraeg' }];
+      const both = { ...TAKEN, choices: three, declined: { language: 'cy', at: 1, askAgainAt: 99, say: 'Margaret said no to Welsh on Monday. You can ask again from Monday 19 October.' } };
+      const out = presentLanguage(both, me('organiser', 'allowed'));
+
+      expect(out.card.waits).toEqual(['Margaret said no to Welsh on Monday. You can ask again from Monday 19 October.', TOOK_BACK]);
+      expect(out.card.asks).toEqual([]);
+    });
+
+    it('shows a family member who is not the organiser only the language — even if it were sent', () => {
+      const out = presentLanguage(TAKEN, me('family', 'allowed'));
+
+      expect(out.say).toBe('Margaret’s television speaks English.');
+      expect(out.card.takenBack).toBeNull();
+      expect(out.card.waits).toEqual([]);
+      expect(JSON.stringify(out)).not.toContain('took');
+    });
+
+    it('says it plainly, without a time, if the server sent no sentence', () => {
+      const out = presentLanguage({ ...ENGLISH, takenBack: { language: 'es', at: 5, askAgainAt: 9 } }, me('organiser', 'allowed'));
+
+      expect(out.card.takenBack).toEqual({ language: 'es', say: 'You took that question back. You can ask Margaret again in a day.' });
+      expect(out.card.asks).toEqual([]);
+    });
+  });
+
   it('never offers a language the server did not list, and names one it does not know plainly', () => {
     const out = presentLanguage({ language: 'cy', choices: CHOICES }, me('organiser', 'allowed'));
 
@@ -2314,6 +2369,12 @@ describe('languageNews — what the card says when her answer is found', () => {
     }
   });
 
+  it('does not take the organiser’s own taking back for her no', () => {
+    const taken = { language: 'en', choices: CHOICES, takenBack: { language: 'es', at: 8, askAgainAt: 99, say: 'x' } };
+
+    expect(languageNews(asked, taken, 'Margaret')).toEqual({ say: 'Margaret’s television is staying in English.' });
+  });
+
   it('has the card drawn again, with nothing claimed, when another question is open instead', () => {
     const other = { language: 'es', asked: { language: 'en', by: 'Sarah', at: 9 }, choices: CHOICES };
 
@@ -2342,9 +2403,14 @@ describe('the language card in the family app', () => {
     expect(main).toMatch(/err\.status === 404 \? LANGUAGE_UNAVAILABLE : err\.message/);
   });
 
-  it('shows her no where the button for that language would be', () => {
-    expect(main).toMatch(/standing\.textContent = shown\.declined\?\.say \?\? '';/);
-    expect(main).toMatch(/standing\.hidden = !shown\.declined;/);
+  it('shows her no, and a taking back, where the button for that language would be', () => {
+    expect(main).toMatch(/standing\.textContent = shown\.waits\.join\(' '\);/);
+    expect(main).toMatch(/standing\.hidden = shown\.waits\.length === 0;/);
+  });
+
+  it('takes a question back only on a second press, after saying what it costs', () => {
+    expect(main).toMatch(/press\(el\('button', 'btn quiet', shown\.takeBack\.label\), \(\) => api\('\/api\/language\/question', \{ method: 'DELETE' \}\), shown\.takeBack\.confirm\)/);
+    expect(main).toMatch(/if \(confirm && button\.dataset\.armed !== 'true'\) \{/);
   });
 
   it('marks a language’s own name as that language, for a screen reader', () => {

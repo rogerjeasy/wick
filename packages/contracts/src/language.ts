@@ -50,6 +50,13 @@ export const HOUSEHOLD_LANGUAGE_ATTRS = {
   /** The language she last said no to, and when — her no is an answer too. */
   declined: 'languageDeclined',
   declinedAt: 'languageDeclinedAt',
+  /**
+   * The language of a question the organiser took back, and when. Something
+   * the organiser did, so the family side writes it — unlike everything
+   * above, which only her press can.
+   */
+  takenBack: 'languageTakenBack',
+  takenBackAt: 'languageTakenBackAt',
 } as const;
 
 /**
@@ -59,6 +66,15 @@ export const HOUSEHOLD_LANGUAGE_ATTRS = {
  * same one once this has passed.
  */
 export const LANGUAGE_ASK_AGAIN_AFTER_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * How long before a question that was taken back can be asked again. Without
+ * it, asking and taking back would put the same question on her television
+ * as often as the organiser liked — each time a new card, shown afresh — and
+ * she could be worn down without once being given the chance to say no and
+ * have it count.
+ */
+export const LANGUAGE_ASK_AFTER_TAKING_BACK_MS = 24 * 60 * 60_000;
 
 /** The longest name the question carries twice and still fits a card. A longer one is cut, never the sentence. */
 const MAX_ASKER_CHARS = 24;

@@ -316,7 +316,11 @@ describe('the language of the television — read from the household, and only t
   const META = { pk: { S: 'HH#hh_1' }, sk: { S: 'META' }, name: { S: 'Mum’s house' }, residentName: { S: 'Margaret' }, createdBy: { S: 'u_sarah' }, createdAt: { N: '1' } };
   const ASKED = { language: 'es', by: 'Sarah', at: NOW } as const;
   /** The part of every asking's condition that keeps her no standing for a week. */
-  const STANDING_NO = ' AND (attribute_not_exists(#declined) OR #declined <> :asked OR #declinedAt <= :stale)';
+  const STANDING_NO =
+    ' AND (attribute_not_exists(#declined) OR #declined <> :asked OR #declinedAt <= :stale)' +
+    // And the part that keeps a question taken back from being asked again for a day.
+    ' AND (attribute_not_exists(#takenBack) OR #takenBack <> :asked OR #takenBackAt <= :takenBackStale)';
+  const DAY = 24 * 60 * 60_000;
 
   it('reads no language as English: the attribute is absent until she chooses another', async () => {
     const { store } = recorder([{ Item: META }]);
@@ -361,16 +365,31 @@ describe('the language of the television — read from the household, and only t
     expect(await store.getHousehold('hh_1')).not.toHaveProperty('languageDeclined');
   });
 
-  it('never writes her no, nor takes it away: both updates name only the question', async () => {
+  it('never writes her no, nor takes it away: every update names only the question and the organiser’s own taking back', async () => {
     const { sent, store } = recorder();
 
     await store.askLanguage('hh_1', ASKED, undefined);
+    await store.askLanguage('hh_1', { language: 'en', by: 'Sarah', at: NOW }, { language: 'es', open: true });
     await store.clearLanguageQuestion('hh_1', ASKED);
+    await store.takeBackLanguageQuestion('hh_1', ASKED, NOW + 5);
 
+    expect(sent).toHaveLength(4);
     for (const command of sent) {
       const { UpdateExpression } = (command as UpdateItemCommand).input;
       expect(UpdateExpression).not.toMatch(/#declined|#language/);
     }
+  });
+
+  it('reads the question the organiser last took back, and when', async () => {
+    const { store } = recorder([
+      { Item: { ...META, languageTakenBack: { S: 'es' }, languageTakenBackAt: { N: String(NOW - 5) } } },
+      { Item: { ...META, languageTakenBack: { S: 'tlh' }, languageTakenBackAt: { N: String(NOW - 5) } } },
+      { Item: { ...META, languageTakenBack: { S: 'es' } } },
+    ]);
+
+    expect((await store.getHousehold('hh_1'))?.languageTakenBack).toEqual({ language: 'es', at: NOW - 5 });
+    expect(await store.getHousehold('hh_1')).not.toHaveProperty('languageTakenBack');
+    expect(await store.getHousehold('hh_1')).not.toHaveProperty('languageTakenBack');
   });
 
   it('reads the household consistently when asked to: a question is decided on what her press left a moment ago', async () => {
@@ -396,10 +415,27 @@ describe('the language of the television — read from the household, and only t
       UpdateExpression: 'SET #asked = :asked, #by = :by, #at = :at',
       ConditionExpression:
         'attribute_exists(createdBy) AND (attribute_not_exists(#language) OR #language <> :asked) AND attribute_not_exists(#asked)' +
-        ' AND (attribute_not_exists(#declined) OR #declined <> :asked OR #declinedAt <= :stale)',
-      ExpressionAttributeNames: { '#language': 'language', '#declined': 'languageDeclined', '#declinedAt': 'languageDeclinedAt', '#asked': 'languageAsked', '#by': 'languageAskedBy', '#at': 'languageAskedAt' },
-      // Her no stands for a week: a no newer than this refuses the write.
-      ExpressionAttributeValues: { ':asked': { S: 'es' }, ':by': { S: 'Sarah' }, ':at': { N: String(NOW) }, ':stale': { N: String(NOW - 7 * 24 * 60 * 60_000) } },
+        ' AND (attribute_not_exists(#declined) OR #declined <> :asked OR #declinedAt <= :stale)' +
+        ' AND (attribute_not_exists(#takenBack) OR #takenBack <> :asked OR #takenBackAt <= :takenBackStale)',
+      ExpressionAttributeNames: {
+        '#language': 'language',
+        '#declined': 'languageDeclined',
+        '#declinedAt': 'languageDeclinedAt',
+        '#takenBack': 'languageTakenBack',
+        '#takenBackAt': 'languageTakenBackAt',
+        '#asked': 'languageAsked',
+        '#by': 'languageAskedBy',
+        '#at': 'languageAskedAt',
+      },
+      ExpressionAttributeValues: {
+        ':asked': { S: 'es' },
+        ':by': { S: 'Sarah' },
+        ':at': { N: String(NOW) },
+        // Her no stands for a week: a no newer than this refuses the write.
+        ':stale': { N: String(NOW - 7 * DAY) },
+        // A taking back stands for a day: one newer than this refuses it too.
+        ':takenBackStale': { N: String(NOW - DAY) },
+      },
     });
   });
 
@@ -416,11 +452,41 @@ describe('the language of the television — read from the household, and only t
   it('replaces a question only while it is still the one that was read', async () => {
     const { sent, store } = recorder();
 
-    await store.askLanguage('hh_1', { language: 'en', by: 'Sarah', at: NOW }, 'es');
+    await store.askLanguage('hh_1', { language: 'en', by: 'Sarah', at: NOW }, { language: 'es', open: false });
 
     const update = (sent[0] as UpdateItemCommand).input;
     expect(update.ConditionExpression).toBe('attribute_exists(createdBy) AND attribute_exists(#language) AND #language <> :asked AND #asked = :replacing' + STANDING_NO);
     expect(update.ExpressionAttributeValues).toMatchObject({ ':asked': { S: 'en' }, ':replacing': { S: 'es' } });
+    // A question left over for the language she already speaks was not on her television to be taken back: nothing is recorded of it.
+    expect(update.UpdateExpression).toBe('SET #asked = :asked, #by = :by, #at = :at');
+  });
+
+  it('records a question that was open, and is replaced, as taken back — in the same update', async () => {
+    const { sent, store } = recorder();
+
+    await store.askLanguage('hh_1', { language: 'en', by: 'Sarah', at: NOW }, { language: 'es', open: true });
+
+    const update = (sent[0] as UpdateItemCommand).input;
+    expect(update.UpdateExpression).toBe('SET #asked = :asked, #by = :by, #at = :at, #takenBack = :replacing, #takenBackAt = :at');
+    expect(update.ConditionExpression).toContain('#asked = :replacing');
+  });
+
+  it('takes a question back and records that it was, in one conditional update: only the question that was read', async () => {
+    const { sent, store } = recorder([{}, conditionFailed()]);
+
+    expect(await store.takeBackLanguageQuestion('hh_1', ASKED, NOW + 60_000)).toBe(true);
+    // Answered, or asked again since: nothing is cleared, and nothing recorded.
+    expect(await store.takeBackLanguageQuestion('hh_1', ASKED, NOW + 60_000)).toBe(false);
+
+    expect(sent).toHaveLength(2);
+    expect((sent[0] as UpdateItemCommand).input).toEqual({
+      TableName: 'wick',
+      Key: { pk: { S: 'HH#hh_1' }, sk: { S: 'META' } },
+      UpdateExpression: 'SET #takenBack = :asked, #takenBackAt = :takenBackAt REMOVE #asked, #by, #at',
+      ConditionExpression: '#asked = :asked AND #at = :at',
+      ExpressionAttributeNames: { '#takenBack': 'languageTakenBack', '#takenBackAt': 'languageTakenBackAt', '#asked': 'languageAsked', '#by': 'languageAskedBy', '#at': 'languageAskedAt' },
+      ExpressionAttributeValues: { ':asked': { S: 'es' }, ':at': { N: String(NOW) }, ':takenBackAt': { N: String(NOW + 60_000) } },
+    });
   });
 
   it('says so when the household is no longer as it was read, and writes nothing more', async () => {
@@ -430,7 +496,7 @@ describe('the language of the television — read from the household, and only t
     expect(sent).toHaveLength(1);
   });
 
-  it('takes back exactly the question that was asked, and nothing else on the household', async () => {
+  it('undoes exactly the question that was asked when its card could not be sent — recording nothing: she was never asked', async () => {
     const { sent, store } = recorder([{}, conditionFailed()]);
 
     expect(await store.clearLanguageQuestion('hh_1', ASKED)).toBe(true);

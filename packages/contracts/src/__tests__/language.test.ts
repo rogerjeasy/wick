@@ -3,6 +3,7 @@ import {
   DEFAULT_LANGUAGE,
   HOUSEHOLD_LANGUAGE_ATTRS,
   LANGUAGES,
+  LANGUAGE_ASK_AFTER_TAKING_BACK_MS,
   LANGUAGE_ASK_AGAIN_AFTER_MS,
   LANGUAGE_ACTIONS,
   MAX_CARD_ACTIONS,
@@ -70,6 +71,14 @@ describe('the home screen is told the language beside the light', () => {
     expect(readHomeState({ light: 'on', language: 'en' })).toEqual({ light: 'on' });
     expect(readHomeState({ light: 'on', language: 'fr' })).toEqual({ light: 'on' });
     expect(readHomeState({ light: 'on', language: 7 })).toEqual({ light: 'on' });
+  });
+});
+
+describe('a question the organiser takes back', () => {
+  it('is kept beside the language too, so taking it back and asking again is not a way to put it to her over and over', () => {
+    expect(HOUSEHOLD_LANGUAGE_ATTRS.takenBack).toBe('languageTakenBack');
+    expect(HOUSEHOLD_LANGUAGE_ATTRS.takenBackAt).toBe('languageTakenBackAt');
+    expect(LANGUAGE_ASK_AFTER_TAKING_BACK_MS).toBe(24 * 60 * 60_000);
   });
 });
 

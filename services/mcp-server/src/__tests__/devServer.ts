@@ -84,7 +84,9 @@
  *     television's language, a no is kept with when it was said (it stands
  *     for a week, and the same language is refused until then), and either
  *     answer closes the question. The card in the family app says so within
- *     a few seconds.
+ *     a few seconds. Taking a question back in the card is kept too, by the
+ *     server's real route: that language is refused for a day, and the card
+ *     says when it can be asked again.
  *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one

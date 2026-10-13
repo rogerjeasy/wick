@@ -3,7 +3,14 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { HOUSEHOLD_LANGUAGE_ATTRS, LANGUAGE_ASK_AGAIN_AFTER_MS, MAX_CARD_DETAIL_CHARS, languageQuestion, type QueuedCard } from '@wick/contracts';
+import {
+  HOUSEHOLD_LANGUAGE_ATTRS,
+  LANGUAGE_ASK_AFTER_TAKING_BACK_MS,
+  LANGUAGE_ASK_AGAIN_AFTER_MS,
+  MAX_CARD_DETAIL_CHARS,
+  languageQuestion,
+  type QueuedCard,
+} from '@wick/contracts';
 import { CircleError } from '../circle.js';
 import {
   LanguageRefusal,
@@ -72,6 +79,7 @@ async function setup(options: { television?: boolean; sarah?: Partial<Membership
     createHousehold: dynamo.createHousehold,
     getHousehold: dynamo.getHousehold,
     askLanguage: dynamo.askLanguage,
+    takeBackLanguageQuestion: dynamo.takeBackLanguageQuestion,
     clearLanguageQuestion: dynamo.clearLanguageQuestion,
   };
 
@@ -93,6 +101,7 @@ async function setup(options: { television?: boolean; sarah?: Partial<Membership
       cards.push(card);
     },
     withdrawCard: async (householdId, cardId) => {
+      if (world.sendFails) throw new Error('egress is down');
       events.push(`withdraw ${cardId}`);
       withdrawn.push({ householdId, cardId });
     },
@@ -312,11 +321,17 @@ describe('askForLanguage — the organiser asks, and nothing changes', () => {
     await askForLanguage(w.deps, SARAH, 'es');
     w.world.clock = NOW + 60_000;
 
+    w.sent.length = 0;
+    w.events.length = 0;
+
     const again = await askForLanguage(w.deps, SARAH, 'es');
 
-    expect(w.updates()).toHaveLength(1);
+    // Nothing reaches her television and nothing is written: the card she has is the card she had, with the
+    // showings it has used. (A second card of the same id would be stored over it, and start them again.)
+    expect(w.events).toEqual(['GetItemCommand']);
     expect(w.cards).toHaveLength(1);
     expect(w.withdrawn).toEqual([]);
+    expect(w.meta().languageAskedAt).toEqual({ N: String(NOW) });
     expect(again).toEqual({
       view: { language: 'en', asked: { language: 'es', by: 'Sarah', at: NOW }, choices: languageView(HOME).choices },
       say: 'That question is still on Margaret’s television. Nothing changes until she says yes.',
@@ -347,9 +362,30 @@ describe('askForLanguage — the organiser asks, and nothing changes', () => {
     expect(w.meta().languageAskedBy).toBeUndefined();
     expect(w.meta().languageAskedAt).toBeUndefined();
 
+    // She was never asked, so this is not a taking back: nothing is recorded, and it can be asked at once.
+    expect(w.meta().languageTakenBack).toBeUndefined();
     w.world.sendFails = false;
     await askForLanguage(w.deps, SARAH, 'es');
     expect(w.cards.map((card) => card.id)).toEqual(['language-es']);
+  });
+
+  it('takes a card that may have been half sent off her television again, as far as it can', async () => {
+    const w = await setup();
+    // The card is stored before it is pushed (egress.ts): a push that fails can leave one that would arrive later.
+    let calls = 0;
+    const deps: LanguageDeps = {
+      ...w.deps,
+      sendCard: async () => {
+        calls += 1;
+        throw new Error('push failed');
+      },
+    };
+
+    await expect(askForLanguage(deps, SARAH, 'es')).rejects.toThrow('push failed');
+
+    expect(calls).toBe(1);
+    expect(w.withdrawn).toEqual([{ householdId: HH, cardId: 'language-es' }]);
+    expect(w.meta().languageAsked).toBeUndefined();
   });
 
   it('replaces a question for another language: the old card is taken back, then the new one sent, with one update', async () => {
@@ -370,6 +406,225 @@ describe('askForLanguage — the organiser asks, and nothing changes', () => {
     expect(w.withdrawn).toEqual([{ householdId: HH, cardId: 'language-es' }]);
     expect(w.meta()).toMatchObject({ language: { S: 'es' }, languageAsked: { S: 'en' }, languageAskedAt: { N: String(NOW) } });
     expect(answer.view).toMatchObject({ language: 'es', asked: { language: 'en', by: 'Sarah', at: NOW } });
+    // The one left over was not a question on her television: nothing is recorded as taken back.
+    expect(w.meta().languageTakenBack).toBeUndefined();
+  });
+
+  it('cannot use a question left over to get round her no, or a taking back: the language wanted is refused first, and nothing is touched', async () => {
+    for (const standing of ['languageDeclined', 'languageTakenBack'] as const) {
+      const w = await setup();
+      w.writeMeta((row) => {
+        row.language = { S: 'es' };
+        row.languageAsked = { S: 'es' };
+        row.languageAskedBy = { S: 'Sarah' };
+        row.languageAskedAt = { N: String(NOW - 5) };
+        row[standing] = { S: 'en' };
+        row[`${standing}At`] = { N: String(NOW - 1000) };
+      });
+      const before = w.meta();
+
+      const refused = await refusal(askForLanguage(w.deps, SARAH, 'en'));
+
+      expect(refused.code).toBe(standing === 'languageDeclined' ? 'declined_lately' : 'taken_back_lately');
+      expect(w.updates()).toEqual([]);
+      expect(w.withdrawn).toEqual([]);
+      expect(w.cards).toEqual([]);
+      expect(w.meta()).toEqual(before);
+    }
+  });
+});
+
+describe('a question taken back is not asked again for a day', () => {
+  const DAY = LANGUAGE_ASK_AFTER_TAKING_BACK_MS;
+  // NOW is Monday 21 September 2026, 15:13 where the house is (Europe/London).
+  const TOOK_BACK = 'You took that question back this afternoon. You can ask Margaret again tomorrow afternoon.';
+
+  async function takenBack(options: Parameters<typeof setup>[0] = {}) {
+    const w = await setup(options);
+    await askForLanguage(w.deps, SARAH, 'es');
+    await takeBackLanguageQuestion(w.deps, SARAH);
+    w.sent.length = 0;
+    w.cards.length = 0;
+    w.withdrawn.length = 0;
+    return w;
+  }
+
+  it('records the taking back in the same update that clears the question: which language, and when by this server’s clock', async () => {
+    const w = await setup();
+    await askForLanguage(w.deps, SARAH, 'es');
+    w.world.clock = NOW + 90_000;
+    w.sent.length = 0;
+
+    await takeBackLanguageQuestion(w.deps, SARAH);
+
+    expect(w.updates()).toHaveLength(1);
+    expect(w.updates()[0]!.input.UpdateExpression).toBe('SET #takenBack = :asked, #takenBackAt = :takenBackAt REMOVE #asked, #by, #at');
+    expect(w.meta()).toMatchObject({ languageTakenBack: { S: 'es' }, languageTakenBackAt: { N: String(NOW + 90_000) } });
+    expect(w.meta().languageAsked).toBeUndefined();
+  });
+
+  it('refuses that language again inside the day, and says when — by the part of the day, where the house is', async () => {
+    const w = await takenBack();
+    w.world.clock = NOW + 60_000;
+
+    const refused = await refusal(askForLanguage(w.deps, SARAH, 'es'));
+
+    expect(refused).toMatchObject({ status: 409, code: 'taken_back_lately', message: TOOK_BACK });
+    expect(w.updates()).toEqual([]);
+    expect(w.cards).toEqual([]);
+    expect(w.meta().languageAsked).toBeUndefined();
+  });
+
+  it('ask, take back, ask, take back: the question reaches her television once', async () => {
+    const w = await setup();
+
+    for (let round = 0; round < 5; round += 1) {
+      w.world.clock = NOW + round * 60_000;
+      await askForLanguage(w.deps, SARAH, 'es').catch(() => undefined);
+      await takeBackLanguageQuestion(w.deps, SARAH);
+    }
+
+    expect(w.cards.map((card) => card.id)).toEqual(['language-es']);
+    expect(w.withdrawn).toHaveLength(1);
+    // And taking back again, with nothing open, did not move the moment the day is counted from.
+    expect(w.meta().languageTakenBackAt).toEqual({ N: String(NOW) });
+  });
+
+  it('counts the day to the moment: refused until it has passed, asked as before once it has', async () => {
+    const w = await takenBack();
+
+    w.world.clock = NOW + DAY - 1;
+    const last = await refusal(askForLanguage(w.deps, SARAH, 'es'));
+    // The afternoon it can be asked again has come, and the minute has not: said as it is.
+    expect(last.message).toBe('You took that question back yesterday afternoon. You can ask Margaret again later this afternoon.');
+    expect(w.cards).toEqual([]);
+
+    w.world.clock = NOW + DAY;
+    const answer = await askForLanguage(w.deps, SARAH, 'es');
+    expect(answer.say).toBe('I have asked Margaret on her television. Nothing changes until she says yes.');
+    expect(answer.view).not.toHaveProperty('takenBack');
+    expect(w.cards.map((card) => card.id)).toEqual(['language-es']);
+  });
+
+  it.each([
+    // Taken back at half past eleven at night; asked again at nine the next morning.
+    [Date.UTC(2026, 9, 13, 22, 30), 9.5 * 60 * 60_000, 'You took that question back yesterday evening. You can ask Margaret again this evening.'],
+    // Taken back at eight in the morning; asked again that evening.
+    [Date.UTC(2026, 9, 13, 7, 0), 12 * 60 * 60_000, 'You took that question back this morning. You can ask Margaret again tomorrow morning.'],
+    // Taken back just before midnight; asked again just after it.
+    [Date.UTC(2026, 9, 13, 22, 55), 10 * 60_000, 'You took that question back yesterday evening. You can ask Margaret again this evening.'],
+  ])('words both moments from the times themselves (%#)', async (tookBackAt, later, sentence) => {
+    const w = await setup();
+    w.world.clock = tookBackAt;
+    await askForLanguage(w.deps, SARAH, 'es');
+    await takeBackLanguageQuestion(w.deps, SARAH);
+    w.world.clock = tookBackAt + later;
+
+    expect((await refusal(askForLanguage(w.deps, SARAH, 'es'))).message).toBe(sentence);
+  });
+
+  it('names the parts of the day as they are at the house, not where the server is', async () => {
+    // Half past eleven in UTC is half past twelve in London, in September.
+    const beforeNoonUtc = Date.UTC(2026, 8, 21, 11, 30);
+    for (const [timeZone, sentence] of [
+      ['Europe/London', TOOK_BACK],
+      ['UTC', 'You took that question back this morning. You can ask Margaret again tomorrow morning.'],
+    ] as const) {
+      const w = await setup({ timeZone });
+      w.world.clock = beforeNoonUtc;
+      await askForLanguage(w.deps, SARAH, 'es');
+      await takeBackLanguageQuestion(w.deps, SARAH);
+      w.world.clock = beforeNoonUtc + 60_000;
+
+      expect((await refusal(askForLanguage(w.deps, SARAH, 'es'))).message).toBe(sentence);
+    }
+  });
+
+  it('holds against a request that read the household a moment before the question was taken back', async () => {
+    const w = await setup();
+    // Read with nothing open and nothing taken back — and before the write, a question from another tab is asked and taken back.
+    w.beforeNext(() =>
+      w.beforeNext(() =>
+        w.writeMeta((row) => {
+          row.languageTakenBack = { S: 'es' };
+          row.languageTakenBackAt = { N: String(NOW) };
+        }),
+      ),
+    );
+
+    const refused = await refusal(askForLanguage(w.deps, SARAH, 'es'));
+
+    expect(refused.code).toBe('changed');
+    expect(w.cards).toEqual([]);
+    expect(w.meta().languageAsked).toBeUndefined();
+  });
+
+  it('is not a no: nothing of hers is written, and her own no still stands as she left it', async () => {
+    const w = await takenBack();
+
+    expect(w.meta().languageDeclined).toBeUndefined();
+    expect(w.meta().languageDeclinedAt).toBeUndefined();
+
+    w.world.clock = NOW + DAY;
+    await askForLanguage(w.deps, SARAH, 'es');
+    w.residentPresses('no');
+    // A no, and then a day's wait served out, is still a no for the rest of the week.
+    w.world.clock = NOW + 3 * DAY;
+    expect((await refusal(askForLanguage(w.deps, SARAH, 'es'))).code).toBe('declined_lately');
+  });
+
+  it('records nothing when a question left over for the language she speaks is cleared away — so it cannot overwrite a taking back that stands', async () => {
+    const w = await setup();
+    w.writeMeta((row) => {
+      row.language = { S: 'es' };
+      row.languageAsked = { S: 'es' };
+      row.languageAskedAt = { N: String(NOW - 5) };
+      row.languageTakenBack = { S: 'en' };
+      row.languageTakenBackAt = { N: String(NOW - 1000) };
+    });
+
+    await takeBackLanguageQuestion(w.deps, SARAH);
+
+    expect(w.meta().languageAsked).toBeUndefined();
+    expect(w.meta()).toMatchObject({ languageTakenBack: { S: 'en' }, languageTakenBackAt: { N: String(NOW - 1000) } });
+    expect((await refusal(askForLanguage(w.deps, SARAH, 'en'))).code).toBe('taken_back_lately');
+  });
+
+  it('bounds an organiser she has not allowed yet by the same two waits', async () => {
+    const w = await setup({ sarah: { status: 'pending' } });
+    await askForLanguage(w.deps, SARAH, 'es');
+    await takeBackLanguageQuestion(w.deps, SARAH);
+    expect((await refusal(askForLanguage(w.deps, SARAH, 'es'))).code).toBe('taken_back_lately');
+
+    w.world.clock = NOW + DAY;
+    await askForLanguage(w.deps, SARAH, 'es');
+    w.residentPresses('no');
+    w.world.clock = NOW + 2 * DAY;
+    expect((await refusal(askForLanguage(w.deps, SARAH, 'es'))).code).toBe('declined_lately');
+    expect(w.cards.map((card) => card.id)).toEqual(['language-es', 'language-es']);
+  });
+
+  it('is told to the organiser while it stands, in what a taking back answers and in every reading after', async () => {
+    const w = await setup();
+    await askForLanguage(w.deps, SARAH, 'es');
+
+    const answer = await takeBackLanguageQuestion(w.deps, SARAH);
+
+    const standing = { language: 'es', at: NOW, askAgainAt: NOW + DAY, say: TOOK_BACK };
+    expect(answer).toEqual({
+      view: { language: 'en', choices: languageView(HOME).choices, takenBack: standing },
+      say: 'I have taken the question back. Margaret’s television still speaks English.',
+    });
+    expect(await readLanguage(w.deps, SARAH)).toEqual({ language: 'en', choices: languageView(HOME).choices, takenBack: standing });
+
+    w.world.clock = NOW + DAY;
+    expect(await readLanguage(w.deps, SARAH)).toEqual({ language: 'en', choices: languageView(HOME).choices });
+  });
+
+  it('is not told to a family member who is not the organiser', async () => {
+    const w = await takenBack();
+
+    expect(await readLanguage(w.deps, TOM)).toEqual({ language: 'en', choices: languageView(HOME).choices });
   });
 });
 
@@ -446,17 +701,6 @@ describe('her no is an answer, and it stands for a week', () => {
     expect(w.cards.map((card) => card.id)).toEqual(['language-es']);
   });
 
-  it('does not count a question taken back as a no: it starts no wait', async () => {
-    const w = await setup();
-    await askForLanguage(w.deps, SARAH, 'es');
-    await takeBackLanguageQuestion(w.deps, SARAH);
-
-    expect(w.meta().languageDeclined).toBeUndefined();
-    expect(w.meta().languageDeclinedAt).toBeUndefined();
-    await askForLanguage(w.deps, SARAH, 'es');
-    expect(w.cards.map((card) => card.id)).toEqual(['language-es', 'language-es']);
-  });
-
   it('holds against a request that read the household a moment before she said no', async () => {
     const w = await setup();
     // Read with nothing open and no no — and before the write, a question from elsewhere is asked and answered no.
@@ -524,17 +768,18 @@ describe('takeBackLanguageQuestion — the organiser thinks better of it', () =>
     const w = await setup();
     await askForLanguage(w.deps, SARAH, 'es');
     w.sent.length = 0;
+    w.events.length = 0;
 
     const answer = await takeBackLanguageQuestion(w.deps, SARAH);
 
     expect(w.withdrawn).toEqual([{ householdId: HH, cardId: 'language-es' }]);
     expect(w.updates()).toHaveLength(1);
-    expect(w.updates()[0]!.input.UpdateExpression).toBe('REMOVE #asked, #by, #at');
     expect(w.meta().languageAsked).toBeUndefined();
-    expect(answer).toEqual({
-      view: languageView(HOME),
-      say: 'I have taken the question back. Margaret’s television still speaks English.',
-    });
+    expect(answer.say).toBe('I have taken the question back. Margaret’s television still speaks English.');
+    expect(answer.view).toMatchObject({ language: 'en', choices: languageView(HOME).choices });
+    expect(answer.view).not.toHaveProperty('asked');
+    // The card left her television before the question was closed.
+    expect(w.events.filter((event) => event !== 'GetItemCommand')).toEqual(['withdraw language-es', 'UpdateItemCommand']);
   });
 
   it('does nothing the second time, or when nothing was asked', async () => {
@@ -548,7 +793,13 @@ describe('takeBackLanguageQuestion — the organiser thinks better of it', () =>
 
     expect(w.updates()).toEqual([]);
     expect(w.withdrawn).toEqual([]);
-    expect(again).toEqual({ view: languageView(HOME), say: 'There is no question on Margaret’s television to take back.' });
+    expect(again.say).toBe('There is no question on Margaret’s television to take back.');
+    expect(again.view).toMatchObject({ language: 'en' });
+
+    // And with nothing ever asked, nothing is recorded as taken back.
+    const fresh = await setup();
+    expect(await takeBackLanguageQuestion(fresh.deps, SARAH)).toEqual({ view: languageView(HOME), say: 'There is no question on Margaret’s television to take back.' });
+    expect(fresh.sent.filter((command) => command.constructor.name !== 'GetItemCommand')).toEqual([]);
   });
 
   it('tells the truth when she answered a moment before: her yes stands', async () => {
@@ -564,6 +815,21 @@ describe('takeBackLanguageQuestion — the organiser thinks better of it', () =>
       view: { language: 'es', choices: languageView(HOME).choices },
       say: 'Margaret had already answered. Her television speaks Spanish.',
     });
+    // Her answer was the end of that question, not the organiser's taking back: none is recorded.
+    expect(w.meta().languageTakenBack).toBeUndefined();
+  });
+
+  it('tells the truth when she said no a moment before: her no stands, and is not turned into a taking back', async () => {
+    const w = await setup();
+    await askForLanguage(w.deps, SARAH, 'es');
+    w.beforeNext(() => w.beforeNext(() => w.residentPresses('no')));
+
+    const answer = await takeBackLanguageQuestion(w.deps, SARAH);
+
+    expect(answer.say).toBe('Margaret had already answered. Her television speaks English.');
+    expect(answer.view.declined).toMatchObject({ language: 'es', at: NOW });
+    expect(w.meta()).toMatchObject({ languageDeclined: { S: 'es' } });
+    expect(w.meta().languageTakenBack).toBeUndefined();
   });
 
   it('after a no, there is nothing to take back and her television speaks what it spoke', async () => {
@@ -654,45 +920,56 @@ describe('nothing in this server writes the language itself', () => {
     return targets;
   }
 
-  it('through every way of asking, replacing and taking back, only the question is ever written', async () => {
+  it('through every way of asking, replacing and taking back, only the question and the organiser’s own taking back are ever written', async () => {
     const w = await setup();
+    const DAY = LANGUAGE_ASK_AFTER_TAKING_BACK_MS;
+    const later = (ms: number) => void (w.world.clock += ms);
 
     await askForLanguage(w.deps, SARAH, 'es');
     await askForLanguage(w.deps, SARAH, 'es');
     await takeBackLanguageQuestion(w.deps, SARAH);
+    await askForLanguage(w.deps, SARAH, 'es').catch(() => undefined);
+    later(DAY);
     await askForLanguage(w.deps, SARAH, 'es');
     w.residentPresses('no');
+    const saidNoAt = w.world.clock;
     await askForLanguage(w.deps, SARAH, 'es').catch(() => undefined);
     await takeBackLanguageQuestion(w.deps, SARAH);
     // Her no, exactly as her press left it: nothing above wrote it, moved it or took it away.
-    expect(w.meta()).toMatchObject({ languageDeclined: { S: 'es' }, languageDeclinedAt: { N: String(NOW) } });
-    w.world.clock = NOW + LANGUAGE_ASK_AGAIN_AFTER_MS;
+    expect(w.meta()).toMatchObject({ languageDeclined: { S: 'es' }, languageDeclinedAt: { N: String(saidNoAt) } });
+    later(LANGUAGE_ASK_AGAIN_AFTER_MS);
     await askForLanguage(w.deps, SARAH, 'es');
     w.residentPresses('yes');
-    await askForLanguage(w.deps, SARAH, 'en').catch(() => undefined);
+    await askForLanguage(w.deps, SARAH, 'en');
     await askForLanguage(w.deps, SARAH, 'es').catch(() => undefined);
     await takeBackLanguageQuestion(w.deps, SARAH);
+    later(DAY);
     w.writeMeta((row) => {
       row.languageAsked = { S: 'es' };
       row.languageAskedAt = { N: '1' };
     });
     await askForLanguage(w.deps, SARAH, 'en');
-    w.world.sendFails = true;
     await takeBackLanguageQuestion(w.deps, SARAH);
+    later(DAY);
+    w.world.sendFails = true;
     await askForLanguage(w.deps, SARAH, 'en').catch(() => undefined);
 
-    expect(w.updates().length).toBeGreaterThanOrEqual(6);
+    expect(w.updates().length).toBeGreaterThanOrEqual(9);
+    const everWritten = new Set<string>();
     for (const command of w.sent) {
       // Never a whole row put over the household's, which would write — or wipe — the language with it.
       expect(command.constructor.name).not.toBe('PutItemCommand');
       expect(command.constructor.name).not.toBe('TransactWriteItemsCommand');
       if (command.constructor.name !== 'UpdateItemCommand') continue;
-      expect(written(command)).not.toContain(LANGUAGE);
-      for (const attribute of written(command)) expect(['languageAsked', 'languageAskedBy', 'languageAskedAt']).toContain(attribute);
+      for (const attribute of written(command)) everWritten.add(attribute);
     }
+    // The question, and what the organiser did with it. Never the language, and never her no.
+    expect([...everWritten].sort()).toEqual(['languageAsked', 'languageAskedAt', 'languageAskedBy', 'languageTakenBack', 'languageTakenBackAt']);
+    expect(everWritten.has(LANGUAGE)).toBe(false);
+    expect(everWritten.has(HOUSEHOLD_LANGUAGE_ATTRS.declined)).toBe(false);
+    expect(everWritten.has(HOUSEHOLD_LANGUAGE_ATTRS.declinedAt)).toBe(false);
     // What she chose is what she chose.
     expect(w.meta().language).toEqual({ S: 'es' });
-    expect(HOUSEHOLD_LANGUAGE_ATTRS).toMatchObject({ declined: 'languageDeclined', declinedAt: 'languageDeclinedAt' });
   });
 
   it('no source file of this server names the language in anything it sets, removes or puts', () => {

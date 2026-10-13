@@ -5,7 +5,7 @@
  *
  * It understands exactly what this server sends — PutItem (with the one
  * condition the door answer uses) and UpdateItem (a `SET` of plain values or
- * `if_not_exists`, or a `REMOVE` of attributes, under a condition of `attribute_exists`,
+ * `if_not_exists`, a `REMOVE` of attributes, or a `SET … REMOVE …` of both, under a condition of `attribute_exists`,
  * `attribute_not_exists` and comparisons joined by AND, with OR inside
  * brackets), GetItem, DeleteItem, and a
  * Query on `pk` with a `BETWEEN` or `begins_with` on `sk`, an optional
@@ -89,6 +89,9 @@ function conditionHolds(expression: string | undefined, held: Item | undefined, 
 
 /** The row an UpdateExpression of `SET a = :v, b = if_not_exists(b, :w)` leaves — or of `REMOVE a, b`. */
 function applySet(expression: string, held: Item, names: Names, values: Values): Item {
+  // Both at once (`SET a = :v REMOVE b`): the question's taking back records and clears in one update.
+  const both = /^(SET .+?) (REMOVE .+)$/.exec(expression);
+  if (both) return applySet(both[2]!, applySet(both[1]!, held, names, values), names, values);
   if (expression.startsWith('REMOVE ')) {
     // Taking an attribute off again (the visit store's releaseAsk): names only, nothing to evaluate.
     const next = { ...held };

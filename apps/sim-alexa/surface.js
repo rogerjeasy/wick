@@ -1732,6 +1732,11 @@ export function presentDoorbell(link, me, formatTime = defaultFormatTime) {
 // which day the language can be asked for again — where the button for that
 // language would be. Nobody else is told what she said no to.
 //
+// And a question the organiser takes back is not asked again for a day:
+// asking and taking back is not a way to put it to her over and over. The
+// button says so before it is pressed a second time, and afterwards the
+// server's sentence stands where that language's button would be.
+//
 // The languages and their names are the server's (its `choices`); none is
 // kept here, so a language this page has not heard of is still offered.
 // ---------------------------------------------------------------------------
@@ -1769,9 +1774,10 @@ export function languageOffer(me) {
  * itself ("Spanish — español"), and what can be done from here. Only the
  * organiser can ask, and only one question is open at a time: while it is,
  * the one thing to do is take it back. A language she has said no to within
- * the week has the server's sentence about it in place of its button.
+ * the week, or whose question was taken back within the day, has the
+ * server's sentence about it in place of its button.
  *
- * @param view  GET /api/language — `{ language, asked?, choices, declined? }`
+ * @param view  GET /api/language — `{ language, asked?, choices, declined?, takenBack? }`
  * @param me    GET /api/me
  */
 export function presentLanguage(view, me) {
@@ -1788,11 +1794,18 @@ export function presentLanguage(view, me) {
         say: view.declined.say || `${resident} said no to ${languageName(view, view.declined.language)}. It can be asked for again in a week.`,
       }
     : null;
+  // And a question the organiser took back, while the day runs: theirs to be told, and nobody else's.
+  const takenBack = organiser && view.takenBack
+    ? { language: view.takenBack.language, say: view.takenBack.say || `You took that question back. You can ask ${resident} again in a day.` }
+    : null;
+  // Her no first: it is the longer wait, and hers.
+  const waits = [declined, takenBack].filter(Boolean).map((wait) => wait.say);
+  const waitsFor = (language) => declined?.language === language || takenBack?.language === language;
 
   return {
     say: asked
       ? `${resident}’s television speaks ${speaks}. ${who} asked her on it for ${languageName(view, asked.language)}, and nothing changes until she says yes.`
-      : `${resident}’s television speaks ${speaks}.${declined ? ` ${declined.say}` : ''}`,
+      : [`${resident}’s television speaks ${speaks}.`, ...waits].join(' '),
     tone: asked ? 'waiting' : 'answer',
     card: {
       title: `Which language does ${resident}’s television speak?`,
@@ -1811,7 +1824,9 @@ export function presentLanguage(view, me) {
               ? 'Asked · waiting for her answer'
               : declined?.language === choice.language
                 ? 'She said no'
-                : '',
+                : takenBack?.language === choice.language
+                  ? 'You took the question back'
+                  : '',
           current,
         };
       }),
@@ -1820,12 +1835,17 @@ export function presentLanguage(view, me) {
       note: organiser ? null : 'Only the person who set this home up can ask for another language.',
       // Said where that language's button would be.
       declined,
+      takenBack,
+      waits,
       asks: organiser && !asked
         ? choices
-            .filter((choice) => choice.language !== view.language && choice.language !== declined?.language)
+            .filter((choice) => choice.language !== view.language && !waitsFor(choice.language))
             .map((choice) => ({ language: choice.language, label: `Ask ${resident} for ${choice.name}` }))
         : [],
-      takeBack: organiser && asked ? { label: 'Take the question back' } : null,
+      // Two presses: the second says what taking it back costs, before it is done.
+      takeBack: organiser && asked
+        ? { label: 'Take the question back', confirm: 'Take it back — sure? It cannot be asked again for a day.' }
+        : null,
       // A question is open: the card keeps looking for her answer.
       waiting: asked !== null,
       // What changes, and what does not, in one sentence.

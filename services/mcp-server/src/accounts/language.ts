@@ -21,8 +21,21 @@
  * And her no is an answer. It is kept beside the household by her press
  * (the edge), never from here, and it stands for a week: the same language
  * is not put to her again sooner (LANGUAGE_ASK_AGAIN_AFTER_MS). The
- * organiser is told so, with the day it can be asked again; a question
- * taken back is not a no, and starts no wait.
+ * organiser is told so, with the day it can be asked again.
+ *
+ * A question taken back is not a no — but it is not nothing either. Each
+ * asking puts a new card on her television, shown afresh, so asking and
+ * taking back in turn would put the question to her as often as the
+ * organiser liked, without her once being given the chance to say no and
+ * have it count. So a taking back is recorded, in the same update that
+ * closes the question, and that language is not asked for again for a day
+ * (LANGUAGE_ASK_AFTER_TAKING_BACK_MS). That record is the one thing here
+ * the family side writes besides the question itself: it is a fact about
+ * what the organiser did. Her language and her no stay hers alone.
+ *
+ * Every time compared here is this server's clock or one she left by her
+ * own press. None comes from a request, which carries a language and
+ * nothing else.
  *
  * What the language changes is only what her television shows her. Every
  * row keeps the English it was written in, and every family tool reads what
@@ -32,6 +45,7 @@
 import {
   DEFAULT_LANGUAGE,
   LANGUAGES,
+  LANGUAGE_ASK_AFTER_TAKING_BACK_MS,
   LANGUAGE_ASK_AGAIN_AFTER_MS,
   LANGUAGE_NAMES,
   isHouseholdLanguage,
@@ -64,7 +78,15 @@ export interface LanguageActor {
   readonly userId: string;
 }
 
-export type LanguageRefusalCode = 'bad_language' | 'already_speaks' | 'declined_lately' | 'no_television' | 'changed' | 'not_for_a_neighbour' | 'not_allowed_yet';
+export type LanguageRefusalCode =
+  | 'bad_language'
+  | 'already_speaks'
+  | 'declined_lately'
+  | 'taken_back_lately'
+  | 'no_television'
+  | 'changed'
+  | 'not_for_a_neighbour'
+  | 'not_allowed_yet';
 
 /** A refusal a person can be told as it stands, with the status the route answers. */
 export class LanguageRefusal extends Error {
@@ -87,6 +109,14 @@ export interface LanguageView {
   readonly choices: readonly { readonly language: HouseholdLanguage; readonly name: string; readonly own: string }[];
   /** Her no, while it stands — told to the organiser who asked, and to nobody else. */
   readonly declined?: StandingNo;
+  /** A question the organiser took back within the day — told to the organiser, and to nobody else. */
+  readonly takenBack?: StandingTakeBack;
+}
+
+/** What the organiser alone is told beside the language: the two waits, while each runs. */
+export interface Standing {
+  readonly declined?: StandingNo | undefined;
+  readonly takenBack?: StandingTakeBack | undefined;
 }
 
 /** A language she said no to within the week, when it can be asked for again, and the sentence that says so. */
@@ -96,6 +126,9 @@ export interface StandingNo {
   readonly askAgainAt: number;
   readonly say: string;
 }
+
+/** A language whose question was taken back within the day, when it can be asked for again, and the sentence that says so. */
+export type StandingTakeBack = StandingNo;
 
 /** What an asking or a taking back answers: how it stands now, and one sentence to say. */
 export interface LanguageAnswer {
@@ -118,10 +151,16 @@ const spokenBy = (household: Household): HouseholdLanguage => household.language
 const openQuestion = (household: Household): AskedLanguage | undefined =>
   household.languageAsked && household.languageAsked.language !== spokenBy(household) ? household.languageAsked : undefined;
 
-/** `declined` is given only for the organiser (standingNo): nobody else is told what she said no to. */
-export function languageView(household: Household, declined?: StandingNo): LanguageView {
+/** `standing` is given only for the organiser (standingFor): nobody else is told what she said no to, or what was taken back. */
+export function languageView(household: Household, standing: Standing = {}): LanguageView {
   const asked = openQuestion(household);
-  return { language: spokenBy(household), ...(asked ? { asked } : {}), choices: CHOICES, ...(declined ? { declined } : {}) };
+  return {
+    language: spokenBy(household),
+    ...(asked ? { asked } : {}),
+    choices: CHOICES,
+    ...(standing.declined ? { declined: standing.declined } : {}),
+    ...(standing.takenBack ? { takenBack: standing.takenBack } : {}),
+  };
 }
 
 /** A day as it is at the house, worded as the server words dates elsewhere (tools/watchSession.ts): "Tuesday 20 October". */
@@ -149,6 +188,62 @@ export function standingNo(household: Household, now: number, timeZone: string =
     say: `${household.residentName} said no to ${LANGUAGE_NAMES[no.language].inEnglish} on ${weekdayOf(no.at, timeZone)}. You can ask again ${again}.`,
   };
 }
+
+const DAY_MS = 24 * 60 * 60_000;
+
+/** The calendar day a moment falls on at the house, counted in days, and its hour there. */
+function dayAndHour(at: number, timeZone: string): { readonly day: number; readonly hour: number } {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', hourCycle: 'h23' }).formatToParts(new Date(at));
+  const part = (type: string): number => Number(parts.find((p) => p.type === type)?.value);
+  return { day: Math.round(Date.UTC(part('year'), part('month') - 1, part('day')) / DAY_MS), hour: part('hour') };
+}
+
+/** The parts of a day, cut where the home screen's own words cut them (packages/contracts light.ts). */
+const partOfDay = (hour: number): string => (hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening');
+
+/**
+ * "this afternoon", "yesterday evening", "tomorrow morning": a moment within
+ * a day of now, as it is at the house. A moment still to come, in the part
+ * of today that has already begun, is "later this afternoon" — never said
+ * as though it had arrived.
+ */
+function partOfDayInWords(at: number, now: number, timeZone: string): string {
+  const then = dayAndHour(at, timeZone);
+  const today = dayAndHour(now, timeZone);
+  const part = partOfDay(then.hour);
+  if (then.day === today.day) return at > now && part === partOfDay(today.hour) ? `later this ${part}` : `this ${part}`;
+  if (then.day === today.day - 1) return `yesterday ${part}`;
+  if (then.day === today.day + 1) return `tomorrow ${part}`;
+  // Not reached inside a day's wait. Said plainly if it ever is.
+  return `on ${weekdayOf(at, timeZone)} ${part}`;
+}
+
+/**
+ * A question the organiser took back, while the day runs: counted to the
+ * moment, and both moments worded by the part of the day at the house.
+ * Undefined once the day has passed, and for the language her television
+ * has since come to speak.
+ */
+export function standingTakeBack(household: Household, now: number, timeZone: string = DEFAULT_TIME_ZONE): StandingTakeBack | undefined {
+  const taken = household.languageTakenBack;
+  if (!taken || taken.language === spokenBy(household)) return undefined;
+  const askAgainAt = taken.at + LANGUAGE_ASK_AFTER_TAKING_BACK_MS;
+  if (now >= askAgainAt) return undefined;
+  return {
+    language: taken.language,
+    at: taken.at,
+    askAgainAt,
+    say:
+      `You took that question back ${partOfDayInWords(taken.at, now, timeZone)}. ` +
+      `You can ask ${household.residentName} again ${partOfDayInWords(askAgainAt, now, timeZone)}.`,
+  };
+}
+
+/** Both waits as they stand now, for the organiser. */
+const standingFor = (household: Household, deps: Pick<LanguageDeps, 'now' | 'timeZone'>): Standing => ({
+  declined: standingNo(household, deps.now(), deps.timeZone),
+  takenBack: standingTakeBack(household, deps.now(), deps.timeZone),
+});
 
 /** The name the card says: the organiser's first name, as their membership has it. The contract fits it to the card. */
 const firstNameOf = (name: string): string => cleanName(name).split(' ')[0] ?? '';
@@ -205,8 +300,9 @@ export async function readLanguage(deps: Pick<LanguageDeps, 'store' | 'now' | 't
   const access = accessOf(membership, household);
   const organiserWaiting = membership?.role === 'organiser' && membership.status === 'pending';
   if (!access.ok && !(organiserWaiting && household)) throw new LanguageRefusal(403, 'not_allowed_yet', access.say);
-  // Her no was an answer to the organiser's question, and is told to the organiser: the rest of the family see the language.
-  return languageView(household!, membership?.role === 'organiser' ? standingNo(household!, deps.now(), deps.timeZone) : undefined);
+  // Her no was an answer to the organiser's question, and the taking back was the organiser's own: both are told to the
+  // organiser. The rest of the family see the language.
+  return languageView(household!, membership?.role === 'organiser' ? standingFor(household!, deps) : {});
 }
 
 /**
@@ -218,6 +314,13 @@ export async function readLanguage(deps: Pick<LanguageDeps, 'store' | 'now' | 't
  * two requests are one question and her press always finds the question it
  * answers; and if the card cannot be sent the question is taken off again,
  * so nobody is told she was asked when she was not.
+ *
+ * Two things keep an asking from being a way to wear her down, and each is
+ * checked twice — here, to say so in words, and in the write's own
+ * condition, so a request that read the household a moment too early is
+ * refused all the same: her no to this language within the week, and a
+ * question for it taken back within the day. Asking again while the
+ * question is open sends nothing: no second card, and so no new showings.
  */
 export async function askForLanguage(deps: LanguageDeps, actor: LanguageActor, wanted: unknown): Promise<LanguageAnswer> {
   const membership = await requireOrganiser(deps, actor);
@@ -230,8 +333,10 @@ export async function askForLanguage(deps: LanguageDeps, actor: LanguageActor, w
     throw new LanguageRefusal(409, 'already_speaks', `${resident}’s television already speaks ${LANGUAGE_NAMES[wanted].inEnglish}.`);
   }
   // Her no is an answer, and it stands: the same language is not put to her again inside the week.
-  const no = standingNo(household, deps.now(), deps.timeZone);
-  if (no?.language === wanted) throw new LanguageRefusal(409, 'declined_lately', no.say);
+  const standing = standingFor(household, deps);
+  if (standing.declined?.language === wanted) throw new LanguageRefusal(409, 'declined_lately', standing.declined.say);
+  // And a question taken back is not asked again inside the day: asking and taking back is not a way round her no.
+  if (standing.takenBack?.language === wanted) throw new LanguageRefusal(409, 'taken_back_lately', standing.takenBack.say);
   // Nothing could ask her: a question with no television to show it would wait for ever, and say it had been asked.
   if ((await deps.store.listTelevisions(actor.householdId)).length === 0) {
     throw new LanguageRefusal(409, 'no_television', `Connect ${resident}’s television first. She is asked on it, and there is nowhere to ask her yet.`);
@@ -241,14 +346,17 @@ export async function askForLanguage(deps: LanguageDeps, actor: LanguageActor, w
   const before = household.languageAsked;
   if (before?.language === wanted) {
     return {
-      view: languageView(household, no),
+      view: languageView(household, standing),
       say: `That question is still on ${resident}’s television. Nothing changes until she says yes.`,
     };
   }
 
   const question: AskedLanguage = { language: wanted, by: firstNameOf(membership.name), at: deps.now() };
-  if (!(await deps.store.askLanguage(actor.householdId, question, before?.language))) {
-    // Her answer — a no among them — or another request got there between the read and the write.
+  // A question that was really open — not one left over for the language she already speaks — leaves her television
+  // when it is replaced, exactly as if it had been taken back, and the same update records it so.
+  const replacing = before ? { language: before.language, open: openQuestion(household) !== undefined } : undefined;
+  if (!(await deps.store.askLanguage(actor.householdId, question, replacing))) {
+    // Her answer — a no among them — a taking back, or another request got there between the read and the write.
     throw new LanguageRefusal(409, 'changed', `Something changed on ${resident}’s television just then. Look again before asking.`);
   }
 
@@ -257,15 +365,23 @@ export async function askForLanguage(deps: LanguageDeps, actor: LanguageActor, w
     if (before) await deps.withdrawCard(actor.householdId, languageCardId(before.language));
     await deps.sendCard(buildLanguageCard(household, question));
   } catch (err) {
-    // Undone only while the question is still this one.
-    await deps.store
-      .clearLanguageQuestion(actor.householdId, question)
-      .catch((undo: unknown) => console.error(JSON.stringify({ level: 'error', msg: 'language_question_not_undone', err: undo instanceof Error ? undo.name : 'unknown' })));
+    const failed = (what: string) => (undo: unknown) =>
+      console.error(JSON.stringify({ level: 'error', msg: what, err: undo instanceof Error ? undo.name : 'unknown' }));
+    // The card is stored before it is pushed (egress.ts), so a send that failed may have left one that would arrive
+    // later, with no question behind it: it is taken off again, as far as that can be done.
+    await deps.withdrawCard(actor.householdId, languageCardId(question.language)).catch(failed('language_card_not_withdrawn'));
+    // Undone only while the question is still this one. Not a taking back: she was never asked, and no wait starts.
+    await deps.store.clearLanguageQuestion(actor.householdId, question).catch(failed('language_question_not_undone'));
     throw err;
   }
 
+  const asked: Household = {
+    ...household,
+    languageAsked: question,
+    ...(replacing?.open ? { languageTakenBack: { language: replacing.language, at: question.at } } : {}),
+  };
   return {
-    view: languageView({ ...household, languageAsked: question }, no),
+    view: languageView(asked, standingFor(asked, deps)),
     say: `I have asked ${resident} on her television. Nothing changes until she says yes.`,
   };
 }
@@ -275,23 +391,37 @@ export async function askForLanguage(deps: LanguageDeps, actor: LanguageActor, w
  * first and the question is closed after, so a failure between the two
  * leaves a question that can be taken back again — never a card on her
  * television that nothing is waiting for. Doing it twice does nothing the
- * second time.
+ * second time: nothing is written, so the moment the day's wait is counted
+ * from does not move.
+ *
+ * Closing the question and recording that it was taken back are one
+ * update. A question left over for the language she already speaks was not
+ * on her television to be taken back: it is cleared away, and nothing is
+ * recorded — so clearing one can never write over a taking back that
+ * stands. And a question she answered a moment before is not taken back at
+ * all: her answer stands, whichever it was.
  */
 export async function takeBackLanguageQuestion(deps: LanguageDeps, actor: LanguageActor): Promise<LanguageAnswer> {
   await requireOrganiser(deps, actor);
   const household = await householdNow(deps, actor);
   const resident = household.residentName;
   const asked = household.languageAsked;
-  // Whatever is answered here says her no too, while it stands: the organiser's card goes on showing it.
-  const viewOf = (home: Household): LanguageView => languageView(home, standingNo(home, deps.now(), deps.timeZone));
+  // Whatever is answered here says the two waits too, while they stand: the organiser's card goes on showing them.
+  const viewOf = (home: Household): LanguageView => languageView(home, standingFor(home, deps));
   if (!asked) return { view: viewOf(household), say: `There is no question on ${resident}’s television to take back.` };
 
+  const at = deps.now();
+  const leftOver = openQuestion(household) === undefined;
   await deps.withdrawCard(actor.householdId, languageCardId(asked.language));
-  if (await deps.store.clearLanguageQuestion(actor.householdId, asked)) {
+  const closed = leftOver
+    ? await deps.store.clearLanguageQuestion(actor.householdId, asked)
+    : await deps.store.takeBackLanguageQuestion(actor.householdId, asked, at);
+  if (closed) {
     const { languageAsked: _taken, ...rest } = household;
+    const after: Household = leftOver ? rest : { ...rest, languageTakenBack: { language: asked.language, at } };
     return {
-      view: viewOf(rest),
-      say: `I have taken the question back. ${resident}’s television still speaks ${LANGUAGE_NAMES[spokenBy(rest)].inEnglish}.`,
+      view: viewOf(after),
+      say: `I have taken the question back. ${resident}’s television still speaks ${LANGUAGE_NAMES[spokenBy(after)].inEnglish}.`,
     };
   }
 

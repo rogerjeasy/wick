@@ -3,7 +3,7 @@
  * DynamoDB one (store.ts): a household is created once, a record past its
  * expiry is gone, and a taken record is handed to one caller only.
  */
-import { DEFAULT_LANGUAGE, LANGUAGE_ASK_AGAIN_AFTER_MS } from '@wick/contracts';
+import { DEFAULT_LANGUAGE, LANGUAGE_ASK_AFTER_TAKING_BACK_MS, LANGUAGE_ASK_AGAIN_AFTER_MS } from '@wick/contracts';
 import { HouseholdExistsError, type AccountStore } from '../store.js';
 import type { FamilyTelevision, Household, Membership, Television, User } from '../types.js';
 
@@ -65,10 +65,25 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
       const household = households.get(householdId);
       if (!household) return false;
       if ((household.language ?? DEFAULT_LANGUAGE) === question.language) return false;
-      if (household.languageAsked?.language !== replacing) return false;
+      if (household.languageAsked?.language !== replacing?.language) return false;
       const no = household.languageDeclined;
       if (no && no.language === question.language && no.at > question.at - LANGUAGE_ASK_AGAIN_AFTER_MS) return false;
-      households.set(householdId, { ...household, languageAsked: question });
+      const taken = household.languageTakenBack;
+      if (taken && taken.language === question.language && taken.at > question.at - LANGUAGE_ASK_AFTER_TAKING_BACK_MS) return false;
+      households.set(householdId, {
+        ...household,
+        languageAsked: question,
+        // An open question this replaces is recorded as taken back, as on the table.
+        ...(replacing?.open ? { languageTakenBack: { language: replacing.language, at: question.at } } : {}),
+      });
+      return true;
+    },
+    async takeBackLanguageQuestion(householdId, question, at) {
+      const household = households.get(householdId);
+      const asked = household?.languageAsked;
+      if (!household || !asked || asked.language !== question.language || asked.at !== question.at) return false;
+      const { languageAsked: _taken, ...rest } = household;
+      households.set(householdId, { ...rest, languageTakenBack: { language: question.language, at } });
       return true;
     },
     async clearLanguageQuestion(householdId, question) {

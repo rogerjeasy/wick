@@ -42,6 +42,13 @@ export interface Household {
    * press, at the edge, like the language itself — read here, never written.
    */
   readonly languageDeclined?: { readonly language: HouseholdLanguage; readonly at: number };
+  /**
+   * The question the organiser last took back, and when. That question is
+   * not asked again for a day (LANGUAGE_ASK_AFTER_TAKING_BACK_MS): asking
+   * and taking back must not be a way to put it to her over and over. This
+   * one is something the organiser did, so it is written from here.
+   */
+  readonly languageTakenBack?: { readonly language: HouseholdLanguage; readonly at: number };
 }
 
 /** A question about the television's language, as it is kept beside the household. */

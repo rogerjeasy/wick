@@ -3,6 +3,9 @@
  * asking (accounts/language.ts). Who may read, who may ask, what is refused
  * and in which words — and that no request can name a household (INV-8).
  */
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { languageQuestion, type QueuedCard } from '@wick/contracts';
 import type { AppDeps } from '../server.js';
@@ -386,14 +389,180 @@ describe('her answer — given on her television, read here', () => {
     expect(await (await read(h, tom)).json()).toEqual({ language: 'en', choices: CHOICES });
   });
 
-  it('a question taken back is not a no: it can be asked again at once', async () => {
-    const { h, sarah, languageCards } = await home();
+  it('a question taken back is not a no — nothing of hers is recorded', async () => {
+    const { h, sarah } = await home();
     await ask(h, sarah, { language: 'es' });
     await takeBack(h, sarah);
 
-    expect((await ask(h, sarah, { language: 'es' })).status).toBe(200);
-    expect(languageCards()).toHaveLength(2);
     expect(await (await read(h, sarah)).json()).not.toHaveProperty('declined');
+    expect((await h.store.getHousehold(sarah.householdId))?.languageDeclined).toBeUndefined();
+  });
+});
+
+describe('asking and taking back is not a way to put the question to her over and over', () => {
+  const TOOK_BACK = /^You took that question back this (morning|afternoon|evening)\. You can ask Margaret again tomorrow \1\.$/;
+
+  it('ask, take back, ask, take back …: the question reaches her television once, and each further asking is refused in words', async () => {
+    const { h, sarah, languageCards, withdrawn } = await home();
+
+    expect((await ask(h, sarah, { language: 'es' })).status).toBe(200);
+    for (let round = 0; round < 4; round += 1) {
+      expect((await takeBack(h, sarah)).status).toBe(200);
+      const again = await ask(h, sarah, { language: 'es' });
+      expect(again.status).toBe(409);
+      const body = (await again.json()) as { error: string; message: string };
+      expect(body.error).toBe('taken_back_lately');
+      expect(body.message).toMatch(TOOK_BACK);
+    }
+
+    expect(languageCards()).toHaveLength(1);
+    expect(withdrawn).toHaveLength(1);
+    expect(await (await read(h, sarah)).json()).not.toHaveProperty('asked');
+  });
+
+  it('tells the organiser, while the day runs, when it can be asked again — and nobody else in the family', async () => {
+    const { h, sarah } = await home();
+    const tom = await linkInvited(h, TOM, await invite(h, sarah));
+    await residentAllows(h, tom.householdId, tom.userId);
+    const before = Date.now();
+    await ask(h, sarah, { language: 'es' });
+    await takeBack(h, sarah);
+
+    const seen = (await (await read(h, sarah)).json()) as { takenBack: { language: string; at: number; askAgainAt: number; say: string } };
+    expect(seen).toEqual({
+      language: 'en',
+      choices: CHOICES,
+      takenBack: { language: 'es', at: expect.any(Number) as number, askAgainAt: expect.any(Number) as number, say: expect.stringMatching(TOOK_BACK) as string },
+    });
+    expect(seen.takenBack.at).toBeGreaterThanOrEqual(before);
+    expect(seen.takenBack.askAgainAt).toBe(seen.takenBack.at + 24 * 60 * 60_000);
+    expect(await (await read(h, tom)).json()).toEqual({ language: 'en', choices: CHOICES });
+  });
+
+  it('a day on, the same language is asked as before', async () => {
+    // A Tuesday afternoon, well ahead of the day this runs: the sign-in library checks a token's expiry against the real clock.
+    let clock = Date.UTC(2031, 9, 14, 14, 0);
+    const { h, languageCards } = await server({ now: () => clock, store: createMemoryStore(() => clock) });
+    const sarah = await linkNewOrganiser(h);
+    h.store.addTelevision(sarah.householdId, { deviceId: 'tv-1', pairedAt: 5, connected: true });
+    await ask(h, sarah, { language: 'es' });
+    await takeBack(h, sarah);
+    const renewed = async (who: { tokens: Tokens }): Promise<{ tokens: Tokens }> => {
+      const res = await fetch(`${h.base}/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: who.tokens.refresh_token, client_id: sarah.client.clientId }),
+      });
+      return { tokens: (await res.json()) as Tokens };
+    };
+
+    clock += 20 * 60 * 60_000;
+    const nextMorning = await renewed(sarah);
+    const early = await ask(h, nextMorning, { language: 'es' });
+    expect(early.status).toBe(409);
+    expect(await early.json()).toEqual({
+      error: 'taken_back_lately',
+      message: 'You took that question back yesterday afternoon. You can ask Margaret again this afternoon.',
+    });
+
+    clock += 4 * 60 * 60_000;
+    const aDayOn = await renewed(nextMorning);
+    expect((await ask(h, aDayOn, { language: 'es' })).status).toBe(200);
+    expect(languageCards()).toHaveLength(2);
+    expect(await (await read(h, aDayOn)).json()).not.toHaveProperty('takenBack');
+  });
+
+  it('counts every wait by the server’s own clock: no time in a request is read', async () => {
+    const { h, sarah, languageCards } = await home();
+    const longAgo = 1_000;
+    const times = { at: longAgo, now: longAgo, askedAt: longAgo, takenBackAt: longAgo, languageAskedAt: longAgo, languageTakenBackAt: longAgo, languageDeclinedAt: longAgo, askAgainAt: longAgo };
+    const before = Date.now();
+
+    const asked = (await (await ask(h, sarah, { language: 'es', ...times })).json()) as { asked: { at: number } };
+    expect(asked.asked.at).toBeGreaterThanOrEqual(before);
+
+    await call(h, sarah, 'DELETE', '/api/language/question?at=1000&now=1000&takenBackAt=1000', times);
+    const seen = (await (await read(h, sarah, '/api/language?now=9999999999999&at=1000')).json()) as { takenBack: { at: number } };
+    expect(seen.takenBack.at).toBeGreaterThanOrEqual(before);
+
+    // A request that claims the day is long over is refused like any other.
+    const again = await fetch(`${h.base}/api/language?now=9999999999999`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${sarah.tokens.access_token}`, 'content-type': 'application/json', date: 'Tue, 01 Jan 2099 00:00:00 GMT', 'x-now': '9999999999999' },
+      body: JSON.stringify({ language: 'es', now: 9_999_999_999_999, at: 9_999_999_999_999 }),
+    });
+    expect(again.status).toBe(409);
+    expect(languageCards()).toHaveLength(1);
+  });
+});
+
+describe('who may ask — the organiser, while she has not said no to them', () => {
+  it.each(['declined', 'removed'] as const)('refuses an organiser who is %s on all three routes, and touches nothing', async (status) => {
+    const { h, sarah, languageCards, withdrawn } = await home();
+    await ask(h, sarah, { language: 'es' });
+    await h.store.setMemberStatus(sarah.householdId, sarah.userId, status, Date.now());
+
+    const seen = await read(h, sarah);
+    expect(seen.status).toBe(403);
+    expect(await seen.json()).toEqual({
+      error: 'not_allowed_yet',
+      message: status === 'declined' ? 'Margaret chose not to share this with you.' : 'You are no longer part of this family circle.',
+    });
+    for (const res of [await ask(h, sarah, { language: 'es' }), await ask(h, sarah, { language: 'en' }), await takeBack(h, sarah)]) {
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'not_organiser', message: 'Only the person who set this home up can do that.' });
+    }
+
+    expect(languageCards()).toHaveLength(1);
+    expect(withdrawn).toEqual([]);
+    expect((await h.store.getHousehold(sarah.householdId))?.languageAsked).toMatchObject({ language: 'es' });
+  });
+
+  it('bounds an organiser still waiting for her by the same two waits', async () => {
+    const { h, sarah, languageCards } = await home();
+    expect(await h.store.getMembership(sarah.householdId, sarah.userId)).toMatchObject({ role: 'organiser', status: 'pending' });
+
+    await ask(h, sarah, { language: 'es' });
+    await takeBack(h, sarah);
+    expect(await (await ask(h, sarah, { language: 'es' })).json()).toMatchObject({ error: 'taken_back_lately' });
+
+    // Her no, to a question asked before any of that.
+    const other = await home();
+    await ask(other.h, other.sarah, { language: 'es' });
+    other.h.store.answerLanguage(other.sarah.householdId, 'no');
+    expect(await (await ask(other.h, other.sarah, { language: 'es' })).json()).toMatchObject({ error: 'declined_lately' });
+
+    expect(languageCards()).toHaveLength(1);
+    expect(other.languageCards()).toHaveLength(1);
+  });
+});
+
+describe('the stand-in television’s press is the dev server’s alone', () => {
+  it('is no route of the server that is deployed', async () => {
+    const { h, sarah } = await home();
+    await ask(h, sarah, { language: 'es' });
+
+    for (const path of ['/dev/language', '/dev/language?press=no', '/dev/allow', '/api/dev/language']) {
+      for (const method of ['GET', 'POST']) {
+        const res = await fetch(`${h.base}${path}`, { method, headers: { authorization: `Bearer ${sarah.tokens.access_token}` } });
+        expect(res.status, `${method} ${path}`).toBe(404);
+      }
+    }
+    expect(await (await read(h, sarah)).json()).toMatchObject({ language: 'en', asked: { language: 'es' } });
+  });
+
+  it('and nothing the deployed server runs imports a test’s stand-in', () => {
+    const root = fileURLToPath(new URL('../', import.meta.url));
+    const sources = (readdirSync(root, { recursive: true }) as string[])
+      .filter((file) => file.endsWith('.ts') && !file.split(/[\\/]/).includes('__tests__'))
+      .map((file) => ({ file, text: readFileSync(join(root, file), 'utf8') }));
+    expect(sources.length).toBeGreaterThan(40);
+
+    for (const { file, text } of sources) {
+      expect(text, file).not.toMatch(/from\s+['"][^'"]*__tests__/);
+      expect(text, file).not.toMatch(/['"`]\/dev\//);
+      expect(text, file).not.toMatch(/answerLanguage/);
+    }
   });
 });
 
@@ -405,16 +574,19 @@ describe('DELETE /api/language/question — the organiser takes the question bac
     const res = await takeBack(h, sarah);
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
+    const body = (await res.json()) as { takenBack: unknown };
+    expect(body).toEqual({
       language: 'en',
       choices: CHOICES,
+      // Taking it back is the organiser's to do, and it is kept: that language is not asked for again for a day.
+      takenBack: { language: 'es', at: expect.any(Number) as number, askAgainAt: expect.any(Number) as number, say: expect.any(String) as string },
       say: 'I have taken the question back. Margaret’s television still speaks English.',
     });
     expect(withdrawn).toEqual([{ householdId: sarah.householdId, cardId: 'language-es' }]);
-    expect(await (await read(h, sarah)).json()).toEqual({ language: 'en', choices: CHOICES });
+    expect(await (await read(h, sarah)).json()).toEqual({ language: 'en', choices: CHOICES, takenBack: body.takenBack });
     // A press on a card she still had in front of her answers nothing: there is no question open.
     expect(h.store.answerLanguage(sarah.householdId, 'yes')).toBeUndefined();
-    expect(await (await read(h, sarah)).json()).toEqual({ language: 'en', choices: CHOICES });
+    expect(await (await read(h, sarah)).json()).toMatchObject({ language: 'en' });
   });
 
   it('is idempotent: a second time, or with nothing asked, it changes nothing and withdraws nothing', async () => {
@@ -425,11 +597,12 @@ describe('DELETE /api/language/question — the organiser takes the question bac
     expect(await nothing.json()).toEqual({ language: 'en', choices: CHOICES, say: 'There is no question on Margaret’s television to take back.' });
 
     await ask(h, sarah, { language: 'es' });
-    await takeBack(h, sarah);
+    const first = (await (await takeBack(h, sarah)).json()) as { takenBack: { at: number } };
     const again = await takeBack(h, sarah);
 
     expect(again.status).toBe(200);
-    expect(await again.json()).toEqual({ language: 'en', choices: CHOICES, say: 'There is no question on Margaret’s television to take back.' });
+    // The same record, to the millisecond: a second taking back does not start the day again.
+    expect(await again.json()).toEqual({ language: 'en', choices: CHOICES, takenBack: first.takenBack, say: 'There is no question on Margaret’s television to take back.' });
     expect(withdrawn).toHaveLength(1);
   });
 

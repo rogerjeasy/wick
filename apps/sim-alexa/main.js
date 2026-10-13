@@ -2130,7 +2130,7 @@ function addLanguageCard(turn, first) {
   const line = el('p', 'watch-status');
   line.setAttribute('role', 'status');
   line.setAttribute('aria-live', 'polite');
-  // Her no, while it stands: said where the button for that language would be.
+  // Her no, and a question taken back, while each stands: said where the button for that language would be.
   const standing = el('p', 'empty');
   const actions = el('div', 'actions');
   const problem = el('p', 'problem');
@@ -2146,9 +2146,15 @@ function addLanguageCard(turn, first) {
   languageCard = state;
 
   /** A press: off while it is asked, and the answer — or the refusal, in the server's own words — shown here. */
-  const press = (button, request) => {
+  const press = (button, request, confirm) => {
     button.type = 'button';
     button.addEventListener('click', async () => {
+      // Two presses where one would cost something (taking the question back starts a day's wait): the first only asks.
+      if (confirm && button.dataset.armed !== 'true') {
+        button.dataset.armed = 'true';
+        button.textContent = confirm;
+        return;
+      }
       state.busy = true;
       for (const other of actions.querySelectorAll('button')) other.disabled = true;
       problem.textContent = '';
@@ -2186,12 +2192,14 @@ function addLanguageCard(turn, first) {
       return li;
     }));
     line.textContent = said || shown.status;
-    standing.textContent = shown.declined?.say ?? '';
-    standing.hidden = !shown.declined;
+    standing.textContent = shown.waits.join(' ');
+    standing.hidden = shown.waits.length === 0;
     actions.replaceChildren(
       ...shown.asks.map((ask) =>
         press(el('button', 'btn', ask.label), () => api('/api/language', { method: 'POST', body: JSON.stringify({ language: ask.language }) }))),
-      ...(shown.takeBack ? [press(el('button', 'btn quiet', shown.takeBack.label), () => api('/api/language/question', { method: 'DELETE' }))] : []),
+      ...(shown.takeBack
+        ? [press(el('button', 'btn quiet', shown.takeBack.label), () => api('/api/language/question', { method: 'DELETE' }), shown.takeBack.confirm)]
+        : []),
     );
     // Looking goes on only while a question is open, and only for the latest card.
     if (shown.waiting && languageCard === state) {
