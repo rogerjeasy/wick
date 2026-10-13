@@ -27,7 +27,7 @@ describe('routeCardAction — which presses need the runtime, and which do not',
     const invoke = vi.fn();
     const askFamily = vi.fn(async () => 'asked' as const);
 
-    const out = await routeCardAction({ detail: ask }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn() });
+    const out = await routeCardAction({ detail: ask }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(), reachAsk: vi.fn(), reachDue: vi.fn() });
 
     expect(askFamily).toHaveBeenCalledWith(ask);
     expect(invoke).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ describe('routeCardAction — which presses need the runtime, and which do not',
     const invoke = vi.fn(async () => ({ result: 'rang' }));
     const askFamily = vi.fn();
 
-    const out = await routeCardAction({ detail }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn() });
+    const out = await routeCardAction({ detail }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(), reachAsk: vi.fn(), reachDue: vi.fn() });
 
     expect(invoke).toHaveBeenCalledWith('door.action', 'margaret', { detail });
     expect(askFamily).not.toHaveBeenCalled();
@@ -54,6 +54,8 @@ describe('routeCardAction — "Shall I tell Sarah?"', () => {
     askResident: vi.fn(async () => ['missed_visit-maria-2026-10-09']),
     withdraw: vi.fn(async () => undefined),
     tellHome: vi.fn(async () => undefined),
+    reachAsk: vi.fn(),
+    reachDue: vi.fn(),
   });
 
   it('looks for something to ask when a television says its resident is there', async () => {
@@ -88,7 +90,7 @@ describe('routeCardAction — "Shall I tell Sarah?"', () => {
 });
 
 describe('routeCardAction — a card finished on one television', () => {
-  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(async () => undefined), tellHome: vi.fn(async () => undefined) });
+  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(async () => undefined), tellHome: vi.fn(async () => undefined), reachAsk: vi.fn(), reachDue: vi.fn() });
   const retired = { householdId: 'margaret', deviceId: 'wick-tv', cardId: 'note-abc', at: 5 };
 
   it('is taken off the home’s other televisions, without waking the runtime', async () => {
@@ -113,7 +115,7 @@ describe('routeCardAction — a card finished on one television', () => {
 });
 
 describe('routeCardAction — the home screen changed on one television', () => {
-  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(async () => undefined) });
+  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(async () => undefined), reachAsk: vi.fn(), reachDue: vi.fn() });
   const home = { light: 'out', lightOutUntil: 9000 };
 
   it('is told to the home’s other televisions, whole, without waking the runtime', async () => {
@@ -149,5 +151,38 @@ describe('routeCardAction — the home screen changed on one television', () => 
     expect(await routeCardAction({ 'detail-type': 'home.changed', detail: { home } }, r)).toEqual({ result: 'ignored' });
     expect(await routeCardAction({ 'detail-type': 'home.changed', detail: { householdId: 'margaret' } }, r)).toEqual({ result: 'ignored' });
     expect(r.tellHome).not.toHaveBeenCalled();
+  });
+});
+
+describe('routeCardAction — "Hold for Sarah"', () => {
+  const others = { invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn() };
+  const reach = { ...detail, cardId: 'reach-1790000000000' };
+
+  it('carries out "Yes, ask Sarah" and "Just say hello" itself, without waking the runtime', async () => {
+    for (const action of ['ring_me', 'say_hello']) {
+      const invoke = vi.fn();
+      const reachAsk = vi.fn(async () => 'asked' as const);
+      const out = await routeCardAction({ 'detail-type': 'card.action', detail: { ...reach, action } }, { ...others, invoke, reachAsk, reachDue: vi.fn() });
+      expect(reachAsk).toHaveBeenCalledWith({ ...reach, action });
+      expect(invoke).not.toHaveBeenCalled();
+      expect(out).toEqual({ result: 'asked' });
+    }
+  });
+
+  it('asks the next person when the three minutes are over', async () => {
+    const reachDue = vi.fn(async () => 'asked_next' as const);
+    const reachAsk = vi.fn();
+    const due = { householdId: 'margaret', reachId: '1790000000000', step: 1 };
+    const out = await routeCardAction({ 'detail-type': 'reach.due', detail: due }, { ...others, reachAsk, reachDue });
+    expect(reachDue).toHaveBeenCalledWith(due);
+    expect(reachAsk).not.toHaveBeenCalled();
+    expect(out).toEqual({ result: 'asked_next' });
+  });
+
+  it('never takes a timer for a press: a timer that names one of her buttons still asks nobody anew', async () => {
+    const reachAsk = vi.fn();
+    const reachDue = vi.fn(async () => 'ignored' as const);
+    await routeCardAction({ 'detail-type': 'reach.due', detail: { ...reach, action: 'ring_me' } }, { ...others, reachAsk, reachDue });
+    expect(reachAsk).not.toHaveBeenCalled();
   });
 });

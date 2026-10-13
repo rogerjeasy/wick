@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 const api = (h: Harness, who: Linked, path: string, init: RequestInit = {}) =>
-  fetch(`${h.base}${path}`, { ...init, headers: { authorization: `Bearer ${who.tokens.access_token}` } });
+  fetch(`${h.base}${path}`, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), authorization: `Bearer ${who.tokens.access_token}` } });
 
 async function invite(h: Harness, organiser: Linked): Promise<string> {
   const res = await api(h, organiser, '/api/circle/invitations', { method: 'POST' });
@@ -75,6 +75,29 @@ describe('invitations', () => {
     const body = (await res.json()) as { code: string; expiresAt: number };
     expect(body.code.length).toBeGreaterThanOrEqual(16);
     expect(body.expiresAt).toBeGreaterThanOrEqual(before + 7 * 24 * 60 * 60 * 1000);
+  });
+
+  it('makes one for a neighbour when asked to, and says which it made', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+    const post = (body: unknown) => api(h, sarah, '/api/circle/invitations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+    const neighbour = await post({ role: 'neighbour' });
+    expect(neighbour.status).toBe(201);
+    expect(await neighbour.json()).toMatchObject({ role: 'neighbour' });
+
+    expect(await (await post({})).json()).toMatchObject({ role: 'family' });
+  });
+
+  it('makes nobody an organiser, and nothing it has not heard of', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+
+    for (const role of ['organiser', 'admin', 7]) {
+      const res = await api(h, sarah, '/api/circle/invitations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role }) });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: 'bad_role' });
+    }
   });
 
   it('refuses anyone else, even once allowed', async () => {

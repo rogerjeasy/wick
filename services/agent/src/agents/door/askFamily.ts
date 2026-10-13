@@ -26,6 +26,8 @@ import { familyToAsk } from './index.js';
 export interface FamilyMember {
   readonly userId: string;
   readonly name: string;
+  /** Their part in the circle, when the row says: a neighbour is asked things, and shown nothing (packages/contracts circle.ts). */
+  readonly role?: string;
 }
 
 /** One question about one door card. */
@@ -65,9 +67,20 @@ export function allowedFamily(memberships: readonly Record<string, AttributeValu
   for (const row of memberships) {
     const userId = row.sk?.S?.replace(/^MEM#/, '');
     const name = row.name?.S;
-    if (userId && name && row.status?.S === 'allowed') family.push({ userId, name });
+    const role = row.role?.S;
+    if (userId && name && row.status?.S === 'allowed') family.push({ userId, name, ...(role ? { role } : {}) });
   }
   return family;
+}
+
+/**
+ * The people who are shown what the resident shares: everyone she allows
+ * but a neighbour. A neighbour can be asked to look at the door, so is in
+ * `allowedFamily`; but is told nothing she chose to share ("Shall I tell
+ * Sarah?"), and is never named as someone who can see it.
+ */
+export function familyOnly(family: readonly FamilyMember[]): FamilyMember[] {
+  return family.filter((member) => member.role !== 'neighbour');
 }
 
 /** The LOOK# row. Pure, so its shape is tested without AWS. */

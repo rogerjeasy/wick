@@ -15,8 +15,12 @@
  * A Circle card is finished by either answer: the resident is asked once
  * (the default below), and the server records what they said. The same goes
  * for each of a watch-together session's cards.
+ *
+ * On the card her hold brings (packages/contracts/src/reach.ts), "Yes, ask
+ * Sarah" and "Just say hello" leave it where it is: who was asked is
+ * written onto that same card a moment later. Its other buttons finish it.
  */
-import { DOOR_ACTIONS, SHARING_ACTIONS, WATCH_ACTIONS, WEEK_ACTIONS, type Card } from '@wick/contracts';
+import { DOOR_ACTIONS, REACH_ACTIONS, SHARING_ACTIONS, WATCH_ACTIONS, WEEK_ACTIONS, type Card } from '@wick/contracts';
 import type { Together } from '../watch/togetherReporter.js';
 
 export function removesCard(card: Card, actionId: string): boolean {
@@ -27,6 +31,8 @@ export function removesCard(card: Card, actionId: string): boolean {
       return actionId !== WEEK_ACTIONS.sharing;
     case 'SHARING':
       return actionId === SHARING_ACTIONS.done;
+    case 'REACH':
+      return actionId !== REACH_ACTIONS.ring && actionId !== REACH_ACTIONS.hello;
     default:
       return true;
   }

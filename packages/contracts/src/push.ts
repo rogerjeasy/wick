@@ -20,6 +20,10 @@ export const PUSH_KINDS = {
   doorLook: 'door_look',
   /** The resident pressed "Tell …" on a Tell card: there is something they chose to share. */
   told: 'told',
+  /** The resident held the button and asked this person to ring (reach.ts). */
+  reachRing: 'reach_ring',
+  /** The resident held the button and chose "Just say hello". */
+  reachHello: 'reach_hello',
 } as const;
 export type PushKind = (typeof PUSH_KINDS)[keyof typeof PUSH_KINDS];
 

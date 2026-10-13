@@ -57,7 +57,13 @@ export type DeviceEvent =
    * The light in the window (light.ts): the resident asked, from the home
    * screen, to see their own light. The answer is the Light card.
    */
-  | { readonly t: 'light'; readonly at: number };
+  | { readonly t: 'light'; readonly at: number }
+  /**
+   * Hold for Sarah (reach.ts): the resident held OK for two seconds. The
+   * answer is the Reach card — the offer to ask someone to ring, or where
+   * a request already under way stands.
+   */
+  | { readonly t: 'reach'; readonly at: number };
 
 export type ControlMessage =
   | { readonly t: 'patch'; readonly patch: CardPatch }

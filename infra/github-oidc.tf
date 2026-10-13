@@ -117,6 +117,23 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["*"]
   }
 
+  # Hold for Sarah (infra/reach.tf): the one group its three-minute timers
+  # live in. NOT scheduler:* — the timers themselves are set by the
+  # card-action function at a press, never by a deploy, and a deploy has no
+  # business reading, setting or deleting one.
+  statement {
+    sid = "ManageTheReachTimerGroupNeverItsTimers"
+    actions = [
+      "scheduler:CreateScheduleGroup",
+      "scheduler:GetScheduleGroup",
+      "scheduler:DeleteScheduleGroup",
+      "scheduler:ListTagsForResource",
+      "scheduler:TagResource",
+      "scheduler:UntagResource",
+    ]
+    resources = ["arn:aws:scheduler:${local.region}:${local.account_id}:schedule-group/wick*"]
+  }
+
   # The MQTT channel (infra/iot.tf): one authorizer and two topic rules.
   #
   # NOT iot:*. That would also be the data plane — publishing a card to any

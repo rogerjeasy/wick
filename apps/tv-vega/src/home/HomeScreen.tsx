@@ -7,11 +7,17 @@
  *
  * While a card is on screen the tiles give up focus, so the D-pad cannot
  * wander off the card's buttons onto something behind it.
+ *
+ * OK held for two seconds on anything here is not a press: it brings the
+ * card that offers to ask someone to ring her (packages/contracts/src/
+ * reach.ts). The platform's own long press tells the two apart, so the film
+ * under her thumb does not start when she lets go.
  */
 import * as React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import { fontSize, safe } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
+import { HOLD_MS } from '../watch/hold.js';
 import { POSTERS } from './posters.js';
 
 export interface HomeScreenProps {
@@ -36,9 +42,11 @@ export interface HomeScreenProps {
   readonly onOpenLight?: (() => void) | undefined;
   /** "Sarah looked in this morning." Shown where the waiting line goes, when nothing is waiting. */
   readonly lookedIn?: string | undefined;
+  /** OK was held for two seconds on whatever has the focus (watch/hold.ts HOLD_MS). */
+  readonly onHold?: (() => void) | undefined;
 }
 
-export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, onHold }: HomeScreenProps): React.JSX.Element {
   const focusId = lastWatchedId ?? programmes[0]?.id;
   // One quiet row under the films, and a card waiting to be opened comes first.
   const quiet = waiting ? undefined : lookedIn;
@@ -53,6 +61,8 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
         {light ? (
           <Pressable
             onPress={onOpenLight}
+            onLongPress={onHold}
+            delayLongPress={HOLD_MS}
             focusable={!cardVisible}
             accessibilityRole="button"
             accessibilityLabel={`Your light in the window. ${light}. Press OK to see who can see it.`}
@@ -70,6 +80,8 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
           <Pressable
             key={programme.id}
             onPress={() => onChoose(programme)}
+            onLongPress={onHold}
+            delayLongPress={HOLD_MS}
             focusable={!cardVisible}
             hasTVPreferredFocus={!cardVisible && programme.id === focusId}
             accessibilityRole="button"
@@ -93,6 +105,8 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
       {waiting ? (
         <Pressable
           onPress={onOpenWaiting}
+          onLongPress={onHold}
+          delayLongPress={HOLD_MS}
           focusable={!cardVisible}
           accessibilityRole="button"
           accessibilityLabel={`${waiting} Press OK to open it.`}

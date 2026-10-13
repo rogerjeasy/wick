@@ -20,6 +20,7 @@ import { DEFAULT_POLICY } from '@wick/policy';
 import { householdsWithTelevision, narrateEveryHousehold } from './everyHousehold.js';
 import { familyNameForWeekCard } from './weekCard.js';
 import { lookStore, type LookSend } from '../../store/looks.js';
+import { familyOnly } from '../door/askFamily.js';
 import { writeNarrative } from './prose.js';
 import type { WeekRange } from './isoWeek.js';
 import { sendToDevice } from '../../egress.js';
@@ -116,7 +117,7 @@ export const handler = async (): Promise<void> => {
     now: Date.now,
     newCorrelationId: randomUUID,
     timeZone: process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London',
-    familyNameOf: async (householdId) => familyNameForWeekCard((await looks.listFamily(householdId)).map((member) => member.name)),
+    familyNameOf: async (householdId) => familyNameForWeekCard(familyOnly(await looks.listFamily(householdId)).map((member) => member.name)),
   });
 
   // A failed household is logged by name above and not rethrown: a thrown

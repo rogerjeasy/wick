@@ -69,7 +69,8 @@ export function readExclusions(metaItem) {
  */
 export function allowedFirstNames(items) {
   return (items ?? [])
-    .filter((item) => item.sk?.S?.startsWith('MEM#') && item.status?.S === 'allowed')
+    // Not a neighbour: a neighbour is asked things and shown nothing (packages/contracts circle.ts).
+    .filter((item) => item.sk?.S?.startsWith('MEM#') && item.status?.S === 'allowed' && item.role?.S !== 'neighbour')
     .map((item) => String(item.name?.S ?? '').trim().split(/\s+/)[0])
     .filter(Boolean);
 }

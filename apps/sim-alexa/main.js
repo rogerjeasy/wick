@@ -18,11 +18,14 @@ import {
   needsConfirmation,
   presentCircle,
   presentDoorbell,
+  presentInvitation,
   presentListing,
   presentNotifications,
   presentResult,
   presentTurn,
   presentWelcome,
+  looksForReach,
+  reachToAnnounce,
   routeUtterance,
   serverFor,
   suggestionsFor,
@@ -223,6 +226,7 @@ function signedOut(reason) {
   if (doorWatch !== null) clearInterval(doorWatch);
   doorWatch = null;
   announcedDoorQuestions.clear();
+  reachSeen.clear();
   if (watchLook !== null) clearInterval(watchLook);
   watchLook = null;
   watchSeen.clear();
@@ -386,6 +390,11 @@ async function callTool(name, args) {
     const news = watchToAnnounce(result.content?.[0]?.text ?? '', watchSeen);
     if (news) watchSeen.set(news.sessionId, news.key);
   }
+  // Nor is a request to ring that was asked after by name (reachToAnnounce).
+  if (name === 'get_reach_request' && result.isError !== true) {
+    const news = reachToAnnounce(result.content?.[0]?.text ?? '', reachSeen);
+    if (news) reachSeen.set(news.requestId, news.state);
+  }
   return result;
 }
 
@@ -504,7 +513,7 @@ function renderDoorCard(card) {
   for (const answer of card.answers) {
     const button = el('button', 'btn', answer.text);
     button.type = 'button';
-    button.addEventListener('click', () => void answerDoorQuestion(card.requestId, answer.key, answers));
+    button.addEventListener('click', () => void answerFromCard('answer_door_request', card.requestId, answer.key, answers));
     answers.appendChild(button);
   }
   node.appendChild(answers);
@@ -512,12 +521,43 @@ function renderDoorCard(card) {
   return node;
 }
 
-async function answerDoorQuestion(requestId, answer, buttons) {
+/**
+ * A request to ring, or a hello, from the television: the server's one
+ * sentence, and each answer as a button carrying the very words that will be
+ * shown there. As on the door card, pressing one is the answer. Under a
+ * request to ring, one quiet line: answering is not ringing.
+ */
+function renderReachCard(card) {
+  const node = el('article', 'card reach');
+  node.dataset.requestId = card.requestId;
+  const head = el('div', 'card-head');
+  head.appendChild(el('h2', 'card-title', card.title));
+  head.appendChild(el('span', 'card-meta', card.meta));
+  node.appendChild(head);
+
+  // Laid out as the door's answers are: each its own full-width button.
+  const answers = el('div', 'door-answers');
+  for (const answer of card.answers) {
+    const button = el('button', 'btn', answer.text);
+    button.type = 'button';
+    button.addEventListener('click', () => void answerFromCard('answer_reach_request', card.requestId, answer.key, answers));
+    answers.appendChild(button);
+  }
+  node.appendChild(answers);
+  if (card.note) node.appendChild(el('p', 'reach-note', card.note));
+  node.appendChild(cardFoot(card.footnote));
+  return node;
+}
+
+/** The press on an answer's button, for the door and for a request to ring alike: the tool is called with the card's request and the button's key. */
+async function answerFromCard(tool, requestId, answer, buttons) {
   const all = [...buttons.querySelectorAll('button')];
   for (const button of all) button.disabled = true;
   try {
-    const result = await callTool('answer_door_request', { requestId, answer });
-    assistantSays(presentResult('answer_door_request', result.content?.[0]?.text ?? '', {}, formatTime, result.isError === true));
+    const result = await callTool(tool, { requestId, answer });
+    // Whatever came back has just been said here: the next look does not say it again (reachToAnnounce).
+    if (tool === 'answer_reach_request' && result.isError !== true) reachSeen.set(requestId, 'answered');
+    assistantSays(presentResult(tool, result.content?.[0]?.text ?? '', {}, formatTime, result.isError === true));
     // Having just been asked is when "be told next time, even with Wick closed" means something.
     void api('/api/me').then((latest) => { me = latest; offerNotificationsOnce(); }).catch(() => {});
   } catch (err) {
@@ -529,6 +569,7 @@ async function answerDoorQuestion(requestId, answer, buttons) {
 
 function renderCard(card) {
   if (card.kind === 'door') return renderDoorCard(card);
+  if (card.kind === 'reach') return renderReachCard(card);
   if (card.kind === 'watch') return renderWatchCard(card);
   if (card.kind === 'invitation') return renderInvitationCard(card);
   if (card.kind === 'light') return renderLightCard(card);
@@ -847,6 +888,18 @@ function assistantSays(presented) {
   return turn;
 }
 
+/**
+ * Says something nobody asked for — a question from the door, a request to
+ * ring — and brings it to the top of the conversation. There is no question
+ * above it to scroll to (scrollToEnd), and left to that rule it lands out of
+ * sight: above the room kept under the last turn, or below an earlier answer.
+ */
+function announce(presented) {
+  const turn = assistantSays(presented);
+  log.scrollTop = turn.offsetTop - 12;
+  return turn;
+}
+
 // ---------------------------------------------------------------------------
 // The door. When the resident presses "Ask … to look" on the television,
 // the person asked should not have to think of asking. While this page is
@@ -870,7 +923,7 @@ async function lookForDoorQuestion() {
     const presented = presentResult('get_door_request', text, {}, formatTime);
     const fresh = doorQuestionToAnnounce(text, new Set(announcedDoorQuestions.keys()));
     if (fresh) {
-      announcedDoorQuestions.set(fresh, { turn: assistantSays(presented), shown: text });
+      announcedDoorQuestions.set(fresh, { turn: announce(presented), shown: text });
       return;
     }
     // The picture and the sentence reach the door card a few seconds after
@@ -880,6 +933,38 @@ async function lookForDoorQuestion() {
       known.shown = text;
       known.turn.querySelector('.card.door')?.replaceWith(renderCard(presented.card));
     }
+  } catch {
+    // A look that failed is tried again; nothing is said about it.
+  }
+}
+
+// A request to ring, or a hello (the resident held the button on the remote).
+// Looked for as the door is, by the same timer, and said once. How each
+// request stood at the last look is kept by id (surface.js reachToAnnounce).
+const reachSeen = new Map();
+
+/** The answers on every card for a request are put out of use once it is answered: there is nothing left to press. */
+function settleReachCards(requestId) {
+  for (const card of document.querySelectorAll('.card.reach')) {
+    if (card.dataset.requestId !== requestId) continue;
+    for (const button of card.querySelectorAll('.door-answers button')) button.disabled = true;
+  }
+}
+
+async function lookForReach() {
+  // As for the door: not behind another tab, not across an answer being given, and the server says on every look whether this person may ask (INV-9).
+  if (document.hidden || !me || answering) return;
+  try {
+    // An older Wick has no such tool: it is not asked at all, rather than refused on every look (surface.js looksForReach).
+    if (!looksForReach((await knownTools()).keys())) return;
+    const result = await callToolOnly('get_reach_request', {});
+    if (result.isError === true) return;
+    const text = result.content?.[0]?.text ?? '';
+    const news = reachToAnnounce(text, reachSeen);
+    if (!news) return;
+    reachSeen.set(news.requestId, news.state);
+    if (news.state === 'answered') settleReachCards(news.requestId);
+    if (news.announce) announce(presentResult('get_reach_request', text, {}, formatTime));
   } catch {
     // A look that failed is tried again; nothing is said about it.
   }
@@ -907,7 +992,10 @@ async function lookForWhatWasTold() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) void lookForWhatWasTold();
+  if (document.hidden) return;
+  void lookForWhatWasTold();
+  // Coming back to the page is what pressing the notification does: she may be waiting on the answer.
+  void lookForReach();
 });
 
 // A nudge that arrives while this page is open (sw.js): look at once.
@@ -916,13 +1004,28 @@ if ('serviceWorker' in navigator) {
     if (event.data?.wick !== 'nudge') return;
     if (event.data.kind === 'told') void lookForWhatWasTold();
     if (event.data.kind === 'door_look') void lookForDoorQuestion();
+    if (event.data.kind === 'reach_ring' || event.data.kind === 'reach_hello') void lookForReach();
   });
 }
 
+/**
+ * One timer for both things the television can ask of this person. The door
+ * is looked at on every turn of it: someone is standing there. A request to
+ * ring gives each person three minutes, so every other turn is enough — and
+ * a nudge, or coming back to the page, looks at once.
+ */
+const REACH_EVERY_LOOKS = 2;
+
 function watchTheDoor() {
   if (doorWatch !== null) clearInterval(doorWatch);
-  doorWatch = setInterval(() => void lookForDoorQuestion(), DOOR_WATCH_MS);
+  let looks = 0;
+  doorWatch = setInterval(() => {
+    void lookForDoorQuestion();
+    looks += 1;
+    if (looks % REACH_EVERY_LOOKS === 0) void lookForReach();
+  }, DOOR_WATCH_MS);
   void lookForDoorQuestion();
+  void lookForReach();
 }
 
 // ---------------------------------------------------------------------------
@@ -1585,16 +1688,23 @@ function addConnectTelevision(prefill) {
   });
 }
 
-/** Make an invitation and show the link to send. */
-async function addInvitation() {
+/**
+ * Make an invitation and show the link to send. With `role: 'neighbour'` it
+ * is for somebody who helps with the door and with ringing, and sees nothing
+ * else; with none it is for family, as it always was. What is said and shown
+ * is decided in surface.js (presentInvitation).
+ */
+async function addInvitation(role) {
   const resident = me?.household.residentName ?? 'The person at home';
   try {
-    const { code } = await api('/api/circle/invitations', { method: 'POST' });
-    const turn = assistantSays({ say: 'Here is a link to send them. It works for seven days.', tone: 'answer' });
-    const { card, body } = plainCard('An invitation', `They sign in, and ${resident} is asked on the television whether to allow them.`);
+    const invitation = await api('/api/circle/invitations', role ? { method: 'POST', body: JSON.stringify({ role }) } : { method: 'POST' });
+    const presented = presentInvitation(role, invitation, resident);
+    if (!presented.offered) return void assistantSays({ say: presented.say, tone: 'answer' });
+    const turn = assistantSays({ say: presented.say, tone: 'answer' });
+    const { card, body } = plainCard(presented.title, presented.footnote);
     const input = el('input', 'linkbox');
     input.readOnly = true;
-    input.value = inviteLink(window.location.href, code);
+    input.value = inviteLink(window.location.href, invitation.code);
     input.setAttribute('aria-label', 'Invitation link');
     const actions = el('div', 'actions');
     const copy = el('button', 'btn final', 'Copy link');
@@ -1609,6 +1719,7 @@ async function addInvitation() {
     });
     actions.appendChild(copy);
     body.append(input, actions);
+    if (presented.note) body.appendChild(el('p', 'empty', presented.note));
     turn.appendChild(card);
     scrollToEnd();
   } catch (err) {
@@ -1684,13 +1795,17 @@ function renderCircleCard(view) {
     const invite = el('button', 'btn', 'Invite someone');
     invite.type = 'button';
     invite.addEventListener('click', () => void addInvitation());
+    // Quieter: a neighbour is asked for the door and for ringing, and is not family.
+    const inviteNeighbour = el('button', 'btn quiet', 'Invite a neighbour');
+    inviteNeighbour.type = 'button';
+    inviteNeighbour.addEventListener('click', () => void addInvitation('neighbour'));
     const connectTv = el('button', 'btn quiet', 'Connect a television');
     connectTv.type = 'button';
     connectTv.addEventListener('click', () => addConnectTelevision());
     const doorbell = el('button', 'btn quiet', 'Doorbell');
     doorbell.type = 'button';
     doorbell.addEventListener('click', () => void showDoorbell());
-    actions.append(invite, connectTv, doorbell);
+    actions.append(invite, inviteNeighbour, connectTv, doorbell);
     body.appendChild(actions);
   }
   return card;

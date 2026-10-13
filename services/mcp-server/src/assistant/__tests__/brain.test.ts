@@ -173,6 +173,15 @@ describe('systemPrompt', () => {
     expect(prompt).toMatch(/never choose an answer for Sarah/i);
   });
 
+  it('tells the model what a request to ring is, and what it is not', () => {
+    const prompt = systemPrompt(WHO, NOW, TZ);
+
+    expect(prompt).toContain('get_reach_request');
+    expect(prompt).toMatch(/answer_reach_request only when Sarah has said they are ringing/);
+    expect(prompt).toMatch(/not an alarm/);
+    expect(prompt).toMatch(/does not make the telephone call/);
+  });
+
   it('tells the model a demo home’s history is simulated', () => {
     expect(systemPrompt({ ...WHO, simulated: true }, NOW, TZ)).toMatch(/simulated/);
     expect(systemPrompt(WHO, NOW, TZ)).not.toMatch(/simulated/);

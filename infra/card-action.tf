@@ -12,6 +12,9 @@
 #     askFamily.ts) -> the LOOK#<cardId> row the family's tools read
 #     -> patch -> TV
 #
+#   "Hold for Sarah" (ring_me / say_hello): answered in this function too
+#     (services/agent agents/reach) -> see infra/reach.tf
+#
 # No model in either path (spec D4): every step is deterministic.
 # ---------------------------------------------------------------------------
 
@@ -48,6 +51,8 @@ data "aws_iam_policy_document" "agent_card_action_ask_family" {
     # sendPatchToDevice). Query: MEM# — who the resident allows right now —
     # and DEV#, to find the television's live connection. PutItem: the
     # once-only LOOK#<cardId> row. UpdateItem: the patch merged into the card.
+    # The same four cover Hold for Sarah: its REACH#<id> row is put once, read
+    # and updated by the timer, and its card is put like any other.
     actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }
@@ -101,6 +106,12 @@ resource "aws_lambda_function" "agent_card_action" {
       WICK_HOUSEHOLD_TZ = var.household_time_zone
       # And nudges the family's own browsers (infra/push.tf). Unset keys mean no nudge, never a failure.
       PUSH_VAPID_SECRET_ARN = aws_secretsmanager_secret.push_vapid.arn
+      # Hold for Sarah: where the three-minute timer calls back, as whom, and
+      # in which group (infra/reach.tf). The function's own ARN is spelt out
+      # because a function cannot refer to itself.
+      REACH_TIMER_TARGET_ARN = "arn:aws:lambda:${local.region}:${local.account_id}:function:${local.prefix}-agent-card-action"
+      REACH_TIMER_ROLE_ARN   = aws_iam_role.reach_timer.arn
+      REACH_TIMER_GROUP      = aws_scheduler_schedule_group.reach.name
     }
   }
 
@@ -109,13 +120,13 @@ resource "aws_lambda_function" "agent_card_action" {
 
 resource "aws_cloudwatch_event_rule" "card_actions" {
   name           = "${local.prefix}-card-actions"
-  description    = "Presses the agent plane carries out: the chime, asking the family to look, and the answer to 'Shall I tell ...?'"
+  description    = "Presses the agent plane carries out: the chime, asking the family to look, the answer to 'Shall I tell ...?', and asking to be rung"
   event_bus_name = aws_cloudwatch_event_bus.wick.name
 
   event_pattern = jsonencode({
     source        = ["wick.device"]
     "detail-type" = ["card.action"]
-    detail        = { action = ["hallway_chime", "ask_family", "tell_family", "keep_private"] }
+    detail        = { action = ["hallway_chime", "ask_family", "tell_family", "keep_private", "ring_me", "say_hello"] }
   })
 }
 

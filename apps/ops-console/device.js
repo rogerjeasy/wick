@@ -24,7 +24,7 @@ const connBadge = document.getElementById('conn-badge');
 const connDetail = document.getElementById('conn-detail');
 const tvScreen = document.getElementById('tv-screen');
 const logEl = document.getElementById('log');
-const telemetryButtons = ['fg-btn', 'bg-btn', 'play-btn', 'pause-btn'].map((id) => document.getElementById(id));
+const telemetryButtons = ['fg-btn', 'bg-btn', 'play-btn', 'pause-btn', 'reach-btn'].map((id) => document.getElementById(id));
 
 let ws = null;
 let currentQueuedCard = null;
@@ -162,6 +162,10 @@ function disconnect() {
 
 function handleWireMessage(msg) {
   if (msg.kind === 'card') {
+    // Every card is drawn as it arrives: this page has no programme to wait
+    // for a break in. So the card her hold brings is on screen at once, and
+    // one that arrives with the id of the card already shown — who was asked,
+    // written by the server onto the Reach card she pressed — takes its place.
     currentQueuedCard = msg.card;
     renderCard(currentQueuedCard);
     send({ t: 'card_shown', cardId: currentQueuedCard.card.id, at: Date.now() });
@@ -248,6 +252,9 @@ function renderPairingCode(code, url) {
   show(wrapper);
 }
 
+/** The Reach card's two buttons that ask (packages/contracts reach.ts REACH_ACTIONS): after either, the card stays. */
+const REACH_KEEPS_CARD = ['ring_me', 'say_hello'];
+
 function renderCard(queuedCard) {
   const card = queuedCard.card;
   const urgencyClass = queuedCard.urgency === 'DOOR' ? 'urgency-door' : 'urgency-deferred';
@@ -301,6 +308,12 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'kicker', 'Your light in the window'));
     wrapper.appendChild(el('div', 'headline', card.headline));
     wrapper.appendChild(el('div', 'body-text', card.detail));
+  } else if (card.type === 'REACH') {
+    // Hold for Sarah: the offer her hold brings, then who was asked and what they answered.
+    // The server wrote every word (edge-device reach.mjs, services/agent agents/reach).
+    wrapper.appendChild(el('div', 'kicker', 'You held OK'));
+    wrapper.appendChild(el('div', 'headline', card.headline));
+    if (card.detail) wrapper.appendChild(el('div', 'body-text', card.detail));
   } else {
     wrapper.appendChild(el('div', 'body-text', `Unrecognized card type: ${card.type}`));
   }
@@ -315,7 +328,10 @@ function renderCard(queuedCard) {
         // "Start the film" opens it, and from here this television says where it is (cardActions.ts startsFilm).
         if (card.type === 'WATCH' && action.id === 'start' && card.programmeId) startFilm(card);
         // An answer to the family circle, to "Shall I tell …?", to anything about watching together, or about her light, finishes its card, as on the television (cardActions.ts).
-        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH' || card.type === 'LIGHT') {
+        // On the card her hold brought, "Yes, ask …" and "Just say hello" leave it where it is: who was asked is
+        // written onto that same card a moment later. Its other buttons finish it (cardActions.ts removesCard).
+        const finishesReach = card.type === 'REACH' && !REACH_KEEPS_CARD.includes(action.id);
+        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH' || card.type === 'LIGHT' || finishesReach) {
           currentQueuedCard = null;
           renderEmpty();
         }
@@ -446,6 +462,10 @@ document.getElementById('play-btn').addEventListener('click', () => send({
 document.getElementById('pause-btn').addEventListener('click', () => send({
   t: 'playback', state: 'PAUSED', positionMs: 60_000, durationMs: 1_500_000, contentId: 'ops-console-demo', at: Date.now(),
 }));
+
+// The remote. Holding OK for two seconds, anywhere in Wick, is "Hold for Sarah": the television says only that
+// it was held, and is answered with the card that offers to ask someone to ring (tv-vega watch/hold.ts).
+document.getElementById('reach-btn').addEventListener('click', () => send({ t: 'reach', at: Date.now() }));
 
 pairBtn.addEventListener('click', pairAndConnect);
 disconnectBtn.addEventListener('click', disconnect);

@@ -59,6 +59,8 @@ import { registerGetWatchTogether } from './tools/get_watch_together.js';
 import { registerJoinWatchTogether } from './tools/join_watch_together.js';
 import { registerAnswerWatchTogether } from './tools/answer_watch_together.js';
 import { registerWithdrawWatchInvitation } from './tools/withdraw_watch_invitation.js';
+import { registerGetReachRequest } from './tools/get_reach_request.js';
+import { registerAnswerReachRequest } from './tools/answer_reach_request.js';
 
 /**
  * A fresh `McpServer` for exactly one session's lifetime.
@@ -103,6 +105,8 @@ function createMcpServer(
   registerAnswerWatchTogether(mcpServer, ddb, ctx, sendCard);
   registerWithdrawWatchInvitation(mcpServer, ddb, ctx, withdrawCard, sendCard);
   registerGetLight(mcpServer, ddb, ctx);
+  registerGetReachRequest(mcpServer, ddb, ctx);
+  registerAnswerReachRequest(mcpServer, ddb, ctx, sendCard);
   return mcpServer;
 }
 

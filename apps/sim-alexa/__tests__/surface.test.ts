@@ -8,6 +8,7 @@ import {
   needsConfirmation,
   presentCircle,
   presentDoorbell,
+  presentInvitation,
   presentListing,
   presentResult,
   presentTurn,
@@ -19,6 +20,9 @@ import {
   SUGGESTIONS,
   DOOR_ANSWERS,
   doorQuestionToAnnounce,
+  REACH_ANSWERS,
+  reachToAnnounce,
+  looksForReach,
   applicationServerKey,
   presentNotifications,
   madeWithKey,
@@ -34,6 +38,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { REPLY_CHOICES as SERVER_REPLY_CHOICES } from '../../../services/mcp-server/src/tools/send_note_to_tv.js';
 import { DOOR_ANSWERS as CONTRACT_DOOR_ANSWERS } from '../../../packages/contracts/src/door.js';
+import { REACH_ANSWERS as CONTRACT_REACH_ANSWERS } from '../../../packages/contracts/src/reach.js';
 import { PROGRAMMES } from '../../../packages/contracts/src/programmes.js';
 import { WATCH_ANSWERS as CONTRACT_WATCH_ANSWERS, WATCH_QUESTION } from '../../../packages/contracts/src/watch.js';
 
@@ -357,6 +362,15 @@ describe('presentCircle', () => {
       { userId: 'u_tom', primary: 'Tom', secondary: 'Waiting for Margaret', removable: true },
       { userId: 'u_amy', primary: 'Amy', secondary: 'Margaret said no', removable: true },
     ]);
+  });
+
+  it('says who is a neighbour, as it says who is the organiser', () => {
+    const neighbour = (status: string) => ({ ...circle, members: [...circle.members, { userId: 'u_june', name: 'June', role: 'neighbour', status, you: false }] });
+    const line = (status: string) => presentCircle(neighbour(status), me('organiser', 'allowed')).card.members.at(-1);
+
+    expect(line('allowed')).toEqual({ userId: 'u_june', primary: 'June', secondary: 'Neighbour · allowed by Margaret', removable: true });
+    expect(line('pending').secondary).toBe('Neighbour · waiting for Margaret');
+    expect(line('declined').secondary).toBe('Neighbour · Margaret said no');
   });
 
   it('says whether the television is connected', () => {
@@ -900,6 +914,40 @@ describe('serverFor', () => {
   });
 });
 
+describe('presentInvitation — the link an organiser sends', () => {
+  it('shows a family invitation as it always has', () => {
+    for (const answer of [{ code: 'abc', expiresAt: 1, role: 'family' }, { code: 'abc', expiresAt: 1 }]) {
+      expect(presentInvitation(undefined, answer, 'Margaret')).toEqual({
+        offered: true,
+        say: 'Here is a link to send them. It works for seven days.',
+        title: 'An invitation',
+        note: null,
+        footnote: 'They sign in, and Margaret is asked on the television whether to allow them.',
+      });
+    }
+  });
+
+  it('shows a neighbour\'s the same way, with one line saying what a neighbour is for', () => {
+    expect(presentInvitation('neighbour', { code: 'abc', expiresAt: 1, role: 'neighbour' }, 'Margaret')).toEqual({
+      offered: true,
+      say: 'Here is a link to send them. It works for seven days.',
+      title: 'An invitation for a neighbour',
+      note: 'A neighbour can be asked to look at who is at the door, and to ring. They see nothing else.',
+      footnote: 'They sign in, and Margaret is asked on the television whether to allow them.',
+    });
+  });
+
+  it('never hands out a family link as a neighbour\'s: an older Wick that made the wrong kind is said to be unable', () => {
+    for (const answer of [{ code: 'abc', expiresAt: 1 }, { code: 'abc', expiresAt: 1, role: 'family' }]) {
+      expect(presentInvitation('neighbour', answer, 'Margaret')).toEqual({ offered: false, say: 'This Wick cannot invite a neighbour yet.' });
+    }
+  });
+
+  it('never hands out a neighbour\'s link as a family one either', () => {
+    expect(presentInvitation(undefined, { code: 'abc', expiresAt: 1, role: 'neighbour' }, 'Margaret')).toMatchObject({ offered: true, title: 'An invitation for a neighbour' });
+  });
+});
+
 describe('suggestionsFor', () => {
   const listing = { phrases: ['how has my mum been this week', 'did the carer come today', "is everything alright at mum's"] };
 
@@ -914,7 +962,7 @@ describe('suggestionsFor', () => {
   it('then the app\'s own chips, without the ones that ask the same thing', () => {
     const labels = suggestionsFor(listing).slice(3).map((s: { label: string }) => s.label);
 
-    expect(labels).toEqual(['What happened today?', 'Is the light on?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Watch a film with Mum', 'What can I see?', 'Family circle']);
+    expect(labels).toEqual(['What happened today?', 'Is the light on?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Did Mum ask for me?', 'Watch a film with Mum', 'What can I see?', 'Family circle']);
   });
 
   it('is the app\'s own chips when there is no listing', () => {
@@ -1054,6 +1102,212 @@ describe('doorQuestionToAnnounce — what the app says unasked while it is open'
     expect(doorQuestionToAnnounce(JSON.stringify({ requestId: 'door-abc', state: 'answered', askedAt: 1, answer: {} }), none)).toBeNull();
     expect(doorQuestionToAnnounce(JSON.stringify({ requestId: 'door-abc', state: 'gone', askedAt: 1 }), none)).toBeNull();
     expect(doorQuestionToAnnounce('{"state":"waiting"}', none)).toBeNull();
+  });
+});
+
+describe('a request to ring, from the television', () => {
+  const ID = '1790900000000';
+  const RING = [
+    { key: 'now', text: 'I’m ringing you now.' },
+    { key: 'soon', text: 'I’ll ring you within the hour.' },
+  ];
+  const HELLO = [{ key: 'hello', text: 'Hello to you too.' }];
+  const NOT_ASKED = 'Margaret hasn’t asked you to ring.';
+  const waiting = (over: object = {}) => JSON.stringify({
+    requestId: ID,
+    kind: 'ring',
+    askedAt: 1000,
+    state: 'waiting',
+    summary: 'Margaret would like you to ring her.',
+    answers: RING,
+    ...over,
+  });
+  const hello = (over: object = {}) => waiting({ kind: 'hello', summary: 'Margaret says hello.', answers: HELLO, ...over });
+  const answered = (answer: object, over: object = {}) => JSON.stringify({ requestId: ID, kind: 'ring', askedAt: 1000, state: 'answered', answer: { at: 2000, ...answer }, ...over });
+  const reach = { kind: 'tool', tool: 'get_reach_request', args: {} };
+
+  it('is asked for in the words a person would use, and has a chip', () => {
+    expect(routeUtterance('Did Mum ask for me?')).toEqual(reach);
+    expect(routeUtterance('Does Mum want me to ring?')).toEqual(reach);
+    expect(routeUtterance('Has Mum been in touch?')).toEqual(reach);
+    expect(routeUtterance('Has Mum asked me to call her?')).toEqual(reach);
+    expect(routeUtterance('Did Mum say hello?')).toEqual(reach);
+    // "Today" is the day's list for everything else; this is still her asking.
+    expect(routeUtterance('Did Mum ask for me today?')).toEqual(reach);
+
+    const chip = SUGGESTIONS.find((s: { label: string }) => s.label === 'Did Mum ask for me?');
+    expect(routeUtterance(chip.utterance)).toEqual(reach);
+  });
+
+  it('leaves the question from the door to the door', () => {
+    expect(routeUtterance('Did Mum ask me to look?').tool).toBe('get_door_request');
+    expect(routeUtterance('Has Mum asked me to look at the door?').tool).toBe('get_door_request');
+    expect(routeUtterance("Who's at Mum's door?").tool).toBe('get_door_request');
+  });
+
+  it('leaves a note a note, a reply a reply, and the doorbell the app\'s own', () => {
+    expect(routeUtterance('Tell Mum I said hello')).toMatchObject({ kind: 'compose' });
+    expect(routeUtterance('Tell Mum David asked for me to ring him')).toMatchObject({ kind: 'compose' });
+    expect(routeUtterance('Has Mum replied?').tool).toBe('get_replies');
+    expect(routeUtterance('Connect the Ring doorbell')).toEqual({ kind: 'doorbell' });
+  });
+
+  it('shows what was asked, the answers that can be given, and that it does not make the call', () => {
+    const r = presentResult('get_reach_request', waiting(), {}, at);
+
+    expect(r.say).toBe('You have been asked to ring.');
+    expect(r.tone).toBe('answer');
+    expect(r.card).toEqual({
+      kind: 'reach',
+      title: 'Margaret would like you to ring her.',
+      meta: 'Asked t1000',
+      requestId: ID,
+      answers: RING,
+      note: 'This does not make the call. Ring her yourself.',
+      footnote: 'Your answer goes on the television at once, under your name.',
+    });
+  });
+
+  it('shows a hello with the one answer that fits it, and nothing about a call', () => {
+    const r = presentResult('get_reach_request', hello(), {}, at);
+
+    expect(r.say).toBe('You have been sent a hello.');
+    expect(r.card).toMatchObject({ kind: 'reach', title: 'Margaret says hello.', meta: 'Sent t1000', answers: HELLO, note: null });
+  });
+
+  it('offers only answers it knows, in the server\'s words', () => {
+    const offered = [...RING, { key: 'coming', text: 'I’m on my way.' }, { key: 'soon', text: 'I am coming round now.' }];
+
+    expect(presentResult('get_reach_request', waiting({ answers: offered }), {}, at).card.answers).toEqual(RING);
+  });
+
+  it('says who answered once someone has, and shows no card', () => {
+    expect(presentResult('get_reach_request', answered({ by: 'David', text: RING[0]!.text, yours: false }), {}, at)).toEqual({
+      say: `David answered t2000: “${RING[0]!.text}”`,
+      card: null,
+      tone: 'answer',
+    });
+    expect(presentResult('get_reach_request', answered({ by: 'Sarah', text: RING[1]!.text, yours: true }), {}, at)).toEqual({
+      say: `You answered t2000: “${RING[1]!.text}”`,
+      card: null,
+      tone: 'answer',
+    });
+  });
+
+  it('says the server\'s own sentence when nothing was asked of this person', () => {
+    expect(presentResult('get_reach_request', NOT_ASKED, {}, at)).toEqual({ say: NOT_ASKED, card: null, tone: 'answer' });
+  });
+
+  it('never draws a card from a shape it does not know', () => {
+    for (const odd of [waiting({ summary: undefined }), waiting({ state: 'urgent' }), JSON.stringify({ requestId: ID, state: 'answered' })]) {
+      expect(presentResult('get_reach_request', odd, {}, at)).toEqual({ say: 'I got an answer I could not read.', card: null, tone: 'error' });
+    }
+  });
+
+  it('says what is now on the television after an answer', () => {
+    const shown = JSON.stringify({ shown: true, by: 'Sarah', text: RING[0]!.text });
+
+    expect(presentResult('answer_reach_request', shown, {}, at)).toEqual({
+      say: `It is on the television now: “Sarah says: ${RING[0]!.text}”`,
+      card: null,
+      tone: 'answer',
+    });
+  });
+
+  it('says the server\'s sentence when somebody else answered first', () => {
+    const late = 'David has already answered: “I’m ringing you now.”';
+
+    expect(presentResult('answer_reach_request', late, {}, at)).toEqual({ say: late, card: null, tone: 'answer' });
+  });
+
+  it('says a neighbour\'s refusal from any other tool as it stands', () => {
+    const refusal = 'Margaret has asked you to help in two ways: to look at who is at the door, and to ring when asked. Nothing else about the house is shared with a neighbour.';
+
+    expect(presentResult('get_today', refusal, {}, at)).toEqual({ say: refusal, card: null, tone: 'answer' });
+  });
+
+  it('knows the same answers the server does, word for word', () => {
+    expect(REACH_ANSWERS).toEqual(CONTRACT_REACH_ANSWERS);
+  });
+
+  it('shows the sentence itself before the assistant may send it', () => {
+    const asked = confirmWrite('answer_reach_request', { requestId: ID, answer: 'now' }, 'Answer a request to ring');
+
+    expect(asked.title).toBe('Show this on the television?');
+    // Every argument is on the card, as for any write: nothing is sent that was not shown.
+    expect(asked.fields).toEqual([['Your answer', RING[0]!.text], ['requestId', ID]]);
+    expect(asked.confirmLabel).toBe('Show it');
+    expect(asked.footnote).toBe('It appears on the television under your name. It does not make the call.');
+  });
+
+  it('shows an answer it does not know as it was passed, never as one it does', () => {
+    const asked = confirmWrite('answer_reach_request', { requestId: ID, answer: 'coming' }, 'Answer');
+
+    expect(asked.fields).toEqual([['Your answer', 'coming'], ['requestId', ID]]);
+  });
+
+  it('is confirmed before the assistant answers, and not before it looks', () => {
+    // The server's own annotations (tools/result.ts READS and WRITES).
+    expect(needsConfirmation('answer_reach_request', { readOnlyHint: false })).toBe(true);
+    expect(needsConfirmation('get_reach_request', { readOnlyHint: true })).toBe(false);
+  });
+
+  it('describes both steps in words, not tool names — and an answer not given', () => {
+    expect(describeCall('get_reach_request', {})).toBe('Looked for a request to ring');
+    expect(describeCall('answer_reach_request', {})).toBe('Answered on the television');
+    expect(presentTurn('Nothing was sent.', [{ name: 'answer_reach_request', args: {}, presented: null }]).trace).toBe('Did not answer');
+  });
+});
+
+describe('looksForReach — whether the app looks, unasked, for a request to ring', () => {
+  it('looks when the server has the tool', () => {
+    expect(looksForReach(['get_today', 'get_door_request', 'get_reach_request'])).toBe(true);
+    expect(looksForReach(new Map([['get_reach_request', {}]]).keys())).toBe(true);
+  });
+
+  it('does not look at all on an older Wick that has no such tool: no error, and nothing asked again and again', () => {
+    expect(looksForReach(['get_today', 'get_door_request', 'answer_door_request'])).toBe(false);
+  });
+
+  it('looks when the server could not be asked what it has: the look itself fails quietly', () => {
+    expect(looksForReach([])).toBe(true);
+    expect(looksForReach(new Map().keys())).toBe(true);
+  });
+});
+
+describe('reachToAnnounce — what the app says unasked while it is open', () => {
+  const ID = '1790900000000';
+  const waiting = JSON.stringify({ requestId: ID, kind: 'ring', askedAt: 1000, state: 'waiting', summary: 'Margaret would like you to ring her.', answers: [] });
+  const answered = (yours: boolean) => JSON.stringify({ requestId: ID, kind: 'ring', askedAt: 1000, state: 'answered', answer: { by: 'David', text: 'I’m ringing you now.', at: 2000, yours } });
+
+  it('announces a waiting request once', () => {
+    const seen = new Map<string, string>();
+
+    expect(reachToAnnounce(waiting, seen)).toEqual({ requestId: ID, state: 'waiting', announce: true });
+    seen.set(ID, 'waiting');
+    expect(reachToAnnounce(waiting, seen)).toEqual({ requestId: ID, state: 'waiting', announce: false });
+  });
+
+  it('says so when somebody else answers a request that is on the page', () => {
+    expect(reachToAnnounce(answered(false), new Map([[ID, 'waiting']]))).toEqual({ requestId: ID, state: 'answered', announce: true });
+  });
+
+  it('does not repeat this person\'s own answer back to them', () => {
+    expect(reachToAnnounce(answered(true), new Map([[ID, 'waiting']]))).toEqual({ requestId: ID, state: 'answered', announce: false });
+  });
+
+  it('does not bring up an answer that was already given when the page opened, or say it twice', () => {
+    expect(reachToAnnounce(answered(false), new Map())).toEqual({ requestId: ID, state: 'answered', announce: false });
+    expect(reachToAnnounce(answered(false), new Map([[ID, 'answered']]))).toEqual({ requestId: ID, state: 'answered', announce: false });
+  });
+
+  it('finds nothing in a plain sentence or a shape it does not know', () => {
+    const none = new Map<string, string>();
+
+    expect(reachToAnnounce('Margaret hasn’t asked you to ring.', none)).toBeNull();
+    expect(reachToAnnounce('Margaret has asked you to help in two ways: to look at who is at the door, and to ring when asked. Nothing else about the house is shared with a neighbour.', none)).toBeNull();
+    expect(reachToAnnounce('{"state":"waiting"}', none)).toBeNull();
+    expect(reachToAnnounce(JSON.stringify({ requestId: ID, state: 'urgent' }), none)).toBeNull();
   });
 });
 
@@ -1387,7 +1641,7 @@ describe('notifications — being told when Wick is closed', () => {
     const r = presentNotifications(ready, 'Margaret');
 
     expect(r.offer).toBe(true);
-    expect(r.say).toBe('This browser can tell you when Margaret asks you to look at the door, even when Wick is closed.');
+    expect(r.say).toBe('This browser can tell you when Margaret asks you to look at the door or to ring, even when Wick is closed.');
     expect(r.card).toEqual({
       title: 'Be told at once',
       body: 'The notification says only that there is something to look at. The picture and everything else stay in Wick.',
@@ -1398,7 +1652,7 @@ describe('notifications — being told when Wick is closed', () => {
   it('says they are on, and offers nothing more', () => {
     expect(presentNotifications({ ...ready, permission: 'granted', subscribed: true }, 'Margaret')).toEqual({
       offer: false,
-      say: 'Notifications are on in this browser. It will tell you when Margaret asks you to look at the door.',
+      say: 'Notifications are on in this browser. It will tell you when Margaret asks you to look at the door or to ring.',
       card: null,
     });
   });

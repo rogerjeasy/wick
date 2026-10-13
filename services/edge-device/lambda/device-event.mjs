@@ -71,6 +71,11 @@
  * by what the home screen says beside its cards — her light, and who in the
  * family looked in today. light.mjs.
  *
+ * Hold for Sarah: `{ t: 'reach' }` is her two-second hold on OK, answered
+ * with the card that offers to ask someone to ring her — or, when a request
+ * is already under way, with that request as it now stands. Her press on
+ * the card is the agent plane's to carry out. reach.mjs.
+ *
  * reconcile: the client sends `{ t: 'reconcile', sinceCardId, holding }` as a normal
  * message as soon as it is connected (WebSocketChannel.ts and MqttChannel.ts
  * in apps/tv-vega/src/transport) — which is why this lives here rather than
@@ -95,6 +100,7 @@ import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpd
 import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
 import { buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
+import { buildReachAskCard, firstToAsk, latestReach, reachUnderWayId, storedCardKey } from './reach.mjs';
 
 const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
@@ -267,6 +273,8 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
     await recordWatchPosition({ sendCard, householdId, deviceEvent });
   } else if (deviceEvent.t === 'light') {
     await showLight({ sendCard, householdId });
+  } else if (deviceEvent.t === 'reach') {
+    await showReach({ sendCard, householdId });
   } else if (deviceEvent.t === 'reconcile') {
     await reconcile({ sendCard, sendControl, householdId, holding: deviceEvent.holding });
     await tellHome({ sendControl, householdId });
@@ -558,6 +566,34 @@ async function showLight({ sendCard, householdId }) {
     if (queued) await sendCard(queued);
   } catch (err) {
     console.error('light_show_failed', { householdId, err: err?.name });
+  }
+}
+
+/**
+ * Her two-second hold on OK — see reach.mjs. A request already under way is
+ * shown as it stands (the card the agent plane last stored); otherwise she
+ * is offered one, naming who would be asked first. The id of a new offer is
+ * this server's own clock: it becomes the request's name if she says yes.
+ * Logged, never thrown: a hold that brings nothing can be made again.
+ */
+async function showReach({ sendCard, householdId }) {
+  try {
+    const now = Date.now();
+    const newest = await ddb.send(new QueryCommand(latestReach({ table: TABLE, householdId })));
+    const underWay = reachUnderWayId(newest.Items?.[0], now);
+    if (underWay) {
+      const stored = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: storedCardKey(householdId, underWay), ConsistentRead: true }));
+      if (stored.Item?.data?.S) {
+        await sendCard(JSON.parse(stored.Item.data.S));
+        return;
+      }
+    }
+    const first = firstToAsk(await loadHomeRows(householdId));
+    await sendCard(buildReachAskCard({ householdId, reachId: String(now), first, now }));
+    // That she held the button, and nothing about whom she might ask.
+    console.log(JSON.stringify({ level: 'info', msg: 'reach_offered', somebody: Boolean(first) }));
+  } catch (err) {
+    console.error('reach_show_failed', { householdId, err: err?.name });
   }
 }
 

@@ -1,7 +1,7 @@
 /**
  * The family app's service worker. It does one thing: turn a nudge from
- * Wick into a notification, so that "Ask Sarah to look" reaches Sarah when
- * this page is closed.
+ * Wick into a notification, so that "Ask Sarah to look" — and "Ask Sarah
+ * to ring you" — reach Sarah when this page is closed.
  *
  * A nudge carries a kind and nothing else (packages/contracts push.ts). The
  * words below are this file's own: nothing a payload carries is ever shown
@@ -16,10 +16,14 @@ const WORDS = {
   door_look: 'You have been asked to look at the door.',
   // The resident chose to tell the family something. What it is stays in Wick.
   told: 'There is something for you to read.',
+  // The resident held the button on the remote and asked this person to ring. Not who, and never why.
+  reach_ring: 'You have been asked to ring.',
+  // The same button, and "Just say hello".
+  reach_hello: 'Someone at home says hello.',
 };
 const OTHER = 'Something is waiting for you in Wick.';
-/** Kinds that should stay on screen until someone looks: a person is waiting on the answer. */
-const WAITS_FOR_YOU = ['door_look'];
+/** Kinds that should stay on screen until someone looks: a person is waiting on the answer. A hello waits on nothing. */
+const WAITS_FOR_YOU = ['door_look', 'reach_ring'];
 
 // A new version of this file takes over at once, from every open page. Left
 // to wait for the old one's pages to close, it could be days before a new

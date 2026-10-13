@@ -165,3 +165,13 @@ describe('exclusionUpdate — the television can only ever change the resident�
     expect(() => exclusionUpdate({ table: 'wick', householdId: 'margaret', factClass: 'HEALTH', keepPrivate: false })).toThrow(/not a sharing class/);
   });
 });
+
+describe('allowedFirstNames — who "can see this" is', () => {
+  it('leaves out a neighbour: a neighbour is asked things, and shown nothing', async () => {
+    // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+    const { allowedFirstNames } = await import('../sharing.mjs');
+    const row = (userId: string, name: string, role: string) => ({ sk: { S: `MEM#${userId}` }, name: { S: name }, status: { S: 'allowed' }, role: { S: role } });
+    expect(allowedFirstNames([row('u_sarah', 'Sarah Hughes', 'organiser'), row('u_tom', 'Tom', 'neighbour'), row('u_david', 'David', 'family')])).toEqual(['Sarah', 'David']);
+  });
+});
+

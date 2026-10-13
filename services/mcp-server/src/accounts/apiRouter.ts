@@ -14,7 +14,7 @@
  */
 import cors from 'cors';
 import express, { type Request, type RequestHandler, type Response } from 'express';
-import { CircleError, createInvitation, describeCircle, removeMember, removeTelevision, requireOrganiser, type CircleDeps, type CircleErrorCode } from './circle.js';
+import { CircleError, createInvitation, describeCircle, isInvitedRole, removeMember, removeTelevision, requireOrganiser, type CircleDeps, type CircleErrorCode } from './circle.js';
 import { isGuest } from './demo.js';
 import { grantOf } from './oauthProvider.js';
 import { parseSubscription, type PushStore } from './push.js';
@@ -192,9 +192,15 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
     res.json(await describeCircle(circle, grant.householdId, grant.userId));
   }));
 
-  router.post('/api/circle/invitations', withGrant(async (grant, _req, res) => {
-    const invitation = await createInvitation(circle, grant);
-    res.status(201).json({ code: invitation.code, expiresAt: invitation.expiresAt });
+  // `role: 'neighbour'` invites somebody for the door and for ringing only (packages/contracts circle.ts); with none it is family.
+  router.post('/api/circle/invitations', withGrant(async (grant, req, res) => {
+    const asked: unknown = (req.body as { role?: unknown } | undefined)?.role;
+    if (asked !== undefined && !isInvitedRole(asked)) {
+      res.status(400).json({ error: 'bad_role', message: 'An invitation is for family or for a neighbour.' });
+      return;
+    }
+    const invitation = await createInvitation(circle, grant, asked);
+    res.status(201).json({ code: invitation.code, expiresAt: invitation.expiresAt, role: invitation.role ?? 'family' });
   }));
 
   router.post('/api/televisions', withGrant(async (_grant, req, res) => {

@@ -92,6 +92,6 @@ export function registerAnswerDoorRequest(
       const text = DOOR_ANSWERS[answer];
       await sendPatch({ cardId: request.requestId, notice: `${by} says: ${text}` }, ctx.householdId);
       return data({ shown: true, by, text });
-    })),
+    }, { neighbour: true })),
   );
 }

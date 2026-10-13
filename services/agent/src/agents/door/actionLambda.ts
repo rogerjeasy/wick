@@ -7,9 +7,12 @@
  *     hallway_chime            → AgentCore → door-action graph: gate → ring → notify → patch → TV
  *     ask_family               → door/askFamily.ts, here: gate → file the request → patch → TV → nudge
  *     tell_family/keep_private → tell/answer.ts, here: record the answer → nudge, or nothing
+ *     ring_me/say_hello        → reach/ask.ts, here: file the request → card → TV → nudge one person → set the timer
  *   television.active          → tell/ask.ts, here: is anything different? → file the question → card → TV
  *   card.retired               → egress.ts, here: the home's other televisions put the card away
  *   home.changed               → egress.ts, here: the home's other televisions are told how the home screen stands
+ *   reach.due                  → reach/due.ts, here: three minutes on and no answer → the next person is asked
+ *                                (not from the bus: the one-time schedule reach/timer.ts set calls this function)
  *
  * A shim for the chime, because EventBridge cannot target an AgentCore
  * Runtime. Everything else is answered here: none of it needs a model or a
@@ -20,8 +23,9 @@
  * each handler's once-only claim makes any redelivery harmless.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { CreateScheduleCommand, SchedulerClient } from '@aws-sdk/client-scheduler';
 import { randomUUID } from 'node:crypto';
-import { DOOR_ACTIONS, PUSH_KINDS, readHomeState, tellAnswerOf, type HomeState } from '@wick/contracts';
+import { DOOR_ACTIONS, PUSH_KINDS, reachKindOf, readHomeState, tellAnswerOf, type HomeState } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { nudgeFamily, sendHomeToDevices, sendPatchToDevice, sendToDevice, withdrawFromDevices } from '../../egress.js';
 import { loadShareableDifferences } from '../../rhythm/loadDifferent.js';
@@ -30,7 +34,11 @@ import { handleTellAnswer, type TellAnswerResult } from '../tell/answer.js';
 import { askAboutDifferences } from '../tell/ask.js';
 import { cardStore, type DdbSend } from '../../store/cards.js';
 import { lookStore, type LookSend } from '../../store/looks.js';
-import { handleAskFamily, type AskResult } from './askFamily.js';
+import { familyOnly, handleAskFamily, type AskResult } from './askFamily.js';
+import { handleReachAsk, type ReachAskResult, type ReachDue } from '../reach/ask.js';
+import { handleReachDue, type ReachDueResult } from '../reach/due.js';
+import { REACH_DUE, reachDueSchedule } from '../reach/timer.js';
+import { reachStore, type ReachSend } from '../../store/reaches.js';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
 
 type Invoke = (kind: string, householdId: string, payload: Record<string, unknown>) => Promise<unknown>;
@@ -52,6 +60,10 @@ export interface CardActionRoutes {
   readonly withdraw: (householdId: string, cardId: string, pressedOn?: string) => Promise<void>;
   /** Tells the home's other televisions how the home screen now stands, whole (egress.ts sendHomeToDevices). */
   readonly tellHome: (householdId: string, home: HomeState, pressedOn?: string) => Promise<void>;
+  /** The resident's "Yes, ask Sarah" or "Just say hello" on the card her hold brought (reach/ask.ts). */
+  readonly reachAsk: (detail: Record<string, unknown>) => Promise<ReachAskResult>;
+  /** Three minutes on and no answer: the next person is asked (reach/due.ts). */
+  readonly reachDue: (detail: Record<string, unknown>) => Promise<ReachDueResult>;
 }
 
 export interface DeviceBusEvent {
@@ -81,7 +93,10 @@ export async function routeCardAction(evt: DeviceBusEvent, routes: CardActionRou
     await routes.tellHome(householdId, home, typeof deviceId === 'string' ? deviceId : undefined);
     return { result: 'home_told' };
   }
+  // A timer, and so never a press — whatever else it may carry.
+  if (evt['detail-type'] === REACH_DUE) return { result: await routes.reachDue(evt.detail) };
   if (evt.detail.action === DOOR_ACTIONS.askFamily) return { result: await routes.askFamily(evt.detail) };
+  if (reachKindOf(evt.detail.action)) return { result: await routes.reachAsk(evt.detail) };
   if (tellAnswerOf(evt.detail.action)) return { result: await routes.tellAnswer(evt.detail) };
   return forwardCardAction(evt, routes.invoke);
 }
@@ -105,12 +120,14 @@ function askFamily(detail: Record<string, unknown>): Promise<AskResult> {
 }
 
 const looks = () => lookStore((cmd) => ddb.send(cmd as never) as ReturnType<LookSend>, TABLE);
+/** Who is told what the resident chose to share: the family, never a neighbour (askFamily.ts familyOnly). */
+const listFamilyOnly = async (householdId: string) => familyOnly(await looks().listFamily(householdId));
 const tells = () => tellStore((cmd) => ddb.send(cmd as never) as ReturnType<TellSend>, TABLE);
 
 function tellAnswer(detail: Record<string, unknown>): Promise<TellAnswerResult> {
   return handleTellAnswer(detail, {
     recordAnswer: tells().recordAnswer,
-    listFamily: looks().listFamily,
+    listFamily: listFamilyOnly,
     nudge: async (userIds) => void (await nudgeFamily(userIds, PUSH_KINDS.told)),
     withdraw: (householdId, cardId) => withdrawFromDevices(cardId, householdId),
     now: Date.now,
@@ -121,12 +138,63 @@ function askResident(householdId: string): Promise<readonly string[]> {
   const store = tells();
   return askAboutDifferences(householdId, {
     loadDifferences: (hh) => loadShareableDifferences(ddb, TABLE, hh, Date.now(), process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London'),
-    listFamily: looks().listFamily,
+    listFamily: listFamilyOnly,
     claimOnce: store.claimOnce,
     release: store.release,
     sendCard: (card) => sendToDevice(card, DEFAULT_POLICY),
     now: Date.now,
     newCorrelationId: randomUUID,
+  });
+}
+
+const reaches = () => reachStore((cmd) => ddb.send(cmd as never) as ReturnType<ReachSend>, TABLE);
+
+let scheduler: SchedulerClient | undefined;
+
+/**
+ * Sets the three minutes going (reach/timer.ts). A deployment that has no
+ * timer to set says so in its log and asks only the first person: the
+ * request itself is already filed and already told. A timer set twice is
+ * refused by its name, which is the request and the step.
+ */
+async function scheduleReachDue(due: ReachDue): Promise<void> {
+  const targetArn = process.env.REACH_TIMER_TARGET_ARN;
+  const roleArn = process.env.REACH_TIMER_ROLE_ARN;
+  const group = process.env.REACH_TIMER_GROUP;
+  if (!targetArn || !roleArn || !group) {
+    console.error(JSON.stringify({ level: 'error', msg: 'reach_timer_not_configured' }));
+    return;
+  }
+  try {
+    await (scheduler ??= new SchedulerClient({})).send(new CreateScheduleCommand(reachDueSchedule({ due, targetArn, roleArn, group })));
+  } catch (err) {
+    if ((err as { name?: string }).name !== 'ConflictException') throw err;
+  }
+}
+
+function reachAsk(detail: Record<string, unknown>): Promise<ReachAskResult> {
+  const store = reaches();
+  return handleReachAsk(detail, {
+    listCircle: store.listCircle,
+    claimOnce: store.claimOnce,
+    sendCard: (card) => sendToDevice(card, DEFAULT_POLICY),
+    nudge: async (userIds, kind) => void (await nudgeFamily(userIds, kind)),
+    schedule: scheduleReachDue,
+    now: Date.now,
+  });
+}
+
+function reachDue(detail: Record<string, unknown>): Promise<ReachDueResult> {
+  const store = reaches();
+  return handleReachDue(detail, {
+    load: store.load,
+    listCircle: store.listCircle,
+    advance: store.advance,
+    finish: store.finish,
+    sendCard: (card) => sendToDevice(card, DEFAULT_POLICY),
+    nudge: async (userIds, kind) => void (await nudgeFamily(userIds, kind)),
+    schedule: scheduleReachDue,
+    now: Date.now,
   });
 }
 
@@ -139,6 +207,8 @@ export const handler = async (evt: DeviceBusEvent): Promise<void> => {
     askResident,
     withdraw: (householdId, cardId, pressedOn) => withdrawFromDevices(cardId, householdId, pressedOn),
     tellHome: (householdId, home, pressedOn) => sendHomeToDevices(householdId, home, { whole: true, exceptDeviceId: pressedOn }),
+    reachAsk,
+    reachDue,
   });
   // Ids and the outcome only — never card content.
   console.log(JSON.stringify({ level: 'info', msg: 'card_action_handled', cardId: evt.detail.cardId, action: evt.detail.action, out }));

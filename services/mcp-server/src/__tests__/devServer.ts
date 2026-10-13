@@ -49,6 +49,16 @@
  *     /dev/light?put=again lighting it again. Who looked in is printed
  *     here as the television's home screen would be told it.
  *
+ *   - Hold for Sarah: GET /dev/reach stands in for the two-second hold on OK
+ *     and the resident's press on "Yes, ask …" (/dev/reach?kind=hello for
+ *     "Just say hello"), in every home that connected the stand-in
+ *     television. The request is made by the agent plane's own ask.ts: one
+ *     person is asked — the first in the circle — and their browsers are
+ *     nudged for real. The three minutes are not waited for: the timer is
+ *     kept here, and GET /dev/reach?next=1 fires it now through the agent
+ *     plane's own due.ts, which asks the next person, or says that nobody
+ *     has answered yet. What the television would show is printed here.
+ *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
  * answers; without it there is none, and the app answers by its rules.
@@ -72,6 +82,11 @@ import webpush from 'web-push';
 import { PUSH_KINDS, PUSH_SK_PREFIX } from '@wick/contracts';
 import { nudge, subscriptionFromItem, type StoredSubscription } from '../../../agent/src/push/nudge.js';
 import { TELL_SK_PREFIX, tellCardId, type PushKind } from '@wick/contracts';
+import { REACH_ACTIONS, reachCardId, reachUnderWay } from '@wick/contracts';
+import { reachStore, type ReachSend } from '@wick/agent';
+import { handleReachAsk, type ReachDue } from '../../../agent/src/agents/reach/ask.js';
+import { handleReachDue } from '../../../agent/src/agents/reach/due.js';
+import { reachDueEvent } from '../../../agent/src/agents/reach/timer.js';
 import { askAboutDifferences, tellRowItem } from '../../../agent/src/agents/tell/ask.js';
 import { handleTellAnswer } from '../../../agent/src/agents/tell/answer.js';
 import { loadShareableDifferences } from '../../../agent/src/rhythm/loadDifferent.js';
@@ -179,14 +194,19 @@ const nudgeBrowsers = (userIds: readonly string[], kind: PushKind = PUSH_KINDS.d
 /** Every home that has connected the stand-in television: where /dev/door rings. */
 const homesWithATelevision = new Set<string>();
 
+/** The card sender the server is given, and the one /dev/reach hands the agent plane's code. */
+const sendCard = async (card: QueuedCard): Promise<void> => {
+  cards.push(card);
+  // As egress.ts files it, so "has Mum replied?" finds the note.
+  table.put({ pk: { S: `HH#${card.card.householdId}` }, sk: { S: `CARD#${card.id}` }, data: { S: JSON.stringify(card) } });
+  // Hold for Sarah: each state of the one card, as the television would now show it.
+  if (card.card.type === 'REACH') console.log(`television: "${card.card.headline}"${card.card.detail ? ` ${card.card.detail}` : ''}`);
+};
+
 const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
   store,
   identity: createFakeIdentity(),
-  sendCard: async (card) => {
-    cards.push(card);
-    // As egress.ts files it, so "has Mum replied?" finds the note.
-    table.put({ pk: { S: `HH#${card.card.householdId}` }, sk: { S: `CARD#${card.id}` }, data: { S: JSON.stringify(card) } });
-  },
+  sendCard,
   // As egress.ts merges it: the answer to "Ask Sarah to look" lands on the stored door card.
   sendPatch: async (patch, householdId) => {
     const key = { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${patch.cardId}` } };
@@ -320,6 +340,64 @@ app.get('/dev/tell', async (req, res) => {
     }
   }
   res.json({ answered });
+});
+
+/**
+ * Hold for Sarah: the REACH# rows in the table the tools read
+ * (get_reach_request, answer_reach_request), the circle as this server's own
+ * store has it, and the three-minute timer kept here instead of in
+ * EventBridge Scheduler — the step of each request that is due next.
+ */
+const reaches = reachStore((command) => table.ddb.send(command as never) as ReturnType<ReachSend>, 'dev');
+const reachCircle = async (householdId: string) =>
+  (await store.listMembers(householdId))
+    .filter((member) => member.status === 'allowed')
+    .map(({ userId, name, role, requestedAt }) => ({ userId, name, role, since: requestedAt }));
+const reachTimers = new Map<string, ReachDue>();
+const reachDeps = {
+  listCircle: reachCircle,
+  sendCard,
+  nudge: async (userIds: readonly string[], kind: PushKind) => void console.log('nudged:', await nudgeBrowsers(userIds, kind)),
+  schedule: async (due: ReachDue) => {
+    reachTimers.set(`${due.householdId}|${due.reachId}`, due);
+    console.log(`three minutes set going for request ${due.reachId} (step ${due.step}): GET /dev/reach?next=1 fires it now`);
+  },
+  now: Date.now,
+};
+
+/**
+ * Stands in for the remote: the two-second hold on OK, and the resident's
+ * press on the card it brings — "Yes, ask …", or "Just say hello" with
+ * ?kind=hello (agents/reach/ask.ts). As on the television, holding again
+ * while a request is under way starts no second one (edge-device reach.mjs).
+ * With ?next=1 it is the three minutes being over instead: each timer set
+ * so far fires now (agents/reach/due.ts).
+ */
+app.get('/dev/reach', async (req, res) => {
+  if (req.query.next !== undefined) {
+    const fired: Record<string, string> = {};
+    for (const [key, due] of [...reachTimers]) {
+      reachTimers.delete(key);
+      // What the one-time schedule would hand the card-action function (agents/reach/timer.ts).
+      fired[due.reachId] = await handleReachDue(reachDueEvent(due).detail, { ...reachDeps, load: reaches.load, advance: reaches.advance, finish: reaches.finish });
+    }
+    return void res.json({ next: fired });
+  }
+
+  const kind = req.query.kind === 'hello' ? 'hello' : 'ring';
+  const asked: Record<string, string> = {};
+  for (const householdId of homesWithATelevision) {
+    const at = Date.now();
+    const latest = await reaches.latest(householdId);
+    if (latest && reachUnderWay(latest, at)) {
+      asked[householdId] = 'under_way';
+      continue;
+    }
+    // The card's id is the moment she held the button, as the edge names the offer.
+    const press = { householdId, deviceId: 'wick-tv', cardId: reachCardId(String(at)), action: kind === 'hello' ? REACH_ACTIONS.hello : REACH_ACTIONS.ring, at };
+    asked[householdId] = await handleReachAsk(press, { ...reachDeps, claimOnce: reaches.claimOnce });
+  }
+  res.json({ kind, asked });
 });
 
 /**

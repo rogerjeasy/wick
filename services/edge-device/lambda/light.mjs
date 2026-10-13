@@ -80,7 +80,9 @@ function read(items, now, timeZone) {
   const meta = items.find((item) => item.sk?.S === META_SK);
   const light = items.find((item) => item.sk?.S === LIGHT_SK);
 
-  const allowed = bySk(MEMBER_SK_PREFIX).filter((item) => item.status?.S === 'allowed');
+  // The people who can see anything: those she allows, but for a neighbour, who is
+  // asked things and shown nothing (packages/contracts circle.ts).
+  const allowed = bySk(MEMBER_SK_PREFIX).filter((item) => item.status?.S === 'allowed' && item.role?.S !== 'neighbour');
   const allowedIds = new Set(allowed.map((item) => item.sk.S.slice(MEMBER_SK_PREFIX.length)));
   const shared = visibleClasses(meta?.policy?.S).includes(LIGHT_FACT_CLASS) && !readExclusions(meta).includes(LIGHT_FACT_CLASS);
 
