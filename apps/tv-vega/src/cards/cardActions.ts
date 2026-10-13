@@ -19,6 +19,10 @@
  * On the card her hold brings (packages/contracts/src/reach.ts), "Yes, ask
  * Sarah" and "Just say hello" leave it where it is: who was asked is
  * written onto that same card a moment later. Its other buttons finish it.
+ *
+ * The question about her language (packages/contracts/src/language.ts) is
+ * finished by either answer, like the Circle card. What her yes changes
+ * arrives afterwards, on the home message.
  */
 import { DOOR_ACTIONS, REACH_ACTIONS, SHARING_ACTIONS, WATCH_ACTIONS, WEEK_ACTIONS, type Card } from '@wick/contracts';
 import type { Together } from '../watch/togetherReporter.js';
@@ -33,6 +37,8 @@ export function removesCard(card: Card, actionId: string): boolean {
       return actionId === SHARING_ACTIONS.done;
     case 'REACH':
       return actionId !== REACH_ACTIONS.ring && actionId !== REACH_ACTIONS.hello;
+    case 'LANGUAGE':
+      return true;
     default:
       return true;
   }

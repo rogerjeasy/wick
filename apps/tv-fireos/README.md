@@ -92,6 +92,14 @@ seat beside the resident's film, which plays through `src/adapters/w3cmedia.tsx`
 and follows her player (`apps/tv-vega/src/family/seat.ts`): typechecked and
 tested as decisions, not yet seen on the emulator.
 
+The television speaks her language (`packages/contracts/src/language.ts`):
+the resident's app says its own words in the household's language, which it
+learns from the home message, and the language is kept in the same storage as
+the token so a relaunch here does not begin in English (the Vega simulator
+keeps nothing, and is English for the moment before the home message). It
+typechecks here and its decisions are tested; it has not yet been seen on the
+emulator.
+
 ## Not a workspace
 
 `apps/tv-fireos` is deliberately left out of the root `package.json`'s

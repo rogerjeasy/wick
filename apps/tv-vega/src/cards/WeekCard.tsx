@@ -10,15 +10,18 @@
  */
 import * as React from 'react';
 import { CalmCard } from '@wick/vega-calm-ui';
-import type { WeekCard as WeekCardModel } from '@wick/contracts';
+import type { HouseholdLanguage, WeekCard as WeekCardModel } from '@wick/contracts';
+import { words } from '../words/words.js';
 
 export interface WeekCardProps {
   readonly card: WeekCardModel;
+  /** For the two words that are this television's own; the week itself is the server's, already in her language. */
+  readonly language: HouseholdLanguage;
   readonly onAction: (id: string) => void;
 }
 
-export function WeekCardView({ card, onAction }: WeekCardProps): React.JSX.Element {
+export function WeekCardView({ card, language, onAction }: WeekCardProps): React.JSX.Element {
   return (
-    <CalmCard headline="Your week." detail={card.text} actions={card.actions} onAction={onAction} />
+    <CalmCard headline={words(language)('week.headline')} detail={card.text} actions={card.actions} onAction={onAction} />
   );
 }

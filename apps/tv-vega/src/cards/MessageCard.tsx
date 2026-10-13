@@ -14,19 +14,23 @@
  */
 import * as React from 'react';
 import { Image, StyleSheet } from '@amazon-devices/react-native-kepler';
-import type { MessageCard as MessageCardModel } from '@wick/contracts';
+import type { HouseholdLanguage, MessageCard as MessageCardModel } from '@wick/contracts';
 import { CalmCard, safe } from '@wick/vega-calm-ui';
+import { words } from '../words/words.js';
 import { replyActions } from './messageActions.js';
 
 export interface MessageCardProps {
   readonly card: MessageCardModel;
+  /** For the sentence that says who it is from; the note and its replies are the server's, already in her language. */
+  readonly language: HouseholdLanguage;
   readonly onAction: (id: string) => void;
 }
 
-export function MessageCardView({ card, onAction }: MessageCardProps): React.JSX.Element {
+export function MessageCardView({ card, language, onAction }: MessageCardProps): React.JSX.Element {
+  const say = words(language);
   return (
     <CalmCard
-      headline={`A message from ${card.fromName}.`}
+      headline={say('message.headline', { name: card.fromName })}
       detail={card.transcript}
       actions={replyActions(card.suggestedReplies)}
       onAction={onAction}
@@ -36,7 +40,7 @@ export function MessageCardView({ card, onAction }: MessageCardProps): React.JSX
             source={{ uri: card.fromPhotoRef }}
             style={styles.photo}
             resizeMode="cover"
-            accessibilityLabel={`${card.fromName}'s photo`}
+            accessibilityLabel={say('message.photoLabel', { name: card.fromName })}
           />
         ) : null
       }

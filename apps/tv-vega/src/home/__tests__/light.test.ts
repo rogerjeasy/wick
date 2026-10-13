@@ -82,3 +82,15 @@ describe('answersHerPress — the Light card that comes after she asked for it',
     expect(answersHerPress(NOW, NOW + LIGHT_ANSWER_WAIT_MS)).toBe(false);
   });
 });
+
+describe('lightLabel — in the language she chose', () => {
+  it('says the two words in Spanish', () => {
+    expect(lightLabel({ light: 'on' }, NOW, 'es')).toBe('Luz encendida');
+    expect(lightLabel({ light: 'out' }, NOW, 'es')).toBe('Luz apagada');
+    expect(lightLabel({ light: 'out', lightOutUntil: NOW }, NOW, 'es')).toBe('Luz encendida');
+  });
+
+  it('still says nothing when there is no light for anyone to see', () => {
+    expect(lightLabel({}, NOW, 'es')).toBeUndefined();
+  });
+});

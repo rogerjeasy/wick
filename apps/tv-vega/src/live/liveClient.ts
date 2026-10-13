@@ -9,7 +9,8 @@
  * Every failure becomes one plain sentence and a Back button — never a
  * spinner without words, never a code (D6).
  */
-import type { LiveRefusal, LiveSessionResponse } from '@wick/contracts';
+import { DEFAULT_LANGUAGE, type HouseholdLanguage, type LiveRefusal, type LiveSessionResponse } from '@wick/contracts';
+import { words, type PlainWordKey } from '../words/words.js';
 
 export type LiveFailure = LiveRefusal | 'unauthorized';
 export type LiveOutcome = LiveFailure | 'ended';
@@ -109,17 +110,20 @@ export async function waitForPlaylist(args: {
   return false;
 }
 
-const MESSAGES: Record<LiveOutcome, string> = {
-  camera_unavailable: "The doorbell camera isn't answering right now.",
-  camera_unsupported: "This doorbell's camera can't be shown on the television yet.",
-  card_too_old: "That visit was a while ago, so there's nothing live to show.",
-  no_such_card: "There's no live picture for that visit.",
-  unauthorized: 'The television needs to be paired again before it can show the camera.',
-  ended: 'Live view has ended.',
+/** Which of the television's own sentences says each outcome (words/words.ts). */
+const MESSAGES: Record<LiveOutcome, PlainWordKey> = {
+  camera_unavailable: 'live.cameraUnavailable',
+  camera_unsupported: 'live.cameraUnsupported',
+  card_too_old: 'live.cardTooOld',
+  no_such_card: 'live.noSuchCard',
+  unauthorized: 'live.unauthorized',
+  ended: 'live.ended',
 };
 
-export function liveMessage(outcome: LiveOutcome): string {
-  return MESSAGES[outcome];
+/** One plain sentence, in her language. An outcome with no sentence of its own is the camera not answering — never a code, never nothing. */
+export function liveMessage(outcome: LiveOutcome, language: HouseholdLanguage = DEFAULT_LANGUAGE): string {
+  const key = Object.prototype.hasOwnProperty.call(MESSAGES, outcome) ? MESSAGES[outcome] : MESSAGES.camera_unavailable;
+  return words(language)(key);
 }
 
 /**

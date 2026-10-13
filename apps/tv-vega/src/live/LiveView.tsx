@@ -19,14 +19,17 @@
 import * as React from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
-import { LIVE_FIRST_PICTURE_TIMEOUT_MS, type LiveSessionResponse } from '@wick/contracts';
+import { LIVE_FIRST_PICTURE_TIMEOUT_MS, type HouseholdLanguage, type LiveSessionResponse } from '@wick/contracts';
 import { CalmCard, fontSize, safe } from '@wick/vega-calm-ui';
+import { words } from '../words/words.js';
 import { liveMessage, outcomeWhenPlayerStops, secondsLeft, startLiveSession, stopLiveSession, waitForPlaylist, type LiveOutcome } from './liveClient.js';
 
 export interface LiveViewProps {
   readonly pairingApiUrl: string;
   readonly jwt: string;
   readonly cardId: string;
+  /** The language she chose: every sentence here is this television's own (words/words.ts). */
+  readonly language: HouseholdLanguage;
   readonly onClose: () => void;
 }
 
@@ -35,9 +38,9 @@ type Phase =
   | { readonly kind: 'live'; readonly session: LiveSessionResponse; readonly player: VideoPlayer }
   | { readonly kind: 'done'; readonly outcome: LiveOutcome };
 
-const BACK = [{ id: 'back', label: 'Back', kind: 'primary' as const }];
-
-export function LiveView({ pairingApiUrl, jwt, cardId, onClose }: LiveViewProps): React.JSX.Element {
+export function LiveView({ pairingApiUrl, jwt, cardId, language, onClose }: LiveViewProps): React.JSX.Element {
+  const say = words(language);
+  const back = React.useMemo(() => [{ id: 'back', label: say('live.back'), kind: 'primary' as const }], [say]);
   const [phase, setPhase] = React.useState<Phase>({ kind: 'opening' });
   const [now, setNow] = React.useState(Date.now());
   const session = React.useRef<LiveSessionResponse | null>(null);
@@ -147,26 +150,26 @@ export function LiveView({ pairingApiUrl, jwt, cardId, onClose }: LiveViewProps)
         <KeplerVideoView videoPlayer={phase.player} style={StyleSheet.absoluteFill} scalingmode="fit" />
         <View style={styles.caption}>
           <Text style={styles.captionText} accessibilityLiveRegion="polite">
-            {`Live from the front door · ${secondsLeft(phase.session.endsAt, now)} seconds left`}
+            {say('live.caption', { seconds: secondsLeft(phase.session.endsAt, now) })}
           </Text>
           <Pressable
             onPress={close}
             hasTVPreferredFocus
             accessibilityRole="button"
-            accessibilityLabel="Back"
+            accessibilityLabel={say('live.back')}
             style={({ focused }: { focused: boolean }) => [styles.back, focused ? styles.backFocused : null]}
           >
-            <Text style={styles.backText}>Back</Text>
+            <Text style={styles.backText}>{say('live.back')}</Text>
           </Pressable>
         </View>
       </View>
     );
   }
 
-  const headline = phase.kind === 'opening' ? 'Opening the front door camera…' : liveMessage(phase.outcome);
+  const headline = phase.kind === 'opening' ? say('live.opening') : liveMessage(phase.outcome, language);
   return (
     <View style={[styles.screen, styles.centred]}>
-      <CalmCard headline={headline} actions={BACK} onAction={close} />
+      <CalmCard headline={headline} actions={back} onAction={close} />
     </View>
   );
 }

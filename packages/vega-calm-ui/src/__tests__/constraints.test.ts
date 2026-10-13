@@ -9,8 +9,10 @@ import {
   fontSize,
   maxCardHeightDp,
   actionColours,
+  assertCardFits,
+  cardHeightDp,
 } from '../constraints.js';
-import { layout, palette, type } from '../tokens.js';
+import { layout, limits, palette, type } from '../tokens.js';
 
 describe('action and item limits', () => {
   it('allows three and refuses four', () => {
@@ -99,3 +101,31 @@ describe('actionColours — a button’s words against the button itself', () =>
   });
 });
 
+
+describe('card height — a card that must be read whole', () => {
+  it('measures the ordinary card as before', () => {
+    expect(cardHeightDp({})).toBe(maxCardHeightDp());
+    expect(cardHeightDp({ detailLines: limits.maxDetailLines })).toBe(maxCardHeightDp());
+  });
+
+  it('fits the screen with room above and below, at the five lines every card gets — ordinary or compact', () => {
+    expect(() => assertCardFits({})).not.toThrow();
+    expect(() => assertCardFits({ compact: true })).not.toThrow();
+    expect(cardHeightDp({})).toBeLessThanOrEqual(layout.screenHeightDp - 2 * layout.screenMarginDp);
+  });
+
+  it('gives a compact card a sixth line: less card around the words, never smaller words', () => {
+    expect(() => assertCardFits({ compact: true, detailLines: 6 })).not.toThrow();
+    expect(cardHeightDp({ compact: true, detailLines: 6 })).toBeLessThan(cardHeightDp({ detailLines: 6 }));
+  });
+
+  it('refuses a card that would push its buttons off the screen, rather than drawing it', () => {
+    // Six lines under a 48pt headline with the ordinary spacing do not fit; nor do seven on any card.
+    expect(() => assertCardFits({ detailLines: 6 })).toThrow(CalmViolation);
+    expect(() => assertCardFits({ compact: true, detailLines: 7 })).toThrow(CalmViolation);
+  });
+
+  it('refuses a number of lines that is not one', () => {
+    for (const lines of [0, -1, 2.5, Number.NaN]) expect(() => assertCardFits({ compact: true, detailLines: lines })).toThrow(CalmViolation);
+  });
+});

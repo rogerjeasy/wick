@@ -14,24 +14,34 @@
  * startCardChannel only ever sees a channel that already opened once — the
  * channel handles its own reconnects after that. holdCardChannel (below) is
  * the connect-and-retry wrapper App.tsx uses to get there.
+ *
+ * Her language (packages/contracts language.ts) reaches the television on
+ * the `home` message and nowhere else. When it changes while the app is
+ * running — she has just said yes on the card that asks — the cards this
+ * television holds are still in the language she had, so the server is
+ * asked for them again, once: the same reconcile each transport makes when
+ * it connects, which sends every card she has not answered. Each one takes
+ * the place of the one held under its id, and what was counted of its
+ * showings is kept (QueueStore.upsert).
  */
-import type { ControlMessage, DeviceChannel, DeviceToken, QueuedCard } from '@wick/contracts';
+import type { ControlMessage, DeviceToken, QueuedCard } from '@wick/contracts';
 import type { QueueStore } from '../headless/QueueStore.js';
 import type { DeviceConfig } from '../config.js';
 import type { DeviceChannelConfig } from './createDeviceChannel.js';
+import type { ReconcilingChannel } from './DeviceChannel.js';
 
 const OUTBOX_POLL_MS = 1000;
 const FIRST_CONNECT_MIN_RETRY_MS = 2000;
 const FIRST_CONNECT_MAX_RETRY_MS = 30_000;
 
-export type ChannelFactory = (config: DeviceChannelConfig, token: DeviceToken) => Promise<DeviceChannel>;
+export type ChannelFactory = (config: DeviceChannelConfig, token: DeviceToken) => Promise<ReconcilingChannel>;
 
 export interface RunningCardChannel {
   /** Closes the channel and stops flushing. Idempotent. */
   stop(): void;
 }
 
-export function startCardChannel(store: QueueStore, channel: DeviceChannel): RunningCardChannel {
+export function startCardChannel(store: QueueStore, channel: ReconcilingChannel): RunningCardChannel {
   // Stored, not announced as shown: a card that arrives is not yet on
   // screen — a note waits for a natural break. App.tsx says `card_shown`
   // when it is (BreakController.noteShown), which is what the server counts
@@ -43,8 +53,13 @@ export function startCardChannel(store: QueueStore, channel: DeviceChannel): Run
   const unsubscribeControl = channel.onControl((msg: ControlMessage) => {
     if (msg.t === 'patch') void store.applyPatch(msg.patch);
     else if (msg.t === 'revoke') void store.remove(msg.cardId);
-    // Her light, and who looked in: for the home screen, not a card.
-    else if (msg.t === 'home') store.setHome(msg.home, { whole: msg.whole === true });
+    // Her light, who looked in, and the language she chose: for the home screen, not a card.
+    else if (msg.t === 'home') {
+      const { languageChanged } = store.setHome(msg.home, { whole: msg.whole === true });
+      // The cards held are in the language she had: ask for them again, in the one she has now.
+      // Once per change — the answer brings the home again, in the same language, and that is no change.
+      if (languageChanged) void channel.reconcile?.().catch(() => undefined);
+    }
   });
 
   let flushing = false;
@@ -86,7 +101,7 @@ export function startCardChannel(store: QueueStore, channel: DeviceChannel): Run
  */
 export function startBackgroundChannel(
   store: QueueStore,
-  channel: DeviceChannel,
+  channel: ReconcilingChannel,
   announce: (card: QueuedCard) => void,
 ): RunningCardChannel {
   // One at a time, in the order they arrived: a patch must find the card
@@ -135,7 +150,7 @@ export function startBackgroundChannel(
   };
 }
 
-async function flushOutbox(store: QueueStore, channel: DeviceChannel): Promise<void> {
+async function flushOutbox(store: QueueStore, channel: ReconcilingChannel): Promise<void> {
   const events = await store.drainOutbound();
   for (const event of events) {
     try {
@@ -180,7 +195,7 @@ export function holdCardChannel(
   let retryMs = FIRST_CONNECT_MIN_RETRY_MS;
 
   const attempt = async (): Promise<void> => {
-    let channel: DeviceChannel;
+    let channel: ReconcilingChannel;
     try {
       channel = await createChannel(channelConfig, token);
     } catch (err) {

@@ -9,14 +9,15 @@
  * (M4, a schedule guess available from Phase 1). The match is what shows
  * while the resident is still waiting for the picture.
  */
-import type { DoorCard } from '@wick/contracts';
+import { DEFAULT_LANGUAGE, type DoorCard, type HouseholdLanguage } from '@wick/contracts';
+import { words } from '../words/words.js';
 
-export function doorDetailText(card: DoorCard): string | undefined {
+export function doorDetailText(card: DoorCard, language: HouseholdLanguage = DEFAULT_LANGUAGE): string | undefined {
+  // The server's words, already in her language.
   if (card.description) return card.description;
   if (card.match) {
-    return card.match.expectedToday
-      ? `This looks like ${card.match.name} — expected around now.`
-      : `This looks like ${card.match.name}.`;
+    // The television's own sentence around a name (words/words.ts).
+    return words(language)(card.match.expectedToday ? 'door.looksLikeExpected' : 'door.looksLike', { name: card.match.name });
   }
   return undefined;
 }

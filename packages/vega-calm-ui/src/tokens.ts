@@ -33,6 +33,12 @@ export const limits = {
 /** Vega's logical screen, and the card's spacing within it. */
 export const layout = {
   screenHeightDp: 540,
+  /**
+   * What is kept clear above and below a card: it sits this far from the
+   * bottom edge, inside the television's safe area, and must leave as much
+   * above it (constraints.ts assertCardFits).
+   */
+  screenMarginDp: 32,
   cardPaddingDp: 32,
   sectionGapDp: 20,
   textGapDp: 12,
