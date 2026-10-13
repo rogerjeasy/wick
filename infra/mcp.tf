@@ -160,6 +160,17 @@ data "aws_iam_policy_document" "apprunner_instance" {
     actions   = ["iot:Publish"]
     resources = [local.device_topics_arn]
   }
+
+  # The television speaks her language (packages/contracts language.ts):
+  # egress.ts puts free text — here, a note the family wrote — into the
+  # household's language on its way to her television. TranslateText has no
+  # resource to scope to; source and target languages are fixed in code
+  # (services/agent/src/language/translate.ts), and nothing is stored there.
+  statement {
+    sid       = "TranslateFreeTextOnItsWayToHerTelevision"
+    actions   = ["translate:TranslateText"]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "apprunner_instance" {
