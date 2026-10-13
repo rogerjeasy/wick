@@ -7,7 +7,8 @@
  *   - A regular visitor has arrived: the sighting matched the roster, and
  *     no visit of theirs is under way. A visit is opened at that moment.
  *   - A visitor has left: a visit is under way and the door has seen
- *     somebody — anybody — long enough after the arrival. The door cannot
+ *     somebody long enough after the arrival — the visitor again, or
+ *     anybody it does not know as another regular visitor arriving. The door cannot
  *     tell who is leaving, and does not try: the last sighting before she
  *     is asked is taken as the leaving, and whether that is right is the
  *     question she is then asked.
@@ -40,17 +41,19 @@ export async function noteDoorSighting(
   // No visit is taken to last longer than this, so nothing older can be under way.
   const recent = await deps.recent(householdId, at - VISIT_WINDOW_MS);
 
-  // Somebody leaving comes first: a visitor seen again at the door, long enough after they came, is going.
-  const leaving = recent.filter((visit) => departureOf(visit, at));
-  if (leaving.length > 0) {
+  // A regular visitor with no visit under way is arriving — whoever else is
+  // inside. Two visitors can overlap (the carer and the cleaner), and one
+  // arriving is not the other leaving.
+  const arriving = isRegularVisitor(match) && !recent.some((visit) => visit.personId === match.personId && visit.askedAt === undefined && visit.arrivedAt <= at);
+  if (!arriving) {
+    // Anybody else at the door, long enough after an arrival, is taken as
+    // leaving: the visitor seen again, or somebody the door does not know.
+    // With two visits under way it is taken as both — the door cannot tell
+    // which, and she is asked about each.
+    const leaving = recent.filter((visit) => departureOf(visit, at));
     for (const visit of leaving) await deps.setLeft(visit, at);
-    return 'left';
+    return leaving.length > 0 ? 'left' : 'nothing';
   }
-
-  if (!isRegularVisitor(match)) return 'nothing';
-  // Still theirs: on the step, or inside and not yet asked about. A visit she has been asked about is over.
-  const underWay = recent.some((visit) => visit.personId === match.personId && visit.askedAt === undefined && visit.arrivedAt <= at);
-  if (underWay) return 'nothing';
 
   return (await deps.open({ householdId, personId: match.personId, name: match.name, arrivedAt: at })) ? 'arrived' : 'nothing';
 }

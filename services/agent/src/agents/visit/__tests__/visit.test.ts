@@ -51,6 +51,27 @@ describe('the door sees somebody', () => {
     expect(deps.setLeft).not.toHaveBeenCalled();
   });
 
+  it('opens a visit for a second regular visitor who arrives while the first is still inside — and does not take that for the first one leaving', async () => {
+    const cleaner: VisitorMatch = { ...maria, personId: 'ana', name: 'Ana' };
+    const deps = noteDeps([visit()]);
+    expect(await noteDoorSighting({ householdId: 'hh-1', match: cleaner, at: ARRIVED + 20 * MIN }, deps)).toBe('arrived');
+    expect(deps.open).toHaveBeenCalledWith({ householdId: 'hh-1', personId: 'ana', name: 'Ana', arrivedAt: ARRIVED + 20 * MIN });
+    expect(deps.setLeft).not.toHaveBeenCalled();
+  });
+
+  it('takes the next sighting after that as both of them leaving: the door cannot tell which, and she is asked about each', async () => {
+    const ana = visit({ personId: 'ana', name: 'Ana', arrivedAt: ARRIVED + 20 * MIN });
+    const deps = noteDeps([visit(), ana]);
+    expect(await noteDoorSighting({ householdId: 'hh-1', match: undefined, at: LEFT }, deps)).toBe('left');
+    expect(deps.setLeft.mock.calls.map(([v]) => v.personId)).toEqual(['maria', 'ana']);
+  });
+
+  it('still takes a visitor seen again as that visitor leaving, when it is the one whose visit is under way', async () => {
+    const deps = noteDeps([visit()]);
+    expect(await noteDoorSighting({ householdId: 'hh-1', match: maria, at: ARRIVED + 20 * MIN }, deps)).toBe('left');
+    expect(deps.open).not.toHaveBeenCalled();
+  });
+
   it('opens nothing for a stranger, and nothing for one of the family who said they were coming', async () => {
     for (const match of [undefined, { ...maria, personId: 'member-u_sarah', name: 'Sarah' }]) {
       const deps = noteDeps();
