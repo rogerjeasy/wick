@@ -16,4 +16,5 @@ export * from './reach.js';
 export * from './visit.js';
 export * from './familyTelevision.js';
 export * from './mantel.js';
+export * from './speech.js';
 export * from './phrasebook/index.js';
