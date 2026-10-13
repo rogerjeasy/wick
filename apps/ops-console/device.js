@@ -95,7 +95,104 @@ function show(node) {
     if (child !== film?.layer) child.remove();
   }
   if (node) tvScreen.appendChild(node);
+  fitScreen();
 }
+
+/* --- Nothing on the screen is cut off --------------------------------- */
+
+/*
+ * This page is a demonstration of a television, not a television. Its
+ * screen is a box in a web page — sixteen by nine, as wide as the window
+ * lets it be — and a card written for a television's screen can be taller
+ * than that box in a narrow window: a split screen, a phone. A television
+ * cuts nothing off and has no scroll, and neither may this: a card whose
+ * buttons are out of sight cannot be answered, and some of those buttons
+ * are her consent.
+ *
+ * So each time something is put on the screen it is measured, and the
+ * remedies are tried in order, each only if the one before is not enough
+ * (fitRemedy):
+ *
+ *   1. the card as it is written;
+ *   2. a size smaller, then the smallest (TV_FIT_SIZES; device.css) — both
+ *      are sizes a family member's own television already uses, and a
+ *      picture on the card gives way with them;
+ *   3. the screen itself grows taller than sixteen by nine, for as long as
+ *      that card is on it. A real television cannot do that. A page can,
+ *      and it is better than hiding anything.
+ *
+ * It is measured again whenever the height of what is shown can have
+ * changed: the window changes size, a card is patched or sent again (both
+ * draw it again), a picture on it arrives or fails, the seat's words change.
+ */
+
+/** The sizes a card's words can be set at, the card as it is written first (device.css). */
+const TV_FIT_SIZES = ['', 'fit-snug', 'fit-small'];
+/** A browser's rounding: this much of a pixel off the screen is nothing off the screen. */
+const TV_FIT_SLACK_PX = 0.5;
+
+/**
+ * Which remedy is needed. `cutAt(size)` says how many pixels of what is
+ * shown would be off the screen at that size; it is asked for a size only
+ * when every size before it left something off. The first size that fits is
+ * the one; if none does, the smallest, and the screen grows.
+ */
+function fitRemedy(sizes, cutAt) {
+  for (let size = 0; size < sizes; size += 1) {
+    if (cutAt(size) <= TV_FIT_SLACK_PX) return { size, grown: false };
+  }
+  return { size: Math.max(0, sizes - 1), grown: true };
+}
+
+/**
+ * How many pixels of what is shown are off the screen, top and bottom
+ * together: the thing itself, each part of it — which must also stand clear
+ * of the card's own padding, so words do not run to the screen's edge — and
+ * anything that would have to be scrolled to be seen.
+ */
+function cutOff(shown) {
+  const screen = tvScreen.getBoundingClientRect();
+  const own = shown.getBoundingClientRect();
+  const style = getComputedStyle(shown);
+  const top = Math.max(screen.top, own.top + (parseFloat(style.paddingTop) || 0));
+  const bottom = Math.min(screen.bottom, own.bottom - (parseFloat(style.paddingBottom) || 0));
+  let above = Math.max(0, screen.top - own.top);
+  let below = Math.max(0, own.bottom - screen.bottom);
+  for (const part of shown.children) {
+    // The mark that reads a card aloud stands in the card's corner, inside its padding.
+    if (part.classList.contains('tv-read')) continue;
+    const box = part.getBoundingClientRect();
+    // Not drawn at all (the seat's film while there is nothing to follow).
+    if (box.width === 0 && box.height === 0) continue;
+    above = Math.max(above, top - box.top);
+    below = Math.max(below, box.bottom - bottom);
+  }
+  const scrolled = [shown, shown.querySelector('.reader-page')].reduce((most, node) => Math.max(most, node ? node.scrollHeight - node.clientHeight || 0 : 0), 0);
+  return above + below + scrolled;
+}
+
+/** Measures what is on the screen and applies the remedy it needs. The film under a card is never measured. */
+function fitScreen() {
+  tvScreen.classList.remove('grown');
+  const shown = [...tvScreen.children].find((child) => child !== film?.layer);
+  if (!shown) return;
+  // Sixteen by nine at this width, for what is sized by the screen and not by the card (a picture on a card).
+  tvScreen.style.setProperty('--tv-height', `${Math.round((tvScreen.clientWidth * 9) / 16)}px`);
+  // Only a card on the resident's television steps down. A family member's own television is at its sizes already,
+  // and the home screen's few words are not made smaller.
+  const sizes = shown.classList.contains('tv-card') && !shown.classList.contains('tv-family') ? TV_FIT_SIZES : TV_FIT_SIZES.slice(0, 1);
+  const remedy = fitRemedy(sizes.length, (size) => {
+    for (const name of TV_FIT_SIZES) if (name) shown.classList.toggle(name, name === sizes[size]);
+    // A page of her week that would scroll is set its own size smaller first (fitFamilyReaderPage).
+    if (shown.classList.contains('tv-reader')) fitFamilyReaderPage();
+    return cutOff(shown);
+  });
+  if (remedy.grown) tvScreen.classList.add('grown');
+}
+
+window.addEventListener('resize', fitScreen);
+// And what the page says before anything has been sent to it.
+fitScreen();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -739,9 +836,12 @@ function tvPicture(url, fromName, onFailed) {
   const img = el('img');
   img.src = src;
   img.alt = tvSay('photoPicture', { name: fromName });
+  // A picture has no height until it has come, and the calm line in its place has another: measured again.
+  img.onload = fitScreen;
   img.onerror = () => {
     img.remove();
     unavailable();
+    fitScreen();
     if (onFailed) onFailed();
   };
   box.appendChild(img);
@@ -873,8 +973,6 @@ function renderCard(queuedCard) {
   if (reading && reading.cardId !== card.id) stopRead();
   const urgencyClass = queuedCard.urgency === 'DOOR' ? 'urgency-door' : 'urgency-deferred';
   const wrapper = el('div', `tv-card ${urgencyClass}`);
-  /** What is left to do once the card is on the screen and can be measured, if anything is. */
-  let onceShown = null;
   // The mark of the key that reads this card aloud. Not one of the card's buttons, and it has no words: what it
   // is called is said in her language to whoever cannot see it (apps/tv-vega/src/read/ReadHint.tsx).
   const mark = el('span', 'tv-read');
@@ -888,13 +986,15 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'kicker', tvSay('door')));
     wrapper.appendChild(el('div', 'headline', card.line));
     if (card.imageRef) {
-      const img = el('img');
+      // How tall it may be is the stylesheet's (.tv-still): a share of the screen, less at each smaller size.
+      const img = el('img', 'tv-still');
       img.src = card.imageRef;
       img.alt = tvSay('doorPicture');
-      img.style.maxHeight = '40%';
-      img.style.borderRadius = 'var(--radius-md)';
-      img.style.marginBottom = '0.75em';
-      img.onerror = () => img.remove();
+      img.onload = fitScreen;
+      img.onerror = () => {
+        img.remove();
+        fitScreen();
+      };
       wrapper.insertBefore(img, wrapper.firstChild);
     }
     if (card.description) wrapper.appendChild(el('div', 'body-text', card.description));
@@ -955,23 +1055,11 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'headline', card.headline));
     // One paragraph for each language, so the one she reads is found at a glance — every word still the server's,
     // in the server's order (languageParagraphs). Each says which language it is in, for whatever reads it aloud.
-    const drawn = languageParagraphs(card).map((paragraph, i) => {
+    languageParagraphs(card).forEach((paragraph, i) => {
       const node = el('div', i === 0 ? 'body-text' : 'body-text next-language', paragraph.text);
       if (paragraph.language) node.lang = paragraph.language;
-      return wrapper.appendChild(node);
+      wrapper.appendChild(node);
     });
-    // Two paragraphs can be a line taller than one, and this screen does not grow: what does not fit is cut off,
-    // and on this card that could be her yes and her no. So once the card is on the screen it is measured, and
-    // if any of it is off the screen the detail goes back to the one paragraph it was sent as — never worse
-    // than before there were two. It is decided each time the card is drawn, not when the window changes size.
-    if (drawn.length > 1) {
-      onceShown = () => {
-        if (cardFitsScreen(wrapper)) return;
-        drawn[0].textContent = card.detail;
-        drawn[0].removeAttribute('lang');
-        for (const node of drawn.slice(1)) node.remove();
-      };
-    }
   }
 
   const buttons = cardButtons(card);
@@ -1002,16 +1090,6 @@ function renderCard(queuedCard) {
   }
 
   show(wrapper);
-  if (onceShown) onceShown();
-}
-
-/** Whether every part of a card that is on the screen is inside the screen, top and bottom. */
-function cardFitsScreen(wrapper) {
-  const screen = tvScreen.getBoundingClientRect();
-  return [...wrapper.children].every((part) => {
-    const box = part.getBoundingClientRect();
-    return box.top >= screen.top - 0.5 && box.bottom <= screen.bottom + 0.5;
-  });
 }
 
 /* --- Read to me -------------------------------------------------------- */
@@ -1975,9 +2053,11 @@ function renderFamily() {
       // Beside the words, so the answers stay on the screen with it.
       const img = el('img', 'family-picture');
       img.alt = 'The picture from the door';
+      img.onload = fitScreen;
       img.onerror = () => {
         img.remove();
         shown.classList.remove('with-picture');
+        fitScreen();
       };
       img.src = card.pictureUrl;
       shown.classList.add('with-picture');
@@ -2373,6 +2453,8 @@ function drawFamilySeat() {
     if (attribution && state !== 'waiting') parts.push(el('div', 'seat-attribution', attribution));
   }
   seat.words.replaceChildren(...parts);
+  // The seat's words have changed where they stand: what they need is measured again.
+  fitScreen();
 
   if (!mayFocus) return;
   const buttons = [...seat.words.querySelectorAll('button:not([disabled]):not([tabindex="-1"])')];

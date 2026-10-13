@@ -48,7 +48,7 @@ function loadDevice(): Device {
   });
   const context = vm.createContext({
     document: { getElementById: element, createElement: element, addEventListener() {}, removeEventListener() {}, head: element(), hidden: false, activeElement: null },
-    window: {},
+    window: { addEventListener() {} },
     console,
     URL,
     setInterval,
@@ -412,9 +412,29 @@ function page() {
       children: [],
       parent: null,
       listeners: {},
-      style: {},
+      style: {
+        setProperty(name: string, value: string) {
+          (node.style as Record<string, unknown>)[name] = value;
+        },
+      },
       dataset: {},
-      classList: { add() {}, remove() {} },
+      // Kept in className, as a browser keeps them: what a test reads there is what the page set.
+      classList: {
+        contains: (name: string) => node.className.split(' ').includes(name),
+        add(...names: string[]) {
+          for (const name of names) if (!node.className.split(' ').includes(name)) node.className = `${node.className} ${name}`.trim();
+        },
+        remove(...names: string[]) {
+          node.className = node.className.split(' ').filter((name) => name && !names.includes(name)).join(' ');
+        },
+        toggle(name: string, force?: boolean) {
+          const on = force ?? !node.className.split(' ').includes(name);
+          if (on) this.add(name);
+          else this.remove(name);
+          return on;
+        },
+      },
+      querySelector: () => null,
       disabled: false,
       setAttribute() {},
       removeAttribute(name: string) {
@@ -518,7 +538,16 @@ function television() {
     }
     close() {}
   }
-  const context = vm.createContext({ document, window: {}, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, fetch: () => Promise.reject(new Error('a test asks nobody')) });
+  /** What the page listens for on the window: its size changing. */
+  const windowListeners: Record<string, Array<() => void>> = {};
+  const window = {
+    addEventListener(type: string, listener: () => void) {
+      (windowListeners[type] ??= []).push(listener);
+    },
+  };
+  // Nothing is styled here: a card has no padding of its own unless a test says where things are.
+  const getComputedStyle = () => ({});
+  const context = vm.createContext({ document, window, getComputedStyle, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, fetch: () => Promise.reject(new Error('a test asks nobody')) });
   vm.runInContext(readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8'), context, { filename: 'device.js' });
 
   // Paired as the resident's television, and connected.
@@ -545,6 +574,18 @@ function television() {
     /** The pictures on the screen: where each is fetched from, and what it is called. */
     pictures: () => imagesOf(screen()).map((img) => ({ src: img.src, alt: img.alt })),
     /** A picture's address stops answering. */
+    /** A picture arrives: it has a height now. */
+    loadPicture: () => {
+      for (const img of imagesOf(screen())) (img.onload as (() => void) | undefined)?.();
+    },
+    /** The window changes size. */
+    resize: () => {
+      for (const listener of windowListeners.resize ?? []) listener();
+    },
+    /** The classes on the screen itself, and on the one thing shown on it (never the film under it). */
+    screenClasses: () => String(screen().className).split(' ').filter(Boolean),
+    shownClasses: () => String(screen().children.filter((child) => !String(child.className).split(' ').includes('tv-film')).at(-1)?.className ?? '').split(' ').filter(Boolean),
+    screenNode: screen,
     failPicture: () => {
       for (const img of imagesOf(screen())) (img.onerror as (() => void) | undefined)?.();
     },
@@ -953,99 +994,6 @@ describe('the browser television — the two languages of the question, a paragr
     expect(css).toMatch(/\.tv-card \.body-text\.next-language\s*\{[^}]*margin-top:/);
   });
 
-  /*
-   * Two paragraphs can be a line taller than one, and the screen does not grow: what does not fit on it is cut
-   * off, and on this card that could be her yes and her no. So where the two paragraphs would put any part of
-   * the card off the screen, it is drawn as the one paragraph it was sent as — never worse than before.
-   */
-  describe('where two paragraphs would not fit the screen', () => {
-    const DETAIL = languageQuestion('es', 'Sarah').detail;
-    /** A screen 300 high, with the card's buttons ending where the test says for each number of paragraphs. */
-    const screenOf = (tv: ReturnType<typeof television>, buttonsEnd: (paragraphs: number) => number, kickerStarts: (paragraphs: number) => number = () => 20) => {
-      tv.laidOut((node, isScreen) => {
-        if (isScreen) return { top: 0, bottom: 300 };
-        const paragraphs = tv.paragraphs().length;
-        if (node.className === 'actions') return { top: 240, bottom: buttonsEnd(paragraphs) };
-        if (node.className === 'kicker') return { top: kickerStarts(paragraphs), bottom: 40 };
-        return { top: 40, bottom: 240 };
-      });
-    };
-
-    it('draws two when all of the card is on the screen', () => {
-      const tv = television();
-      tv.home({ light: 'on' });
-      screenOf(tv, () => 300);
-
-      tv.card(LANGUAGE_CARD);
-
-      expect(tv.paragraphs().map((paragraph) => paragraph.lang)).toEqual(['es', 'en']);
-    });
-
-    it('draws the one paragraph the server sent when two would put her buttons past the bottom of the screen', () => {
-      const tv = television();
-      tv.home({ light: 'on' });
-      screenOf(tv, (paragraphs) => (paragraphs === 2 ? 312 : 290));
-
-      tv.card(LANGUAGE_CARD);
-
-      expect(tv.paragraphs()).toEqual([{ lang: undefined, className: 'body-text', text: DETAIL }]);
-      expect(tv.says()).toEqual(['English · español', '¿Quiere que Wick le hable en español?', DETAIL, 'Sí, en español', 'No, keep English']);
-      // Nothing else about the card changes: it was shown once, and its buttons answer as they did.
-      tv.press('Sí, en español');
-      expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'card_shown', cardId: 'language-es' }, { t: 'card_action', cardId: 'language-es', action: LANGUAGE_ACTIONS.yes }]);
-    });
-
-    it('and when two would push its first line past the top', () => {
-      const tv = television();
-      tv.home({ light: 'on' });
-      screenOf(tv, () => 300, (paragraphs) => (paragraphs === 2 ? -6 : 20));
-
-      tv.card(LANGUAGE_CARD);
-
-      expect(tv.paragraphs().map((paragraph) => paragraph.text)).toEqual([DETAIL]);
-    });
-
-    it('is the one paragraph it always was when that does not fit either', () => {
-      const tv = television();
-      tv.home({ light: 'on' });
-      screenOf(tv, () => 340);
-
-      tv.card(LANGUAGE_CARD);
-
-      expect(tv.paragraphs()).toEqual([{ lang: undefined, className: 'body-text', text: DETAIL }]);
-    });
-
-    it('decides again each time the card is drawn: sent again, or drawn again in another language', () => {
-      const tv = television();
-      tv.home({ light: 'on' });
-      let room = 290;
-      screenOf(tv, (paragraphs) => (paragraphs === 2 ? room + 22 : room));
-
-      tv.card(LANGUAGE_CARD);
-      expect(tv.paragraphs()).toHaveLength(1);
-
-      room = 260;
-      tv.home({ light: 'on', language: 'es' });
-      expect(tv.paragraphs().map((paragraph) => paragraph.lang)).toEqual(['es', 'en']);
-
-      room = 290;
-      tv.card(LANGUAGE_CARD);
-      expect(tv.paragraphs().map((paragraph) => paragraph.text)).toEqual([DETAIL]);
-    });
-
-    it('measures no other card: only the question has two ways to be drawn', () => {
-      const tv = television();
-      tv.home({ light: 'on' });
-      let measured = 0;
-      tv.laidOut(() => ((measured += 1), { top: 0, bottom: 0 }));
-
-      tv.card(NOTE('See you on Sunday.'));
-      tv.card(queuedCard({ id: 'tell-1', type: 'TELL', headline: 'Shall I tell Sarah?', detail: DETAIL }));
-
-      expect(measured).toBe(0);
-    });
-  });
-
   it('draws a question that is not of the contract’s shape as one paragraph, with no language marked on it', () => {
     const tv = television();
     tv.home({ light: 'on' });
@@ -1360,6 +1308,378 @@ describe('the browser television — its own words follow the language while the
 
     expect(tv.says()).toEqual(asked);
     expect(tv.marks()).toEqual([HINT.es]);
+  });
+});
+
+/*
+ * This page is a demonstration of a television, not a television: its screen is a box in a web page, as wide as
+ * the window lets it be, and a card written for a television can be taller than that box. Nothing of a card may be
+ * cut off — its buttons least of all, some of them are her consent. So each time something is put on the screen it
+ * is measured, and the remedies are tried in order, each only if the one before was not enough: the card as it is
+ * written; a size smaller; the smallest size (both are sizes the family view already uses); and then the screen
+ * itself grows taller than sixteen by nine. What is measured is the browser's business and is checked in one
+ * (the stand-in runs); what is decided from the measurements is checked here.
+ */
+describe('fitRemedy — which remedy a card needs, given how much of it would be off the screen at each size', () => {
+  const remedy = (cuts: number[]) => {
+    const measured: number[] = [];
+    const chosen = device.fitRemedy!(cuts.length, (size: number) => (measured.push(size), cuts[size]!));
+    return { chosen, measured };
+  };
+
+  it('has three sizes, the card as it is written first', () => {
+    expect(device.constant('TV_FIT_SIZES')).toEqual(['', 'fit-snug', 'fit-small']);
+  });
+
+  it('leaves a card that fits as it is written, and measures nothing more', () => {
+    expect(remedy([0, 0, 0])).toEqual({ chosen: { size: 0, grown: false }, measured: [0] });
+  });
+
+  it('sets it a size smaller when that is enough', () => {
+    expect(remedy([42, 0, 0])).toEqual({ chosen: { size: 1, grown: false }, measured: [0, 1] });
+  });
+
+  it('sets it at the smallest size when only that is enough', () => {
+    expect(remedy([90, 31, 0])).toEqual({ chosen: { size: 2, grown: false }, measured: [0, 1, 2] });
+  });
+
+  it('lets the screen grow, at the smallest size, when no size is enough', () => {
+    expect(remedy([140, 96, 55])).toEqual({ chosen: { size: 2, grown: true }, measured: [0, 1, 2] });
+  });
+
+  it('never chooses a larger size after a smaller one: the first that fits is the one', () => {
+    // A smaller size that happens to fit worse (a line that wraps differently) is never reached.
+    expect(remedy([0, 12, 0]).chosen).toEqual({ size: 0, grown: false });
+    expect(remedy([8, 0, 20]).chosen).toEqual({ size: 1, grown: false });
+  });
+
+  it('takes half a pixel for nothing — a browser’s rounding — and anything more for something cut off', () => {
+    expect(remedy([0.5, 0, 0]).chosen).toEqual({ size: 0, grown: false });
+    expect(remedy([0.6, 0, 0]).chosen).toEqual({ size: 1, grown: false });
+    expect(remedy([3, 2, 0.51]).chosen).toEqual({ size: 2, grown: true });
+  });
+
+  it('with one size only — a family member’s own television, which is at its sizes already — fits or lets the screen grow', () => {
+    expect(remedy([0])).toEqual({ chosen: { size: 0, grown: false }, measured: [0] });
+    expect(remedy([17])).toEqual({ chosen: { size: 0, grown: true }, measured: [0] });
+  });
+});
+
+describe('the browser television — nothing on the screen is ever cut off', () => {
+  type Tv = ReturnType<typeof television>;
+  const sizeOf = (classes: string) => (classes.split(' ').includes('fit-small') ? 'fit-small' : classes.split(' ').includes('fit-snug') ? 'fit-snug' : '');
+  /**
+   * A screen 300 high. The thing shown fills it; what is on it ends where `ends` says for the size it is set at
+   * (and whether the screen has grown), and so is cut off by whatever that is past 300 — unless the screen has
+   * grown, when it is as tall as it needs to be.
+   */
+  const room = (tv: Tv, ends: (size: string, tv: Tv) => number) => {
+    tv.laidOut((node, isScreen) => {
+      const grown = tv.screenClasses().includes('grown');
+      const shown = tv.screenNode().children.at(-1)!;
+      const needed = ends(sizeOf(String(shown.className)), tv);
+      const height = grown ? Math.max(300, needed) : 300;
+      if (isScreen || node === shown) return { top: 0, bottom: height };
+      return { top: 0, bottom: needed };
+    });
+  };
+  const REACH = queuedCard({
+    id: 'reach-1',
+    type: 'REACH',
+    headline: 'Ask Sarah to ring you?',
+    detail: 'Sarah will be told only that you would like a call.',
+    actions: [
+      { id: 'ring_me', label: 'Yes, ask Sarah', kind: 'primary' },
+      { id: 'say_hello', label: 'Just say hello', kind: 'secondary' },
+      { id: 'not_now', label: 'No, not now', kind: 'dismiss' },
+    ],
+  });
+  const DOOR = (over: Record<string, unknown> = {}) =>
+    queuedCard({ id: 'door-1', type: 'DOOR', line: 'Someone is at the front door.', actions: [{ id: 'ask_family', label: 'Ask Sarah to look', kind: 'primary' }, { id: 'dismiss', label: 'Not now', kind: 'dismiss' }], ...over }, 'DOOR');
+
+  it('leaves a card that fits as it is written, on a screen of sixteen by nine', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, () => 280);
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('sets a card that does not fit a size smaller, and stops there when that is enough', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, (size) => ({ '': 340, 'fit-snug': 296, 'fit-small': 250 })[size]!);
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-snug']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('sets it at the smallest size when the one between is not enough', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, (size) => ({ '': 380, 'fit-snug': 330, 'fit-small': 299 })[size]!);
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-small']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('lets the screen grow taller than sixteen by nine when the smallest size is not enough — and then nothing is cut off', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, (size) => ({ '': 520, 'fit-snug': 450, 'fit-small': 390 })[size]!);
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-small']);
+    expect(tv.screenClasses()).toContain('grown');
+    expect(tv.evaluate('cutOff([...tvScreen.children].at(-1))')).toBe(0);
+    // Every button is still there, and still answers.
+    expect(tv.buttons()).toEqual(['Yes, ask Sarah', 'Just say hello', 'No, not now']);
+    tv.press('No, not now');
+    expect(tv.sent().at(-1)).toEqual({ t: 'card_action', cardId: 'reach-1', action: 'not_now' });
+  });
+
+  it('measures again when the window changes size: what fits now is as it is written again', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    let needs: Record<string, number> = { '': 520, 'fit-snug': 450, 'fit-small': 390 };
+    room(tv, (size) => needs[size]!);
+    tv.card(REACH);
+    expect(tv.screenClasses()).toContain('grown');
+    const sentBefore = tv.sent().length;
+
+    // The window is made wider: the same card needs less height.
+    needs = { '': 330, 'fit-snug': 290, 'fit-small': 240 };
+    tv.resize();
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-snug']);
+    expect(tv.screenClasses()).not.toContain('grown');
+
+    needs = { '': 240, 'fit-snug': 200, 'fit-small': 180 };
+    tv.resize();
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+
+    // And narrower again.
+    needs = { '': 520, 'fit-snug': 450, 'fit-small': 390 };
+    tv.resize();
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-small']);
+    expect(tv.screenClasses()).toContain('grown');
+    // Measuring is not showing: nothing was sent, and the card was not drawn again.
+    expect(tv.sent().length).toBe(sentBefore);
+  });
+
+  it('measures again when the card on screen is patched: a door’s description arriving makes it taller', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, (size, t) => (t.says().includes('A man in a yellow jacket, holding a parcel.') ? { '': 345, 'fit-snug': 290, 'fit-small': 250 } : { '': 260, 'fit-snug': 230, 'fit-small': 200 })[size]!);
+    tv.card(DOOR());
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-door']);
+
+    tv.control({ t: 'patch', patch: { cardId: 'door-1', description: 'A man in a yellow jacket, holding a parcel.' } });
+
+    expect(tv.says()).toContain('A man in a yellow jacket, holding a parcel.');
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-door', 'fit-snug']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('measures again when a picture arrives or is taken away: a picture has no height until it has come', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    let arrived = false;
+    room(tv, (size) => (arrived ? { '': 420, 'fit-snug': 330, 'fit-small': 280 } : { '': 200, 'fit-snug': 180, 'fit-small': 160 })[size]!);
+    tv.card(PHOTO());
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+
+    arrived = true;
+    tv.loadPicture();
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-small']);
+
+    // Its address stops answering: the calm line in its place is shorter.
+    arrived = false;
+    tv.failPicture();
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+  });
+
+  it('measures the door’s picture too, when it arrives', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    let arrived = false;
+    room(tv, (size) => (arrived ? { '': 400, 'fit-snug': 350, 'fit-small': 310 } : { '': 200, 'fit-snug': 180, 'fit-small': 160 })[size]!);
+    tv.card(DOOR({ imageRef: 'https://ring.example/still.jpg' }));
+    expect(tv.screenClasses()).not.toContain('grown');
+
+    arrived = true;
+    tv.loadPicture();
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-door', 'fit-small']);
+    expect(tv.screenClasses()).toContain('grown');
+  });
+
+  it('starts from the card as it is written each time one is drawn: a size is never carried over from the card before', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, (_size, t) => (t.says().includes('Ask Sarah to ring you?') ? 600 : 200));
+    tv.card(NOTE('See you on Sunday.'));
+    tv.card(REACH);
+    expect(tv.screenClasses()).toContain('grown');
+
+    tv.press('No, not now');
+
+    // The note under it is back, and fits: as written, on a screen of sixteen by nine.
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('keeps the question about her language in two paragraphs at every remedy: it is made to fit, not put back in one', () => {
+    for (const needs of [{ '': 280 }, { '': 340, 'fit-snug': 290 }, { '': 380, 'fit-snug': 330, 'fit-small': 295 }, { '': 520, 'fit-snug': 450, 'fit-small': 390 }] as Array<Record<string, number>>) {
+      const tv = television();
+      tv.home({ light: 'on' });
+      room(tv, (size) => needs[size]!);
+
+      tv.card(LANGUAGE_CARD);
+
+      expect(tv.paragraphs().map((paragraph) => paragraph.lang)).toEqual(['es', 'en']);
+      expect(tv.buttons()).toEqual(['Sí, en español', 'No, keep English']);
+    }
+  });
+
+  it('never sets the home screen or her mantelpiece’s words smaller, but lets the screen grow for them too', () => {
+    const tv = television();
+    room(tv, () => 380);
+
+    tv.home({ light: 'on', mantel: 2, lookedIn: { name: 'Sarah', at: Date.now(), line: 'Sarah looked in this morning.' } });
+
+    expect(tv.shownClasses()).toEqual(['tv-empty']);
+    expect(tv.screenClasses()).toContain('grown');
+  });
+
+  it('sets her mantelpiece smaller like any card: its picture gives way before anything is cut off', () => {
+    const tv = television();
+    tv.home({ light: 'on', mantel: 2 });
+    room(tv, (size, t) => (t.pictures().length ? { '': 460, 'fit-snug': 350, 'fit-small': 290 } : { '': 100, 'fit-snug': 100, 'fit-small': 100 })[size]!);
+    tv.press('Mantelpiece');
+    tv.control({ t: 'mantel', items: [kept('p1'), kept('p2', 'Tom')] });
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'tv-mantel', 'fit-small']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('measures the card over a film, never the film: with a film alone on the screen nothing is measured and nothing grows', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    const FILM = queuedCard({ id: 'watch-s1', type: 'WATCH', sessionId: 's1', headline: 'Sintel is ready.', withName: 'Sarah', programmeId: 'sintel', followedUntil: Date.now() + 3_600_000, actions: [{ id: 'start', label: 'Start the film', kind: 'primary' }] });
+    tv.card(FILM);
+    tv.press('Start the film');
+    let measured = 0;
+    tv.laidOut(() => ((measured += 1), { top: 0, bottom: 900 }));
+
+    tv.resize();
+    expect(measured).toBe(0);
+    expect(tv.screenClasses()).not.toContain('grown');
+
+    room(tv, (size) => ({ '': 340, 'fit-snug': 280, 'fit-small': 240 })[size]!);
+    tv.card(NOTE('See you on Sunday.'));
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-snug']);
+    expect(tv.says().slice(0, 2)).toEqual(['Back', 'Sarah is watching with you.']);
+    tv.press('Back');
+  });
+
+  it('tells the screen how tall sixteen by nine is at its width, for what is sized by it', () => {
+    const tv = television();
+    tv.screenNode().clientWidth = 640;
+
+    tv.home({ light: 'on' });
+
+    expect((tv.screenNode().style as Record<string, unknown>)['--tv-height']).toBe('360px');
+  });
+
+  it('gives a family member’s own television no smaller size — it is at its sizes already — and lets its screen grow', () => {
+    const tv = television();
+    room(tv, () => 410);
+
+    tv.evaluate('renderFamilySentence("Margaret has not said yes to this television yet. When she does, it will show her home here.")');
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'tv-family']);
+    expect(tv.screenClasses()).toContain('grown');
+  });
+
+  it('counts what would have to be scrolled to be seen as cut off: a television has no scroll', () => {
+    const tv = television();
+    tv.evaluate('renderFamilySentence("One moment.")');
+    expect(tv.screenClasses()).not.toContain('grown');
+
+    const shown = tv.screenNode().children.at(-1)!;
+    shown.scrollHeight = 330;
+    shown.clientHeight = 300;
+    tv.resize();
+
+    expect(tv.screenClasses()).toContain('grown');
+  });
+
+  it('counts the card’s own padding as part of what it needs: its words do not run to the edge of the screen', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    // The card fills a screen 300 high and its words end at 290 — inside the screen, but 14 into a padding of 24.
+    tv.laidOut((node, isScreen) => (isScreen || String(node.className).includes('tv-card') ? { top: 0, bottom: 300 } : { top: 24, bottom: sizeOf(String(tv.screenNode().children.at(-1)!.className)) === '' ? 290 : 270 }));
+    tv.evaluate('void (globalThis.getComputedStyle = () => ({ paddingTop: "24px", paddingBottom: "24px" }))');
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-snug']);
+  });
+
+  it('does not count the mark that reads a card aloud: it stands in the card’s corner, inside its padding', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.laidOut((node, isScreen) => (isScreen || String(node.className).includes('tv-card') ? { top: 0, bottom: 300 } : String(node.className).includes('tv-read') ? { top: 6, bottom: 22 } : { top: 24, bottom: 270 }));
+    tv.evaluate('void (globalThis.getComputedStyle = () => ({ paddingTop: "24px", paddingBottom: "24px" }))');
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+  });
+
+  describe('device.css — the sizes and the screen that grows', () => {
+    const css = readFileSync(fileURLToPath(new URL('../device.css', import.meta.url)), 'utf8');
+    /** The smallest a `font-size: clamp(…)` can be, in rem, for the rule with that selector. */
+    const least = (selector: string): number => {
+      const rule = css.slice(css.indexOf(`\n${selector} {`));
+      const size = /font-size:\s*clamp\(([\d.]+)rem/.exec(rule.slice(0, rule.indexOf('}')));
+      if (!size) throw new Error(`no font-size for ${selector}`);
+      return Number(size[1]);
+    };
+
+    it('steps a card’s words down, and never below the smallest the family view already uses', () => {
+      const familyHeadline = least('.tv-family.has-card .family-head .headline');
+      const familyBody = least('.tv-family.has-card .family-head .body-text');
+      expect([familyHeadline, familyBody]).toEqual([1, 0.85]);
+
+      expect(least('.tv-card .headline')).toBeGreaterThan(least('.tv-card.fit-snug .headline'));
+      expect(least('.tv-card.fit-snug .headline')).toBeGreaterThan(least('.tv-card.fit-small .headline'));
+      expect(least('.tv-card.fit-small .headline')).toBeGreaterThanOrEqual(familyHeadline);
+
+      expect(least('.tv-card .body-text')).toBeGreaterThan(least('.tv-card.fit-snug .body-text'));
+      expect(least('.tv-card.fit-snug .body-text')).toBeGreaterThan(least('.tv-card.fit-small .body-text'));
+      expect(least('.tv-card.fit-small .body-text')).toBeGreaterThanOrEqual(familyBody);
+    });
+
+    it('lets a screen that has grown be as tall as what is on it, and never shorter than sixteen by nine', () => {
+      expect(css).toMatch(/\n\.tv-screen\.grown \{[^}]*aspect-ratio:\s*auto;/);
+      expect(css).toMatch(/\n\.tv-screen\.grown > \.tv-card[^{]*\{[^}]*position:\s*relative;/);
+      expect(css).toMatch(/min-height:\s*var\(--tv-height/);
+    });
+
+    it('never hides a button behind a line that will not break: a button’s words wrap before they leave the screen', () => {
+      const pill = css.slice(css.indexOf('\n.tv-card .actions .pill {'));
+      expect(pill.slice(0, pill.indexOf('}'))).not.toMatch(/white-space:\s*nowrap/);
+    });
   });
 });
 
@@ -1873,7 +2193,7 @@ function televisionAsking(remembered: Record<string, string> = {}) {
   const asked: { path: string; method: string; as: string | undefined; aborted: () => boolean; answer: (status: number, body: unknown) => void }[] = [];
   const context = vm.createContext({
     document: { getElementById: element, createElement: element, addEventListener() {}, removeEventListener() {}, head: element(), hidden: false, activeElement: null },
-    window: {},
+    window: { addEventListener() {} },
     console,
     URL,
     AbortController,
