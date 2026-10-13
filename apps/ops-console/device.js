@@ -6,6 +6,12 @@
  * Placeholders below are replaced at deploy time (infra/ops-console.tf),
  * the same trick sim-alexa's index.html and this app's status.js use.
  *
+ * Connected as a family member's own ("Mine" in the family app), it is not
+ * the resident's television at all: the token it collects says
+ * `kind: 'family'`, it opens no device channel and sends no device event,
+ * and it shows that one member's home screen instead — asked for over HTTPS
+ * from the Wick server (see "A family member's own television" below).
+ *
  * All DOM content is built with createElement/textContent, never
  * innerHTML — card content originates from the real backend, not a user,
  * but there's no reason to reintroduce the risk class for convenience.
@@ -14,6 +20,8 @@ const PAIRING_API_URL = 'PAIRING_API_URL_PLACEHOLDER';
 const WEBSOCKET_URL = 'WEBSOCKET_URL_PLACEHOLDER';
 /** Where the television's films are served from (infra/programmes.tf). */
 const PROGRAMMES_ORIGIN = 'PROGRAMMES_ORIGIN_PLACEHOLDER';
+/** The Wick server (infra/mcp.tf): where a family member's own television asks for its home screen. */
+const WICK_SERVER_URL = 'WICK_SERVER_URL_PLACEHOLDER';
 
 /** As long as the code itself lives (services/edge-device/lambda/pairing-code.mjs). */
 const PAIRING_WAIT_MS = 15 * 60 * 1000;
@@ -103,7 +111,9 @@ async function pairAndConnect() {
     }
     if (!token) throw new Error('nobody entered the code in time');
 
-    connectWebSocket(token.jwt, deviceId);
+    // Connected as a family member's own: never the device channel, which is the resident's.
+    if (token.kind === FAMILY_KIND) enterFamilyView(token.jwt, deviceId);
+    else connectWebSocket(token.jwt, deviceId);
   } catch (err) {
     setConnBadge('disconnected');
     connDetail.textContent = err instanceof Error ? err.message : String(err);
@@ -155,6 +165,7 @@ function send(deviceEvent) {
 }
 
 function disconnect() {
+  if (family) leaveFamilyView('connection closed');
   if (ws) ws.close();
 }
 
@@ -457,6 +468,325 @@ function startFilm(card) {
     .finally(() => {
       if (film === mine) video.play().catch(() => log('!', 'press play on the film to start it'));
     });
+}
+
+/* --- A family member's own television ---------------------------------- */
+
+/*
+ * "Sarah's television" (packages/contracts familyTelevision.ts). The member
+ * connected it as theirs, so it is shown what that one member may read and
+ * can give the answers that member may give — and it is never used to reach
+ * the resident. Nothing here goes over the device channel: the page asks the
+ * Wick server for its whole screen (GET /tv/home) and tells it of a press
+ * (POST /tv/press), each time with the television's own token. The server
+ * writes every word and every button; this renders them.
+ *
+ * It looks when the view opens and then every few seconds while the tab can
+ * be seen — never two requests at once — and nothing on the screen goes away
+ * by itself: a card stays until it is answered, put away, or the server no
+ * longer lists it.
+ */
+const FAMILY_KIND = 'family';
+/** packages/contracts FAMILY_TV_LOOK_EVERY_MS. */
+const FAMILY_LOOK_EVERY_MS = 8000;
+/** A card holds at most three answers (packages/contracts card.ts); a fourth is never drawn. */
+const FAMILY_MAX_ACTIONS = 3;
+
+/** The family view while it is open: the token, what the server last said, and what was put away here. */
+let family = null;
+
+const isText = (value) => typeof value === 'string' && value.length > 0;
+
+/** Only what the contract says a home screen is; anything else is left unread. */
+function readFamilyHome(body) {
+  if (!body || !isText(body.residentName) || !isText(body.memberName) || !Array.isArray(body.cards)) return null;
+  return body;
+}
+
+/** A picture is shown only from an https address — and only ever as a picture. */
+function httpsUrl(value) {
+  if (!isText(value)) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What a card says, so one put away comes back when the server changes it. */
+const cardSignature = (card) => JSON.stringify([card.headline, card.detail, card.pictureUrl, card.actions]);
+
+function enterFamilyView(jwt, deviceId) {
+  family = {
+    jwt,
+    deviceId,
+    /** The server's last home screen, the sentence that answered a press, and the cards put away here (id → what each said). */
+    home: null,
+    said: null,
+    putAway: new Map(),
+    /** The card whose press did not arrive, if any. */
+    notSent: null,
+    /** The look that is out, if one is: there is never a second, and a press waits for it. */
+    looking: null,
+    pressing: false,
+    /** What was last logged and last drawn, so the same answer is neither logged nor redrawn every few seconds. */
+    lastSeen: '',
+    drawn: '',
+    timer: null,
+  };
+  setConnBadge('connected');
+  connDetail.textContent = `paired as ${deviceId} — a family member’s own television`;
+  disconnectBtn.disabled = false;
+  // The telemetry buttons send device events. This television sends none: they stay off.
+  setTelemetryEnabled(false);
+  show(el('div', 'tv-empty', 'One moment.'));
+  family.timer = setInterval(() => void lookAtFamilyHome(), FAMILY_LOOK_EVERY_MS);
+  document.addEventListener('visibilitychange', lookWhenSeenAgain);
+  void lookAtFamilyHome();
+}
+
+/** Stops looking. What the screen then says is the caller's to decide. */
+function stopFamilyView() {
+  if (!family) return;
+  clearInterval(family.timer);
+  document.removeEventListener('visibilitychange', lookWhenSeenAgain);
+  family = null;
+}
+
+function leaveFamilyView(detail) {
+  stopFamilyView();
+  setConnBadge('disconnected');
+  connDetail.textContent = detail;
+  disconnectBtn.disabled = true;
+  pairBtn.disabled = false;
+  show(el('div', 'tv-empty', 'Not connected. Press “Pair & connect” to pair again.'));
+}
+
+function lookWhenSeenAgain() {
+  if (!document.hidden) void lookAtFamilyHome();
+}
+
+/** One request to the Wick server as this television. Never the device channel. */
+function familyFetch(path, init = {}) {
+  return fetch(`${WICK_SERVER_URL}${path}`, {
+    ...init,
+    headers: { ...(init.headers ?? {}), Authorization: `Bearer ${family.jwt}` },
+  });
+}
+
+/**
+ * What a refusal means for the screen. 401: the television was disconnected,
+ * and can be paired again. 403: the resident does not (or no longer) allow
+ * this member — the server's own sentence, and nothing else; it goes on
+ * looking, because that can change. True when the answer was one of those.
+ */
+async function familyRefused(res) {
+  if (res.status === 401) {
+    stopFamilyView();
+    setConnBadge('disconnected');
+    connDetail.textContent = 'no longer connected';
+    disconnectBtn.disabled = true;
+    pairBtn.disabled = false;
+    renderFamilyNoLongerConnected();
+    return true;
+  }
+  if (res.status === 403) {
+    const mine = family;
+    const body = await res.json().catch(() => null);
+    if (family !== mine) return true;
+    const sentence = isText(body?.say) ? body.say : 'There is nothing to show on this television just now.';
+    if (mine.lastSeen !== `403 ${sentence}`) log('←', { status: 403, say: sentence });
+    mine.lastSeen = `403 ${sentence}`;
+    mine.home = null;
+    mine.said = null;
+    mine.notSent = null;
+    mine.putAway.clear();
+    renderFamilySentence(sentence);
+    return true;
+  }
+  return false;
+}
+
+/** Asks for the home screen. Not while the tab is hidden, and never while another request is out. */
+function lookAtFamilyHome() {
+  const mine = family;
+  if (!mine || mine.looking || mine.pressing || document.hidden) return Promise.resolve();
+  mine.looking = lookOnce(mine).finally(() => {
+    mine.looking = null;
+  });
+  return mine.looking;
+}
+
+async function lookOnce(mine) {
+  try {
+    const res = await familyFetch('/tv/home');
+    if (family !== mine) return;
+    if (await familyRefused(res)) return;
+    if (!res.ok) throw new Error(`tv/home: HTTP ${res.status}`);
+    const home = readFamilyHome(await res.json());
+    if (family !== mine) return;
+    if (!home) throw new Error('tv/home: not a home screen');
+    // Said in the log only when it changes: the same answer every few seconds is not news.
+    const seen = JSON.stringify(home);
+    if (seen !== mine.lastSeen) log('←', home);
+    mine.lastSeen = seen;
+    mine.home = home;
+    // A card no longer listed is forgotten, so the same id can be shown again another day.
+    for (const id of [...mine.putAway.keys()]) {
+      if (!home.cards.some((card) => card?.id === id)) mine.putAway.delete(id);
+    }
+    renderFamily();
+  } catch (err) {
+    // What is on the screen stays; the next look may fare better.
+    if (family === mine) log('!', err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** The member's press on a card: told to the server, whose one sentence takes the card's place. */
+async function pressFamilyCard(card, action) {
+  const mine = family;
+  if (!mine || mine.pressing) return;
+  mine.pressing = true;
+  mine.notSent = null;
+  renderFamily();
+  let again = false;
+  try {
+    // One request at a time: a look already out is let finish first.
+    if (mine.looking) await mine.looking;
+    if (family !== mine) return;
+    const press = { cardId: card.id, action: action.id };
+    log('→', press);
+    const res = await familyFetch('/tv/press', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(press),
+    });
+    if (family !== mine) return;
+    if (await familyRefused(res)) return;
+    const body = await res.json().catch(() => null);
+    if (family !== mine) return;
+    if (!res.ok || !isText(body?.say)) throw new Error(`tv/press: HTTP ${res.status}`);
+    log('←', body);
+    mine.said = { say: body.say };
+    again = true;
+  } catch (err) {
+    if (family !== mine) return;
+    log('!', err instanceof Error ? err.message : String(err));
+    // The card stays where it is, with its buttons, and says only that the press did not arrive.
+    mine.notSent = card.id;
+  } finally {
+    mine.pressing = false;
+  }
+  if (family !== mine) return;
+  renderFamily();
+  if (again) void lookAtFamilyHome();
+}
+
+/** The first card still to be seen: not one put away here, unless the server has since changed it. */
+function familyCardToShow(home) {
+  return home.cards.find((card) => card && isText(card.id) && isText(card.headline) && family.putAway.get(card.id) !== cardSignature(card));
+}
+
+function familyButton(label, primary, onPress) {
+  const pill = el('button', `pill ${primary ? 'primary' : ''}`, label);
+  pill.type = 'button';
+  pill.disabled = family?.pressing === true;
+  pill.addEventListener('click', onPress);
+  return pill;
+}
+
+/** The whole family screen, from what the server last said. Drawn again only when something on it has changed. */
+function renderFamily() {
+  const home = family?.home;
+  if (!home) return;
+  if (family.notSent && family.said) family.notSent = null;
+  const drawn = JSON.stringify([home, family.said, [...family.putAway], family.pressing, family.notSent]);
+  if (drawn === family.drawn) return;
+  family.drawn = drawn;
+  const said = family.said;
+  const card = said ? null : familyCardToShow(home);
+  // With something waiting, the home's own lines step back and the card has the room.
+  const wrapper = el('div', `tv-card tv-family ${said || card ? 'has-card' : ''}`);
+  const head = el('div', 'family-head');
+  head.appendChild(el('div', 'headline', `${home.residentName}’s home`));
+  head.appendChild(el('div', 'body-text', `This is ${home.memberName}’s television.`));
+  // Her light in the window, in the server's one sentence — absent when she keeps her day to herself.
+  if (isText(home.light?.line)) head.appendChild(el('div', 'body-text family-light', home.light.line));
+  // A demo home's history was written, not lived: said wherever the home is named.
+  if (home.simulated === true) head.appendChild(el('div', 'family-demo', 'This is a demo home. Its history is simulated.'));
+  wrapper.appendChild(head);
+
+  if (said) {
+    // The answer to a press, in place of the card, until it is put away by hand.
+    const panel = el('div', 'family-card');
+    panel.appendChild(el('div', 'headline', said.say));
+    const actions = el('div', 'actions');
+    actions.appendChild(familyButton('All right', true, () => {
+      family.said = null;
+      renderFamily();
+    }));
+    panel.appendChild(actions);
+    wrapper.appendChild(panel);
+  } else if (card) {
+    const shown = el('div', 'family-card');
+    const picture = httpsUrl(card.pictureUrl);
+    if (picture) {
+      // Beside the words, so the answers stay on the screen with it.
+      const img = el('img', 'family-picture');
+      img.alt = 'The picture from the door';
+      img.onerror = () => {
+        img.remove();
+        shown.classList.remove('with-picture');
+      };
+      img.src = picture;
+      shown.classList.add('with-picture');
+      shown.appendChild(img);
+    }
+    const panel = el('div', 'family-words');
+    shown.appendChild(panel);
+    panel.appendChild(el('div', 'headline', card.headline));
+    if (isText(card.detail)) panel.appendChild(el('div', 'body-text', card.detail));
+    const actions = el('div', 'actions');
+    const offered = (Array.isArray(card.actions) ? card.actions : []).filter((action) => action && isText(action.id) && isText(action.label)).slice(0, FAMILY_MAX_ACTIONS);
+    for (const action of offered) {
+      actions.appendChild(familyButton(action.label, action.kind === 'primary', () => void pressFamilyCard(card, action)));
+    }
+    if (offered.length === 0) {
+      // A card that only says how something stands: put away here, and only here, until the server changes it.
+      actions.appendChild(familyButton('All right', true, () => {
+        family.putAway.set(card.id, cardSignature(card));
+        renderFamily();
+      }));
+    }
+    panel.appendChild(actions);
+    if (family.notSent === card.id) panel.appendChild(el('div', 'body-text', 'That could not be sent just now. Try again in a moment.'));
+    wrapper.appendChild(shown);
+  } else {
+    wrapper.appendChild(el('div', 'body-text family-quiet', 'Nothing is waiting for you.'));
+  }
+
+  show(wrapper);
+}
+
+/** One sentence and nothing else: the resident does not, or no longer, allow this member. */
+function renderFamilySentence(sentence) {
+  if (family) family.drawn = '';
+  const wrapper = el('div', 'tv-card tv-family');
+  wrapper.appendChild(el('div', 'headline', sentence));
+  show(wrapper);
+}
+
+function renderFamilyNoLongerConnected() {
+  const wrapper = el('div', 'tv-card tv-family');
+  wrapper.appendChild(el('div', 'headline', 'This television is no longer connected.'));
+  const actions = el('div', 'actions');
+  const again = el('button', 'pill primary', 'Pair again');
+  again.type = 'button';
+  again.addEventListener('click', pairAndConnect);
+  actions.appendChild(again);
+  wrapper.appendChild(actions);
+  show(wrapper);
 }
 
 /* --- Telemetry ------------------------------------------------------- */
