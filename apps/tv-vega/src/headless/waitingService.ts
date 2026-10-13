@@ -33,6 +33,8 @@ import { isNarrowToken, type ServiceClaim } from '../pairing/PairingFlow.js';
 
 /** How often a service with no token knocks. Three knocks fall inside the ninety seconds a way stays open. */
 export const KNOCK_EVERY_MS = 30_000;
+/** How long a knock is waited for. One that never answers must not hold up the next: the service asks one thing at a time. */
+export const KNOCK_TIMEOUT_MS = 10_000;
 /**
  * Three quarters of the hour the pairing service gives a refreshed token
  * (edge-device pairing-code.mjs REFRESH_TOKEN_TTL_SEC). Counted on this
@@ -94,13 +96,30 @@ export function runWaitingService(first: DeviceToken | undefined, deps: WaitingS
     renewing = undefined;
   };
 
-  /** The token is gone: nothing more is asked with it. Knock until the app opens the way again. */
+  /** One knock, given its time and no more. Out of time is "not now". */
+  const knockOnce = (): Promise<Claimed> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tooLong = new Promise<Claimed>((resolve) => {
+      timer = setTimeout(() => resolve('try_later'), KNOCK_TIMEOUT_MS);
+    });
+    return Promise.race([deps.claim(), tooLong]).finally(() => clearTimeout(timer));
+  };
+
+  /**
+   * The token is gone: nothing more is asked with it. Knock — at once, and
+   * then every KNOCK_EVERY_MS — until the app opens the way again.
+   *
+   * At once matters. Each time the app comes on screen it opens the way,
+   * which ends the session this service had; the service learns of it at
+   * its next question, at most FAMILY_TV_WAITING_EVERY_MS later, and the
+   * way is open for ninety seconds from the opening.
+   */
   const knock = (): void => {
     rest();
     serving += 1;
     if (stopped) return;
     knocking = repeat({
-      ask: deps.claim,
+      ask: knockOnce,
       everyMs: KNOCK_EVERY_MS,
       onAnswer: (claimed) => {
         // No longer connected at all: there is nothing to wait for.

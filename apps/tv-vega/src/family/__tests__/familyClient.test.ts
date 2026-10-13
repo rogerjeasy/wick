@@ -525,3 +525,41 @@ describe('familyClient.renewNow — a fresh token before the old one runs out', 
     ).toBe('later');
   });
 });
+
+// The pairing service is asked for a fresh token with no time limit of its
+// own. A request that never answers must not hold up everything after it:
+// the background service asks one thing at a time.
+describe('familyClient — a renewal that does not answer', () => {
+  it('is "not now" once its time is up: the ask that needed it is only a failed ask, and the next can try again', async () => {
+    vi.useFakeTimers();
+    const { fetchImpl } = server([json(401, {}), json(401, {}), json(200, { waiting: [] })]);
+    const answers: Array<Promise<Renewed>> = [new Promise<Renewed>(() => {}), Promise.resolve({ jwt: 'scoped-2' })];
+    const renew = vi.fn(() => answers.shift()!);
+    const client = createFamilyClient({ serverUrl: 'https://w', jwt: 'scoped-1', renew, fetchImpl, timeoutMs: 6000 });
+
+    const first = client.waiting();
+    await vi.advanceTimersByTimeAsync(5999);
+    let settled = false;
+    void first.then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await first).toEqual({ kind: 'failed' });
+
+    expect(await client.waiting()).toEqual({ kind: 'waiting', waiting: [] });
+    expect(renew).toHaveBeenCalledTimes(2);
+  });
+
+  it('is "later" for a renewal asked for ahead of time', async () => {
+    vi.useFakeTimers();
+    const { fetchImpl } = server([]);
+    const client = createFamilyClient({ serverUrl: 'https://w', jwt: 'j', renew: () => new Promise<Renewed>(() => {}), fetchImpl, timeoutMs: 6000 });
+
+    const renewing = client.renewNow();
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(await renewing).toBe('later');
+  });
+});

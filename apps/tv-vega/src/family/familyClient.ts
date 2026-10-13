@@ -260,13 +260,29 @@ export function createFamilyClient(args: FamilyClientArgs): FamilyClient {
     }
   }
 
+  /**
+   * One renewal at a time, and never for longer than any other request
+   * here: the pairing service is asked with no time limit of its own, and
+   * a request that never answered would hold up every ask after it. Out of
+   * time is only "not now".
+   */
   function renewOnce(heldJwt: string): Promise<Renewed> {
-    renewing ??= args
-      .renew(heldJwt)
-      .catch((): Renewed => 'try_later')
-      .finally(() => {
-        renewing = undefined;
-      });
+    if (renewing) return renewing;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tooLong = new Promise<Renewed>((resolve) => {
+      timer = setTimeout(() => resolve('try_later'), timeoutMs);
+    });
+    const renewed = (async (): Promise<Renewed> => {
+      try {
+        return await args.renew(heldJwt);
+      } catch {
+        return 'try_later';
+      }
+    })();
+    renewing = Promise.race([renewed, tooLong]).finally(() => {
+      clearTimeout(timer);
+      renewing = undefined;
+    });
     return renewing;
   }
 

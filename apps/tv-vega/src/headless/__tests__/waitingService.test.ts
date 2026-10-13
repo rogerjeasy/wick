@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FAMILY_TV_WAITING_EVERY_MS, type DeviceToken } from '@wick/contracts';
 import type { WaitingAnswer } from '../../family/familyClient.js';
 import type { ToastContent } from '../../notify/doorToast.js';
-import { KNOCK_EVERY_MS, NARROW_RENEW_AFTER_MS, RENEW_RETRY_MS, renewAfterMs, runWaitingService, type Claimed, type WaitingClient } from '../waitingService.js';
+import { KNOCK_EVERY_MS, KNOCK_TIMEOUT_MS, NARROW_RENEW_AFTER_MS, RENEW_RETRY_MS, renewAfterMs, runWaitingService, type Claimed, type WaitingClient } from '../waitingService.js';
 
 const T0 = 1_800_000_000_000;
 const HOUR = 60 * 60 * 1000;
@@ -222,5 +222,64 @@ describe('runWaitingService — when its token is gone', () => {
 
     expect(h.claim).toHaveBeenCalledTimes(1);
     expect(h.clients).toHaveLength(0);
+  });
+});
+
+// Every time the app comes on screen it opens the way at the pairing
+// service — and that ends the service's session (edge-device
+// pair-refresh.mjs), so a copy of its token stops working. The service's
+// own next question is then refused, and it has ninety seconds from the
+// opening to be let in again.
+describe('runWaitingService — let in again after the app has opened the way', () => {
+  /** How long the way stays open (edge-device family-television.mjs SERVICE_WINDOW_MS). */
+  const WAY_OPEN_MS = 90_000;
+
+  it('holds a new token within one question of the opening: the first knock is at once, not an interval later', async () => {
+    const h = harness();
+    h.start(NARROW);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.clients[0]!.waiting).toHaveBeenCalledTimes(1);
+
+    // The app opens the way a moment after that question. The next is refused, and the way is open.
+    const next = { ...NARROW, jwt: 'scoped-2' } as DeviceToken;
+    h.answers.push({ kind: 'signedOut' });
+    h.claims.push({ token: next });
+    await vi.advanceTimersByTimeAsync(FAMILY_TV_WAITING_EVERY_MS);
+
+    expect(h.claim).toHaveBeenCalledTimes(1);
+    expect(h.clients).toHaveLength(2);
+    expect(h.clients[1]!.token).toBe(next);
+    expect(h.clients[1]!.waiting).toHaveBeenCalledTimes(1);
+    expect(FAMILY_TV_WAITING_EVERY_MS).toBeLessThan(WAY_OPEN_MS / 3);
+  });
+
+  it('is still inside the way after one question that failed outright', async () => {
+    const h = harness();
+    h.start(NARROW);
+    await vi.advanceTimersByTimeAsync(0);
+
+    h.answers.push({ kind: 'failed' }, { kind: 'signedOut' });
+    h.claims.push({ token: { ...NARROW, jwt: 'scoped-2' } as DeviceToken });
+    await vi.advanceTimersByTimeAsync(FAMILY_TV_WAITING_EVERY_MS * 2);
+
+    expect(h.clients).toHaveLength(2);
+    expect(FAMILY_TV_WAITING_EVERY_MS * 2 + KNOCK_TIMEOUT_MS).toBeLessThan(WAY_OPEN_MS);
+  });
+
+  it('finds a way opened while it was silent within one knock, well inside the ninety seconds', () => {
+    expect(KNOCK_EVERY_MS + KNOCK_TIMEOUT_MS).toBeLessThan(WAY_OPEN_MS / 2);
+  });
+
+  it('gives a knock that does not answer its time and no more: the next knock is not held up by it', async () => {
+    const h = harness();
+    const hung = new Promise<Claimed>(() => {});
+    h.claim.mockImplementationOnce(() => hung);
+    h.claims.push({ token: NARROW });
+    h.start(undefined);
+
+    await vi.advanceTimersByTimeAsync(KNOCK_EVERY_MS);
+    expect(h.claim).toHaveBeenCalledTimes(2);
+    expect(h.clients).toHaveLength(1);
+    expect(KNOCK_TIMEOUT_MS).toBeLessThan(KNOCK_EVERY_MS);
   });
 });

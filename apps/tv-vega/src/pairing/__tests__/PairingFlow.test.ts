@@ -426,6 +426,22 @@ describe('PairingFlow', () => {
         expect(JSON.parse(await kept.readFileAsString(TOKEN_FILE, 'utf8'))).toEqual(EXPIRED);
       });
 
+      // The pairing service ends a service's session in three ways of its own —
+      // the token ran out, the session is seven days old, or the service was
+      // let in again and this token belongs to the session before
+      // (edge-device pair-refresh.mjs). Each is a 401, and each is the same
+      // to the television: this token is finished, and the disk is left alone.
+      it('takes every way a service’s session can end as "this token is finished", whatever the reason given', async () => {
+        for (const reason of ['token_expired', 'session_over', 'session_replaced', 'invalid_token']) {
+          const fs = await holding(EXPIRED);
+          const { asked, fetchImpl } = api([new Response(reason, { status: 401 })]);
+
+          expect(await flowOn(fs, fetchImpl).renew('d1', 'scoped-jwt', { remember: false })).toBe('not_connected');
+          expect(asked).toHaveLength(1);
+          expect(JSON.parse(await fs.readFileAsString(TOKEN_FILE, 'utf8'))).toEqual(EXPIRED);
+        }
+      });
+
       it('does not write a narrow token down even when asked to remember', async () => {
         const fs = await holding(EXPIRED);
         const { fetchImpl } = api([ok(SCOPED)]);
