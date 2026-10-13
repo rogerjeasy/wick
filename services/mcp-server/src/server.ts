@@ -58,6 +58,7 @@ import { registerInviteToWatch } from './tools/invite_to_watch.js';
 import { registerGetWatchTogether } from './tools/get_watch_together.js';
 import { registerJoinWatchTogether } from './tools/join_watch_together.js';
 import { registerAnswerWatchTogether } from './tools/answer_watch_together.js';
+import { registerWithdrawWatchInvitation } from './tools/withdraw_watch_invitation.js';
 
 /**
  * A fresh `McpServer` for exactly one session's lifetime.
@@ -81,6 +82,7 @@ function createMcpServer(
   ctx: ToolContext,
   sendCard: (card: QueuedCard) => Promise<void>,
   sendPatch: (patch: CardPatch, householdId: string) => Promise<void>,
+  withdrawCard: (householdId: string, cardId: string) => Promise<void>,
 ): McpServer {
   const mcpServer = new McpServer({ name: 'wick', version: '0.2.0' });
   registerGetResidentSharedView(mcpServer, ddb, ctx);
@@ -99,6 +101,7 @@ function createMcpServer(
   registerGetWatchTogether(mcpServer, ddb, ctx);
   registerJoinWatchTogether(mcpServer, ddb, ctx, sendCard);
   registerAnswerWatchTogether(mcpServer, ddb, ctx, sendCard);
+  registerWithdrawWatchInvitation(mcpServer, ddb, ctx, withdrawCard);
   registerGetLight(mcpServer, ddb, ctx);
   return mcpServer;
 }
@@ -119,7 +122,7 @@ async function listToolSpecs(ddb: DynamoDBClient): Promise<ToolSpec[]> {
   const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'wick-assistant', version: '0.1.0' });
   const nowhere = async (): Promise<void> => { throw new Error('tools/list only'); };
-  await Promise.all([createMcpServer(ddb, nobody, nowhere, nowhere).connect(serverSide), client.connect(clientSide)]);
+  await Promise.all([createMcpServer(ddb, nobody, nowhere, nowhere, nowhere).connect(serverSide), client.connect(clientSide)]);
   try {
     const { tools } = await client.listTools();
     return tools.map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema }));
@@ -135,6 +138,8 @@ export interface AppDeps {
   readonly sendCard: (card: QueuedCard) => Promise<void>;
   /** egress.ts's sendPatchToDevice — how an answer reaches a door card already on the television (INV-2). */
   readonly sendPatch: (patch: CardPatch, householdId: string) => Promise<void>;
+  /** egress.ts's takeBackFromDevices — how a card its sender withdrew leaves the television (INV-2). */
+  readonly withdrawCard: (householdId: string, cardId: string) => Promise<void>;
   /**
    * egress.ts's sendHomeToDevices — how the resident's home screen is told
    * who looked in (INV-2). Absent, the look is still kept, and the
@@ -244,7 +249,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
         // The light in the window: asking after the resident is something the resident is told.
         lookedIn: (allowed) =>
           recordLook(ddb, { householdId: grant.householdId, userId: grant.userId, name: allowed.membership.name }, (deps.now ?? Date.now)(), deps.sendHome ?? (async () => {})),
-      }, deps.sendCard, deps.sendPatch);
+      }, deps.sendCard, deps.sendPatch, deps.withdrawCard);
       // No `sessionIdGenerator` given: that is what makes it stateless.
       const transport = new StreamableHTTPServerTransport({});
       res.on('close', () => {

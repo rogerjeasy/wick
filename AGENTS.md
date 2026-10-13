@@ -63,7 +63,12 @@ television, and the taking back of ones it still holds that were answered on
 another television in the home; nothing bound for the family goes that way.
 Taking a card off the *other* televisions the moment it is answered is not
 the edge's to do: it says so on the bus (`card.retired`), and `egress.ts`
-sends the `revoke`.
+sends the `revoke`. The same goes for a home screen changed by a press on
+one television — the light put out or lit again, or what is shared changed:
+the edge tells the television that was pressed, says so on the bus
+(`home.changed`), and `egress.ts` tells the others. And a card its sender
+takes back before it is answered (an invitation to watch a film) leaves the
+televisions through `egress.ts` too (`takeBackFromDevices`).
 
 ### INV-3 — No Ring media is persisted beyond 24 hours
 Enforced by S3 bucket lifecycle policy in `infra/`, not by application code.

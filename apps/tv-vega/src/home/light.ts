@@ -11,10 +11,17 @@
  */
 import type { HomeState, QueuedCard } from '@wick/contracts';
 
-/** The button's words — or nothing, when there is no light for anyone to see. */
-export function lightLabel(home: HomeState): string | undefined {
+/**
+ * The button's words — or nothing, when there is no light for anyone to see.
+ *
+ * Out is for the day she put it out, and the server says when that day
+ * ends where the house is. After it the light is lit again by itself, so a
+ * television left on overnight says "Light on": saying "out" into a day the
+ * family can see lit would be the one wrong thing this button could say.
+ */
+export function lightLabel(home: HomeState, now: number = Date.now()): string | undefined {
   if (home.light === 'on') return 'Light on';
-  if (home.light === 'out') return 'Light out';
+  if (home.light === 'out') return home.lightOutUntil !== undefined && now >= home.lightOutUntil ? 'Light on' : 'Light out';
   return undefined;
 }
 
@@ -23,12 +30,15 @@ const sameDay = (a: Date, b: Date): boolean => a.getFullYear() === b.getFullYear
 /**
  * "Sarah looked in this morning." — the server's sentence, as it stands: it
  * knows what time it is where the house is. Shown only while the look is
- * still today's by this television's clock.
+ * still today's: until the moment the server gives, or — from a server that
+ * gives none — by this television's own calendar.
  */
 export function lookedInLine(home: HomeState, now: number): string | undefined {
   const look = home.lookedIn;
-  if (!look || !sameDay(new Date(look.at), new Date(now))) return undefined;
-  return look.line;
+  if (!look) return undefined;
+  // The server's own end of that day when it gives one: this television's calendar may be in another zone, or wrong.
+  const todays = look.until !== undefined ? now < look.until : sameDay(new Date(look.at), new Date(now));
+  return todays ? look.line : undefined;
 }
 
 /**

@@ -12,6 +12,18 @@ describe('lightLabel — the button on the home screen', () => {
     expect(lightLabel({ light: 'out' })).toBe('Light out');
   });
 
+  it('stops saying it is out when the day she put it out is over, where the house is', () => {
+    const until = NOW + 5 * 3_600_000;
+    const out = { light: 'out', lightOutUntil: until } as const;
+
+    expect(lightLabel(out, NOW)).toBe('Light out');
+    expect(lightLabel(out, until - 1)).toBe('Light out');
+    // A television left on overnight: tomorrow the family can see it lit, so it must not say otherwise.
+    expect(lightLabel(out, until)).toBe('Light on');
+    // From a server that does not say until when: as it was told.
+    expect(lightLabel({ light: 'out' }, until)).toBe('Light out');
+  });
+
   it('is nothing when there is no light for anyone to see', () => {
     expect(lightLabel({})).toBeUndefined();
     expect(lightLabel({ lookedIn: { name: 'Sarah', at: NOW, line: 'Sarah looked in this morning.' } })).toBeUndefined();
@@ -24,6 +36,16 @@ describe('lookedInLine — who looked in', () => {
   it('says the sentence the server wrote, as it stands: the server knows what time it is where the house is', () => {
     expect(lookedInLine(look(at(8, 15)), NOW)).toBe('Sarah looked in this morning.');
     expect(lookedInLine(look(at(14), 'Tom looked in this afternoon.'), at(15))).toBe('Tom looked in this afternoon.');
+  });
+
+  it('goes by the server’s end of the day when it is given one, not by this television’s calendar', () => {
+    const until = at(23, 0);
+    const told = { lookedIn: { name: 'Sarah', at: at(8, 15), line: 'Sarah looked in this morning.', until } };
+
+    expect(lookedInLine(told, until - 1)).toBe('Sarah looked in this morning.');
+    expect(lookedInLine(told, until)).toBeUndefined();
+    // A television whose clock is a day behind (a simulator that slept) still shows today's look.
+    expect(lookedInLine(told, at(16, 0, 11))).toBe('Sarah looked in this morning.');
   });
 
   it('stops saying it when the day is over, and says nothing of nobody', () => {

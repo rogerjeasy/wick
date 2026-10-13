@@ -118,7 +118,8 @@ describe('recordLook — who looked in', () => {
     await recordLook(table.ddb, who, NOW, async (householdId, home) => void told.push([householdId, home]));
 
     expect(await row(table, 'LOOKIN#u_sarah')).toMatchObject({ name: { S: 'Sarah' }, lookedAt: { N: String(NOW) } });
-    expect(told).toEqual([['hh-1', { lookedIn: { name: 'Sarah', at: NOW, line: 'Sarah looked in this morning.' } }]]);
+    // With the moment it stops being today's, where the house is: her television's own clock is not asked.
+    expect(told).toEqual([['hh-1', { lookedIn: { name: 'Sarah', at: NOW, line: 'Sarah looked in this morning.', until: Date.UTC(2026, 9, 12, 23, 0) } }]]);
   });
 
   it('does not keep the row for ever', async () => {

@@ -4,7 +4,7 @@ import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { DEFAULT_POLICY } from '@wick/policy';
-import { sendHomeToDevices, sendPatchToDevice, sendToDevice } from '@wick/agent';
+import { sendHomeToDevices, sendPatchToDevice, sendToDevice, takeBackFromDevices } from '@wick/agent';
 import { createApp } from './server.js';
 import { createCognitoIdentity, type CognitoSend } from './accounts/identity.js';
 import { createDynamoAccountStore, type DdbSend } from './accounts/store.js';
@@ -87,6 +87,7 @@ const app = createApp(ISSUER_URL, {
   identity: createCognitoIdentity(((command) => cognito.send(command as never)) as CognitoSend, COGNITO_CLIENT_ID),
   sendCard: (card) => sendToDevice(card, DEFAULT_POLICY),
   sendPatch: sendPatchToDevice,
+  withdrawCard: (householdId, cardId) => takeBackFromDevices(cardId, householdId),
   sendHome: sendHomeToDevices,
   ddb,
   claimTelevision: async (accessToken, code) => {

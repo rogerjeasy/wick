@@ -49,6 +49,19 @@ export function homeRange({ table, householdId }) {
   };
 }
 
+/** The first moment of the next day where the house is (contracts endOfLocalDay): found by looking, since a day is not always twenty-four hours. */
+export function endOfLocalDay(at, timeZone) {
+  const today = dayIn(at, timeZone);
+  let still = at;
+  let past = at + 26 * 3_600_000;
+  while (past - still > 1) {
+    const middle = still + Math.floor((past - still) / 2);
+    if (dayIn(middle, timeZone) === today) still = middle;
+    else past = middle;
+  }
+  return past;
+}
+
 const firstName = (name) => String(name ?? '').trim().split(/\s+/)[0] || 'Someone';
 
 function partOfDay(at, timeZone) {
@@ -78,7 +91,8 @@ function read(items, now, timeZone) {
     .map((item) => ({ name: firstName(item.name?.S), at: Number(item.lookedAt?.N) }))
     .filter((look) => Number.isFinite(look.at) && sameLocalDay(look.at, now, timeZone))
     .sort((a, b) => b.at - a.at)
-    .map((look) => ({ ...look, line: lookedInWords(look.name, look.at, timeZone) }))[0];
+    // The sentence, and until when it holds: the television's own clock need not know what day it is here.
+    .map((look) => ({ ...look, line: lookedInWords(look.name, look.at, timeZone), until: endOfLocalDay(look.at, timeZone) }))[0];
 
   return {
     watchers: allowed.map((item) => firstName(item.name?.S)),
@@ -97,8 +111,25 @@ function read(items, now, timeZone) {
 export function homeState({ items, now, timeZone }) {
   const { seen, out, lookedIn } = read(items, now, timeZone);
   return {
-    ...(seen ? { light: out ? 'out' : 'on' } : {}),
+    // Out, and until when: it lights again by itself, and a television left on overnight has to know.
+    ...(seen ? (out ? { light: 'out', lightOutUntil: endOfLocalDay(now, timeZone) } : { light: 'on' }) : {}),
     ...(lookedIn ? { lookedIn } : {}),
+  };
+}
+
+/**
+ * The home screen has changed by a press on one television — the light put
+ * out or lit again, or what is shared changed. The home's other televisions
+ * have to hear of it, and the edge may only answer the one that spoke
+ * (INV-2): so the agent plane is told, and sends it on (services/agent
+ * egress.ts sendHomeToDevices). Resident-bound, like the state itself.
+ */
+export function buildHomeChangedEntry({ busName, householdId, deviceId, home, at }) {
+  return {
+    EventBusName: busName,
+    Source: 'wick.device',
+    DetailType: 'home.changed',
+    Detail: JSON.stringify({ householdId, deviceId, home, at }),
   };
 }
 

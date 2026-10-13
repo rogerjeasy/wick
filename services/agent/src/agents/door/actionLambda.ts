@@ -9,6 +9,7 @@
  *     tell_family/keep_private → tell/answer.ts, here: record the answer → nudge, or nothing
  *   television.active          → tell/ask.ts, here: is anything different? → file the question → card → TV
  *   card.retired               → egress.ts, here: the home's other televisions put the card away
+ *   home.changed               → egress.ts, here: the home's other televisions are told how the home screen stands
  *
  * A shim for the chime, because EventBridge cannot target an AgentCore
  * Runtime. Everything else is answered here: none of it needs a model or a
@@ -20,9 +21,9 @@
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { randomUUID } from 'node:crypto';
-import { DOOR_ACTIONS, PUSH_KINDS, tellAnswerOf } from '@wick/contracts';
+import { DOOR_ACTIONS, PUSH_KINDS, readHomeState, tellAnswerOf, type HomeState } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
-import { nudgeFamily, sendPatchToDevice, sendToDevice, withdrawFromDevices } from '../../egress.js';
+import { nudgeFamily, sendHomeToDevices, sendPatchToDevice, sendToDevice, withdrawFromDevices } from '../../egress.js';
 import { loadShareableDifferences } from '../../rhythm/loadDifferent.js';
 import { tellStore, type TellSend } from '../../store/tells.js';
 import { handleTellAnswer, type TellAnswerResult } from '../tell/answer.js';
@@ -49,6 +50,8 @@ export interface CardActionRoutes {
   readonly askResident: (householdId: string) => Promise<readonly string[]>;
   /** Takes a card off the home's televisions that still have it up, but for the one that was pressed (egress.ts withdrawFromDevices). */
   readonly withdraw: (householdId: string, cardId: string, pressedOn?: string) => Promise<void>;
+  /** Tells the home's other televisions how the home screen now stands, whole (egress.ts sendHomeToDevices). */
+  readonly tellHome: (householdId: string, home: HomeState, pressedOn?: string) => Promise<void>;
 }
 
 export interface DeviceBusEvent {
@@ -69,6 +72,14 @@ export async function routeCardAction(evt: DeviceBusEvent, routes: CardActionRou
     if (typeof householdId !== 'string' || !householdId || typeof cardId !== 'string' || !cardId) return { result: 'ignored' };
     await routes.withdraw(householdId, cardId, typeof deviceId === 'string' ? deviceId : undefined);
     return { result: 'withdrawn' };
+  }
+  if (evt['detail-type'] === 'home.changed') {
+    // The light put out or lit again, or what is shared changed, on one television: a second one in the home must not go on saying otherwise.
+    const { householdId, deviceId } = evt.detail;
+    const home = readHomeState(evt.detail.home);
+    if (typeof householdId !== 'string' || !householdId || !home) return { result: 'ignored' };
+    await routes.tellHome(householdId, home, typeof deviceId === 'string' ? deviceId : undefined);
+    return { result: 'home_told' };
   }
   if (evt.detail.action === DOOR_ACTIONS.askFamily) return { result: await routes.askFamily(evt.detail) };
   if (tellAnswerOf(evt.detail.action)) return { result: await routes.tellAnswer(evt.detail) };
@@ -127,6 +138,7 @@ export const handler = async (evt: DeviceBusEvent): Promise<void> => {
     tellAnswer,
     askResident,
     withdraw: (householdId, cardId, pressedOn) => withdrawFromDevices(cardId, householdId, pressedOn),
+    tellHome: (householdId, home, pressedOn) => sendHomeToDevices(householdId, home, { whole: true, exceptDeviceId: pressedOn }),
   });
   // Ids and the outcome only — never card content.
   console.log(JSON.stringify({ level: 'info', msg: 'card_action_handled', cardId: evt.detail.cardId, action: evt.detail.action, out }));

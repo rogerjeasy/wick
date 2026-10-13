@@ -21,7 +21,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { WRITES, data, say } from './result.js';
-import { NOTHING_ASKED, TABLE, describeWatch, mySession, sessionKey, watchCard } from './watchSession.js';
+import { NOTHING_ASKED, TABLE, WITHDRAWN_TEXT, describeWatch, mySession, sessionKey, watchCard } from './watchSession.js';
 
 export function registerJoinWatchTogether(
   mcpServer: McpServer,
@@ -53,6 +53,7 @@ export function registerJoinWatchTogether(
       const view = describeWatch(session, at);
       if (view.state === 'invited') return say(`${residentName} hasn't answered the invitation yet. It is on the television.`);
       if (view.state === 'declined') return say(`${residentName} said not this time.`);
+      if (view.state === 'withdrawn') return say(WITHDRAWN_TEXT);
       if (view.state === 'passed') return say(`${residentName} chose not to watch just now.`);
       if (view.state === 'over') return say(`The time for ${view.film} has passed. You can ask again for another day.`);
       if (view.state !== 'accepted') return data(view); // already sat down

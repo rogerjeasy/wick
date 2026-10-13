@@ -14,7 +14,7 @@
  * only when it is.
  */
 import { UpdateItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { LOOKIN_SK_PREFIX, lookedInWords, type HomeState } from '@wick/contracts';
+import { LOOKIN_SK_PREFIX, endOfLocalDay, lookedInWords, type HomeState } from '@wick/contracts';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
@@ -57,7 +57,8 @@ export async function recordLook(
   }
 
   try {
-    await sendHome(who.householdId, { lookedIn: { name, at: now, line: lookedInWords(name, now, HOUSEHOLD_TZ) } });
+    // With the end of today where the house is: the television shows the line until then, whatever its own clock says.
+    await sendHome(who.householdId, { lookedIn: { name, at: now, line: lookedInWords(name, now, HOUSEHOLD_TZ), until: endOfLocalDay(now, HOUSEHOLD_TZ) } });
   } catch (err) {
     // A television that is off is told when it next connects (the edge's reconcile reads the same row).
     console.error(JSON.stringify({ level: 'error', msg: 'look_not_told', err: err instanceof Error ? err.name : 'unknown' }));
