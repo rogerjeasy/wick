@@ -352,21 +352,29 @@ describe('askForLanguage — the organiser asks, and nothing changes', () => {
     expect(w.meta().languageAsked).toBeUndefined();
   });
 
-  it('leaves no question open when the card could not be sent: nobody is told she was asked when she was not', async () => {
+  it('counts a question whose card could not be sent as asked and taken back: Wick cannot tell whether it reached her, so it does not get to ask again at once', async () => {
     const w = await setup();
     w.world.sendFails = true;
 
-    await expect(askForLanguage(w.deps, SARAH, 'es')).rejects.toThrow('egress is down');
+    const refused = await refusal(askForLanguage(w.deps, SARAH, 'es'));
 
+    expect(refused).toMatchObject({
+      status: 503,
+      code: 'not_sent',
+      message: 'Wick could not be sure the question reached Margaret’s television, so it has taken it back. It can be asked again in a day.',
+    });
+    // No question is left open, so nobody is told she is being asked when she may not be…
     expect(w.meta().languageAsked).toBeUndefined();
     expect(w.meta().languageAskedBy).toBeUndefined();
     expect(w.meta().languageAskedAt).toBeUndefined();
+    // …and the day's wait has begun, exactly as if the organiser had taken it back: a send that keeps failing
+    // could otherwise put the card on her television, and off it, as often as anyone liked.
+    expect(w.meta().languageTakenBack).toEqual({ S: 'es' });
+    expect(w.meta().languageTakenBackAt).toEqual({ N: String(NOW) });
 
-    // She was never asked, so this is not a taking back: nothing is recorded, and it can be asked at once.
-    expect(w.meta().languageTakenBack).toBeUndefined();
     w.world.sendFails = false;
-    await askForLanguage(w.deps, SARAH, 'es');
-    expect(w.cards.map((card) => card.id)).toEqual(['language-es']);
+    expect(await refusal(askForLanguage(w.deps, SARAH, 'es'))).toMatchObject({ status: 409, code: 'taken_back_lately' });
+    expect(w.cards).toEqual([]);
   });
 
   it('takes a card that may have been half sent off her television again, as far as it can', async () => {
@@ -381,11 +389,31 @@ describe('askForLanguage — the organiser asks, and nothing changes', () => {
       },
     };
 
-    await expect(askForLanguage(deps, SARAH, 'es')).rejects.toThrow('push failed');
+    expect(await refusal(askForLanguage(deps, SARAH, 'es'))).toMatchObject({ status: 503, code: 'not_sent' });
 
     expect(calls).toBe(1);
     expect(w.withdrawn).toEqual([{ householdId: HH, cardId: 'language-es' }]);
     expect(w.meta().languageAsked).toBeUndefined();
+  });
+
+  it('leaves the question open when even the taking back cannot be recorded: an open question cannot be asked again either', async () => {
+    const w = await setup();
+    const deps: LanguageDeps = {
+      ...w.deps,
+      sendCard: async () => {
+        throw new Error('push failed');
+      },
+      store: { ...w.deps.store, takeBackLanguageQuestion: async () => Promise.reject(new Error('table is down')) },
+    };
+
+    expect(await refusal(askForLanguage(deps, SARAH, 'es'))).toMatchObject({ status: 503, code: 'not_sent' });
+
+    // Never cleared without a record: that would be the way round the wait.
+    expect(w.meta().languageAsked).toEqual({ S: 'es' });
+    expect(w.meta().languageTakenBack).toBeUndefined();
+    const again = await askForLanguage(w.deps, SARAH, 'es');
+    expect(again.say).toBe('That question is still on Margaret’s television. Nothing changes until she says yes.');
+    expect(w.cards).toEqual([]);
   });
 
   it('replaces a question for another language: the old card is taken back, then the new one sent, with one update', async () => {
