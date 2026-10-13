@@ -192,3 +192,334 @@ describe('POST /pair/refresh for a family television', () => {
     expect((await worldWithKey(nobody)(withToken({ deviceId: 'tv-2' }, held(sarahs)))).statusCode).toBe(404);
   });
 });
+
+// What waits, said while Wick is off the screen (Vega only). The app cannot
+// hand its token to its background service on the television — nothing is
+// shared between the two (FRICTION.md FL-013, and the spike of 2026-10-13) —
+// so it opens a short way for the service here, with its own proof.
+describe('POST /pair/refresh for a family television’s background service', () => {
+  const sarahs = { deviceId: 'tv-2', householdId: 'hh_1', kind: 'family', userId: 'u_sarah' };
+  const fullToken = (expiresInSec = 3600) => signJwt(sarahs, privateKey, { expiresInSec });
+  /** Where the television is: its app and its service are one device, and ask from one address. */
+  const HOME_ADDRESS = '203.0.113.7';
+  const ELSEWHERE = '198.51.100.23';
+
+  /** A table of one family television, kept across calls, that honours the conditions it is written under. */
+  function familyTelevision(row: Item = { deviceId: { S: 'tv-2' }, userId: { S: 'u_sarah' } }) {
+    let now = NOW;
+    /** Run once, between a request's read of the row and its write: what another request did meanwhile. */
+    let meanwhile: (() => void) | undefined;
+    const send = async (command: { input: { Key: Item; UpdateExpression?: string; ConditionExpression?: string; ExpressionAttributeValues?: Item } }) => {
+      const key = `${command.input.Key.pk!.S}|${command.input.Key.sk!.S}`;
+      if (command instanceof GetItemCommand) {
+        if (key === 'DEV#tv-2|META') return { Item: { householdId: { S: 'hh_1' } } };
+        return { Item: key === 'HH#hh_1|FTV#tv-2' ? { ...row } : undefined };
+      }
+      if (command instanceof UpdateItemCommand) {
+        expect(key).toBe('HH#hh_1|FTV#tv-2');
+        const other = meanwhile;
+        meanwhile = undefined;
+        other?.();
+        const values = command.input.ExpressionAttributeValues ?? {};
+        const same = (a: Item[string] | undefined, b: Item[string] | undefined) => JSON.stringify(a) === JSON.stringify(b);
+        for (const clause of (command.input.ConditionExpression ?? '').split(' AND ').filter(Boolean)) {
+          const missing = /^attribute_not_exists\((\w+)\)$/.exec(clause);
+          const present = /^attribute_exists\((\w+)\)$/.exec(clause);
+          const equal = /^(\w+) = (:\w+)$/.exec(clause);
+          const greater = /^(\w+) > (:\w+)$/.exec(clause);
+          // As DynamoDB: a comparison with an attribute that is not there does not hold.
+          const holds = missing
+            ? row[missing[1]!] === undefined
+            : present
+              ? present[1] === 'pk' || row[present[1]!] !== undefined
+              : equal
+                ? same(row[equal[1]!], values[equal[2]!])
+                : greater
+                  ? row[greater[1]!]?.N !== undefined && Number(row[greater[1]!]!.N) > Number(values[greater[2]!]!.N)
+                  : false;
+          if (!holds) throw Object.assign(new Error(`condition failed: ${clause}`), { name: 'ConditionalCheckFailedException' });
+        }
+        const [, sets = '', removes = ''] = /^SET (.*?)(?: REMOVE (.*))?$/.exec(command.input.UpdateExpression ?? '') ?? [];
+        for (const set of sets.split(', ').filter(Boolean)) {
+          const [name, value] = set.split(' = ');
+          row[name!] = values[value!]!;
+        }
+        for (const name of removes.split(', ').filter(Boolean)) delete row[name];
+      }
+      return {};
+    };
+    const handler = createHandler({ send, privateKey: async () => privateKey, publicKey: async () => publicKey, now: () => now, table: 'wick' });
+    const ask = async (o: object, jwt?: string, from: string | null = HOME_ADDRESS) => {
+      const res = (await handler({
+        body: JSON.stringify({ deviceId: 'tv-2', ...o }),
+        headers: jwt ? { Authorization: `Bearer ${jwt}` } : {},
+        // What the HTTP API gives the Lambda (payload format 2.0, infra/pairing.tf).
+        ...(from ? { requestContext: { http: { sourceIp: from } } } : {}),
+      })) as { statusCode: number; body: string };
+      const token = res.statusCode === 200 ? (JSON.parse(res.body) as { token: { jwt: string; kind?: string; scope?: string; expiresAt: number } }).token : undefined;
+      return { status: res.statusCode, body: res.body, token, claims: token ? (verifyJwt(token.jwt, publicKey) as Record<string, unknown>) : undefined };
+    };
+    return {
+      row,
+      /** The app, showing the token it holds. */
+      app: (o: object = {}, jwt = fullToken(), from: string | null = HOME_ADDRESS) => ask(o, jwt, from),
+      /** Anybody who knows the device id: the service — from the television's own address — or a stranger from theirs. */
+      proofless: (o: object = { forService: true }, from: string | null = HOME_ADDRESS) => ask(o, undefined, from),
+      ask,
+      later: (ms: number) => {
+        now += ms;
+      },
+      meanwhile: (what: () => void) => {
+        meanwhile = what;
+      },
+    };
+  }
+
+  it('answers one of two asks that arrive together: the way is used up in the write, not in the read', async () => {
+    const tv = familyTelevision();
+    await tv.app({ forService: true });
+
+    // Another ask took the way after this one read the row and before it wrote.
+    tv.meanwhile(() => {
+      delete tv.row.serviceUntil;
+      delete tv.row.serviceFrom;
+    });
+    const loser = await tv.proofless();
+
+    expect(loser.status).toBe(401);
+    expect(loser.body).toBe('token_required');
+  });
+
+  // Hardening, after a security review of the mint without proof: the way
+  // is bound to the address it was opened from.
+  describe('only from where it was opened', () => {
+    it('answers the television’s own address and no other — and a stranger’s ask does not spend the way', async () => {
+      const tv = familyTelevision();
+      await tv.app({ forService: true });
+
+      const stranger = await tv.proofless({ forService: true }, ELSEWHERE);
+      expect(stranger.status).toBe(401);
+      expect(stranger.body).toBe('token_required');
+
+      expect((await tv.proofless()).token).toMatchObject({ scope: 'waiting' });
+    });
+
+    it('keeps a hash of the address beside the stamp, never the address', async () => {
+      const tv = familyTelevision();
+      await tv.app({ forService: true });
+
+      expect(tv.row.serviceFrom?.S).toMatch(/^[0-9a-f]{64}$/);
+      expect(JSON.stringify(tv.row)).not.toContain(HOME_ADDRESS);
+    });
+
+    it('is checked in the write that uses the way up, so it cannot be raced round', async () => {
+      const tv = familyTelevision();
+      await tv.app({ forService: true });
+
+      // Between this ask's read and its write, the app opened the way again — from somewhere else.
+      tv.meanwhile(() => {
+        tv.row.serviceFrom = { S: 'f'.repeat(64) };
+      });
+      expect((await tv.proofless()).status).toBe(401);
+    });
+
+    it('checks in that same write that the way has not closed', async () => {
+      const tv = familyTelevision();
+      await tv.app({ forService: true });
+
+      // What the row says by the time of the write is what counts, not what was read.
+      tv.meanwhile(() => {
+        tv.row.serviceUntil = { N: String(NOW - 1) };
+      });
+      expect((await tv.proofless()).status).toBe(401);
+    });
+
+    it('never opens a way for a request that comes from nowhere — though the app still gets its own token', async () => {
+      const tv = familyTelevision();
+
+      const opened = await tv.app({ forService: true }, fullToken(), null);
+      expect(opened.status).toBe(200);
+      expect(opened.token).not.toHaveProperty('scope');
+      expect(tv.row).not.toHaveProperty('serviceUntil');
+      expect(tv.row).not.toHaveProperty('serviceFrom');
+    });
+
+    it('never answers a request that comes from nowhere, inside a way or not', async () => {
+      const tv = familyTelevision();
+      await tv.app({ forService: true });
+
+      expect((await tv.proofless({ forService: true }, null)).status).toBe(401);
+      // A way stamped without an address (a row from before this rule) answers nobody either.
+      delete tv.row.serviceFrom;
+      expect((await tv.proofless()).status).toBe(401);
+    });
+
+    it('takes the address away with the stamp when the way is used', async () => {
+      const tv = familyTelevision();
+      await tv.app({ forService: true });
+      await tv.proofless();
+
+      expect(tv.row).not.toHaveProperty('serviceUntil');
+      expect(tv.row).not.toHaveProperty('serviceFrom');
+    });
+  });
+
+  // And the narrow token is the one token here that cannot be brought back once it has run out.
+  describe('a narrow token that has run out', () => {
+    const scoped = (expiresInSec: number) => signJwt({ ...sarahs, scope: 'waiting' }, privateKey, { expiresInSec });
+
+    it('is refused: it is renewed while it is still good, or not at all', async () => {
+      const tv = familyTelevision();
+
+      const lapsed = await tv.ask({}, scoped(-60));
+      expect(lapsed.status).toBe(401);
+      expect(lapsed.body).toBe('token_expired');
+
+      expect((await tv.ask({}, scoped(600))).token).toMatchObject({ scope: 'waiting' });
+    });
+
+    it('leaves the television’s own token as it was: one that has run out is still its proof', async () => {
+      const tv = familyTelevision();
+
+      const res = await tv.app({}, fullToken(-3600));
+      expect(res.status).toBe(200);
+      expect(res.token).not.toHaveProperty('scope');
+    });
+  });
+
+  it('mints the service a token of one scope, once, after the app has opened the way with its own token', async () => {
+    const tv = familyTelevision();
+
+    const opened = await tv.app({ forService: true });
+    expect(opened.status).toBe(200);
+    // The app's own refresh is what it always was: its full token, with no scope.
+    expect(opened.token).toMatchObject({ kind: 'family' });
+    expect(opened.token).not.toHaveProperty('scope');
+    expect(opened.claims).not.toHaveProperty('scope');
+
+    tv.later(1_000);
+    const service = await tv.proofless();
+    expect(service.status).toBe(200);
+    expect(service.token).toMatchObject({ kind: 'family', scope: 'waiting' });
+    // The household and the member are the row's (INV-8), and the token says how little it is for.
+    expect(service.claims).toMatchObject({ ...sarahs, scope: 'waiting' });
+    expect(service.token!.expiresAt).toBe(NOW + 1_000 + 3600 * 1000);
+  });
+
+  it('is single use: a second ask without a token is refused as it always was', async () => {
+    const tv = familyTelevision();
+    await tv.app({ forService: true });
+
+    expect((await tv.proofless()).status).toBe(200);
+    const second = await tv.proofless();
+    expect(second.status).toBe(401);
+    expect(second.body).toBe('token_required');
+    expect(tv.row).not.toHaveProperty('serviceUntil');
+  });
+
+  it('gives nothing without a token when the app has not opened the way — whatever the request says', async () => {
+    const tv = familyTelevision();
+
+    expect((await tv.proofless()).body).toBe('token_required');
+    expect((await tv.proofless({})).body).toBe('token_required');
+  });
+
+  it('is not opened by an ordinary refresh: the app has to ask for it', async () => {
+    const tv = familyTelevision();
+    expect((await tv.app()).status).toBe(200);
+
+    expect(tv.row).not.toHaveProperty('serviceUntil');
+    expect((await tv.proofless()).status).toBe(401);
+  });
+
+  it('stays shut to a plain refresh without a token even while the way is open: only the service’s own ask takes it', async () => {
+    const tv = familyTelevision();
+    await tv.app({ forService: true });
+
+    // The app itself, relaunched on a television that keeps nothing, asks like this — and must not be handed the narrow token.
+    const plain = await tv.proofless({});
+    expect(plain.status).toBe(401);
+    expect(plain.body).toBe('token_required');
+    // And the way is still there for the service.
+    expect((await tv.proofless()).status).toBe(200);
+  });
+
+  it('closes by itself after ninety seconds', async () => {
+    const tv = familyTelevision();
+    await tv.app({ forService: true });
+
+    tv.later(90_000);
+    expect((await tv.proofless()).status).toBe(401);
+  });
+
+  it('outlasts the wait of a service that was told "too soon"', async () => {
+    const tv = familyTelevision();
+    // A busy half minute: the app three times, the last of them opening the way.
+    expect((await tv.app()).status).toBe(200);
+    expect((await tv.app()).status).toBe(200);
+    expect((await tv.app()).status).toBe(200);
+    expect((await tv.app({ forService: true })).status).toBe(200);
+
+    // The service is one too many — and is not told it is unpaired, nor does it spend the way.
+    expect((await tv.proofless()).status).toBe(429);
+    // It waits a little over the half minute, as it does today (PairingFlow), and asks again.
+    tv.later(32_000);
+    expect((await tv.proofless()).token).toMatchObject({ scope: 'waiting' });
+  });
+
+  it('never widens: a scoped token shown as proof brings another scoped token, and never opens the way', async () => {
+    const tv = familyTelevision();
+    await tv.app({ forService: true });
+    const scoped = (await tv.proofless()).token!.jwt;
+
+    tv.later(40_000);
+    const again = await tv.ask({}, scoped);
+    expect(again.status).toBe(200);
+    expect(again.token).toMatchObject({ kind: 'family', scope: 'waiting' });
+    expect(again.claims).toMatchObject({ ...sarahs, scope: 'waiting' });
+
+    tv.later(40_000);
+    const asking = await tv.ask({ forService: true }, scoped);
+    expect(asking.token).toMatchObject({ scope: 'waiting' });
+    expect(tv.row).not.toHaveProperty('serviceUntil');
+    expect((await tv.proofless()).status).toBe(401);
+  });
+
+  it('refuses a token of a scope it does not know', async () => {
+    const tv = familyTelevision();
+    const odd = signJwt({ ...sarahs, scope: 'everything' }, privateKey, { expiresInSec: 600 });
+
+    const res = await tv.ask({}, odd);
+    expect(res.status).toBe(401);
+    expect(res.body).toBe('invalid_token');
+  });
+
+  it('opens nothing for a television that has been revoked, and mints nothing for it inside a way opened before', async () => {
+    const revoked = familyTelevision({ deviceId: { S: 'tv-2' }, userId: { S: 'u_sarah' }, denylisted: { BOOL: true } });
+    expect((await revoked.app({ forService: true })).status).toBe(403);
+
+    const tv = familyTelevision();
+    await tv.app({ forService: true });
+    tv.row.denylisted = { BOOL: true };
+    expect((await tv.proofless()).status).toBe(403);
+  });
+
+  it('means nothing on the resident’s television: its service is answered as before, with no scope and no way stamped', async () => {
+    const items: Record<string, Item> = { 'DEV#tv-1|META': { householdId: { S: 'hh_1' } }, 'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' } } };
+    const updates: string[] = [];
+    const send = async (command: { input: { Key: Item; UpdateExpression?: string } }) => {
+      if (command instanceof GetItemCommand) return { Item: items[`${command.input.Key.pk!.S}|${command.input.Key.sk!.S}`] };
+      updates.push(command.input.UpdateExpression ?? '');
+      return {};
+    };
+    const handler = createHandler({ send, privateKey: async () => privateKey, publicKey: async () => publicKey, now: () => NOW, table: 'wick' });
+
+    const res = await handler({ body: JSON.stringify({ deviceId: 'tv-1', forService: true }) });
+    expect(res.statusCode).toBe(200);
+    const { token } = JSON.parse(res.body) as { token: { jwt: string; kind?: string; scope?: string } };
+    expect(token).not.toHaveProperty('kind');
+    expect(token).not.toHaveProperty('scope');
+    expect(verifyJwt(token.jwt, publicKey)).not.toHaveProperty('scope');
+    expect(updates).toEqual(['SET refreshWindowAt = :at, refreshCount = :count']);
+  });
+});
