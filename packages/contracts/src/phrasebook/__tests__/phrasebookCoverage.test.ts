@@ -3,14 +3,16 @@
  * phrasebook: the Reach card in every state (reach.ts), the Visit card
  * (visit.ts), the sentence on the home screen (light.ts), and the answers a
  * family member can choose that are shown to her under their name (door.ts,
- * reach.ts, watch.ts).
+ * reach.ts, watch.ts), and a picture for the mantelpiece (mantel.ts).
  *
  * The real builders are run, and what they write is put through `cardIn`.
  */
 import { describe, expect, it } from 'vitest';
 import {
   DOOR_ANSWERS,
+  MANTEL_FULL_NOTICE,
   MAX_CARD_DETAIL_CHARS,
+  PHOTO_ACTIONS,
   REACH_ANSWERS,
   WATCH_ANSWERS,
   WATCH_QUESTION,
@@ -24,10 +26,14 @@ import {
   languageQuestion,
   lookedInWords,
   patchIn,
+  photoCardId,
+  photoCardWords,
+  photoIdOfCardId,
   sayIn,
   visitSentence,
   type Card,
   type LanguageCard,
+  type PhotoCard,
   type ReachCard,
   type ReachPerson,
   type ReachRequest,
@@ -273,6 +279,50 @@ describe('the answers a family member chooses, as she reads them under their nam
       expect(sayIn('es', WATCH_ANSWERS[key])).toBe(spanish[key]);
       expect(sayIn('es', `Sarah says: “${WATCH_ANSWERS[key]}”`)).toBe(`Sarah dice: “${spanish[key]}”`);
     }
+  });
+});
+
+describe('a picture for the mantelpiece (mantel.ts photoCardWords, MANTEL_FULL_NOTICE)', () => {
+  const picture = (fromName: string, notice?: string): PhotoCard => ({
+    type: 'PHOTO',
+    id: photoCardId('p_8Jk2-xQ9a'),
+    householdId: 'hh-1',
+    correlationId: 'c-1',
+    createdAt: NOW,
+    photoId: 'p_8Jk2-xQ9a',
+    fromName,
+    photoUrl: 'https://photos.example/p_8Jk2-xQ9a.jpg?sig=abc',
+    ...photoCardWords(fromName),
+    ...(notice === undefined ? {} : { notice }),
+  });
+
+  it('says who sent it, with the two answers that both put it away', () => {
+    const card = coverage.spanish(picture('Sarah Hughes'));
+    expect(card.headline).toBe('Una foto de parte de Sarah.');
+    expect(card.actions.map((a) => a.label)).toEqual(['Guardarla', 'Gracias']);
+    expect(card.actions.map((a) => a.id)).toEqual([PHOTO_ACTIONS.keep, PHOTO_ACTIONS.thanks]);
+    expect('notice' in card).toBe(false);
+  });
+
+  it('whoever sent it, and the picture itself is never touched: its id, its sender’s name, its address', () => {
+    for (const name of ['Anne-Marie O’Brien', "D'Arcy", 'José', 'Zoë', 'Bartholomew-Fitzgerald24', 'Tuesday']) {
+      const english = picture(name);
+      const card = coverage.spanish(english);
+      expect(card.headline).toBe(`Una foto de parte de ${name.split(' ')[0]}.`);
+      expect(card).toMatchObject({ id: english.id, photoId: 'p_8Jk2-xQ9a', fromName: name, photoUrl: english.photoUrl });
+      expect(photoIdOfCardId(card.id)).toBe('p_8Jk2-xQ9a');
+    }
+  });
+
+  it('says so, on the card, when "Keep it" found the mantelpiece full', () => {
+    const card = coverage.spanish(picture('Sarah Hughes', MANTEL_FULL_NOTICE));
+    expect(card.notice).toBe('Su repisa está llena. Quite una foto, y entonces podrá guardar esta.');
+    expect(card.notice!.length).toBeLessThanOrEqual(MAX_CARD_DETAIL_CHARS);
+    expect(card.actions.map((a) => a.label)).toEqual(['Guardarla', 'Gracias']);
+  });
+
+  it('and the same sentence when it reaches the card she has open as a patch', () => {
+    expect(patchIn('es', { cardId: photoCardId('p_8Jk2-xQ9a'), notice: MANTEL_FULL_NOTICE }).notice).toBe('Su repisa está llena. Quite una foto, y entonces podrá guardar esta.');
   });
 });
 

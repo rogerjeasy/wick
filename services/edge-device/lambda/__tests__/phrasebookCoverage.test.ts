@@ -8,8 +8,9 @@
  * source: generating it again gives exactly the bytes checked in.
  *
  * Then the edge's own builders are run — the Light card, "What Sarah sees",
- * the offer to ask someone to ring, the question at the credits — and what
- * they write is put through that copy. And her press on a card shown in her
+ * the offer to ask someone to ring, the question at the credits, a picture
+ * sent back because her mantelpiece is full — and what they write is put
+ * through that copy. And her press on a card shown in her
  * language still means what it meant: an id is never translated.
  */
 import { readFileSync } from 'node:fs';
@@ -17,18 +18,23 @@ import { describe, expect, it } from 'vitest';
 import {
   CIRCLE_ACTIONS,
   LIGHT_ACTIONS,
+  MANTEL_FULL_NOTICE as CONTRACT_FULL_NOTICE,
   MAX_CARD_DETAIL_CHARS,
+  PHOTO_ACTIONS,
   REACH_ACTIONS,
   SHARING_ACTIONS,
   WATCH_ANSWERS,
   cardIn as contractCardIn,
   circleCardId,
+  photoCardId,
+  photoCardWords,
   reachKindOf,
   sayIn as contractSayIn,
   type Card,
   type CircleCard,
   type LightCard,
   type MessageCard,
+  type PhotoCard,
   type QueuedCard,
   type ReachCard,
   type SharingCard,
@@ -44,6 +50,8 @@ import * as generated from '../phrasebook.generated.mjs';
 import { circleDecision } from '../circle.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { buildLightCard, homeState, lightPress } from '../light.mjs';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { MANTEL_FULL_NOTICE, cardBack, photoPress, storedPhotoCard } from '../mantel.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { replyIndex, replyText } from '../note-reply.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
@@ -278,6 +286,52 @@ describe('the question at the credits (watch-together.mjs)', () => {
     const card = question(session());
     expect(card.actions.map((a) => a.id)).toEqual(Object.keys(WATCH_ANSWERS));
     expect(card.actions.map((a) => watchPress(card.id, a.id))).toEqual(Object.keys(WATCH_ANSWERS).map((answer) => ({ sessionId: 's-1', press: 'answer', answer })));
+  });
+});
+
+describe('a picture that was not put away (mantel.mjs cardBack, sent by device-event.mjs notPutAway)', () => {
+  /** The picture's card as the server stored it (mcp-server photos/send.ts buildPhotoCard): the contracts' words, and no address. */
+  const storedRow = (fromName: string) => {
+    const card: PhotoCard = { type: 'PHOTO', id: photoCardId('p_8Jk2-xQ9a'), householdId: 'margaret', correlationId: photoCardId('p_8Jk2-xQ9a'), createdAt: NOW, photoId: 'p_8Jk2-xQ9a', fromName, ...photoCardWords(fromName) };
+    return { data: { S: JSON.stringify({ id: card.id, urgency: 'DEFERRED', queuedAt: NOW, shownCount: 1, card }) } };
+  };
+  const back = (fromName: string, full: boolean): PhotoCard => {
+    const stored = storedPhotoCard(storedRow(fromName), 'p_8Jk2-xQ9a') as { queued: QueuedCard };
+    return coverage.spanish(cardOf(cardBack(stored.queued, { full }) as QueuedCard, 'PHOTO'));
+  };
+
+  it('the sentence the edge writes is the very one the phrasebook holds', () => {
+    expect(MANTEL_FULL_NOTICE).toBe(CONTRACT_FULL_NOTICE);
+    expect(Object.values(ES_CATALOGUE).flat().map((entry) => entry.en)).toContain(MANTEL_FULL_NOTICE);
+    expect(sayIn('es', MANTEL_FULL_NOTICE)).toBe('Su repisa está llena. Quite una foto, y entonces podrá guardar esta.');
+  });
+
+  it('goes back saying her mantelpiece is full, and what to do', () => {
+    const card = back('Sarah Hughes', true);
+    expect(card).toMatchObject({
+      photoId: 'p_8Jk2-xQ9a',
+      fromName: 'Sarah Hughes',
+      headline: 'Una foto de parte de Sarah.',
+      notice: 'Su repisa está llena. Quite una foto, y entonces podrá guardar esta.',
+    });
+    expect(labels(card)).toEqual(['Guardarla', 'Gracias']);
+    expect(card.notice!.length).toBeLessThanOrEqual(MAX_CARD_DETAIL_CHARS);
+  });
+
+  it('goes back without a word when the keeping simply failed', () => {
+    const card = back('Anne-Marie O’Brien', false);
+    expect(card.headline).toBe('Una foto de parte de Anne-Marie.');
+    expect(card).not.toHaveProperty('notice');
+    expect(labels(card)).toEqual(['Guardarla', 'Gracias']);
+  });
+
+  it('a press on the card in her language is the press it always was', () => {
+    const card = back('Sarah Hughes', true);
+    expect(card.actions.map((a) => a.id)).toEqual([PHOTO_ACTIONS.keep, PHOTO_ACTIONS.thanks]);
+    expect(card.actions.map((a) => photoPress(card.id, a.id))).toEqual([
+      { photoId: 'p_8Jk2-xQ9a', answer: 'keep' },
+      { photoId: 'p_8Jk2-xQ9a', answer: 'thanks' },
+    ]);
   });
 });
 

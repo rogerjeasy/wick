@@ -32,6 +32,9 @@ export const COVERED_IN: Readonly<Record<Card['type'], readonly Builders[]>> = {
   REACH: ['contracts', 'edge', 'agent', 'mcp-server'],
   VISIT: ['contracts', 'agent'],
   LANGUAGE: ['contracts'],
+  // Its words are the contracts' own (mantel.ts photoCardWords, MANTEL_FULL_NOTICE). The server puts them on the card
+  // (photos/send.ts), and the edge sends it back with the notice when her mantelpiece is full (mantel.mjs cardBack).
+  PHOTO: ['contracts', 'mcp-server', 'edge'],
 };
 
 /** Every `type` a card can have, read out of card.ts itself: the union as it stands, not as it stood when this was written. */
@@ -62,6 +65,11 @@ export function wickWords(card: Card): Record<string, string> {
       break;
     // The week's paragraph is free text.
     case 'WEEK':
+      break;
+    // A picture carries no words of the family's: the headline and what is said when the mantelpiece is full are Wick's.
+    case 'PHOTO':
+      words.headline = card.headline;
+      if (card.notice !== undefined) words.notice = card.notice;
       break;
     default:
       words.headline = card.headline;
