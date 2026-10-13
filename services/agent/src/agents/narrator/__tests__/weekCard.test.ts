@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { WeekNarrative } from '@wick/contracts';
-import { buildWeekCard } from '../weekCard.js';
+import { buildWeekCard, familyNameForWeekCard } from '../weekCard.js';
 
 const narrative: WeekNarrative = {
   householdId: 'hh-1',
@@ -48,5 +48,18 @@ describe('buildWeekCard', () => {
 
   it('carries the household id through from the narrative', () => {
     expect(buildWeekCard(narrative, 'corr-1', 2000).card.householdId).toBe('hh-1');
+  });
+});
+
+describe('familyNameForWeekCard — who "What … sees" names', () => {
+  it('is the first name of the one person she has allowed', () => {
+    expect(familyNameForWeekCard(['Sarah Hughes'])).toBe('Sarah');
+    expect(familyNameForWeekCard(['Guest'])).toBe('Guest');
+  });
+
+  it('is nobody by name when several can see it, when nobody can yet, or when the name would not fit the button', () => {
+    expect(familyNameForWeekCard(['Sarah', 'Tom'])).toBeUndefined();
+    expect(familyNameForWeekCard([])).toBeUndefined();
+    expect(familyNameForWeekCard(['Bartholomew-James Smith'])).toBeUndefined();
   });
 });

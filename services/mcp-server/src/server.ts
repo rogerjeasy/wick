@@ -101,7 +101,7 @@ function createMcpServer(
   registerGetWatchTogether(mcpServer, ddb, ctx);
   registerJoinWatchTogether(mcpServer, ddb, ctx, sendCard);
   registerAnswerWatchTogether(mcpServer, ddb, ctx, sendCard);
-  registerWithdrawWatchInvitation(mcpServer, ddb, ctx, withdrawCard);
+  registerWithdrawWatchInvitation(mcpServer, ddb, ctx, withdrawCard, sendCard);
   registerGetLight(mcpServer, ddb, ctx);
   return mcpServer;
 }

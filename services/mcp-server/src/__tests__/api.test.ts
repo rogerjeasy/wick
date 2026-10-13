@@ -117,6 +117,55 @@ describe('removing someone', () => {
   });
 });
 
+describe('DELETE /api/televisions/:deviceId', () => {
+  it('lets the organiser disconnect a television from the home', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+    h.store.addTelevision(sarah.householdId, { deviceId: 'tv-1', pairedAt: 5, connected: true });
+    h.store.addTelevision(sarah.householdId, { deviceId: 'tv-old', pairedAt: 2, connected: false });
+
+    const res = await api(h, sarah, '/api/televisions/tv-old', { method: 'DELETE' });
+
+    expect(res.status).toBe(204);
+    expect(((await (await api(h, sarah, '/api/circle')).json()) as { televisions: { deviceId: string }[] }).televisions.map((tv) => tv.deviceId)).toEqual(['tv-1']);
+  });
+
+  it('is the organiser’s alone', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+    const tom = await linkInvited(h, TOM, await invite(h, sarah));
+    await residentAllows(h, tom.householdId, tom.userId);
+    h.store.addTelevision(sarah.householdId, { deviceId: 'tv-1', pairedAt: 5, connected: true });
+
+    const res = await api(h, tom, '/api/televisions/tv-1', { method: 'DELETE' });
+
+    expect(res.status).toBe(403);
+    expect(await h.store.listTelevisions(sarah.householdId)).toHaveLength(1);
+  });
+
+  it('says so when the television is not connected to this home', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+
+    const res = await api(h, sarah, '/api/televisions/tv-nobody', { method: 'DELETE' });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_a_television', message: 'That television is not connected to this home.' });
+  });
+
+  it('INV-8: cannot disconnect another home’s television by knowing its id', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+    const other = await linkNewOrganiser(h, { name: 'Priya', email: 'priya@example.com', password: 'another long passphrase' }, 'Asha');
+    h.store.addTelevision(sarah.householdId, { deviceId: 'tv-1', pairedAt: 5, connected: true });
+
+    const res = await api(h, other, '/api/televisions/tv-1', { method: 'DELETE' });
+
+    expect(res.status).toBe(404);
+    expect(await h.store.listTelevisions(sarah.householdId)).toHaveLength(1);
+  });
+});
+
 describe('INV-8: one household per token, and no way to name another', () => {
   it('answers each person about their own home only', async () => {
     const h = await server();

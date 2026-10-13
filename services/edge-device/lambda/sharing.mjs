@@ -61,8 +61,32 @@ export function readExclusions(metaItem) {
   return [...new Set([...fromPolicy, ...fromTv])];
 }
 
-/** One page, as a QueuedCard. Undefined when the family can see nothing at all. */
-export function buildSharingCard({ householdId, page, policyJson, exclusions, familyName, now, respondsTo }) {
+/**
+ * The first names of the people the resident has allowed, from the
+ * household's own rows (`MEM#<userId>`): who "can see this" is. Asked of
+ * the circle each time, so the card names the people who really can see —
+ * not a name set once for every home.
+ */
+export function allowedFirstNames(items) {
+  return (items ?? [])
+    .filter((item) => item.sk?.S?.startsWith('MEM#') && item.status?.S === 'allowed')
+    .map((item) => String(item.name?.S ?? '').trim().split(/\s+/)[0])
+    .filter(Boolean);
+}
+
+/** Who can see a thing that is shared, in a sentence: one person by name, the family, or nobody yet. */
+function seenBy(watchers, familyName) {
+  if (!watchers) return `${familyName ?? 'Your family'} can see this.`;
+  if (watchers.length === 0) return 'Nobody can see this yet: you have not allowed anyone.';
+  return `${watchers.length === 1 ? watchers[0] : 'Your family'} can see this.`;
+}
+
+/**
+ * One page, as a QueuedCard. Undefined when the family can see nothing at all.
+ * `watchers` is allowedFirstNames of the household; without it the card
+ * speaks of `familyName`, or of "your family".
+ */
+export function buildSharingCard({ householdId, page, policyJson, exclusions, familyName, watchers, now, respondsTo }) {
   const classes = visibleClasses(policyJson);
   if (classes.length === 0) return undefined;
 
@@ -70,8 +94,7 @@ export function buildSharingCard({ householdId, page, policyJson, exclusions, fa
   const factClass = classes[index];
   const item = ITEMS.find((i) => i.factClass === factClass);
   const isPrivate = exclusions.includes(factClass);
-  const who = familyName ?? 'Your family';
-  const status = isPrivate ? 'You’re keeping this private.' : `${who} can see this.`;
+  const status = isPrivate ? 'You’re keeping this private.' : seenBy(watchers, familyName);
 
   return {
     id: SHARING_CARD_ID,

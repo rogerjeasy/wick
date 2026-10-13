@@ -7,10 +7,22 @@
  * isoWeek from the card id rather than needing a lookup.
  */
 import { WEEK_ACTIONS, type QueuedCard, type WeekNarrative } from '@wick/contracts';
+import { familyToAsk } from '../door/index.js';
+
+/**
+ * Who the week card's second button names, from the people the resident has
+ * allowed: the one person's first name, or nobody by name — "your family" —
+ * when several can see the week, nobody can yet, or the name would not fit
+ * a button. The same rule the door's "Ask Sarah to look" goes by.
+ */
+export function familyNameForWeekCard(allowedNames: readonly string[]): string | undefined {
+  const who = allowedNames.length === 1 ? familyToAsk(allowedNames) : undefined;
+  return who === 'the family' ? undefined : who;
+}
 
 /**
  * `familyName` is the household's family member as the resident knows them
- * (WICK_FAMILY_NAME). The second button opens "What Sarah sees" over this
+ * (familyNameForWeekCard, from the household's own circle). The second button opens "What Sarah sees" over this
  * card (trust promise 2); OK stays first and focused, because only OK
  * releases the week to the family.
  */

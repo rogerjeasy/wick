@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allowedFirstNames,
   buildSharingCard,
   exclusionUpdate,
   readExclusions,
@@ -97,6 +98,31 @@ describe('buildSharingCard — one thing Sarah can see, in plain words', () => {
   it('says "your family" when the household has not named anyone', () => {
     const card = buildSharingCard({ householdId: 'h', page: 0, policyJson: undefined, exclusions: [], now: NOW }).card;
     expect(card.detail).toContain('Your family can see this.');
+  });
+});
+
+describe('who can see it — named from the household’s own circle, not from a setting', () => {
+  const member = (userId: string, name: string, status = 'allowed') => ({ pk: { S: 'HH#margaret' }, sk: { S: `MEM#${userId}` }, name: { S: name }, status: { S: status } });
+  const card = (watchers: string[] | undefined) =>
+    buildSharingCard({ householdId: 'margaret', page: 0, policyJson: undefined, exclusions: [], watchers, now: NOW }).card;
+
+  it('reads the first names of the people she has allowed, and nobody else', () => {
+    const rows = [member('u1', 'Sarah Hughes'), member('u2', 'Tom', 'pending'), member('u3', 'Amy', 'declined'), { pk: { S: 'HH#margaret' }, sk: { S: 'META' } }];
+
+    expect(allowedFirstNames(rows)).toEqual(['Sarah']);
+    expect(allowedFirstNames([])).toEqual([]);
+  });
+
+  it('names the one person who can see it', () => {
+    expect(card(['Guest']).detail).toBe(`1 of 4. Guest can see this. ${NEVER}`);
+  });
+
+  it('speaks of her family when more than one person can', () => {
+    expect(card(['Sarah', 'Tom']).detail).toBe(`1 of 4. Your family can see this. ${NEVER}`);
+  });
+
+  it('says that nobody can yet, when she has allowed nobody', () => {
+    expect(card([]).detail).toBe(`1 of 4. Nobody can see this yet: you have not allowed anyone. ${NEVER}`);
   });
 });
 

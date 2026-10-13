@@ -63,12 +63,6 @@ variable "household_id" {
   default     = "margaret"
 }
 
-variable "family_name" {
-  description = "The family member as the resident knows them, used on the television: \"What Sarah sees\", \"Sarah can see this.\" Empty means \"your family\"."
-  type        = string
-  default     = "Sarah"
-}
-
 variable "household_time_zone" {
   description = "The household's IANA time zone. The weekly narrative says \"Wednesday evening\" in the resident's time, not UTC (services/agent/src/agents/narrator/weekFacts.ts). Margaret lives in England."
   type        = string

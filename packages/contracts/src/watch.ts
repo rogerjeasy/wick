@@ -39,12 +39,14 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 export const isWatchSessionId = (value: unknown): value is string => typeof value === 'string' && SESSION_ID.test(value);
 
 /**
- * The four cards one session can put on the television, in the order they
- * come: the invitation; "… is ready to watch with you" when the family
- * member has sat down; the question at the credits; and what the family
- * member answered.
+ * The cards one session can put on the television, in the order they come:
+ * the invitation; "… is ready to watch with you" when the family member has
+ * sat down; the question at the credits; and what the family member
+ * answered. And one that takes the place of the rest: "… cannot make the
+ * film after all", when the family member calls off a film the resident had
+ * said yes to.
  */
-export const WATCH_CARD_KINDS = ['invite', 'ready', 'question', 'answer'] as const;
+export const WATCH_CARD_KINDS = ['invite', 'ready', 'question', 'answer', 'cancelled'] as const;
 export type WatchCardKind = (typeof WATCH_CARD_KINDS)[number];
 
 /** Deterministic, like the Week card's: the press names the session without the television holding anything about it. */

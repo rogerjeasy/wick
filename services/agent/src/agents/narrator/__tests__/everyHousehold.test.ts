@@ -39,6 +39,31 @@ function run(over: Partial<EveryHouseholdDeps>): Run {
   };
 }
 
+describe('narrateEveryHousehold — the week card names this household’s own family', () => {
+  const label = (card: QueuedCard | undefined) => (card?.card.type === 'WEEK' ? card.card.actions[1]!.label : undefined);
+
+  it('asks who the family is for each household, and says so on its button', async () => {
+    const { deps, cards } = run({
+      listHouseholds: async () => ['hh-a', 'hh-b', 'hh-c'],
+      // One person in the first home; several, or nobody yet, in the others.
+      familyNameOf: async (householdId) => (householdId === 'hh-a' ? 'Sarah' : undefined),
+    });
+
+    await narrateEveryHousehold('2026-W38', deps);
+
+    expect(cards.map(label)).toEqual(['What Sarah sees', 'What your family sees', 'What your family sees']);
+  });
+
+  it('still sends the week when the family cannot be read', async () => {
+    const { deps, cards } = run({ listHouseholds: async () => ['hh-a'], familyNameOf: async () => { throw new Error('table down'); } });
+
+    const result = await narrateEveryHousehold('2026-W38', deps);
+
+    expect(result.written).toEqual(['hh-a']);
+    expect(label(cards[0])).toBe('What your family sees');
+  });
+});
+
 describe('narrateEveryHousehold', () => {
   it('measures each household against its own history, never another home\'s', async () => {
     const WEEK = 7 * 86_400_000;

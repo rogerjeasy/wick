@@ -24,7 +24,12 @@ export interface EveryHouseholdDeps {
   readonly now: () => number;
   readonly newCorrelationId: () => string;
   readonly timeZone: string;
-  readonly familyName?: string;
+  /**
+   * The household's family member as the resident knows them, for the week
+   * card's "What … sees" button (weekCard.ts familyNameForWeekCard) — asked
+   * of each household's own circle, not set once for every home.
+   */
+  readonly familyNameOf?: (householdId: string) => Promise<string | undefined>;
 }
 
 export interface NarratorRun {
@@ -70,7 +75,9 @@ export async function narrateEveryHousehold(isoWeek: string, deps: EveryHousehol
 
       // The resident's copy — INV-7. Pressing its one button is what actually
       // sets residentSeenAt (route.mjs); nothing here does that directly.
-      await deps.sendWeekCard(buildWeekCard(narrative, deps.newCorrelationId(), deps.now(), deps.familyName));
+      // A circle that cannot be read costs the button its name, never the household its week.
+      const familyName = await deps.familyNameOf?.(householdId).catch(() => undefined);
+      await deps.sendWeekCard(buildWeekCard(narrative, deps.newCorrelationId(), deps.now(), familyName));
       written.push(householdId);
       console.log(JSON.stringify({ level: 'info', msg: 'narrative_computed', householdId, isoWeek, events: narrative.timeline.length, baselineWeeks: narrative.deltas[0]?.baselineWeeks ?? 0, unusual: narrative.deltas.filter((d) => d.verdict && d.verdict !== 'usual').length, textSource: narrative.textSource, chars: narrative.text.length }));
     } catch (err) {

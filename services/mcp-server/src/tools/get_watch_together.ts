@@ -32,7 +32,7 @@ export function registerGetWatchTogether(mcpServer: McpServer, ddb: DynamoDBClie
       title: 'Watching a film together',
       description:
         'Returns the film the family member who is signed in has asked to watch with the resident (the newest, or the one named by `sessionId`), and its `state`: ' +
-        '"invited" (on the television, not yet answered; withdraw_watch_invitation takes it back), "declined", "withdrawn" (taken back before it was answered: another can be sent), "accepted" (with `canSitDown`: whether it is time yet), ' +
+        '"invited" (on the television, not yet answered; withdraw_watch_invitation takes it back, and calls off one already accepted), "declined", "withdrawn" (taken back before it was answered: another can be sent), "cancelled" (called off by the family member after the resident had said yes; the television says so), "accepted" (with `canSitDown`: whether it is time yet), ' +
         '"ready" (they have sat down and the television is waiting for the resident to start the film), "passed" (the resident chose not to, when it came to it), ' +
         '"watching" (with `playback`: where the resident’s film is, for a player that follows it), ' +
         '"stopped" (the resident started the film and left it before the end: nothing is followed any more, and another invitation can be sent), ' +
