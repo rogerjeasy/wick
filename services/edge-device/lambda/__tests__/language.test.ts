@@ -393,6 +393,88 @@ describe('inHerLanguage — every card and every home message the edge sends, pu
     expect(tv.cards[2]).toBe(light);
   });
 
+  describe('a picture’s card gets its address here, on the way out, and nowhere else', () => {
+    const photo = { type: 'PHOTO', id: 'photo-p1', householdId: 'hh-1', correlationId: 'c', createdAt: 1, photoId: 'p1', fromName: 'Sarah', headline: 'A picture from Sarah.', actions: [] };
+    const queuedPhoto = { id: 'photo-p1', urgency: 'DEFERRED', card: photo, queuedAt: 4, shownCount: 0 };
+
+    function withPictures(language: string, pictureAddress: (photoId: string) => string | undefined) {
+      const cards: { card: Record<string, unknown> }[] = [];
+      const controls: unknown[] = [];
+      const voice = inHerLanguage({
+        sendCard: async (card: { card: Record<string, unknown> }) => { cards.push(card); return true; },
+        sendControl: async (control: unknown) => { controls.push(control); return true; },
+        readLanguage: async () => language,
+        phrasebook,
+        pictureAddress,
+        log: () => {},
+      });
+      return { ...voice, cards, controls };
+    }
+
+    it('mints one for an English household too, and changes nothing else of the card', async () => {
+      const asked: string[] = [];
+      const tv = withPictures('en', (photoId) => { asked.push(photoId); return `https://photos.example/${photoId}?sig=1`; });
+
+      await tv.sendCard(queuedPhoto, { row: { data: { S: JSON.stringify(queuedPhoto) } } });
+
+      expect(tv.cards).toEqual([{ ...queuedPhoto, card: { ...photo, photoUrl: 'https://photos.example/p1?sig=1' } }]);
+      expect(asked).toEqual(['p1']);
+      // What was handed in — the stored card — is as it was.
+      expect(queuedPhoto.card).not.toHaveProperty('photoUrl');
+    });
+
+    it('mints one after the phrasebook has had the card', async () => {
+      const tv = withPictures('es', () => 'https://photos.example/p1?sig=2');
+
+      await tv.sendCard(queuedPhoto);
+
+      expect(tv.cards[0]!.card).toEqual({ ...photo, headline: '[es] A picture from Sarah.', photoUrl: 'https://photos.example/p1?sig=2' });
+    });
+
+    it('sends the card without one when none can be minted — the words still go', async () => {
+      const none = withPictures('en', () => undefined);
+      await none.sendCard(queuedPhoto);
+      expect(none.cards).toEqual([queuedPhoto]);
+
+      const throwing = withPictures('en', () => { throw new Error('no credentials'); });
+      await throwing.sendCard(queuedPhoto);
+      expect(throwing.cards).toEqual([queuedPhoto]);
+    });
+
+    it('never passes on an address that came with the card: only one minted now is sent', async () => {
+      const carrying = { ...queuedPhoto, card: { ...photo, photoUrl: 'https://stale.example/old' } };
+
+      const fresh = withPictures('en', () => 'https://photos.example/p1?sig=3');
+      await fresh.sendCard(carrying);
+      expect(fresh.cards[0]!.card.photoUrl).toBe('https://photos.example/p1?sig=3');
+
+      const none = withPictures('es', () => undefined);
+      await none.sendCard(carrying);
+      expect(none.cards[0]!.card).not.toHaveProperty('photoUrl');
+    });
+
+    it('mints nothing for any other kind of card, and hands an English one on untouched', async () => {
+      const asked: string[] = [];
+      const tv = withPictures('en', (photoId) => { asked.push(photoId); return 'https://photos.example/x'; });
+
+      await tv.sendCard(queuedNote);
+      await tv.sendCard(light);
+
+      expect(tv.cards[0]).toBe(queuedNote);
+      expect(tv.cards[1]).toBe(light);
+      expect(asked).toEqual([]);
+    });
+
+    it('hands on what she has kept exactly as it was built: the mantelpiece carries names and addresses, and no words of Wick’s', async () => {
+      const tv = withPictures('es', () => 'https://photos.example/x');
+      const control = { t: 'mantel', items: [{ photoId: 'p1', fromName: 'Sarah', keptAt: 5, url: 'https://photos.example/p1?sig=9' }] };
+
+      await tv.sendControl(control);
+
+      expect(tv.controls[0]).toBe(control);
+    });
+  });
+
   it('leaves a revoke as it is — it carries no words — and reads nothing for it', async () => {
     const tv = television('es');
     const revoke = { t: 'revoke', cardId: 'note-1' };

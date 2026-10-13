@@ -18,6 +18,7 @@
  * Pure: device-event.mjs owns the DynamoDB client.
  */
 import { DEFAULT_LANGUAGE, languageOfMeta } from './language.mjs';
+import { mantelOf } from './mantel.mjs';
 import { readExclusions, visibleClasses } from './sharing.mjs';
 
 export const LIGHT_SK = 'LIGHT';
@@ -105,6 +106,8 @@ function read(items, now, timeZone) {
     lookedIn,
     // The language her television speaks (language.mjs): the household's own row is among these.
     language: languageOfMeta(meta),
+    // How many things are on her mantelpiece (mantel.mjs): their rows are among these too.
+    mantel: mantelOf(items).length,
   };
 }
 
@@ -122,12 +125,15 @@ function read(items, now, timeZone) {
  * other televisions).
  */
 export function homeState({ items, now, timeZone }) {
-  const { seen, out, lookedIn, language } = read(items, now, timeZone);
+  const { seen, out, lookedIn, language, mantel } = read(items, now, timeZone);
   return {
     // Out, and until when: it lights again by itself, and a television left on overnight has to know.
     ...(seen ? (out ? { light: 'out', lightOutUntil: endOfLocalDay(now, timeZone) } : { light: 'on' }) : {}),
     ...(lookedIn ? { lookedIn } : {}),
     ...(language !== DEFAULT_LANGUAGE ? { language } : {}),
+    // A count and nothing else — so the home screen knows to offer her mantelpiece. What is on it is
+    // asked for by the television, and never told on the way (mantel.mjs).
+    ...(mantel > 0 ? { mantel } : {}),
   };
 }
 

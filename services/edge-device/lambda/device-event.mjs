@@ -85,6 +85,15 @@
  * language only where the agent plane kept a translation beside the stored
  * card. language.mjs.
  *
+ * The mantelpiece: a press on a picture's card (`photo-<photoId>`) is her
+ * "Keep it" or her "Thank you" — both say she has seen it, and nothing a
+ * family tool reads tells them apart, down to the timeline row above, which
+ * for these cards is written without its button. `{ t: 'mantel' }` is her
+ * opening her mantelpiece, answered on the channel it came in on and
+ * nowhere else; `{ t: 'mantel_take_down' }` takes one thing down. A
+ * picture's address is minted on the way out (language.mjs's one wrapper,
+ * presign.mjs) and written nowhere. mantel.mjs.
+ *
  * reconcile: the client sends `{ t: 'reconcile', sinceCardId, holding }` as a normal
  * message as soon as it is connected (WebSocketChannel.ts and MqttChannel.ts
  * in apps/tv-vega/src/transport) — which is why this lives here rather than
@@ -97,7 +106,7 @@
  * television in the home — is taken back with a `revoke`, through the
  * `sendControl` the caller supplies (card-acted.mjs's finishedAmong).
  */
-import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { randomUUID } from 'node:crypto';
 import { finishedAmong, isReplayable, markCardActed, markCardShown, replayedCard, retiresCard } from './card-acted.mjs';
@@ -110,6 +119,27 @@ import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, 
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
 import { buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
 import { inHerLanguage, languageAnswerUpdate, languageOfMeta, languagePress, languageRead } from './language.mjs';
+import {
+  PHOTO_ACTIONS,
+  PHOTO_STATES,
+  cardBack,
+  isMissingObject,
+  isPhotoId,
+  keepOutcome,
+  keepWrite,
+  mantelCountKey,
+  mantelItems,
+  mantelRoom,
+  photoCardKey,
+  photoIdOfCardId,
+  photoPress,
+  pictureAddress,
+  retagInput,
+  seenUpdate,
+  storedPhotoCard,
+  takeDownWrite,
+  thanksClaim,
+} from './mantel.mjs';
 // Generated from packages/contracts/src/phrasebook — the same sentences the agent plane sends.
 import { cardIn, homeIn, patchIn } from './phrasebook.generated.mjs';
 import { buildReachAskCard, firstToAsk, latestReach, reachUnderWayId, storedCardKey } from './reach.mjs';
@@ -120,6 +150,8 @@ const TABLE = process.env.TABLE_NAME;
 const BUS = process.env.EVENT_BUS_NAME;
 /** Where the house is: what "today" means for the light in the window (light.mjs). */
 const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ || 'Europe/London';
+/** Where the family's pictures are kept (infra/photos.tf). Without it a picture's card goes without its picture. */
+const PHOTOS_BUCKET = process.env.PHOTOS_BUCKET;
 
 const WEEK_CARD_ID = /^week-(\d{4}-W\d{2})$/;
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -204,11 +236,14 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
 
   // Everything sent below goes out in the household's language (language.mjs):
   // wrapped here, once, so every send site is covered without knowing it.
+  // The same wrapper gives a picture's card its address — minted now, for
+  // this household's own object and no other, and kept nowhere (mantel.mjs).
   const { sendCard, sendControl } = inHerLanguage({
     sendCard: sendCardAsWritten,
     sendControl: sendControlAsWritten,
     readLanguage: () => readLanguage(householdId),
     phrasebook: { cardIn, homeIn, patchIn },
+    pictureAddress: (photoId) => pictureAddress({ bucket: PHOTOS_BUCKET, householdId, photoId }),
   });
 
   if (deviceEvent.t === 'app_lifecycle') {
@@ -230,6 +265,9 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
     if (typeof deviceEvent.at !== 'number' || typeof deviceEvent.cardId !== 'string') {
       return { statusCode: 400, body: 'bad_device_event' };
     }
+    // A picture's card: which of its two buttons was pressed is hers alone
+    // (mantel.mjs, THE RULE), so the press goes on the timeline without it.
+    const onPicture = photoIdOfCardId(deviceEvent.cardId) !== undefined;
     await ddb.send(new PutItemCommand({
       TableName: TABLE,
       Item: {
@@ -241,17 +279,26 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
         sk: { S: `EVT#${String(deviceEvent.at).padStart(15, '0')}#${randomUUID()}` },
         type: { S: deviceEvent.t },
         cardId: { S: deviceEvent.cardId },
-        ...(deviceEvent.action ? { action: { S: deviceEvent.action } } : {}),
+        ...(deviceEvent.action && !onPicture ? { action: { S: deviceEvent.action } } : {}),
       },
     }));
 
     if (deviceEvent.t === 'card_shown') await countShowing(householdId, deviceEvent.cardId);
 
-    if (deviceEvent.t === 'card_action' && retiresCard(deviceEvent.action)) {
+    // Whether this press finishes its card. Any other card: by the button
+    // alone (card-acted.mjs). A picture's: by what her answer came to —
+    // "Keep it" on a full mantelpiece leaves the card where it is.
+    let finishes = deviceEvent.t === 'card_action';
+    if (finishes && onPicture) {
+      const photo = photoPress(deviceEvent.cardId, deviceEvent.action);
+      finishes = photo ? await answerPhoto({ sendCard, sendControl, householdId, deviceId, press: photo }) : false;
+    }
+
+    if (finishes && retiresCard(deviceEvent.action)) {
       await retireActedCard(householdId, deviceEvent.cardId, deviceEvent.at);
     }
 
-    if (deviceEvent.t === 'card_action' && announcesRetirement(deviceEvent.action)) {
+    if (finishes && announcesRetirement(deviceEvent.action)) {
       await publishCardRetired({ householdId, deviceId, cardId: deviceEvent.cardId, at: deviceEvent.at });
     }
 
@@ -303,6 +350,11 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
     await showLight({ sendCard, householdId });
   } else if (deviceEvent.t === 'reach') {
     await showReach({ sendCard, householdId });
+  } else if (deviceEvent.t === 'mantel') {
+    await showMantel({ sendControl, householdId });
+  } else if (deviceEvent.t === 'mantel_take_down') {
+    if (!isPhotoId(deviceEvent.photoId)) return { statusCode: 400, body: 'bad_device_event' };
+    await takeDown({ sendControl, householdId, deviceId, photoId: deviceEvent.photoId });
   } else if (deviceEvent.t === 'reconcile') {
     await reconcile({ sendCard, sendControl, householdId, holding: deviceEvent.holding });
     await tellHome({ sendControl, householdId });
@@ -675,6 +727,207 @@ async function changeLight({ sendControl, householdId, deviceId, press }) {
     return;
   }
   await tellEveryHome({ sendControl, householdId, deviceId });
+}
+
+// ---------------------------------------------------------------------------
+// The mantelpiece — see mantel.mjs, whose header says what each step is for.
+// ---------------------------------------------------------------------------
+
+let s3;
+
+/**
+ * Tells the bucket what a picture now is, so its own rules keep it or let it
+ * go (infra/photos.tf). `ok`; `missing` when the picture's bytes are no
+ * longer there; `failed` otherwise — tried twice, and said without naming
+ * the picture.
+ */
+async function retag(householdId, photoId, state) {
+  if (!PHOTOS_BUCKET) return 'failed';
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      // Loaded at the first picture, not at every television's every event.
+      s3 ??= import('@aws-sdk/client-s3').then((sdk) => ({ client: new sdk.S3Client({}), Command: sdk.PutObjectTaggingCommand }));
+      const { client, Command } = await s3;
+      await client.send(new Command(retagInput({ bucket: PHOTOS_BUCKET, householdId, photoId, state })));
+      return 'ok';
+    } catch (err) {
+      // Not there: nothing to tag, nothing to try again, and nothing worth saying.
+      if (isMissingObject(err)) return 'missing';
+      if (attempt === 2) console.error('photo_retag_failed', { err: err?.name });
+      else s3 = undefined;
+    }
+  }
+  return 'failed';
+}
+
+/** A transaction, tried again while another write is in its way. Throws what it is finally refused with. */
+async function transact(input) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await ddb.send(new TransactWriteItemsCommand(input));
+    } catch (err) {
+      if (keepOutcome(err) !== 'again' || attempt === 3) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 20 * attempt));
+    }
+  }
+}
+
+/**
+ * Her answer to a picture: "Keep it" or "Thank you". Says whether the card
+ * is finished by it. Everything is decided from rows read here — the stored
+ * card, the count — and nothing from the press but which card and which
+ * button; the time is this server's.
+ *
+ * Logged, never thrown, and never which answer it was: the press is already
+ * on the timeline, and a keeping that fails leaves the card as it was and
+ * sends it back to be pressed again.
+ */
+async function answerPhoto({ sendCard, sendControl, householdId, deviceId, press: { photoId, answer } }) {
+  const now = Date.now();
+  let stored;
+  try {
+    const [card, count] = await Promise.all([
+      ddb.send(new GetItemCommand({ TableName: TABLE, Key: photoCardKey(householdId, photoId), ConsistentRead: true })),
+      ddb.send(new GetItemCommand({ TableName: TABLE, Key: mantelCountKey(householdId), ConsistentRead: true })),
+    ]);
+    stored = storedPhotoCard(card.Item, photoId);
+    // Not a picture that was sent to this home: nothing to answer.
+    if (!stored) return false;
+    // Answered already — on another television, or a moment ago: what was answered stands.
+    if (stored.answered) return true;
+
+    console.log(JSON.stringify({ level: 'info', msg: 'photo_answered' }));
+    // The one thing the family is told, and the same whichever button this was.
+    await markSeen(householdId, photoId, now);
+
+    if (answer === PHOTO_ACTIONS.thanks) {
+      // The first answer is the answer: only a card still waiting is thanked for.
+      if (!(await claimed(thanksClaim({ table: TABLE, householdId, photoId, at: now })))) return true;
+      await retag(householdId, photoId, PHOTO_STATES.gone);
+      return true;
+    }
+
+    if (!mantelRoom(count.Item)) return await noRoom({ sendCard, stored, row: card.Item });
+
+    // The bytes are secured before anything is promised: nothing is put on
+    // her mantelpiece that the bucket might still let go of.
+    const secured = await retag(householdId, photoId, PHOTO_STATES.kept);
+    if (secured === 'missing') {
+      // The picture itself is gone — the bucket let go of it before she
+      // answered. There is nothing to keep and never will be, so the card
+      // must not come back to be pressed again for ever: it is finished as
+      // any answered card is (claimed here, seen above, taken off the home's
+      // other televisions by the caller), and an empty frame is not kept.
+      await claimed(thanksClaim({ table: TABLE, householdId, photoId, at: now }));
+      return true;
+    }
+    if (secured !== 'ok') return await notPutAway({ sendCard, stored, row: card.Item, full: false });
+
+    try {
+      await transact(keepWrite({ table: TABLE, householdId, photoId, fromName: stored.fromName, at: now }));
+    } catch (err) {
+      const outcome = keepOutcome(err);
+      // On her mantelpiece already, kept on another television a moment before.
+      if (outcome === 'kept') return true;
+      if (outcome === 'answered') {
+        // She said thank you on another television, and that came first.
+        await retag(householdId, photoId, PHOTO_STATES.gone);
+        return true;
+      }
+      // Not kept after all: the picture is put back as it was, still to be answered.
+      await retag(householdId, photoId, PHOTO_STATES.sent);
+      if (outcome === 'full') return await noRoom({ sendCard, stored, row: card.Item });
+      console.error('photo_answer_failed', { err: err?.name });
+      return await notPutAway({ sendCard, stored, row: card.Item, full: false });
+    }
+
+    // The count has changed: every home screen is told — this one at once, the others by the agent plane.
+    await tellEveryHome({ sendControl, householdId, deviceId, consistent: true });
+    return true;
+  } catch (err) {
+    console.error('photo_answer_failed', { err: err?.name });
+    // Left as it was; when the card could be read, it goes back to be pressed again.
+    if (stored && !stored.answered) {
+      try {
+        await sendCard(cardBack(stored.queued, { full: false }));
+      } catch (sendErr) {
+        console.error('photo_card_back_failed', { err: sendErr?.name });
+      }
+    }
+    return false;
+  }
+}
+
+/** "Keep it", and no room: nothing is kept and the card is not finished — it goes back saying so. */
+const noRoom = ({ sendCard, stored, row }) => notPutAway({ sendCard, stored, row, full: true });
+
+/**
+ * The card back on the television that pressed (mantel.mjs cardBack): it
+ * took the card off at the press, so it is sent again — through the one
+ * wrapper, which gives it her language and a fresh address. Never stored.
+ */
+async function notPutAway({ sendCard, stored, row, full }) {
+  await sendCard(cardBack(stored.queued, { full }), { row });
+  return false;
+}
+
+/** A conditional write that is somebody's claim: whether it went through. */
+async function claimed(update) {
+  try {
+    await ddb.send(new UpdateItemCommand(update));
+    return true;
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return false;
+    throw err;
+  }
+}
+
+/** She has seen it (mantel.mjs seenUpdate). Logged, never thrown: what she pressed still counts. */
+async function markSeen(householdId, photoId, at) {
+  try {
+    await ddb.send(new UpdateItemCommand(seenUpdate({ table: TABLE, householdId, photoId, at })));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return; // no row for this picture: nothing to say it on
+    console.error('photo_seen_write_failed', { err: err?.name });
+  }
+}
+
+/**
+ * Her mantelpiece, for the television that asked — THE ONE PLACE the
+ * `mantel` control is sent, and it is sent only as the answer to that
+ * television's own asking, on the channel it asked on (INV-2's accepted
+ * exception: a reply to the television that just spoke). Each thing carries
+ * an address minted for this asking. It is never put on the bus, never sent
+ * to another television, never stored and never logged — not even how many.
+ */
+async function showMantel({ sendControl, householdId, consistent = false }) {
+  try {
+    const rows = await loadHomeRows(householdId, { consistent });
+    const items = mantelItems(rows, (photoId) => pictureAddress({ bucket: PHOTOS_BUCKET, householdId, photoId }));
+    await sendControl({ t: 'mantel', items });
+  } catch (err) {
+    console.error('mantel_show_failed', { err: err?.name });
+  }
+}
+
+/**
+ * She takes one thing down. Only a thing that is there: anything else
+ * changes nothing, and tells the bucket nothing — a picture still waiting
+ * for her answer must not be let go of because somebody named it here. The
+ * television that asked is answered with the mantelpiece as it now stands;
+ * when it changed, every home screen is told the count. Logged, never thrown.
+ */
+async function takeDown({ sendControl, householdId, deviceId, photoId }) {
+  let taken = false;
+  try {
+    await transact(takeDownWrite({ table: TABLE, householdId, photoId, at: Date.now() }));
+    taken = true;
+    await retag(householdId, photoId, PHOTO_STATES.gone);
+  } catch (err) {
+    if (err?.name !== 'TransactionCanceledException') console.error('mantel_take_down_failed', { err: err?.name });
+  }
+  await showMantel({ sendControl, householdId, consistent: true });
+  if (taken) await tellEveryHome({ sendControl, householdId, deviceId, consistent: true });
 }
 
 /**

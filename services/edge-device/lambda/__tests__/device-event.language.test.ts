@@ -81,7 +81,15 @@ vi.mock('@aws-sdk/client-dynamodb', () => {
       return { Items };
     }
   }
-  return { DynamoDBClient, GetItemCommand: command('Get'), PutItemCommand: command('Put'), QueryCommand: command('Query'), UpdateItemCommand: command('Update') };
+  return {
+    DynamoDBClient,
+    GetItemCommand: command('Get'),
+    PutItemCommand: command('Put'),
+    QueryCommand: command('Query'),
+    UpdateItemCommand: command('Update'),
+    // The mantelpiece's; nothing in these tests makes one.
+    TransactWriteItemsCommand: command('Transact'),
+  };
 });
 
 vi.mock('@aws-sdk/client-eventbridge', () => ({
