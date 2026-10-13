@@ -125,7 +125,10 @@ television with the `mantel` control (`showMantel` in `device-event.mjs`),
 and a picture's card that could not be put away goes back to the
 television that pressed. Those answers carry a short-lived address for
 each picture, which is why they go nowhere else: never across the bus,
-never to another television, never into a row or a log.
+never to another television, never into a row or a log. And it covers a
+reading she asks for (`packages/contracts/src/speech.ts`): `readToHer` in
+`device-event.mjs` answers the television that pressed Play with the
+address of that card read aloud, and nobody else.
 
 ### INV-3 — No Ring media is persisted beyond 24 hours
 Enforced by S3 bucket lifecycle policy in `infra/`, not by application code.
@@ -400,6 +403,21 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   an address anywhere it could outlive its hour, let the idle screen delay
   a card or make anything disappear, or commit a real photograph as a
   fixture.
+- **Wick speaks only when she asks, and only what is on her screen.** Read
+  to me (`packages/contracts/src/speech.ts`): while a card is showing, the
+  Play key asks for it to be read aloud. It is a key and a small mark on
+  the card, never a fourth button. What is read is the card as her
+  television shows it, in her language — its sentences, then what she can
+  press — and nothing that is not on the screen (`speechTextOf`). The voice
+  is Amazon Polly's, made at the edge from those words when she asks, kept
+  one day so the same card is made once, and answered only to the
+  television that asked. Over a card that is holding her film, the first
+  Play reads and the next carries on with the film, as it always did. A
+  card never reads itself: that would be the beep this product promises not
+  to make. And nothing about a reading reaches the family — no timeline
+  row, no count, nothing on the bus. **Never** start a reading without her
+  press, read anything that is not on her screen, let a reading delay or
+  replace a card, or record that she asked.
 - **A neighbour is asked two things, and shown nothing.** A member whose
   role is `neighbour` (`packages/contracts/src/circle.ts`) joins by an
   invitation that says so and is allowed by the resident's own press like
