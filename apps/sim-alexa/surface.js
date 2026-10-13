@@ -97,6 +97,7 @@ export const SUGGESTIONS = [
   { label: 'Watch a film with Mum', utterance: 'Ask Mum to watch a film with me' },
   { label: 'What can I see?', utterance: 'What can I see about Mum?' },
   { label: 'Family circle', utterance: 'Who is in the family circle?' },
+  { label: 'Television language', utterance: "What language is Mum's television in?" },
 ];
 
 const tool = (name, args = {}) => ({ kind: 'tool', tool: name, args });
@@ -165,6 +166,17 @@ export function routeUtterance(text, now = Date.now()) {
 
   // The doorbell is the app's own business too: connecting Ring is something the organiser does here.
   if (/\b(connect|disconnect|link|unlink)\b.*\b(doorbell|ring)\b|\bdoorbell\b.*\bconnected\b/.test(t)) return { kind: 'doorbell' };
+
+  // The language her television speaks is the app's own business as well: the
+  // organiser asks for another here, and she answers on the television. Said
+  // by the word, or by naming a language together with the television. A note
+  // that mentions either is still a note, and a Spanish film is still a film.
+  if (
+    (/\blanguage\b/.test(t) || (/\b(spanish|español|espanol|english)\b/.test(t) && /\b(television|tv|telly|wick)\b/.test(t))) &&
+    !aboutAFilm &&
+    !/\bnote\b|\bmessage\b/.test(t) &&
+    !NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said))
+  ) return { kind: 'language' };
 
   // "Ask Sarah to look": the resident's question about who is at the door.
   // Narrow on purpose — "did anyone come to the door today" is the day's list.
@@ -314,7 +326,7 @@ export function suggestionsFor(listing) {
 export const HELP_TEXT =
   'I can tell you how the week has been, what happened today, whether Maria came, whether her visits were confirmed, whether anything is different, ' +
   'put a note on the television, tell you if there is a reply, show what you are able to see, ' +
-  'or open the family circle.';
+  'open the family circle, or show which language the television speaks.';
 
 const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 const count = (n) => NUMBER_WORDS[n] ?? String(n);
@@ -1706,6 +1718,148 @@ export function presentDoorbell(link, me, formatTime = defaultFormatTime) {
       actions: { connectRing: false, playground: false, disconnect: true },
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// The television speaks her language. These present GET /api/language (the
+// app's own business with the Wick server), not a tool result: which
+// language the resident's television speaks, and — for the organiser — the
+// way to ask her for another. Asking changes nothing. She answers on her
+// own television, and until she says yes it speaks what it spoke.
+//
+// Her no is an answer too. It stands for a week, and while it does the
+// organiser is shown the server's sentence — which day she said no, and from
+// which day the language can be asked for again — where the button for that
+// language would be. Nobody else is told what she said no to.
+//
+// The languages and their names are the server's (its `choices`); none is
+// kept here, so a language this page has not heard of is still offered.
+// ---------------------------------------------------------------------------
+
+/** Said against a Wick server from before this: the page is published by itself, and may be the newer of the two. */
+export const LANGUAGE_UNAVAILABLE = 'This Wick cannot change the language of the television yet.';
+
+const languageName = (view, language) => (view.choices ?? []).find((choice) => choice.language === language)?.name ?? 'another language';
+
+/**
+ * Who the card is for: the organiser — allowed, or still waiting — and the
+ * family the resident allows. Never a neighbour, who is asked two things
+ * and shown nothing. Everyone else is told what the server would tell them
+ * (INV-9), without the server being asked.
+ *
+ * @param me  GET /api/me
+ */
+export function languageOffer(me) {
+  const resident = me.household.residentName;
+  const { role, status } = me.membership;
+  // Said first: being allowed does not change it for a neighbour.
+  if (role === 'neighbour') return { offered: false, say: 'The language of the television is not shown to a neighbour.', tone: 'answer' };
+  if (status === 'allowed' || (role === 'organiser' && status === 'pending')) return { offered: true };
+  if (status === 'declined') return { offered: false, say: `${resident} chose not to share this with you.`, tone: 'private' };
+  if (status === 'removed') return { offered: false, say: 'You are no longer part of this family circle.', tone: 'private' };
+  return {
+    offered: false,
+    say: `${resident} hasn’t allowed this yet. A card is waiting on the television, and it only takes one press.`,
+    tone: 'waiting',
+  };
+}
+
+/**
+ * The card: the language now, each choice by its name in English and in
+ * itself ("Spanish — español"), and what can be done from here. Only the
+ * organiser can ask, and only one question is open at a time: while it is,
+ * the one thing to do is take it back. A language she has said no to within
+ * the week has the server's sentence about it in place of its button.
+ *
+ * @param view  GET /api/language — `{ language, asked?, choices, declined? }`
+ * @param me    GET /api/me
+ */
+export function presentLanguage(view, me) {
+  const resident = me.household.residentName;
+  const organiser = me.membership.role === 'organiser';
+  const choices = view.choices ?? [];
+  const asked = view.asked ?? null;
+  const speaks = languageName(view, view.language);
+  const who = organiser ? 'I have' : `${asked?.by || 'The organiser'} has`;
+  // Her no, while it stands — the organiser's to be told, in the server's own sentence (it knows the days at the house).
+  const declined = organiser && view.declined
+    ? {
+        language: view.declined.language,
+        say: view.declined.say || `${resident} said no to ${languageName(view, view.declined.language)}. It can be asked for again in a week.`,
+      }
+    : null;
+
+  return {
+    say: asked
+      ? `${resident}’s television speaks ${speaks}. ${who} asked her on it for ${languageName(view, asked.language)}, and nothing changes until she says yes.`
+      : `${resident}’s television speaks ${speaks}.${declined ? ` ${declined.say}` : ''}`,
+    tone: asked ? 'waiting' : 'answer',
+    card: {
+      title: `Which language does ${resident}’s television speak?`,
+      rows: choices.map((choice) => {
+        // "español" beside "Spanish"; English is only said once.
+        const own = choice.own && choice.own !== choice.name ? choice.own : null;
+        const current = choice.language === view.language;
+        return {
+          language: choice.language,
+          primary: own ? `${choice.name} — ${own}` : choice.name,
+          name: choice.name,
+          own,
+          secondary: current
+            ? 'On her television now'
+            : asked?.language === choice.language
+              ? 'Asked · waiting for her answer'
+              : declined?.language === choice.language
+                ? 'She said no'
+                : '',
+          current,
+        };
+      }),
+      // The line that changes while the card is open: said again when she answers (languageNews).
+      status: asked ? `${who} asked ${resident} on her television. Nothing changes until she says yes.` : '',
+      note: organiser ? null : 'Only the person who set this home up can ask for another language.',
+      // Said where that language's button would be.
+      declined,
+      asks: organiser && !asked
+        ? choices
+            .filter((choice) => choice.language !== view.language && choice.language !== declined?.language)
+            .map((choice) => ({ language: choice.language, label: `Ask ${resident} for ${choice.name}` }))
+        : [],
+      takeBack: organiser && asked ? { label: 'Take the question back' } : null,
+      // A question is open: the card keeps looking for her answer.
+      waiting: asked !== null,
+      // What changes, and what does not, in one sentence.
+      footnote: `Only what ${resident}’s television shows her changes; what the family reads stays as it is.`,
+    },
+  };
+}
+
+/**
+ * What the card says when it looks again and something has changed since it
+ * was drawn. Null while nothing has.
+ *
+ * Only what is known is said. Her television speaking another language is
+ * her yes — nothing else can change it. A question that is gone, with her
+ * no to that language kept since it was asked, is her no: a taking back
+ * never leaves one. A question that is gone with nothing kept was taken
+ * back from somewhere else — or is being read by somebody who is not told
+ * what she said no to — so it is said only that the television is staying
+ * as it is. Anything else is drawn again with nothing claimed.
+ *
+ * @param before  GET /api/language, as the card was drawn
+ * @param after   GET /api/language, now
+ * @param {string} resident
+ */
+export function languageNews(before, after, resident) {
+  const question = (view) => (view.asked ? `${view.asked.language}@${view.asked.at}` : '');
+  if (after.language === before.language && question(after) === question(before)) return null;
+  const speaks = languageName(after, after.language);
+  if (after.language !== before.language) return { say: `${resident} said yes. Her television now speaks ${speaks}.` };
+  if (!after.asked) {
+    const saidNo = before.asked && after.declined?.language === before.asked.language && after.declined.at >= before.asked.at;
+    return { say: saidNo ? `${resident} said no. Her television is staying in ${speaks}.` : `${resident}’s television is staying in ${speaks}.` };
+  }
+  return { say: '' };
 }
 
 export function inviteLink(here, code) {

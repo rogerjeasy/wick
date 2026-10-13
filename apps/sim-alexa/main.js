@@ -8,12 +8,15 @@ import {
   DECLINED_RESULT,
   FILMS,
   HELP_TEXT,
+  LANGUAGE_UNAVAILABLE,
   applicationServerKey,
   confirmWrite,
   describeCall,
   doorQuestionToAnnounce,
   follow,
   inviteLink,
+  languageNews,
+  languageOffer,
   madeWithKey,
   needsConfirmation,
   presentCircle,
@@ -22,6 +25,7 @@ import {
   presentConnected,
   presentDoorbell,
   presentInvitation,
+  presentLanguage,
   presentListing,
   presentNotifications,
   presentResult,
@@ -234,6 +238,7 @@ function signedOut(reason) {
   watchLook = null;
   watchSeen.clear();
   closeSeat();
+  stopLookingAtLanguage();
   $('light').hidden = true;
   // A link that ended by itself cannot tell the server; the browser still stops listening.
   void forgetThisBrowser({ tellServer: false });
@@ -1019,6 +1024,8 @@ document.addEventListener('visibilitychange', () => {
   void lookForWhatWasTold();
   // Coming back to the page is what pressing the notification does: she may be waiting on the answer.
   void lookForReach();
+  // And she may have answered about the language while this page was behind another.
+  void languageCard?.look();
 });
 
 // A nudge that arrives while this page is open (sw.js): look at once.
@@ -1940,7 +1947,11 @@ function renderCircleCard(view) {
     const doorbell = el('button', 'btn quiet', 'Doorbell');
     doorbell.type = 'button';
     doorbell.addEventListener('click', () => void showDoorbell());
-    actions.append(invite, inviteNeighbour, connectTv, doorbell);
+    // The language her television speaks: asked for here, answered by her there.
+    const language = el('button', 'btn quiet', 'Television language');
+    language.type = 'button';
+    language.addEventListener('click', () => void showLanguage());
+    actions.append(invite, inviteNeighbour, connectTv, doorbell, language);
     body.appendChild(actions);
   } else if (view.connect === 'family') {
     // A family member the resident has allowed: a television of their own, and no other.
@@ -2085,6 +2096,164 @@ async function showDoorbell() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The television speaks her language: which language the resident's
+// television speaks, and — for the organiser — asking her for another. What
+// is said and shown is decided in surface.js (presentLanguage, languageNews);
+// the server decides who may read and who may ask (GET and POST
+// /api/language, DELETE /api/language/question). Asking changes nothing: she
+// answers on her own television, and the card looks again until she has.
+// ---------------------------------------------------------------------------
+
+/** As often as the door is looked at: her answer is one press, and may be hours away. */
+const LANGUAGE_LOOK_MS = 5000;
+/** The latest language card on the page — the only one that goes on looking: `{ turn, view, timer, busy, look }`. */
+let languageCard = null;
+
+function stopLookingAtLanguage() {
+  if (languageCard && languageCard.timer !== null) clearInterval(languageCard.timer);
+  if (languageCard) languageCard.timer = null;
+}
+
+/**
+ * Puts the card under a turn and keeps it true. Its parts are made once and
+ * filled again each time something changes — on a press here, or when a
+ * look finds her answer — so the line that says what happened stays the
+ * same live region, and is read out when it changes.
+ */
+function addLanguageCard(turn, first) {
+  const resident = me.household.residentName;
+  const shownFirst = presentLanguage(first, me).card;
+  const { card, body } = plainCard(shownFirst.title, shownFirst.footnote);
+  card.classList.add('language');
+  const rows = el('ul', 'rows');
+  const line = el('p', 'watch-status');
+  line.setAttribute('role', 'status');
+  line.setAttribute('aria-live', 'polite');
+  // Her no, while it stands: said where the button for that language would be.
+  const standing = el('p', 'empty');
+  const actions = el('div', 'actions');
+  const problem = el('p', 'problem');
+  problem.setAttribute('role', 'alert');
+  body.append(rows, line);
+  if (shownFirst.note) body.appendChild(el('p', 'empty', shownFirst.note));
+  body.append(standing, actions, problem);
+  turn.appendChild(card);
+
+  // A card opened earlier stops looking: one card on the page is kept true, and it is this one.
+  stopLookingAtLanguage();
+  const state = { turn, view: first, timer: null, busy: false, look: () => look() };
+  languageCard = state;
+
+  /** A press: off while it is asked, and the answer — or the refusal, in the server's own words — shown here. */
+  const press = (button, request) => {
+    button.type = 'button';
+    button.addEventListener('click', async () => {
+      state.busy = true;
+      for (const other of actions.querySelectorAll('button')) other.disabled = true;
+      problem.textContent = '';
+      try {
+        const answer = await request();
+        show(answer, answer.say);
+        if (answer.say) speak(answer.say);
+        // The button pressed is gone: the focus goes to what can be done next, or back to the question field.
+        (actions.querySelector('button') ?? $('ask-input')).focus();
+      } catch (err) {
+        // An older Wick server has no such route: said in words, not as a number.
+        problem.textContent = err.status === 404 ? LANGUAGE_UNAVAILABLE : err.message;
+        for (const other of actions.querySelectorAll('button')) other.disabled = false;
+      }
+      state.busy = false;
+    });
+    return button;
+  };
+
+  /** Fills the card for how the language stands now. `said` replaces the line the card would say for itself. */
+  function show(view, said) {
+    state.view = view;
+    const shown = presentLanguage(view, me).card;
+    rows.replaceChildren(...shown.rows.map((row) => {
+      const li = el('li', 'row');
+      if (row.current) li.setAttribute('aria-current', 'true');
+      const primary = el('span', 'primary', row.own ? `${row.name} — ` : row.name);
+      if (row.own) {
+        // The language's own name is in that language, and is said as such by a screen reader.
+        const own = el('span', undefined, row.own);
+        own.lang = row.language;
+        primary.appendChild(own);
+      }
+      li.append(primary, el('span', 'secondary', row.secondary));
+      return li;
+    }));
+    line.textContent = said || shown.status;
+    standing.textContent = shown.declined?.say ?? '';
+    standing.hidden = !shown.declined;
+    actions.replaceChildren(
+      ...shown.asks.map((ask) =>
+        press(el('button', 'btn', ask.label), () => api('/api/language', { method: 'POST', body: JSON.stringify({ language: ask.language }) }))),
+      ...(shown.takeBack ? [press(el('button', 'btn quiet', shown.takeBack.label), () => api('/api/language/question', { method: 'DELETE' }))] : []),
+    );
+    // Looking goes on only while a question is open, and only for the latest card.
+    if (shown.waiting && languageCard === state) {
+      if (state.timer === null) state.timer = setInterval(() => void look(), LANGUAGE_LOOK_MS);
+    } else if (state.timer !== null) {
+      clearInterval(state.timer);
+      state.timer = null;
+    }
+  }
+
+  /** Has she answered? Asked of the server, which says again on every look who may know (INV-9). */
+  async function look() {
+    // No longer the latest card, gone from the page, or signed out: this card has stopped being kept true.
+    if (languageCard !== state || !turn.isConnected || !me) {
+      if (state.timer !== null) clearInterval(state.timer);
+      state.timer = null;
+      return;
+    }
+    // Not behind another tab, not across a press here, and not once there is nothing left to wait for.
+    if (document.hidden || state.busy || state.timer === null) return;
+    try {
+      const now = await api('/api/language');
+      // A press crossed this look: its answer is the newer one.
+      if (languageCard !== state || state.busy) return;
+      const news = languageNews(state.view, now, resident);
+      if (!news) return;
+      show(now, news.say);
+      if (news.say) speak(news.say);
+    } catch (err) {
+      // Refused: she has stopped allowing this person. The card says so and asks nothing more.
+      if (err.status === 403) {
+        clearInterval(state.timer);
+        state.timer = null;
+        line.textContent = err.message;
+        actions.replaceChildren();
+      }
+      // Any other look that failed is tried again; nothing is said about it.
+    }
+  }
+
+  show(first);
+}
+
+async function showLanguage() {
+  const turn = addThinking();
+  try {
+    me = await api('/api/me');
+    // A neighbour never sees it, and nobody she has not allowed does: for them the server is not even asked.
+    const offer = languageOffer(me);
+    if (!offer.offered) return void fillAssistantTurn(turn, { say: offer.say, card: null, tone: offer.tone });
+    const view = await api('/api/language');
+    const presented = presentLanguage(view, me);
+    fillAssistantTurn(turn, { say: presented.say, card: null, tone: presented.tone });
+    addLanguageCard(turn, view);
+    scrollToEnd();
+  } catch (err) {
+    // 403 carries the server's own sentence: not allowed on the television yet. 404 is a Wick server from before this.
+    const say = err.status === 404 ? LANGUAGE_UNAVAILABLE : err.message;
+    fillAssistantTurn(turn, { say, card: null, tone: err.status === 403 || err.status === 404 ? 'waiting' : 'error' });
+  }
+}
+
 async function showCircle() {
   const turn = addThinking();
   try {
@@ -2146,6 +2315,7 @@ function answerByRules(text) {
   if (route.kind === 'circle') return void showCircle();
   if (route.kind === 'connect') return addConnectTelevision({ wanted: route.as });
   if (route.kind === 'doorbell') return void showDoorbell();
+  if (route.kind === 'language') return void showLanguage();
   if (route.kind === 'notifications') return void showNotifications();
   assistantSays({ say: HELP_TEXT, tone: 'answer' });
 }
@@ -2163,6 +2333,8 @@ async function handleUtterance(text) {
   // And so is a television of one's own: "connect my television" opens the card with "Mine" chosen.
   if (routeUtterance(text).kind === 'connect') return addConnectTelevision({ wanted: routeUtterance(text).as });
   if (routeUtterance(text).kind === 'doorbell') return void showDoorbell();
+  // And so is the language her television speaks: the organiser asks here, and she answers there.
+  if (routeUtterance(text).kind === 'language') return void showLanguage();
   // And so are this browser's notifications.
   if (routeUtterance(text).kind === 'notifications') return void showNotifications();
   if (noAssistant) return answerByRules(text);

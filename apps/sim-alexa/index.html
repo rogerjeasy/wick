@@ -202,6 +202,11 @@
   .reply { font-weight: 600; }
   .reply.none { font-weight: 400; color: var(--ink-dim); }
   .rows[data-collapsed="true"] > li:nth-child(n + 5) { display: none; }
+  /* The language her television speaks now, among the ones that can be asked for. */
+  .row[aria-current="true"] .primary { font-weight: 600; }
+  /* A language's two names stay together ("Spanish — español"); on a phone it is the line beside them that wraps. */
+  .card.language .row .primary { white-space: nowrap; }
+  .card.language .row .secondary { white-space: normal; flex: 1; text-align: right; }
   .fields { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: var(--s-xs) var(--s-m); }
   .fields dt { color: var(--ink-dim); font-size: var(--t-small); }
   .fields dd { margin: 0; }
