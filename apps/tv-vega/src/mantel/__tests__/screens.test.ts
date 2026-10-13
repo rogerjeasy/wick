@@ -174,8 +174,8 @@ describe('ResidentApp.tsx — the mantelpiece and the idle screen, in the app', 
     expect(tick).toMatch(/setIdleItem\(seen\.picture\)/);
   });
 
-  it('hears every key in one place, and only listens: the idle rule and the time of the last key', () => {
-    const handler = app.slice(app.indexOf('useTVEventHandler((event) => {'), app.indexOf('});', app.indexOf('useTVEventHandler((event) => {')));
+  it('hears every key in one place, and starts, opens and sends nothing from one: the idle rule, the time of the last key, and Play for the reader', () => {
+    const handler = app.slice(app.indexOf('useTVEventHandler((event) => {'), app.indexOf('\n  });', app.indexOf('useTVEventHandler((event) => {')));
 
     expect(handler).toMatch(/lastActiveAt\.current = now;/);
     expect(handler).toMatch(/idleOnKey\(idleNow\.current, event, now\)/);

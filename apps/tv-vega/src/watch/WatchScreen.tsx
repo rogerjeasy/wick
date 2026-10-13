@@ -18,6 +18,16 @@
  *
  * Nothing here decides whether a card shows. This screen reports; the engine
  * decides; App.tsx renders the card over the picture.
+ *
+ * Over a card that can be read aloud, Play is the card's when the app says
+ * so (packages/contracts/src/speech.ts, remoteKeys.ts): it reads the card,
+ * and neither pauses nor resumes the programme here. Over a note that holds
+ * the programme that is the first Play only — the next is the programme's
+ * again, as Play there always was: the programme goes on and the note is
+ * put away. The door's card holds nothing, and the programme plays on under
+ * its reading — turned down for it by the app, which is told which player
+ * this screen has (`onPlayer`) and puts the sound back when the reading is
+ * over.
  */
 import * as React from 'react';
 import { BackHandler, StyleSheet, Text, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
@@ -41,6 +51,16 @@ export interface WatchScreenProps {
   readonly onPlaybackEvent: (snapshot: PlayerSnapshot) => void;
   /** A card is on screen: OK and the arrows are the card's. */
   readonly cardVisible: boolean;
+  /** Play is that card's for the next press: it reads the card (remoteKeys.ts playIsTheCards). Absent: Play is the programme's. */
+  readonly playReads?: boolean | undefined;
+  /** A reading has been asked for and is not over: a key that is only Pause stops it, and nothing else. */
+  readonly reading?: boolean | undefined;
+  /**
+   * Which player the programme has — given when it is ready, and `null`
+   * when it is let go. Only its volume is ever used by anyone else
+   * (watch/filmVolume.ts).
+   */
+  readonly onPlayer?: ((player: { volume: number } | null) => void) | undefined;
   /**
    * A card that waited for a calm point, or for a pause, is on screen: the
    * programme waits on the cut while it is read, and goes on when it has
@@ -107,6 +127,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       service.start();
       service.load(programme.id, programme.creditsPositionMs);
       playerRef.current = p;
+      latest.current.onPlayer?.(p);
       setPlayer(p);
       await p.play();
     })().catch(() => {
@@ -117,6 +138,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       cancelled = true;
       service?.stop();
       playerRef.current = null;
+      latest.current.onPlayer?.(null);
       // Leaving is a stop, wherever the programme had got to.
       if (last && last.state !== 'STOPPED') {
         const stopped: PlayerSnapshot = { ...last, state: 'STOPPED' };
@@ -153,7 +175,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
     if (isOkKey(event.eventType) && event.eventKeyAction === 1) okToggled.current = false;
     const p = playerRef.current;
     if (!p || latest.current.suspended) return;
-    const command = watchCommand(event, { cardVisible: latest.current.cardVisible });
+    const command = watchCommand(event, { cardVisible: latest.current.cardVisible, playReads: latest.current.playReads, reading: latest.current.reading });
     if (command === 'toggle') {
       okToggled.current = isOkKey(event.eventType);
       toggle(p);
