@@ -68,6 +68,22 @@ describe('okHold — holding OK for two seconds', () => {
     expect(hold.held()).toBe(false);
   });
 
+  it('says when a hold is let go — and says nothing when what was let go was only a press', () => {
+    const onHold = vi.fn();
+    const onRelease = vi.fn();
+    const hold = okHold({ onHold, onRelease, canHold: () => true });
+
+    hold.onEvent(down('select'));
+    hold.onEvent(up('select'));
+    expect(onRelease).not.toHaveBeenCalled();
+
+    hold.onEvent(down('select'));
+    vi.advanceTimersByTime(HOLD_MS + 1_500);
+    expect(onRelease).not.toHaveBeenCalled();
+    hold.onEvent(up('select'));
+    expect(onRelease).toHaveBeenCalledTimes(1);
+  });
+
   it('is never any other key, and another key pressed meanwhile ends it', () => {
     const { hold, onHold } = watching();
 

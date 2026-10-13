@@ -53,6 +53,8 @@ export interface WatchScreenProps {
   readonly companion?: string | undefined;
   /** OK was held for two seconds, with nothing else on screen to take it (hold.ts). */
   readonly onHold?: (() => void) | undefined;
+  /** OK came up again after such a hold. */
+  readonly onHoldEnd?: (() => void) | undefined;
   readonly onExit: () => void;
 }
 
@@ -138,6 +140,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       okToggled.current = false;
       latest.current.onHold?.();
     },
+    onRelease: () => latest.current.onHoldEnd?.(),
   });
   React.useEffect(() => () => hold.current?.cancel(), []);
 

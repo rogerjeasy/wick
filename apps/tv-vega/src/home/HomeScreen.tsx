@@ -44,9 +44,15 @@ export interface HomeScreenProps {
   readonly lookedIn?: string | undefined;
   /** OK was held for two seconds on whatever has the focus (watch/hold.ts HOLD_MS). */
   readonly onHold?: (() => void) | undefined;
+  /**
+   * OK came up on whatever has the focus here — after a press or a hold. The
+   * app only minds after a hold: it is how it knows her thumb is off the
+   * button before the card arrives (home/reach.ts holdGuard).
+   */
+  readonly onKeyUp?: (() => void) | undefined;
 }
 
-export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, onHold }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
   const focusId = lastWatchedId ?? programmes[0]?.id;
   // One quiet row under the films, and a card waiting to be opened comes first.
   const quiet = waiting ? undefined : lookedIn;
@@ -63,6 +69,7 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
             onPress={onOpenLight}
             onLongPress={onHold}
             delayLongPress={HOLD_MS}
+            onPressOut={onKeyUp}
             focusable={!cardVisible}
             accessibilityRole="button"
             accessibilityLabel={`Your light in the window. ${light}. Press OK to see who can see it.`}
@@ -82,6 +89,7 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
             onPress={() => onChoose(programme)}
             onLongPress={onHold}
             delayLongPress={HOLD_MS}
+            onPressOut={onKeyUp}
             focusable={!cardVisible}
             hasTVPreferredFocus={!cardVisible && programme.id === focusId}
             accessibilityRole="button"
@@ -107,6 +115,7 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
           onPress={onOpenWaiting}
           onLongPress={onHold}
           delayLongPress={HOLD_MS}
+          onPressOut={onKeyUp}
           focusable={!cardVisible}
           accessibilityRole="button"
           accessibilityLabel={`${waiting} Press OK to open it.`}

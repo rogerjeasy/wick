@@ -42,7 +42,7 @@ import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/
 import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, waitingLine } from './home/waiting.js';
 import { answersHerPress, lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
-import { backAnswersReach, newestReachCard, reachOffersToPutAway } from './home/reach.js';
+import { backAnswersReach, holdGuard, newestReachCard, reachOffersToPutAway } from './home/reach.js';
 import { WatchScreen } from './watch/WatchScreen.js';
 import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { TogetherReporter, type Together } from './watch/togetherReporter.js';
@@ -106,6 +106,8 @@ export default function App(): React.JSX.Element {
    * stands — until she answers it or lets it go.
    */
   const reachAskedAt = React.useRef<number | null>(null);
+  /** Until her thumb is known to be off OK after a hold, the first press on a card is the thumb coming up (home/reach.ts). */
+  const guard = React.useMemo(() => holdGuard(), []);
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
@@ -317,11 +319,17 @@ export default function App(): React.JSX.Element {
   const handleHold = React.useCallback(() => {
     const at = Date.now();
     reachAskedAt.current = at;
+    guard.held(at);
     void store.enqueueOutbound({ t: 'reach', at });
-  }, [store]);
+  }, [store, guard]);
+
+  // OK came up: after a hold, the card that arrives may now be pressed.
+  const handleKeyUp = React.useCallback(() => guard.released(Date.now()), [guard]);
 
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {
+      // Her thumb coming up from the hold, not a press: nothing is pressed, nothing is sent.
+      if (guard.swallows(Date.now())) return;
       if (card && card.id === cardId && opensLiveView(card.card, actionId)) setLiveFor(cardId);
       const film = card && card.id === cardId ? startsFilm(card.card, actionId, Date.now()) : undefined;
       const programme = film ? programmeById(film.programmeId) : undefined;
@@ -339,7 +347,7 @@ export default function App(): React.JSX.Element {
       // one, since FL-014 (holdCardChannel above).
       void store.enqueueOutbound({ t: 'card_action', cardId, action: actionId, at: Date.now() });
     },
-    [store, card],
+    [store, card, guard],
   );
 
   // Back on a waiting card the resident opened puts it back to waiting.
@@ -380,6 +388,7 @@ export default function App(): React.JSX.Element {
           suspended={liveFor !== null}
           companion={together && together.programmeId === watching.id ? together.withName : undefined}
           onHold={handleHold}
+          onHoldEnd={handleKeyUp}
           onExit={handleExitWatching}
         />
       ) : (
@@ -394,6 +403,7 @@ export default function App(): React.JSX.Element {
           onOpenLight={handleOpenLight}
           lookedIn={lookedIn}
           onHold={handleHold}
+          onKeyUp={handleKeyUp}
         />
       )}
       {/* Over the programme, at the bottom, never instead of it. */}
