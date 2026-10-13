@@ -133,14 +133,15 @@ describe('a look at the home that never answers', () => {
     screen.stop();
   });
 
-  it('is only a failed look: after three, the screen says Wick cannot reach the home, and goes on looking', async () => {
+  it('is only a failed look: with no home on screen yet it says Wick cannot reach the home, and goes on looking', async () => {
     const server = serverWith('never');
     const screen = seated(server.client);
 
-    await vi.advanceTimersByTimeAsync(2 * FAMILY_TV_LOOK_EVERY_MS + 5_999);
+    await vi.advanceTimersByTimeAsync(5_999);
     expect(screen.looks).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
     expect(screen.looks).toEqual([{ kind: 'starting', unreachable: true }]);
+    await vi.advanceTimersByTimeAsync(2 * FAMILY_TV_LOOK_EVERY_MS);
 
     await vi.advanceTimersByTimeAsync(FAMILY_TV_LOOK_EVERY_MS);
     expect(server.at('/tv/home')).toHaveLength(4);

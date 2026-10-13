@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DeviceToken } from '@wick/contracts';
 import { unreachableLine } from '../../family/familyScreen.js';
-import { STILL_TRYING, connectTelevision, retryDelayMs, type Connecting } from '../connect.js';
+import { HOLD_AFTER_MS, STILL_TRYING, connectTelevision, retryDelayMs, type Connecting } from '../connect.js';
+import { PAIRING_REQUEST_TIMEOUT_MS } from '../PairingFlow.js';
 import type { PairingStartResponse } from '../PairingFlow.js';
 
 const TOKEN: DeviceToken = { jwt: 'j', deviceId: 'd1', householdId: 'h1', expiresAt: 1 };
@@ -16,6 +17,8 @@ function harness(signedOut = false) {
     start: vi.fn(async (): Promise<PairingStartResponse> => CODE),
     pollUntilBound: vi.fn((): Promise<DeviceToken> => new Promise(() => {})),
     clearToken: vi.fn(async () => undefined),
+    /** The token on this television's disk, run out or not — none, unless the test says so. */
+    rememberedToken: vi.fn(async (): Promise<DeviceToken | null> => null),
   };
   const deviceId = vi.fn(async () => 'd1');
   const begin = () => connectTelevision({ deviceId, pairing, signedOut, onChange: (state) => void states.push(state) });
@@ -196,6 +199,182 @@ describe('connectTelevision — cancelled', () => {
     connecting.cancel();
     answer(TOKEN);
     await vi.advanceTimersByTimeAsync(0);
+
+    expect(h.states).toEqual([]);
+  });
+});
+
+// Seen on both televisions, 2026-10-13, with the network gone: nothing was
+// drawn at all until the first request gave up, ten seconds in — and on a
+// television already connected, nothing of its own screen for longer.
+describe('connectTelevision — what is on screen while the first request has not answered', () => {
+  /** A request that fails when its ten seconds are up, as PairingFlow's do. */
+  const hangs = <T,>(): Promise<T> => new Promise<T>((_resolve, reject) => setTimeout(() => reject(new Error('pairing_request_timed_out')), PAIRING_REQUEST_TIMEOUT_MS));
+  const after = <T,>(ms: number, value: T): Promise<T> => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
+  const STALE: DeviceToken = { jwt: 'run-out', deviceId: 'd1', householdId: 'h1', expiresAt: 0 };
+  const FAMILY_STALE: DeviceToken = { ...STALE, kind: 'family' };
+
+  it('waits a second before it shows anything: a television that is answered in that time shows only its own screen', () => {
+    expect(HOLD_AFTER_MS).toBe(1_000);
+  });
+
+  describe('a television that has never been connected', () => {
+    it('shows the pairing screen after a second, says it cannot reach the home when the request gives up, and shows the code when it comes', async () => {
+      const h = harness();
+      h.pairing.loadToken.mockImplementationOnce(() => hangs()).mockResolvedValue(null);
+      h.begin();
+
+      await vi.advanceTimersByTimeAsync(HOLD_AFTER_MS - 1);
+      expect(h.states).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      // "Set up Wick" / "Getting a code…"
+      expect(h.states).toEqual([{ kind: 'pairing' }]);
+
+      await vi.advanceTimersByTimeAsync(PAIRING_REQUEST_TIMEOUT_MS - HOLD_AFTER_MS);
+      expect(h.last()).toEqual({ kind: 'pairing', trying: true });
+
+      await vi.advanceTimersByTimeAsync(retryDelayMs(1));
+      expect(h.last()).toEqual({ kind: 'pairing', info: CODE });
+    });
+
+    it('shows the code as soon as it has one, with nothing before it, on a network that answers', async () => {
+      const h = harness();
+      h.pairing.loadToken.mockImplementation(() => after(300, null));
+      h.pairing.start.mockImplementation(() => after(300, CODE));
+      h.begin();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(h.states).toEqual([{ kind: 'pairing', info: CODE }]);
+    });
+
+    it('says it cannot reach the home at once when the first request is refused outright, without the second’s wait', async () => {
+      const h = harness();
+      h.pairing.loadToken.mockRejectedValue(new TypeError('Network request failed'));
+      h.begin();
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(h.states).toEqual([{ kind: 'pairing', trying: true }]);
+    });
+  });
+
+  describe('a television that was connected before', () => {
+    it('shows its own screen after a second, with the token it remembers, and never the pairing screen while it only cannot reach', async () => {
+      const h = harness();
+      h.pairing.rememberedToken.mockResolvedValue(STALE);
+      h.pairing.loadToken.mockImplementation(() => hangs());
+      h.begin();
+
+      await vi.advanceTimersByTimeAsync(HOLD_AFTER_MS - 1);
+      expect(h.states).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(h.states).toEqual([{ kind: 'ready', token: STALE }]);
+
+      // Ten seconds, twenty, a minute: the request gives up and is tried again, and the screen stays its own.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(h.states).toEqual([{ kind: 'ready', token: STALE }]);
+      expect(h.pairing.loadToken.mock.calls.length).toBeGreaterThan(2);
+      expect(h.pairing.start).not.toHaveBeenCalled();
+    });
+
+    it('is given its fresh token when the pairing service answers again', async () => {
+      const h = harness();
+      h.pairing.rememberedToken.mockResolvedValue(FAMILY_STALE);
+      h.pairing.loadToken.mockImplementationOnce(() => hangs()).mockResolvedValue({ ...FAMILY_STALE, jwt: 'fresh', expiresAt: 9 });
+      h.begin();
+
+      await vi.advanceTimersByTimeAsync(PAIRING_REQUEST_TIMEOUT_MS + retryDelayMs(1));
+
+      expect(h.states).toEqual([
+        { kind: 'ready', token: FAMILY_STALE },
+        { kind: 'ready', token: { ...FAMILY_STALE, jwt: 'fresh', expiresAt: 9 } },
+      ]);
+    });
+
+    it('shows only its own screen, once, on a network that answers: exactly what it showed before', async () => {
+      const h = harness();
+      h.pairing.rememberedToken.mockResolvedValue(STALE);
+      h.pairing.loadToken.mockImplementation(() => after(300, TOKEN));
+      h.begin();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(h.states).toEqual([{ kind: 'ready', token: TOKEN }]);
+    });
+
+    it('shows its own screen at once when the first request is refused outright', async () => {
+      const h = harness();
+      h.pairing.rememberedToken.mockResolvedValue(STALE);
+      h.pairing.loadToken.mockRejectedValue(new TypeError('Network request failed'));
+      h.begin();
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(h.states).toEqual([{ kind: 'ready', token: STALE }]);
+    });
+
+    it('goes to the pairing screen when the pairing service says it is no longer connected', async () => {
+      const h = harness();
+      h.pairing.rememberedToken.mockResolvedValue(STALE);
+      // Slow to say so; and by then the token has been forgotten.
+      h.pairing.loadToken.mockImplementation(() => after(3_000, null));
+      h.begin();
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(h.states).toEqual([
+        { kind: 'ready', token: STALE },
+        { kind: 'pairing', info: CODE },
+      ]);
+    });
+
+    it('does not go back to an old token once a code is on screen: from there on it is being set up', async () => {
+      const h = harness();
+      h.pairing.rememberedToken.mockResolvedValue(STALE);
+      h.pairing.start.mockResolvedValueOnce(CODE).mockRejectedValue(new Error('no network'));
+      h.pairing.pollUntilBound.mockRejectedValueOnce(new Error('pairing_code_expired'));
+      h.begin();
+
+      await vi.advanceTimersByTimeAsync(retryDelayMs(1));
+
+      expect(h.states).toEqual([
+        { kind: 'pairing', info: CODE },
+        { kind: 'pairing', trying: true },
+      ]);
+    });
+  });
+
+  it('remembers nothing for a family television that was just told it is no longer connected', async () => {
+    const h = harness(true);
+    h.pairing.rememberedToken.mockResolvedValue(STALE);
+    h.pairing.start.mockImplementation(() => hangs());
+    h.begin();
+
+    await vi.advanceTimersByTimeAsync(HOLD_AFTER_MS);
+
+    expect(h.states).toEqual([{ kind: 'pairing' }]);
+    expect(h.pairing.rememberedToken).not.toHaveBeenCalled();
+  });
+
+  it('takes a disk that cannot be read as a television that remembers nothing', async () => {
+    const h = harness();
+    h.pairing.rememberedToken.mockRejectedValue(new Error('[com.amazon.kepler.io.IoError]: '));
+    h.pairing.loadToken.mockImplementation(() => hangs());
+    h.begin();
+
+    await vi.advanceTimersByTimeAsync(HOLD_AFTER_MS);
+
+    expect(h.states).toEqual([{ kind: 'pairing' }]);
+  });
+
+  it('shows nothing after it has been let go of', async () => {
+    const h = harness();
+    h.pairing.loadToken.mockImplementation(() => hangs());
+    const connecting = h.begin();
+
+    connecting.cancel();
+    await vi.advanceTimersByTimeAsync(30_000);
 
     expect(h.states).toEqual([]);
   });

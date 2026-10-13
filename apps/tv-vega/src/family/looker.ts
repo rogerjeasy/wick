@@ -17,7 +17,7 @@
 import { FAMILY_TV_LOOK_EVERY_MS, type FamilyTvHome } from '@wick/contracts';
 import type { HomeAnswer } from './familyClient.js';
 
-/** This many failed looks in a row, and the screen says so. */
+/** This many failed looks in a row, and a screen that is showing a home says so. One that has never reached a home says so after the first. */
 export const FAILED_LOOKS_BEFORE_SAYING = 3;
 
 export type LookState =
@@ -147,7 +147,9 @@ export class FamilyLooker {
         const state = this.#state;
         // While "not allowed" is showing, that sentence is all there is.
         if (state.kind !== 'home' && state.kind !== 'starting') return;
-        return this.#show({ ...state, unreachable: this.#failures >= FAILED_LOOKS_BEFORE_SAYING });
+        // With a home on screen, a bad look or two passes in silence. With
+        // none there is nothing else to show: it is said after the first.
+        return this.#show({ ...state, unreachable: this.#failures >= (state.kind === 'home' ? FAILED_LOOKS_BEFORE_SAYING : 1) });
       }
     }
   }

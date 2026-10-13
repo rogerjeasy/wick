@@ -83,6 +83,7 @@ import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/
 import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, waitingLine } from './home/waiting.js';
 import { asking } from './home/asked.js';
+import { pressSettle } from './press/settle.js';
 import { lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
 import { backAnswersReach, holdGuard, newestReachCard, reachOffersToPutAway } from './home/reach.js';
 import { ReadHint } from './read/ReadHint.js';
@@ -193,6 +194,14 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   );
   /** Until her thumb is known to be off OK after a hold, the first press on a card is the thumb coming up (home/reach.ts). */
   const guard = React.useMemo(() => holdGuard(), []);
+  /**
+   * A card's buttons take no press in the card's first second on screen
+   * (press/settle.ts): a second OK meant for the card before must not
+   * answer one she has not read. Told which card is on screen as it is
+   * drawn — by its id, so the same card drawn again stays live.
+   */
+  const settle = React.useMemo(() => pressSettle(), []);
+  settle.appeared(card?.id ?? null, Date.now());
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
@@ -225,6 +234,12 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   screenNow.current = { watching: watching !== null, mantelOpen, liveOpen: liveFor !== null, onScreen };
   /** The channel while it is held, for the one thing the app asks on it by itself: its cards again (below). */
   const cardChannel = React.useRef<RunningCardChannel | null>(null);
+  // Back on screen: whatever card is there, she is looking at it afresh, and its first second starts again.
+  const wasOnScreen = React.useRef(onScreen);
+  React.useEffect(() => {
+    if (onScreen && !wasOnScreen.current) settle.returned(Date.now());
+    wasOnScreen.current = onScreen;
+  }, [onScreen, settle]);
   React.useEffect(() => {
     if (!onScreen) return;
     const held = holdCardChannel(store, token, createDeviceChannel, config, undefined, questionLeft);
@@ -559,6 +574,8 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       if (guard.swallows(Date.now())) return;
       // Nor is the key that ended the idle screen, coming up on a card that arrived in that moment.
       if (blocksHome(idleNow.current)) return;
+      // Pressed in the card's first second: begun before she could have read it. Nothing happens, and the next press works.
+      if (!settle.acts(Date.now())) return;
       if (card && card.id === cardId && opensLiveView(card.card, actionId)) setLiveFor(cardId);
       const film = card && card.id === cardId ? startsFilm(card.card, actionId, Date.now()) : undefined;
       const programme = film ? programmeById(film.programmeId) : undefined;
@@ -578,7 +595,7 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       // one, since FL-014 (holdCardChannel above).
       void store.enqueueOutbound({ t: 'card_action', cardId, action: actionId, at: Date.now() });
     },
-    [store, card, guard, breakController, reachAsked],
+    [store, card, guard, breakController, reachAsked, settle],
   );
 
   // Back on a waiting card the resident opened puts it back to waiting.
