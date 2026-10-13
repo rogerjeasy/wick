@@ -100,7 +100,7 @@ describe('HomeScreen.tsx — the pill, as drawn', () => {
   it('is in the quiet row, not the title row', () => {
     expect(quietRow.length).toBeGreaterThan(100);
     expect(titleRow).not.toMatch(/onOpenMantel|mantel/);
-    expect(quietRow).toMatch(/onPress=\{onOpenMantel\}/);
+    expect(quietRow).toMatch(/onPress=\{press\(onOpenMantel\)\}/);
     expect(quietRow).toMatch(/\{mantel\}/);
   });
 

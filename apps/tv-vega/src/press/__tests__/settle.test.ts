@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PRESS_SETTLE_MS as FAMILY_PRESS_SETTLE_MS, pressGuard } from '../../family/presses.js';
 import { holdGuard } from '../../home/reach.js';
-import { PRESS_SETTLE_MS, pressSettle } from '../settle.js';
+import { PRESS_SETTLE_MS, pressActs, pressSettle } from '../settle.js';
 
 const T = 1_800_000_000_000;
 const ms = (n: number): number => T + n;
@@ -217,5 +217,31 @@ describe('ResidentApp.tsx — where the rule sits', () => {
   it('tells the guard which card is on screen as it is drawn, by the card’s id, and when Wick comes back', () => {
     expect(source).toMatch(/settle\.appeared\(card\?\.id \?\? null, Date\.now\(\)\)/);
     expect(source).toMatch(/settle\.returned\(Date\.now\(\)\)/);
+  });
+});
+
+describe('pressActs — the same second, for anything that came within the remote’s reach at a known moment', () => {
+  it('takes no press for a second after it came within reach, and the press after that', () => {
+    expect(pressActs(T, ms(0))).toBe(false);
+    expect(pressActs(T, ms(317))).toBe(false);
+    expect(pressActs(T, ms(PRESS_SETTLE_MS - 1))).toBe(false);
+    expect(pressActs(T, ms(PRESS_SETTLE_MS))).toBe(true);
+    expect(pressActs(T, ms(60_000))).toBe(true);
+  });
+
+  it('takes no press at all while it is not within reach', () => {
+    expect(pressActs(null, ms(0))).toBe(false);
+    expect(pressActs(null, ms(60_000))).toBe(false);
+  });
+
+  it('is not let through by a clock that went back', () => {
+    expect(pressActs(T, ms(-5_000))).toBe(false);
+  });
+
+  it('is the one rule: a card’s guard answers by it', () => {
+    const settle = pressSettle();
+    settle.appeared('note-1', T);
+
+    for (const at of [0, 317, 999, 1_000, 5_000]) expect(settle.acts(ms(at)), String(at)).toBe(pressActs(T, ms(at)));
   });
 });
