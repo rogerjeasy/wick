@@ -283,6 +283,25 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   (`familyOnly`, and the edge's `light.mjs` / `sharing.mjs`). **Never** mark
   a tool `neighbour: true` unless it is the door or being asked to ring,
   and never count a neighbour among those who can see.
+- **A visit is confirmed by the resident, or it is not confirmed.** The
+  visit, witnessed (`packages/contracts/src/visit.ts`): the door's first
+  sighting of a regular visitor opens a visit, the last sighting before she
+  is asked is taken as the leaving, and the resident is asked, at a natural
+  break, "Is this right?" (`services/agent/src/agents/visit`). The times are
+  the door's reading and are never called a fact; her "Yes" is what makes a
+  visit confirmed, and nothing else can — no model, no timer, no family
+  member, no default. Her "No" confirms nothing, and whether the family
+  hears that she disputed it is hers to decide through "Shall I tell
+  Sarah?" (INV-10). So to the family a visit has one of two states:
+  `get_visits` gives a visit she has not been asked about, one still
+  waiting for her answer and one she said was not right the same word and
+  the same fields, or disputing a visit would itself tell them. Only a
+  regular visitor has a record — not a stranger, and not one of the family.
+  **Never** write `answer: 'confirmed'` anywhere but from her press (the
+  demo home's simulated rows aside, which are marked), never tell the three
+  unconfirmed states apart on the family side, and never present the record
+  as a clinical or billing document: it says who the door saw, when, and
+  that she agreed.
 - **Never commit real household data.** No captures, no HAR files, no Ring
   snapshots. `.gitignore` covers the common cases; you are still
   responsible.
