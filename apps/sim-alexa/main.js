@@ -549,6 +549,25 @@ function renderReachCard(card) {
   return node;
 }
 
+/**
+ * The visits of the regular visitors, and which of them the resident
+ * confirmed (surface.js presentVisits): one row for each, every row drawn
+ * alike — a visit that is not confirmed is given no colour and no mark —
+ * then how many came earlier, and one quiet line about what the times are.
+ * There is nothing to press: only the resident confirms a visit.
+ */
+function renderVisitsCard(card) {
+  const node = el('article', 'card visits');
+  const head = el('div', 'card-head');
+  head.appendChild(el('h2', 'card-title', card.title));
+  node.appendChild(head);
+  node.appendChild(renderRows(card));
+  if (card.more) node.appendChild(el('p', 'visits-note', card.more));
+  node.appendChild(el('p', 'visits-note', card.note));
+  node.appendChild(cardFoot(card.footnote));
+  return node;
+}
+
 /** The press on an answer's button, for the door and for a request to ring alike: the tool is called with the card's request and the button's key. */
 async function answerFromCard(tool, requestId, answer, buttons) {
   const all = [...buttons.querySelectorAll('button')];
@@ -570,6 +589,7 @@ async function answerFromCard(tool, requestId, answer, buttons) {
 function renderCard(card) {
   if (card.kind === 'door') return renderDoorCard(card);
   if (card.kind === 'reach') return renderReachCard(card);
+  if (card.kind === 'visits') return renderVisitsCard(card);
   if (card.kind === 'watch') return renderWatchCard(card);
   if (card.kind === 'invitation') return renderInvitationCard(card);
   if (card.kind === 'light') return renderLightCard(card);
