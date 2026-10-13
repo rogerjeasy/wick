@@ -511,3 +511,23 @@
   margin: 12px 0;
   color: var(--ink, #f2f4f7);
 }
+
+/* The mantelpiece: a picture from the family, whole — never cropped. */
+.tv-photo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0.5em 0;
+}
+
+.tv-photo img {
+  max-width: 100%;
+  max-height: 16em;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+
+.tv-mantel .tv-photo img {
+  max-height: 22em;
+  cursor: pointer;
+}

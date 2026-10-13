@@ -25,6 +25,7 @@ import {
 } from '../../../packages/contracts/src/familyTelevision.js';
 import { MAX_CARD_ACTIONS } from '../../../packages/contracts/src/card.js';
 import { LANGUAGES, LANGUAGE_ACTIONS, LANGUAGE_NAMES, languageCardId, languageQuestion } from '../../../packages/contracts/src/language.js';
+import { MAX_MANTEL, MANTEL_FULL_NOTICE, PHOTO_ACTIONS, photoCardId, photoCardWords, readMantelItems } from '../../../packages/contracts/src/mantel.js';
 import { WORDS } from '../../tv-vega/src/words/words.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- an untyped browser script, called by name
@@ -467,6 +468,7 @@ function page() {
 /** Everything written on a node and under it, in the order it is drawn. */
 const textOf = (node: Node): string[] => [...(node.textContent ? [node.textContent] : []), ...node.children.flatMap(textOf)];
 const buttonsOf = (node: Node): Node[] => [...(node.tagName === 'button' ? [node] : []), ...node.children.flatMap(buttonsOf)];
+const imagesOf = (node: Node): Node[] => [...(node.tagName === 'img' ? [node] : []), ...node.children.flatMap(imagesOf)];
 
 function television() {
   const { document, screen } = page();
@@ -496,6 +498,19 @@ function television() {
     /** What was sent since connecting, without the times. */
     sent: () => socket.sent.map(({ at: _at, ...event }) => event),
     card: (queued: unknown) => receive({ kind: 'card', card: queued }),
+    control: (control: unknown) => receive({ kind: 'control', control }),
+    /** The pictures on the screen: where each is fetched from, and what it is called. */
+    pictures: () => imagesOf(screen()).map((img) => ({ src: img.src, alt: img.alt })),
+    /** A picture's address stops answering. */
+    failPicture: () => {
+      for (const img of imagesOf(screen())) (img.onerror as (() => void) | undefined)?.();
+    },
+    /** A click on the picture itself: OK, on the television. */
+    pressPicture: () => {
+      const img = imagesOf(screen())[0];
+      if (!img) throw new Error('no picture on the screen');
+      for (const listener of img.listeners.click ?? []) listener();
+    },
     home: (home: Record<string, unknown>, whole = true) => receive({ kind: 'control', control: { t: 'home', home, ...(whole ? { whole: true } : {}) } }),
     says: () => textOf(screen()),
     buttons: () => buttonsOf(screen()).map((button) => button.textContent),
@@ -547,6 +562,16 @@ describe('the browser television’s own words (the television’s are apps/tv-v
       expect(table[language]!.lightOut).toBe(WORDS[language]['home.lightOut']);
       expect(table[language]!.filmBack).toBe(WORDS[language]['live.back']);
       expect(table[language]!.filmWith).toBe(WORDS[language]['watch.companion']);
+      // The mantelpiece (packages/contracts mantel.ts).
+      expect(table[language]!.mantel).toBe(WORDS[language]['home.mantel']);
+      expect(table[language]!.photoUnavailable).toBe(WORDS[language]['photo.unavailable']);
+      expect(table[language]!.photoPicture).toBe(WORDS[language]['photo.pictureLabel']);
+      expect(table[language]!.mantelFrom).toBe(WORDS[language]['mantel.from']);
+      expect(table[language]!.mantelPlace).toBe(WORDS[language]['mantel.place']);
+      expect(table[language]!.mantelChoice).toBe(WORDS[language]['mantel.choice']);
+      expect(table[language]!.mantelChoiceDetail).toBe(WORDS[language]['mantel.choiceDetail']);
+      expect(table[language]!.mantelLeave).toBe(WORDS[language]['mantel.leave']);
+      expect(table[language]!.mantelTakeDown).toBe(WORDS[language]['mantel.takeDown']);
     }
   });
 
@@ -720,7 +745,7 @@ describe('the browser television — a card of a kind it does not know', () => {
   it('knows the kinds of card the contract has today', () => {
     const tv = television();
 
-    expect((tv.evaluate('TV_CARD_TYPES') as string[]).sort()).toEqual(['CIRCLE', 'DOOR', 'LANGUAGE', 'LIGHT', 'MESSAGE', 'REACH', 'SHARING', 'TELL', 'VISIT', 'WATCH', 'WEEK']);
+    expect((tv.evaluate('TV_CARD_TYPES') as string[]).sort()).toEqual(['CIRCLE', 'DOOR', 'LANGUAGE', 'LIGHT', 'MESSAGE', 'PHOTO', 'REACH', 'SHARING', 'TELL', 'VISIT', 'WATCH', 'WEEK']);
   });
 
   it('is not drawn, has no buttons, and is not said to have been shown', () => {
@@ -752,5 +777,265 @@ describe('the browser television — a card of a kind it does not know', () => {
     const script = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
 
     expect(script).not.toMatch(/Unrecognized card type/);
+  });
+});
+
+/*
+ * The mantelpiece (packages/contracts mantel.ts) on the resident's
+ * television in the browser: the picture card, the pill, and a simple
+ * viewer. No photograph is used here or anywhere in these tests — a picture
+ * is only ever an address, and none is fetched.
+ */
+const PICTURE = 'https://pictures.example/photos/hh-1/p1.jpg?X-Amz-Signature=abc';
+const PHOTO = (over: Record<string, unknown> = {}) =>
+  queuedCard({ id: photoCardId('p1'), type: 'PHOTO', photoId: 'p1', fromName: 'Sarah', photoUrl: PICTURE, ...photoCardWords('Sarah'), ...over });
+const kept = (photoId: string, fromName = 'Sarah') => ({ photoId, fromName, keptAt: 5, url: `https://pictures.example/${photoId}.jpg` });
+
+describe('the browser television — a picture from the family', () => {
+  it('is drawn with its picture, the server’s headline and its two buttons', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+
+    tv.card(PHOTO());
+
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'Keep it', 'Thank you']);
+    expect(tv.pictures()).toEqual([{ src: PICTURE, alt: 'A picture from Sarah' }]);
+    expect(tv.buttons()).toEqual(['Keep it', 'Thank you']);
+    expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'card_shown', cardId: 'photo-p1' }]);
+  });
+
+  it('fetches a picture only from an https address: anything else is a calm line in its place, and the buttons still work', () => {
+    for (const photoUrl of [undefined, '', 'http://pictures.example/p1.jpg', 'javascript:alert(1)', 'data:image/jpeg;base64,AAAA', 7]) {
+      const tv = television();
+      tv.home({});
+
+      tv.card(PHOTO({ photoUrl }));
+
+      expect(tv.pictures(), String(photoUrl)).toEqual([]);
+      expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'The picture cannot be shown just now.', 'Keep it', 'Thank you']);
+      tv.press('Thank you');
+      expect(tv.sent().slice(2)).toEqual([{ t: 'card_action', cardId: 'photo-p1', action: PHOTO_ACTIONS.thanks }]);
+    }
+  });
+
+  it('takes the picture away when its address stops answering — one lives an hour — and says so calmly', () => {
+    const tv = television();
+    tv.home({});
+    tv.card(PHOTO());
+
+    tv.failPicture();
+
+    expect(tv.pictures()).toEqual([]);
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'The picture cannot be shown just now.', 'Keep it', 'Thank you']);
+    expect(tv.buttons()).toEqual(['Keep it', 'Thank you']);
+  });
+
+  it('is put away by either answer, and sends which', () => {
+    for (const [label, action] of [['Keep it', PHOTO_ACTIONS.keep], ['Thank you', PHOTO_ACTIONS.thanks]] as const) {
+      const tv = television();
+      tv.home({ light: 'on' });
+      tv.card(PHOTO());
+
+      tv.press(label);
+
+      expect(tv.sent().slice(2)).toEqual([{ t: 'card_action', cardId: 'photo-p1', action }]);
+      expect(tv.says()).toEqual(['No card currently shown.', 'Light on']);
+    }
+  });
+
+  it('is shown again when the server sends it back because her mantelpiece is full, with the line that says so', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(PHOTO());
+    tv.press('Keep it');
+
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
+
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
+    expect(tv.pictures()).toHaveLength(1);
+    expect(tv.sent().slice(2)).toEqual([{ t: 'card_action', cardId: 'photo-p1', action: 'keep' }, { t: 'card_shown', cardId: 'photo-p1' }]);
+  });
+
+  it('says its own two lines in Spanish, and the card’s words as the server sent them', () => {
+    const tv = television();
+    tv.home({ language: 'es' });
+
+    tv.card(PHOTO({ photoUrl: undefined, headline: 'Una foto de Sarah.' }));
+
+    expect(tv.says().slice(0, 3)).toEqual(['Una foto', 'Una foto de Sarah.', 'La foto no se puede mostrar ahora.']);
+  });
+});
+
+describe('the browser television — her mantelpiece', () => {
+  /** Connected, with things on her mantelpiece, and the pill pressed. */
+  const opened = (items: unknown[] | undefined, home: Record<string, unknown> = { light: 'on', mantel: 3 }) => {
+    const tv = television();
+    tv.home(home);
+    tv.press(home.language === 'es' ? 'Repisa' : 'Mantelpiece');
+    if (items) tv.control({ t: 'mantel', items });
+    return tv;
+  };
+
+  it('is offered on the home screen only when the home says she has kept something', () => {
+    const tv = television();
+
+    tv.home({ light: 'on' });
+    expect(tv.buttons()).toEqual(['Light on']);
+    tv.home({ light: 'on', mantel: 2 });
+    expect(tv.buttons()).toEqual(['Light on', 'Mantelpiece']);
+    tv.home({ light: 'on' });
+    expect(tv.buttons()).toEqual(['Light on']);
+  });
+
+  it('asks the server when it is opened, and waits with three dots until it answers', () => {
+    const tv = opened(undefined);
+
+    expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'mantel' }]);
+    expect(tv.says()).toEqual(['…', 'Back']);
+    expect(tv.pictures()).toEqual([]);
+  });
+
+  it('shows one picture at a time, who it is from and where it stands', () => {
+    const tv = opened([kept('p1'), kept('p2', 'Tom'), kept('p3')]);
+
+    expect(tv.pictures()).toEqual([{ src: 'https://pictures.example/p1.jpg', alt: 'A picture from Sarah' }]);
+    expect(tv.says()).toEqual(['From Sarah · 1 of 3', 'Previous', 'Next', 'Back']);
+
+    tv.press('Next');
+    expect(tv.pictures()[0]!.src).toBe('https://pictures.example/p2.jpg');
+    expect(tv.says()[0]).toBe('From Tom · 2 of 3');
+  });
+
+  it('stays at either end', () => {
+    const tv = opened([kept('p1'), kept('p2')]);
+
+    tv.press('Previous');
+    expect(tv.says()[0]).toBe('From Sarah · 1 of 2');
+    tv.press('Next');
+    tv.press('Next');
+    tv.press('Next');
+    expect(tv.says()[0]).toBe('From Sarah · 2 of 2');
+  });
+
+  it('opens a choice on the picture — "Leave it" first — and leaving it sends nothing', () => {
+    const tv = opened([kept('p1'), kept('p2')]);
+
+    tv.pressPicture();
+    expect(tv.buttons()).toEqual(['Leave it', 'Take it down']);
+    expect(tv.says()).toEqual(['From Sarah · 1 of 2', 'A picture from Sarah.', 'Nobody is told if you take it down.', 'Leave it', 'Take it down']);
+
+    tv.press('Leave it');
+    expect(tv.buttons()).toEqual(['Previous', 'Next', 'Back']);
+    expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'mantel' }]);
+  });
+
+  it('takes one down by its id, waits, and shows the mantelpiece as the server says it now stands', () => {
+    const tv = opened([kept('p1'), kept('p2'), kept('p3')]);
+    tv.press('Next');
+    tv.pressPicture();
+
+    tv.press('Take it down');
+
+    expect(tv.sent().slice(2)).toEqual([{ t: 'mantel_take_down', photoId: 'p2' }]);
+    expect(tv.says()).toEqual(['…', 'Back']);
+
+    tv.control({ t: 'mantel', items: [kept('p1'), kept('p3')] });
+    expect(tv.pictures()[0]!.src).toBe('https://pictures.example/p3.jpg');
+    expect(tv.says()[0]).toBe('From Sarah · 2 of 2');
+  });
+
+  it('goes back to the home screen when nothing is left on it, or the answer is an empty mantelpiece', () => {
+    const tv = opened([kept('p1')]);
+    tv.pressPicture();
+    tv.press('Take it down');
+
+    tv.control({ t: 'mantel', items: [] });
+    tv.home({ light: 'on' });
+
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on']);
+
+    const empty = opened([]);
+    expect(empty.says()).toEqual(['No card currently shown.', 'Light on', 'Mantelpiece']);
+  });
+
+  it('closes on Back, and stays open through a change to the rest of the home', () => {
+    const tv = opened([kept('p1')]);
+
+    tv.home({ light: 'out', mantel: 3 });
+    expect(tv.says()[0]).toBe('From Sarah · 1 of 1');
+
+    tv.press('Back');
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light out', 'Mantelpiece']);
+  });
+
+  it('reads the server’s answer as the contract does: what is well formed, in order, and no more than a mantelpiece holds', () => {
+    const tv = television();
+    const answers: unknown[] = [
+      [kept('p1'), { ...kept('p2'), url: 'http://pictures.example/p2.jpg' }, null, 'x', { photoId: 'p3' }, { ...kept('p4'), fromName: '' }, { ...kept('p5'), keptAt: 0 }, { ...kept('bad id!') }, kept('p6')],
+      Array.from({ length: MAX_MANTEL + 3 }, (_, i) => kept(`p${i}`)),
+      'none',
+      null,
+      {},
+    ];
+
+    for (const answer of answers) {
+      tv.evaluate(`globalThis.__answer = ${JSON.stringify(answer)}`);
+      expect(tv.evaluate('readMantelItems(globalThis.__answer)')).toEqual(readMantelItems(answer));
+    }
+    expect(tv.evaluate('MAX_MANTEL')).toBe(MAX_MANTEL);
+  });
+
+  it('says so calmly when a picture’s address has stopped answering, and asks the server again — once', () => {
+    const tv = opened([kept('p1'), kept('p2')]);
+
+    tv.failPicture();
+    expect(tv.pictures()).toEqual([]);
+    expect(tv.says()).toEqual(['The picture cannot be shown just now.', 'From Sarah · 1 of 2', 'Previous', 'Next', 'Back']);
+    expect(tv.sent().slice(2)).toEqual([{ t: 'mantel' }]);
+
+    // The next picture of the same answer fails too: it has been asked already.
+    tv.press('Next');
+    tv.failPicture();
+    expect(tv.sent().slice(2)).toEqual([{ t: 'mantel' }]);
+
+    // The new answer brings new addresses, and the picture is tried again.
+    tv.control({ t: 'mantel', items: [kept('p1'), { ...kept('p2'), url: 'https://pictures.example/p2.jpg?again=1' }] });
+    expect(tv.pictures()).toEqual([{ src: 'https://pictures.example/p2.jpg?again=1', alt: 'A picture from Sarah' }]);
+  });
+
+  it('gives way to a card: on this page every card is drawn as it arrives', () => {
+    const tv = opened([kept('p1')]);
+
+    tv.card(NOTE('See you on Sunday.'));
+
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    // And the mantelpiece is not what is underneath when the card is gone.
+    tv.control({ t: 'revoke', cardId: 'note-1' });
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on', 'Mantelpiece']);
+  });
+
+  it('keeps an answer that comes when the mantelpiece is not open off the screen', () => {
+    const tv = television();
+    tv.home({ light: 'on', mantel: 1 });
+
+    tv.control({ t: 'mantel', items: [kept('p1')] });
+
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on', 'Mantelpiece']);
+    expect(tv.pictures()).toEqual([]);
+  });
+
+  it('is in Spanish when her television is', () => {
+    const tv = opened([kept('p1'), kept('p2')], { mantel: 2, language: 'es' });
+
+    expect(tv.says()).toEqual(['De Sarah · 1 de 2', 'Anterior', 'Siguiente', 'Atrás']);
+    tv.pressPicture();
+    expect(tv.says().slice(1)).toEqual(['Una foto de Sarah.', 'Nadie se entera si la quita.', 'Dejarla', 'Quitarla']);
+  });
+
+  it('leaves a family member’s own television alone: nothing of the mantelpiece is in its part of the page', () => {
+    const script = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
+    const familyMode = script.slice(script.indexOf("/* --- A family member's own television"), script.indexOf('/* --- Telemetry'));
+
+    expect(familyMode).not.toMatch(/mantel|PHOTO/i);
   });
 });

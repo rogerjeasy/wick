@@ -19,6 +19,15 @@
  * in it (TV_WORDS below), and everything on a card is the server's and comes
  * already in it. A family member's own television stays English.
  *
+ * And it has her mantelpiece (packages/contracts mantel.ts): a picture the
+ * family sends is a card with the picture and two buttons, and what she
+ * keeps is opened from a pill on the home screen — one picture at a time,
+ * previous and next, and a click on the picture for "Leave it" / "Take it
+ * down". A picture is fetched only from an https address, and one that
+ * stops answering is taken away and said so calmly. The idle screen, where
+ * her pictures fill a television left untouched, is the television's only:
+ * this page has no home screen to sit idle.
+ *
  * All DOM content is built with createElement/textContent, never
  * innerHTML — card content originates from the real backend, not a user,
  * but there's no reason to reintroduce the risk class for convenience.
@@ -188,6 +197,8 @@ function handleWireMessage(msg) {
       log('!', `a card of a kind this television does not know was not shown (${String(msg.card?.card?.type)})`);
       return;
     }
+    // And it takes the screen from the mantelpiece, if that is open: nothing waits behind anything here.
+    mantelView = null;
     // Every card is drawn as it arrives: this page has no programme to wait
     // for a break in. So the card her hold brings is on screen at once, and
     // one that arrives with the id of the card already shown — who was asked,
@@ -226,6 +237,10 @@ function handleWireMessage(msg) {
       // has now — the request made on connecting (tv-vega transport/startCardChannel.ts). Learning the language of
       // a home just connected to is not a change: its cards are on their way in that language already.
       if (changed) send({ t: 'reconcile' });
+    } else if (control.t === 'mantel') {
+      // Her mantelpiece, answered to this page's own asking (packages/contracts mantel.ts): only what is well
+      // formed, kept in this page's memory and nowhere else — each address in it is good for an hour.
+      takeMantel(readMantelItems(control.items));
     }
   }
 }
@@ -273,6 +288,19 @@ const TV_WORDS = {
     visit: 'A visit',
     filmBack: 'Back',
     filmWith: '{name} is watching with you.',
+    // The mantelpiece (packages/contracts mantel.ts).
+    photo: 'A picture',
+    photoUnavailable: 'The picture cannot be shown just now.',
+    photoPicture: 'A picture from {name}',
+    mantel: 'Mantelpiece',
+    mantelFrom: 'From {name}',
+    mantelPlace: '{place} of {count}',
+    mantelPrevious: 'Previous',
+    mantelNext: 'Next',
+    mantelChoice: 'A picture from {name}.',
+    mantelChoiceDetail: 'Nobody is told if you take it down.',
+    mantelLeave: 'Leave it',
+    mantelTakeDown: 'Take it down',
   },
   es: {
     empty: 'No hay ninguna tarjeta en pantalla.',
@@ -292,6 +320,19 @@ const TV_WORDS = {
     visit: 'Una visita',
     filmBack: 'Atrás',
     filmWith: '{name} ve la película con usted.',
+    // "Repisa": the shelf where the family's pictures stand.
+    photo: 'Una foto',
+    photoUnavailable: 'La foto no se puede mostrar ahora.',
+    photoPicture: 'Una foto de {name}',
+    mantel: 'Repisa',
+    mantelFrom: 'De {name}',
+    mantelPlace: '{place} de {count}',
+    mantelPrevious: 'Anterior',
+    mantelNext: 'Siguiente',
+    mantelChoice: 'Una foto de {name}.',
+    mantelChoiceDetail: 'Nadie se entera si la quita.',
+    mantelLeave: 'Dejarla',
+    mantelTakeDown: 'Quitarla',
   },
 };
 
@@ -317,7 +358,7 @@ function tvSay(key, values = {}) {
 }
 
 /** The kinds of card this page can draw (packages/contracts card.ts `Card`; tv-vega cards/knownCards.ts). */
-const TV_CARD_TYPES = ['DOOR', 'MESSAGE', 'WEEK', 'SHARING', 'CIRCLE', 'TELL', 'WATCH', 'LIGHT', 'REACH', 'VISIT', 'LANGUAGE'];
+const TV_CARD_TYPES = ['DOOR', 'MESSAGE', 'WEEK', 'SHARING', 'CIRCLE', 'TELL', 'WATCH', 'LIGHT', 'REACH', 'VISIT', 'LANGUAGE', 'PHOTO'];
 
 /** Whether this is a card, of a kind this page has a drawing for. Anything else is dropped, never drawn. */
 function isKnownCard(queued) {
@@ -348,6 +389,8 @@ function lightLabel(now = Date.now()) {
 }
 
 function renderEmpty() {
+  // Her mantelpiece, while she has it open: the home screen is what it goes back to.
+  if (mantelView) return renderMantel();
   if (film) return show(null);
   const wrapper = el('div', 'tv-empty');
   wrapper.appendChild(el('div', undefined, tvSay('empty')));
@@ -360,6 +403,179 @@ function renderEmpty() {
     light.addEventListener('click', () => send({ t: 'light', at: Date.now() }));
     wrapper.appendChild(light);
   }
+  if (Number.isInteger(home.mantel) && home.mantel >= 1) {
+    // Offered only when she has kept something: the home says how many, and nothing of what (HomeScreen.tsx).
+    const pill = el('button', 'pill', tvSay('mantel'));
+    pill.type = 'button';
+    pill.addEventListener('click', openMantel);
+    wrapper.appendChild(pill);
+  }
+  show(wrapper);
+}
+
+/* --- The mantelpiece --------------------------------------------------- */
+
+/*
+ * The pictures the family sent that she chose to keep (packages/contracts
+ * mantel.ts), as the television shows them (apps/tv-vega/src/mantel, which
+ * is the tested one — keep the two in step): one at a time, who it is from
+ * and where it stands, previous and next. A click on the picture is OK on
+ * the television: it opens a choice whose first button is "Leave it", so a
+ * click made without reading changes nothing; only "Take it down" names the
+ * picture to the server, and what is then shown is the server's answer.
+ *
+ * What the server answers is kept in this page's memory and nowhere else.
+ */
+
+/** packages/contracts mantel.ts MAX_MANTEL. */
+const MAX_MANTEL = 12;
+const MANTEL_PHOTO_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** Said while the server has not answered. Not a word. */
+const MANTEL_WAITING = '…';
+
+/** Her mantelpiece as last answered, and which answer that was. */
+let mantel = null;
+let mantelAnswers = 0;
+/** The viewer while it is open: which picture, whether the choice is up, whether an answer is awaited. */
+let mantelView = null;
+
+/** The contract's readMantelItems: what is well formed is kept, in order, up to what a mantelpiece holds. */
+function readMantelItems(value) {
+  if (!Array.isArray(value)) return [];
+  const items = [];
+  for (const raw of value) {
+    if (items.length >= MAX_MANTEL) break;
+    if (typeof raw !== 'object' || raw === null) continue;
+    const { photoId, fromName, keptAt, url } = raw;
+    if (typeof photoId !== 'string' || !MANTEL_PHOTO_ID.test(photoId)) continue;
+    if (typeof fromName !== 'string' || !fromName) continue;
+    if (typeof keptAt !== 'number' || !Number.isFinite(keptAt) || keptAt <= 0) continue;
+    if (typeof url !== 'string' || !url.startsWith('https://')) continue;
+    items.push({ photoId, fromName, keptAt, url });
+  }
+  return items;
+}
+
+/**
+ * One picture, or the calm line in its place: when there is no https
+ * address to fetch it from, and when the address stops answering — one
+ * lives an hour. The picture is only ever put in an <img>.
+ */
+function tvPicture(url, fromName, onFailed) {
+  const box = el('div', 'tv-photo');
+  const unavailable = () => box.appendChild(el('div', 'body-text', tvSay('photoUnavailable')));
+  const src = httpsUrl(url);
+  if (!src) {
+    unavailable();
+    return box;
+  }
+  const img = el('img');
+  img.src = src;
+  img.alt = tvSay('photoPicture', { name: fromName });
+  img.onerror = () => {
+    img.remove();
+    unavailable();
+    if (onFailed) onFailed();
+  };
+  box.appendChild(img);
+  box.picture = img;
+  return box;
+}
+
+function openMantel() {
+  mantelView = { index: 0, photoId: null, choosing: false, waiting: true, askedAgainFor: null };
+  send({ t: 'mantel', at: Date.now() });
+  renderMantel();
+}
+
+function closeMantel() {
+  mantelView = null;
+  renderEmpty();
+}
+
+/** The server's answer. Only while the mantelpiece is open is anything drawn. */
+function takeMantel(items) {
+  mantelAnswers += 1;
+  mantel = { items, answer: mantelAnswers };
+  if (!mantelView) return;
+  // Nothing on it, or nothing left on it: back to the home screen.
+  if (items.length === 0) return closeMantel();
+  // The picture she was looking at, if it is still there; else whatever now stands in its place.
+  const still = items.findIndex((item) => item.photoId === mantelView.photoId);
+  const index = still >= 0 ? still : Math.min(mantelView.index, items.length - 1);
+  mantelView = { ...mantelView, index, photoId: items[index].photoId, choosing: mantelView.choosing && still >= 0, waiting: false };
+  renderMantel();
+}
+
+function moveMantel(by) {
+  if (!mantelView || mantelView.waiting || mantelView.choosing) return;
+  const index = Math.max(0, Math.min(mantel.items.length - 1, mantelView.index + by));
+  mantelView = { ...mantelView, index, photoId: mantel.items[index].photoId };
+  renderMantel();
+}
+
+function mantelButton(label, primary, onPress) {
+  const pill = el('button', `pill ${primary ? 'primary' : ''}`, label);
+  pill.type = 'button';
+  pill.addEventListener('click', onPress);
+  return pill;
+}
+
+function renderMantel() {
+  const view = mantelView;
+  const wrapper = el('div', 'tv-card urgency-deferred tv-mantel');
+  const actions = el('div', 'actions');
+  const item = view.waiting ? null : mantel?.items[view.index];
+
+  if (!item) {
+    // Opened and not yet answered, or one taken down and the answer to that not yet come.
+    wrapper.appendChild(el('div', 'headline', MANTEL_WAITING));
+    actions.appendChild(mantelButton(tvSay('filmBack'), false, closeMantel));
+  } else {
+    const box = tvPicture(item.url, item.fromName, () => {
+      // Once for each answer: if the new addresses fail too, asking for ever would not help.
+      if (mantelView && mantelView.askedAgainFor !== mantel.answer) {
+        mantelView = { ...mantelView, askedAgainFor: mantel.answer };
+        send({ t: 'mantel', at: Date.now() });
+      }
+    });
+    // A click on the picture is OK on the television: it opens the choice, and takes nothing down.
+    if (box.picture) {
+      box.picture.addEventListener('click', () => {
+        if (!mantelView || mantelView.choosing) return;
+        mantelView = { ...mantelView, choosing: true };
+        renderMantel();
+      });
+    }
+    wrapper.appendChild(box);
+    wrapper.appendChild(
+      el('div', 'kicker', `${tvSay('mantelFrom', { name: item.fromName })} · ${tvSay('mantelPlace', { place: view.index + 1, count: mantel.items.length })}`),
+    );
+    if (view.choosing) {
+      wrapper.appendChild(el('div', 'headline', tvSay('mantelChoice', { name: item.fromName })));
+      wrapper.appendChild(el('div', 'body-text', tvSay('mantelChoiceDetail')));
+      // "Leave it" first: it is the one a click made without reading lands on.
+      actions.appendChild(
+        mantelButton(tvSay('mantelLeave'), true, () => {
+          mantelView = { ...mantelView, choosing: false };
+          renderMantel();
+        }),
+      );
+      actions.appendChild(
+        mantelButton(tvSay('mantelTakeDown'), false, () => {
+          mantelView = { ...mantelView, choosing: false, waiting: true };
+          send({ t: 'mantel_take_down', photoId: item.photoId, at: Date.now() });
+          renderMantel();
+        }),
+      );
+    } else {
+      actions.appendChild(mantelButton(tvSay('mantelPrevious'), false, () => moveMantel(-1)));
+      actions.appendChild(mantelButton(tvSay('mantelNext'), false, () => moveMantel(1)));
+      actions.appendChild(mantelButton(tvSay('filmBack'), false, closeMantel));
+    }
+  }
+
+  wrapper.appendChild(actions);
   show(wrapper);
 }
 
@@ -449,6 +665,13 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'kicker', tvSay('visit')));
     wrapper.appendChild(el('div', 'headline', card.headline));
     wrapper.appendChild(el('div', 'body-text', card.detail));
+  } else if (card.type === 'PHOTO') {
+    // A picture someone in the family sent (packages/contracts mantel.ts). The server wrote the headline, the two
+    // buttons and — when "Keep it" found her mantelpiece full — the notice; the picture carries no words of theirs.
+    wrapper.appendChild(el('div', 'kicker', tvSay('photo')));
+    wrapper.appendChild(el('div', 'headline', card.headline));
+    wrapper.appendChild(tvPicture(card.photoUrl, card.fromName));
+    if (card.notice) wrapper.appendChild(el('div', 'body-text notice', card.notice));
   } else if (card.type === 'LANGUAGE') {
     // The television speaks her language: the organiser has asked for another, and it is put to her in both at
     // once. The server wrote every word (packages/contracts language.ts languageQuestion) — the question and the
@@ -473,7 +696,9 @@ function renderCard(queuedCard) {
         const finishesReach = card.type === 'REACH' && !REACH_KEEPS_CARD.includes(action.id);
         // Her yes or her no to a visit is the whole of her answer: either finishes the card, as on the television.
         // So does her yes or her no to another language: what a yes changes comes afterwards, on the home message.
-        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH' || card.type === 'LIGHT' || card.type === 'VISIT' || card.type === 'LANGUAGE' || finishesReach) {
+        // And "Keep it" or "Thank you" on a picture: both put it away. If her mantelpiece was full the server sends
+        // the card again with a line that says so, and it is drawn again like any card that arrives.
+        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH' || card.type === 'LIGHT' || card.type === 'VISIT' || card.type === 'LANGUAGE' || card.type === 'PHOTO' || finishesReach) {
           currentQueuedCard = null;
           renderEmpty();
         }
