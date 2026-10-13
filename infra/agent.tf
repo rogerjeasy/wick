@@ -47,7 +47,8 @@ data "aws_iam_policy_document" "agent_door_event" {
     # (Phase 2): GetItem reads it back, UpdateItem merges the patch in. Both:
     # Query finds the household's paired device to learn its live connection.
     # GetItem is also how a ring finds its household: RINGDEV#<deviceId>
-    # (store/ringDevices.ts).
+    # (store/ringDevices.ts), and how egress.ts learns the household's
+    # language before it sends (store/household.ts loadHouseholdLanguage).
     # UpdateItem is also S6's ADD counter onto RHYTHM#door_activity/presence
     # bucket items (rhythm/writeClient.ts) — same table, same action, no
     # separate grant needed.
@@ -69,6 +70,16 @@ data "aws_iam_policy_document" "agent_door_event" {
     resources = [local.device_topics_arn]
   }
 
+  # The television speaks her language (packages/contracts language.ts):
+  # egress.ts puts free text — here, the door's description of who is there — into the
+  # household's language on its way to her television. TranslateText has no
+  # resource to scope to; source and target languages are fixed in code
+  # (services/agent/src/language/translate.ts), and nothing is stored there.
+  statement {
+    sid       = "TranslateFreeTextOnItsWayToHerTelevision"
+    actions   = ["translate:TranslateText"]
+    resources = ["*"]
+  }
 }
 
 # Phase 2b runs in the agent plane now; this Lambda only invokes it.

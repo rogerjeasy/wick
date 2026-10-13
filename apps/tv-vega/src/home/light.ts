@@ -9,19 +9,22 @@
  *
  * Pure.
  */
-import type { HomeState, QueuedCard } from '@wick/contracts';
+import { DEFAULT_LANGUAGE, type HomeState, type HouseholdLanguage, type QueuedCard } from '@wick/contracts';
+import { words } from '../words/words.js';
 
 /**
- * The button's words — or nothing, when there is no light for anyone to see.
+ * The button's words, in her language (words/words.ts) — or nothing, when
+ * there is no light for anyone to see.
  *
  * Out is for the day she put it out, and the server says when that day
  * ends where the house is. After it the light is lit again by itself, so a
  * television left on overnight says "Light on": saying "out" into a day the
  * family can see lit would be the one wrong thing this button could say.
  */
-export function lightLabel(home: HomeState, now: number = Date.now()): string | undefined {
-  if (home.light === 'on') return 'Light on';
-  if (home.light === 'out') return home.lightOutUntil !== undefined && now >= home.lightOutUntil ? 'Light on' : 'Light out';
+export function lightLabel(home: HomeState, now: number = Date.now(), language: HouseholdLanguage = DEFAULT_LANGUAGE): string | undefined {
+  const say = words(language);
+  if (home.light === 'on') return say('home.lightOn');
+  if (home.light === 'out') return home.lightOutUntil !== undefined && now >= home.lightOutUntil ? say('home.lightOn') : say('home.lightOut');
   return undefined;
 }
 

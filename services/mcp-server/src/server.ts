@@ -200,6 +200,8 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     virtualTelevisionUrl: deps.virtualTelevisionUrl,
     timeZone: HOUSEHOLD_TZ,
     push: createPushStore(ddb, process.env.TABLE_NAME ?? 'wick'),
+    // The language of her television (accounts/language.ts): a question the organiser can take back again.
+    withdrawCard: deps.withdrawCard,
   }));
 
   // The tool list is the same for everyone and for the life of the process: asked for once, on first need.

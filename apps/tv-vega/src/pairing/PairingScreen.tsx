@@ -9,10 +9,18 @@
  * television of their own. Which of the two this television becomes is
  * chosen there, not here — so the sentence below names no button, and is
  * true of both. The link opens that app with the code filled in.
+ *
+ * Always in English, whatever language a household later chooses: there is
+ * no household yet, and a television learns its home's language only from
+ * the home it is connected to (packages/contracts language.ts). The words
+ * are read from the table all the same (words/words.ts), so they are kept
+ * in one place with the rest.
  */
 import * as React from 'react';
 import { StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
+import { DEFAULT_LANGUAGE } from '@wick/contracts';
 import { fontSize, safe } from '@wick/vega-calm-ui';
+import { words } from '../words/words.js';
 import type { PairingStartResponse } from './PairingFlow.js';
 import { STILL_TRYING } from './connect.js';
 
@@ -26,19 +34,22 @@ export interface PairingScreenProps {
   readonly trying?: boolean;
 }
 
+/** English, always: see the header. */
+const say = words(DEFAULT_LANGUAGE);
+
 export function PairingScreen({ info, trying }: PairingScreenProps): React.JSX.Element {
   return (
     <View style={styles.root}>
-      <Text style={styles.headline}>Set up Wick</Text>
+      <Text style={styles.headline}>{say('pairing.title')}</Text>
       {info ? (
         <>
           <Text style={styles.code}>{info.code}</Text>
-          <Text style={styles.body}>Enter this code in the Wick family app. There you say whose television this is.</Text>
+          <Text style={styles.body}>{say('pairing.instructions')}</Text>
           <Text style={styles.link}>{info.url}</Text>
         </>
       ) : (
         <>
-          <Text style={styles.body}>Getting a code…</Text>
+          <Text style={styles.body}>{say('pairing.gettingCode')}</Text>
           {trying ? <Text style={styles.body}>{STILL_TRYING}</Text> : null}
         </>
       )}

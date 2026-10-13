@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { visitFromItem, visitItem, visitStore, type VisitSend } from '@wick/agent';
 import type { Visit } from '@wick/contracts';
 import { createMemoryTable } from './memoryTable.js';
@@ -49,5 +50,28 @@ describe('memoryTable — the visit store’s requests', () => {
 
     await store.claimAsk(visit, ARRIVED + 90 * 60_000);
     expect(await store.setLeft(visit, visit.leftAt! + 30 * 60_000)).toBe(false);
+  });
+});
+
+/** The account store's taking back of a language question: what it records and what it clears, in one update. */
+describe('memoryTable — an update that sets and removes at once', () => {
+  it('does both, under its condition, as DynamoDB does', async () => {
+    const table = createMemoryTable();
+    const key = { pk: { S: 'HH#hh-1' }, sk: { S: 'META' } };
+    table.put({ ...key, languageAsked: { S: 'es' }, languageAskedAt: { N: '5' }, name: { S: 'Mum’s house' } });
+    const update = (asked: string) =>
+      table.ddb.send(new UpdateItemCommand({
+        TableName: 'wick',
+        Key: key,
+        UpdateExpression: 'SET #takenBack = :asked, #takenBackAt = :now REMOVE #asked, #at',
+        ConditionExpression: '#asked = :asked',
+        ExpressionAttributeNames: { '#takenBack': 'languageTakenBack', '#takenBackAt': 'languageTakenBackAt', '#asked': 'languageAsked', '#at': 'languageAskedAt' },
+        ExpressionAttributeValues: { ':asked': { S: asked }, ':now': { N: '9' } },
+      }));
+
+    await expect(update('en')).rejects.toMatchObject({ name: 'ConditionalCheckFailedException' });
+    await update('es');
+
+    expect(table.rows('HH#hh-1')).toEqual([{ ...key, name: { S: 'Mum’s house' }, languageTakenBack: { S: 'es' }, languageTakenBackAt: { N: '9' } }]);
   });
 });

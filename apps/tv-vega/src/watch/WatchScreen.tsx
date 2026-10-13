@@ -22,8 +22,10 @@
 import * as React from 'react';
 import { BackHandler, StyleSheet, Text, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
+import type { HouseholdLanguage } from '@wick/contracts';
 import { fontSize, safe } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
+import { words } from '../words/words.js';
 import { PlayerService, type PlayerSnapshot } from '../player/PlayerService.js';
 import { PlaybackRecorder } from './playbackRecorder.js';
 import { isOkKey, okHold, type OkHold } from './hold.js';
@@ -31,6 +33,8 @@ import { seekTarget, watchCommand } from './remoteKeys.js';
 
 export interface WatchScreenProps {
   readonly programme: Programme;
+  /** The language she chose: what this screen says over the picture is said in it (words/words.ts). */
+  readonly language: HouseholdLanguage;
   /** Every snapshot, once a second and on each change. */
   readonly onSnapshot: (snapshot: PlayerSnapshot | undefined) => void;
   /** Only the snapshots worth keeping: a change of state. */
@@ -198,13 +202,15 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
     }
   }, [held]);
 
+  // A film's title is its name, and is never translated.
+  const say = words(props.language);
   const notice =
     status === 'failed'
-      ? `${programme.title} will not play just now. Press Back.`
+      ? say('watch.failed', { title: programme.title })
       : status === 'opening'
-        ? `Starting ${programme.title}…`
+        ? say('watch.starting', { title: programme.title })
         : status === 'paused' && !props.cardVisible && !suspended
-          ? `Paused — ${programme.title}`
+          ? say('watch.paused', { title: programme.title })
           : undefined;
 
   return (
@@ -215,7 +221,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
           <Text style={styles.noticeText} accessibilityLiveRegion="polite">
             {notice}
           </Text>
-          {props.companion && status !== 'failed' ? <Text style={styles.noticeText}>{`${props.companion} is watching with you.`}</Text> : null}
+          {props.companion && status !== 'failed' ? <Text style={styles.noticeText}>{say('watch.companion', { name: props.companion })}</Text> : null}
           {status === 'paused' ? <Text style={styles.attribution}>{programme.attribution}</Text> : null}
         </View>
       ) : null}

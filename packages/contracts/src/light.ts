@@ -17,6 +17,7 @@
  *   `HH#<household>` / `LIGHT`              `outAt`: when she put it out
  *   `HH#<household>` / `LOOKIN#<userId>`    `name`, `lookedAt`: that person's latest look
  */
+import { DEFAULT_LANGUAGE, isHouseholdLanguage, type OtherLanguage } from './language.js';
 
 export const LIGHT_SK = 'LIGHT';
 export const LOOKIN_SK_PREFIX = 'LOOKIN#';
@@ -54,6 +55,12 @@ export interface HomeState {
     /** When the look stops being today's: the end of that day where the house is. The television shows the line until then. */
     readonly until?: number;
   };
+  /**
+   * The language her television speaks (language.ts), when it is not
+   * English. It rides here because this is the one thing every television
+   * of the home is told whole, at every connection.
+   */
+  readonly language?: OtherLanguage;
 }
 
 const dayIn = (at: number, timeZone: string): string =>
@@ -92,7 +99,7 @@ const isTime = (value: unknown): value is number => typeof value === 'number' &&
  */
 export function readHomeState(value: unknown): HomeState | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const { light, lightOutUntil, lookedIn } = value as Record<string, unknown>;
+  const { light, lightOutUntil, lookedIn, language } = value as Record<string, unknown>;
   const look = typeof lookedIn === 'object' && lookedIn !== null ? (lookedIn as Record<string, unknown>) : undefined;
   const wellFormedLook = look !== undefined && typeof look.name === 'string' && isTime(look.at) && typeof look.line === 'string';
   return {
@@ -101,6 +108,7 @@ export function readHomeState(value: unknown): HomeState | undefined {
     ...(wellFormedLook
       ? { lookedIn: { name: look.name as string, at: look.at as number, line: look.line as string, ...(isTime(look.until) ? { until: look.until } : {}) } }
       : {}),
+    ...(isHouseholdLanguage(language) && language !== DEFAULT_LANGUAGE ? { language } : {}),
   };
 }
 

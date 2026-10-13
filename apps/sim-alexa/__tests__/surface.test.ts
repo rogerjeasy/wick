@@ -36,6 +36,10 @@ import {
   follow,
   watchStatus,
   watchToAnnounce,
+  languageNews,
+  languageOffer,
+  presentLanguage,
+  LANGUAGE_UNAVAILABLE,
   fetchWithin,
   requestLimitFor,
   REQUEST_LIMITS_MS,
@@ -1122,7 +1126,7 @@ describe('suggestionsFor', () => {
   it('then the app\'s own chips, without the ones that ask the same thing', () => {
     const labels = suggestionsFor(listing).slice(3).map((s: { label: string }) => s.label);
 
-    expect(labels).toEqual(['What happened today?', 'Were this week’s visits confirmed?', 'Is the light on?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Did Mum ask for me?', 'Watch a film with Mum', 'What can I see?', 'Family circle']);
+    expect(labels).toEqual(['What happened today?', 'Were this week’s visits confirmed?', 'Is the light on?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Did Mum ask for me?', 'Watch a film with Mum', 'What can I see?', 'Family circle', 'Television language']);
   });
 
   it('is the app\'s own chips when there is no listing', () => {
@@ -2115,6 +2119,336 @@ describe('a pairing link in the family app', () => {
   });
 });
 
+
+describe('the television speaks her language — asking about it', () => {
+  const language = { kind: 'language' };
+
+  it('opens the app’s own card: asking for another language is not a question for a tool', () => {
+    for (const said of [
+      "Change the language on Mum's television",
+      "Can Mum's TV be in Spanish?",
+      'What language is the television in?',
+      'Which language does Mum’s telly speak?',
+      "Put Mum's television in Spanish",
+      'Can Wick speak español to her?',
+      "Switch Mum's TV back to English",
+      'language',
+    ]) {
+      expect(routeUtterance(said), said).toEqual(language);
+    }
+  });
+
+  it('has a chip, and the chip opens the card', () => {
+    const chip = SUGGESTIONS.find((s: { label: string }) => s.label === 'Television language');
+
+    expect(routeUtterance(chip.utterance)).toEqual(language);
+  });
+
+  it('leaves a note that mentions a language a note, and everything else where it was', () => {
+    expect(routeUtterance('Tell Mum I am learning Spanish')).toMatchObject({ kind: 'compose' });
+    expect(routeUtterance('Tell Mum the television is in English now')).toMatchObject({ kind: 'compose' });
+    expect(routeUtterance("Put a note on Mum's television in Spanish")).toEqual({ kind: 'compose' });
+    expect(routeUtterance('Send a message saying: mind your language')).toMatchObject({ kind: 'compose' });
+    expect(routeUtterance('Ask Mum to watch a Spanish film with me')).toEqual({ kind: 'invite' });
+    expect(routeUtterance("Put a note on Mum's television")).toEqual({ kind: 'compose' });
+    expect(routeUtterance('Connect a television')).toEqual({ kind: 'circle' });
+    expect(routeUtterance('Connect my television')).toEqual({ kind: 'connect', as: 'family' });
+    expect(routeUtterance('Did Maria come today?').tool).toBe('did_visitor_come');
+  });
+});
+
+describe('languageOffer — who the language card is for', () => {
+  it('is for the organiser — allowed, or still waiting — and for a family member Margaret allows', () => {
+    expect(languageOffer(me('organiser', 'allowed'))).toEqual({ offered: true });
+    expect(languageOffer(me('organiser', 'pending'))).toEqual({ offered: true });
+    expect(languageOffer(me('family', 'allowed'))).toEqual({ offered: true });
+  });
+
+  it('is never for a neighbour, allowed or not', () => {
+    for (const status of ['allowed', 'pending', 'declined', 'removed']) {
+      expect(languageOffer(me('neighbour', status))).toEqual({ offered: false, say: 'The language of the television is not shown to a neighbour.', tone: 'answer' });
+    }
+  });
+
+  it('INV-9: tells nobody Margaret has not allowed, in the server’s own words', () => {
+    expect(languageOffer(me('family', 'pending'))).toEqual({
+      offered: false,
+      say: 'Margaret hasn’t allowed this yet. A card is waiting on the television, and it only takes one press.',
+      tone: 'waiting',
+    });
+    expect(languageOffer(me('family', 'declined'))).toEqual({ offered: false, say: 'Margaret chose not to share this with you.', tone: 'private' });
+    expect(languageOffer(me('family', 'removed'))).toEqual({ offered: false, say: 'You are no longer part of this family circle.', tone: 'private' });
+    expect(languageOffer(me('organiser', 'declined')).offered).toBe(false);
+  });
+});
+
+describe('presentLanguage — which language her television speaks, and asking for another', () => {
+  const CHOICES = [
+    { language: 'en', name: 'English', own: 'English' },
+    { language: 'es', name: 'Spanish', own: 'español' },
+  ];
+  const ENGLISH = { language: 'en', choices: CHOICES };
+  const ASKED = { language: 'en', asked: { language: 'es', by: 'Sarah', at: 5 }, choices: CHOICES };
+  const SPANISH = { language: 'es', choices: CHOICES };
+  const CHANGES = 'Only what Margaret’s television shows her changes; what the family reads stays as it is.';
+
+  it('shows the organiser the language now, each choice by name, and the way to ask for another', () => {
+    expect(presentLanguage(ENGLISH, me('organiser', 'allowed'))).toEqual({
+      say: 'Margaret’s television speaks English.',
+      tone: 'answer',
+      card: {
+        title: 'Which language does Margaret’s television speak?',
+        rows: [
+          { language: 'en', primary: 'English', name: 'English', own: null, secondary: 'On her television now', current: true },
+          { language: 'es', primary: 'Spanish — español', name: 'Spanish', own: 'español', secondary: '', current: false },
+        ],
+        status: '',
+        note: null,
+        declined: null,
+        takenBack: null,
+        waits: [],
+        asks: [{ language: 'es', label: 'Ask Margaret for Spanish' }],
+        takeBack: null,
+        waiting: false,
+        footnote: CHANGES,
+      },
+    });
+  });
+
+  it('while a question is open, says she has been asked and that nothing changes until she says yes — with the way to take it back, and nothing more to ask', () => {
+    const out = presentLanguage(ASKED, me('organiser', 'allowed'));
+
+    expect(out.say).toBe('Margaret’s television speaks English. I have asked her on it for Spanish, and nothing changes until she says yes.');
+    expect(out.tone).toBe('waiting');
+    expect(out.card.status).toBe('I have asked Margaret on her television. Nothing changes until she says yes.');
+    expect(out.card.rows.map((row: { secondary: string }) => row.secondary)).toEqual(['On her television now', 'Asked · waiting for her answer']);
+    expect(out.card.asks).toEqual([]);
+    // Two presses, and the second says what it costs: taking it back is kept, and the question waits a day.
+    expect(out.card.takeBack).toEqual({ label: 'Take the question back', confirm: 'Take it back — sure? It cannot be asked again for a day.' });
+    expect(out.card.waiting).toBe(true);
+    expect(out.card.footnote).toBe(CHANGES);
+  });
+
+  it('once she has said yes, shows Spanish, and offers the organiser English back', () => {
+    const out = presentLanguage(SPANISH, me('organiser', 'allowed'));
+
+    expect(out.say).toBe('Margaret’s television speaks Spanish.');
+    expect(out.card.rows.map((row: { current: boolean }) => row.current)).toEqual([false, true]);
+    expect(out.card.asks).toEqual([{ language: 'en', label: 'Ask Margaret for English' }]);
+  });
+
+  it('lets an organiser still waiting for Margaret ask: she may not be able to read the card that would allow them', () => {
+    expect(presentLanguage(ENGLISH, me('organiser', 'pending')).card.asks).toEqual([{ language: 'es', label: 'Ask Margaret for Spanish' }]);
+  });
+
+  it('shows a family member the language and says only the organiser can ask — with nothing to press', () => {
+    const out = presentLanguage(ENGLISH, me('family', 'allowed'));
+
+    expect(out.say).toBe('Margaret’s television speaks English.');
+    expect(out.card.note).toBe('Only the person who set this home up can ask for another language.');
+    expect(out.card.asks).toEqual([]);
+    expect(out.card.takeBack).toBeNull();
+    expect(out.card.footnote).toBe(CHANGES);
+  });
+
+  it('tells a family member who asked, while a question is open, and gives them no way to take it back', () => {
+    const out = presentLanguage(ASKED, me('family', 'allowed'));
+
+    expect(out.say).toBe('Margaret’s television speaks English. Sarah has asked her on it for Spanish, and nothing changes until she says yes.');
+    expect(out.card.status).toBe('Sarah has asked Margaret on her television. Nothing changes until she says yes.');
+    expect(out.card.takeBack).toBeNull();
+    expect(out.card.asks).toEqual([]);
+    expect(out.card.waiting).toBe(true);
+  });
+
+  describe('her no, while it stands', () => {
+    const SAID_NO = 'Margaret said no to Spanish on Tuesday. You can ask again from Tuesday 20 October.';
+    const DECLINED = { ...ENGLISH, declined: { language: 'es', at: 5, askAgainAt: 9, say: SAID_NO } };
+
+    it('shows the organiser the server’s sentence in place of the button for that language', () => {
+      const out = presentLanguage(DECLINED, me('organiser', 'allowed'));
+
+      expect(out.say).toBe(`Margaret’s television speaks English. ${SAID_NO}`);
+      expect(out.tone).toBe('answer');
+      expect(out.card.declined).toEqual({ language: 'es', say: SAID_NO });
+      expect(out.card.asks).toEqual([]);
+      expect(out.card.takeBack).toBeNull();
+      expect(out.card.waiting).toBe(false);
+      expect(out.card.rows.map((row: { secondary: string }) => row.secondary)).toEqual(['On her television now', 'She said no']);
+    });
+
+    it('still offers any other language there is to ask for', () => {
+      const three = [...CHOICES, { language: 'cy', name: 'Welsh', own: 'Cymraeg' }];
+      const out = presentLanguage({ ...DECLINED, choices: three }, me('organiser', 'allowed'));
+
+      expect(out.card.asks).toEqual([{ language: 'cy', label: 'Ask Margaret for Welsh' }]);
+      expect(out.card.declined).toEqual({ language: 'es', say: SAID_NO });
+    });
+
+    it('shows a family member who is not the organiser only the language, as before — even if it were sent', () => {
+      const out = presentLanguage(DECLINED, me('family', 'allowed'));
+
+      expect(out.say).toBe('Margaret’s television speaks English.');
+      expect(out.card.declined).toBeNull();
+      expect(out.card.rows.map((row: { secondary: string }) => row.secondary)).toEqual(['On her television now', '']);
+      expect(JSON.stringify(out)).not.toContain('said no');
+    });
+
+    it('says it plainly, without a day, if the server sent no sentence', () => {
+      const out = presentLanguage({ ...ENGLISH, declined: { language: 'es', at: 5, askAgainAt: 9 } }, me('organiser', 'allowed'));
+
+      expect(out.card.declined).toEqual({ language: 'es', say: 'Margaret said no to Spanish. It can be asked for again in a week.' });
+      expect(out.card.asks).toEqual([]);
+    });
+  });
+
+  describe('a question the organiser took back, while the day runs', () => {
+    const TOOK_BACK = 'You took that question back this afternoon. You can ask Margaret again tomorrow afternoon.';
+    const TAKEN = { ...ENGLISH, takenBack: { language: 'es', at: 5, askAgainAt: 9, say: TOOK_BACK } };
+
+    it('shows the organiser the server’s sentence in place of the button for that language', () => {
+      const out = presentLanguage(TAKEN, me('organiser', 'allowed'));
+
+      expect(out.say).toBe(`Margaret’s television speaks English. ${TOOK_BACK}`);
+      expect(out.card.takenBack).toEqual({ language: 'es', say: TOOK_BACK });
+      expect(out.card.waits).toEqual([TOOK_BACK]);
+      expect(out.card.asks).toEqual([]);
+      expect(out.card.takeBack).toBeNull();
+      expect(out.card.waiting).toBe(false);
+      expect(out.card.rows.map((row: { secondary: string }) => row.secondary)).toEqual(['On her television now', 'You took the question back']);
+    });
+
+    it('is the same for an organiser Margaret has not allowed yet', () => {
+      expect(presentLanguage(TAKEN, me('organiser', 'pending')).card.asks).toEqual([]);
+    });
+
+    it('still offers any other language there is to ask for', () => {
+      const three = [...CHOICES, { language: 'cy', name: 'Welsh', own: 'Cymraeg' }];
+
+      expect(presentLanguage({ ...TAKEN, choices: three }, me('organiser', 'allowed')).card.asks).toEqual([{ language: 'cy', label: 'Ask Margaret for Welsh' }]);
+    });
+
+    it('says both waits when both run, her no first', () => {
+      const three = [...CHOICES, { language: 'cy', name: 'Welsh', own: 'Cymraeg' }];
+      const both = { ...TAKEN, choices: three, declined: { language: 'cy', at: 1, askAgainAt: 99, say: 'Margaret said no to Welsh on Monday. You can ask again from Monday 19 October.' } };
+      const out = presentLanguage(both, me('organiser', 'allowed'));
+
+      expect(out.card.waits).toEqual(['Margaret said no to Welsh on Monday. You can ask again from Monday 19 October.', TOOK_BACK]);
+      expect(out.card.asks).toEqual([]);
+    });
+
+    it('shows a family member who is not the organiser only the language — even if it were sent', () => {
+      const out = presentLanguage(TAKEN, me('family', 'allowed'));
+
+      expect(out.say).toBe('Margaret’s television speaks English.');
+      expect(out.card.takenBack).toBeNull();
+      expect(out.card.waits).toEqual([]);
+      expect(JSON.stringify(out)).not.toContain('took');
+    });
+
+    it('says it plainly, without a time, if the server sent no sentence', () => {
+      const out = presentLanguage({ ...ENGLISH, takenBack: { language: 'es', at: 5, askAgainAt: 9 } }, me('organiser', 'allowed'));
+
+      expect(out.card.takenBack).toEqual({ language: 'es', say: 'You took that question back. You can ask Margaret again in a day.' });
+      expect(out.card.asks).toEqual([]);
+    });
+  });
+
+  it('never offers a language the server did not list, and names one it does not know plainly', () => {
+    const out = presentLanguage({ language: 'cy', choices: CHOICES }, me('organiser', 'allowed'));
+
+    expect(out.say).toBe('Margaret’s television speaks another language.');
+    expect(out.card.asks.map((ask: { language: string }) => ask.language)).toEqual(['en', 'es']);
+  });
+});
+
+describe('languageNews — what the card says when her answer is found', () => {
+  const CHOICES = [
+    { language: 'en', name: 'English', own: 'English' },
+    { language: 'es', name: 'Spanish', own: 'español' },
+  ];
+  const asked = { language: 'en', asked: { language: 'es', by: 'Sarah', at: 5 }, choices: CHOICES };
+
+  it('says nothing while the question is still open', () => {
+    expect(languageNews(asked, { ...asked }, 'Margaret')).toBeNull();
+    expect(languageNews({ language: 'en', choices: CHOICES }, { language: 'en', choices: CHOICES }, 'Margaret')).toBeNull();
+  });
+
+  it('says she said yes when her television speaks the language asked for: only her press can do that', () => {
+    expect(languageNews(asked, { language: 'es', choices: CHOICES }, 'Margaret')).toEqual({
+      say: 'Margaret said yes. Her television now speaks Spanish.',
+    });
+  });
+
+  it('says only what is true when the question is gone and nothing changed — she said no, or it was taken back somewhere else', () => {
+    expect(languageNews(asked, { language: 'en', choices: CHOICES }, 'Margaret')).toEqual({
+      say: 'Margaret’s television is staying in English.',
+    });
+  });
+
+  it('says she said no when the question ends with her no to it kept — which a taking back never leaves', () => {
+    const no = { language: 'en', choices: CHOICES, declined: { language: 'es', at: 8, askAgainAt: 99, say: 'x' } };
+
+    expect(languageNews(asked, no, 'Margaret')).toEqual({ say: 'Margaret said no. Her television is staying in English.' });
+  });
+
+  it('does not take an older no, or a no to another language, for the answer to this question', () => {
+    const older = { language: 'en', choices: CHOICES, declined: { language: 'es', at: 2, askAgainAt: 99, say: 'x' } };
+    const other = { language: 'en', choices: CHOICES, declined: { language: 'en', at: 8, askAgainAt: 99, say: 'x' } };
+
+    for (const after of [older, other]) {
+      expect(languageNews(asked, after, 'Margaret')).toEqual({ say: 'Margaret’s television is staying in English.' });
+    }
+  });
+
+  it('does not take the organiser’s own taking back for her no', () => {
+    const taken = { language: 'en', choices: CHOICES, takenBack: { language: 'es', at: 8, askAgainAt: 99, say: 'x' } };
+
+    expect(languageNews(asked, taken, 'Margaret')).toEqual({ say: 'Margaret’s television is staying in English.' });
+  });
+
+  it('has the card drawn again, with nothing claimed, when another question is open instead', () => {
+    const other = { language: 'es', asked: { language: 'en', by: 'Sarah', at: 9 }, choices: CHOICES };
+
+    expect(languageNews(asked, other, 'Margaret')).toEqual({ say: 'Margaret said yes. Her television now speaks Spanish.' });
+    expect(languageNews(other, { ...other, asked: { language: 'en', by: 'Sarah', at: 12 } }, 'Margaret')).toEqual({ say: '' });
+  });
+});
+
+describe('the language card in the family app', () => {
+  const main = readFileSync(fileURLToPath(new URL('../main.js', import.meta.url)), 'utf8');
+
+  it('is the app’s own business: opened before the assistant is asked, and by the rules where there is none', () => {
+    expect(main).toMatch(/if \(routeUtterance\(text\)\.kind === 'language'\) return void showLanguage\(\);/);
+    expect(main).toMatch(/if \(route\.kind === 'language'\) return void showLanguage\(\);/);
+  });
+
+  it('asks and takes back through the server’s own routes, sending the language and nothing else', () => {
+    expect(main).toMatch(/api\('\/api\/language', \{ method: 'POST', body: JSON\.stringify\(\{ language: ask\.language \}\) \}\)/);
+    expect(main).toMatch(/api\('\/api\/language\/question', \{ method: 'DELETE' \}\)/);
+    // INV-8: the page has no household to send, here or anywhere.
+    expect(main).not.toMatch(/householdId\s*:/);
+  });
+
+  it('says so in words against a Wick server that has no such route yet — the page is published before the server is', () => {
+    expect(LANGUAGE_UNAVAILABLE).toBe('This Wick cannot change the language of the television yet.');
+    expect(main).toMatch(/err\.status === 404 \? LANGUAGE_UNAVAILABLE : err\.message/);
+  });
+
+  it('shows her no, and a taking back, where the button for that language would be', () => {
+    expect(main).toMatch(/standing\.textContent = shown\.waits\.join\(' '\);/);
+    expect(main).toMatch(/standing\.hidden = shown\.waits\.length === 0;/);
+  });
+
+  it('takes a question back only on a second press, after saying what it costs', () => {
+    expect(main).toMatch(/press\(el\('button', 'btn quiet', shown\.takeBack\.label\), \(\) => api\('\/api\/language\/question', \{ method: 'DELETE' \}\), shown\.takeBack\.confirm\)/);
+    expect(main).toMatch(/if \(confirm && button\.dataset\.armed !== 'true'\) \{/);
+  });
+
+  it('marks a language’s own name as that language, for a screen reader', () => {
+    expect(main).toMatch(/own\.lang = row\.language;/);
+  });
+});
 
 describe('fetchWithin — a request that never answers does not leave the app waiting for ever', () => {
   /** The page's clock and its network, stood in for: a timer is fired by hand, and an answer comes only when the test gives one. */

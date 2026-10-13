@@ -3,25 +3,27 @@
  * was left both times, and is not shown a third (NaturalBreakEngine Rule 3).
  * It is not gone. It waits here, in one plain line, until it is asked for.
  *
- * Pure: the words for each kind of card, and what Back does to one that
- * was opened.
+ * Pure: the words for each kind of card, in her language (words/words.ts),
+ * and what Back does to one that was opened.
  */
-import type { QueuedCard } from '@wick/contracts';
+import { DEFAULT_LANGUAGE, type HouseholdLanguage, type QueuedCard } from '@wick/contracts';
+import { words } from '../words/words.js';
 
-export function waitingLine(queued: QueuedCard): string {
+export function waitingLine(queued: QueuedCard, language: HouseholdLanguage = DEFAULT_LANGUAGE): string {
+  const say = words(language);
   const card = queued.card;
   switch (card.type) {
     case 'MESSAGE':
-      return `A note from ${card.fromName} is waiting.`;
+      return say('waiting.note', { name: card.fromName });
     case 'WEEK':
-      return 'Your week is ready to read.';
+      return say('waiting.week');
     case 'CIRCLE':
-      return `${card.personName} would like to join your family circle.`;
+      return say('waiting.circle', { name: card.personName });
     case 'SHARING':
-      return 'What your family can see is ready to look at.';
+      return say('waiting.sharing');
     // Not the sentence itself: the home screen can be read by anyone in the room.
     case 'TELL':
-      return 'Wick has a question for you.';
+      return say('waiting.question');
     case 'WATCH':
       return card.headline;
     // Never waits (home/light.ts unaskedLightCards); here only so every card has its line.
@@ -29,12 +31,17 @@ export function waitingLine(queued: QueuedCard): string {
       return card.headline;
     // Not who came or when: the home screen can be read by anyone in the room.
     case 'VISIT':
-      return 'Wick has a question for you.';
+      return say('waiting.question');
+    // The server's own question, which is written in the language asked for
+    // (packages/contracts language.ts): the television's language now may be
+    // the one she does not read, and this line is how she finds the card.
+    case 'LANGUAGE':
+      return card.headline;
     // What was said about a request of her own (home/reach.ts): the card's own sentence.
     case 'REACH':
       return card.headline;
     default:
-      return 'Something is waiting for you.';
+      return say('waiting.something');
   }
 }
 

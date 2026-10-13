@@ -42,3 +42,24 @@ describe('doorDetailText', () => {
     expect(doorDetailText(card)).toBe('This looks like Maria.');
   });
 });
+
+describe('doorDetailText — in the language she chose', () => {
+  const door = (over: Partial<DoorCard>): DoorCard => ({
+    type: 'DOOR', id: 'door-1', householdId: 'h', correlationId: 'c', createdAt: 0, actions: [], line: 'Alguien está en la puerta.', ...over,
+  });
+
+  it('says who it looks like in Spanish, with no word that has to agree with the name', () => {
+    expect(doorDetailText(door({ match: { personId: 'maria', name: 'Maria', basis: 'schedule', expectedToday: true, confidence: 0.5 } }), 'es')).toBe('Parece ser Maria — se esperaba su visita ahora.');
+    expect(doorDetailText(door({ match: { personId: 'tom', name: 'Tom', basis: 'schedule', expectedToday: false, confidence: 0.5 } }), 'es')).toBe('Parece ser Tom.');
+  });
+
+  it('says the description as the server wrote it: that came in her language already', () => {
+    const described = door({ description: 'Un mensajero con una chaqueta azul.', match: { personId: 'maria', name: 'Maria', basis: 'schedule', expectedToday: true, confidence: 0.5 } });
+
+    expect(doorDetailText(described, 'es')).toBe('Un mensajero con una chaqueta azul.');
+  });
+
+  it('still says nothing when nothing is known', () => {
+    expect(doorDetailText(door({}), 'es')).toBeUndefined();
+  });
+});

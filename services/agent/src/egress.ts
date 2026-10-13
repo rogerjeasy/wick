@@ -15,13 +15,36 @@
  * See docs/WICK-TECHNICAL.md §6.3, §10.2.
  */
 import { evaluate, type Audience, type HouseholdPolicy } from '@wick/policy';
-import { MAX_CARD_ACTIONS, PUSH_SK_PREFIX, type Card, type CardPatch, type DeviceWireMessage, type FactClass, type HomeState, type PushKind, type QueuedCard } from '@wick/contracts';
+import {
+  DEFAULT_LANGUAGE,
+  MAX_CARD_ACTIONS,
+  PUSH_SK_PREFIX,
+  cardIn,
+  freeTextOf,
+  homeIn,
+  patchIn,
+  type Card,
+  type CardPatch,
+  type DeviceWireMessage,
+  type FactClass,
+  type FreeField,
+  type FreeText,
+  type HomeState,
+  type HouseholdLanguage,
+  type OtherLanguage,
+  type PushKind,
+  type QueuedCard,
+} from '@wick/contracts';
 import { DeleteItemCommand, DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import { IoTDataPlaneClient, PublishCommand } from '@aws-sdk/client-iot-data-plane';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import type { TranslateClient, TranslateTextCommand } from '@aws-sdk/client-translate';
 import webpush from 'web-push';
+import { languageCache } from './language/householdLanguage.js';
+import { knownNames, translateFree, type TranslateCall } from './language/translate.js';
 import { nudge, subscriptionFromItem, type NudgeOutcome, type StoredSubscription } from './push/nudge.js';
+import { loadHouseholdLanguage } from './store/household.js';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
@@ -198,9 +221,13 @@ async function findDeviceConnections(householdId: string, exceptDeviceId?: strin
  * One push per live device. Every device is attempted even if another
  * fails, then the first real failure is rethrown — one broken television
  * must not keep a card off the others.
+ *
+ * The payload may still be on its way — what the home screen is told waits
+ * for the household's language — and is waited for while the televisions
+ * are being found, not before.
  */
-async function pushToDevices(householdId: string, payload: DeviceWireMessage, exceptDeviceId?: string): Promise<void> {
-  const conns = await findDeviceConnections(householdId, exceptDeviceId);
+async function pushToDevices(householdId: string, message: DeviceWireMessage | Promise<DeviceWireMessage>, exceptDeviceId?: string): Promise<void> {
+  const [conns, payload] = await Promise.all([findDeviceConnections(householdId, exceptDeviceId), message]);
   const results = await Promise.allSettled(
     conns.map((conn) => ('mqttDeviceId' in conn ? pushOverMqtt(conn, payload) : pushOverWebSocket(householdId, conn, payload))),
   );
@@ -283,8 +310,26 @@ export interface ServerOnly {
   readonly ringDeviceId?: string;
 }
 
-/** The CARD# queue item. Pure, so its shape is tested without AWS. */
-export function cardItem(card: QueuedCard, serverOnly: ServerOnly = {}): Record<string, AttributeValue> {
+/**
+ * Where a card's free text is kept in her language, beside the card:
+ * `tr_<language>` on the CARD# item, a JSON object by field. The edge reads
+ * the same name when it sends a stored card again (edge-device
+ * language.mjs), so it never has to ask a translator.
+ */
+export const translationAttribute = (language: OtherLanguage): string => `tr_${language}`;
+
+/**
+ * The CARD# queue item. Pure, so its shape is tested without AWS.
+ *
+ * `data` is always the card in English, as it was written: a note's reply
+ * is copied from it to the family, patches are merged into it, and every
+ * family tool reads it. A translation never goes in it — it sits beside it.
+ */
+export function cardItem(
+  card: QueuedCard,
+  serverOnly: ServerOnly = {},
+  translated?: { readonly language: OtherLanguage; readonly free: FreeText },
+): Record<string, AttributeValue> {
   const item: Record<string, AttributeValue> = {
     pk: { S: `HH#${card.card.householdId}` },
     sk: { S: `CARD#${card.id}` },
@@ -294,8 +339,209 @@ export function cardItem(card: QueuedCard, serverOnly: ServerOnly = {}): Record<
     item.ttl = { N: String(Math.floor(card.expiresAt / 1000)) };
   }
   if (serverOnly.ringDeviceId) item.ringDeviceId = { S: serverOnly.ringDeviceId };
+  if (translated && Object.keys(translated.free).length > 0) item[translationAttribute(translated.language)] = { S: JSON.stringify(translated.free) };
   return item;
 }
+
+// ---------------------------------------------------------------------------
+// The television speaks her language (packages/contracts language.ts).
+//
+// Everything bound for her television passes the three functions below, so
+// this is the one place it is put into her language — on its way out, and
+// nowhere else. What is stored stays the English it was written in.
+//
+// An English household is sent, and has written for it, exactly what it
+// always was: the only thing added is a look at which language it is,
+// remembered for a minute (language/householdLanguage.ts).
+// ---------------------------------------------------------------------------
+
+/** The phrasebook's four functions (packages/contracts phrasebook). */
+interface Phrasebook {
+  readonly freeTextOf: (card: Card) => FreeText;
+  readonly cardIn: (language: OtherLanguage, card: Card, free?: FreeText) => Card;
+  readonly patchIn: (language: OtherLanguage, patch: CardPatch, free?: FreeText) => CardPatch;
+  readonly homeIn: (language: OtherLanguage, home: HomeState) => HomeState;
+}
+
+/** What sending to her television needs. Handed in, so every path is tested without AWS. */
+export interface DeviceEgressDeps {
+  readonly table: string;
+  readonly db: Pick<DynamoDBClient, 'send'>;
+  /** pushToDevices: one push per live television. */
+  readonly push: (householdId: string, message: DeviceWireMessage | Promise<DeviceWireMessage>, exceptDeviceId?: string) => Promise<void>;
+  /** The household's language; never throws. `fresh` is what is so this instant. */
+  readonly languageOf: (householdId: string, options?: { readonly fresh?: boolean }) => Promise<HouseholdLanguage>;
+  /** One call to Amazon Translate (language/translate.ts). */
+  readonly translate: TranslateCall;
+  readonly phrasebook: Phrasebook;
+  readonly log?: (line: Record<string, unknown>) => void;
+}
+
+const FREE_FIELDS: readonly FreeField[] = ['transcript', 'description', 'text'];
+
+/** A card's free text, less anything empty. */
+function freeWords(free: FreeText): FreeText {
+  return Object.fromEntries(FREE_FIELDS.flatMap((field) => {
+    const text = free[field];
+    return typeof text === 'string' && text.trim().length > 0 ? [[field, text] as const] : [];
+  }));
+}
+
+/** The translations kept beside a stored card, by field; nothing when there are none, or they cannot be read. */
+function storedTranslations(value: AttributeValue | undefined): FreeText {
+  if (!value?.S) return {};
+  try {
+    const kept = JSON.parse(value.S) as unknown;
+    return typeof kept === 'object' && kept !== null ? freeWords(kept as FreeText) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function deviceEgress(deps: DeviceEgressDeps) {
+  const { table, db, push, languageOf, translate, phrasebook, log } = deps;
+  const inHerLanguage = (free: FreeText, language: OtherLanguage, names: readonly string[]): Promise<FreeText> =>
+    translateFree({ free, language, names, call: translate, ...(log ? { log } : {}) });
+
+  return {
+    async sendToDevice(card: QueuedCard, _policy: HouseholdPolicy, serverOnly: ServerOnly = {}): Promise<void> {
+      const householdId = card.card.householdId;
+      const english = freeWords(phrasebook.freeTextOf(card.card));
+
+      // The Card item is the queue's source of truth — written unconditionally,
+      // before any attempt at a live push, so connect.mjs's reconcile step can
+      // always deliver it later even if the device is offline right now.
+      if (Object.keys(english).length === 0) {
+        // Every word of this card is Wick's own — the door's first card is one —
+        // so its row is the same whatever her language: it is written while
+        // the language is being read, not after.
+        const [language] = await Promise.all([
+          languageOf(householdId),
+          db.send(new PutItemCommand({ TableName: table, Item: cardItem(card, serverOnly) })),
+        ]);
+        // No live device: reconcile delivers it the moment one is next seen.
+        await push(householdId, { kind: 'card', card: language === DEFAULT_LANGUAGE ? card : { ...card, card: phrasebook.cardIn(language, card.card) } });
+        return;
+      }
+
+      const language = await languageOf(householdId);
+      if (language === DEFAULT_LANGUAGE) {
+        await db.send(new PutItemCommand({ TableName: table, Item: cardItem(card, serverOnly) }));
+        await push(householdId, { kind: 'card', card });
+        return;
+      }
+
+      // A note, the week's paragraph: translated once, here, and kept beside
+      // the English card in the same write, so the edge can send it again in
+      // her language without asking anyone (edge-device language.mjs).
+      const free = await inHerLanguage(english, language, knownNames(card.card));
+      await db.send(new PutItemCommand({ TableName: table, Item: cardItem(card, serverOnly, { language, free }) }));
+      await push(householdId, { kind: 'card', card: { ...card, card: phrasebook.cardIn(language, card.card, free) } });
+    },
+
+    async sendPatchToDevice(patch: CardPatch, householdId: string): Promise<void> {
+      const Key = { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${patch.cardId}` } };
+      const [existing, language] = await Promise.all([db.send(new GetItemCommand({ TableName: table, Key })), languageOf(householdId)]);
+      if (!existing.Item?.data?.S) return;
+
+      const stored = JSON.parse(existing.Item.data.S) as QueuedCard;
+      const patched: QueuedCard = { ...stored, card: applyCardPatch(stored.card, patch) };
+      const data = { S: JSON.stringify(patched) };
+
+      // A patch's one free field is the door's description.
+      const describes = language !== DEFAULT_LANGUAGE && patch.description !== undefined;
+      if (!describes) {
+        await db.send(new UpdateItemCommand({
+          TableName: table,
+          Key,
+          UpdateExpression: 'SET #data = :data',
+          ExpressionAttributeNames: { '#data': 'data' },
+          ExpressionAttributeValues: { ':data': data },
+        }));
+        // No live device: reconcile replays the patched CARD# item on next connect.
+        await push(householdId, { kind: 'control', control: { t: 'patch', patch: language === DEFAULT_LANGUAGE ? patch : phrasebook.patchIn(language, patch) } });
+        return;
+      }
+
+      const attribute = translationAttribute(language);
+      const free = await inHerLanguage(freeWords({ description: patch.description }), language, knownNames(stored.card, patch));
+      // What was translated before stands for the fields this patch leaves
+      // alone. The description is the new one or none: an older translation
+      // must not go on speaking for a description that has changed.
+      const { description: _replaced, ...others } = storedTranslations(existing.Item[attribute]);
+      const kept: FreeText = { ...others, ...free };
+      const some = Object.keys(kept).length > 0;
+      await db.send(new UpdateItemCommand({
+        TableName: table,
+        Key,
+        UpdateExpression: some ? 'SET #data = :data, #tr = :tr' : 'SET #data = :data REMOVE #tr',
+        ExpressionAttributeNames: { '#data': 'data', '#tr': attribute },
+        ExpressionAttributeValues: { ':data': data, ...(some ? { ':tr': { S: JSON.stringify(kept) } } : {}) },
+      }));
+      await push(householdId, { kind: 'control', control: { t: 'patch', patch: phrasebook.patchIn(language, patch, free) } });
+    },
+
+    async sendHomeToDevices(
+      householdId: string,
+      home: HomeState,
+      options: { readonly whole?: boolean; readonly exceptDeviceId?: string | undefined } = {},
+    ): Promise<void> {
+      const message = async (): Promise<DeviceWireMessage> => {
+        // A home told whole says everything, the language with it — it is how
+        // the home's other televisions hear that she has just changed it. So
+        // the language is read afresh, never taken from a minute ago.
+        const language = await languageOf(householdId, { fresh: options.whole === true });
+        let told = home;
+        if (language !== DEFAULT_LANGUAGE) {
+          told = phrasebook.homeIn(language, { ...home, language });
+        } else if (home.language !== undefined) {
+          // Said by somebody who had not heard she went back to English.
+          const { language: _left, ...rest } = home;
+          told = rest;
+        }
+        return { kind: 'control', control: { t: 'home', home: told, ...(options.whole ? { whole: true } : {}) } };
+      };
+      // The language is read while the televisions are found (pushToDevices).
+      await push(householdId, message(), options.exceptDeviceId);
+    },
+  };
+}
+
+let translator: Promise<{ readonly client: TranslateClient; readonly Command: typeof TranslateTextCommand }> | undefined;
+
+/**
+ * Amazon Translate. Like every transport, it is reached from this module
+ * and no other (eslint.config.js): nothing in the repository can put a
+ * string through a translator except on its way to her television.
+ *
+ * Loaded the first time a household that is not English has free text to
+ * send, and not before: an English household never pays for it, not even
+ * at a cold start, and a runtime that could not load it would cost a
+ * translation (the television shows the English) and never a card.
+ */
+const callTranslate: TranslateCall = async (input, signal) => {
+  translator ??= import('@aws-sdk/client-translate').then((sdk) => ({ client: new sdk.TranslateClient({}), Command: sdk.TranslateTextCommand }));
+  let loaded: Awaited<NonNullable<typeof translator>>;
+  try {
+    loaded = await translator;
+  } catch (err) {
+    // Tried again next time.
+    translator = undefined;
+    throw err;
+  }
+  return loaded.client.send(new loaded.Command({ ...input, ...(input.Settings ? { Settings: { ...input.Settings } } : {}) }), { abortSignal: signal });
+};
+
+const languages = languageCache({ read: (householdId, options) => loadHouseholdLanguage(ddb, TABLE, householdId, options) });
+
+const toDevices = deviceEgress({
+  table: TABLE,
+  db: ddb,
+  push: pushToDevices,
+  languageOf: languages.of,
+  translate: callTranslate,
+  phrasebook: { freeTextOf, cardIn, patchIn, homeIn },
+});
 
 /**
  * The only path to the television.
@@ -306,18 +552,10 @@ export function cardItem(card: QueuedCard, serverOnly: ServerOnly = {}): Record<
  */
 export async function sendToDevice(
   card: QueuedCard,
-  _policy: HouseholdPolicy,
+  policy: HouseholdPolicy,
   serverOnly: ServerOnly = {},
 ): Promise<void> {
-  const householdId = card.card.householdId;
-
-  // The Card item is the queue's source of truth — written unconditionally,
-  // before any attempt at a live push, so connect.mjs's reconcile step can
-  // always deliver it later even if the device is offline right now.
-  await ddb.send(new PutItemCommand({ TableName: TABLE, Item: cardItem(card, serverOnly) }));
-
-  // No live device: reconcile delivers it the moment one is next seen.
-  await pushToDevices(householdId, { kind: 'card', card });
+  await toDevices.sendToDevice(card, policy, serverOnly);
 }
 
 /**
@@ -347,25 +585,7 @@ export function applyCardPatch(card: Card, patch: CardPatch): Card {
  * than writing a patch with no card underneath it.
  */
 export async function sendPatchToDevice(patch: CardPatch, householdId: string): Promise<void> {
-  const existing = await ddb.send(new GetItemCommand({
-    TableName: TABLE,
-    Key: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${patch.cardId}` } },
-  }));
-  if (!existing.Item?.data?.S) return;
-
-  const stored = JSON.parse(existing.Item.data.S) as QueuedCard;
-  const patched: QueuedCard = { ...stored, card: applyCardPatch(stored.card, patch) };
-
-  await ddb.send(new UpdateItemCommand({
-    TableName: TABLE,
-    Key: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${patch.cardId}` } },
-    UpdateExpression: 'SET #data = :data',
-    ExpressionAttributeNames: { '#data': 'data' },
-    ExpressionAttributeValues: { ':data': { S: JSON.stringify(patched) } },
-  }));
-
-  // No live device: reconcile replays the patched CARD# item on next connect.
-  await pushToDevices(householdId, { kind: 'control', control: { t: 'patch', patch } });
+  await toDevices.sendPatchToDevice(patch, householdId);
 }
 
 /**
@@ -438,7 +658,7 @@ export async function sendHomeToDevices(
     readonly exceptDeviceId?: string | undefined;
   } = {},
 ): Promise<void> {
-  await pushToDevices(householdId, { kind: 'control', control: { t: 'home', home, ...(options.whole ? { whole: true } : {}) } }, options.exceptDeviceId);
+  await toDevices.sendHomeToDevices(householdId, home, options);
 }
 
 // ---------------------------------------------------------------------------

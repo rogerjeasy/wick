@@ -35,24 +35,27 @@
  */
 import * as React from 'react';
 import { Image, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
-import type { CardAction, DoorCard as DoorCardModel } from '@wick/contracts';
+import type { CardAction, DoorCard as DoorCardModel, HouseholdLanguage } from '@wick/contracts';
 import { TwoPhaseCard, fontSize, safe } from '@wick/vega-calm-ui';
+import { words } from '../words/words.js';
 import { doorDetailText } from './doorDetail.js';
 
 export interface DoorCardProps {
   readonly card: DoorCardModel;
+  /** For the sentence about who it looks like, and what the screen reader calls the picture; the rest is the server's. */
+  readonly language: HouseholdLanguage;
   readonly onAction: (id: string) => void;
 }
 
 /** The contracts' CardAction is already the shape CalmCard wants. */
 const toCalmActions = (actions: readonly CardAction[]) => actions;
 
-export function DoorCardView({ card, onAction }: DoorCardProps): React.JSX.Element {
+export function DoorCardView({ card, language, onAction }: DoorCardProps): React.JSX.Element {
   return (
     <View style={styles.lowerThird}>
       <TwoPhaseCard
         headline={card.line}
-        detail={doorDetailText(card)}
+        detail={doorDetailText(card, language)}
         actions={toCalmActions(card.actions)}
         onAction={onAction}
         mediaSize={FRAME}
@@ -66,7 +69,7 @@ export function DoorCardView({ card, onAction }: DoorCardProps): React.JSX.Eleme
               // The frame is the subject of the card, so it is described as
               // such. What is IN it is card.description, and that is announced
               // separately when and if it arrives.
-              accessibilityLabel="Picture from the front door camera"
+              accessibilityLabel={words(language)('door.pictureLabel')}
             />
           ) : null
         }

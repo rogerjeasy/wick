@@ -185,3 +185,45 @@ describe('WebSocketChannel', () => {
     vi.useRealTimers();
   });
 });
+
+describe('WebSocketChannel — asking again for its cards (reconcile)', () => {
+  async function open(config: ConstructorParameters<typeof WebSocketChannel>[0]): Promise<{ channel: WebSocketChannel; socket: FakeSocket }> {
+    FakeSocket.instances = [];
+    const channel = new WebSocketChannel(config, fakeFactory());
+    const connecting = channel.connect(TOKEN);
+    const socket = FakeSocket.instances[0]!;
+    socket.onopen?.();
+    await connecting;
+    return { channel, socket };
+  }
+
+  it('sends the same request it sent on connecting, with the cards it holds now', async () => {
+    let held = ['note-a'];
+    const { channel, socket } = await open({ url: 'wss://api.example/prod', getLastSeenCardId: () => 'c9', getHeldCardIds: () => held });
+
+    held = ['note-a', 'week-1'];
+    await channel.reconcile();
+
+    expect(socket.sent).toEqual([
+      JSON.stringify({ t: 'reconcile', sinceCardId: 'c9', holding: ['note-a'] }),
+      JSON.stringify({ t: 'reconcile', sinceCardId: 'c9', holding: ['note-a', 'week-1'] }),
+    ]);
+  });
+
+  it('sends nothing when it is not connected: connecting again asks anyway', async () => {
+    const { channel, socket } = await open({ url: 'wss://api.example/prod', getLastSeenCardId: () => 'c9' });
+    channel.close();
+
+    await channel.reconcile();
+
+    expect(socket.sent).toHaveLength(1);
+  });
+
+  it("never asks on the card service's connection, which only listens", async () => {
+    const { channel, socket } = await open({ url: 'wss://api.example/prod', getLastSeenCardId: () => 'c9', role: 'background' });
+
+    await channel.reconcile();
+
+    expect(socket.sent).toEqual([]);
+  });
+});

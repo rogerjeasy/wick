@@ -287,3 +287,40 @@ describe('MqttChannel', () => {
     await expect(channel.send({ t: 'card_shown', cardId: 'c1', at: 1 })).rejects.toThrow('not_connected');
   });
 });
+
+describe('MqttChannel — asking again for its cards (reconcile)', () => {
+  it('publishes the same request it sent on connecting, with the cards it holds now', async () => {
+    const client = new FakeMqttClient();
+    let held = ['note-a'];
+    const channel = new MqttChannel({ wssUrl: WSS, getLastSeenCardId: () => 'card-7', getHeldCardIds: () => held }, fakeConnector(client));
+    await opened(channel, client);
+
+    held = ['note-a', 'week-1'];
+    await channel.reconcile();
+
+    expect(client.published).toEqual([
+      { topic: EVENTS, payload: JSON.stringify({ t: 'reconcile', sinceCardId: 'card-7', holding: ['note-a'] }) },
+      { topic: EVENTS, payload: JSON.stringify({ t: 'reconcile', sinceCardId: 'card-7', holding: ['note-a', 'week-1'] }) },
+    ]);
+  });
+
+  it('publishes nothing when it is not connected: connecting again asks anyway', async () => {
+    const client = new FakeMqttClient();
+    const channel = new MqttChannel({ wssUrl: WSS, getLastSeenCardId: () => 'card-7' }, fakeConnector(client));
+    await opened(channel, client);
+    channel.close();
+
+    await channel.reconcile();
+
+    expect(client.published).toHaveLength(1);
+  });
+
+  it('does not fail when the request cannot be published: it is asked again on the next connection', async () => {
+    const client = new FakeMqttClient();
+    const channel = new MqttChannel({ wssUrl: WSS, getLastSeenCardId: () => 'card-7' }, fakeConnector(client));
+    await opened(channel, client);
+    client.publish = (_topic, _payload, _opts, cb) => cb(new Error('offline'));
+
+    await expect(channel.reconcile()).resolves.toBeUndefined();
+  });
+});

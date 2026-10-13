@@ -153,6 +153,17 @@ data "aws_iam_policy_document" "agents_runtime" {
     actions   = ["lambda:InvokeFunction"]
     resources = [aws_lambda_function.live_bridge.arn]
   }
+
+  # The television speaks her language (packages/contracts language.ts):
+  # egress.ts puts free text — here, the door's description, patched on by the describe graph — into the
+  # household's language on its way to her television. TranslateText has no
+  # resource to scope to; source and target languages are fixed in code
+  # (services/agent/src/language/translate.ts), and nothing is stored there.
+  statement {
+    sid       = "TranslateFreeTextOnItsWayToHerTelevision"
+    actions   = ["translate:TranslateText"]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "agents_runtime" {

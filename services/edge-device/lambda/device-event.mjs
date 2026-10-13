@@ -76,6 +76,15 @@
  * is already under way, with that request as it now stands. Her press on
  * the card is the agent plane's to carry out. reach.mjs.
  *
+ * The television speaks her language: every card and every control message
+ * this file sends goes out through `inHerLanguage` (language.mjs), wrapped
+ * once around the two send functions the caller supplies — so no send site
+ * below has to remember. A press on the question's card (`language-<lang>`)
+ * is her yes or no to the language the organiser asked for, and the only
+ * thing that changes it. The edge never translates: free text is in her
+ * language only where the agent plane kept a translation beside the stored
+ * card. language.mjs.
+ *
  * reconcile: the client sends `{ t: 'reconcile', sinceCardId, holding }` as a normal
  * message as soon as it is connected (WebSocketChannel.ts and MqttChannel.ts
  * in apps/tv-vega/src/transport) — which is why this lives here rather than
@@ -100,6 +109,9 @@ import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpd
 import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
 import { buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
+import { inHerLanguage, languageAnswerUpdate, languageOfMeta, languagePress, languageRead } from './language.mjs';
+// Generated from packages/contracts/src/phrasebook — the same sentences the agent plane sends.
+import { cardIn, homeIn, patchIn } from './phrasebook.generated.mjs';
 import { buildReachAskCard, firstToAsk, latestReach, reachUnderWayId, storedCardKey } from './reach.mjs';
 
 const ddb = new DynamoDBClient({});
@@ -182,13 +194,22 @@ async function markNarrativeSeen(householdId, isoWeek, seenAt) {
  * @param {(control: object) => Promise<boolean>} input.sendControl  the same,
  *   for a control message (a `revoke`)
  */
-export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, sendCard, sendControl }) {
+export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, sendCard: sendCardAsWritten, sendControl: sendControlAsWritten }) {
   const device = await ddb.send(new GetItemCommand({
     TableName: TABLE,
     Key: deviceBindingKey(householdId, deviceId),
     ConsistentRead: true,
   }));
   if (!isServed(device.Item)) return { statusCode: 403, body: 'revoked' };
+
+  // Everything sent below goes out in the household's language (language.mjs):
+  // wrapped here, once, so every send site is covered without knowing it.
+  const { sendCard, sendControl } = inHerLanguage({
+    sendCard: sendCardAsWritten,
+    sendControl: sendControlAsWritten,
+    readLanguage: () => readLanguage(householdId),
+    phrasebook: { cardIn, homeIn, patchIn },
+  });
 
   if (deviceEvent.t === 'app_lifecycle') {
     if (typeof deviceEvent.at !== 'number' || (deviceEvent.state !== 'fg' && deviceEvent.state !== 'bg')) {
@@ -253,6 +274,13 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
 
       const light = lightPress(deviceEvent.cardId, deviceEvent.action);
       if (light) await changeLight({ sendControl, householdId, deviceId, press: light });
+
+      const language = languagePress(deviceEvent.cardId, deviceEvent.action);
+      if (language) {
+        await recordLanguageAnswer(householdId, language);
+        // Which language the home speaks is told to every television in it — this one at once, the others by the agent plane.
+        await tellEveryHome({ sendControl, householdId, deviceId, consistent: true });
+      }
 
       const watch = watchPress(deviceEvent.cardId, deviceEvent.action);
       if (watch) await recordWatchPress(householdId, watch);
@@ -351,6 +379,37 @@ async function recordCircleDecision(householdId, decision, at) {
     }
     console.error('circle_decision_write_failed', { householdId, err: err?.name });
   }
+}
+
+/**
+ * The television speaks her language — see language.mjs. Her yes or no to
+ * the language the organiser asked for; the household is this connection's
+ * own, and the time — kept with a no, which stands for a week at the Wick
+ * server — is this server's: when she answered is not the television's to
+ * say. Logged, never thrown: the press is already on the timeline. A failed
+ * condition means the question was no longer open, or was about another
+ * language, and what the household's row says stands.
+ */
+async function recordLanguageAnswer(householdId, { language, answer }) {
+  try {
+    await ddb.send(new UpdateItemCommand(languageAnswerUpdate({ table: TABLE, householdId, language, answer, at: Date.now() })));
+    console.log(JSON.stringify({ level: 'info', msg: 'language_answered', language, answer }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      console.log(JSON.stringify({ level: 'info', msg: 'language_question_not_open' }));
+      return;
+    }
+    console.error('language_answer_write_failed', { householdId, err: err?.name });
+  }
+}
+
+/**
+ * The household's language, for a card sent when no other read has brought
+ * the household's row (language.mjs inHerLanguage asks at most once an event).
+ */
+async function readLanguage(householdId) {
+  const res = await ddb.send(new GetItemCommand(languageRead({ table: TABLE, householdId })));
+  return languageOfMeta(res.Item);
 }
 
 /**
@@ -465,7 +524,8 @@ async function showSharing({ sendCard, householdId, page, respondsTo }) {
       TableName: TABLE,
       Item: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${SHARING_CARD_ID}` }, data: { S: JSON.stringify(queued) } },
     }));
-    await sendCard(queued);
+    // The rows just read say which language (language.mjs).
+    await sendCard(queued, { rows });
   } catch (err) {
     console.error('sharing_show_failed', { householdId, page, err: err?.name });
   }
@@ -511,11 +571,16 @@ async function publishCardAction(detail) {
  * The light in the window — see light.mjs. One read of the household's rows
  * says what her home screen is told and what the Light card says.
  */
-async function loadHomeRows(householdId) {
+async function loadHomeRows(householdId, { consistent = false } = {}) {
   const items = [];
   let ExclusiveStartKey;
   do {
-    const page = await ddb.send(new QueryCommand({ ...homeRange({ table: TABLE, householdId }), ...(ExclusiveStartKey ? { ExclusiveStartKey } : {}) }));
+    const page = await ddb.send(new QueryCommand({
+      ...homeRange({ table: TABLE, householdId }),
+      // For the moment after a press that changed one of these rows: what is told must be what was just written.
+      ...(consistent ? { ConsistentRead: true } : {}),
+      ...(ExclusiveStartKey ? { ExclusiveStartKey } : {}),
+    }));
     items.push(...(page.Items ?? []));
     ExclusiveStartKey = page.LastEvaluatedKey;
   } while (ExclusiveStartKey);
@@ -528,9 +593,9 @@ async function loadHomeRows(householdId) {
  * changes the light. Logged, never thrown: a home screen without the line
  * is still a home screen.
  */
-async function tellHome({ sendControl, householdId }) {
+async function tellHome({ sendControl, householdId, consistent = false }) {
   try {
-    const items = await loadHomeRows(householdId);
+    const items = await loadHomeRows(householdId, { consistent });
     const home = homeState({ items, now: Date.now(), timeZone: HOUSEHOLD_TZ });
     // `whole`: this is all of it, so a light she has since made private is not left showing.
     await sendControl({ t: 'home', home, whole: true });
@@ -547,8 +612,8 @@ async function tellHome({ sendControl, householdId }) {
  * to tell (light.mjs buildHomeChangedEntry; INV-2). Logged, never thrown:
  * one that is not told now is told when it next connects.
  */
-async function tellEveryHome({ sendControl, householdId, deviceId }) {
-  const home = await tellHome({ sendControl, householdId });
+async function tellEveryHome({ sendControl, householdId, deviceId, consistent = false }) {
+  const home = await tellHome({ sendControl, householdId, consistent });
   if (!home) return;
   try {
     const res = await events.send(new PutEventsCommand({ Entries: [buildHomeChangedEntry({ busName: BUS, householdId, deviceId, home, at: Date.now() })] }));
@@ -563,7 +628,7 @@ async function showLight({ sendCard, householdId }) {
   try {
     const items = await loadHomeRows(householdId);
     const queued = buildLightCard({ householdId, items, now: Date.now(), timeZone: HOUSEHOLD_TZ });
-    if (queued) await sendCard(queued);
+    if (queued) await sendCard(queued, { rows: items });
   } catch (err) {
     console.error('light_show_failed', { householdId, err: err?.name });
   }
@@ -584,12 +649,14 @@ async function showReach({ sendCard, householdId }) {
     if (underWay) {
       const stored = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: storedCardKey(householdId, underWay), ConsistentRead: true }));
       if (stored.Item?.data?.S) {
-        await sendCard(JSON.parse(stored.Item.data.S));
+        // A stored card goes with its row: any free text kept beside it in her language is taken from there.
+        await sendCard(JSON.parse(stored.Item.data.S), { row: stored.Item });
         return;
       }
     }
-    const first = firstToAsk(await loadHomeRows(householdId));
-    await sendCard(buildReachAskCard({ householdId, reachId: String(now), first, now }));
+    const rows = await loadHomeRows(householdId);
+    const first = firstToAsk(rows);
+    await sendCard(buildReachAskCard({ householdId, reachId: String(now), first, now }), { rows });
     // That she held the button, and nothing about whom she might ask.
     console.log(JSON.stringify({ level: 'info', msg: 'reach_offered', somebody: Boolean(first) }));
   } catch (err) {
@@ -655,7 +722,9 @@ async function reconcile({ sendCard, sendControl, householdId, holding }) {
   const now = Date.now();
   for (const item of items) {
     if (!isReplayable(item, now)) continue;
-    if (!(await sendCard(replayedCard(item)))) {
+    // The stored card is English; it goes out in her language, with the free
+    // text the agent plane translated and kept on this same row (language.mjs).
+    if (!(await sendCard(replayedCard(item), { row: item }))) {
       console.log('reconcile: television gone mid-replay, stopping', { householdId });
       return;
     }

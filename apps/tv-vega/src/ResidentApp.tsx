@@ -29,12 +29,25 @@
  * on the home screen or over a programme, asks the server for the card that
  * offers to have someone ring her. That card is hers to see at once, like
  * the Light card — she has just asked for it (home/reach.ts).
+ *
+ * The television speaks her language (packages/contracts/src/language.ts).
+ * Which one comes from the home message and nowhere else, and is read below
+ * where the rest of the home is read, once a second — so the app's own
+ * words (words/words.ts) change within a second of the home message that
+ * follows her yes. Everything
+ * else on a card is the server's, and comes again in the new language
+ * because the card channel asks for it (transport/startCardChannel.ts).
+ * Where the disk works (Fire OS) the language is remembered, and nothing of
+ * the home is drawn until it has been read back — so a relaunch does not
+ * begin in English; on the Vega simulator, which keeps nothing, it is
+ * English for the moment before the home message.
  */
 import * as React from 'react';
 import { Linking } from 'react-native';
 import { BackHandler, StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
-import type { DeviceEvent, DeviceToken, QueuedCard } from '@wick/contracts';
+import type { DeviceEvent, DeviceToken, HouseholdLanguage, QueuedCard } from '@wick/contracts';
+import { safe } from '@wick/vega-calm-ui';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
 import { LiveView } from './live/LiveView.js';
@@ -58,6 +71,13 @@ import type { DeviceConfig } from './config.js';
 import { useOnScreen } from './useOnScreen.js';
 
 const QUEUE_POLL_MS = 1000;
+
+/**
+ * How long the home may stay undrawn while the remembered language is read
+ * back. A disk answers, or refuses, in a few milliseconds; one that does
+ * neither must not keep the screen dark.
+ */
+const LANGUAGE_RECALL_WAIT_MS = 1000;
 
 /** The namespace Content Personalization files Wick's own programme ids under. */
 const CONTENT_ID_NAMESPACE = 'wick';
@@ -85,6 +105,12 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
    */
   const [light, setLight] = React.useState<string | undefined>(undefined);
   const [lookedIn, setLookedIn] = React.useState<string | undefined>(undefined);
+  /**
+   * The language she chose, as the home says it (QueueStore.language) — or
+   * null for the moment before this launch has read what the last one
+   * remembered. Nothing of the home is drawn until then.
+   */
+  const [language, setLanguage] = React.useState<HouseholdLanguage | null>(null);
   /**
    * Her press on the light on the home screen. The card that answers it is
    * opened as soon as it comes — waited for from when her question leaves
@@ -146,6 +172,13 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
     void launchCardService((uri) => Linking.openURL(uri));
   }, [token, onScreen]);
 
+  // The first look below sets the language as soon as the disk has been
+  // read. This is only for a disk that never answers.
+  React.useEffect(() => {
+    const giveUp = setTimeout(() => setLanguage((known) => known ?? store.language()), LANGUAGE_RECALL_WAIT_MS);
+    return () => clearTimeout(giveUp);
+  }, [store]);
+
   React.useEffect(() => {
     let cancelled = false;
 
@@ -169,7 +202,11 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       // when a card is really on screen, and a showing that ends unanswered
       // is counted. Two, and the card waits on the home screen instead.
       const showing = breakController.noteShown(picked, cards, now);
-      if (showing.began) void store.enqueueOutbound({ t: 'card_shown', cardId: showing.began.id, at: now });
+      if (showing.began) {
+        void store.enqueueOutbound({ t: 'card_shown', cardId: showing.began.id, at: now });
+        // The server counts this showing from now; if the card is sent again before it ends, it is not counted twice.
+        await store.beginShowing(showing.began.id);
+      }
       if (showing.ended) {
         await store.countShowing(showing.ended.id);
         cards = await store.readAll();
@@ -207,7 +244,11 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       setCard(shown ?? null);
       setWaiting(breakController.waiting(cards, now) ?? null);
       const home = store.readHome();
-      setLight(lightLabel(home, now));
+      // Her language, as the home says it: read here, so the app's own words change at the next look after she says yes.
+      const language = store.language();
+      setLanguage(language);
+      setLight(lightLabel(home, now, language));
+      // The server's sentence, already in her language.
       setLookedIn(lookedInLine(home, now));
 
       const state = breakController.breakState(now);
@@ -330,11 +371,15 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
     return () => sub.remove();
   }, [card, liveFor, handleAction]);
 
+  // Not yet known which language to say it in: a moment, at launch. Nothing is drawn in the wrong one.
+  if (language === null) return <View style={styles.unlit} />;
+
   return (
     <View style={styles.screen}>
       {watching ? (
         <WatchScreen
           programme={watching}
+          language={language}
           onSnapshot={handleSnapshot}
           onPlaybackEvent={handlePlaybackEvent}
           cardVisible={card !== null}
@@ -347,11 +392,12 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
         />
       ) : (
         <HomeScreen
+          language={language}
           programmes={CATALOG}
           onChoose={handleChoose}
           cardVisible={card !== null}
           lastWatchedId={lastWatchedId}
-          waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting) : undefined}
+          waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting, language) : undefined}
           onOpenWaiting={handleOpenWaiting}
           light={light}
           onOpenLight={handleOpenLight}
@@ -365,7 +411,7 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
           focus, and OK then presses "Watch live" again instead of Back. */}
       {card && !liveFor ? (
         <View style={styles.cardLayer} pointerEvents="box-none">
-          <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} onAction={handleAction} />
+          <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} language={language} onAction={handleAction} />
         </View>
       ) : null}
       {/* Back returns to the card as it was. */}
@@ -374,6 +420,7 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
           pairingApiUrl={config.pairingApiUrl}
           jwt={token.jwt}
           cardId={liveFor}
+          language={language}
           onClose={() => {
             setLiveFor(null);
             setReturnedFromLive((n) => n + 1);
@@ -387,6 +434,11 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+  },
+  // The home screen's own ground, with nothing on it yet.
+  unlit: {
+    flex: 1,
+    backgroundColor: safe.ground,
   },
   // The door card anchors itself to the same corner (DoorCard.tsx); every
   // other card is laid out by this.

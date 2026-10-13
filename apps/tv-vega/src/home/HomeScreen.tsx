@@ -15,12 +15,20 @@
  */
 import * as React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
+import type { HouseholdLanguage } from '@wick/contracts';
 import { fontSize, safe } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
 import { HOLD_MS } from '../watch/hold.js';
+import { programmeLine, words } from '../words/words.js';
 import { POSTERS } from './posters.js';
 
 export interface HomeScreenProps {
+  /**
+   * The language she chose (packages/contracts language.ts). This screen's
+   * own words are said in it (words/words.ts); `waiting`, `light` and
+   * `lookedIn` arrive already said.
+   */
+  readonly language: HouseholdLanguage;
   readonly programmes: readonly Programme[];
   readonly onChoose: (programme: Programme) => void;
   /** A card is on screen: it owns the remote. */
@@ -52,7 +60,8 @@ export interface HomeScreenProps {
   readonly onKeyUp?: (() => void) | undefined;
 }
 
-export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
+  const say = words(language);
   const focusId = lastWatchedId ?? programmes[0]?.id;
   // One quiet row under the films, and a card waiting to be opened comes first.
   const quiet = waiting ? undefined : lookedIn;
@@ -61,7 +70,7 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
     <View style={styles.screen}>
       <View style={styles.top}>
         <Text style={[styles.question, styles.questionText]} accessibilityRole="header" numberOfLines={1}>
-          What would you like to watch?
+          {say('home.question')}
         </Text>
         {/* Never focused on its own: the films are what the screen is for. */}
         {light ? (
@@ -72,7 +81,7 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
             onPressOut={onKeyUp}
             focusable={!cardVisible}
             accessibilityRole="button"
-            accessibilityLabel={`Your light in the window. ${light}. Press OK to see who can see it.`}
+            accessibilityLabel={say('home.lightLabel', { light })}
             style={({ focused }: { focused: boolean }) => [styles.light, focused && styles.tileFocused]}
           >
             <Text style={styles.line} numberOfLines={1}>
@@ -93,7 +102,7 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
             focusable={!cardVisible}
             hasTVPreferredFocus={!cardVisible && programme.id === focusId}
             accessibilityRole="button"
-            accessibilityLabel={`${programme.title}. ${programme.line}`}
+            accessibilityLabel={`${programme.title}. ${programmeLine(programme, language)}`}
             style={({ focused }: { focused: boolean }) => [styles.tile, focused && styles.tileFocused]}
           >
             <Image source={POSTERS[programme.id]} style={[styles.poster, waiting || quiet ? styles.posterWithRow : null]} resizeMode="cover" accessibilityLabel="" />
@@ -102,7 +111,7 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
                 {programme.title}
               </Text>
               <Text style={styles.line} numberOfLines={1}>
-                {programme.line}
+                {programmeLine(programme, language)}
               </Text>
             </View>
           </Pressable>
@@ -118,14 +127,14 @@ export function HomeScreen({ programmes, onChoose, cardVisible, lastWatchedId, w
           onPressOut={onKeyUp}
           focusable={!cardVisible}
           accessibilityRole="button"
-          accessibilityLabel={`${waiting} Press OK to open it.`}
+          accessibilityLabel={say('home.waitingLabel', { line: waiting })}
           style={({ focused }: { focused: boolean }) => [styles.waiting, focused && styles.tileFocused]}
         >
           {/* The line gets the width; "Open" says what OK does, and is never what is cut. */}
           <Text style={[styles.line, styles.waitingLine]} numberOfLines={1}>
             {waiting}
           </Text>
-          <Text style={styles.title}>Open</Text>
+          <Text style={styles.title}>{say('home.open')}</Text>
         </Pressable>
       ) : null}
 

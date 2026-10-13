@@ -3,6 +3,7 @@
  * DynamoDB one (store.ts): a household is created once, a record past its
  * expiry is gone, and a taken record is handed to one caller only.
  */
+import { DEFAULT_LANGUAGE, LANGUAGE_ASK_AFTER_TAKING_BACK_MS, LANGUAGE_ASK_AGAIN_AFTER_MS } from '@wick/contracts';
 import { HouseholdExistsError, type AccountStore } from '../store.js';
 import type { FamilyTelevision, Household, Membership, Television, User } from '../types.js';
 
@@ -11,6 +12,15 @@ export interface MemoryStore extends AccountStore {
   addTelevision(householdId: string, tv: Television): void;
   /** Pretend a member connected a television of their own, as pair-claim.mjs would have done with `as: 'family'`. */
   addFamilyTelevision(householdId: string, tv: FamilyTelevision): void;
+  /**
+   * Pretend the resident pressed a button on the LANGUAGE card, as the edge
+   * will have it: only a question still open is answered; "yes" makes it the
+   * television's language and forgets any no; "no" is kept, with when (her
+   * no stands for a week); either answer closes the question. Says which
+   * language her television speaks afterwards, or undefined when nothing was
+   * open.
+   */
+  answerLanguage(householdId: string, answer: 'yes' | 'no'): 'en' | 'es' | undefined;
   /** Every forgetAnnouncedVisits call, in order. */
   readonly forgottenVisits: { householdId: string; userId: string }[];
 }
@@ -49,6 +59,56 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
     },
     async getHousehold(householdId) {
       return households.get(householdId);
+    },
+    // The same conditions as the table's (store.ts askLanguage), so a test over this store is refused what it would be there.
+    async askLanguage(householdId, question, replacing) {
+      const household = households.get(householdId);
+      if (!household) return false;
+      if ((household.language ?? DEFAULT_LANGUAGE) === question.language) return false;
+      if (household.languageAsked?.language !== replacing?.language) return false;
+      const no = household.languageDeclined;
+      if (no && no.language === question.language && no.at > question.at - LANGUAGE_ASK_AGAIN_AFTER_MS) return false;
+      const taken = household.languageTakenBack;
+      if (taken && taken.language === question.language && taken.at > question.at - LANGUAGE_ASK_AFTER_TAKING_BACK_MS) return false;
+      households.set(householdId, {
+        ...household,
+        languageAsked: question,
+        // An open question this replaces is recorded as taken back, as on the table.
+        ...(replacing?.open ? { languageTakenBack: { language: replacing.language, at: question.at } } : {}),
+      });
+      return true;
+    },
+    async takeBackLanguageQuestion(householdId, question, at) {
+      const household = households.get(householdId);
+      const asked = household?.languageAsked;
+      if (!household || !asked || asked.language !== question.language || asked.at !== question.at) return false;
+      const { languageAsked: _taken, ...rest } = household;
+      households.set(householdId, { ...rest, languageTakenBack: { language: question.language, at } });
+      return true;
+    },
+    async clearLanguageQuestion(householdId, question) {
+      const household = households.get(householdId);
+      const asked = household?.languageAsked;
+      if (!household || !asked || asked.language !== question.language || asked.at !== question.at) return false;
+      const { languageAsked: _taken, ...rest } = household;
+      households.set(householdId, rest);
+      return true;
+    },
+    answerLanguage(householdId, answer) {
+      const household = households.get(householdId);
+      const asked = household?.languageAsked;
+      if (!household || !asked) return undefined;
+      const { languageAsked: _answered, language: before, languageDeclined: lastNo, ...rest } = household;
+      const language = answer === 'yes' ? asked.language : (before ?? DEFAULT_LANGUAGE);
+      households.set(householdId, {
+        ...rest,
+        // English is the absence of one, as on the table.
+        ...(language === DEFAULT_LANGUAGE ? {} : { language }),
+        // Her no is kept, with when; her yes forgets whatever she said no to before.
+        ...(answer === 'no' ? { languageDeclined: { language: asked.language, at: now() } } : {}),
+      });
+      void lastNo;
+      return language;
     },
     async putMembership(membership) {
       memberships.set(memberKey(membership.householdId, membership.userId), membership);

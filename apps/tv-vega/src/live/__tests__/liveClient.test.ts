@@ -121,3 +121,19 @@ describe('outcomeWhenPlayerStops — what the resident is told when the picture 
     expect(outcomeWhenPlayerStops({ hadPicture: false })).toBe('camera_unavailable');
   });
 });
+
+describe('liveMessage — in the language she chose', () => {
+  it('says every outcome in Spanish, one plain sentence each', () => {
+    expect(liveMessage('camera_unavailable', 'es')).toBe('La cámara del timbre no responde ahora.');
+    expect(liveMessage('camera_unsupported', 'es')).toBe('La cámara de este timbre aún no se puede ver en el televisor.');
+    expect(liveMessage('card_too_old', 'es')).toBe('Esa visita fue hace un rato; ya no hay nada en vivo que mostrar.');
+    expect(liveMessage('no_such_card', 'es')).toBe('No hay imagen en vivo de esa visita.');
+    expect(liveMessage('unauthorized', 'es')).toBe('Hay que volver a vincular el televisor para ver la cámara.');
+    expect(liveMessage('ended', 'es')).toBe('La vista en vivo terminó.');
+  });
+
+  it('never shows a code: an outcome it has no sentence for is said as the camera not answering', () => {
+    expect(liveMessage('something_new' as never)).toBe("The doorbell camera isn't answering right now.");
+    expect(liveMessage('something_new' as never, 'es')).toBe('La cámara del timbre no responde ahora.');
+  });
+});

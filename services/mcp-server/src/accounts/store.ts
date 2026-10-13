@@ -21,9 +21,19 @@ import {
   UpdateItemCommand,
   type AttributeValue,
 } from '@aws-sdk/client-dynamodb';
-import { FAMILY_TV_SK_PREFIX, type CircleRole, type MemberStatus } from '@wick/contracts';
+import {
+  DEFAULT_LANGUAGE,
+  FAMILY_TV_SK_PREFIX,
+  HOUSEHOLD_LANGUAGE_ATTRS,
+  LANGUAGE_ASK_AFTER_TAKING_BACK_MS,
+  LANGUAGE_ASK_AGAIN_AFTER_MS,
+  isHouseholdLanguage,
+  type CircleRole,
+  type HouseholdLanguage,
+  type MemberStatus,
+} from '@wick/contracts';
 import { announcedVisitPrefix } from './announcedVisits.js';
-import type { FamilyTelevision, Household, Membership, RecordKind, Television, User } from './types.js';
+import type { AskedLanguage, FamilyTelevision, Household, Membership, RecordKind, Television, User } from './types.js';
 
 type Item = Record<string, AttributeValue>;
 
@@ -48,7 +58,44 @@ export interface AccountStore {
 
   /** Throws HouseholdExistsError rather than take over a household somebody created. */
   createHousehold(household: Household): Promise<void>;
-  getHousehold(householdId: string): Promise<Household | undefined>;
+  /** `consistent` for a decision that has to stand on what was written a moment ago (the television's language). */
+  getHousehold(householdId: string, options?: { readonly consistent?: boolean }): Promise<Household | undefined>;
+
+  /**
+   * Puts a question about the television's language beside the household
+   * (packages/contracts language.ts): the three `languageAsked*` attributes,
+   * in one conditional update. False, and nothing written, when the
+   * household is no longer as it was read — it speaks that language already,
+   * the question beside it is not `replacing` (none, when undefined), she
+   * said no to that language within the week before `question.at`, or a
+   * question for it was taken back within the day before.
+   *
+   * A question that was `open` and is replaced has left her television as
+   * surely as one taken back, and is recorded as taken back by the same
+   * update. One left over for the language she already speaks is not.
+   *
+   * The language itself is never written from here, and nor is her no. Only
+   * the resident's press on her own television does that (the edge), for
+   * the same reason nothing on the family side writes `status: 'allowed'`
+   * (INV-9).
+   */
+  askLanguage(
+    householdId: string,
+    question: AskedLanguage,
+    replacing: { readonly language: HouseholdLanguage; readonly open: boolean } | undefined,
+  ): Promise<boolean>;
+  /**
+   * The organiser takes exactly that question back: it is cleared, and
+   * that it was taken back — which language, and `at` — is recorded, in
+   * one conditional update. False, and nothing written, when it is no
+   * longer the question open: answered, or asked again since.
+   */
+  takeBackLanguageQuestion(householdId: string, question: Pick<AskedLanguage, 'language' | 'at'>, at: number): Promise<boolean>;
+  /**
+   * Undoes a question whose card could not be sent. She was never asked, so
+   * nothing is recorded: this is not a taking back, and starts no wait.
+   */
+  clearLanguageQuestion(householdId: string, question: Pick<AskedLanguage, 'language' | 'at'>): Promise<boolean>;
 
   putMembership(membership: Membership): Promise<void>;
   getMembership(householdId: string, userId: string): Promise<Membership | undefined>;
@@ -88,6 +135,33 @@ export interface AccountStore {
 }
 
 const householdPk = (householdId: string): AttributeValue => ({ S: `HH#${householdId}` });
+
+const LANGUAGE = HOUSEHOLD_LANGUAGE_ATTRS;
+/** The attributes of a question about the language. */
+const QUESTION_NAMES = { '#asked': LANGUAGE.asked, '#by': LANGUAGE.askedBy, '#at': LANGUAGE.askedAt } as const;
+/** And of the organiser's own taking back. With the question's, these are all this store ever writes about the language. */
+const TAKEN_BACK_NAMES = { '#takenBack': LANGUAGE.takenBack, '#takenBackAt': LANGUAGE.takenBackAt } as const;
+
+const conditionFailed = (err: unknown): boolean => (err as { name?: string }).name === 'ConditionalCheckFailedException';
+
+/** The language on a household's row, a question open beside it, her last no and the last taking back. English is the absence of a language. */
+function languageFromItem(item: Item): Pick<Household, 'language' | 'languageAsked' | 'languageDeclined' | 'languageTakenBack'> {
+  const language = item[LANGUAGE.language]?.S;
+  const asked = item[LANGUAGE.asked]?.S;
+  const declined = item[LANGUAGE.declined]?.S;
+  const declinedAt = Number(item[LANGUAGE.declinedAt]?.N);
+  const takenBack = item[LANGUAGE.takenBack]?.S;
+  const takenBackAt = Number(item[LANGUAGE.takenBackAt]?.N);
+  return {
+    ...(isHouseholdLanguage(takenBack) && Number.isFinite(takenBackAt) ? { languageTakenBack: { language: takenBack, at: takenBackAt } } : {}),
+    // A no with no time cannot be counted from, and is not kept against anybody.
+    ...(isHouseholdLanguage(declined) && Number.isFinite(declinedAt) ? { languageDeclined: { language: declined, at: declinedAt } } : {}),
+    ...(isHouseholdLanguage(language) && language !== DEFAULT_LANGUAGE ? { language } : {}),
+    ...(isHouseholdLanguage(asked)
+      ? { languageAsked: { language: asked, by: item[LANGUAGE.askedBy]?.S ?? '', at: Number(item[LANGUAGE.askedAt]?.N ?? 0) } }
+      : {}),
+  };
+}
 const userPk = (userId: string): AttributeValue => ({ S: `USER#${userId}` });
 const num = (value: number): AttributeValue => ({ N: String(value) });
 
@@ -194,8 +268,12 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
       }
     },
 
-    async getHousehold(householdId) {
-      const item = (await send(new GetItemCommand({ TableName: table, Key: { pk: householdPk(householdId), sk: { S: 'META' } } }))).Item;
+    async getHousehold(householdId, options) {
+      const item = (await send(new GetItemCommand({
+        TableName: table,
+        Key: { pk: householdPk(householdId), sk: { S: 'META' } },
+        ...(options?.consistent ? { ConsistentRead: true } : {}),
+      }))).Item;
       // A META item with a policy but no creator is a household nobody has claimed.
       if (!item?.createdBy?.S || !item.name?.S || !item.residentName?.S) return undefined;
       return {
@@ -205,7 +283,86 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         createdBy: item.createdBy.S,
         createdAt: Number(item.createdAt?.N ?? 0),
         ...(item.simulated?.BOOL ? { simulated: true } : {}),
+        ...languageFromItem(item),
       };
+    },
+
+    async askLanguage(householdId, question, replacing) {
+      // English is the absence of the attribute, so "does not speak it already" is asked two ways.
+      const speaksAnother =
+        question.language === DEFAULT_LANGUAGE
+          ? 'attribute_exists(#language) AND #language <> :asked'
+          : '(attribute_not_exists(#language) OR #language <> :asked)';
+      const questionAsRead = replacing === undefined ? 'attribute_not_exists(#asked)' : '#asked = :replacing';
+      // Her no stands for a week, even against a request that read the household a moment before she gave it.
+      const noStandingNo = '(attribute_not_exists(#declined) OR #declined <> :asked OR #declinedAt <= :stale)';
+      // And a taking back stands for a day, against a request that read the household a moment before it too.
+      const notTakenBackLately = '(attribute_not_exists(#takenBack) OR #takenBack <> :asked OR #takenBackAt <= :takenBackStale)';
+      // An open question this replaces leaves her television with it: that is a taking back, and is recorded as one.
+      const recordReplaced = replacing?.open ? ', #takenBack = :replacing, #takenBackAt = :at' : '';
+      try {
+        await send(new UpdateItemCommand({
+          TableName: table,
+          Key: { pk: householdPk(householdId), sk: { S: 'META' } },
+          UpdateExpression: `SET #asked = :asked, #by = :by, #at = :at${recordReplaced}`,
+          // Named in the condition only: the language and her no are read here to refuse, and never set.
+          ConditionExpression: `attribute_exists(createdBy) AND ${speaksAnother} AND ${questionAsRead} AND ${noStandingNo} AND ${notTakenBackLately}`,
+          ExpressionAttributeNames: {
+            '#language': LANGUAGE.language,
+            '#declined': LANGUAGE.declined,
+            '#declinedAt': LANGUAGE.declinedAt,
+            ...TAKEN_BACK_NAMES,
+            ...QUESTION_NAMES,
+          },
+          ExpressionAttributeValues: {
+            ':asked': { S: question.language },
+            ':by': { S: question.by },
+            ':at': num(question.at),
+            ':stale': num(question.at - LANGUAGE_ASK_AGAIN_AFTER_MS),
+            ':takenBackStale': num(question.at - LANGUAGE_ASK_AFTER_TAKING_BACK_MS),
+            ...(replacing === undefined ? {} : { ':replacing': { S: replacing.language } }),
+          },
+        }));
+        return true;
+      } catch (err) {
+        if (conditionFailed(err)) return false;
+        throw err;
+      }
+    },
+
+    async takeBackLanguageQuestion(householdId, question, at) {
+      try {
+        await send(new UpdateItemCommand({
+          TableName: table,
+          Key: { pk: householdPk(householdId), sk: { S: 'META' } },
+          // One update: there is no moment at which the question is gone and its taking back not yet recorded.
+          UpdateExpression: 'SET #takenBack = :asked, #takenBackAt = :takenBackAt REMOVE #asked, #by, #at',
+          ConditionExpression: '#asked = :asked AND #at = :at',
+          ExpressionAttributeNames: { ...TAKEN_BACK_NAMES, ...QUESTION_NAMES },
+          ExpressionAttributeValues: { ':asked': { S: question.language }, ':at': num(question.at), ':takenBackAt': num(at) },
+        }));
+        return true;
+      } catch (err) {
+        if (conditionFailed(err)) return false;
+        throw err;
+      }
+    },
+
+    async clearLanguageQuestion(householdId, question) {
+      try {
+        await send(new UpdateItemCommand({
+          TableName: table,
+          Key: { pk: householdPk(householdId), sk: { S: 'META' } },
+          UpdateExpression: 'REMOVE #asked, #by, #at',
+          ConditionExpression: '#asked = :asked AND #at = :at',
+          ExpressionAttributeNames: { ...QUESTION_NAMES },
+          ExpressionAttributeValues: { ':asked': { S: question.language }, ':at': num(question.at) },
+        }));
+        return true;
+      } catch (err) {
+        if (conditionFailed(err)) return false;
+        throw err;
+      }
     },
 
     async putMembership(m) {

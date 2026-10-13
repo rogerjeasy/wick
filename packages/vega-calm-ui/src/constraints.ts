@@ -57,6 +57,57 @@ export function maxCardHeightDp(): number {
   return layout.cardPaddingDp * 2 + headline + layout.textGapDp + detail + layout.sectionGapDp + actionRow;
 }
 
+/** What decides a text-only card's height: its spacing, and how many lines of detail it may show. */
+export interface CardShape {
+  /** CalmCard's `compact`: tighter spacing, and the headline at body size. */
+  readonly compact?: boolean | undefined;
+  /** Lines of detail. Five unless the card asks for more (CalmCard's `detailLines`). */
+  readonly detailLines?: number | undefined;
+}
+
+/**
+ * The height of a text-only card of that shape: padding, a one-line
+ * headline, the detail at its line limit, and one row of actions — from the
+ * tokens CalmCard's own styles are built from. With nothing asked for it is
+ * maxCardHeightDp().
+ */
+export function cardHeightDp(shape: CardShape): number {
+  const compact = shape.compact === true;
+  const lines = shape.detailLines ?? limits.maxDetailLines;
+  const body = type.bodyPt * layout.lineHeight.body;
+  const headline = compact ? body : type.headlinePt * layout.lineHeight.headline;
+  const actionRow = layout.actionPaddingVerticalDp * 2 + body;
+  return (
+    (compact ? layout.compactPaddingDp : layout.cardPaddingDp) * 2 +
+    headline +
+    (compact ? layout.compactTextGapDp : layout.textGapDp) +
+    lines * body +
+    (compact ? layout.compactGapDp : layout.sectionGapDp) +
+    actionRow
+  );
+}
+
+/**
+ * The buttons are always on the screen. A card whose detail must be read
+ * whole may ask for more than five lines — and gets them only if, at the
+ * 32pt floor, it still fits the screen with its margins. The room comes from
+ * less card around the words (`compact`), never from smaller words.
+ */
+export function assertCardFits(shape: CardShape): void {
+  const lines = shape.detailLines ?? limits.maxDetailLines;
+  if (!Number.isInteger(lines) || lines < 1) {
+    throw new CalmViolation(`${lines} lines of detail: a card shows a whole number of lines, and at least one.`);
+  }
+  const height = cardHeightDp(shape);
+  const room = layout.screenHeightDp - 2 * layout.screenMarginDp;
+  if (height > room) {
+    throw new CalmViolation(
+      `${lines} lines of detail make ${shape.compact ? 'a compact' : 'a'} card ${height.toFixed(0)}dp tall; ` +
+        `the screen has ${room}dp for it. The buttons would be pushed off the screen.`,
+    );
+  }
+}
+
 /** sRGB relative luminance, per WCAG. */
 function luminance(hex: string): number {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());

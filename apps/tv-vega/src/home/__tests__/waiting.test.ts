@@ -48,3 +48,49 @@ describe('backClosesOpened — Back on a waiting card the resident opened', () =
     expect(backClosesOpened({ openedId: 'note-1', shownId: 'note-1', liveOpen: true })).toBe(false);
   });
 });
+
+describe('waitingLine — in the language she chose', () => {
+  const circle = { ...base, type: 'CIRCLE', personName: 'Tom', role: 'family', headline: 'h', detail: 'd' } as Card;
+  const sharing = { ...base, type: 'SHARING', factClass: 'DOOR_EVENT', page: 0, pages: 4, headline: 'h', detail: 'd' } as Card;
+  const tell: Card = { ...base, type: 'TELL', headline: '¿Se lo digo a Sarah?', detail: 'd' };
+  const visit = { ...base, type: 'VISIT', headline: '¿Es correcto?', detail: 'd' } as Card;
+
+  it('says its own sentences in Spanish', () => {
+    expect(waitingLine(queued({ ...base, type: 'MESSAGE', fromName: 'Sarah', suggestedReplies: [] }), 'es')).toBe('Hay una nota de Sarah esperando.');
+    expect(waitingLine(queued({ ...base, type: 'WEEK', isoWeek: '2026-W41', text: 'Una semana tranquila.' }), 'es')).toBe('Su semana está lista para leer.');
+    expect(waitingLine(queued(circle), 'es')).toBe('Tom quiere unirse a su círculo familiar.');
+    expect(waitingLine(queued(sharing), 'es')).toBe('Ya puede revisar lo que ve su familia.');
+  });
+
+  it('still does not say what a question is about', () => {
+    expect(waitingLine(queued(tell), 'es')).toBe('Wick tiene una pregunta para usted.');
+    expect(waitingLine(queued(visit), 'es')).toBe('Wick tiene una pregunta para usted.');
+  });
+
+  it('says a card’s own line as the server wrote it, whatever the language: it came in hers', () => {
+    const watch = { ...base, type: 'WATCH', sessionId: 's-1', withName: 'Sarah', headline: 'Sarah quiere ver una película con usted.' } as Card;
+
+    expect(waitingLine(queued(watch), 'es')).toBe('Sarah quiere ver una película con usted.');
+  });
+
+  it('says something for a card it has no line for', () => {
+    const unknown = { ...base, type: 'SOMETHING_NEW' } as unknown as Card;
+
+    expect(waitingLine(queued(unknown))).toBe('Something is waiting for you.');
+    expect(waitingLine(queued(unknown), 'es')).toBe('Algo le está esperando.');
+  });
+});
+
+describe('waitingLine — the question that asks which language', () => {
+  const language = (asked: 'en' | 'es', headline: string): Card =>
+    ({ ...base, id: `language-${asked}`, type: 'LANGUAGE', language: asked, headline, detail: 'd' }) as Card;
+
+  it('is said in the language asked for, whichever the television speaks now: it may be the only one she reads', () => {
+    const toSpanish = language('es', '¿Quiere que Wick le hable en español?');
+    const toEnglish = language('en', 'Shall Wick speak English again?');
+
+    expect(waitingLine(queued(toSpanish))).toBe('¿Quiere que Wick le hable en español?');
+    expect(waitingLine(queued(toSpanish), 'en')).toBe('¿Quiere que Wick le hable en español?');
+    expect(waitingLine(queued(toEnglish), 'es')).toBe('Shall Wick speak English again?');
+  });
+});

@@ -143,6 +143,25 @@ export class MqttChannel implements DeviceChannel {
   }
 
   /**
+   * Asks for this television's cards again, as on connecting: the card
+   * channel does, when her language changes (startCardChannel.ts).
+   * Publishes nothing when it is not connected — connecting asks anyway.
+   */
+  async reconcile(): Promise<void> {
+    const client = this.#client;
+    const topics = this.#topics;
+    if (!client || !topics || this.#state !== 'open') return;
+    await this.#reconcileOn(client, topics.events);
+  }
+
+  /** Best-effort: a reconcile that cannot be sent is asked again on the next connection. */
+  async #reconcileOn(client: MqttClient, eventsTopic: string): Promise<void> {
+    const sinceCardId = await this.#config.getLastSeenCardId?.();
+    const holding = await this.#config.getHeldCardIds?.();
+    await publish(client, eventsTopic, JSON.stringify({ t: 'reconcile', sinceCardId, ...(holding ? { holding } : {}) })).catch(() => undefined);
+  }
+
+  /**
    * One connection attempt. `first` is the attempt connect() made: its
    * failure is the caller's to act on. Every later one is this channel's own
    * retry, and a failure there schedules the next.
@@ -191,10 +210,7 @@ export class MqttChannel implements DeviceChannel {
             return;
           }
           void (async () => {
-            const sinceCardId = await this.#config.getLastSeenCardId?.();
-            const holding = await this.#config.getHeldCardIds?.();
-            // Best-effort: a reconcile that cannot be sent is asked again on the next connection.
-            await publish(client, topics.events, JSON.stringify({ t: 'reconcile', sinceCardId, ...(holding ? { holding } : {}) })).catch(() => undefined);
+            await this.#reconcileOn(client, topics.events);
             if (settled) return;
             settled = true;
             opened = true;

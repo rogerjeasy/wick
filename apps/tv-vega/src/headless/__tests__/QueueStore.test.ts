@@ -193,3 +193,265 @@ describe('QueueStore', () => {
     expect((await store.readAll()).map((c) => [c.id, c.shownCount])).toEqual([['c1', 2], ['c2', 0]]);
   });
 });
+
+describe('QueueStore — a card this build does not know', () => {
+  // The server learnt a new kind of card after this build was made.
+  const unknown = (id: string): QueuedCard =>
+    ({
+      id,
+      urgency: 'DEFERRED',
+      card: { type: 'SOMETHING_NEW', id, householdId: 'hh-1', correlationId: 'c', createdAt: 0, actions: [{ id: 'ok', label: 'OK', kind: 'primary' }], headline: 'h' },
+      queuedAt: 0,
+      shownCount: 0,
+    }) as unknown as QueuedCard;
+
+  it('is not kept: there is nothing to show, so nothing may wait, be picked or take the remote', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(doorCard('c1'));
+    await store.upsert(unknown('zz-new'));
+
+    expect((await store.readAll()).map((c) => c.id)).toEqual(['c1']);
+  });
+
+  it('is not counted as seen: a later build is owed it', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(doorCard('c1'));
+    await store.upsert(unknown('zz-new'));
+
+    expect(await store.lastSeenCardId()).toBe('c1');
+  });
+
+  it('is not written to disk, and one found there — left by a newer build — is not read back', async () => {
+    const fs = fakeFs();
+    const store = new QueueStore(fs);
+    await store.upsert(unknown('zz-new'));
+    expect(await fs.exists('/data/wick-queue.json')).toBe(false);
+
+    await fs.writeStringToFile('/data/wick-queue.json', JSON.stringify([unknown('zz-new'), doorCard('c1'), null, 'card']), 'utf8');
+    expect((await new QueueStore(fs).readAll()).map((c) => c.id)).toEqual(['c1']);
+  });
+
+  it('does not take the place of a card held under the same id', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(doorCard('c1'));
+    await store.upsert(unknown('c1'));
+
+    expect((await store.readAll()).map((c) => c.card.type)).toEqual(['DOOR']);
+  });
+});
+
+describe('QueueStore — the language her television speaks (packages/contracts language.ts)', () => {
+  it('is English until the home says otherwise', () => {
+    const store = new QueueStore(fakeFs());
+
+    expect(store.language()).toBe('en');
+    store.setHome({ light: 'on' }, { whole: true });
+    expect(store.language()).toBe('en');
+  });
+
+  it('is what the home message says, and English again when the whole of a home names none', () => {
+    const store = new QueueStore(fakeFs());
+
+    store.setHome({ light: 'on', language: 'es' }, { whole: true });
+    expect(store.language()).toBe('es');
+    // A part of the home that does not speak of the language leaves it as it was.
+    store.setHome({ light: 'out' });
+    expect(store.language()).toBe('es');
+    store.setHome({ light: 'on' }, { whole: true });
+    expect(store.language()).toBe('en');
+  });
+
+  it('says when the language has changed — and learning it for the first time is not a change', () => {
+    const store = new QueueStore(fakeFs());
+
+    // Just connected: this television knew nothing, and the cards it is about to be sent are already in her language.
+    expect(store.setHome({ language: 'es' }, { whole: true })).toEqual({ languageChanged: false });
+    expect(store.setHome({ language: 'es' }, { whole: true })).toEqual({ languageChanged: false });
+    expect(store.setHome({ light: 'on' })).toEqual({ languageChanged: false });
+    // She has gone back to English.
+    expect(store.setHome({ light: 'on' }, { whole: true })).toEqual({ languageChanged: true });
+    expect(store.setHome({ light: 'on' }, { whole: true })).toEqual({ languageChanged: false });
+    // And said yes to Spanish again, told as one part of the home.
+    expect(store.setHome({ language: 'es' })).toEqual({ languageChanged: true });
+  });
+
+  it('says so when a home first told to be English turns out to have chosen another language', () => {
+    const store = new QueueStore(fakeFs());
+
+    expect(store.setHome({}, { whole: true })).toEqual({ languageChanged: false });
+    expect(store.setHome({ language: 'es' }, { whole: true })).toEqual({ languageChanged: true });
+  });
+
+  it('remembers the language where the disk works, so the next launch does not begin in English', async () => {
+    const fs = fakeFs();
+    const first = new QueueStore(fs);
+    first.setHome({ language: 'es' }, { whole: true });
+    await first.readAll();
+
+    const second = new QueueStore(fs);
+    expect(await second.recallLanguage()).toBe('es');
+    expect(second.language()).toBe('es');
+
+    // And reading the cards is enough to have it: the app's first look does both.
+    const third = new QueueStore(fs);
+    await third.readAll();
+    expect(third.language()).toBe('es');
+  });
+
+  it('remembers that she went back to English', async () => {
+    const fs = fakeFs();
+    const first = new QueueStore(fs);
+    first.setHome({ language: 'es' }, { whole: true });
+    first.setHome({}, { whole: true });
+    await first.readAll();
+
+    expect(await new QueueStore(fs).recallLanguage()).toBe('en');
+  });
+
+  it('counts a home that says otherwise than it remembered as a change: the cards it kept are in the old language', async () => {
+    const fs = fakeFs();
+    new QueueStore(fs).setHome({ language: 'es' }, { whole: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const relaunched = new QueueStore(fs);
+    await relaunched.recallLanguage();
+    expect(relaunched.setHome({ light: 'on' }, { whole: true })).toEqual({ languageChanged: true });
+    expect(relaunched.language()).toBe('en');
+  });
+
+  it('goes by the server, not by what it remembered, when the server spoke first', async () => {
+    const fs = fakeFs();
+    new QueueStore(fs).setHome({ language: 'es' }, { whole: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const relaunched = new QueueStore(fs);
+    relaunched.setHome({ light: 'on' }, { whole: true });
+    expect(await relaunched.recallLanguage()).toBe('en');
+  });
+
+  it('is English when what is on disk is not a language Wick has', async () => {
+    const fs = fakeFs();
+    await fs.writeStringToFile('/data/wick-language.json', '"fr"', 'utf8');
+    expect(await new QueueStore(fs).recallLanguage()).toBe('en');
+
+    await fs.writeStringToFile('/data/wick-language.json', '{not json', 'utf8');
+    expect(await new QueueStore(fs).recallLanguage()).toBe('en');
+  });
+
+  it('does not write the language again when nothing about it changed', async () => {
+    const fs = fakeFs();
+    let writes = 0;
+    const counting: FileSystemLike = { ...fs, writeStringToFile: (path, content, encoding) => ((writes += path.includes('language') ? 1 : 0), fs.writeStringToFile(path, content, encoding)) };
+    const store = new QueueStore(counting);
+
+    store.setHome({ language: 'es' }, { whole: true });
+    store.setHome({ language: 'es', light: 'on' }, { whole: true });
+    store.setHome({ light: 'out' });
+    await store.readAll();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(writes).toBe(1);
+  });
+
+  it('works in memory where the disk does not — the Vega simulator (FL-013): the language is learnt again at each launch', async () => {
+    const fail = () => Promise.reject(new Error('com.amazon.kepler.io.IoError'));
+    const store = new QueueStore({ exists: fail, readFileAsString: fail, writeStringToFile: fail });
+
+    expect(await store.recallLanguage()).toBe('en');
+    expect(store.setHome({ language: 'es' }, { whole: true })).toEqual({ languageChanged: false });
+    expect(store.language()).toBe('es');
+  });
+});
+
+describe('QueueStore — a card sent again (a reconcile: on connecting, and when her language changes)', () => {
+  const note = (over: Partial<QueuedCard> = {}): QueuedCard => ({
+    id: 'note-1',
+    urgency: 'DEFERRED',
+    card: { type: 'MESSAGE', id: 'note-1', householdId: 'hh-1', correlationId: 'c', createdAt: 0, actions: [], fromName: 'Sarah', transcript: 'See you on Sunday.', suggestedReplies: [] },
+    queuedAt: 100,
+    shownCount: 0,
+    ...over,
+  });
+  const inSpanish = (over: Partial<QueuedCard> = {}): QueuedCard => ({ ...note(over), card: { ...note().card, transcript: 'Nos vemos el domingo.' } as QueuedCard['card'] });
+  const only = async (store: QueueStore): Promise<QueuedCard> => {
+    const all = await store.readAll();
+    expect(all).toHaveLength(1);
+    return all[0]!;
+  };
+
+  it('takes the place of the one held under its id: the same card, in the words it now has', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(note());
+    await store.upsert(inSpanish());
+
+    expect(((await only(store)).card as { transcript?: string }).transcript).toBe('Nos vemos el domingo.');
+  });
+
+  it('does not lose a showing this television counted and the server had not heard of yet', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(note());
+    await store.countShowing('note-1');
+
+    await store.upsert(inSpanish({ shownCount: 0 }));
+
+    expect((await only(store)).shownCount).toBe(1);
+  });
+
+  it('takes the server’s count when it is the larger: shown in another room', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(note());
+
+    await store.upsert(inSpanish({ shownCount: 2 }));
+
+    expect((await only(store)).shownCount).toBe(2);
+  });
+
+  it('does not count twice a showing the server already counted: it counts when one begins, this television when it ends', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(note());
+    // On screen: `card_shown` goes to the server, which counts it at once.
+    await store.beginShowing('note-1');
+    // Sent again while she is reading it, with the server's count.
+    await store.upsert(inSpanish({ shownCount: 1 }));
+    // The break ends, unanswered.
+    await store.countShowing('note-1');
+
+    expect((await only(store)).shownCount).toBe(1);
+  });
+
+  it('counts each showing once when nothing is sent again in between', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(note());
+
+    await store.beginShowing('note-1');
+    await store.countShowing('note-1');
+    expect((await only(store)).shownCount).toBe(1);
+
+    await store.beginShowing('note-1');
+    await store.countShowing('note-1');
+    expect((await only(store)).shownCount).toBe(2);
+  });
+
+  it('starts afresh for a card asked again under the same id: it is a new question, not the old one sent again', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(note());
+    await store.countShowing('note-1');
+    await store.countShowing('note-1');
+
+    await store.upsert(note({ queuedAt: 200, shownCount: 0 }));
+
+    expect((await only(store)).shownCount).toBe(0);
+  });
+
+  it('forgets a showing under way when the card is answered', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(note({ shownCount: 1 }));
+    await store.beginShowing('note-1');
+    await store.remove('note-1');
+
+    await store.upsert(note({ queuedAt: 200, shownCount: 0 }));
+    await store.countShowing('note-1');
+
+    expect((await only(store)).shownCount).toBe(1);
+  });
+});

@@ -5,7 +5,9 @@
  *
  * Reconnect: exponential backoff 1s -> 30s, full jitter. On open, reconcile:
  * send lastSeenCardId, receive everything after it — except on the card
- * service's background connection, which only listens (see `role`).
+ * service's background connection, which only listens (see `role`). The
+ * same request can be made again while connected (`reconcile`): the card
+ * channel does, when her language changes (startCardChannel.ts).
  */
 import type {
   ChannelState,
@@ -100,6 +102,24 @@ export class WebSocketChannel implements DeviceChannel {
     this.#socket.send(JSON.stringify(e));
   }
 
+  /**
+   * Asks for this television's cards again, as on connecting. Sends nothing
+   * when it is not connected — connecting asks anyway — and never on the
+   * card service's connection.
+   */
+  async reconcile(): Promise<void> {
+    const socket = this.#socket;
+    if (!socket || this.#state !== 'open') return;
+    await this.#reconcileOn(socket);
+  }
+
+  async #reconcileOn(socket: WebSocket): Promise<void> {
+    if (this.#config.role === 'background') return;
+    const sinceCardId = await this.#config.getLastSeenCardId?.();
+    const holding = await this.#config.getHeldCardIds?.();
+    socket.send(JSON.stringify({ t: 'reconcile', sinceCardId, ...(holding ? { holding } : {}) }));
+  }
+
   #openSocket(): Promise<void> {
     this.#state = 'connecting';
     const token = this.#token!;
@@ -115,11 +135,7 @@ export class WebSocketChannel implements DeviceChannel {
         void (async () => {
           this.#state = 'open';
           this.#backoffMs = MIN_BACKOFF_MS;
-          if (this.#config.role !== 'background') {
-            const sinceCardId = await this.#config.getLastSeenCardId?.();
-            const holding = await this.#config.getHeldCardIds?.();
-            socket.send(JSON.stringify({ t: 'reconcile', sinceCardId, ...(holding ? { holding } : {}) }));
-          }
+          await this.#reconcileOn(socket);
           if (!settled) {
             settled = true;
             resolve();

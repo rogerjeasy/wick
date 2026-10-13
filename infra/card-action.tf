@@ -48,7 +48,8 @@ data "aws_iam_policy_document" "agent_card_action_ask_family" {
   statement {
     sid = "ReadTheCardAndCircleFileTheRequestPatchTheCard"
     # GetItem: the CARD#<id> the press is about (and again inside
-    # sendPatchToDevice). Query: MEM# — who the resident allows right now —
+    # sendPatchToDevice), and the household's language before anything is
+    # sent to her television (egress.ts). Query: MEM# — who the resident allows right now —
     # and DEV#, to find the television's live connection. PutItem: the
     # once-only LOOK#<cardId> row. UpdateItem: the patch merged into the card.
     # The same four cover Hold for Sarah: its REACH#<id> row is put once, read
@@ -67,6 +68,17 @@ data "aws_iam_policy_document" "agent_card_action_ask_family" {
     sid       = "PublishToTelevisionsOnMqtt"
     actions   = ["iot:Publish"]
     resources = [local.device_topics_arn]
+  }
+
+  # The television speaks her language (packages/contracts language.ts):
+  # egress.ts puts free text — a description patched onto a door card, a card with words of the family's in it — into the
+  # household's language on its way to her television. TranslateText has no
+  # resource to scope to; source and target languages are fixed in code
+  # (services/agent/src/language/translate.ts), and nothing is stored there.
+  statement {
+    sid       = "TranslateFreeTextOnItsWayToHerTelevision"
+    actions   = ["translate:TranslateText"]
+    resources = ["*"]
   }
 }
 

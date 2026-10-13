@@ -168,7 +168,22 @@ export interface VisitCard extends CardBase {
   readonly detail: string;
 }
 
-export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard | LightCard | ReachCard | VisitCard;
+/**
+ * The television speaks her language (language.ts): the organiser has asked
+ * for another, and it is put to the resident in both languages at once. The
+ * server writes every word (languageQuestion); the television only renders
+ * it. Its id is always `language-<language>`, so the press names the
+ * language. It is the one card never passed through the phrasebook.
+ */
+export interface LanguageCard extends CardBase {
+  readonly type: 'LANGUAGE';
+  /** The language asked for. */
+  readonly language: import('./language.js').HouseholdLanguage;
+  readonly headline: string;
+  readonly detail: string;
+}
+
+export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard | LightCard | ReachCard | VisitCard | LanguageCard;
 
 export interface QueuedCard {
   readonly id: string;

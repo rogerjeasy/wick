@@ -7,7 +7,8 @@
  * Both halves were seen on the Vega simulator on 2026-10-11 (FRICTION.md
  * FL-009, update).
  */
-import type { DeviceChannel, DeviceToken } from '@wick/contracts';
+import type { DeviceToken } from '@wick/contracts';
+import type { ReconcilingChannel } from './DeviceChannel.js';
 import { MqttChannel, type MqttChannelConfig, type MqttConnector } from './MqttChannel.js';
 import { WebSocketChannel, type WebSocketChannelConfig, type WebSocketFactory } from './WebSocketChannel.js';
 
@@ -26,7 +27,7 @@ export async function createDeviceChannel(
   config: DeviceChannelConfig,
   token: DeviceToken,
   overrides: DeviceChannelOverrides = {},
-): Promise<DeviceChannel> {
+): Promise<ReconcilingChannel> {
   if (config.mqtt) {
     const mqttChannel = overrides.mqttConnect
       ? new MqttChannel(config.mqtt, overrides.mqttConnect)

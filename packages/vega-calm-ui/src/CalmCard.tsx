@@ -2,8 +2,9 @@
  * CalmCard — the base surface.
  *
  * Enforced, not suggested: >=32pt type, >=7:1 contrast, <=3 actions, <=5
- * lines of detail (so the buttons are always on screen), no
- * auto-dismiss, no timer, no red, no badge, no sound.
+ * lines of detail (so the buttons are always on screen) — or as many as a
+ * card that must be read whole asks for and the screen still has room for
+ * (`detailLines`) — no auto-dismiss, no timer, no red, no badge, no sound.
  *
  * The enforcement is in constraints.ts and runs at render. A card that breaks
  * the floor throws rather than quietly shipping a 24pt label to a television
@@ -11,7 +12,7 @@
  */
 import * as React from 'react';
 import { Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
-import { assertActionLimit, assertContrast, assertNoAlarmColour, fontSize, safe, actionColours } from './constraints.js';
+import { assertActionLimit, assertCardFits, assertContrast, assertNoAlarmColour, fontSize, safe, actionColours } from './constraints.js';
 import { layout, limits } from './tokens.js';
 
 export interface CalmAction {
@@ -42,10 +43,19 @@ export interface CalmCardProps {
    * means less card, never smaller type than the floor allows.
    */
   readonly compact?: boolean | undefined;
+  /**
+   * How many lines of detail to show, for a card whose detail must be read
+   * whole — a question asked in two languages at once. Five when absent.
+   * More is allowed only while the card still fits the screen at the 32pt
+   * floor (constraints.ts assertCardFits), which in practice means with
+   * `compact`: a card that would not fit throws rather than losing its
+   * buttons off the bottom.
+   */
+  readonly detailLines?: number | undefined;
 }
 
 export function CalmCard(props: CalmCardProps): React.JSX.Element {
-  const { headline, detail, actions, onAction, initialFocusId, media, children, compact } = props;
+  const { headline, detail, actions, onAction, initialFocusId, media, children, compact, detailLines } = props;
 
   // Throws before anything reaches the screen.
   assertActionLimit(actions.length);
@@ -57,6 +67,8 @@ export function CalmCard(props: CalmCardProps): React.JSX.Element {
     assertContrast(colours.label, colours.background);
   }
   assertNoAlarmColour(safe.accent);
+  // And the card itself against the screen, with the lines it was asked to show.
+  assertCardFits({ compact, detailLines });
 
   const focusId = initialFocusId ?? actions[0]?.id;
 
@@ -71,7 +83,7 @@ export function CalmCard(props: CalmCardProps): React.JSX.Element {
 
           {/* No placeholder, no spinner, no "loading…". Absent means absent. */}
           {detail ? (
-            <Text style={styles.detail} numberOfLines={limits.maxDetailLines}>
+            <Text style={styles.detail} numberOfLines={detailLines ?? limits.maxDetailLines}>
               {detail}
             </Text>
           ) : null}

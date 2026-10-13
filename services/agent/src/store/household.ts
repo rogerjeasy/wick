@@ -9,7 +9,7 @@
  * the same two questions, so that there is one answer to each.
  */
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { NEVER_TO_FAMILY, type FactClass, type RosterEntry } from '@wick/contracts';
+import { DEFAULT_LANGUAGE, HOUSEHOLD_LANGUAGE_ATTRS, NEVER_TO_FAMILY, isHouseholdLanguage, type FactClass, type HouseholdLanguage, type RosterEntry } from '@wick/contracts';
 import { DEFAULT_POLICY, type HouseholdPolicy } from '@wick/policy';
 import { stillWelcome } from '../agents/door/roster.js';
 
@@ -30,6 +30,33 @@ export async function loadHouseholdPolicy(ddb: DynamoDBClient, table: string, ho
   const fromTv = (res.Item?.residentExclusions?.SS ?? []) as FactClass[];
   if (fromTv.length === 0) return policy;
   return { ...policy, residentExclusions: [...new Set([...policy.residentExclusions, ...fromTv])] };
+}
+
+/**
+ * The language the household's television speaks (packages/contracts
+ * language.ts): `language` on this same META item, absent for English.
+ *
+ * A GetItem of that one attribute, on purpose: it is asked before anything
+ * is sent to her television (egress.ts), by every role that sends — and a
+ * GetItem on the table is the one read all of them may make. `consistent`
+ * is for the moment she has just answered the question on her television.
+ */
+export async function loadHouseholdLanguage(
+  ddb: Pick<DynamoDBClient, 'send'>,
+  table: string,
+  householdId: string,
+  options: { readonly consistent?: boolean } = {},
+): Promise<HouseholdLanguage> {
+  const res = await ddb.send(new GetItemCommand({
+    TableName: table,
+    Key: { pk: { S: `HH#${householdId}` }, sk: { S: 'META' } },
+    // `language` is a word DynamoDB keeps for itself.
+    ProjectionExpression: '#language',
+    ExpressionAttributeNames: { '#language': HOUSEHOLD_LANGUAGE_ATTRS.language },
+    ...(options.consistent ? { ConsistentRead: true } : {}),
+  }));
+  const language = res.Item?.[HOUSEHOLD_LANGUAGE_ATTRS.language]?.S;
+  return isHouseholdLanguage(language) ? language : DEFAULT_LANGUAGE;
 }
 
 /**

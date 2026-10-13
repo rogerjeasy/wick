@@ -19,7 +19,8 @@
  * out is replaced by a new one, and stays on screen until the new one is
  * there.
  */
-import type { DeviceToken } from '@wick/contracts';
+import { DEFAULT_LANGUAGE, type DeviceToken } from '@wick/contracts';
+import { words } from '../words/words.js';
 import type { PairingFlow, PairingStartResponse } from './PairingFlow.js';
 
 export type Connecting =
@@ -30,8 +31,11 @@ export type Connecting =
   | { readonly kind: 'pairing'; readonly info?: PairingStartResponse; readonly trying?: boolean }
   | { readonly kind: 'ready'; readonly token: DeviceToken };
 
-/** Said under "Getting a code…" from the first failed try. The family screen's own words (family/familyScreen.ts `unreachableLine`). */
-export const STILL_TRYING = 'Wick cannot reach the home just now.';
+/**
+ * Said under "Getting a code…" from the first failed try. The family screen's own words (family/familyScreen.ts `unreachableLine`).
+ * Read from the words table like the rest of the pairing screen, and in English always, as that screen is (words/words.ts).
+ */
+export const STILL_TRYING = words(DEFAULT_LANGUAGE)('pairing.stillTrying');
 
 const FIRST_RETRY_MS = 3_000;
 const LONGEST_RETRY_MS = 15_000;

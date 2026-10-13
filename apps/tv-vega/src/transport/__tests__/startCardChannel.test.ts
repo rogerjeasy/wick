@@ -481,3 +481,127 @@ describe('holdCardChannel — for the card service', () => {
     held.stop();
   });
 });
+
+describe('startCardChannel — when her language changes (packages/contracts language.ts)', () => {
+  /** A channel that can ask again for its cards, as the two real ones can. */
+  class AskingChannel extends FakeChannel {
+    asked = 0;
+    failAsking = false;
+    async reconcile(): Promise<void> {
+      this.asked += 1;
+      if (this.failAsking) throw new Error('not_connected');
+    }
+  }
+
+  const note = (transcript: string, shownCount = 0): QueuedCard => ({
+    id: 'note-1',
+    urgency: 'DEFERRED',
+    card: { type: 'MESSAGE', id: 'note-1', householdId: 'h1', correlationId: 'c', createdAt: 0, actions: [], fromName: 'Sarah', transcript, suggestedReplies: [] },
+    queuedAt: 100,
+    shownCount,
+  });
+
+  it('asks the server for its cards again, once: the ones it holds are in the language she had', async () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new AskingChannel();
+    const running = startCardChannel(store, channel);
+
+    // On connecting: the whole of the home, in English. Learning it is not a change.
+    channel.pushControl({ t: 'home', home: { light: 'on' }, whole: true });
+    expect(channel.asked).toBe(0);
+
+    // She has said yes to Spanish.
+    channel.pushControl({ t: 'home', home: { light: 'on', language: 'es' }, whole: true });
+    expect(store.language()).toBe('es');
+    expect(channel.asked).toBe(1);
+
+    // The reconcile is answered with the whole of the home again, and other parts of it change: nothing more is asked.
+    channel.pushControl({ t: 'home', home: { light: 'on', language: 'es' }, whole: true });
+    channel.pushControl({ t: 'home', home: { light: 'out' } });
+    expect(channel.asked).toBe(1);
+
+    // And back to English, later: once more.
+    channel.pushControl({ t: 'home', home: { light: 'on' }, whole: true });
+    expect(store.language()).toBe('en');
+    expect(channel.asked).toBe(2);
+
+    running.stop();
+  });
+
+  it('does not ask when the television is only learning its home’s language: it has just connected, and is being sent its cards in it', async () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new AskingChannel();
+    const running = startCardChannel(store, channel);
+
+    channel.pushControl({ t: 'home', home: { language: 'es' }, whole: true });
+
+    expect(store.language()).toBe('es');
+    expect(channel.asked).toBe(0);
+    running.stop();
+  });
+
+  it('puts each card sent again in the place of the one it held, and keeps what it had counted', async () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new AskingChannel();
+    const running = startCardChannel(store, channel);
+    channel.pushControl({ t: 'home', home: {}, whole: true });
+    channel.pushCard(note('See you on Sunday.'));
+    await settle();
+    await store.countShowing('note-1');
+
+    channel.pushControl({ t: 'home', home: { language: 'es' }, whole: true });
+    // The server's answer: the same card, in Spanish, with a count that had not caught up.
+    channel.pushCard(note('Nos vemos el domingo.', 0));
+    await settle();
+
+    const all = await store.readAll();
+    expect(all).toHaveLength(1);
+    expect((all[0]!.card as { transcript?: string }).transcript).toBe('Nos vemos el domingo.');
+    expect(all[0]!.shownCount).toBe(1);
+    running.stop();
+  });
+
+  it('carries on when the request cannot be sent, and with a channel that cannot ask at all', async () => {
+    const store = new QueueStore(brokenFs());
+    const failing = new AskingChannel();
+    failing.failAsking = true;
+    const running = startCardChannel(store, failing);
+    failing.pushControl({ t: 'home', home: {}, whole: true });
+    failing.pushControl({ t: 'home', home: { language: 'es' }, whole: true });
+    await settle();
+    expect(failing.asked).toBe(1);
+    expect(store.language()).toBe('es');
+    running.stop();
+
+    const plain = new FakeChannel();
+    const again = startCardChannel(store, plain);
+    expect(() => plain.pushControl({ t: 'home', home: {}, whole: true })).not.toThrow();
+    expect(store.language()).toBe('en');
+    again.stop();
+  });
+
+  it('is not the card service’s to ask: behind another app it shows nothing, and is told nothing of the home', async () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new AskingChannel();
+    const running = startBackgroundChannel(store, channel, () => undefined);
+
+    channel.pushControl({ t: 'home', home: {}, whole: true });
+    channel.pushControl({ t: 'home', home: { language: 'es' }, whole: true });
+
+    expect(channel.asked).toBe(0);
+    running.stop();
+  });
+
+  it('drops a card of a kind this build does not know as it arrives: nothing is held, and nothing is said of it', async () => {
+    const store = new QueueStore(brokenFs());
+    const channel = new AskingChannel();
+    const running = startCardChannel(store, channel);
+
+    channel.pushCard({ ...note('x'), id: 'new-1', card: { ...note('x').card, id: 'new-1', type: 'SOMETHING_NEW' } } as unknown as QueuedCard);
+    await settle();
+
+    expect(await store.readAll()).toEqual([]);
+    expect(channel.sent).toEqual([]);
+    running.stop();
+  });
+});

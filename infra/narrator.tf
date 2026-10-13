@@ -46,8 +46,11 @@ data "aws_iam_policy_document" "agent_narrator_weekly" {
     # EVT# rows (timeline.ts) and, inside sendToDevice, the household's
     # paired-device connection. PutItem: the NARR#<isoWeek> item
     # get_week_narrative.ts reads, and (via sendToDevice) the CARD#<id>
-    # queue item for the WeekCard itself (weekCard.ts).
-    actions   = ["dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem"]
+    # queue item for the WeekCard itself (weekCard.ts). GetItem: the
+    # household's language, which sendToDevice reads from HH#<id>/META before
+    # it sends (store/household.ts loadHouseholdLanguage) — one item by its
+    # key, not a Scan.
+    actions   = ["dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:GetItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }
 
@@ -77,6 +80,17 @@ data "aws_iam_policy_document" "agent_narrator_weekly" {
       "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/${local.narrative_model_profile}",
       "arn:aws:bedrock:*::foundation-model/${local.narrative_model}",
     ]
+  }
+
+  # The television speaks her language (packages/contracts language.ts):
+  # egress.ts puts free text — here, the week's paragraph — into the
+  # household's language on its way to her television. TranslateText has no
+  # resource to scope to; source and target languages are fixed in code
+  # (services/agent/src/language/translate.ts), and nothing is stored there.
+  statement {
+    sid       = "TranslateFreeTextOnItsWayToHerTelevision"
+    actions   = ["translate:TranslateText"]
+    resources = ["*"]
   }
 }
 

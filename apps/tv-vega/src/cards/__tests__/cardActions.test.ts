@@ -87,3 +87,26 @@ describe('startsFilm — the one press that opens a film to watch together', () 
     for (const action of ['accept', 'decline', 'start', 'not_now', 'loved_it', 'ok']) expect(removesCard(watch(), action)).toBe(true);
   });
 });
+
+describe('the question about her language (packages/contracts language.ts)', () => {
+  const language = {
+    type: 'LANGUAGE', id: 'language-es', householdId: 'h', correlationId: 'c', createdAt: 0, language: 'es',
+    headline: '¿Quiere que Wick le hable en español?', detail: 'd',
+    actions: [
+      { id: 'yes', label: 'Sí, en español', kind: 'primary' },
+      { id: 'no', label: 'No, keep English', kind: 'secondary' },
+    ],
+  } as Card;
+
+  it('is finished by either answer: she is asked once, and the server keeps what she said', () => {
+    expect(removesCard(language, 'yes')).toBe(true);
+    expect(removesCard(language, 'no')).toBe(true);
+  });
+
+  it('opens nothing: no door camera, no film', () => {
+    for (const action of ['yes', 'no', 'watch_live', 'start']) {
+      expect(opensLiveView(language, action)).toBe(false);
+      expect(startsFilm(language, action, 0)).toBeUndefined();
+    }
+  });
+});

@@ -12,6 +12,17 @@
  * break and never interrupts, and a toast over somebody else's programme
  * would be an interruption (docs/WICK.md Part 5).
  *
+ * Two things here are this file's own words — "Open Wick" on the button,
+ * and the line under the title when the door agent has not yet said who is
+ * there — and they stay English when the household has chosen another
+ * language (packages/contracts/src/language.ts). The service that posts
+ * the toast is a process of its own: it holds the background connection,
+ * which is never sent the `home` message that carries the language, and it
+ * shares no storage with the app that could hand it over (FRICTION.md
+ * FL-013). The title and the description are the server's, and come as it
+ * sends them. So these two are not in the words table (words/words.ts),
+ * and this directory is left out of the scan that holds the app to it.
+ *
  * The content is the shape react-native-kepler's own useToastKepler builds
  * (Libraries/Components/ToastKepler). Verified on the VVD 2026-10-11 — see
  * FRICTION.md FL-022 for what the platform accepts and what it silently
