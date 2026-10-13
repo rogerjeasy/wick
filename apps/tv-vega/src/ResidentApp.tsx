@@ -34,7 +34,7 @@ import * as React from 'react';
 import { Linking } from 'react-native';
 import { BackHandler, StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
-import type { DeviceToken, QueuedCard } from '@wick/contracts';
+import type { DeviceEvent, DeviceToken, QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
 import { LiveView } from './live/LiveView.js';
@@ -45,7 +45,8 @@ import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/Pla
 import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
 import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, waitingLine } from './home/waiting.js';
-import { answersHerPress, lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
+import { asking } from './home/asked.js';
+import { lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
 import { backAnswersReach, holdGuard, newestReachCard, reachOffersToPutAway } from './home/reach.js';
 import { WatchScreen } from './watch/WatchScreen.js';
 import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
@@ -84,14 +85,26 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
    */
   const [light, setLight] = React.useState<string | undefined>(undefined);
   const [lookedIn, setLookedIn] = React.useState<string | undefined>(undefined);
-  /** When she pressed the light on the home screen. The card that answers it is opened as soon as it comes. */
-  const lightAskedAt = React.useRef<number | null>(null);
   /**
-   * When she last held OK. For a little while after it the newest Reach card
-   * is the one on screen — the offer her hold brings, or her request as it
-   * stands — until she answers it or lets it go.
+   * Her press on the light on the home screen. The card that answers it is
+   * opened as soon as it comes — waited for from when her question leaves
+   * the television, not from the press (home/asked.ts).
    */
-  const reachAskedAt = React.useRef<number | null>(null);
+  const lightAsked = React.useMemo(() => asking(), []);
+  /**
+   * Her last hold on OK. For a little while after her question has left,
+   * the newest Reach card is the one on screen — the offer her hold brings,
+   * or her request as it stands — until she answers it or lets it go.
+   */
+  const reachAsked = React.useMemo(() => asking(), []);
+  /** The channel says when each of those two questions really left: the wait for its answer runs from then. */
+  const questionLeft = React.useCallback(
+    (event: DeviceEvent, at: number) => {
+      if (event.t === 'light') lightAsked.sent(event.at, at);
+      else if (event.t === 'reach') reachAsked.sent(event.at, at);
+    },
+    [lightAsked, reachAsked],
+  );
   /** Until her thumb is known to be off OK after a hold, the first press on a card is the thumb coming up (home/reach.ts). */
   const guard = React.useMemo(() => holdGuard(), []);
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
@@ -123,9 +136,9 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   const onScreen = useOnScreen();
   React.useEffect(() => {
     if (!onScreen) return;
-    const held = holdCardChannel(store, token, createDeviceChannel, config);
+    const held = holdCardChannel(store, token, createDeviceChannel, config, undefined, questionLeft);
     return () => held.stop();
-  }, [token, onScreen, store, config]);
+  }, [token, onScreen, store, config, questionLeft]);
 
   // Once paired, and again each time Wick comes back on screen.
   React.useEffect(() => {
@@ -165,9 +178,9 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       // Her light: the card that answers her press is hers to see at once,
       // wherever a break is. One she did not ask for is put away unseen.
       const light = cards.find((c) => c.card.type === 'LIGHT');
-      if (light && answersHerPress(lightAskedAt.current, now)) {
+      if (light && lightAsked.waiting(now)) {
         openedId.current = light.id;
-        lightAskedAt.current = null;
+        lightAsked.done();
       }
       const unasked = unaskedLightCards(cards, openedId.current);
       if (unasked.length > 0) {
@@ -178,7 +191,7 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       // Hold for Sarah: what her hold brings is hers to see at once, and an
       // offer she is not looking at is put away rather than left for a break.
       const reach = newestReachCard(cards);
-      if (reach && answersHerPress(reachAskedAt.current, now)) openedId.current = reach.id;
+      if (reach && reachAsked.waiting(now)) openedId.current = reach.id;
       const offers = reachOffersToPutAway(cards, openedId.current);
       if (offers.length > 0) {
         for (const id of offers) await store.remove(id);
@@ -259,17 +272,17 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   // The light on the home screen: ask for the card that says how it stands.
   const handleOpenLight = React.useCallback(() => {
     const at = Date.now();
-    lightAskedAt.current = at;
+    lightAsked.asked(at);
     void store.enqueueOutbound({ t: 'light', at });
-  }, [store]);
+  }, [store, lightAsked]);
 
   // OK held for two seconds: ask for the card that offers to have someone ring her.
   const handleHold = React.useCallback(() => {
     const at = Date.now();
-    reachAskedAt.current = at;
+    reachAsked.asked(at);
     guard.held(at);
     void store.enqueueOutbound({ t: 'reach', at });
-  }, [store, guard]);
+  }, [store, guard, reachAsked]);
 
   // OK came up: after a hold, the card that arrives may now be pressed.
   const handleKeyUp = React.useCallback(() => guard.released(Date.now()), [guard]);
@@ -286,7 +299,7 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
         setWatching(programme);
       }
       // Any answer on the card her hold brought ends the little while in which the newest one is brought forward.
-      if (card && card.id === cardId && card.card.type === 'REACH') reachAskedAt.current = null;
+      if (card && card.id === cardId && card.card.type === 'REACH') reachAsked.done();
       if (card && card.id === cardId && removesCard(card.card, actionId)) {
         void store.remove(cardId);
         setCard(null);
@@ -295,7 +308,7 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       // one, since FL-014 (holdCardChannel above).
       void store.enqueueOutbound({ t: 'card_action', cardId, action: actionId, at: Date.now() });
     },
-    [store, card, guard],
+    [store, card, guard, reachAsked],
   );
 
   // Back on a waiting card the resident opened puts it back to waiting.
