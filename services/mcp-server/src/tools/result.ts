@@ -20,5 +20,18 @@ export const data = <T extends object>(value: T) => ({
   structuredContent: value as T & Record<string, unknown>,
 });
 
-export const READS = { readOnlyHint: true, openWorldHint: false } as const;
+/**
+ * What became of an answer chosen for the resident's television (the door,
+ * a request to ring): it is on the television under `by`'s name, or it is
+ * not, and `say` is the sentence that tells the person why — somebody
+ * answered first, the card has gone, they were not asked. One outcome for
+ * every way in: the MCP tool and a family member's own television
+ * (accounts/familyTelevision.ts) both run the same function and word it
+ * from this.
+ */
+export type AnswerOutcome =
+  | { readonly shown: true; readonly by: string; readonly text: string }
+  | { readonly shown: false; readonly say: string };
+
+export const READS ={ readOnlyHint: true, openWorldHint: false } as const;
 export const WRITES = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;

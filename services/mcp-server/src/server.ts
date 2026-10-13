@@ -30,6 +30,7 @@ import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { CardPatch, QueuedCard } from '@wick/contracts';
 import { createAuth } from './auth.js';
 import { createApiRouter, type ClaimTelevision, type RingLinks } from './accounts/apiRouter.js';
+import { createFamilyTelevisionRouter } from './accounts/familyTelevisionRouter.js';
 import { checkAccess, type CircleDeps } from './accounts/circle.js';
 import { seedDemoHome } from './accounts/demoHome.js';
 import { createAssistantRouter, type AssistantDeps } from './assistant/router.js';
@@ -210,6 +211,20 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     toolSpecs: () => (toolSpecs ??= listToolSpecs(ddb)),
     now: circle.now,
     timeZone: HOUSEHOLD_TZ,
+  }));
+
+  // A family member's own television (accounts/familyTelevision.ts): what
+  // that one member may already read and answer through the tools below,
+  // asked for with the television's own device token. It reaches the
+  // resident's television only through the same senders the tools are given
+  // (INV-2), and learns whose it is from its token and its row (INV-8).
+  app.use(createFamilyTelevisionRouter({
+    ddb,
+    store: deps.store,
+    sendCard: deps.sendCard,
+    sendPatch: deps.sendPatch,
+    sendHome: deps.sendHome,
+    now: circle.now,
   }));
 
   // No sessions. Every request is answered by a server built for the person

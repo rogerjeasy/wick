@@ -30,11 +30,59 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { NOT_ASKED, firstName, reachesOf, stillOpen } from './get_reach_request.js';
-import { WRITES, data, say } from './result.js';
+import { WRITES, data, say, type AnswerOutcome } from './result.js';
 
 const ANSWER_KEYS = Object.keys(REACH_ANSWERS) as [ReachAnswer, ...ReachAnswer[]];
 
 const alreadyAnswered = (answer: NonNullable<ReachRequest['answer']>): string => `${firstName(answer.byName)} has already answered: “${REACH_ANSWERS[answer.key]}”`;
+
+/** Who is answering: the household and the member of a verified token (INV-8), by the names the resident allowed (INV-9). */
+export interface ReachAnswerer {
+  readonly householdId: string;
+  readonly userId: string;
+  /** The member's name as the circle holds it; the television shows its first word. */
+  readonly memberName: string;
+  readonly residentName: string;
+}
+
+/**
+ * Puts one chosen answer to a request to ring on the resident's television
+ * — the whole of what the tool does, and of what a press on a family
+ * member's own television does (accounts/familyTelevision.ts). Whoever
+ * calls it has already asked whether the resident allows this person; this
+ * decides whether they were asked, and the first answer is the answer.
+ */
+export async function answerReachRequest(
+  ddb: DynamoDBClient,
+  who: ReachAnswerer,
+  requestId: string,
+  answer: ReachAnswer,
+  sendCard: (card: QueuedCard) => Promise<void>,
+  now: number,
+): Promise<AnswerOutcome> {
+  const { householdId, userId, residentName } = who;
+  const reaches = reachesOf(ddb);
+  const request = await reaches.load(householdId, requestId);
+  // Not asked, and no such request, are one answer: see get_reach_request.
+  if (!request || !wasAsked(request, userId)) return { shown: false, say: NOT_ASKED(residentName) };
+  if (request.answer) return { shown: false, say: alreadyAnswered(request.answer) };
+  if (!answersFor(request.kind).includes(answer)) {
+    return { shown: false, say: `That answer does not fit what ${residentName} asked. Choose one of: ${answersFor(request.kind).map((key) => `${key} ("${REACH_ANSWERS[key]}")`).join(', ')}.` };
+  }
+  if (!stillOpen(request, now)) {
+    return { shown: false, say: `That was a while ago, so the answer would not mean much on the television now. A telephone call or a note will still reach ${residentName}.` };
+  }
+
+  const given = { key: answer, by: userId, byName: firstName(who.memberName), at: now };
+  if (!(await reaches.answer(householdId, requestId, given))) {
+    // Someone answered in the moment between the read and the write.
+    const settled = await reaches.load(householdId, requestId);
+    return { shown: false, say: settled?.answer ? alreadyAnswered(settled.answer) : NOT_ASKED(residentName) };
+  }
+
+  await sendCard(buildReachCard({ ...request, answer: given }, now));
+  return { shown: true, by: given.byName, text: REACH_ANSWERS[answer] };
+}
 
 export function registerAnswerReachRequest(
   mcpServer: McpServer,
@@ -60,29 +108,15 @@ export function registerAnswerReachRequest(
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { requestId, answer }: { requestId: string; answer: ReachAnswer }) => {
-      const residentName = allowed.household.residentName;
-      const reaches = reachesOf(ddb);
-      const request = await reaches.load(ctx.householdId, requestId);
-      // Not asked, and no such request, are one answer: see get_reach_request.
-      if (!request || !wasAsked(request, ctx.userId)) return say(NOT_ASKED(residentName));
-      if (request.answer) return say(alreadyAnswered(request.answer));
-      if (!answersFor(request.kind).includes(answer)) {
-        return say(`That answer does not fit what ${residentName} asked. Choose one of: ${answersFor(request.kind).map((key) => `${key} ("${REACH_ANSWERS[key]}")`).join(', ')}.`);
-      }
-      const at = now();
-      if (!stillOpen(request, at)) {
-        return say(`That was a while ago, so the answer would not mean much on the television now. A telephone call or a note will still reach ${residentName}.`);
-      }
-
-      const given = { key: answer, by: ctx.userId, byName: firstName(allowed.membership.name), at };
-      if (!(await reaches.answer(ctx.householdId, requestId, given))) {
-        // Someone answered in the moment between the read and the write.
-        const settled = await reaches.load(ctx.householdId, requestId);
-        return say(settled?.answer ? alreadyAnswered(settled.answer) : NOT_ASKED(residentName));
-      }
-
-      await sendCard(buildReachCard({ ...request, answer: given }, at));
-      return data({ shown: true, by: given.byName, text: REACH_ANSWERS[answer] });
+      const outcome = await answerReachRequest(
+        ddb,
+        { householdId: ctx.householdId, userId: ctx.userId, memberName: allowed.membership.name, residentName: allowed.household.residentName },
+        requestId,
+        answer,
+        sendCard,
+        now(),
+      );
+      return outcome.shown ? data({ shown: true, by: outcome.by, text: outcome.text }) : say(outcome.say);
     }, { neighbour: true })),
   );
 }
