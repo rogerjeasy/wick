@@ -203,6 +203,23 @@ describe('reconcile — the cards a television is owed, in the household’s lan
     expect(tv.controls[0]).toEqual({ t: 'revoke', cardId: 'circle-u2' });
   });
 
+  it('reads the language as it is this instant, for the cards and for the home alike: this is the asking her television makes the moment its language changes', async () => {
+    home({ language: 'es' });
+    stored();
+
+    await television({ t: 'reconcile', at: 1 });
+
+    // The cards' language: the household's own row, read consistently.
+    const languageRead = aws.sent.filter((c) => c.name === 'Get' && (c.input.Key as Row).sk!.S === 'META');
+    expect(languageRead).toHaveLength(1);
+    expect(languageRead[0]!.input.ConsistentRead).toBe(true);
+    // The home's language: the rows the home message is built from, read consistently too —
+    // told `whole`, a stale one would tell her television the language she has just left.
+    const homeRead = aws.sent.filter((c) => c.name === 'Query' && (c.input.ExpressionAttributeValues as Row)[':to']?.S === 'META');
+    expect(homeRead).toHaveLength(1);
+    expect(homeRead[0]!.input.ConsistentRead).toBe(true);
+  });
+
   it('reads the language once for the whole replay, and not at all when there is nothing to replay', async () => {
     home({ language: 'es' });
     const languageReads = () => aws.sent.filter((c) => c.name === 'Get' && (c.input.Key as Row).sk!.S === 'META').length;
@@ -330,6 +347,54 @@ describe('her answer to the language question', () => {
     expect(metaRow()).toEqual(before);
     expect(aws.sent.filter((c) => c.name === 'Update' && (c.input.Key as Row).sk!.S === 'META')).toEqual([]);
     expect(homeChanged()).toEqual([]);
+  });
+
+  describe('says on the bus that the language changed — and only when her press changed it — so the cards she has not answered can be put into it', () => {
+    const changedTo = () => homeChanged().map((detail) => detail.languageChangedTo);
+
+    it('yes: the event that tells the home’s other televisions also says which language it now is, with an id of its own to follow it by', async () => {
+      home({ asked: 'es' });
+
+      await press('language-es', 'yes');
+
+      const [detail] = homeChanged();
+      expect(detail.languageChangedTo).toBe('es');
+      expect(detail.correlationId).toMatch(/^[0-9a-f-]{36}$/);
+      // What it carries: the household, the television, the home screen, the time, and those two. No card, no words.
+      expect(Object.keys(detail).sort()).toEqual(['at', 'correlationId', 'deviceId', 'home', 'householdId', 'languageChangedTo']);
+    });
+
+    it('yes to English: says so too — there is nothing to translate, but it is a change', async () => {
+      home({ language: 'es', asked: 'en' });
+
+      await press('language-en', 'yes');
+
+      expect(changedTo()).toEqual(['en']);
+    });
+
+    it('no, a stale press, and a press for another language: the home is re-told, and nothing says the language changed', async () => {
+      home({ asked: 'es' });
+      await press('language-es', 'no');
+      home();
+      await press('language-es', 'yes');
+      home({ language: 'es', asked: 'en' });
+      await press('language-es', 'yes');
+
+      for (const detail of homeChanged()) {
+        expect(Object.keys(detail).sort()).toEqual(['at', 'deviceId', 'home', 'householdId']);
+      }
+      expect(homeChanged().length).toBeGreaterThan(0);
+    });
+
+    it('a second yes to a question already answered changes nothing, and says nothing changed', async () => {
+      home({ asked: 'es' });
+      await press('language-es', 'yes');
+      aws.events.length = 0;
+
+      await press('language-es', 'yes');
+
+      expect(changedTo()).toEqual([undefined]);
+    });
   });
 
   it('finishes the question’s card like any other answered card, so it is not asked again and comes off the home’s other televisions', async () => {

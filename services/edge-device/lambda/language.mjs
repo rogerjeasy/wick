@@ -81,7 +81,13 @@ export function languageOfRows(items) {
   return languageOfMeta((items ?? []).find((item) => item.sk?.S === META_SK));
 }
 
-/** GetItem input for the language alone, when no other read has already brought the row. */
+/**
+ * GetItem input for the language alone, when no other read has already
+ * brought the row. A consistent read, always: her television asks for its
+ * cards again the moment its language changes, and this is the read that
+ * answers — it must say what she has just chosen, not what a replica last
+ * heard.
+ */
 export function languageRead({ table, householdId }) {
   return {
     TableName: table,
@@ -89,6 +95,7 @@ export function languageRead({ table, householdId }) {
     // `language` is a word DynamoDB keeps for itself.
     ProjectionExpression: '#language',
     ExpressionAttributeNames: { '#language': HOUSEHOLD_LANGUAGE_ATTRS.language },
+    ConsistentRead: true,
   };
 }
 

@@ -124,7 +124,7 @@ import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpd
 import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
 import { LIGHT_CARD_ID, buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
-import { inHerLanguage, languageAnswerUpdate, languageOfMeta, languagePress, languageRead } from './language.mjs';
+import { LANGUAGE_ACTIONS, inHerLanguage, languageAnswerUpdate, languageOfMeta, languagePress, languageRead } from './language.mjs';
 import {
   PHOTO_ACTIONS,
   PHOTO_STATES,
@@ -337,9 +337,10 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
 
       const language = languagePress(deviceEvent.cardId, deviceEvent.action);
       if (language) {
-        await recordLanguageAnswer(householdId, language);
+        const languageChangedTo = await recordLanguageAnswer(householdId, language);
         // Which language the home speaks is told to every television in it — this one at once, the others by the agent plane.
-        await tellEveryHome({ sendControl, householdId, deviceId, consistent: true });
+        // And when this press changed it, the agent plane is told so, to put what she has not yet answered into it.
+        await tellEveryHome({ sendControl, householdId, deviceId, consistent: true, languageChangedTo });
       }
 
       const watch = watchPress(deviceEvent.cardId, deviceEvent.action);
@@ -374,7 +375,10 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
     await readToHer({ sendControl, cardAsShown, householdLanguage, householdId, cardId, synthesize });
   } else if (deviceEvent.t === 'reconcile') {
     await reconcile({ sendCard, sendControl, householdId, holding: deviceEvent.holding });
-    await tellHome({ sendControl, householdId });
+    // Read as it is this instant: a television asks for what it is owed the
+    // moment its language changes, and this home is told whole — a read a
+    // moment old would tell it the language she has just left.
+    await tellHome({ sendControl, householdId, consistent: true });
   }
 
   if (isActiveSignal(deviceEvent)) await signalActive(householdId, deviceId);
@@ -458,17 +462,23 @@ async function recordCircleDecision(householdId, decision, at) {
  * say. Logged, never thrown: the press is already on the timeline. A failed
  * condition means the question was no longer open, or was about another
  * language, and what the household's row says stands.
+ *
+ * Answers with the language the household now speaks when — and only when —
+ * this press changed it: her yes, written. Undefined for a no, and for a
+ * press that changed nothing.
  */
 async function recordLanguageAnswer(householdId, { language, answer }) {
   try {
     await ddb.send(new UpdateItemCommand(languageAnswerUpdate({ table: TABLE, householdId, language, answer, at: Date.now() })));
     console.log(JSON.stringify({ level: 'info', msg: 'language_answered', language, answer }));
+    return answer === LANGUAGE_ACTIONS.yes ? language : undefined;
   } catch (err) {
     if (err?.name === 'ConditionalCheckFailedException') {
       console.log(JSON.stringify({ level: 'info', msg: 'language_question_not_open' }));
-      return;
+      return undefined;
     }
     console.error('language_answer_write_failed', { householdId, err: err?.name });
+    return undefined;
   }
 }
 
@@ -681,11 +691,13 @@ async function tellHome({ sendControl, householdId, consistent = false }) {
  * to tell (light.mjs buildHomeChangedEntry; INV-2). Logged, never thrown:
  * one that is not told now is told when it next connects.
  */
-async function tellEveryHome({ sendControl, householdId, deviceId, consistent = false }) {
+async function tellEveryHome({ sendControl, householdId, deviceId, consistent = false, languageChangedTo }) {
   const home = await tellHome({ sendControl, householdId, consistent });
   if (!home) return;
   try {
-    const res = await events.send(new PutEventsCommand({ Entries: [buildHomeChangedEntry({ busName: BUS, householdId, deviceId, home, at: Date.now() })] }));
+    // A change of language gets an id of its own, carried by whatever the agent plane does about it (INV-6).
+    const changed = languageChangedTo ? { languageChangedTo, correlationId: randomUUID() } : {};
+    const res = await events.send(new PutEventsCommand({ Entries: [buildHomeChangedEntry({ busName: BUS, householdId, deviceId, home, at: Date.now(), ...changed })] }));
     if (res.FailedEntryCount) console.error('home_changed_publish_rejected', { householdId, code: res.Entries?.[0]?.ErrorCode });
   } catch (err) {
     console.error('home_changed_publish_failed', { householdId, err: err?.name });
