@@ -1487,6 +1487,39 @@ export function televisionOffer(me) {
 }
 
 /**
+ * A pairing code that arrived in a link — the address on a television's
+ * pairing screen, opened on a telephone.
+ *
+ * Such a link can be sent by anybody. If its code went straight into the
+ * form, one press on "Connect" would connect whichever television the code
+ * belongs to: somebody else's, showing them this person's view of the home,
+ * or — for an organiser — standing in for the resident's own. So the code
+ * from a link is never used by itself. It is shown, the person is asked
+ * whether it is the code on the television in front of them, and only their
+ * "Yes" carries it on to the connect card.
+ *
+ * Anything that is not six digits is not a code: it is dropped, and never
+ * drawn.
+ */
+export function presentPairLink(code, residentName) {
+  const digits = typeof code === 'string' ? code.replace(/\s+/g, '') : '';
+  if (!/^\d{6}$/.test(digits)) return { offered: false };
+  const shown = `${digits.slice(0, 3)} ${digits.slice(3)}`;
+  return {
+    offered: true,
+    code: digits,
+    shown,
+    title: 'A code from a link',
+    question: `Is ${shown} the code showing on the television in front of you?`,
+    warning:
+      `Only go on if you can see this code on that television yourself. A link from somebody else can carry the code of their television, and connecting it would show them what you see of ${residentName}’s home.`,
+    confirm: 'Yes, it is on my television',
+    refuse: 'No',
+    refused: 'Nothing was connected.',
+  };
+}
+
+/**
  * The card that connects a television, and whose it is going to be — asked
  * in plain words before the code is sent. `as` is what is chosen to begin
  * with: nothing for an organiser, who has to say; "Mine" when that is what

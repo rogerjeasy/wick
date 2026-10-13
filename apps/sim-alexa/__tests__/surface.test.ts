@@ -8,6 +8,7 @@ import {
   needsConfirmation,
   presentCircle,
   presentConnect,
+  presentPairLink,
   presentConnected,
   presentDoorbell,
   presentInvitation,
@@ -2043,3 +2044,42 @@ describe('the visit, witnessed — which visits were made, and which she confirm
     expect(describeCall('get_visits', {})).toBe('Looked at the visits');
   });
 });
+
+describe('presentPairLink — a code that arrived in a link is not a code she read off her television', () => {
+  it('shows the code, and asks whether it is the one on the television in front of her — before anything can be connected', () => {
+    const gate = presentPairLink('123456', 'Margaret');
+    expect(gate).toEqual({
+      offered: true,
+      code: '123456',
+      shown: '123 456',
+      title: 'A code from a link',
+      question: 'Is 123 456 the code showing on the television in front of you?',
+      warning:
+        'Only go on if you can see this code on that television yourself. A link from somebody else can carry the code of their television, and connecting it would show them what you see of Margaret’s home.',
+      confirm: 'Yes, it is on my television',
+      refuse: 'No',
+      refused: 'Nothing was connected.',
+    });
+  });
+
+  it('takes the code as written on a television, with its space', () => {
+    expect(presentPairLink('123 456', 'Margaret')).toMatchObject({ offered: true, code: '123456', shown: '123 456' });
+  });
+
+  it('offers nothing for something that is not six digits — and never puts it on the page', () => {
+    for (const code of ['', '12345', '1234567', 'abcdef', '123456<script>', '12 34 56 78', null, undefined]) {
+      expect(presentPairLink(code, 'Margaret')).toEqual({ offered: false });
+    }
+  });
+});
+
+describe('a pairing link in the family app', () => {
+  const main = readFileSync(fileURLToPath(new URL('../main.js', import.meta.url)), 'utf8');
+
+  it('never fills the code in from a link by itself: the code reaches the form only through the confirming press', () => {
+    // The one place a link's code enters the app after sign-in.
+    expect(main).toMatch(/if \(pair\) addPairLinkGate\(pair\);/);
+    expect(main).not.toMatch(/if \(pair\) addConnectTelevision\(/);
+  });
+});
+

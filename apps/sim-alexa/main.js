@@ -18,6 +18,7 @@ import {
   needsConfirmation,
   presentCircle,
   presentConnect,
+  presentPairLink,
   presentConnected,
   presentDoorbell,
   presentInvitation,
@@ -1652,6 +1653,46 @@ function plainCard(title, footnote) {
 }
 
 /**
+ * A code that came in a link: show it, and ask whether it is the one on the
+ * television in front of the person, before it can go anywhere. What is said
+ * is decided in surface.js (presentPairLink). Somebody who is offered no
+ * television at all is told so at once, without being shown the code.
+ */
+function addPairLinkGate(code) {
+  if (!me) return;
+  const resident = me.household.residentName;
+  if (!presentConnect(me).offered) return void addConnectTelevision();
+  const gate = presentPairLink(code, resident);
+  if (!gate.offered) return void addConnectTelevision();
+
+  const turn = el('div', 'turn-assistant');
+  const { card, body } = plainCard(gate.title, gate.warning);
+  body.appendChild(el('p', undefined, gate.question));
+  const actions = el('div', 'actions');
+  const yes = el('button', 'btn final', gate.confirm);
+  yes.type = 'button';
+  const no = el('button', 'btn quiet', gate.refuse);
+  no.type = 'button';
+  actions.append(no, yes);
+  body.appendChild(actions);
+  turn.appendChild(card);
+  log.appendChild(turn);
+  scrollToEnd();
+  // The way out has the focus: a press made without reading connects nothing.
+  no.focus();
+
+  no.addEventListener('click', () => {
+    turn.remove();
+    assistantSays({ say: gate.refused, tone: 'answer' });
+    $('ask-input').focus();
+  });
+  yes.addEventListener('click', () => {
+    turn.remove();
+    addConnectTelevision({ prefill: gate.shown });
+  });
+}
+
+/**
  * Ask whose television it is — the resident's, or the signed-in person's own
  * — and for the six digits on it. Who is offered which, and every sentence,
  * is decided in surface.js (presentConnect); the server decides again when
@@ -2083,9 +2124,10 @@ async function welcome() {
 
   const pair = sessionStorage.getItem('wick_pair');
   sessionStorage.removeItem('wick_pair');
-  // A television's pairing link leads to the same card as asking for it: the choice for an organiser, their own
-  // for a family member — and, for somebody who is offered neither, one sentence that says so.
-  if (pair) addConnectTelevision({ prefill: pair });
+  // A television's pairing link leads to the same card as asking for it — the choice for an organiser, their own
+  // for a family member, one sentence for somebody offered neither — but never straight to it: the code in a
+  // link is first shown and confirmed (addPairLinkGate), because anybody can send such a link.
+  if (pair) addPairLinkGate(pair);
   else if (me.membership.role === 'organiser' && presented.next === 'connect') addConnectTelevision();
   else $('ask-input').focus();
   watchTheDoor();
