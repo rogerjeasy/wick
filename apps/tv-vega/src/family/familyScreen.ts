@@ -36,6 +36,17 @@ export function unreachableLine(residentName: string | undefined): string {
   return residentName ? `Wick cannot reach ${residentName}’s home just now.` : 'Wick cannot reach the home just now.';
 }
 
+/**
+ * The screen before the first answer: there is no home to name yet, so the
+ * heading is the name of the thing itself, and under it — once a look has
+ * failed — that the home cannot be reached. Laid out as the home will be,
+ * so the screen is never blank and never one stray sentence; and it claims
+ * nothing it does not know.
+ */
+export function startingLines(unreachable: boolean): { readonly heading: string; readonly quiet: readonly string[] } {
+  return { heading: 'Wick', quiet: unreachable ? [unreachableLine(undefined)] : [] };
+}
+
 export interface FamilyLines {
   /** Whose home this television looks towards. */
   readonly heading: string;

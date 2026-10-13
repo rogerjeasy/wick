@@ -18,6 +18,26 @@
  * know this television, and no code is needed at all. A code that has run
  * out is replaced by a new one, and stays on screen until the new one is
  * there.
+ *
+ * And the screen is never left blank while the first request has not
+ * answered (seen on both televisions, 2026-10-13: nothing at all for ten
+ * seconds, and longer). After HOLD_AFTER_MS with nothing to show:
+ *
+ *   - a television that remembers a token — connected before, where the
+ *     disk keeps one — is given that token, run out or not, and shows its
+ *     own screen with it: the resident's home with what it has, a family
+ *     member's heading. It is not shown the pairing screen for a network
+ *     that is only slow, or gone; it is given its fresh token when the
+ *     pairing service answers, and the pairing screen only if the service
+ *     says it is no longer connected.
+ *   - a television that remembers nothing shows the pairing screen.
+ *
+ * Not at once: a television that keeps no token on disk — every Vega
+ * simulator — asks for its token at each launch and is answered in a few
+ * hundred milliseconds; shown the pairing screen at once, it would flash
+ * "Set up Wick" at every launch. In that first second nothing is shown, as
+ * before, and a television that is answered in time shows only its own
+ * screen.
  */
 import { DEFAULT_LANGUAGE, type DeviceToken } from '@wick/contracts';
 import { words } from '../words/words.js';
@@ -37,6 +57,14 @@ export type Connecting =
  */
 export const STILL_TRYING = words(DEFAULT_LANGUAGE)('pairing.stillTrying');
 
+/**
+ * How long the first request is given before the screen says something
+ * without it. The same second the resident's home may stay undrawn while
+ * its language is read (ResidentApp.tsx): long enough for an answer on a
+ * working network, short enough that nobody takes the television for dead.
+ */
+export const HOLD_AFTER_MS = 1_000;
+
 const FIRST_RETRY_MS = 3_000;
 const LONGEST_RETRY_MS = 15_000;
 
@@ -48,7 +76,7 @@ export function retryDelayMs(failures: number): number {
 export interface ConnectDeps {
   /** This television's own id (deviceId.ts). */
   readonly deviceId: () => Promise<string>;
-  readonly pairing: Pick<PairingFlow, 'loadToken' | 'start' | 'pollUntilBound' | 'clearToken'>;
+  readonly pairing: Pick<PairingFlow, 'loadToken' | 'start' | 'pollUntilBound' | 'clearToken' | 'rememberedToken'>;
   /**
    * A family member's television that has just been told it is no longer
    * connected (family/FamilyApp.tsx): its token is forgotten, and none is
@@ -80,6 +108,31 @@ export function connectTelevision(deps: ConnectDeps): { cancel(): void } {
       timer = setTimeout(resolve, ms);
     });
 
+  /** What this television last held, read once. Never for one just told it is no longer connected; and a disk that cannot be read remembers nothing. */
+  let remembering: Promise<DeviceToken | null> | undefined;
+  const remembered = (): Promise<DeviceToken | null> => {
+    remembering ??= deps.signedOut ? Promise.resolve(null) : deps.pairing.rememberedToken().catch(() => null);
+    return remembering;
+  };
+  /** Once a code has been on screen this television is being set up: an old token is not gone back to. */
+  let codeShown = false;
+
+  /**
+   * What to show when the pairing service has not answered, or could not
+   * be reached: a television's own screen, with the token it remembers —
+   * or, for one that remembers nothing, the pairing screen.
+   */
+  const withoutAnAnswer = async (trying: boolean): Promise<void> => {
+    const token = codeShown ? null : await remembered();
+    if (token) say({ kind: 'ready', token });
+    else say(trying ? { kind: 'pairing', trying: true } : { kind: 'pairing' });
+  };
+
+  // Nothing to show after a second: say something without the answer.
+  const holding = setTimeout(() => {
+    if (said === undefined) void withoutAnAnswer(false).then(undefined, () => undefined);
+  }, HOLD_AFTER_MS);
+
   void (async () => {
     let failures = 0;
     let forgotten = false;
@@ -97,6 +150,7 @@ export function connectTelevision(deps: ConnectDeps): { cancel(): void } {
         const info = await deps.pairing.start(deviceId);
         if (cancelled) return;
         failures = 0;
+        codeShown = true;
         say({ kind: 'pairing', info });
         try {
           const bound = await deps.pairing.pollUntilBound(info.code);
@@ -109,9 +163,11 @@ export function connectTelevision(deps: ConnectDeps): { cancel(): void } {
           await pause(retryDelayMs(1));
         }
       } catch {
-        // Not reached, or not answered in time. Said, and tried again.
+        // Not reached, or not answered in time. Said — on the pairing
+        // screen, or not at all on a television showing its own — and
+        // tried again.
         failures += 1;
-        say({ kind: 'pairing', trying: true });
+        await withoutAnAnswer(true);
         await pause(retryDelayMs(failures));
       }
     }
@@ -120,6 +176,7 @@ export function connectTelevision(deps: ConnectDeps): { cancel(): void } {
   return {
     cancel(): void {
       cancelled = true;
+      clearTimeout(holding);
       if (timer !== undefined) clearTimeout(timer);
       waking?.();
     },

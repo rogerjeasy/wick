@@ -5,6 +5,8 @@ import { VideoPlayer } from '../adapters/videoPlayer.js';
 import { deriveSnapshot, PlayerService, type MediaElementLike, type PlayerSnapshot } from '../../../tv-vega/src/player/PlayerService.js';
 import { watchCommand } from '../../../tv-vega/src/watch/remoteKeys.js';
 import { HOLD_MS, okHold } from '../../../tv-vega/src/watch/hold.js';
+import { pressGuard } from '../../../tv-vega/src/family/presses.js';
+import { pressSettle } from '../../../tv-vega/src/press/settle.js';
 import { QueueStore } from '../../../tv-vega/src/headless/QueueStore.js';
 import { resolveDeviceId, SIMULATOR_DEVICE_ID } from '../../../tv-vega/src/deviceId.js';
 
@@ -385,3 +387,155 @@ describe('holding OK on Fire OS (apps/tv-vega/src/watch/hold.ts, fed through thi
   });
 });
 
+
+// A wave is sent only by a press aimed at it: one made after an arrow key
+// (apps/tv-vega/src/family/presses.ts). Here the keys are the shapes Fire OS
+// really sends (FRICTION.md FL-028), through this adapter, as the family
+// screen hears them.
+describe('the wave on Fire OS (apps/tv-vega/src/family/presses.ts, fed through this adapter)', () => {
+  /** Android's KeyEvent.ACTION_DOWN and ACTION_UP. */
+  const DOWN = 0;
+  const UP = 1;
+  const T = 1_800_000_000_000;
+
+  /** The family home with nothing in front, and the remote's keys reaching the guard as they do on Fire OS. */
+  function home() {
+    const keys = remoteKeyEvents();
+    const guard = pressGuard();
+    guard.surface('home', T);
+    return {
+      guard,
+      /** One Android key event, at `ms` after the home appeared. */
+      android(event: AndroidRemoteEvent, ms: number) {
+        for (const key of keys(event)) guard.key(key, T + ms);
+      },
+    };
+  }
+
+  it('is not armed by OK pressed short — the key coming up and nothing else — however many times', () => {
+    const tv = home();
+    // The platform has handed the focus to the wave.
+    tv.guard.waveFocused(T + 100);
+
+    for (let press = 0; press < 3; press += 1) tv.android({ eventType: 'select', eventKeyAction: UP }, 600 + press * 500);
+
+    expect(tv.guard.waveActs(T + 2_000)).toBe(false);
+  });
+
+  it('is not armed by OK held, which Fire OS calls by another name', () => {
+    const tv = home();
+    tv.guard.waveFocused(T + 100);
+
+    tv.android({ eventType: 'longSelect', eventKeyAction: DOWN }, 500);
+    tv.android({ eventType: 'longSelect', eventKeyAction: UP }, 2_600);
+
+    expect(tv.guard.waveActs(T + 3_000)).toBe(false);
+  });
+
+  it('is armed by Down pressed short: the focus moves as the key goes down, and the key is heard only as it comes up', () => {
+    const tv = home();
+
+    // The focus arrives on the wave first; the only word of the key comes a moment later.
+    tv.guard.waveFocused(T + 5_000);
+    expect(tv.guard.waveActs(T + 5_010)).toBe(false);
+    tv.android({ eventType: 'down', eventKeyAction: UP }, 5_080);
+
+    expect(tv.guard.waveActs(T + 5_500)).toBe(true);
+  });
+
+  it('is armed by Down heard in both halves, once', () => {
+    const tv = home();
+
+    tv.android({ eventType: 'down', eventKeyAction: DOWN }, 5_000);
+    tv.guard.waveFocused(T + 5_010);
+    tv.android({ eventType: 'down', eventKeyAction: UP }, 5_090);
+
+    expect(tv.guard.waveActs(T + 5_500)).toBe(true);
+  });
+
+  it('is not armed by the focus moving, which Fire OS reports through the same channel as the keys', () => {
+    const tv = home();
+    tv.guard.waveFocused(T + 100);
+
+    tv.android({ eventType: 'focus' }, 100);
+    tv.android({ eventType: 'blur' }, 100);
+
+    expect(tv.guard.waveActs(T + 1_000)).toBe(false);
+  });
+
+  it('the accident itself, in Fire OS’s own keys: OK, the focus handed over, OK again — no wave; then Down, OK — a wave', () => {
+    const tv = home();
+    // A card was in front, and OK on "Not now" put it away: the home is what is left.
+    tv.guard.surface('card:ftv-week-2026-W41:ftv-read,ftv-later', T + 1_000);
+    tv.android({ eventType: 'select', eventKeyAction: UP }, 9_000);
+    tv.guard.surface('home', T + 9_000);
+    tv.guard.waveFocused(T + 9_020);
+
+    tv.android({ eventType: 'select', eventKeyAction: UP }, 9_500);
+    expect(tv.guard.waveActs(T + 9_500)).toBe(false);
+
+    tv.android({ eventType: 'down', eventKeyAction: UP }, 12_000);
+    tv.android({ eventType: 'select', eventKeyAction: UP }, 13_000);
+    expect(tv.guard.waveActs(T + 13_000)).toBe(true);
+  });
+});
+
+// A card's buttons take no press in the card's first second on screen
+// (apps/tv-vega/src/press/settle.ts). On Fire OS a short press is heard only
+// as the key coming up (FRICTION.md FL-028): there is no telling when it
+// began. So the rule compares when the press is SEEN with when the card
+// appeared — which is all this television can know.
+describe('a card’s first second on Fire OS (apps/tv-vega/src/press/settle.ts, with this adapter’s keys)', () => {
+  const UP = 1;
+  const T = 1_800_000_000_000;
+
+  it('hears a short OK whole and at one moment — the moment it came up: that is when the press is seen', () => {
+    const keys = remoteKeyEvents();
+
+    expect(keys({ eventType: 'select', eventKeyAction: UP })).toEqual([
+      { eventType: 'select', eventKeyAction: 0 },
+      { eventType: 'select', eventKeyAction: 1 },
+    ]);
+  });
+
+  it('does not answer a card with a short OK seen 300 ms after the card appeared, and does with one seen at 1.1 s', () => {
+    const keys = remoteKeyEvents();
+    const settle = pressSettle();
+    const acted: number[] = [];
+    /** The press reaches the card's focused button when the key comes up; the guard is asked then. */
+    const okSeenAt = (ms: number): void => {
+      const press = keys({ eventType: 'select', eventKeyAction: UP });
+      if (press.some((key) => key.eventKeyAction === 0) && settle.acts(T + ms)) acted.push(ms);
+    };
+
+    // She answered the card before; the next one is released, its first button focused.
+    settle.appeared('tell-d7', T);
+    okSeenAt(300);
+    expect(acted).toEqual([]);
+    okSeenAt(1_100);
+    expect(acted).toEqual([1_100]);
+  });
+
+  it('never swallows the D-pad: an arrow in the card’s first second still moves the focus', () => {
+    const keys = remoteKeyEvents();
+    const settle = pressSettle();
+    settle.appeared('tell-d7', T);
+
+    // The guard is asked about presses on a button and about nothing else: an arrow is passed on as it always was.
+    expect(keys({ eventType: 'right', eventKeyAction: UP })).toEqual([
+      { eventType: 'right', eventKeyAction: 0 },
+      { eventType: 'right', eventKeyAction: 1 },
+    ]);
+    expect(settle.acts(T + 200)).toBe(false);
+  });
+
+  it('holds a long OK to the same second, under the name Fire OS gives it', () => {
+    const keys = remoteKeyEvents();
+    const settle = pressSettle();
+    settle.appeared('reach-1', T);
+
+    expect(keys({ eventType: 'longSelect', eventKeyAction: 0 })).toEqual([{ eventType: 'select', eventKeyAction: 0 }]);
+    expect(settle.acts(T + 400)).toBe(false);
+    expect(settle.acts(T + 1_000)).toBe(true);
+  });
+});

@@ -496,6 +496,44 @@ describe('PairingFlow', () => {
     });
   });
 
+  // While its first request has not answered, a television that was
+  // connected before shows its own screen (connect.ts) — and which screen
+  // that is, is in the token it remembers, run out or not.
+  describe('rememberedToken — what this television last held, whether or not it has run out', () => {
+    it('is the token on disk, good or run out, with its kind', async () => {
+      const fs = fakeFs();
+      const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fs, vi.fn() as unknown as typeof fetch);
+      const expired: DeviceToken = { ...TOKEN, expiresAt: Date.now() - 1000, kind: 'family' };
+      await fs.writeStringToFile('/data/wick-token.json', JSON.stringify(expired), 'utf8');
+
+      expect(await flow.rememberedToken()).toEqual(expired);
+
+      await fs.writeStringToFile('/data/wick-token.json', JSON.stringify(TOKEN), 'utf8');
+      expect(await flow.rememberedToken()).toEqual(TOKEN);
+    });
+
+    it('is nothing where nothing is kept, or was forgotten — and asks nobody', async () => {
+      const fetchMock = vi.fn();
+      const fs = fakeFs();
+      const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fs, fetchMock as unknown as typeof fetch);
+
+      expect(await flow.rememberedToken()).toBeNull();
+      await fs.writeStringToFile('/data/wick-token.json', JSON.stringify(TOKEN), 'utf8');
+      await flow.clearToken();
+      expect(await flow.rememberedToken()).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('is nothing on a disk that cannot be read', async () => {
+      const fs = fakeFs();
+      fs.exists = async () => {
+        throw new Error('[com.amazon.kepler.io.IoError]: ');
+      };
+
+      expect(await new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fs).rememberedToken()).toBeNull();
+    });
+  });
+
   describe('clearToken on storage that throws (FRICTION.md FL-013)', () => {
     it('does not throw: a television that cannot forget on disk still goes back to the pairing screen', async () => {
       const fs = fakeFs();

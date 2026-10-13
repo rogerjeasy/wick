@@ -134,15 +134,32 @@ describe('FamilyLooker — a look that fails', () => {
     expect(h.states.every((s) => s.kind !== 'home' || !s.unreachable)).toBe(true);
   });
 
-  it('says so with no home at all when it has never reached one', async () => {
+  // Seen on the Fire OS emulator, 2026-10-13: with the network gone, a
+  // family television drew nothing for eighteen seconds. A home on screen
+  // can ride out two bad looks in silence; a screen with no home on it has
+  // nothing else to show, and says so after the first.
+  it('says so after the first failed look when it has never reached a home: there is nothing else on the screen', async () => {
     const h = harness(1000);
     h.willAnswer(FAILED, FAILED, FAILED);
     h.looker.start();
+    expect(h.looker.state).toEqual({ kind: 'starting', unreachable: false });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.last()).toEqual({ kind: 'starting', unreachable: true });
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.look).toHaveBeenCalledTimes(3);
+    expect(h.states).toEqual([{ kind: 'starting', unreachable: true }]);
+  });
+
+  it('shows the home, and no such sentence, as soon as a look succeeds', async () => {
+    const h = harness(1000);
+    h.willAnswer(FAILED, home());
+    h.looker.start();
 
     await vi.advanceTimersByTimeAsync(1000);
-    expect(h.looker.state).toEqual({ kind: 'starting', unreachable: false });
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(h.last()).toEqual({ kind: 'starting', unreachable: true });
+
+    expect(h.last()).toEqual({ kind: 'home', home: HOME, unreachable: false });
   });
 });
 

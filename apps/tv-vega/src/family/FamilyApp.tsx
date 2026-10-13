@@ -27,7 +27,7 @@
  */
 import * as React from 'react';
 import { Linking } from 'react-native';
-import { StyleSheet, View } from '@amazon-devices/react-native-kepler';
+import { StyleSheet, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import type { DeviceToken, FamilyTvPress } from '@wick/contracts';
 import { safe } from '@wick/vega-calm-ui';
 import { CARD_SERVICE_URI, launchCardService } from '../headless/launchCardService.js';
@@ -41,6 +41,7 @@ import { afterPress, afterSeatAnswer, pictureToShow, pressed, putAway, showing, 
 import { FamilyLooker, type LookState } from './looker.js';
 import { televisionMode } from './mode.js';
 import { startOffScreenService } from './offScreen.js';
+import { pressGuard, surfaceOf } from './presses.js';
 import { turn, type ReaderKey, type Reading } from './reader.js';
 
 export interface FamilyAppProps {
@@ -68,6 +69,17 @@ export function FamilyApp({ token, serverUrl, pairing, onSignedOut }: FamilyAppP
   /** One press at a time: OK pressed twice is one answer. */
   const pressing = React.useRef(false);
   const shownPicture = React.useRef<ShownPicture | undefined>(undefined);
+  /**
+   * Which presses of OK count (presses.ts): a wave only after an arrow key,
+   * a card's buttons not in the first second it is on screen. Whatever the
+   * television does with the focus, nothing is sent by a press that was
+   * not aimed at it.
+   */
+  const guard = React.useMemo(() => pressGuard(), []);
+  /** How many times Wick has come back on screen: the home takes the focus off the wave again each time. */
+  const [returns, setReturns] = React.useState(0);
+  // Every key of the remote, as it arrives: the arrows are how a wave is aimed at.
+  useTVEventHandler((event) => guard.key(event, Date.now()));
 
   const client = React.useMemo(
     () =>
@@ -120,6 +132,18 @@ export function FamilyApp({ token, serverUrl, pairing, onSignedOut }: FamilyAppP
     looker.setOnScreen(onScreen);
   }, [looker, onScreen]);
 
+  // Back on screen: whatever is there is new to whoever is looking, and the
+  // focus is wherever the platform left it. No press counts for a second,
+  // and none on the wave until an arrow has been pressed.
+  const wasOnScreen = React.useRef(onScreen);
+  React.useEffect(() => {
+    if (onScreen && !wasOnScreen.current) {
+      guard.returned(Date.now());
+      setReturns((times) => times + 1);
+    }
+    wasOnScreen.current = onScreen;
+  }, [onScreen, guard]);
+
   // What waits, said while Wick is off the screen (Vega): the way is opened
   // for the background service, and the service started — once connected,
   // and again each time Wick comes back on screen, as the resident's
@@ -145,6 +169,9 @@ export function FamilyApp({ token, serverUrl, pairing, onSignedOut }: FamilyAppP
   const picture = pictureToShow(shownPicture.current, shown.kind === 'card' ? shown.card : undefined);
   shownPicture.current = picture;
 
+  // What there is to press, said to the guard as it is drawn: it counts only when it changes.
+  guard.surface(surfaceOf({ seated, reading, shown }), Date.now());
+
   /** Tells the server of a press, and does what its answer calls for (familyScreen.ts `afterPress`). */
   const send = React.useCallback(
     (press: FamilyTvPress) => {
@@ -169,6 +196,8 @@ export function FamilyApp({ token, serverUrl, pairing, onSignedOut }: FamilyAppP
 
   const handleAction = React.useCallback(
     (actionId: string) => {
+      // Pressed before the card could be read — a second OK meant for what was there before: nothing happens.
+      if (!guard.cardActs(Date.now())) return;
       const press = pressed(shown, actionId);
       if (press.do === 'clearSaid') return setSaid(undefined);
       if (press.do === 'putAway') return setPut((current) => putAway(current, press.card));
@@ -176,23 +205,29 @@ export function FamilyApp({ token, serverUrl, pairing, onSignedOut }: FamilyAppP
       if (press.do === 'seat') return setSeated(true);
       if (press.do === 'send') send(press.press);
     },
-    [shown, send],
+    [shown, send, guard],
   );
 
   const wave = waveOf(home);
   const handleWave = React.useCallback(() => {
+    // The focus was handed to the wave, not moved there by the member: nothing is sent.
+    if (!guard.waveActs(Date.now())) return;
     if (wave?.kind === 'button') send(wave.press);
-  }, [wave, send]);
+  }, [wave, send, guard]);
+  const handleWaveFocus = React.useCallback(() => guard.waveFocused(Date.now()), [guard]);
+  const handleWaveBlur = React.useCallback(() => guard.waveBlurred(), [guard]);
 
   const handleReaderKey = React.useCallback(
     (key: ReaderKey) => {
       if (!reading) return;
+      // The reader has only just opened: a second OK from the card's "Read it" turns no page, and ends nothing. Back is always Back.
+      if (key !== 'back' && !guard.cardActs(Date.now())) return;
       const turned = turn(reading, key);
       setReading(turned.reading);
       // Only ever that the last page was reached; nothing is shown in answer.
       if (turned.press) send(turned.press);
     },
-    [reading, send],
+    [reading, send, guard],
   );
 
   const handleLeaveSeat = React.useCallback(() => setSeated(false), []);
@@ -224,7 +259,19 @@ export function FamilyApp({ token, serverUrl, pairing, onSignedOut }: FamilyAppP
     return <FamilySeat client={client} onScreen={onScreen} waiting={waitingWhileSeated} onLeave={handleLeaveSeat} onAnswer={handleSeatAnswer} onRefused={handleSeatRefused} />;
   }
   if (reading) return <FamilyReader reading={reading} onKey={handleReaderKey} />;
-  return <FamilyHome look={look} shown={shown} pictureUrl={picture?.url} onAction={handleAction} wave={wave} onWave={handleWave} />;
+  return (
+    <FamilyHome
+      look={look}
+      shown={shown}
+      pictureUrl={picture?.url}
+      onAction={handleAction}
+      wave={wave}
+      onWave={handleWave}
+      onWaveFocus={handleWaveFocus}
+      onWaveBlur={handleWaveBlur}
+      returns={returns}
+    />
+  );
 }
 
 const styles = StyleSheet.create({

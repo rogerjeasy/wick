@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FamilyTvSeat } from '@wick/contracts';
-import { FILM_OVER, FOLLOW_DRIFT_MS, SEEK_LEAD_MS, SEEK_SETTLE_MS, asksAgain, follow, maySeek, seatNotice, seatView, type SeatView } from '../seat.js';
+import { pressGuard, PRESS_SETTLE_MS } from '../presses.js';
+import { FILM_OVER, FOLLOW_DRIFT_MS, SEEK_LEAD_MS, SEEK_SETTLE_MS, asksAgain, follow, maySeek, seatNotice, seatSurface, seatView, type SeatView } from '../seat.js';
 
 type Playback = NonNullable<FamilyTvSeat['playback']>;
 const hers = (state: Playback['state'], positionMs: number, ageMs = 0): Playback => ({ state, positionMs, ageMs });
@@ -178,5 +179,40 @@ describe('asksAgain — when the seat stops asking', () => {
     expect(asksAgain({ kind: 'seat' })).toBe(false);
     expect(asksAgain({ kind: 'notAllowed', say: 'No.' })).toBe(false);
     expect(asksAgain({ kind: 'signedOut' })).toBe(false);
+  });
+});
+
+// While the film is on, OK does nothing in the seat — and somebody will
+// press it to find that out. At the credits a card arrives with its first
+// answer under that thumb.
+describe('seatSurface — what there is to press in the seat', () => {
+  const asked: SeatView = { kind: 'asked', cardId: 'ftv-watch-s1', question: 'Did you enjoy that?', answers: [{ id: 'lovely', label: 'Lovely', kind: 'primary' }, { id: 'again', label: 'Again soon', kind: 'secondary' }] };
+
+  it('is nothing to press while the film is on, the question at the credits, the last sentence, or what was said of an answer', () => {
+    expect(seatSurface({ kind: 'opening' }, undefined, false)).toBe('opening');
+    expect(seatSurface({ kind: 'sitting', seat: SEAT }, undefined, false)).toBe('sitting');
+    expect(seatSurface(asked, undefined, false)).toBe('asked:lovely,again');
+    expect(seatSurface({ kind: 'over', line: 'It has ended.' }, undefined, false)).toBe('over');
+    expect(seatSurface(asked, 'That may not have been sent.', false)).toBe('said:That may not have been sent.');
+  });
+
+  it('is the same last sentence when its words change: her answer arriving does not hold the remote up', () => {
+    expect(seatSurface({ kind: 'over', line: 'You said: lovely. Margaret has not answered yet.' }, undefined, false)).toBe(seatSurface({ kind: 'over', line: 'You both said: lovely.' }, undefined, false));
+  });
+
+  it('is something else while an answer is on its way: its buttons are gone', () => {
+    expect(seatSurface(asked, undefined, true)).not.toBe(seatSurface(asked, undefined, false));
+  });
+
+  it('gives the question a second on screen before OK can answer it: a thumb already pressing during the film answers nothing', () => {
+    const guard = pressGuard();
+    const T = 1_800_000_000_000;
+    guard.surface(seatSurface({ kind: 'sitting', seat: SEAT }, undefined, false), T);
+
+    // Fifteen minutes of film, then the credits: the question arrives.
+    const credits = T + 15 * 60_000;
+    guard.surface(seatSurface(asked, undefined, false), credits);
+    expect(guard.cardActs(credits + 300)).toBe(false);
+    expect(guard.cardActs(credits + PRESS_SETTLE_MS)).toBe(true);
   });
 });
