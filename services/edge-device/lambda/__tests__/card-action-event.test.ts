@@ -55,3 +55,15 @@ describe('a card finished on one television', () => {
     });
   });
 });
+
+describe('the visit, witnessed', () => {
+  it('hands her yes or no to the agent plane, which keeps it and puts the card away everywhere', async () => {
+    // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+    const { announcesRetirement, shouldPublish } = await import('../card-action-event.mjs');
+    for (const action of ['visit_right', 'visit_wrong']) {
+      expect(shouldPublish(action)).toBe(true);
+      expect(announcesRetirement(action)).toBe(false);
+    }
+  });
+});
+

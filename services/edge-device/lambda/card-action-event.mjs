@@ -11,10 +11,11 @@
  */
 // The chime, "Ask Sarah to look" (services/agent door/askFamily.ts), the
 // resident's answer to "Shall I tell Sarah?" (agents/tell/answer.ts), and
-// her asking to be rung or saying hello (agents/reach/ask.ts).
+// her asking to be rung or saying hello (agents/reach/ask.ts), and her yes
+// or no to what the door noted of a visit (agents/visit/answer.ts).
 import { retiresCard } from './card-acted.mjs';
 
-const SERVER_ACTIONS = new Set(['hallway_chime', 'ask_family', 'tell_family', 'keep_private', 'ring_me', 'say_hello']);
+const SERVER_ACTIONS = new Set(['hallway_chime', 'ask_family', 'tell_family', 'keep_private', 'ring_me', 'say_hello', 'visit_right', 'visit_wrong']);
 
 export function shouldPublish(action) {
   return SERVER_ACTIONS.has(action);

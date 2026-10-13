@@ -120,13 +120,13 @@ resource "aws_lambda_function" "agent_card_action" {
 
 resource "aws_cloudwatch_event_rule" "card_actions" {
   name           = "${local.prefix}-card-actions"
-  description    = "Presses the agent plane carries out: the chime, asking the family to look, the answer to 'Shall I tell ...?', and asking to be rung"
+  description    = "Presses the agent plane carries out: the chime, asking the family to look, the answer to 'Shall I tell ...?', asking to be rung, and yes or no to a visit"
   event_bus_name = aws_cloudwatch_event_bus.wick.name
 
   event_pattern = jsonencode({
     source        = ["wick.device"]
     "detail-type" = ["card.action"]
-    detail        = { action = ["hallway_chime", "ask_family", "tell_family", "keep_private", "ring_me", "say_hello"] }
+    detail        = { action = ["hallway_chime", "ask_family", "tell_family", "keep_private", "ring_me", "say_hello", "visit_right", "visit_wrong"] }
   })
 }
 
