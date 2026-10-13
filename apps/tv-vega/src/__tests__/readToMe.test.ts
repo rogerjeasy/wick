@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelState, ControlMessage, DeviceChannel, DeviceEvent } from '@wick/contracts';
 import { QueueStore, type FileSystemLike } from '../headless/QueueStore.js';
+import { IDLE_OFF, blocksHome, idleOnKey, type Idle } from '../mantel/idle.js';
 import { Reader, type SpeechPlayer } from '../read/reading.js';
 import { startCardChannel } from '../transport/startCardChannel.js';
 import { lowerFilm } from '../watch/filmVolume.js';
@@ -99,6 +100,8 @@ function television(on: { card?: string; film?: 'playing' | 'paused'; holds?: bo
     holds: on.holds === true,
     /** ResidentApp's `askedFor`: the card Play has already asked to have read, during this showing of it. */
     askedFor: null as string | null,
+    /** The idle screen (mantel/idle.ts), as ResidentApp's `idleNow`: off, unless a test says her pictures are up. */
+    idle: IDLE_OFF as Idle,
     /** The card on screen changes, as ResidentApp sees it: its `readingCard`, and the asking forgotten with the card. */
     show(cardId: string | undefined, holds = false) {
       tv.card = cardId;
@@ -107,28 +110,31 @@ function television(on: { card?: string; film?: 'playing' | 'paused'; holds?: bo
       if (tv.askedFor !== null && tv.askedFor !== readingCard) tv.askedFor = null;
       reader.showing(readingCard);
     },
-    /** One press of a key: down, then up, to both screens — each with what the app knew when the key arrived. */
-    press(eventType: string) {
-      for (const eventKeyAction of [DOWN, UP]) {
-        const event = { eventType, eventKeyAction };
-        const readingCard = canRead ? tv.card : undefined;
-        const context = {
-          cardVisible: tv.card !== undefined,
-          playReads: playIsTheCards({ card: readingCard, holdsFilm: tv.holds, askedFor: tv.askedFor }),
-          reading: reader.state !== 'idle',
-        };
-        // ResidentApp's handler.
-        const read = readCommand(event, context);
-        if (read) {
-          reader.press(read);
-          if (read === 'toggle' && readingCard !== undefined) tv.askedFor = readingCard;
-        }
-        // WatchScreen's, when a film is on screen.
-        if (film && watchCommand(event, context) === 'toggle') {
-          film.paused = !film.paused;
-          film.toggled += 1;
-        }
+    /** One half of a key — going down, or coming up — to both screens, each with what the app knew when it arrived. */
+    key(eventType: string, eventKeyAction: number, now = 0) {
+      const event = { eventType, eventKeyAction };
+      const readingCard = canRead ? tv.card : undefined;
+      const context = {
+        cardVisible: tv.card !== undefined,
+        playReads: playIsTheCards({ card: readingCard, holdsFilm: tv.holds, askedFor: tv.askedFor }),
+        reading: reader.state !== 'idle',
+      };
+      // ResidentApp's handler: Play for the reader — unless the idle screen takes this key — and then the idle rule.
+      const read = readCommand(event, context);
+      if (read && !blocksHome(tv.idle)) {
+        reader.press(read);
+        if (read === 'toggle' && readingCard !== undefined) tv.askedFor = readingCard;
       }
+      tv.idle = idleOnKey(tv.idle, event, now);
+      // WatchScreen's, when a film is on screen.
+      if (film && watchCommand(event, context) === 'toggle') {
+        film.paused = !film.paused;
+        film.toggled += 1;
+      }
+    },
+    /** One press of a key: down, then up. */
+    press(eventType: string) {
+      for (const eventKeyAction of [DOWN, UP]) tv.key(eventType, eventKeyAction);
     },
     /** The voice is heard. */
     heard() {
@@ -467,6 +473,81 @@ describe('where reading cannot work', () => {
 
     expect(tv.film).toMatchObject({ paused: true, toggled: 1 });
     expect(await tv.sent()).toEqual([]);
+    tv.running.stop();
+  });
+});
+
+/*
+ * Where read to me meets the idle screen (mantel/idle.ts). Any key ends her
+ * pictures, and that key does nothing else — so it is not Play for a card
+ * that arrived in that moment, however long it is held. ResidentApp hears
+ * every key in one place, and asks the idle rule before the reader is told.
+ */
+describe('Play, on the key that ends the idle screen', () => {
+  it('ends her pictures and reads nothing — not on the press, and not while it is held over a card that arrived meanwhile', async () => {
+    const tv = television({});
+    tv.idle = { phase: 'on', startedAt: 0 };
+
+    tv.key('playpause', DOWN, 1_000);
+    expect(tv.idle).toEqual({ phase: 'ending', key: 'playpause', at: 1_000 });
+
+    // A note becomes showable in that moment, and the key — still down — repeats.
+    tv.show('note-1');
+    tv.key('playpause', DOWN, 1_200);
+    tv.key('playpause', DOWN, 1_400);
+    expect(await tv.sent()).toEqual([]);
+    expect(tv.reader.state).toBe('idle');
+    expect(tv.askedFor).toBeNull();
+
+    // The key is up: the home screen is hers again, and the next Play is the card's.
+    tv.key('playpause', UP, 1_500);
+    expect(tv.idle).toEqual(IDLE_OFF);
+    tv.press('playpause');
+    expect(await tv.sent()).toEqual([{ t: 'read', cardId: 'note-1', at: 1 }]);
+    tv.running.stop();
+  });
+
+  it('takes Play too when another key ended the idle screen and has not come up: pressed at a screen that could not answer it', async () => {
+    const tv = television({});
+    tv.idle = { phase: 'on', startedAt: 0 };
+    tv.key('enter', DOWN, 1_000);
+    tv.show('note-1');
+
+    tv.key('play', DOWN, 1_100);
+    expect(tv.idle).toEqual({ phase: 'ending', key: 'play', at: 1_100 });
+    expect(await tv.sent()).toEqual([]);
+    expect(tv.voices).toEqual([]);
+
+    tv.key('play', UP, 1_200);
+    expect(tv.idle).toEqual(IDLE_OFF);
+    tv.running.stop();
+  });
+
+  it('does not stop a reading either: a key the idle screen took is not the reader’s in any way', async () => {
+    const tv = television({ card: 'note-1' });
+    tv.press('play');
+    tv.channel.pushControl({ t: 'speech', cardId: 'note-1', url: URL });
+    await settle();
+    tv.heard();
+    expect(tv.reader.state).not.toBe('idle');
+
+    // Cannot happen as the look runs — her pictures are never up over a card — but if the two ever met, the key is the idle screen's.
+    tv.idle = { phase: 'on', startedAt: 0 };
+    tv.key('play', DOWN, 2_000);
+
+    expect(tv.reader.state).not.toBe('idle');
+    expect(tv.voices[0]!.said).not.toContain('pause');
+    tv.running.stop();
+  });
+
+  it('changes nothing while the idle screen is off: Play reads the card as it always did', async () => {
+    const tv = television({ card: 'note-1' });
+    expect(tv.idle).toEqual(IDLE_OFF);
+
+    tv.press('play');
+
+    expect(await tv.sent()).toEqual([{ t: 'read', cardId: 'note-1', at: 1 }]);
+    expect(tv.idle).toEqual(IDLE_OFF);
     tv.running.stop();
   });
 });

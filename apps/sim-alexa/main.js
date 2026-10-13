@@ -9,6 +9,9 @@ import {
   FILMS,
   HELP_TEXT,
   LANGUAGE_UNAVAILABLE,
+  REQUEST_LIMITS_MS,
+  fetchWithin,
+  requestLimitFor,
   applicationServerKey,
   confirmWrite,
   describeCall,
@@ -95,7 +98,7 @@ function enableToolButtons(enabled) {
 }
 
 async function discoverAuthServer(serverUrl) {
-  const res = await fetch(`${serverUrl}/.well-known/oauth-authorization-server`);
+  const res = await fetchWithin(REQUEST_LIMITS_MS.api, `${serverUrl}/.well-known/oauth-authorization-server`);
   if (!res.ok) throw new Error('authorization server metadata not found');
   return res.json();
 }
@@ -115,7 +118,7 @@ async function pkcePair() {
 const redirectUri = () => window.location.origin + window.location.pathname;
 
 async function registerClient(metadata) {
-  const res = await fetch(metadata.registration_endpoint, {
+  const res = await fetchWithin(REQUEST_LIMITS_MS.api, metadata.registration_endpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -176,7 +179,7 @@ async function completeAuthIfRedirected(code) {
   try {
     const pending = JSON.parse(sessionStorage.getItem('wick_pending_link') ?? 'null');
     if (!pending) throw new Error('this browser did not start the sign-in');
-    const tokenRes = await fetch(pending.tokenEndpoint, {
+    const tokenRes = await fetchWithin(REQUEST_LIMITS_MS.api, pending.tokenEndpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -212,7 +215,7 @@ async function refreshTokens() {
   if (!link?.refreshToken) return false;
   refreshing ??= (async () => {
     try {
-      const res = await fetch(link.tokenEndpoint, {
+      const res = await fetchWithin(REQUEST_LIMITS_MS.api, link.tokenEndpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: link.refreshToken, client_id: link.clientId }),
@@ -261,11 +264,16 @@ function signedOut(reason) {
  * A request to the Wick server as the linked person. An expired access
  * token is refreshed once and the request repeated; if that fails too, the
  * link is gone and the page says so.
+ *
+ * Every request has a time limit that suits what it asks (surface.js
+ * requestLimitFor): one that never answers fails in the app's own words
+ * instead of leaving the field off and the page waiting. A picture being
+ * sent is given longer than a question, for the size of what it carries.
  */
 async function authorizedFetch(path, init = {}) {
   if (!link) throw new Error('Link Wick first.');
   const send = () =>
-    fetch(`${link.serverUrl}${path}`, { ...init, headers: { ...(init.headers ?? {}), authorization: `Bearer ${link.accessToken}` } });
+    fetchWithin(requestLimitFor(path, init.method), `${link.serverUrl}${path}`, { ...init, headers: { ...(init.headers ?? {}), authorization: `Bearer ${link.accessToken}` } });
   let res = await send();
   if (res.status === 401 && (await refreshTokens())) res = await send();
   if (res.status === 401) {
@@ -2675,7 +2683,7 @@ showSuggestions(null);
  */
 async function readListing() {
   try {
-    const res = await fetch('./addon.json', { cache: 'no-cache' });
+    const res = await fetchWithin(REQUEST_LIMITS_MS.api, './addon.json', { cache: 'no-cache' });
     return res.ok ? presentListing(await res.json()) : null;
   } catch {
     return null;
@@ -2733,7 +2741,7 @@ $('demo')?.addEventListener('click', () => void connect({ demo: true }));
 async function offerDemoIfAllowed() {
   try {
     const serverUrl = $('server-url').value.replace(/\/$/, '');
-    const options = await (await fetch(`${serverUrl}/account/options`)).json();
+    const options = await (await fetchWithin(REQUEST_LIMITS_MS.api, `${serverUrl}/account/options`)).json();
     const allowed = options.demo === true;
     if ($('demo')) $('demo').hidden = !allowed;
     if ($('demo-hint')) $('demo-hint').hidden = !allowed;

@@ -24,8 +24,9 @@
  * the place of the one held under its id, and what was counted of its
  * showings is kept (QueueStore.upsert).
  */
-import { readMantelItems, type ControlMessage, type DeviceToken, type QueuedCard } from '@wick/contracts';
+import { readMantelItems, type ControlMessage, type DeviceEvent, type DeviceToken, type QueuedCard } from '@wick/contracts';
 import type { QueueStore } from '../headless/QueueStore.js';
+import { worthSending } from '../home/asked.js';
 import type { DeviceConfig } from '../config.js';
 import type { DeviceChannelConfig } from './createDeviceChannel.js';
 import type { ReconcilingChannel } from './DeviceChannel.js';
@@ -35,6 +36,13 @@ const FIRST_CONNECT_MIN_RETRY_MS = 2000;
 const FIRST_CONNECT_MAX_RETRY_MS = 30_000;
 
 export type ChannelFactory = (config: DeviceChannelConfig, token: DeviceToken) => Promise<ReconcilingChannel>;
+
+/**
+ * Told of each event as it really leaves the television, and when. The app
+ * uses it for the two events that are questions — her hold on OK, her press
+ * on the light — whose answer it waits for from this moment (home/asked.ts).
+ */
+export type SentObserver = (event: DeviceEvent, at: number) => void;
 
 export interface RunningCardChannel {
   /** Closes the channel and stops flushing. Idempotent. */
@@ -49,7 +57,7 @@ export interface RunningCardChannel {
   reconcile(): void;
 }
 
-export function startCardChannel(store: QueueStore, channel: ReconcilingChannel): RunningCardChannel {
+export function startCardChannel(store: QueueStore, channel: ReconcilingChannel, onSent?: SentObserver): RunningCardChannel {
   // Stored, not announced as shown: a card that arrives is not yet on
   // screen — a note waits for a natural break. App.tsx says `card_shown`
   // when it is (BreakController.noteShown), which is what the server counts
@@ -81,7 +89,7 @@ export function startCardChannel(store: QueueStore, channel: ReconcilingChannel)
     // same outbox a second time and reorder events.
     if (flushing || channel.state !== 'open') return;
     flushing = true;
-    void flushOutbox(store, channel).finally(() => {
+    void flushOutbox(store, channel, onSent).finally(() => {
       flushing = false;
     });
   }, OUTBOX_POLL_MS);
@@ -169,14 +177,19 @@ export function startBackgroundChannel(
   };
 }
 
-async function flushOutbox(store: QueueStore, channel: ReconcilingChannel): Promise<void> {
+async function flushOutbox(store: QueueStore, channel: ReconcilingChannel, onSent?: SentObserver): Promise<void> {
   const events = await store.drainOutbound();
   for (const event of events) {
+    // A question that has waited too long to leave is not sent late: the
+    // server would answer it as if she had just asked (home/asked.ts).
+    if (!worthSending(event, Date.now())) continue;
     try {
       await channel.send(event);
     } catch {
       await store.enqueueOutbound(event); // best-effort — retried next tick
+      continue;
     }
+    onSent?.(event, Date.now());
   }
 }
 
@@ -195,6 +208,8 @@ export function holdCardChannel(
   config: Pick<DeviceConfig, 'websocketUrl' | 'mqttWssUrl'>,
   /** Given by the card service: hold the background connection, and announce instead of show. */
   announce?: (card: QueuedCard) => void,
+  /** Given by the app: told of each event as it leaves. The card service sends none. */
+  onSent?: SentObserver,
 ): RunningCardChannel {
   // What a reconcile says of this television: the last card it saw, and the ones it holds.
   const reconcileWith = {
@@ -228,7 +243,7 @@ export function holdCardChannel(
       channel.close(); // stop() won the race — never leave it holding this device's connectionId
       return;
     }
-    running = announce ? startBackgroundChannel(store, channel, announce) : startCardChannel(store, channel);
+    running = announce ? startBackgroundChannel(store, channel, announce) : startCardChannel(store, channel, onSent);
   };
   void attempt();
 

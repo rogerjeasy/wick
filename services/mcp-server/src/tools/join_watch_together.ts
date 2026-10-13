@@ -51,7 +51,7 @@ export async function sitDownToWatch(
   const session = await mySession(ddb, householdId, userId, sessionId);
   if (!session) return no(NOTHING_ASKED(residentName));
 
-  const view = describeWatch(session, at);
+  const view = describeWatch(session, at, residentName);
   if (view.state === 'invited') return no(`${residentName} hasn't answered the invitation yet. It is on the television.`);
   if (view.state === 'declined') return no(`${residentName} said not this time.`);
   if (view.state === 'withdrawn') return no(WITHDRAWN_TEXT);
@@ -76,7 +76,7 @@ export async function sitDownToWatch(
     if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
     // Sat down a moment ago, from another window: the television has been told.
     const settled = await mySession(ddb, householdId, userId, sessionId);
-    return settled ? { sat: true, already: true, view: describeWatch(settled, at) } : no(NOTHING_ASKED(residentName));
+    return settled ? { sat: true, already: true, view: describeWatch(settled, at, residentName) } : no(NOTHING_ASKED(residentName));
   }
 
   const by = session.invitedByName;
@@ -95,7 +95,7 @@ export async function sitDownToWatch(
     starts: { programmeId: session.programmeId, followedUntil: session.closesAt },
   }));
 
-  return { sat: true, already: false, view: describeWatch({ ...session, joinedAt: at }, at) };
+  return { sat: true, already: false, view: describeWatch({ ...session, joinedAt: at }, at, residentName) };
 }
 
 export function registerJoinWatchTogether(

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FAMILY_TV_WAVE_CARD, type FamilyTvHome, type FamilyTvSeat } from '@wick/contracts';
-import { MAX_PAGES, NOT_ALLOWED_FALLBACK, createFamilyClient, readHome, readSeat, type Renewed } from '../familyClient.js';
+import { FAMILY_REQUEST_TIMEOUT_MS, MAX_PAGES, NOT_ALLOWED_FALLBACK, createFamilyClient, readHome, readSeat, type Renewed } from '../familyClient.js';
 
 const HOME: FamilyTvHome = {
   residentName: 'Margaret',
@@ -561,5 +561,39 @@ describe('familyClient — a renewal that does not answer', () => {
     await vi.advanceTimersByTimeAsync(6000);
 
     expect(await renewing).toBe('later');
+  });
+});
+
+// In the browser television one stalled /tv request froze the family view
+// for three minutes. Here every request to the Wick server goes through the
+// one place that gives it a time limit; this holds each of the four to it.
+describe('familyClient — no request to the Wick server is waited for without limit', () => {
+  const asks: Array<[string, (client: ReturnType<typeof createFamilyClient>) => Promise<{ kind: string }>]> = [
+    ['/tv/home', (client) => client.home()],
+    ['/tv/seat', (client) => client.seat()],
+    ['/tv/waiting', (client) => client.waiting()],
+    ['/tv/press', (client) => client.press({ cardId: 'ftv-reach-r1', action: 'calling' })],
+  ];
+
+  for (const [path, ask] of asks) {
+    it(`gives up on ${path} once its time is up, tells the request to stop, and calls it only a failed ask`, async () => {
+      vi.useFakeTimers();
+      const { calls, fetchImpl } = server(['never']);
+      const client = createFamilyClient({ serverUrl: 'https://wick.example', jwt: 'j', renew: neverRenews, fetchImpl });
+
+      const asking = ask(client);
+      await vi.advanceTimersByTimeAsync(FAMILY_REQUEST_TIMEOUT_MS - 1);
+      expect(calls[0]!.url).toBe(`https://wick.example${path}`);
+      const signal = calls[0]!.init?.signal as AbortSignal;
+      expect(signal.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(await asking).toEqual({ kind: 'failed' });
+      expect(signal.aborted).toBe(true);
+    });
+  }
+
+  it('is six seconds: under the eight between looks at the home', () => {
+    expect(FAMILY_REQUEST_TIMEOUT_MS).toBe(6000);
   });
 });

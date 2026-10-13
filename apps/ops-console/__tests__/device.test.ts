@@ -23,10 +23,12 @@ import {
   isFamilyTvOwnAction,
   isFamilyTvQuietPress,
 } from '../../../packages/contracts/src/familyTelevision.js';
-import { MAX_CARD_ACTIONS } from '../../../packages/contracts/src/card.js';
+import { MAX_CARD_ACTIONS, type Card } from '../../../packages/contracts/src/card.js';
 import { LANGUAGES, LANGUAGE_ACTIONS, LANGUAGE_NAMES, languageCardId, languageQuestion } from '../../../packages/contracts/src/language.js';
 import { MAX_MANTEL, MANTEL_FULL_NOTICE, PHOTO_ACTIONS, photoCardId, photoCardWords, readMantelItems } from '../../../packages/contracts/src/mantel.js';
 import { WORDS } from '../../tv-vega/src/words/words.js';
+import { replyActions } from '../../tv-vega/src/cards/messageActions.js';
+import { removesCard } from '../../tv-vega/src/cards/cardActions.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- an untyped browser script, called by name
 type Device = Record<string, (...args: any[]) => any> & { constant(name: string): unknown };
@@ -1255,5 +1257,636 @@ describe('the browser television — read to me', () => {
 
     expect(familyMode).not.toMatch(/toggleRead|stopRead|readHint|t: 'read'/);
     expect(script).toMatch(/function residentKey\(event\) \{\s*if \(family\) return;/);
+  });
+});
+
+/**
+ * The television's requests to the Wick server, with the page's clock and
+ * its network stood in for: a timer is fired by hand, and an answer comes
+ * only when a test gives one. Nothing here waits in real time.
+ */
+function televisionAsking(remembered: Record<string, string> = {}) {
+  const tab = new Map(Object.entries(remembered));
+  const sockets: string[] = [];
+  const element = () => ({
+    addEventListener() {},
+    removeEventListener() {},
+    appendChild() {},
+    removeChild() {},
+    remove() {},
+    setAttribute() {},
+    children: [],
+    style: {},
+    dataset: {},
+    classList: { add() {}, remove() {} },
+  });
+  const timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
+  const intervals: { fn: () => void; ms: number }[] = [];
+  const asked: { path: string; method: string; as: string | undefined; aborted: () => boolean; answer: (status: number, body: unknown) => void }[] = [];
+  const context = vm.createContext({
+    document: { getElementById: element, createElement: element, addEventListener() {}, removeEventListener() {}, head: element(), hidden: false, activeElement: null },
+    window: {},
+    console,
+    URL,
+    AbortController,
+    // What this tab remembers, and nothing that outlives it: the page must never reach for localStorage.
+    sessionStorage: { getItem: (key: string) => tab.get(key) ?? null, setItem: (key: string, value: string) => void tab.set(key, value), removeItem: (key: string) => void tab.delete(key) },
+    get localStorage() { throw new Error('the page reached for localStorage'); },
+    WebSocket: class { static OPEN = 1; readyState = 0; constructor(url: string) { sockets.push(url); } send() {} close() {} },
+    setTimeout: (fn: () => void, ms: number) => timers.push({ fn, ms, cleared: false }) - 1,
+    clearTimeout: (id: number) => { if (timers[id]) timers[id].cleared = true; },
+    setInterval: (fn: () => void, ms: number) => intervals.push({ fn, ms }) - 1,
+    clearInterval() {},
+    // As a browser's: no answer until one is given, and a rejection the moment the request is given up.
+    fetch: (url: string, init: { method?: string; signal?: AbortSignal; headers?: Record<string, string> } = {}) =>
+      new Promise((resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })));
+        asked.push({
+          // The server's address is a placeholder until the page is published: the path is what follows it.
+          path: url.slice(url.indexOf('/tv/')),
+          method: init.method ?? 'GET',
+          as: init.headers?.Authorization,
+          aborted: () => init.signal?.aborted === true,
+          answer: (status, body) => resolve({ status, ok: status >= 200 && status < 300, json: async () => body }),
+        });
+      }),
+  });
+  vm.runInContext(readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8'), context, { filename: 'device.js' });
+  const run = (code: string) => vm.runInContext(code, context) as unknown;
+  return {
+    asked,
+    tab,
+    sockets,
+    run,
+    /** Lets everything that can happen without a timer or an answer happen. */
+    settle: () => new Promise<void>((resolve) => setImmediate(resolve)),
+    /** The limit running on the request asked most recently on a path. */
+    limits: () => timers.filter((t) => !t.cleared && t.ms === run('FAMILY_ASK_LIMIT_MS')),
+    fire: (timer: { fn: () => void; cleared: boolean }) => { timer.cleared = true; timer.fn(); },
+    /** The page's own interval of that length comes round. */
+    tick: (ms: number) => intervals.filter((i) => i.ms === ms).forEach((i) => i.fn()),
+    paths: () => asked.map((a) => `${a.method} ${a.path}`),
+  };
+}
+
+describe('familyAsk — a request that never answers does not freeze the television', () => {
+  it('waits ten seconds for an answer, and no longer', () => {
+    expect(device.constant('FAMILY_ASK_LIMIT_MS')).toBe(10_000);
+  });
+
+  it('gives a home look up after the limit — and the next look goes out when its turn comes round', async () => {
+    const tv = televisionAsking();
+    tv.run('enterFamilyView("the.television.token", "tv-1")');
+    await tv.settle();
+    expect(tv.paths()).toEqual(['GET /tv/home']);
+
+    // Nothing answers. The interval comes round twice: no second look is sent on top of the one still out.
+    tv.tick(FAMILY_TV_LOOK_EVERY_MS);
+    await tv.settle();
+    expect(tv.paths()).toEqual(['GET /tv/home']);
+
+    // The limit passes: the request is given up, as a failed ask like any other.
+    expect(tv.limits()).toHaveLength(1);
+    tv.fire(tv.limits()[0]!);
+    await tv.settle();
+    expect(tv.asked[0]!.aborted()).toBe(true);
+
+    // And the television is asking again at the very next interval.
+    tv.tick(FAMILY_TV_LOOK_EVERY_MS);
+    await tv.settle();
+    expect(tv.paths()).toEqual(['GET /tv/home', 'GET /tv/home']);
+    expect(tv.asked[1]!.aborted()).toBe(false);
+  });
+
+  it('stops the clock on a request that is answered', async () => {
+    const tv = televisionAsking();
+    tv.run('enterFamilyView("the.television.token", "tv-1")');
+    await tv.settle();
+    tv.asked[0]!.answer(200, { residentName: 'Margaret', memberName: 'Sarah', cards: [] });
+    await tv.settle();
+
+    expect(tv.limits()).toEqual([]);
+    expect(tv.asked[0]!.aborted()).toBe(false);
+  });
+
+  it('fails a press that never answers after the limit, so its button can be pressed again', async () => {
+    const tv = televisionAsking();
+    tv.run('enterFamilyView("the.television.token", "tv-1")');
+    await tv.settle();
+    tv.asked[0]!.answer(200, { residentName: 'Margaret', memberName: 'Sarah', cards: [] });
+    await tv.settle();
+
+    const press = tv.run('familyAsk(family, "/tv/press", { method: "POST", body: "{}" })') as Promise<unknown>;
+    const outcome = press.then(() => 'answered', (err: Error) => `failed: ${err.message}`);
+    await tv.settle();
+    expect(tv.paths()).toEqual(['GET /tv/home', 'POST /tv/press']);
+    tv.fire(tv.limits()[0]!);
+
+    expect(await outcome).toMatch(/^failed: .*no answer/);
+  });
+});
+
+describe('familyAsk — the seat has a lane of its own', () => {
+  const asking = async () => {
+    const tv = televisionAsking();
+    tv.run('enterFamilyView("the.television.token", "tv-1")');
+    await tv.settle();
+    // The home look is out, and slow.
+    expect(tv.paths()).toEqual(['GET /tv/home']);
+    return tv;
+  };
+
+  it('asks for the seat at once, though a home look is still out', async () => {
+    const tv = await asking();
+
+    void (tv.run('familyAsk(family, "/tv/seat")') as Promise<unknown>).catch(() => {});
+    await tv.settle();
+
+    expect(tv.paths()).toEqual(['GET /tv/home', 'GET /tv/seat']);
+  });
+
+  it('never has two seat requests out at once', async () => {
+    const tv = await asking();
+
+    void (tv.run('familyAsk(family, "/tv/seat")') as Promise<unknown>).catch(() => {});
+    void (tv.run('familyAsk(family, "/tv/seat")') as Promise<unknown>).catch(() => {});
+    await tv.settle();
+    expect(tv.paths()).toEqual(['GET /tv/home', 'GET /tv/seat']);
+
+    tv.asked[1]!.answer(200, {});
+    await tv.settle();
+    expect(tv.paths()).toEqual(['GET /tv/home', 'GET /tv/seat', 'GET /tv/seat']);
+  });
+
+  it('keeps a press behind a home look, and a home look behind a press: never two of those at once', async () => {
+    const tv = await asking();
+
+    void (tv.run('familyAsk(family, "/tv/press", { method: "POST", body: "{}" })') as Promise<unknown>).catch(() => {});
+    await tv.settle();
+    expect(tv.paths()).toEqual(['GET /tv/home']);
+
+    tv.asked[0]!.answer(200, { residentName: 'Margaret', memberName: 'Sarah', cards: [] });
+    await tv.settle();
+    expect(tv.paths()).toEqual(['GET /tv/home', 'POST /tv/press']);
+
+    void (tv.run('familyAsk(family, "/tv/home")') as Promise<unknown>).catch(() => {});
+    await tv.settle();
+    expect(tv.paths()).toEqual(['GET /tv/home', 'POST /tv/press']);
+  });
+
+  it('is not held up by a home look that never answers at all', async () => {
+    const tv = await asking();
+
+    for (let look = 0; look < 3; look += 1) {
+      const seat = tv.run('familyAsk(family, "/tv/seat")') as Promise<unknown>;
+      await tv.settle();
+      tv.asked.at(-1)!.answer(200, {});
+      await seat;
+    }
+
+    expect(tv.paths()).toEqual(['GET /tv/home', 'GET /tv/seat', 'GET /tv/seat', 'GET /tv/seat']);
+    expect(tv.asked[0]!.aborted()).toBe(false);
+  });
+});
+
+describe('a note’s replies are its buttons — as on the television (apps/tv-vega cards/messageActions.ts)', () => {
+  const note = (suggestedReplies: unknown, actions: unknown = []) => ({ type: 'MESSAGE', id: 'note-1', fromName: 'Sarah', transcript: 'The plumber is coming at ten.', suggestedReplies, actions });
+
+  it('draws each reply as a button that sends reply_<n>, the first one first', () => {
+    for (const replies of [['Thank you'], ['Wave back', 'Not now'], ['Yes', 'No', 'Later']]) {
+      expect(device.cardButtons!(note(replies))).toEqual(replyActions(replies));
+    }
+    expect(device.cardButtons!(note(['Wave back', 'Not now']))).toEqual([
+      { id: 'reply_0', label: 'Wave back', kind: 'primary' },
+      { id: 'reply_1', label: 'Not now', kind: 'secondary' },
+    ]);
+  });
+
+  it('never draws a fourth, and none for a note with nothing to answer', () => {
+    expect(device.cardButtons!(note(['One', 'Two', 'Three', 'Four']))).toEqual(replyActions(['One', 'Two', 'Three', 'Four']));
+    expect(device.cardButtons!(note(['One', 'Two', 'Three', 'Four']))).toHaveLength(MAX_CARD_ACTIONS);
+    expect(device.cardButtons!(note([]))).toEqual([]);
+    expect(device.cardButtons!(note(undefined))).toEqual([]);
+  });
+
+  it('leaves every other card its own buttons', () => {
+    const actions = [{ id: 'allow', label: 'Allow Sarah', kind: 'primary' }, { id: 'decline', label: 'No, thank you', kind: 'secondary' }];
+
+    expect(device.cardButtons!({ type: 'CIRCLE', id: 'circle-u1', actions })).toEqual(actions);
+    expect(device.cardButtons!({ type: 'WEEK', id: 'week-1' })).toEqual([]);
+  });
+});
+
+describe('finishesCard — what a press does to the card, as the television’s own app decides it (cardActions.ts removesCard)', () => {
+  const PRESSES = ['reply_0', 'reply_1', 'dismiss', 'watch_live', 'hallway_chime', 'ask_family', 'seen', 'sharing', 'toggle', 'next', 'done', 'ring_me', 'say_hello', 'not_now', 'ok', 'allow', 'decline', 'tell_family', 'keep_private', 'accept', 'start', 'loved_it', 'right', 'wrong', ...Object.values(LANGUAGE_ACTIONS), ...Object.values(PHOTO_ACTIONS)];
+  const TYPES = ['DOOR', 'MESSAGE', 'WEEK', 'SHARING', 'CIRCLE', 'TELL', 'WATCH', 'LIGHT', 'REACH', 'VISIT', 'LANGUAGE', 'PHOTO'];
+
+  it.each(TYPES)('agrees with it for every press on a %s card', (type) => {
+    for (const press of PRESSES) {
+      expect([press, device.finishesCard!({ type, id: 'c1' }, press)]).toEqual([press, removesCard({ type, id: 'c1' } as unknown as Card, press)]);
+    }
+  });
+
+  it('finishes a note when one of its replies is pressed: “Wave back” is an answer, and the card is done', () => {
+    expect(device.finishesCard!({ type: 'MESSAGE', id: 'note-wave-1' }, 'reply_0')).toBe(true);
+  });
+
+  it('finishes the question about her language on either answer: her yes and her no are both the whole of it', () => {
+    for (const press of Object.values(LANGUAGE_ACTIONS)) expect(device.finishesCard!({ type: 'LANGUAGE', id: languageCardId('es') }, press)).toBe(true);
+  });
+
+  it('finishes a picture’s card on either answer: “Keep it” and “Thank you” both put it away', () => {
+    for (const press of Object.values(PHOTO_ACTIONS)) expect(device.finishesCard!({ type: 'PHOTO', id: photoCardId('p1') }, press)).toBe(true);
+  });
+});
+
+describe('the cards this television has been sent and not finished', () => {
+  const queued = (id: string, extra: object = {}, urgency = 'DEFERRED') => ({ id, urgency, queuedAt: 1, shownCount: 0, card: { type: 'WATCH', id, headline: id }, ...extra });
+  const NOW = 1_791_900_000_000;
+  const ids = (kept: unknown) => (kept as { id: string }[]).map((q) => q.id);
+  const shown = (kept: unknown) => (device.cardToShow!(kept, NOW) as { id: string } | undefined)?.id;
+
+  it('shows the newest, and keeps what it covers', () => {
+    const kept = device.keepCard!(device.keepCard!([], queued('watch-question-s1')), queued('watch-answer-s1'));
+
+    expect(ids(kept)).toEqual(['watch-question-s1', 'watch-answer-s1']);
+    expect(shown(kept)).toBe('watch-answer-s1');
+  });
+
+  it('brings back the one before when the newest is finished: her open question is not lost to a later card', () => {
+    const kept = device.keepCard!(device.keepCard!([], queued('watch-question-s1')), queued('watch-answer-s1'));
+
+    const after = device.dropCard!(kept, 'watch-answer-s1');
+
+    expect(shown(after)).toBe('watch-question-s1');
+    expect(shown(device.dropCard!(after, 'watch-question-s1'))).toBeUndefined();
+  });
+
+  it('replaces a card sent again under the same id, and shows it as the newest', () => {
+    let kept = device.keepCard!([], queued('reach-1', { card: { type: 'REACH', id: 'reach-1', headline: 'Ask Sarah to ring you?' } }));
+    kept = device.keepCard!(kept, queued('note-1'));
+    kept = device.keepCard!(kept, queued('reach-1', { card: { type: 'REACH', id: 'reach-1', headline: 'Sarah has been asked to ring you.' } }));
+
+    expect(ids(kept)).toEqual(['note-1', 'reach-1']);
+    expect((device.cardToShow!(kept, NOW) as { card: { headline: string } }).card.headline).toBe('Sarah has been asked to ring you.');
+  });
+
+  it('takes a revoked card away, wherever it was', () => {
+    const kept = [queued('a'), queued('b'), queued('c')];
+
+    expect(ids(device.dropCard!(kept, 'b'))).toEqual(['a', 'c']);
+    expect(ids(device.dropCard!(kept, 'not-there'))).toEqual(['a', 'b', 'c']);
+  });
+
+  it('gives a patch to the card with that id, whether or not it is the one showing', () => {
+    const kept = [queued('door-1', { card: { type: 'DOOR', id: 'door-1', line: 'Someone is at the door.', actions: [{ id: 'dismiss', label: 'Not now', kind: 'dismiss' }] } }), queued('note-1')];
+
+    const patched = device.patchCard!(kept, { cardId: 'door-1', notice: 'Sarah has been asked to look.', description: undefined }) as { id: string; card: Record<string, unknown> }[];
+
+    expect(ids(patched)).toEqual(['door-1', 'note-1']);
+    expect(patched[0]!.card).toEqual({ type: 'DOOR', id: 'door-1', line: 'Someone is at the door.', actions: [{ id: 'dismiss', label: 'Not now', kind: 'dismiss' }], notice: 'Sarah has been asked to look.' });
+    expect(patched[1]).toEqual(kept[1]);
+    // A patch for a card this television does not hold changes nothing.
+    expect(device.patchCard!(kept, { cardId: 'gone', notice: 'x' })).toEqual(kept);
+  });
+
+  it('shows the door card over anything, the moment it arrives', () => {
+    const kept = device.keepCard!([queued('watch-question-s1'), queued('note-1')], queued('door-9', { expiresAt: NOW + 300_000 }, 'DOOR'));
+
+    expect(shown(kept)).toBe('door-9');
+  });
+
+  it('does not bring back a card whose time has passed: a doorbell of ten minutes ago is not shown again', () => {
+    const kept = [queued('note-1'), queued('door-9', { expiresAt: NOW - 1 }, 'DOOR')];
+
+    expect(shown(kept)).toBe('note-1');
+    expect(shown([queued('door-9', { expiresAt: NOW - 1 }, 'DOOR')])).toBeUndefined();
+  });
+});
+
+describe('a television survives a reload of its tab', () => {
+  const HOME_OK = { residentName: 'Margaret', memberName: 'Sarah', cards: [] };
+  const KEY = 'wick_virtual_television';
+
+  it('keeps a “Mine” television’s token in this tab’s own storage, and nowhere that outlives the tab', () => {
+    const tv = televisionAsking();
+
+    tv.run('rememberTelevision({ kind: "family", jwt: "the.family.token", deviceId: "tv-1" })');
+
+    expect(JSON.parse(tv.tab.get(KEY)!)).toEqual({ kind: 'family', jwt: 'the.family.token', deviceId: 'tv-1' });
+    // localStorage in this harness throws if it is so much as read: getting here means it was not.
+  });
+
+  it('goes straight to the family view on load when the tab remembers one, asking with that token — and opens no device channel', async () => {
+    const tv = televisionAsking({ [KEY]: JSON.stringify({ kind: 'family', jwt: 'the.family.token', deviceId: 'tv-1' }) });
+    await tv.settle();
+
+    expect(tv.asked.map((a) => [a.method, a.path, a.as])).toEqual([['GET', '/tv/home', 'Bearer the.family.token']]);
+    expect(tv.sockets).toEqual([]);
+  });
+
+  it('asks nobody on load when the tab remembers nothing, or something it cannot read', async () => {
+    for (const remembered of [{}, { [KEY]: 'not json' }, { [KEY]: JSON.stringify({ kind: 'family', deviceId: 'tv-1' }) }, { [KEY]: JSON.stringify({ kind: 'other', jwt: 't', deviceId: 'tv-1' }) }]) {
+      const tv = televisionAsking(remembered);
+      await tv.settle();
+
+      expect(tv.asked).toEqual([]);
+      expect(tv.sockets).toEqual([]);
+    }
+  });
+
+  it('forgets a remembered television the server no longer knows (401), and asks no more', async () => {
+    const tv = televisionAsking({ [KEY]: JSON.stringify({ kind: 'family', jwt: 'the.family.token', deviceId: 'tv-1' }) });
+    await tv.settle();
+    tv.asked[0]!.answer(401, { error: 'unauthorized' });
+    await tv.settle();
+
+    expect(tv.tab.has(KEY)).toBe(false);
+    expect(tv.run('family')).toBe(null);
+    tv.tick(FAMILY_TV_LOOK_EVERY_MS);
+    await tv.settle();
+    expect(tv.asked).toHaveLength(1);
+  });
+
+  it('keeps it through an answer that the resident does not allow this member just now (403): that can change', async () => {
+    const tv = televisionAsking({ [KEY]: JSON.stringify({ kind: 'family', jwt: 'the.family.token', deviceId: 'tv-1' }) });
+    await tv.settle();
+    tv.asked[0]!.answer(403, { error: 'not_allowed', say: 'Margaret chose not to share this with you.' });
+    await tv.settle();
+
+    expect(tv.tab.has(KEY)).toBe(true);
+  });
+
+  it('opens the resident’s own television’s channel again on load when that is what the tab remembers — and asks the Wick server nothing', async () => {
+    const tv = televisionAsking({ [KEY]: JSON.stringify({ kind: 'resident', jwt: 'the.device.token', deviceId: 'tv-2' }) });
+    await tv.settle();
+
+    expect(tv.sockets).toHaveLength(1);
+    expect(tv.sockets[0]).toContain('token=the.device.token');
+    expect(tv.asked).toEqual([]);
+    void HOME_OK;
+  });
+});
+
+/*
+ * Where the two meet: the cards this television keeps until they are
+ * finished (keptCards), and the language she chose.
+ */
+describe('the browser television — the cards it keeps, and her language', () => {
+  it('brings back the card under the question when she says yes, and has it again in her language without calling it shown anew', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(NOTE('See you on Sunday.'));
+    tv.card(LANGUAGE_CARD);
+
+    tv.press('Sí, en español');
+
+    // Her answer finishes the question; the note it covered is back, and is said to be shown again.
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.sent().slice(3)).toEqual([
+      { t: 'card_action', cardId: 'language-es', action: LANGUAGE_ACTIONS.yes },
+      { t: 'card_shown', cardId: 'note-1' },
+    ]);
+
+    // The home says Spanish: the page's own label at once, and the cards asked for again, once.
+    tv.home({ light: 'on', language: 'es' });
+    expect(tv.says()).toEqual(['Mensaje de Sarah', 'See you on Sunday.']);
+
+    // The note sent again takes the place of the one kept under its id.
+    tv.card(NOTE('Nos vemos el domingo.'));
+    expect(tv.says()).toEqual(['Mensaje de Sarah', 'Nos vemos el domingo.']);
+    expect(tv.sent().slice(5)).toEqual([{ t: 'reconcile' }]);
+    expect(tv.evaluate('keptCards.map((queued) => queued.card.id)')).toEqual(['note-1']);
+  });
+
+  it('brings back the card under the question when she says no, too', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(NOTE('See you on Sunday.'));
+    tv.card(LANGUAGE_CARD);
+
+    tv.press('No, keep English');
+
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.evaluate('keptCards.map((queued) => queued.card.id)')).toEqual(['note-1']);
+  });
+
+  it('never keeps a card of a kind it does not know: nothing unknown comes back when the card on screen is put away', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(queuedCard({ id: 'new-1', type: 'SOMETHING_NEW', headline: 'A new thing', actions: [{ id: 'ok', label: 'OK', kind: 'primary' }] }));
+    tv.card(LANGUAGE_CARD);
+    tv.card(queuedCard({ id: 'new-2', type: 'SOMETHING_NEW', headline: 'Another', actions: [{ id: 'ok', label: 'OK', kind: 'primary' }] }));
+
+    expect(tv.evaluate('keptCards.map((queued) => queued.card.id)')).toEqual(['language-es']);
+
+    tv.press('No, keep English');
+
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on']);
+    expect(tv.evaluate('keptCards')).toEqual([]);
+  });
+});
+
+/*
+ * Where three things meet on the resident's television in the browser: the
+ * cards it keeps until they are finished (keptCards), a picture from the
+ * family and her mantelpiece, and a card read aloud. Each is tested by
+ * itself above; here, what one does to another.
+ */
+describe('the browser television — a picture among the cards it keeps', () => {
+  const keptIds = (tv: ReturnType<typeof television>) => tv.evaluate('keptCards.map((queued) => queued.card.id)');
+
+  it('brings back the card under a picture she has answered, and shows the picture again over it when the server sends it back because her mantelpiece is full', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(NOTE('See you on Sunday.'));
+    tv.card(PHOTO());
+
+    tv.press('Keep it');
+    // Her answer finishes the picture's card; the note it covered is back, and said to be shown again.
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(keptIds(tv)).toEqual(['note-1']);
+
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
+
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
+    expect(keptIds(tv)).toEqual(['note-1', 'photo-p1']);
+    expect(tv.sent().slice(3)).toEqual([
+      { t: 'card_action', cardId: 'photo-p1', action: PHOTO_ACTIONS.keep },
+      { t: 'card_shown', cardId: 'note-1' },
+      { t: 'card_shown', cardId: 'photo-p1' },
+    ]);
+
+    // "Thank you" then puts it away for good, and the note is still there under it.
+    tv.press('Thank you');
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(keptIds(tv)).toEqual(['note-1']);
+  });
+
+  it('replaces the copy it keeps when a picture is sent again under the same id, and shows it as the newest — once', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(PHOTO());
+    tv.card(NOTE('See you on Sunday.'));
+    expect(keptIds(tv)).toEqual(['photo-p1', 'note-1']);
+
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
+
+    // One copy, the one with the line that says so, and it is the one on screen.
+    expect(keptIds(tv)).toEqual(['note-1', 'photo-p1']);
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
+    expect(tv.sent().slice(1)).toEqual([
+      { t: 'card_shown', cardId: 'photo-p1' },
+      { t: 'card_shown', cardId: 'note-1' },
+      { t: 'card_shown', cardId: 'photo-p1' },
+    ]);
+
+    // Sent once more while it is the card on screen: drawn again in place, and not said to be shown anew.
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
+    expect(keptIds(tv)).toEqual(['note-1', 'photo-p1']);
+    expect(tv.sent()).toHaveLength(4);
+  });
+
+  it('closes her mantelpiece for any card that arrives, and it is the card kept under that one — never the mantelpiece — that comes back', () => {
+    const tv = television();
+    tv.home({ light: 'on', mantel: 3 });
+    tv.press('Mantelpiece');
+    tv.control({ t: 'mantel', items: [kept('p1')] });
+
+    tv.card(NOTE('See you on Sunday.'));
+    tv.card(PHOTO());
+    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'Keep it', 'Thank you']);
+
+    tv.press('Thank you');
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+
+    tv.control({ t: 'revoke', cardId: 'note-1' });
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on', 'Mantelpiece']);
+    expect(keptIds(tv)).toEqual([]);
+  });
+
+  it('leaves her mantelpiece open for a card of a kind it does not know: nothing arrived that can be shown', () => {
+    const tv = television();
+    tv.home({ light: 'on', mantel: 3 });
+    tv.press('Mantelpiece');
+    tv.control({ t: 'mantel', items: [kept('p1')] });
+    const open = tv.says();
+
+    tv.card(queuedCard({ id: 'new-1', type: 'SOMETHING_NEW', headline: 'A new thing', actions: [] }));
+
+    expect(tv.says()).toEqual(open);
+    expect(keptIds(tv)).toEqual([]);
+  });
+});
+
+describe('the browser television — a reading, and the cards it keeps', () => {
+  const SPEECH = 'https://speech.example/tts/hh-1/abc.mp3?X-Amz-Signature=s';
+  const OTHER = 'https://speech.example/tts/hh-1/def.mp3?X-Amz-Signature=s';
+  const asked = (tv: ReturnType<typeof television>) => tv.sent().filter((event) => event.t === 'read');
+  /** Connected, with a note kept under the question about her language, and that question being read aloud. */
+  const readingOverANote = () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(NOTE('See you on Sunday.'));
+    tv.card(LANGUAGE_CARD);
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'language-es', url: SPEECH });
+    return tv;
+  };
+
+  it('is cut short when the card on screen is answered and the one kept under it comes back — which is not read unasked', () => {
+    const tv = readingOverANote();
+    tv.evaluate('film = { video: { volume: 0.8 }, layer: null, timer: 0, together: null }, true');
+    tv.sounds[0]!.onplaying!();
+    expect(tv.evaluate('film.video.volume')).toBe(0.3);
+
+    tv.press('No, keep English');
+
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.sounds[0]!.paused).toBe(1);
+    // The film's sound is put back exactly, and nothing is asked or played for the card that came back.
+    expect(tv.evaluate('film.video.volume')).toBe(0.8);
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'language-es' }]);
+    expect(tv.sounds).toHaveLength(1);
+  });
+
+  it('reads the card that is on screen after the queue brings one back: P asks for that card, once, and only its answer is played', () => {
+    const tv = readingOverANote();
+    tv.press('No, keep English');
+
+    tv.key('p');
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'language-es' }, { t: 'read', cardId: 'note-1' }]);
+
+    // An answer that comes late for the card she has put away is not played over this one.
+    tv.control({ t: 'speech', cardId: 'language-es', url: SPEECH });
+    expect(tv.sounds).toHaveLength(1);
+
+    tv.control({ t: 'speech', cardId: 'note-1', url: OTHER });
+    expect(tv.sounds.map((sound) => [sound.src, sound.played, sound.paused])).toEqual([[SPEECH, 1, 1], [OTHER, 1, 0]]);
+  });
+
+  it('is cut short when a card arrives over the one being read, and is not taken up again when that card is put away', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(NOTE('See you on Sunday.'));
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'note-1', url: SPEECH });
+
+    tv.card(PHOTO());
+    expect(tv.sounds[0]!.paused).toBe(1);
+
+    tv.press('Thank you');
+
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.sounds).toHaveLength(1);
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'note-1' }]);
+    // She can ask again, for the note that is back.
+    tv.key('p');
+    expect(asked(tv)).toEqual([{ t: 'read', cardId: 'note-1' }, { t: 'read', cardId: 'note-1' }]);
+  });
+
+  it('goes on while a card kept underneath is changed or taken back, and stops when the one on screen is — the one under it then shows', () => {
+    const tv = readingOverANote();
+
+    tv.control({ t: 'patch', patch: { cardId: 'note-1', transcript: 'See you on Monday.' } });
+    expect(tv.sounds[0]!.paused).toBe(0);
+    expect(tv.says()[0]).toBe('English · español');
+
+    tv.control({ t: 'revoke', cardId: 'language-es' });
+    expect(tv.sounds[0]!.paused).toBe(1);
+    // The note, as the patch left it while it was covered.
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Monday.']);
+
+    const other = readingOverANote();
+    other.control({ t: 'revoke', cardId: 'note-1' });
+    expect(other.sounds[0]!.paused).toBe(0);
+    expect(other.evaluate('keptCards.map((queued) => queued.card.id)')).toEqual(['language-es']);
+  });
+
+  it('goes on through a picture sent again under the id of the one being read, with the line that says her mantelpiece is full', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(PHOTO());
+    tv.key('p');
+    tv.control({ t: 'speech', cardId: 'photo-p1', url: SPEECH });
+
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
+
+    expect(tv.says()).toContain(MANTEL_FULL_NOTICE);
+    expect(tv.sounds[0]!.paused).toBe(0);
+  });
+});
+
+describe('device.html — what the page says about the resident’s television', () => {
+  const html = readFileSync(fileURLToPath(new URL('../device.html', import.meta.url)), 'utf8');
+  const count = (said: string): number => html.split(said).length - 1;
+
+  it('says each thing once: the cards it keeps, the key that reads a card, and the mantelpiece', () => {
+    expect(count('one still unanswered is kept')).toBe(1);
+    expect(count('Reloading the tab keeps its television')).toBe(1);
+    expect(count('<strong>P</strong> is the Play key')).toBe(1);
+    expect(count('On the mantelpiece, a click on the picture is OK')).toBe(1);
+    expect(count('As the resident’s television,')).toBe(2);
+    expect(count('class="muted remote-hint"')).toBe(4);
   });
 });

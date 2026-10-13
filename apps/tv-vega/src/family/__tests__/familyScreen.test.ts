@@ -133,7 +133,7 @@ describe('showing — which card is on screen, and its buttons', () => {
   });
 });
 
-describe('putAway / stillPutAway — put away on this screen until it changes or leaves', () => {
+describe('putAway / stillPutAway — put away on this screen until what it says changes', () => {
   it('stays put away while the server goes on sending the same card', () => {
     const put = putAway(NONE, STANDING);
 
@@ -155,12 +155,59 @@ describe('putAway / stillPutAway — put away on this screen until it changes or
     expect(stillPutAway(put, home([asks]))).toEqual({});
   });
 
-  it('is forgotten when the card leaves, so the same id sent again later is shown', () => {
-    const put = putAway(NONE, STANDING);
-    const after = stillPutAway(put, home([REACH]));
+  // Seen on the Fire OS emulator, 2026-10-13: a settled film card put away
+  // with "All right" was showing again after a second film. The server had
+  // stopped listing it during the second film and listed it again after —
+  // and a card that one answer did not list used to be forgotten.
+  it('stays put away while the server does not list it, and when it lists it again with the same words', () => {
+    let put = putAway(NONE, STANDING);
 
-    expect(after).toEqual({});
-    expect(showing(home([STANDING]), after, undefined)).toMatchObject({ kind: 'card', card: STANDING });
+    for (const look of [home([REACH]), home(), home([REACH, DOOR])]) put = stillPutAway(put, look);
+    expect(put).toEqual(putAway(NONE, STANDING));
+
+    const back = home([STANDING, REACH]);
+    put = stillPutAway(put, back);
+    expect(showing(back, put, undefined)).toMatchObject({ kind: 'card', card: REACH });
+    expect(showing(home([STANDING]), put, undefined)).toEqual({ kind: 'nothing' });
+  });
+
+  it('is shown when it is listed again with different words', () => {
+    let put = putAway(NONE, STANDING);
+    for (const look of [home([REACH]), home()]) put = stillPutAway(put, look);
+
+    const changed = { ...STANDING, headline: 'Tom rang Margaret.' };
+    put = stillPutAway(put, home([changed]));
+
+    expect(showing(home([changed]), put, undefined)).toMatchObject({ kind: 'card', card: changed });
+  });
+
+  it('keeps the very same memory when a look changes nothing in it, so nothing is drawn again for it', () => {
+    const put = putAway(NONE, STANDING);
+
+    expect(stillPutAway(put, home([REACH]))).toBe(put);
+    expect(stillPutAway(put, home())).toBe(put);
+  });
+
+  it('remembers fifty cards at most, and lets go of the one put away longest ago', () => {
+    const card = (n: number): FamilyTvCard => ({ id: `ftv-reach-${n}`, kind: 'reach', headline: `Card ${n}.`, actions: [] });
+    let put: PutAway = NONE;
+    for (let n = 1; n <= 51; n += 1) put = putAway(put, card(n));
+
+    expect(Object.keys(put)).toHaveLength(50);
+    expect(put).not.toHaveProperty('ftv-reach-1');
+    expect(put).toHaveProperty('ftv-reach-2');
+    expect(put).toHaveProperty('ftv-reach-51');
+  });
+
+  it('counts a card put away again as put away just now', () => {
+    const card = (n: number): FamilyTvCard => ({ id: `ftv-reach-${n}`, kind: 'reach', headline: `Card ${n}.`, actions: [] });
+    let put: PutAway = NONE;
+    for (let n = 1; n <= 50; n += 1) put = putAway(put, card(n));
+    put = putAway(put, card(1));
+    put = putAway(put, card(51));
+
+    expect(put).toHaveProperty('ftv-reach-1');
+    expect(put).not.toHaveProperty('ftv-reach-2');
   });
 
   it('does not come back because the address of its picture changed', () => {

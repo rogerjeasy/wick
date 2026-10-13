@@ -10,12 +10,13 @@
  * these same parts. No photograph is used: a picture is only an address,
  * and none is fetched.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   MANTEL_EACH_FOR_MS,
   MANTEL_FULL_NOTICE,
   MANTEL_IDLE_AFTER_MS,
   PHOTO_ACTIONS,
+  buildReachAskCard,
   photoCardId,
   photoCardWords,
   type ChannelState,
@@ -29,6 +30,9 @@ import {
 import { BreakController } from '../break/BreakController.js';
 import { removesCard } from '../cards/cardActions.js';
 import { QueueStore, type FileSystemLike } from '../headless/QueueStore.js';
+import { ASK_SEND_WITHIN_MS, asking } from '../home/asked.js';
+import { LIGHT_ANSWER_WAIT_MS } from '../home/light.js';
+import { newestReachCard, reachOffersToPutAway } from '../home/reach.js';
 import { waitingLine } from '../home/waiting.js';
 import { IDLE_OFF, blocksHome, idleOnKey, lookAtIdle, type Idle } from '../mantel/idle.js';
 import { MANTEL_FRESH_FOR_MS, offersMantel, overMantel, pictureRefresher } from '../mantel/mantel.js';
@@ -403,5 +407,129 @@ describe('the idle screen — her pictures fill a home screen left untouched', (
     expect((await tv.look(stale + 59_000)).sent).toEqual([]);
     expect((await tv.look(stale + 60_000)).sent).toEqual([{ t: 'mantel', at: stale + 60_000 }]);
     tv.running.stop();
+  });
+});
+
+/*
+ * Where the mantelpiece meets Hold for Sarah (home/reach.ts) and the wait
+ * for the answer to her hold (home/asked.ts). The picture on her
+ * mantelpiece keeps the hold (MantelScreen's onLongPress), and the offer it
+ * brings is hers to see at once, over the mantelpiece — while a note still
+ * waits behind it. The wait runs from when her question leaves the
+ * television, as the card channel says it (startCardChannel's observer).
+ */
+describe('the mantelpiece open — her hold on the picture', () => {
+  /** The television with her mantelpiece open, and the part of ResidentApp's look that decides which card is on screen. */
+  function holding() {
+    const store = new QueueStore(noDisk());
+    const channel = new FakeChannel();
+    const engine = new BreakController();
+    engine.setForeground(true, NOW);
+    const reachAsked = asking();
+    const running = startCardChannel(store, channel, (event, at) => {
+      if (event.t === 'reach') reachAsked.sent(event.at, at);
+    });
+    let openedId: string | null = null;
+    return {
+      store,
+      channel,
+      running,
+      reachAsked,
+      /** OK held on the picture: ResidentApp's handleHold. */
+      async hold(at: number) {
+        reachAsked.asked(at);
+        await store.enqueueOutbound({ t: 'reach', at });
+      },
+      /** The card on screen, as the look finds it with the mantelpiece open. */
+      async look(now: number) {
+        let cards = await store.readAll();
+        const picked = overMantel(engine.pickCard(cards, now), true);
+        const reach = newestReachCard(cards);
+        if (reach && reachAsked.waiting(now)) openedId = reach.id;
+        const offers = reachOffersToPutAway(cards, openedId);
+        for (const id of offers) await store.remove(id);
+        if (offers.length > 0) cards = await store.readAll();
+        const opened = openedId ? cards.find((c) => c.id === openedId) : undefined;
+        if (openedId && !opened) openedId = null;
+        return picked?.urgency === 'DOOR' ? picked : opened ?? picked;
+      },
+    };
+  }
+  const offer = (at: number): QueuedCard => buildReachAskCard({ householdId: 'hh-1', reachId: String(at), first: { userId: 'u_sarah', name: 'Sarah', role: 'organiser' }, now: at });
+
+  it('brings the offer over the mantelpiece at once, while a picture that arrived meanwhile still waits behind it', async () => {
+    vi.useFakeTimers({ now: NOW });
+    try {
+      const tv = holding();
+      tv.channel.pushCard(photo());
+      await vi.advanceTimersByTimeAsync(0);
+
+      await tv.hold(NOW);
+      // The question leaves on the channel's next flush, and the wait for its answer runs from then.
+      await vi.advanceTimersByTimeAsync(1_100);
+      expect(tv.channel.sent).toEqual([{ t: 'reach', at: NOW }]);
+
+      tv.channel.pushCard(offer(NOW + 1_500));
+      await vi.advanceTimersByTimeAsync(0);
+
+      const shown = await tv.look(NOW + 2_000);
+      expect(shown?.card.type).toBe('REACH');
+      // The picture is still held, not put away and not shown: it waits until she leaves the mantelpiece.
+      expect((await tv.store.readAll()).map((c) => c.card.type).sort()).toEqual(['PHOTO', 'REACH']);
+      tv.running.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('counts the wait from when her question left, not from the hold: an offer that comes after a slow reconnect is still hers', async () => {
+    vi.useFakeTimers({ now: NOW });
+    try {
+      const tv = holding();
+      // The channel is down when she holds, and for half a minute after.
+      tv.channel.state = 'closed';
+      await tv.hold(NOW);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(tv.channel.sent).toEqual([]);
+
+      tv.channel.state = 'open';
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(tv.channel.sent).toEqual([{ t: 'reach', at: NOW }]);
+
+      // More than the fifteen seconds after her hold, and well inside them after the question left.
+      const arrives = NOW + 31_000 + LIGHT_ANSWER_WAIT_MS - 2_000;
+      tv.channel.pushCard(offer(arrives));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect((await tv.look(arrives + 500))?.card.type).toBe('REACH');
+      tv.running.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never sends a hold that could not leave within a minute, and an offer nobody is waiting for is put away unseen — the mantelpiece stays as it was', async () => {
+    vi.useFakeTimers({ now: NOW });
+    try {
+      const tv = holding();
+      tv.channel.state = 'closed';
+      await tv.hold(NOW);
+      await vi.advanceTimersByTimeAsync(ASK_SEND_WITHIN_MS + 1_000);
+
+      tv.channel.state = 'open';
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(tv.channel.sent).toEqual([]);
+      expect(tv.reachAsked.waiting(Date.now())).toBe(false);
+
+      // An offer from some earlier hold turns up: she is not waiting for one.
+      tv.channel.pushCard(offer(Date.now()));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(await tv.look(Date.now() + 500)).toBeUndefined();
+      expect(await tv.store.readAll()).toEqual([]);
+      tv.running.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

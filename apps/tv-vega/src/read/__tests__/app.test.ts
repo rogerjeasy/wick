@@ -57,6 +57,14 @@ describe('ResidentApp.tsx — read to me', () => {
     expect(app).toMatch(/setAskedFor\(\(asked\) => \(asked !== null && asked !== readingCard \? null : asked\)\);/);
   });
 
+  it('does not hand the reader a key the idle screen takes: the idle rule is asked as it stood when the key arrived, before it is moved on', () => {
+    const handler = app.slice(app.indexOf('useTVEventHandler((event) => {'), app.indexOf('\n  });', app.indexOf('useTVEventHandler((event) => {')));
+
+    expect(handler).toMatch(/if \(command && !blocksHome\(idleNow\.current\)\) \{\s*reader\.press\(command\);/);
+    expect(handler.indexOf('reader.press(command)')).toBeGreaterThan(-1);
+    expect(handler.indexOf('reader.press(command)')).toBeLessThan(handler.indexOf('idleOnKey(idleNow.current, event, now)'));
+  });
+
   it('is told by the reader how it stands, so a key knows whether a reading is under way', () => {
     expect(app).toMatch(/onChange: setReadingState,/);
   });

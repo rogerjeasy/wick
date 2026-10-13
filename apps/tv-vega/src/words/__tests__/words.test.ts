@@ -61,6 +61,8 @@ describe('the words table — English, exactly as the television said it before 
       'pairing.title': 'Set up Wick',
       'pairing.instructions': 'Enter this code in the Wick family app. There you say whose television this is.',
       'pairing.gettingCode': 'Getting a code…',
+      // pairing/connect.ts
+      'pairing.stillTrying': 'Wick cannot reach the home just now.',
       // watch/WatchScreen.tsx
       'watch.failed': '{title} will not play just now. Press Back.',
       'watch.starting': 'Starting {title}…',

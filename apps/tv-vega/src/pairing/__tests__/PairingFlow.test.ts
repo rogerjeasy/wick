@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DeviceToken } from '@wick/contracts';
-import { PairingFlow } from '../PairingFlow.js';
+import { PAIRING_REQUEST_TIMEOUT_MS, PairingFlow } from '../PairingFlow.js';
 import type { FileSystemLike } from '../../headless/QueueStore.js';
 
 function fakeFs(): FileSystemLike {
@@ -635,6 +635,123 @@ describe('PairingFlow', () => {
       );
 
       await expect(flow.loadToken('d1')).resolves.toEqual(TOKEN);
+    });
+  });
+
+  // Seen on the Vega simulator, 2026-10-13: the first launch after a cold
+  // boot sat on "Getting a code…" for over a minute behind a request that
+  // never answered. No request to the pairing service is waited for longer
+  // than this.
+  describe('a request that never answers', () => {
+    const never = (): typeof fetch => {
+      const hung = vi.fn((_url: string, _init?: RequestInit) => new Promise<Response>(() => {}));
+      return hung as unknown as typeof fetch;
+    };
+    const signalOf = (fetchImpl: typeof fetch, call = 0): AbortSignal => (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[call]![1].signal as AbortSignal;
+    const expired: DeviceToken = { ...TOKEN, jwt: 'held-jwt', expiresAt: Date.now() - 1000 };
+
+    it('is given ten seconds', () => {
+      expect(PAIRING_REQUEST_TIMEOUT_MS).toBe(10_000);
+    });
+
+    it('fails the asking for a code once its time is up, and is told to stop', async () => {
+      vi.useFakeTimers();
+      try {
+        const fetchImpl = never();
+        const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fakeFs(), fetchImpl);
+
+        const starting = flow.start('d1');
+        const failed = expect(starting).rejects.toThrow('pairing_request_timed_out');
+        await vi.advanceTimersByTimeAsync(PAIRING_REQUEST_TIMEOUT_MS - 1);
+        expect(signalOf(fetchImpl).aborted).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+
+        await failed;
+        expect(signalOf(fetchImpl).aborted).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('fails the launch-time refresh the same way, and keeps the token it was showing', async () => {
+      vi.useFakeTimers();
+      try {
+        const fs = fakeFs();
+        await fs.writeStringToFile('/data/wick-token.json', JSON.stringify(expired), 'utf8');
+        const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', requestTimeoutMs: 4_000 }, fs, never());
+
+        const loading = flow.loadToken('d1');
+        const failed = expect(loading).rejects.toThrow('pairing_request_timed_out');
+        await vi.advanceTimersByTimeAsync(4_000);
+
+        await failed;
+        expect(JSON.parse(await fs.readFileAsString('/data/wick-token.json', 'utf8'))).toEqual(expired);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('is only "not now" for a renewal, a knock, and the opening of the way', async () => {
+      vi.useFakeTimers();
+      try {
+        const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fakeFs(), never());
+
+        const renewed = flow.renew('d1', 'held-jwt');
+        const claimed = flow.claimForService('d1');
+        const opened = flow.openServiceWindow('d1', 'held-jwt');
+        await vi.advanceTimersByTimeAsync(PAIRING_REQUEST_TIMEOUT_MS);
+
+        expect(await renewed).toBe('try_later');
+        expect(await claimed).toBe('try_later');
+        await expect(opened).resolves.toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not end the wait for the code to be entered: the question is asked again', async () => {
+      vi.useFakeTimers();
+      try {
+        const answers: Array<Promise<Response>> = [
+          new Promise<Response>(() => {}),
+          Promise.resolve(new Response(JSON.stringify({ status: 'bound', token: TOKEN }), { status: 200 })),
+        ];
+        const fetchImpl = vi.fn(() => answers.shift()!);
+        const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 3_000 }, fakeFs(), fetchImpl as unknown as typeof fetch);
+
+        const polling = flow.pollUntilBound('123456');
+        await vi.advanceTimersByTimeAsync(PAIRING_REQUEST_TIMEOUT_MS + 3_000);
+
+        expect(await polling).toEqual(TOKEN);
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('nor does one that fails, or a pairing service in trouble: only the code having gone ends it', async () => {
+      const answers: Array<Response | Error> = [
+        new TypeError('Network request failed'),
+        new Response('oops', { status: 503 }),
+        new Response(JSON.stringify({ status: 'pending' }), { status: 200 }),
+        new Response('gone', { status: 404 }),
+      ];
+      const fetchImpl = vi.fn(async () => {
+        const next = answers.shift()!;
+        if (next instanceof Error) throw next;
+        return next;
+      });
+      const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 }, fakeFs(), fetchImpl as unknown as typeof fetch);
+
+      await expect(flow.pollUntilBound('123456')).rejects.toThrow('pairing_code_expired');
+      expect(fetchImpl).toHaveBeenCalledTimes(4);
+    });
+
+    it('still gives up on a code nobody enters, when its quarter of an hour is over', async () => {
+      const fetchImpl = vi.fn(async () => new Response('oops', { status: 503 }));
+      const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1, pollTimeoutMs: 20 }, fakeFs(), fetchImpl as unknown as typeof fetch);
+
+      await expect(flow.pollUntilBound('123456')).rejects.toThrow('pairing_timed_out');
     });
   });
 });
