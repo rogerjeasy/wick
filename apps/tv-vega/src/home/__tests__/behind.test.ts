@@ -86,8 +86,10 @@ describe('HomeScreen.tsx — nothing of it is drawn behind a card', () => {
   });
 
   it('still remembers where the focus was while its rows are out: the memory is kept before they are left out', () => {
-    expect(body.indexOf('const focused = React.useRef')).toBeGreaterThan(-1);
-    expect(body.indexOf('const focused = React.useRef')).toBeLessThan(leftOut);
+    expect(body.indexOf('const focus = React.useRef')).toBeGreaterThan(-1);
+    expect(body.indexOf('const focus = React.useRef')).toBeLessThan(leftOut);
+    // And it is told that the rows have gone out of reach before they are left out.
+    expect(body.indexOf('focus.current = reachChanged(')).toBeLessThan(leftOut);
     expect(body.slice(leftOut)).toMatch(/hasTVPreferredFocus=\{!cardVisible && preferred === /);
   });
 

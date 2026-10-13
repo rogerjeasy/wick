@@ -131,7 +131,7 @@ describe('HomeScreen.tsx — the pill, as drawn', () => {
   });
 
   it('remembers where the focus was, and gives it back there when the remote is the home screen’s again', () => {
-    expect(screen).toMatch(/onFocus=\{\(\) => \{\s*focused\.current = /);
+    expect(screen).toMatch(/onFocus=\{\(\) => reportFocus\(/);
     expect(screen).toMatch(/hasTVPreferredFocus=\{!cardVisible && preferred === /);
   });
 });
