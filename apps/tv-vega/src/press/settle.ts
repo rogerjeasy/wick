@@ -29,10 +29,28 @@
  * (FRICTION.md FL-028). What is compared is when the press is SEEN with
  * when the card appeared. It is about presses only — the D-pad moves the
  * focus as it always did — and nothing is shown, hidden or sent by it.
+ *
+ * The home screen under the card keeps the same second (home/HomeScreen.tsx,
+ * `pressActs`): when the card goes, the film that has the focus takes no
+ * press until the home has been back within the remote's reach for as
+ * long. Otherwise the second OK, kept from answering the next card, would
+ * start a film instead — a press meant for a card must not fall through to
+ * what is underneath.
  */
 
 /** Longer than two presses meant as one; shorter than reading a sentence. */
 export const PRESS_SETTLE_MS = 1_000;
+
+/**
+ * Whether a press seen at `now` is acted on, by something that came within
+ * the remote's reach at `since` — or is not within it at all (`null`),
+ * which takes no press. The whole rule, for whoever keeps the moment
+ * themselves: the home screen does, beside its memory of where she was
+ * (home/focusMemory.ts), so the two count from one moment.
+ */
+export function pressActs(since: number | null, now: number): boolean {
+  return since !== null && now - since >= PRESS_SETTLE_MS;
+}
 
 export interface PressSettle {
   /**
@@ -60,7 +78,7 @@ export function pressSettle(): PressSettle {
       since = now;
     },
     acts(now) {
-      return now - since >= PRESS_SETTLE_MS;
+      return pressActs(since, now);
     },
   };
 }
