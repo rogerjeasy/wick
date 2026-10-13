@@ -242,6 +242,8 @@
   .btn.quiet { background: var(--button-quiet); font-weight: 400; }
   /* The brand colour, where the guide allows it: the action that completes the task. */
   .btn.final { background: var(--wick); color: var(--wick-ink); }
+  /* One of two answers ("Whose television is it?"): the one chosen is outlined, the other stays quiet. */
+  .btn.choice[aria-pressed="true"] { background: var(--button); border-color: var(--ink-dim); font-weight: 600; }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn.link { background: none; padding: var(--s-2xs) 0; color: var(--ink-dim); text-decoration: underline; align-self: flex-start; }
 
