@@ -27,7 +27,7 @@ describe('routeCardAction — which presses need the runtime, and which do not',
     const invoke = vi.fn();
     const askFamily = vi.fn(async () => 'asked' as const);
 
-    const out = await routeCardAction({ detail: ask }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(), reachAsk: vi.fn(), reachDue: vi.fn() });
+    const out = await routeCardAction({ detail: ask }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(), reachAsk: vi.fn(), reachDue: vi.fn(), visitAnswer: vi.fn(), askVisits: vi.fn(async () => []) });
 
     expect(askFamily).toHaveBeenCalledWith(ask);
     expect(invoke).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ describe('routeCardAction — which presses need the runtime, and which do not',
     const invoke = vi.fn(async () => ({ result: 'rang' }));
     const askFamily = vi.fn();
 
-    const out = await routeCardAction({ detail }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(), reachAsk: vi.fn(), reachDue: vi.fn() });
+    const out = await routeCardAction({ detail }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(), reachAsk: vi.fn(), reachDue: vi.fn(), visitAnswer: vi.fn(), askVisits: vi.fn(async () => []) });
 
     expect(invoke).toHaveBeenCalledWith('door.action', 'margaret', { detail });
     expect(askFamily).not.toHaveBeenCalled();
@@ -56,6 +56,8 @@ describe('routeCardAction — "Shall I tell Sarah?"', () => {
     tellHome: vi.fn(async () => undefined),
     reachAsk: vi.fn(),
     reachDue: vi.fn(),
+    visitAnswer: vi.fn(),
+    askVisits: vi.fn(async () => []),
   });
 
   it('looks for something to ask when a television says its resident is there', async () => {
@@ -64,7 +66,7 @@ describe('routeCardAction — "Shall I tell Sarah?"', () => {
     const out = await routeCardAction({ 'detail-type': 'television.active', detail: { householdId: 'margaret', deviceId: 'wick-tv', at: 5 } }, r);
 
     expect(r.askResident).toHaveBeenCalledWith('margaret');
-    expect(out).toEqual({ result: 'asked', about: 1 });
+    expect(out).toEqual({ result: 'asked', about: 1, visits: 0 });
     expect(r.invoke).not.toHaveBeenCalled();
   });
 
@@ -90,7 +92,7 @@ describe('routeCardAction — "Shall I tell Sarah?"', () => {
 });
 
 describe('routeCardAction — a card finished on one television', () => {
-  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(async () => undefined), tellHome: vi.fn(async () => undefined), reachAsk: vi.fn(), reachDue: vi.fn() });
+  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(async () => undefined), tellHome: vi.fn(async () => undefined), reachAsk: vi.fn(), reachDue: vi.fn(), visitAnswer: vi.fn(), askVisits: vi.fn(async () => []) });
   const retired = { householdId: 'margaret', deviceId: 'wick-tv', cardId: 'note-abc', at: 5 };
 
   it('is taken off the home’s other televisions, without waking the runtime', async () => {
@@ -115,7 +117,7 @@ describe('routeCardAction — a card finished on one television', () => {
 });
 
 describe('routeCardAction — the home screen changed on one television', () => {
-  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(async () => undefined), reachAsk: vi.fn(), reachDue: vi.fn() });
+  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(async () => undefined), reachAsk: vi.fn(), reachDue: vi.fn(), visitAnswer: vi.fn(), askVisits: vi.fn(async () => []) });
   const home = { light: 'out', lightOutUntil: 9000 };
 
   it('is told to the home’s other televisions, whole, without waking the runtime', async () => {
@@ -155,7 +157,7 @@ describe('routeCardAction — the home screen changed on one television', () => 
 });
 
 describe('routeCardAction — "Hold for Sarah"', () => {
-  const others = { invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn() };
+  const others = { invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(), visitAnswer: vi.fn(), askVisits: vi.fn(async () => []) };
   const reach = { ...detail, cardId: 'reach-1790000000000' };
 
   it('carries out "Yes, ask Sarah" and "Just say hello" itself, without waking the runtime', async () => {
@@ -186,3 +188,36 @@ describe('routeCardAction — "Hold for Sarah"', () => {
     expect(reachAsk).not.toHaveBeenCalled();
   });
 });
+
+describe('routeCardAction — "The visit, witnessed"', () => {
+  const routes = () => ({
+    invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(), reachAsk: vi.fn(), reachDue: vi.fn(),
+    askResident: vi.fn(async () => ['missed_visit-maria-2026-10-09']),
+    visitAnswer: vi.fn(async () => 'confirmed' as const),
+    askVisits: vi.fn(async () => ['1791878520000-maria']),
+  });
+
+  it('records her yes or no itself, without waking the runtime', async () => {
+    for (const action of ['visit_right', 'visit_wrong']) {
+      const r = routes();
+      const press = { ...detail, cardId: 'visit-1791878520000-maria', action };
+      expect(await routeCardAction({ 'detail-type': 'card.action', detail: press }, r)).toEqual({ result: 'confirmed' });
+      expect(r.visitAnswer).toHaveBeenCalledWith(press);
+      expect(r.invoke).not.toHaveBeenCalled();
+    }
+  });
+
+  it('asks about a visit when a television says its resident is there — beside anything that is different', async () => {
+    const r = routes();
+    const out = await routeCardAction({ 'detail-type': 'television.active', detail: { householdId: 'margaret' } }, r);
+    expect(r.askVisits).toHaveBeenCalledWith('margaret');
+    expect(r.askResident).toHaveBeenCalledWith('margaret');
+    expect(out).toEqual({ result: 'asked', about: 1, visits: 1 });
+  });
+
+  it('still asks about what is different when the visits cannot be read', async () => {
+    const r = { ...routes(), askVisits: vi.fn(async () => { throw new Error('ddb_down'); }) };
+    expect(await routeCardAction({ 'detail-type': 'television.active', detail: { householdId: 'margaret' } }, r)).toEqual({ result: 'asked', about: 1, visits: 0 });
+  });
+});
+

@@ -45,7 +45,13 @@ export const NIGHT_UNTIL_HOUR = 5;
 const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
 
-export type DifferenceKind = 'missed_visit' | 'door_at_night' | 'door_quiet' | 'door_busy';
+/**
+ * The first four are found by the detector below. `visit_disputed` is not: it
+ * is the resident saying that what the door noted of a visit is not right
+ * (agents/visit/answer.ts), filed as a question of the same kind so that
+ * whether the family hears of it is hers to decide in the same way.
+ */
+export type DifferenceKind = 'missed_visit' | 'door_at_night' | 'door_quiet' | 'door_busy' | 'visit_disputed';
 
 export interface Difference {
   readonly kind: DifferenceKind;
