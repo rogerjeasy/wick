@@ -188,6 +188,17 @@ export class PairingFlow {
     return this.#refreshToken(deviceId, options.waitIfRefreshedJustNow === true, stored?.jwt, options.asService === true && !stored, options.onRefusal);
   }
 
+  /**
+   * What this television last held, whether or not it has run out — or
+   * null where nothing is kept. Read from the disk and from nowhere else:
+   * nobody is asked. It says which television this was, the resident's or a
+   * family member's own, before the pairing service has answered anything
+   * (connect.ts shows that television's own screen meanwhile).
+   */
+  rememberedToken(): Promise<DeviceToken | null> {
+    return this.#storedToken();
+  }
+
   /** The token on disk, whether or not it has run out — or null when the disk holds none. */
   async #storedToken(): Promise<DeviceToken | null> {
     try {
