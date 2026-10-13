@@ -23,6 +23,7 @@
  * family app, when the code on the pairing screen is entered.
  */
 import * as React from 'react';
+import type { DeviceToken } from '@wick/contracts';
 import { View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import { PairingFlow } from './pairing/PairingFlow.js';
@@ -71,6 +72,36 @@ export default function App(): React.JSX.Element {
     setSignedOut((times) => times + 1);
   }, []);
 
+  // The resident's television, disconnected by the family, is told by
+  // nobody: the edge only refuses it, and a token on disk that has not run
+  // out is used without asking. So it asks (pairing/standing.ts) — by its
+  // id, showing its token, and writing nothing down for the asking. "No
+  // longer connected" is taken as a family television's sign-out is: the
+  // token forgotten, the pairing screen, and no token asked for again.
+  //
+  // "Connected" comes with a fresh token, and the television takes it when
+  // its own is near its end — an hour after launch where the disk keeps
+  // none — so its channel is not cut off and refused until the next launch.
+  // That is ResidentApp's to do, and does not come back through here: the
+  // token this screen was made ready with stays the one it was launched
+  // with. The disk is given the fresh one only over nothing, or over a
+  // token that ends sooner (PairingFlow.keepIfLonger): a thirty-day token
+  // is never replaced by an hour's.
+  const ready = screen?.kind === 'ready' ? screen : undefined;
+  const standing = React.useMemo(
+    () =>
+      ready
+        ? {
+            ask: (held: DeviceToken) => pairing.renew(held.deviceId, held.jwt, { remember: false }),
+            onGone: handleSignedOut,
+            keep: (fresh: DeviceToken) => pairing.keepIfLonger(fresh),
+            // Fresh from the pairing service: it has just said this television is connected, and the token's hour starts now.
+            ...(ready.asked ? { since: Date.now() } : {}),
+          }
+        : undefined,
+    [ready, pairing, handleSignedOut],
+  );
+
   if (!screen) return <View style={{ flex: 1 }} />;
   // exactOptionalPropertyTypes forbids passing `info={undefined}` explicitly —
   // PairingScreenProps.info is optional (absent), not nullable.
@@ -82,5 +113,5 @@ export default function App(): React.JSX.Element {
   if (televisionMode(screen.token) === 'family') {
     return <FamilyApp token={screen.token} serverUrl={config.wickServerUrl} pairing={pairing} onSignedOut={handleSignedOut} />;
   }
-  return <ResidentApp token={screen.token} config={config} />;
+  return <ResidentApp token={screen.token} config={config} {...(standing ? { standing } : {})} />;
 }

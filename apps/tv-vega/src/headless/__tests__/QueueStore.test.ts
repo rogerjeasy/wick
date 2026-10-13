@@ -648,3 +648,66 @@ describe('QueueStore — the reading she asked for (packages/contracts speech.ts
     expect(heard).toEqual(['note-1']);
   });
 });
+
+// The family has disconnected this television (pairing/standing.ts). What it
+// held was a home's: her cards, with names in them; what it was about to
+// tell the server; the language she chose. None of it is this television's
+// to keep, and the next home it is connected to must find none of it.
+describe('QueueStore.forget — a television that is no longer connected keeps nothing of the home', () => {
+  it('holds no card, nothing to send, no last card seen and no word of the home afterwards', async () => {
+    const store = new QueueStore(fakeFs());
+    await store.upsert(doorCard('c1'));
+    await store.enqueueOutbound({ t: 'card_shown', cardId: 'c1', at: 1 });
+    store.setHome({ light: 'on', language: 'es' }, { whole: true });
+    expect(store.language()).toBe('es');
+
+    await store.forget();
+
+    expect(await store.readAll()).toEqual([]);
+    expect(await store.drainOutbound()).toEqual([]);
+    expect(await store.lastSeenCardId()).toBeUndefined();
+    expect(store.readHome()).toEqual({});
+    expect(store.language()).toBe('en');
+  });
+
+  it('leaves nothing on disk for the next launch — or the next home — to find', async () => {
+    const fs = fakeFs();
+    const store = new QueueStore(fs);
+    await store.upsert(doorCard('c1'));
+    await store.enqueueOutbound({ t: 'card_action', cardId: 'c1', action: 'ignore', at: 1 });
+    store.setHome({ language: 'es' }, { whole: true });
+    await store.readAll();
+
+    await store.forget();
+
+    const next = new QueueStore(fs);
+    expect(await next.readAll()).toEqual([]);
+    expect(await next.drainOutbound()).toEqual([]);
+    expect(await next.lastSeenCardId()).toBeUndefined();
+    expect(await next.recallLanguage()).toBe('en');
+  });
+
+  it('never rejects, on a disk that cannot be written: there, nothing was kept', async () => {
+    const fail = () => Promise.reject(new Error('com.amazon.kepler.io.IoError'));
+    const store = new QueueStore({ exists: fail, readFileAsString: fail, writeStringToFile: fail });
+    await store.upsert(doorCard('c1'));
+
+    await expect(store.forget()).resolves.toBeUndefined();
+    expect(await store.readAll()).toEqual([]);
+  });
+});
+
+describe('QueueStore — a television the family has disconnected forgets her mantelpiece too', () => {
+  it('keeps nothing of the pictures she had kept: a television connected to another home must never show them', async () => {
+    const store = new QueueStore(fakeFs());
+    store.setHome({ light: 'on', mantel: 2 }, { whole: true });
+    store.setMantel([{ photoId: 'p_1', fromName: 'Sarah', keptAt: 1_700_000_000_000, url: 'https://photos.example/p_1.jpg' }], 1_000);
+    expect(store.readMantel()?.items).toHaveLength(1);
+
+    await store.forget();
+
+    expect(store.readMantel()).toBeUndefined();
+    expect(store.readHome().mantel).toBeUndefined();
+  });
+});
+

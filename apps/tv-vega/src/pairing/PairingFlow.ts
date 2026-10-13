@@ -337,6 +337,31 @@ export class PairingFlow {
   }
 
   /**
+   * Writes down a fresh token the resident's television took while it was
+   * running (pairing/standing.ts) — but only over nothing, or over a token
+   * that ends sooner than this one. A fresh token lasts an hour and the one
+   * a pairing writes lasts thirty days: mid-life, that one stays, and the
+   * next launch goes on using it without asking anybody. One that has run
+   * out, or is about to, gives way, so a launch in the next hour finds a
+   * token that still opens the channel.
+   *
+   * The two ends compared are both the pairing service's, so this
+   * television's clock, which may be hours out, is not asked. Nobody else
+   * is asked either. A narrow token is never written (`#keep`).
+   *
+   * A family member's television does not come here: its own renewal shows
+   * the token it holds as proof, and keeps what it is handed (`renew`).
+   *
+   * Best-effort and never throws, like every write here (FL-013): where the
+   * disk keeps nothing the token in hand is the only copy, as it always was.
+   */
+  async keepIfLonger(token: DeviceToken): Promise<void> {
+    const stored = await this.#storedToken();
+    if (stored && !(stored.expiresAt < token.expiresAt)) return;
+    await this.#keep(token);
+  }
+
+  /**
    * Opens the way for this television's background service: a refresh that
    * shows the app's own token and says it is for the service. The pairing
    * service then answers one request without a token, for a short while,
