@@ -318,3 +318,65 @@ describe('adoptHousehold — a household that existed before accounts did', () =
     await expect(adoptHousehold(deps, TOM, { householdId: 'margaret', residentName: 'Margaret' })).rejects.toThrow(/already exists/);
   });
 });
+
+describe('a neighbour', () => {
+  const invite = async () => {
+    const t = setup();
+    const household = await createHousehold(t.deps, SARAH, { residentName: 'Margaret' });
+    const invitation = await createInvitation(t.deps, { householdId: household.householdId, userId: 'u_sarah' }, 'neighbour');
+    return { ...t, household, invitation };
+  };
+
+  it('joins by an invitation that says so, and waits for the resident like anyone else', async () => {
+    const { deps, store, household, invitation } = await invite();
+
+    const membership = await acceptInvitation(deps, TOM, invitation.code);
+
+    expect(invitation.role).toBe('neighbour');
+    expect(membership).toMatchObject({ role: 'neighbour', status: 'pending' });
+    expect(await store.getMembership(household.householdId, 'u_tom')).toMatchObject({ role: 'neighbour', status: 'pending' });
+  });
+
+  it('is put to the resident as what it is: someone to ask at the door and to ring, who sees nothing else', async () => {
+    const { deps, cards, invitation } = await invite();
+    await acceptInvitation(deps, TOM, invitation.code);
+
+    const card = cards.at(-1)!.card;
+    if (card.type !== 'CIRCLE') throw new Error('not a circle card');
+    expect(card.role).toBe('neighbour');
+    expect(card.headline).toBe('Tom would like to be a neighbour you can ask.');
+    expect(card.detail).toBe('If you allow it, you can ask Tom to look at who is at your door, or to ring you. Tom will not see your week, your day or your notes.');
+    expect(card.detail.length).toBeLessThanOrEqual(MAX_CARD_DETAIL_CHARS);
+    expect(card.actions.length).toBeLessThanOrEqual(MAX_CARD_ACTIONS);
+  });
+
+  it('is family when the invitation does not say otherwise — every invitation made before there were neighbours', async () => {
+    const { deps } = setup();
+    const household = await createHousehold(deps, SARAH, { residentName: 'Margaret' });
+    const invitation = await createInvitation(deps, { householdId: household.householdId, userId: 'u_sarah' });
+
+    expect(invitation.role).toBeUndefined();
+    expect(await acceptInvitation(deps, TOM, invitation.code)).toMatchObject({ role: 'family' });
+  });
+
+  it('cannot be made the organiser by any invitation, and an organiser is not made a neighbour by one', async () => {
+    const { deps, store, household, invitation } = await invite();
+
+    // The organiser opens the neighbour's invitation themselves: nothing changes.
+    await residentAnswers(deps, household.householdId, 'u_sarah', 'allowed');
+    expect(await acceptInvitation(deps, SARAH, invitation.code)).toMatchObject({ role: 'organiser', status: 'allowed' });
+    expect(await store.getMembership(household.householdId, 'u_sarah')).toMatchObject({ role: 'organiser' });
+  });
+
+  it('who was turned down as a neighbour can be asked about again as family, by a newer invitation', async () => {
+    const { deps, store, household, invitation, tick } = await invite();
+    await acceptInvitation(deps, TOM, invitation.code);
+    await residentAnswers(deps, household.householdId, 'u_tom', 'declined');
+
+    tick(1000);
+    const asFamily = await createInvitation(deps, { householdId: household.householdId, userId: 'u_sarah' }, 'family');
+    expect(await acceptInvitation(deps, TOM, asFamily.code)).toMatchObject({ role: 'family', status: 'pending' });
+    expect(await store.getMembership(household.householdId, 'u_tom')).toMatchObject({ role: 'family' });
+  });
+});
+

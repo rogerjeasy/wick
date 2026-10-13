@@ -39,3 +39,31 @@ describe('gated — INV-9 on every tool call', () => {
     expect(await tool()).toBe('ok');
   });
 });
+
+describe('gated — a neighbour is asked two things, and shown nothing else', () => {
+  const tom = allowedContext('hh_1', { userId: 'u_tom', name: 'Tom', role: 'neighbour' });
+
+  it('refuses a neighbour any tool that was not made for one, in words, and never runs it', async () => {
+    const handler = vi.fn(async () => 'the week');
+
+    const result = await gated(tom, handler)();
+
+    expect(result).toEqual({ content: [{ type: 'text', text: 'Margaret has asked you to help in two ways: to look at who is at the door, and to ring when asked. Nothing else about the house is shared with a neighbour.' }] });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('runs the tools that are a neighbour’s: the door, and being asked to ring', async () => {
+    expect(await gated(tom, async (allowed) => allowed.membership.name, { neighbour: true })()).toBe('Tom');
+  });
+
+  it('does not note a look by a neighbour: a neighbour cannot ask after her', async () => {
+    const lookedIn = vi.fn(async () => {});
+    await gated({ ...tom, lookedIn }, async () => 'the light', { looksIn: true })();
+    expect(lookedIn).not.toHaveBeenCalled();
+  });
+
+  it('changes nothing for the family', async () => {
+    expect(await gated(allowedContext('hh_1', { role: 'family' }), async () => 'the week')()).toBe('the week');
+  });
+});
+

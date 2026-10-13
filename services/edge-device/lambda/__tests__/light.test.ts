@@ -195,3 +195,18 @@ describe('lightPress and lightUpdate — the one thing her television can change
     });
   });
 });
+
+describe('a neighbour and the light', () => {
+  const neighbour = { ...member('u_tom', 'Tom'), role: { S: 'neighbour' } };
+
+  it('is not somebody who can see it: a home that allows only a neighbour has no light to show', () => {
+    expect(state([neighbour, meta()])).toEqual({});
+    expect(buildLightCard({ householdId: 'margaret', items: [neighbour, meta()], now: NOW, timeZone: LONDON })).toBeUndefined();
+  });
+
+  it('is never named among those who can', () => {
+    const queued = buildLightCard({ householdId: 'margaret', items: [member('u_sarah', 'Sarah'), neighbour, meta()], now: NOW, timeZone: LONDON });
+    expect(queued.card.detail).toMatch(/^Sarah can see that your day has begun/);
+  });
+});
+

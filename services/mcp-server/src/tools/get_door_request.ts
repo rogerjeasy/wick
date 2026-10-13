@@ -120,6 +120,6 @@ export function registerGetDoorRequest(mcpServer: McpServer, ddb: DynamoDBClient
     withFriendlyErrors(gated(ctx, async (allowed) => {
       const request = await loadDoorRequest(ddb, ctx.householdId, now());
       return request ? data(request) : say(NOBODY_ASKED(allowed.household.residentName));
-    })),
+    }, { neighbour: true })),
   );
 }

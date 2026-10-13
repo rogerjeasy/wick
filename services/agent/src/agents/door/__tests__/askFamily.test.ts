@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DOOR_CARD_TTL_MS, type CardPatch, type QueuedCard } from '@wick/contracts';
-import { allowedFamily, handleAskFamily, lookRequestItem, type AskFamilyDeps, type LookRequest } from '../askFamily.js';
+import { allowedFamily, familyOnly, handleAskFamily, lookRequestItem, type AskFamilyDeps, type LookRequest } from '../askFamily.js';
 
 const NOW = 1_790_000_000_000;
 
@@ -194,5 +194,18 @@ describe('allowedFamily', () => {
 
   it('skips a row it cannot read rather than ask someone with no name', () => {
     expect(allowedFamily([{ sk: { S: 'MEM#u-x' }, status: { S: 'allowed' } }, {}])).toEqual([]);
+  });
+});
+
+describe('a neighbour in the circle', () => {
+  const row = (userId: string, name: string, role?: string) => ({ sk: { S: `MEM#${userId}` }, name: { S: name }, status: { S: 'allowed' }, ...(role ? { role: { S: role } } : {}) });
+  const circle = allowedFamily([row('u_sarah', 'Sarah', 'organiser'), row('u_tom', 'Tom', 'neighbour'), row('u_old', 'Dan')]);
+
+  it('can be asked to look at the door, like the family', () => {
+    expect(circle.map((member) => member.userId)).toEqual(['u_sarah', 'u_tom', 'u_old']);
+  });
+
+  it('is not among those who are told what the resident chose to share, or named as able to see it', () => {
+    expect(familyOnly(circle).map((member) => member.userId)).toEqual(['u_sarah', 'u_old']);
   });
 });

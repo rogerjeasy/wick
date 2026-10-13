@@ -16,6 +16,7 @@ import {
   CIRCLE_ACTIONS,
   MAX_CARD_DETAIL_CHARS,
   circleCardId,
+  type CircleRole,
   type MemberStatus,
   type QueuedCard,
 } from '@wick/contracts';
@@ -43,10 +44,17 @@ export class CircleError extends Error {
   }
 }
 
+/** What an invitation can make of the person who accepts it. Never an organiser: that is whoever set the household up. */
+export type InvitedRole = Exclude<CircleRole, 'organiser'>;
+
+export const isInvitedRole = (role: unknown): role is InvitedRole => role === 'family' || role === 'neighbour';
+
 export interface Invitation {
   readonly code: string;
   readonly householdId: string;
   readonly invitedBy: string;
+  /** Absent on an invitation made before there were neighbours: family. */
+  readonly role?: InvitedRole;
   readonly createdAt: number;
   readonly expiresAt: number;
 }
@@ -79,9 +87,12 @@ export function buildCircleCard(household: Household, member: Membership, now: n
   const id = circleCardId(member.userId);
   const name = cleanName(member.name);
   const first = firstName(name);
-  const detail =
-    `If you allow it, ${first} can send you notes here and see what you choose to share. ` +
-    'You can change what is shared at any time.';
+  // A neighbour is asked for two things and shown nothing (packages/contracts circle.ts): the card says exactly that.
+  const neighbour = member.role === 'neighbour';
+  const detail = neighbour
+    ? `If you allow it, you can ask ${first} to look at who is at your door, or to ring you. ${first} will not see your week, your day or your notes.`
+    : `If you allow it, ${first} can send you notes here and see what you choose to share. ` +
+      'You can change what is shared at any time.';
   return {
     id,
     urgency: 'DEFERRED',
@@ -95,7 +106,7 @@ export function buildCircleCard(household: Household, member: Membership, now: n
       createdAt: now,
       personName: name,
       role: member.role,
-      headline: `${name} would like to join your family circle.`,
+      headline: neighbour ? `${name} would like to be a neighbour you can ask.` : `${name} would like to join your family circle.`,
       detail: detail.slice(0, MAX_CARD_DETAIL_CHARS),
       actions: [
         { id: CIRCLE_ACTIONS.allow, label: `Allow ${first}`, kind: 'primary' },
@@ -180,13 +191,14 @@ export async function requireOrganiser(deps: CircleDeps, actor: { householdId: s
   return membership;
 }
 
-export async function createInvitation(deps: CircleDeps, actor: { householdId: string; userId: string }): Promise<Invitation> {
+export async function createInvitation(deps: CircleDeps, actor: { householdId: string; userId: string }, role?: InvitedRole): Promise<Invitation> {
   await requireOrganiser(deps, actor);
   const now = deps.now();
   const invitation: Invitation = {
     code: deps.newId(),
     householdId: actor.householdId,
     invitedBy: actor.userId,
+    ...(role ? { role } : {}),
     createdAt: now,
     expiresAt: now + INVITATION_TTL_MS,
   };
@@ -237,7 +249,9 @@ export async function acceptInvitation(deps: CircleDeps, person: Identity, code:
     householdId: household.householdId,
     userId: person.userId,
     name: cleanName(person.name) || person.email,
-    role: existing?.role ?? 'family',
+    // The part this invitation names — the resident is asked about exactly
+    // that, on the card. Whoever set the household up stays its organiser.
+    role: existing?.role === 'organiser' ? 'organiser' : invitation.role ?? 'family',
     status: 'pending',
     requestedAt: deps.now(),
     invitedBy: invitation.invitedBy,
