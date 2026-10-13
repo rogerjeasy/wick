@@ -118,6 +118,15 @@ the edge tells the television that was pressed, says so on the bus
 takes back before it is answered (an invitation to watch a film) leaves the
 televisions through `egress.ts` too (`takeBackFromDevices`).
 
+The same exception covers the mantelpiece
+(`packages/contracts/src/mantel.ts`): when a television asks for what the
+resident has kept, or she takes one thing down, the edge answers that one
+television with the `mantel` control (`showMantel` in `device-event.mjs`),
+and a picture's card that could not be put away goes back to the
+television that pressed. Those answers carry a short-lived address for
+each picture, which is why they go nowhere else: never across the bus,
+never to another television, never into a row or a log.
+
 ### INV-3 — No Ring media is persisted beyond 24 hours
 Enforced by S3 bucket lifecycle policy in `infra/`, not by application code.
 Do not add an application-level copy, cache or backup of a snapshot or clip.
@@ -363,6 +372,34 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   its sentence, "Start the film", "What Sarah sees", the request to be
   rung, the visit question), never translate into a stored card, and never
   show her half a sentence in each language.
+- **What she keeps is hers, and so is what she does not.** The mantelpiece
+  (`packages/contracts/src/mantel.ts`): someone in the family sends a
+  picture from the family app (`POST /api/photos`); it reaches her
+  television as a card at a quiet moment (INV-5), with two answers that
+  both put it away, "Keep it" and "Thank you". What she keeps she can open
+  from her home screen and take down with one press, and it fills an idle
+  home screen until any key is pressed. The family is told one thing,
+  whichever she pressed: that she has seen it. Kept, not kept and taken
+  down later look exactly the same from outside — the `PHOTO#` row, the
+  card's row, the timeline and the bus are identical for both presses, and
+  a picture's press is written to the timeline without its button — or
+  "Thank you" would say "I did not want it" and taking one down would be a
+  message (the reasoning of INV-10). No family tool, route or narrative
+  reads a `MANTEL#` row, an object's tag or whether an object exists. A
+  picture carries no words of the family's, and nothing but the server's
+  check of the picture itself (moderation, which refuses when it cannot be
+  made) stands between a member's upload and her screen — so it is for
+  members she has allowed, never a neighbour, a few a day. A picture's
+  address is minted for her television on the way out, lives an hour, and
+  is in no stored card, home message, bus event or log; it carries the
+  signing role's key id and session token, never a secret, and grants one
+  object for that hour (INV-1). The pictures have a bucket of their own
+  (`infra/photos.tf`): Ring media's one day (INV-3) is not theirs, and what
+  she lets go of is deleted within a day. **Never** tell the family what
+  was kept, count her mantelpiece for anyone but her own home screen, put
+  an address anywhere it could outlive its hour, let the idle screen delay
+  a card or make anything disappear, or commit a real photograph as a
+  fixture.
 - **A neighbour is asked two things, and shown nothing.** A member whose
   role is `neighbour` (`packages/contracts/src/circle.ts`) joins by an
   invitation that says so and is allowed by the resident's own press like
