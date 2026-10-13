@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { UpdateItemCommand } from '@aws-sdk/client-dynamodb';
-import { FAMILY_TV_PRESSES, FAMILY_TV_WAITING_SCOPE, FAMILY_TV_WAVE_CARD, WATCH_OPENS_BEFORE_MS, familyTvCardId, programmeById, watchWindow, type FamilyTvWaiting, type QueuedCard } from '@wick/contracts';
+import { FAMILY_TV_PRESSES, FAMILY_TV_SERVICE_SESSION_MS, FAMILY_TV_WAITING_SCOPE, FAMILY_TV_WAVE_CARD, WATCH_OPENS_BEFORE_MS, familyTvCardId, programmeById, watchWindow, type FamilyTvWaiting, type QueuedCard } from '@wick/contracts';
 import { reachItem } from '@wick/agent';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { markNoteReplied } from '../../../../edge-device/lambda/note-reply.mjs';
@@ -20,6 +20,7 @@ import {
   PICTURE,
   REACH_ID,
   SARAHS_TV,
+  SERVICE_SINCE,
   STRANGER,
   bearer,
   david,
@@ -43,7 +44,9 @@ const OPENS = SUNDAY_AT_THREE - WATCH_OPENS_BEFORE_MS;
 const SINTEL = programmeById('sintel')!;
 
 /** The token the television's background service holds: the same television, good for one thing. */
-const SERVICE = bearer(token({ ...SARAHS_TV, scope: FAMILY_TV_WAITING_SCOPE }));
+/** What the service's token carries: the one thing it is for, and which hand-off it came from. */
+const SCOPED = { ...SARAHS_TV, scope: FAMILY_TV_WAITING_SCOPE, since: SERVICE_SINCE };
+const SERVICE = bearer(token(SCOPED));
 
 const waitingOf = async (w: World, authorization: string = SERVICE): Promise<FamilyTvWaiting> => {
   const reply = await w.tv.waiting(authorization);
@@ -201,7 +204,7 @@ describe('GET /tv/waiting', () => {
     const w = await world();
     doorIsAsked(w);
 
-    for (const authorization of [undefined, 'Bearer nonsense', bearer(token({ ...SARAHS_TV, scope: FAMILY_TV_WAITING_SCOPE }, { signedWith: STRANGER.privateKey }))]) {
+    for (const authorization of [undefined, 'Bearer nonsense', bearer(token(SCOPED, { signedWith: STRANGER.privateKey }))]) {
       expect(await w.tv.waiting(authorization)).toMatchObject({ status: 401, body: { error: 'invalid_token' } });
       expect(await w.tv.seat(authorization)).toMatchObject({ status: 401, body: { error: 'invalid_token' } });
     }
@@ -248,7 +251,7 @@ describe('the background service’s token (scope: waiting)', () => {
   ])('is refused everywhere when it carries %s', async (_name, scope) => {
     const w = await world();
     doorIsAsked(w);
-    const odd = bearer(token({ ...SARAHS_TV, scope }));
+    const odd = bearer(token({ ...SCOPED, scope }));
 
     for (const reply of [await w.tv.waiting(odd), await w.tv.home(odd), await w.tv.seat(odd), await w.tv.press(odd, { cardId: familyTvCardId('door_look', 'door-abc'), action: 'known' })]) {
       expect(reply).toEqual({ status: 401, body: { error: 'wrong_scope' }, reason: 'wrong_scope' });
@@ -269,15 +272,119 @@ describe('the background service’s token (scope: waiting)', () => {
     expect(await anothers.tv.waiting(SERVICE)).toMatchObject({ status: 401, reason: 'not_this_members' });
 
     const w = await world();
-    const expired = bearer(token({ ...SARAHS_TV, scope: FAMILY_TV_WAITING_SCOPE }, { exp: Math.floor(NOW / 1000) - 1 }));
-    const unsignedAlg = bearer(token({ ...SARAHS_TV, scope: FAMILY_TV_WAITING_SCOPE }, { header: { alg: 'none' }, signature: 'none' }));
-    const residents = bearer(token({ deviceId: 'wick-tv', householdId: 'hh-1', scope: FAMILY_TV_WAITING_SCOPE }));
+    const expired = bearer(token(SCOPED, { exp: Math.floor(NOW / 1000) - 1 }));
+    const unsignedAlg = bearer(token(SCOPED, { header: { alg: 'none' }, signature: 'none' }));
+    const residents = bearer(token({ deviceId: 'wick-tv', householdId: 'hh-1', scope: FAMILY_TV_WAITING_SCOPE, since: SERVICE_SINCE }));
     expect(await w.tv.waiting(expired)).toMatchObject({ status: 401, reason: 'expired' });
     expect(await w.tv.waiting(unsignedAlg)).toMatchObject({ status: 401, reason: 'bad_alg' });
     expect(await w.tv.waiting(residents)).toMatchObject({ status: 403, reason: 'not_family' });
 
     await w.store.setMemberStatus('hh-1', 'u_sarah', 'removed', NOW);
     expect(await w.tv.waiting(SERVICE)).toMatchObject({ status: 403, reason: 'not_allowed' });
+  });
+});
+
+describe('the background service’s token is one bounded session', () => {
+  const DAY = 24 * HOUR;
+  const scoped = (since: unknown, exp?: number) => bearer(token({ ...SARAHS_TV, scope: FAMILY_TV_WAITING_SCOPE, ...(since === undefined ? {} : { since }) }, exp === undefined ? {} : { exp }));
+
+  it('is answered while it comes from the hand-off the television’s row names', async () => {
+    const w = await world();
+    doorIsAsked(w);
+
+    expect((await waitingOf(w, scoped(SERVICE_SINCE))).waiting).toHaveLength(1);
+    // Renewed many times over, it still says the same `since`, and is still that session.
+    w.clock = NOW + 3 * DAY;
+    putDoorCard(w.table, 'door-abc', {}, w.clock + 4 * MIN);
+    putLook(w.table, 'door-abc', w.clock - 30_000);
+    expect((await waitingOf(w, scoped(SERVICE_SINCE))).waiting).toHaveLength(1);
+  });
+
+  it('is over everywhere at once when the service is handed a token afresh: the earlier chain is refused', async () => {
+    const w = await world();
+    doorIsAsked(w);
+    const earlier = scoped(SERVICE_SINCE);
+    expect((await w.tv.waiting(earlier)).status).toBe(200);
+
+    // A new hand-off: the edge writes a new `serviceSince` on the television's row.
+    putFamilyTv(w.table, { serviceSince: NOW - MIN });
+
+    expect(await w.tv.waiting(earlier)).toEqual({ status: 401, body: { error: 'session_over' }, reason: 'session_over' });
+    expect((await waitingOf(w, scoped(NOW - MIN))).waiting).toHaveLength(1);
+    // Decided on the row it reads anyway to know the television is connected: not one read more.
+    expect(householdRequests(w).filter((r) => r.sk === 'FTV#tv-sarah').length).toBe(3);
+    expect(w.storeCalls).toHaveLength(4);
+  });
+
+  it('is refused when the row names no hand-off at all, or a later one than the token’s', async () => {
+    const never = await world({ familyTv: false });
+    putFamilyTv(never.table, { serviceSince: null });
+    const later = await world({ familyTv: false });
+    putFamilyTv(later.table, { serviceSince: SERVICE_SINCE + 1 });
+    const earlierRow = await world({ familyTv: false });
+    putFamilyTv(earlierRow.table, { serviceSince: SERVICE_SINCE - 1 });
+
+    for (const w of [never, later, earlierRow]) {
+      doorIsAsked(w);
+      expect(await w.tv.waiting(SERVICE)).toEqual({ status: 401, body: { error: 'session_over' }, reason: 'session_over' });
+      // Refused before the circle is asked, and before anything of the household's is read.
+      expect(householdRequests(w).map((r) => r.sk)).toEqual(['FTV#tv-sarah']);
+      expect(w.storeCalls).toEqual([]);
+    }
+  });
+
+  it.each([
+    ['no since', undefined],
+    ['a since in words', String(SERVICE_SINCE)],
+    ['a since that is nothing', null],
+    ['a since that is a yes', true],
+    ['a since that is a list', [SERVICE_SINCE]],
+  ])('is refused with %s, and nothing is read for it', async (_name, since) => {
+    const w = await world();
+    doorIsAsked(w);
+
+    expect(await w.tv.waiting(scoped(since))).toEqual({ status: 401, body: { error: 'invalid_token' }, reason: 'malformed_token' });
+    expect(householdRequests(w)).toEqual([]);
+    expect(w.storeCalls).toEqual([]);
+  });
+
+  it('is refused once its session is more than seven days old, even when the row still names it', async () => {
+    const w = await world();
+    doorIsAsked(w);
+    const long = Math.floor((NOW + 30 * DAY) / 1000);
+
+    expect(FAMILY_TV_SERVICE_SESSION_MS).toBe(7 * DAY);
+    w.clock = SERVICE_SINCE + FAMILY_TV_SERVICE_SESSION_MS;
+    expect((await w.tv.waiting(scoped(SERVICE_SINCE, long))).status).toBe(200);
+
+    w.clock = SERVICE_SINCE + FAMILY_TV_SERVICE_SESSION_MS + 1;
+    const from = householdRequests(w).length;
+    expect(await w.tv.waiting(scoped(SERVICE_SINCE, long))).toEqual({ status: 401, body: { error: 'session_over' }, reason: 'session_over' });
+    // Known from the token alone: the television's row is not read to say so.
+    expect(householdRequests(w).slice(from)).toEqual([]);
+  });
+
+  it('leaves the television’s own token as it was: no scope, no since, taken on every route whatever the row says of the service', async () => {
+    for (const serviceSince of [SERVICE_SINCE, NOW, null]) {
+      const w = await world({ familyTv: false });
+      putFamilyTv(w.table, { serviceSince });
+      doorIsAsked(w);
+
+      expect((await w.tv.home(bearer())).status).toBe(200);
+      expect((await w.tv.seat(bearer())).status).toBe(200);
+      expect((await w.tv.press(bearer(), { cardId: familyTvCardId('door_look', 'door-abc'), action: 'known' })).body).toMatchObject({ done: true });
+      w.clock += 30_000;
+      expect((await w.tv.waiting(bearer())).status).toBe(200);
+    }
+  });
+
+  it('does not make a full token of a since: one that carries a since and no scope is taken as the television’s own, and gains nothing by it', async () => {
+    const w = await world();
+    doorIsAsked(w);
+
+    expect((await w.tv.home(bearer(token({ ...SARAHS_TV, since: SERVICE_SINCE })))).status).toBe(200);
+    // And a scoped one is still refused there, whatever its since.
+    expect(await w.tv.home(SERVICE)).toMatchObject({ status: 401, reason: 'wrong_scope' });
   });
 });
 
@@ -316,7 +423,7 @@ describe('nothing to say while the app is on screen', () => {
     const w = await world();
     doorIsAsked(w);
     putFamilyTv(w.table, { deviceId: 'tv-kitchen' });
-    const kitchen = bearer(token({ deviceId: 'tv-kitchen', householdId: 'hh-1', kind: 'family', userId: 'u_sarah', scope: FAMILY_TV_WAITING_SCOPE }));
+    const kitchen = bearer(token({ ...SCOPED, deviceId: 'tv-kitchen' }));
 
     await homeOf(w);
 

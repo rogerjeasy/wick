@@ -35,7 +35,10 @@
  *   3. What the token is for. The television's own token names no scope and
  *      is taken on every route. Its background service's names one
  *      (`scope: 'waiting'`) and is taken on `waiting` alone; any other
- *      scope is taken nowhere.
+ *      scope is taken nowhere. The service's token is also one bounded
+ *      session: it names the hand-off it descends from (`since`), which
+ *      must still be the one on the television's row (`serviceSince`,
+ *      checked on the row step 4 reads) and no more than seven days old.
  *   4. The television's own row, `HH#<household>` / `FTV#<deviceId>`, read
  *      consistently: it exists, it is not revoked, and it was connected by
  *      the member the token names.
@@ -64,6 +67,7 @@ import { GetItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DOOR_ANSWERS,
   FAMILY_TV_PRESSES,
+  FAMILY_TV_SERVICE_SESSION_MS,
   FAMILY_TV_SK_PREFIX,
   FAMILY_TV_WAITING_SCOPE,
   FAMILY_TV_WAVE_CARD,
@@ -203,6 +207,7 @@ export type TvRefusalReason =
   | 'expired'
   | 'not_family'
   | 'wrong_scope'
+  | 'session_over'
   | 'no_row'
   | 'denylisted'
   | 'not_this_members'
@@ -211,7 +216,7 @@ export type TvRefusalReason =
 
 /** What a refused television is sent. `say` is a sentence it can show as it stands. */
 export interface TvRefusal {
-  readonly error: 'invalid_token' | 'token_expired' | 'wrong_scope' | 'television_not_connected' | 'not_a_family_television' | 'not_allowed' | 'bad_card' | 'bad_action';
+  readonly error: 'invalid_token' | 'token_expired' | 'wrong_scope' | 'session_over' | 'television_not_connected' | 'not_a_family_television' | 'not_allowed' | 'bad_card' | 'bad_action';
   readonly say?: string;
 }
 
@@ -364,6 +369,15 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
     if ('scope' in claims && !(forWaiting && claims.scope === FAMILY_TV_WAITING_SCOPE)) return refuse(401, 'wrong_scope', 'wrong_scope');
     const { householdId, deviceId, userId } = claims;
 
+    // The service's token is one bounded session: it says which hand-off it descends from (`since`), and is
+    // good only while that is the one the television's row names and no more than seven days old. A token
+    // that does not say is not one the edge mints. The television's own token has neither claim and no such bound.
+    const since: unknown = 'scope' in claims ? claims.since : undefined;
+    if ('scope' in claims) {
+      if (typeof since !== 'number' || !Number.isFinite(since)) return refuse(401, 'invalid_token', 'malformed_token');
+      if (now() - since > FAMILY_TV_SERVICE_SESSION_MS) return refuse(401, 'session_over', 'session_over');
+    }
+
     // Consistent: a television removed or revoked a moment ago is refused now.
     const row = (await ddb.send(new GetItemCommand({
       TableName: TABLE,
@@ -374,6 +388,8 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
     // Absent is not revoked, as the edge reads it (family-television.mjs); anything there but a plain `false` is.
     if (row.denylisted !== undefined && row.denylisted.BOOL !== false) return refuse(401, 'television_not_connected', 'denylisted');
     if (row.userId?.S !== userId) return refuse(401, 'television_not_connected', 'not_this_members');
+    // On the row already read, so at no cost: a newer hand-off to the service (`serviceSince`) ends every earlier chain at once.
+    if ('scope' in claims && (row.serviceSince?.N === undefined || Number(row.serviceSince.N) !== since)) return refuse(401, 'session_over', 'session_over');
 
     // INV-9: asked again on every call, so the resident's press — and a removal — counts on the very next one.
     const access = await checkAccess(store, householdId, userId);

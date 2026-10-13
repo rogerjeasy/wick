@@ -5,6 +5,7 @@ import {
   FAMILY_TV_OWN_ACTIONS,
   FAMILY_TV_PRESSES,
   FAMILY_TV_SEAT_EVERY_MS,
+  FAMILY_TV_SERVICE_SESSION_MS,
   FAMILY_TV_SK_PREFIX,
   FAMILY_TV_WAITING_EVERY_MS,
   FAMILY_TV_WAITING_SCOPE,
@@ -18,13 +19,19 @@ import {
   parseFamilyTvCardId,
 } from '../index.js';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
-import { FAMILY_KIND, FAMILY_TV_SK_PREFIX as EDGE_PREFIX, PAIRING_PUBLIC_KEY } from '../../../../services/edge-device/lambda/family-television.mjs';
+import { FAMILY_KIND, FAMILY_TV_SK_PREFIX as EDGE_PREFIX, PAIRING_PUBLIC_KEY, SERVICE_SESSION_MAX_MS } from '../../../../services/edge-device/lambda/family-television.mjs';
 
 describe('a family television, named the same at the edge and everywhere else', () => {
   it('has one kind, one row prefix and one place for the key its token is checked with', () => {
     expect(FAMILY_KIND).toBe(FAMILY_TV_KIND);
     expect(EDGE_PREFIX).toBe(FAMILY_TV_SK_PREFIX);
     expect(PAIRING_PUBLIC_KEY).toEqual({ pk: { S: PAIRING_PUBLIC_KEY_ROW.pk }, sk: { S: PAIRING_PUBLIC_KEY_ROW.sk } });
+  });
+
+  it('bounds a background service’s session by the same seven days at the edge, which mints its tokens, and at the Wick server, which takes them', () => {
+    expect(FAMILY_TV_SERVICE_SESSION_MS).toBe(7 * 24 * 60 * 60_000);
+    // The edge's own bound, exported from family-television.mjs as SERVICE_SESSION_MAX_MS.
+    expect(SERVICE_SESSION_MAX_MS).toBe(FAMILY_TV_SERVICE_SESSION_MS);
   });
 });
 

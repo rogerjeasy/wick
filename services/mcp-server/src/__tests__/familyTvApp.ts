@@ -63,6 +63,8 @@ export function connectTelevision(table: MemoryTable, who: Linked, deviceId = 't
     userId: { S: who.userId },
     pairedAt: { N: String(Date.now()) },
     denylisted: { BOOL: false },
+    // The hand-off a background service's token came from, as pair-refresh.mjs notes it on the row.
+    ...(typeof extra.since === 'number' ? { serviceSince: { N: String(extra.since) } } : {}),
   });
   return sign({ deviceId, householdId: who.householdId, kind: 'family', userId: who.userId, ...extra }, PAIRING.privateKey, { expiresInSec: 3600 });
 }

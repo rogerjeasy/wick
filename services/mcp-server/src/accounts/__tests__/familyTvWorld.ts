@@ -92,7 +92,13 @@ export const member = (over: Partial<Membership> = {}): Membership => ({
 });
 
 /** The row pair-claim.mjs writes for a family member's own television. */
-export function putFamilyTv(table: MemoryTable, over: { householdId?: string; deviceId?: string; userId?: string; denylisted?: boolean } = {}): void {
+/** When the television's background service was last handed its narrower token (edge-device pair-refresh.mjs `serviceSince`). */
+export const SERVICE_SINCE = NOW - 2 * HOUR;
+
+export function putFamilyTv(
+  table: MemoryTable,
+  over: { householdId?: string; deviceId?: string; userId?: string; denylisted?: boolean; /** null: no service has ever been started for it. */ serviceSince?: number | null } = {},
+): void {
   const householdId = over.householdId ?? 'hh-1';
   const deviceId = over.deviceId ?? 'tv-sarah';
   table.put({
@@ -103,6 +109,7 @@ export function putFamilyTv(table: MemoryTable, over: { householdId?: string; de
     userId: { S: over.userId ?? 'u_sarah' },
     pairedAt: { N: String(NOW - HOUR) },
     denylisted: { BOOL: over.denylisted ?? false },
+    ...(over.serviceSince === null ? {} : { serviceSince: { N: String(over.serviceSince ?? SERVICE_SINCE) } }),
   });
 }
 

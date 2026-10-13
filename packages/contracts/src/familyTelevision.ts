@@ -30,6 +30,13 @@ export const FAMILY_TV_KIND = 'family';
  * waiting (`GET /tv/waiting`) and for nothing else the Wick server offers.
  */
 export const FAMILY_TV_WAITING_SCOPE = 'waiting';
+/**
+ * How long one hand-off of that narrower token can go on being renewed. The
+ * edge stops renewing a chain this long after it began (edge-device
+ * family-television.mjs SERVICE_SESSION_MAX_MS, held equal by this package's
+ * tests), and the Wick server stops taking its tokens at the same moment.
+ */
+export const FAMILY_TV_SERVICE_SESSION_MS = 7 * 24 * 60 * 60_000;
 export const FAMILY_TV_SK_PREFIX = 'FTV#';
 
 /** Where the pairing key's public half is published for the Wick server (edge-device family-television.mjs). */
@@ -44,6 +51,12 @@ export interface FamilyTelevisionClaims {
   readonly userId: string;
   /** Present on the background service's token only: what that token is good for. */
   readonly scope?: typeof FAMILY_TV_WAITING_SCOPE;
+  /**
+   * With `scope` only: when the hand-off this token descends from was made
+   * (epoch ms). Every renewal keeps it, and it must still be the one the
+   * television's row names (`serviceSince`): a new hand-off ends the old chain.
+   */
+  readonly since?: number;
 }
 
 const text = (value: unknown): value is string => typeof value === 'string' && value.length > 0;

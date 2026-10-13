@@ -269,7 +269,7 @@ describe('the film seat', () => {
 describe('what waits while the app is off the screen', () => {
   it('is told to the background service’s own token, which opens nothing else', async () => {
     const { h, table, sarah, token, homes, patches } = await home();
-    const service = connectTelevision(table, sarah, 'tv-own', { scope: FAMILY_TV_WAITING_SCOPE });
+    const service = connectTelevision(table, sarah, 'tv-own', { scope: FAMILY_TV_WAITING_SCOPE, since: Date.now() - 60_000 });
     askToLook(table, sarah.householdId);
 
     const waiting = await tv(h, service, '/tv/waiting');
@@ -290,6 +290,13 @@ describe('what waits while the app is off the screen', () => {
     }
     expect(patches).toEqual([]);
 
+    // A new hand-off to the service ends the earlier chain at once.
+    table.put({ pk: { S: `HH#${sarah.householdId}` }, sk: { S: 'FTV#tv-own' }, deviceId: { S: 'tv-own' }, householdId: { S: sarah.householdId }, userId: { S: sarah.userId }, denylisted: { BOOL: false }, serviceSince: { N: String(Date.now()) } });
+    const over = await tv(h, service, '/tv/waiting');
+    expect(over.status).toBe(401);
+    expect(over.headers.get('www-authenticate')).toBe('Bearer');
+    expect(await over.json()).toEqual({ error: 'session_over' });
+
     // The television's ordinary token is taken too.
     expect((await json<FamilyTvWaiting>(await tv(h, token, '/tv/waiting'))).waiting).toHaveLength(1);
   });
@@ -300,7 +307,7 @@ describe('what waits while the app is off the screen', () => {
     const sarah = await linkNewOrganiser(started.h);
     await residentAllows(started.h, sarah.householdId, sarah.userId);
     const token = connectTelevision(started.table, sarah);
-    const service = connectTelevision(started.table, sarah, 'tv-own', { scope: FAMILY_TV_WAITING_SCOPE });
+    const service = connectTelevision(started.table, sarah, 'tv-own', { scope: FAMILY_TV_WAITING_SCOPE, since: clock.now - 60_000 });
     askToLook(started.table, sarah.householdId);
 
     expect((await homeOf(started.h, token)).cards).toHaveLength(1);
