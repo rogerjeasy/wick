@@ -792,14 +792,12 @@ describe('GET /tv/home', () => {
       expect(card!.actions).toHaveLength(3);
     });
 
-    it('says “You answered” for ten minutes after this member answered, with nothing to press and no picture', async () => {
+    it('shows nothing more to the member who answered: they were told at the press, and telling them again is a second thing to put away', async () => {
       const w = await world();
       putDoorCard(w.table, 'door-abc', { imageRef: PICTURE });
       putLook(w.table, 'door-abc', NOW - 5 * MIN, { answerKey: { S: 'dont_open' }, answeredAt: { N: String(NOW - 2 * MIN) }, answeredBy: { S: 'u_sarah' }, answeredByName: { S: 'Sarah' } });
 
-      expect((await homeOf(w)).cards).toEqual([
-        { id: 'ftv-door_look-door-abc', kind: 'door_look', headline: `You answered: “${DOOR_ANSWERS.dont_open}”`, actions: [] },
-      ]);
+      expect((await homeOf(w)).cards).toEqual([]);
     });
 
     it('says who answered when it was somebody else', async () => {
@@ -892,13 +890,11 @@ describe('GET /tv/home', () => {
       for (const hidden of ['David', 'Tom', 'u_david', 'u_tom', 'order', 'asked']) expect(body).not.toContain(hidden);
     });
 
-    it('says “You answered” for ten minutes after this member answered', async () => {
+    it('shows nothing more to the member who answered', async () => {
       const w = await world();
       w.table.put(reachItem(reach({ answer: { key: 'soon', by: 'u_sarah', byName: 'Sarah', at: NOW - MIN } })));
 
-      expect((await homeOf(w)).cards).toEqual([
-        { id: `ftv-reach-${REACH_ID}`, kind: 'reach', headline: `You answered: “${REACH_ANSWERS.soon}”`, actions: [] },
-      ]);
+      expect((await homeOf(w)).cards).toEqual([]);
     });
 
     it('says who answered when another person she asked got there first', async () => {
@@ -925,7 +921,8 @@ describe('GET /tv/home', () => {
     both.table.put(reachItem(reach()));
     const settledDoor = await world();
     putDoorCard(settledDoor.table, 'door-abc');
-    putLook(settledDoor.table, 'door-abc', NOW - 5 * MIN, { answerKey: { S: 'known' }, answeredAt: { N: String(NOW - MIN) }, answeredBy: { S: 'u_sarah' }, answeredByName: { S: 'Sarah' } });
+    // Settled by somebody else: a member's own answer is not shown to them again.
+    putLook(settledDoor.table, 'door-abc', NOW - 5 * MIN, { answerKey: { S: 'known' }, answeredAt: { N: String(NOW - MIN) }, answeredBy: { S: 'u_david' }, answeredByName: { S: 'David' } });
     settledDoor.table.put(reachItem(reach()));
 
     expect((await homeOf(both)).cards.map((c) => c.kind)).toEqual(['door_look', 'reach']);
@@ -972,11 +969,11 @@ describe('POST /tv/press', () => {
       expect(lookRow(w.table, 'door-abc')).toMatchObject({ answerKey: { S: 'dont_open' }, answeredAt: { N: String(NOW) }, answeredBy: { S: 'u_sarah' }, answeredByName: { S: 'Sarah' } });
     });
 
-    it('then shows on the television’s own home as answered, with nothing left to press', async () => {
+    it('then leaves the television’s own home clear: the press was answered in a sentence, and that was the telling', async () => {
       const w = await asked();
       await w.tv.press(bearer(), { cardId: doorCard, action: 'known' });
 
-      expect((await homeOf(w)).cards).toEqual([{ id: doorCard, kind: 'door_look', headline: `You answered: “${DOOR_ANSWERS.known}”`, actions: [] }]);
+      expect((await homeOf(w)).cards).toEqual([]);
     });
 
     it('answers once: a second press is told what was said, and her television is left alone', async () => {

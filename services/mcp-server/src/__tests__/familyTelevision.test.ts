@@ -257,7 +257,8 @@ describe('POST /tv/press', () => {
     expect(patches).toEqual([{ householdId: sarah.householdId, patch: { cardId: 'door-abc', notice: `Sarah says: ${DOOR_ANSWERS.dont_open}` } }]);
 
     const home = (await (await tv(h, token, '/tv/home')).json()) as FamilyTvHome;
-    expect(home.cards).toEqual([{ id: 'ftv-door_look-door-abc', kind: 'door_look', headline: `You answered: “${DOOR_ANSWERS.dont_open}”`, actions: [] }]);
+    // The member who answered is not told again on their own screen.
+    expect(home.cards).toEqual([]);
   });
 
   it('answers a request to ring, and the answer reaches the resident’s television as a card', async () => {
