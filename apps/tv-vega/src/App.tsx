@@ -23,7 +23,7 @@ import * as React from 'react';
 import { AppState, Linking } from 'react-native';
 import { BackHandler, StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
-import type { DeviceToken, HomeState, QueuedCard } from '@wick/contracts';
+import type { DeviceToken, QueuedCard } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
 import { LiveView } from './live/LiveView.js';
@@ -84,8 +84,14 @@ export default function App(): React.JSX.Element {
   const [waiting, setWaiting] = React.useState<QueuedCard | null>(null);
   /** The waiting card the resident opened. A ref as well: the tick below reads it between renders. */
   const openedId = React.useRef<string | null>(null);
-  /** What the home screen says beside its cards: her light in the window, and who looked in (home/light.ts). */
-  const [home, setHome] = React.useState<HomeState>({});
+  /**
+   * What the home screen says beside its cards: her light in the window, and
+   * who looked in (home/light.ts). Kept as the words themselves, worked out
+   * on every tick, so they change at the moment the day ends and not only
+   * when the screen is next drawn.
+   */
+  const [light, setLight] = React.useState<string | undefined>(undefined);
+  const [lookedIn, setLookedIn] = React.useState<string | undefined>(undefined);
   /** When she pressed the light on the home screen. The card that answers it is opened as soon as it comes. */
   const lightAskedAt = React.useRef<number | null>(null);
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
@@ -215,7 +221,9 @@ export default function App(): React.JSX.Element {
       if (cancelled) return;
       setCard(shown ?? null);
       setWaiting(breakController.waiting(cards, now) ?? null);
-      setHome(store.readHome());
+      const home = store.readHome();
+      setLight(lightLabel(home, now));
+      setLookedIn(lookedInLine(home, now));
 
       const state = breakController.breakState(now);
       if (state !== lastSentBreakState) {
@@ -344,9 +352,9 @@ export default function App(): React.JSX.Element {
           lastWatchedId={lastWatchedId}
           waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting) : undefined}
           onOpenWaiting={handleOpenWaiting}
-          light={lightLabel(home)}
+          light={light}
           onOpenLight={handleOpenLight}
-          lookedIn={lookedInLine(home, Date.now())}
+          lookedIn={lookedIn}
         />
       )}
       {/* Over the programme, at the bottom, never instead of it. */}

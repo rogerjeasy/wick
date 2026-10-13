@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { LIGHT_ACTIONS as CONTRACT_ACTIONS, LIGHT_CARD_ID as CONTRACT_CARD_ID, LIGHT_SK as CONTRACT_SK, LOOKIN_SK_PREFIX as CONTRACT_LOOKIN, lookedInWords as contractLookedInWords, sameLocalDay as contractSameLocalDay } from '@wick/contracts';
+import { LIGHT_ACTIONS as CONTRACT_ACTIONS, LIGHT_CARD_ID as CONTRACT_CARD_ID, LIGHT_SK as CONTRACT_SK, LOOKIN_SK_PREFIX as CONTRACT_LOOKIN, endOfLocalDay as contractEndOfLocalDay, lookedInWords as contractLookedInWords, readHomeState, sameLocalDay as contractSameLocalDay } from '@wick/contracts';
 import {
   LIGHT_ACTIONS,
   LIGHT_CARD_ID,
   LIGHT_SK,
   LOOKIN_SK_PREFIX,
+  buildHomeChangedEntry,
   buildLightCard,
+  endOfLocalDay,
   homeRange,
   homeState,
   lightPress,
@@ -65,8 +67,15 @@ describe('homeState — what her home screen is told', () => {
   it('says it is out for the day she put it out, and on again the next', () => {
     const items = [meta(), member('u1', 'Sarah'), light(NOW - HOUR)];
 
-    expect(state(items)).toEqual({ light: 'out' });
+    // Out, and until when: a television left on overnight must not go on saying so tomorrow.
+    expect(state(items)).toEqual({ light: 'out', lightOutUntil: Date.UTC(2026, 9, 12, 23, 0) });
     expect(state(items, NOW + 24 * HOUR)).toEqual({ light: 'on' });
+  });
+
+  it('means the same end of the day as the contract, also when the clocks change', () => {
+    for (const at of [NOW, Date.UTC(2026, 9, 12, 22, 59), Date.UTC(2026, 9, 24, 23, 30), Date.UTC(2026, 9, 25, 12, 0), Date.UTC(2026, 2, 29, 0, 30)]) {
+      expect(endOfLocalDay(at, LONDON)).toBe(contractEndOfLocalDay(at, LONDON));
+    }
   });
 
   it('has no light at all when nobody can see one: nobody allowed yet, or the week kept private', () => {
@@ -78,7 +87,11 @@ describe('homeState — what her home screen is told', () => {
   it('says who looked in today, the latest of them, by first name', () => {
     const items = [meta(), member('u1', 'Sarah Hughes'), member('u2', 'Tom'), look('u1', 'Sarah Hughes', NOW - 2 * HOUR), look('u2', 'Tom', NOW - 26 * HOUR)];
 
-    expect(state(items)).toEqual({ light: 'on', lookedIn: { name: 'Sarah', at: NOW - 2 * HOUR, line: 'Sarah looked in this morning.' } });
+    // The sentence, and until when it holds: midnight where the house is, whatever the television's own clock says.
+    expect(state(items)).toEqual({
+      light: 'on',
+      lookedIn: { name: 'Sarah', at: NOW - 2 * HOUR, line: 'Sarah looked in this morning.', until: Date.UTC(2026, 9, 12, 23, 0) },
+    });
   });
 
   it('says nothing of a look from somebody she has since removed', () => {
@@ -89,6 +102,20 @@ describe('homeState — what her home screen is told', () => {
     const doorLook = { pk: { S: 'HH#margaret' }, sk: { S: 'LOOK#door-1' }, name: { S: 'x' }, lookedAt: { N: String(NOW) } };
 
     expect(state([meta(), member('u1', 'Sarah'), doorLook])).toEqual({ light: 'on' });
+  });
+});
+
+describe('buildHomeChangedEntry — telling the home’s other televisions', () => {
+  const home = { light: 'out', lightOutUntil: Date.UTC(2026, 9, 12, 23, 0), lookedIn: { name: 'Sarah', at: NOW - HOUR, line: 'Sarah looked in this morning.' } };
+  const entry = buildHomeChangedEntry({ busName: 'wick-bus', householdId: 'margaret', deviceId: 'wick-tv', home, at: NOW });
+
+  it('says which home, which television was pressed, and how the home screen now stands', () => {
+    expect(entry).toMatchObject({ EventBusName: 'wick-bus', Source: 'wick.device', DetailType: 'home.changed' });
+    expect(JSON.parse(entry.Detail)).toEqual({ householdId: 'margaret', deviceId: 'wick-tv', home, at: NOW });
+  });
+
+  it('carries a state the agent plane can read as it stands', () => {
+    expect(readHomeState(JSON.parse(entry.Detail).home)).toEqual(home);
   });
 });
 

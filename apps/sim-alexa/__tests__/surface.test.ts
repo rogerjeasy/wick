@@ -367,6 +367,17 @@ describe('presentCircle', () => {
     expect(presentCircle({ ...circle, televisions: [] }, me('organiser', 'allowed')).card.television).toBe('No television is connected yet.');
   });
 
+  it('says how many of several televisions are on, and never that all are when some are off', () => {
+    const tvs = (...on: boolean[]) => ({ ...circle, televisions: on.map((connected, i) => ({ deviceId: `tv-${i}`, pairedAt: i, connected })) });
+    const line = (...on: boolean[]) => presentCircle(tvs(...on), me('organiser', 'allowed')).card.television;
+
+    expect(line(true, false, false)).toBe('Three televisions connected. One is on now.');
+    expect(line(true, true, false, false)).toBe('Four televisions connected. Two are on now.');
+    expect(line(true, true)).toBe('Two televisions connected, both on now.');
+    expect(line(true, true, true)).toBe('Three televisions connected, all on now.');
+    expect(line(false, false)).toBe('Two televisions connected. They are off, or showing something else.');
+  });
+
   it('offers inviting, connecting and removing to the organiser only', () => {
     expect(presentCircle(circle, me('organiser', 'allowed')).card.organiser).toBe(true);
     const family = presentCircle(circle, me('family', 'allowed'));
@@ -1101,11 +1112,38 @@ describe('watching a film together', () => {
   });
 
   describe('how it stands', () => {
-    it('says an invitation is still waiting, with no card: there is nothing to do', () => {
+    it('says an invitation is still waiting, and offers the one thing that can be done: taking it back', () => {
       const r = presentResult('get_watch_together', view(), {}, at);
 
       expect(r.say).toBe('The invitation to watch Sintel on Sunday 18 October at 3 pm is on the television. It has not been answered yet.');
+      expect(r.card).toEqual({
+        kind: 'invitation',
+        title: 'Sintel',
+        meta: 'Sunday 18 October at 3 pm',
+        sessionId: 's-1',
+        footnote: 'It stays on the television until it is answered. If your plans change, you can take it back.',
+      });
+    });
+
+    it('says an invitation was taken back, and that another can be sent', () => {
+      const r = presentResult('get_watch_together', view({ state: 'withdrawn' }), {}, at);
+
+      expect(r.say).toBe('You took back the invitation to watch Sintel on Sunday 18 October at 3 pm. You can ask again whenever you like.');
       expect(r.card).toBeNull();
+    });
+
+    it('says so when an invitation has just been taken back', () => {
+      const taken = JSON.stringify({ withdrawn: true, sessionId: 's-1', film: 'Sintel', when: 'Sunday 18 October at 3 pm' });
+
+      expect(presentResult('withdraw_watch_invitation', taken, {}, at)).toEqual({
+        say: 'Taken back. The invitation to watch Sintel on Sunday 18 October at 3 pm is no longer on the television.',
+        card: null,
+        tone: 'answer',
+      });
+      // Not taken back — she had already answered: said as the server said it.
+      expect(presentResult('withdraw_watch_invitation', 'Margaret has already said yes to Sintel on Sunday 18 October at 3 pm, so it cannot be taken back.', {}, at).say).toBe(
+        'Margaret has already said yes to Sintel on Sunday 18 October at 3 pm, so it cannot be taken back.',
+      );
     });
 
     it('says yes, and when to sit down, before it is time', () => {
@@ -1186,11 +1224,25 @@ describe('watching a film together', () => {
       expect(confirmWrite('join_watch_together', { sessionId: 's-1' }).title).toBe('Sit down to watch now?');
     });
 
+    it('confirms taking an invitation back as what it is', () => {
+      const asked = confirmWrite('withdraw_watch_invitation', { sessionId: 's-1' });
+
+      expect(asked.title).toBe('Take the invitation back?');
+      expect(asked.confirmLabel).toBe('Take it back');
+      expect(asked.footnote).toBe('It leaves the television. You can ask again whenever you like.');
+    });
+
     it('names each step in plain words', () => {
       expect(describeCall('invite_to_watch')).toBe('Asked to watch a film together');
       expect(describeCall('get_watch_together')).toBe('Looked at the film');
       expect(describeCall('join_watch_together')).toBe('Sat down to watch');
       expect(describeCall('answer_watch_together')).toBe('Answered on the television');
+      expect(describeCall('withdraw_watch_invitation')).toBe('Took the invitation back');
+    });
+
+    it('sends "cancel the film" to what stands, where taking it back is offered', () => {
+      expect(routeUtterance('Cancel the film invitation')).toEqual({ kind: 'tool', tool: 'get_watch_together', args: {} });
+      expect(routeUtterance('I want to take back the invitation to watch the film')).toEqual({ kind: 'tool', tool: 'get_watch_together', args: {} });
     });
   });
 

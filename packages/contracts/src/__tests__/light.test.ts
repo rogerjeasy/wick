@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIGHT_ACTIONS, LIGHT_CARD_ID, LIGHT_SK, LOOKIN_SK_PREFIX, isLit, lookedInToday, lookedInWords, sameLocalDay } from '../light.js';
+import { LIGHT_ACTIONS, LIGHT_CARD_ID, LIGHT_SK, LOOKIN_SK_PREFIX, endOfLocalDay, isLit, lookedInToday, lookedInWords, readHomeState, sameLocalDay } from '../light.js';
 
 const LONDON = 'Europe/London';
 /** Monday 12 October 2026, 08:30 in London (BST). */
@@ -13,6 +13,55 @@ describe('sameLocalDay — a day as the household means it', () => {
 
     expect(sameLocalDay(justAfterMidnight, lateEvening, LONDON)).toBe(true);
     expect(sameLocalDay(justAfterMidnight - 10 * 60_000, lateEvening, LONDON)).toBe(false);
+  });
+});
+
+describe('endOfLocalDay — when today is over, where the house is', () => {
+  it('is the first moment of the next day there', () => {
+    // 08:30 BST on Monday the 12th: the day ends at midnight BST, 23:00 UTC.
+    const midnight = Date.UTC(2026, 9, 12, 23, 0);
+
+    expect(endOfLocalDay(MORNING, LONDON)).toBe(midnight);
+    expect(sameLocalDay(midnight - 1, MORNING, LONDON)).toBe(true);
+    expect(sameLocalDay(midnight, MORNING, LONDON)).toBe(false);
+    // Asked a minute before midnight, it is that same midnight; asked at it, the next one.
+    expect(endOfLocalDay(midnight - 60_000, LONDON)).toBe(midnight);
+    expect(endOfLocalDay(midnight, LONDON)).toBe(midnight + 24 * HOUR);
+  });
+
+  it('is right on the days the clocks change, which are not twenty-four hours long', () => {
+    // Sunday 25 October 2026: the clocks go back, and the day is twenty-five hours.
+    expect(endOfLocalDay(Date.UTC(2026, 9, 24, 23, 30), LONDON)).toBe(Date.UTC(2026, 9, 26, 0, 0));
+    expect(endOfLocalDay(Date.UTC(2026, 9, 25, 12, 0), LONDON)).toBe(Date.UTC(2026, 9, 26, 0, 0));
+    // Sunday 29 March 2026: they go forward, and the day is twenty-three.
+    expect(endOfLocalDay(Date.UTC(2026, 2, 29, 0, 30), LONDON)).toBe(Date.UTC(2026, 2, 29, 23, 0));
+  });
+
+  it('goes by the household’s clock', () => {
+    // 08:30 in London is 03:30 in New York, where the day has twenty and a half hours to run.
+    expect(endOfLocalDay(MORNING, 'America/New_York')).toBe(Date.UTC(2026, 9, 13, 4, 0));
+  });
+});
+
+describe('readHomeState — a home screen’s state that has crossed the bus', () => {
+  const look = { name: 'Sarah', at: MORNING, line: 'Sarah looked in this morning.' };
+
+  it('keeps what is well formed', () => {
+    expect(readHomeState({ light: 'on' })).toEqual({ light: 'on' });
+    expect(readHomeState({ light: 'out', lightOutUntil: MORNING + HOUR, lookedIn: look })).toEqual({ light: 'out', lightOutUntil: MORNING + HOUR, lookedIn: look });
+    // Nothing to say is still a state: nobody can see a light any more.
+    expect(readHomeState({})).toEqual({});
+  });
+
+  it('drops what is not, and anything it does not know', () => {
+    expect(readHomeState({ light: 'bright', lightOutUntil: 'soon', lookedIn: { name: 'Sarah' }, programme: 'sintel' })).toEqual({});
+    expect(readHomeState({ light: 'on', lookedIn: { ...look, watching: 'sintel' } })).toEqual({ light: 'on', lookedIn: look });
+  });
+
+  it('is nothing at all when it is not a state', () => {
+    expect(readHomeState(undefined)).toBeUndefined();
+    expect(readHomeState('on')).toBeUndefined();
+    expect(readHomeState(null)).toBeUndefined();
   });
 });
 

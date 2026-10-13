@@ -35,12 +35,25 @@ export interface HomeState {
   /** Her light, as the family would see it. Absent when nobody can see one. */
   readonly light?: 'on' | 'out';
   /**
+   * With `light: 'out'`: the moment it stops being out — the end of the day
+   * where the house is (endOfLocalDay). A television left on overnight goes
+   * by this and not by its own calendar, so it never goes on saying "Light
+   * out" into a day the family can see lit.
+   */
+  readonly lightOutUntil?: number;
+  /**
    * The latest person to ask after her today, by the first name she knows
    * them by — and the sentence that says so, written where the household's
    * time zone is known (lookedInWords), so a television whose own clock is
    * set elsewhere still says "this morning" at the right time.
    */
-  readonly lookedIn?: { readonly name: string; readonly at: number; readonly line: string };
+  readonly lookedIn?: {
+    readonly name: string;
+    readonly at: number;
+    readonly line: string;
+    /** When the look stops being today's: the end of that day where the house is. The television shows the line until then. */
+    readonly until?: number;
+  };
 }
 
 const dayIn = (at: number, timeZone: string): string =>
@@ -49,6 +62,46 @@ const dayIn = (at: number, timeZone: string): string =>
 /** Whether two moments fall on the same calendar day where the house is. */
 export function sameLocalDay(a: number, b: number, timeZone: string): boolean {
   return dayIn(a, timeZone) === dayIn(b, timeZone);
+}
+
+/**
+ * The first moment of the next day where the house is: when "today" is
+ * over. Found by looking, not by adding twenty-four hours — the days the
+ * clocks change are twenty-three and twenty-five hours long.
+ */
+export function endOfLocalDay(at: number, timeZone: string): number {
+  const today = dayIn(at, timeZone);
+  // Still today at `still`; already another day at `past` (no day is longer than twenty-five hours).
+  let still = at;
+  let past = at + 26 * 3_600_000;
+  while (past - still > 1) {
+    const middle = still + Math.floor((past - still) / 2);
+    if (dayIn(middle, timeZone) === today) still = middle;
+    else past = middle;
+  }
+  return past;
+}
+
+const isTime = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+/**
+ * A home screen's state from something that is not this code — the bus
+ * between the edge and the agent plane. What is well formed is kept, part
+ * by part; anything else, and anything unknown, is dropped. Undefined when
+ * it is not a state at all.
+ */
+export function readHomeState(value: unknown): HomeState | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { light, lightOutUntil, lookedIn } = value as Record<string, unknown>;
+  const look = typeof lookedIn === 'object' && lookedIn !== null ? (lookedIn as Record<string, unknown>) : undefined;
+  const wellFormedLook = look !== undefined && typeof look.name === 'string' && isTime(look.at) && typeof look.line === 'string';
+  return {
+    ...(light === 'on' || light === 'out' ? { light } : {}),
+    ...(light === 'out' && isTime(lightOutUntil) ? { lightOutUntil } : {}),
+    ...(wellFormedLook
+      ? { lookedIn: { name: look.name as string, at: look.at as number, line: look.line as string, ...(isTime(look.until) ? { until: look.until } : {}) } }
+      : {}),
+  };
 }
 
 /**

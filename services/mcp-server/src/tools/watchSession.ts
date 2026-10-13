@@ -4,8 +4,8 @@
  * is told about it.
  *
  * A session is one row, `HH#<household>` / `WATCH#<sessionId>`. These tools
- * write the invitation, the family member sitting down, and their answer at
- * the end. Everything the resident does — yes or no, "Start the film", where
+ * write the invitation, its being taken back before she has answered, the
+ * family member sitting down, and their answer at the end. Everything the resident does — yes or no, "Start the film", where
  * the film is, her own answer — is written by the television's edge
  * (services/edge-device/lambda/watch-together.mjs), under conditions that
  * keep the rule in watch.ts whatever a television sends.
@@ -63,7 +63,12 @@ export interface WatchSession {
   /** Their first name, as the resident reads it on every card. */
   readonly invitedByName: string;
   readonly createdAt: number;
-  readonly status: 'invited' | 'accepted' | 'declined';
+  /**
+   * `withdrawn`: taken back by the person who sent it, before she answered
+   * (withdraw_watch_invitation.ts). The edge answers only an invitation
+   * still `invited`, so one taken back cannot be accepted afterwards.
+   */
+  readonly status: 'invited' | 'accepted' | 'declined' | 'withdrawn';
   readonly joinedAt?: number;
   readonly passedAt?: number;
   readonly startedAt?: number;
@@ -118,7 +123,7 @@ export function readSession(item: Item | undefined): WatchSession | undefined {
   const status = item?.status?.S;
   const startsAt = num(item?.startsAt);
   if (!item?.sessionId?.S || !item.programmeId?.S || !item.invitedBy?.S || startsAt === undefined) return undefined;
-  if (status !== 'invited' && status !== 'accepted' && status !== 'declined') return undefined;
+  if (status !== 'invited' && status !== 'accepted' && status !== 'declined' && status !== 'withdrawn') return undefined;
 
   const pbState = item.pbState?.S as PlaybackStateName | undefined;
   const pbPositionMs = num(item.pbPositionMs);
@@ -168,6 +173,8 @@ export type WatchState =
   /** On the television, not yet answered. */
   | 'invited'
   | 'declined'
+  /** Taken back by the person who sent it, before she answered. Nothing is left on the television. */
+  | 'withdrawn'
   /** She said yes; nobody has sat down yet. */
   | 'accepted'
   /** The family member has sat down; the television says so and waits for "Start the film". */
@@ -231,6 +238,7 @@ export function describeWatch(session: WatchSession, now: number, timeZone: stri
   };
 
   if (session.status === 'declined') return { ...base, state: 'declined' };
+  if (session.status === 'withdrawn') return { ...base, state: 'withdrawn' };
   if (session.askedAt !== undefined) {
     return {
       ...base,
@@ -272,6 +280,7 @@ export function whenInWords(at: number, timeZone: string): string {
 export const firstName = (name: string): string => name.trim().split(/\s+/)[0] || name;
 
 export const NOTHING_ASKED = (residentName: string): string => `You haven't asked ${residentName} to watch anything.`;
+export const WITHDRAWN_TEXT = 'You took that invitation back. You can ask again whenever you like.';
 
 /**
  * One of a session's cards for the television. DEFERRED, like every card

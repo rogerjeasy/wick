@@ -8,7 +8,7 @@
  * Do not let these collapse into one agent. The separation is the architecture,
  * and it is also the demo.
  */
-export { sendHomeToDevices, sendPatchToDevice, sendToDevice } from './egress.js';
+export { sendHomeToDevices, sendPatchToDevice, sendToDevice, takeBackFromDevices } from './egress.js';
 export { privateNarrative, summariseWeek } from './agents/narrator/weekFacts.js';
 export { visibleDeltas } from './agents/narrator/comparisons.js';
 export { isoWeekRange } from './agents/narrator/isoWeek.js';

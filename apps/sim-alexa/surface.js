@@ -154,7 +154,9 @@ export function routeUtterance(text, now = Date.now()) {
   // Watching a film together. Asking for one is the invitation; asking about one is the tool.
   // After "tell Mum …": a note that mentions a film is still a note.
   if (aboutAFilm && !NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said))) {
-    const asksFor = /\b(ask|invite|like to|want to|can we|could we|shall we|let(?:'|’)?s)\b/.test(t) && !/\b(did|has|have|say|said|time)\b/.test(t);
+    // Taking one back is asked of what stands: the invitation is shown, with the button that withdraws it.
+    const takesBack = /\b(cancel|withdraw|call off)\b|\b(take|taking)\b.*\bback\b/.test(t);
+    const asksFor = !takesBack && /\b(ask|invite|like to|want to|can we|could we|shall we|let(?:'|’)?s)\b/.test(t) && !/\b(did|has|have|say|said|time)\b/.test(t);
     return asksFor ? { kind: 'invite' } : tool('get_watch_together');
   }
 
@@ -688,7 +690,21 @@ function presentWatch(view) {
   const offered = Array.isArray(view.answers) ? view.answers : null;
   const quiet = (say) => ({ say, card: null, tone: 'answer' });
 
-  if (view.state === 'invited') return quiet(`The invitation to watch ${film} on ${when} is on the television. It has not been answered yet.`);
+  // Still waiting: nothing to do but wait — or take it back (withdraw_watch_invitation).
+  if (view.state === 'invited') {
+    return {
+      say: `The invitation to watch ${film} on ${when} is on the television. It has not been answered yet.`,
+      tone: 'answer',
+      card: {
+        kind: 'invitation',
+        title: film,
+        meta: when,
+        sessionId: view.sessionId,
+        footnote: 'It stays on the television until it is answered. If your plans change, you can take it back.',
+      },
+    };
+  }
+  if (view.state === 'withdrawn') return quiet(`You took back the invitation to watch ${film} on ${when}. You can ask again whenever you like.`);
   if (view.state === 'declined') return quiet(`The answer to ${film} on ${when} was: not this time.`);
   if (view.state === 'passed') return quiet('When it came to it, the answer was: not now.');
   if (view.state === 'over') return quiet(`The time for ${film} has passed.`);
@@ -922,6 +938,9 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if ((toolName === 'get_watch_together' || toolName === 'join_watch_together') && typeof parsed.sessionId === 'string' && typeof parsed.state === 'string') {
     return presentWatch(parsed);
   }
+  if (toolName === 'withdraw_watch_invitation' && parsed.withdrawn === true) {
+    return { say: `Taken back. The invitation to watch ${parsed.film ?? 'the film'} on ${parsed.when ?? ''} is no longer on the television.`, card: null, tone: 'answer' };
+  }
   if (toolName === 'answer_watch_together' && parsed.shown === true) {
     return { say: `It is on the television now: “${parsed.by} says: ${parsed.text}”`, card: null, tone: 'answer' };
   }
@@ -982,6 +1001,7 @@ export function describeCall(toolName, args = {}) {
     case 'get_watch_together': return 'Looked at the film';
     case 'join_watch_together': return 'Sat down to watch';
     case 'answer_watch_together': return 'Answered on the television';
+    case 'withdraw_watch_invitation': return 'Took the invitation back';
     default: return 'Asked Wick';
   }
 }
@@ -993,6 +1013,7 @@ const DECLINED_TRACE = {
   invite_to_watch: 'Did not ask',
   join_watch_together: 'Did not sit down',
   answer_watch_together: 'Did not answer',
+  withdraw_watch_invitation: 'Did not take it back',
 };
 
 /** "Saturday 17 October, 15:00" from the date and time a visit was asked for — said in full, so a wrong day is seen before it is sent. */
@@ -1099,6 +1120,14 @@ export function confirmWrite(toolName, args = {}, title) {
       footnote: 'It appears on the television under your name.',
     };
   }
+  if (toolName === 'withdraw_watch_invitation') {
+    return {
+      title: 'Take the invitation back?',
+      fields: otherFields(args, ['sessionId']),
+      confirmLabel: 'Take it back',
+      footnote: 'It leaves the television. You can ask again whenever you like.',
+    };
+  }
   return {
     title: `${title || toolName}?`,
     fields: otherFields(args, []),
@@ -1186,8 +1215,14 @@ function memberLine(member, resident) {
 
 function televisionLine(televisions) {
   if (televisions.length === 0) return 'No television is connected yet.';
-  const n = `${count(televisions.length)} ${televisions.length === 1 ? 'television' : 'televisions'} connected`;
-  return televisions.some((tv) => tv.connected) ? `${n}, and on now.` : `${n}. It is off, or showing something else.`;
+  const total = televisions.length;
+  const on = televisions.filter((tv) => tv.connected).length;
+  const n = `${count(total)} ${total === 1 ? 'television' : 'televisions'} connected`;
+  if (total === 1) return on === 1 ? `${n}, and on now.` : `${n}. It is off, or showing something else.`;
+  // Several: how many are on, never "on now" for all of them when some are off.
+  if (on === 0) return `${n}. They are off, or showing something else.`;
+  if (on === total) return `${n}, ${total === 2 ? 'both' : 'all'} on now.`;
+  return `${n}. ${count(on)} ${on === 1 ? 'is' : 'are'} on now.`;
 }
 
 /**

@@ -385,6 +385,41 @@ export async function withdrawFromDevices(cardId: string, householdId: string, e
 }
 
 /**
+ * UpdateItem input finishing a stored card nobody pressed: its sender took
+ * it back. The same stamp a press leaves (edge-device card-acted.mjs
+ * markCardActed), so the edge keeps one rule for both — a television that
+ * connects later is not handed the card, and one still holding it is told
+ * to drop it (reconcile's finishedAmong). Pure.
+ */
+export function cardTakenBack(input: { readonly table: string; readonly householdId: string; readonly cardId: string; readonly at: number }) {
+  return {
+    TableName: input.table,
+    Key: { pk: { S: `HH#${input.householdId}` }, sk: { S: `CARD#${input.cardId}` } },
+    UpdateExpression: 'SET actedAt = if_not_exists(actedAt, :at)',
+    // Never conjure a card that was not sent.
+    ConditionExpression: 'attribute_exists(pk)',
+    ExpressionAttributeValues: { ':at': { N: String(input.at) } },
+  };
+}
+
+/**
+ * Takes a card back from the household's televisions altogether: one its
+ * sender has withdrawn before the resident answered it (an invitation to
+ * watch a film, mcp-server withdraw_watch_invitation.ts). The stored card is
+ * finished first, so a television that is off never shows it; then every
+ * television that has it up puts it away.
+ */
+export async function takeBackFromDevices(cardId: string, householdId: string, at: number = Date.now()): Promise<void> {
+  try {
+    await ddb.send(new UpdateItemCommand(cardTakenBack({ table: TABLE, householdId, cardId, at })));
+  } catch (err) {
+    // No such card stored: there is nothing to finish, and the push below is harmless.
+    if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
+  }
+  await withdrawFromDevices(cardId, householdId);
+}
+
+/**
  * Tells the household's televisions something for the home screen to say
  * beside its cards (packages/contracts light.ts): today, that somebody in
  * the family looked in. Resident-bound, and about the family's own act —
@@ -393,8 +428,17 @@ export async function withdrawFromDevices(cardId: string, householdId: string, e
  * Only the live push. A television that is off is told when it next asks
  * for what it is owed (the edge's reconcile works the same line out).
  */
-export async function sendHomeToDevices(householdId: string, home: HomeState): Promise<void> {
-  await pushToDevices(householdId, { kind: 'control', control: { t: 'home', home } });
+export async function sendHomeToDevices(
+  householdId: string,
+  home: HomeState,
+  options: {
+    /** This is all of it: what is not given is no longer so (a light nobody can see any more). */
+    readonly whole?: boolean;
+    /** The television that already knows — the one she pressed — when there is one. */
+    readonly exceptDeviceId?: string | undefined;
+  } = {},
+): Promise<void> {
+  await pushToDevices(householdId, { kind: 'control', control: { t: 'home', home, ...(options.whole ? { whole: true } : {}) } }, options.exceptDeviceId);
 }
 
 // ---------------------------------------------------------------------------

@@ -196,6 +196,8 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
     table.put({ ...key, data: { S: JSON.stringify({ ...queued, card: { ...queued.card, ...patch, cardId: undefined } }) } });
     console.log(`television: door card ${patch.cardId} now says "${patch.notice ?? ''}"`);
   },
+  // As egress.ts takes a card back: the television puts it away.
+  withdrawCard: async (householdId, cardId) => void console.log(`television (${householdId}): card ${cardId} taken back`),
   // As egress.ts tells the home screen: who looked in.
   sendHome: async (householdId, home) => void console.log(`television home screen (${householdId}):`, JSON.stringify(home)),
   // A real table's worth of answers: the demo home's history is written here and read back by the tools.

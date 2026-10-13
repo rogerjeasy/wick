@@ -229,3 +229,47 @@ resource "aws_lambda_permission" "card_retired" {
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.card_retired.arn
 }
+
+# ---------------------------------------------------------------------------
+# A home screen changed on one television is told to the others.
+#
+#   TV press that puts the light out, lights it again, or changes what is shared
+#     -> edge light.mjs -> EventBridge (wick.device / home.changed)
+#     -> agent-card-action -> egress.ts sendHomeToDevices -> every other TV in the home
+#
+# Without it a second television goes on saying "Light out" after the light
+# was lit again in another room. One that is off at the time is told when it
+# next connects (edge device-event.mjs reconcile).
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudwatch_event_rule" "home_changed" {
+  name           = "${local.prefix}-home-changed"
+  description    = "The home screen changed on one television: the agent plane tells the home's others"
+  event_bus_name = aws_cloudwatch_event_bus.wick.name
+
+  event_pattern = jsonencode({
+    source        = ["wick.device"]
+    "detail-type" = ["home.changed"]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "home_changed" {
+  rule           = aws_cloudwatch_event_rule.home_changed.name
+  event_bus_name = aws_cloudwatch_event_bus.wick.name
+  arn            = aws_lambda_function.agent_card_action.arn
+
+  # Not replayed late: a later change would be overwritten by an older one,
+  # and a television that missed it is put right when it next connects.
+  retry_policy {
+    maximum_retry_attempts       = 0
+    maximum_event_age_in_seconds = 60
+  }
+}
+
+resource "aws_lambda_permission" "home_changed" {
+  statement_id  = "AllowExecutionFromHomeChanged"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.agent_card_action.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.home_changed.arn
+}

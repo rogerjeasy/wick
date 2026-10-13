@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { DoorCard, MessageCard, QueuedCard } from '@wick/contracts';
-import { applyCardPatch, cardItem, liveDeviceConnections, mqttPublication } from '../egress.js';
+import { applyCardPatch, cardItem, cardTakenBack, liveDeviceConnections, mqttPublication } from '../egress.js';
+// The edge's own rule for what a reconnecting television is handed, and told to drop.
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { finishedAmong, isReplayable } from '../../../edge-device/lambda/card-acted.mjs';
 
 const door: DoorCard = {
   type: 'DOOR',
@@ -203,6 +206,27 @@ describe('cardItem — the CARD# queue item', () => {
     const item = cardItem(queued, { ringDeviceId: 'ava1.ring.device.ABNJQ' });
     expect(item.ringDeviceId).toEqual({ S: 'ava1.ring.device.ABNJQ' });
     expect(item.data!.S).not.toContain('ava1.ring.device.ABNJQ');
+  });
+});
+
+describe('cardTakenBack — a card its sender took back', () => {
+  const update = cardTakenBack({ table: 'wick', householdId: 'hh-1', cardId: 'watch-invite-s1', at: 1234 });
+
+  it('finishes the stored card, as a press on it would: the edge keeps one rule for both', () => {
+    expect(update.Key).toEqual({ pk: { S: 'HH#hh-1' }, sk: { S: 'CARD#watch-invite-s1' } });
+    // What the row looks like once the update has run.
+    const row = { sk: { S: 'CARD#watch-invite-s1' }, data: { S: JSON.stringify({ id: 'watch-invite-s1', urgency: 'DEFERRED' }) }, actedAt: update.ExpressionAttributeValues[':at'] };
+
+    expect(update.UpdateExpression).toBe('SET actedAt = if_not_exists(actedAt, :at)');
+    expect(row.actedAt).toEqual({ N: '1234' });
+    // A television that connects later is not handed it again…
+    expect(isReplayable(row, 2000)).toBe(false);
+    // …and one that kept its own copy is told to drop it.
+    expect(finishedAmong([row], ['watch-invite-s1', 'note-1'])).toEqual(['watch-invite-s1']);
+  });
+
+  it('never conjures a card that was not sent', () => {
+    expect(update.ConditionExpression).toBe('attribute_exists(pk)');
   });
 });
 

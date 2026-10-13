@@ -198,11 +198,22 @@ function stripUndefined(patch) {
 /** What the home screen is told beside its cards: her light, and who looked in (packages/contracts light.ts). */
 let home = {};
 
-/** "Sarah looked in this morning." — the server's sentence, while the look is still today's, as on the television (home/light.ts lookedInLine). */
-function lookedInLine(now = new Date()) {
+/**
+ * "Sarah looked in this morning." — the server's sentence, while the look is
+ * still today's: until the moment the server gives, or by this browser's own
+ * calendar when it gives none, as on the television (home/light.ts lookedInLine).
+ */
+function lookedInLine(now = Date.now()) {
   const look = home.lookedIn;
-  if (!look || new Date(look.at).toDateString() !== now.toDateString()) return null;
-  return look.line;
+  if (!look) return null;
+  const todays = typeof look.until === 'number' ? now < look.until : new Date(look.at).toDateString() === new Date(now).toDateString();
+  return todays ? look.line : null;
+}
+
+/** "Light on" or "Light out" — out only for the day she put it out, which the server says the end of (home/light.ts lightLabel). */
+function lightLabel(now = Date.now()) {
+  if (home.light === 'out' && !(typeof home.lightOutUntil === 'number' && now >= home.lightOutUntil)) return 'Light out';
+  return 'Light on';
 }
 
 function renderEmpty() {
@@ -213,7 +224,7 @@ function renderEmpty() {
   if (looked) wrapper.appendChild(el('div', 'home-line', looked));
   if (home.light) {
     // The one button beside the films: OK opens the card that says who can see her light (HomeScreen.tsx).
-    const light = el('button', 'pill', home.light === 'on' ? 'Light on' : 'Light out');
+    const light = el('button', 'pill', lightLabel());
     light.type = 'button';
     light.addEventListener('click', () => send({ t: 'light', at: Date.now() }));
     wrapper.appendChild(light);

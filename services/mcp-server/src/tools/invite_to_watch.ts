@@ -63,7 +63,7 @@ export function registerInviteToWatch(
         'The invitation appears on the resident’s television at the next natural break and is answered there with one button; get_watch_together says what was answered, on any later day. ' +
         `The films: ${PROGRAMMES.map((p) => `${p.id} ("${p.title}", ${p.line})`).join(', ')}. ` +
         'Watching together means the family member’s screen follows the resident’s film from their own home: the resident holds the remote, and there is no camera or microphone. ' +
-        'Only one invitation can be open at a time.',
+        'Only one invitation can be open at a time; withdraw_watch_invitation takes back one that has not been answered.',
       inputSchema: {
         programme: z.enum(PROGRAMME_IDS).describe('The id of the film, e.g. "sintel".'),
         date: z.string().describe('The day to watch, YYYY-MM-DD.'),

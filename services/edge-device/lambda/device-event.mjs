@@ -94,7 +94,7 @@ import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
 import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate, watchPress } from './watch-together.mjs';
 import { SHARING_CARD_ID, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
-import { buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
+import { buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
 
 const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
@@ -240,13 +240,15 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
         await recordCircleDecision(householdId, decision, deviceEvent.at);
         // There is now somebody to tell: anything already different is asked about at once.
         if (decision.status === 'allowed') await signalActive(householdId, deviceId, { always: true });
+        // Who can see her light has changed — the first person allowed is when there is a light at all.
+        await tellEveryHome({ sendControl, householdId, deviceId });
       }
 
       const index = replyIndex(deviceEvent.cardId, deviceEvent.action);
       if (index !== undefined) await recordNoteReply(householdId, deviceEvent.cardId, index, deviceEvent.at);
 
       const light = lightPress(deviceEvent.cardId, deviceEvent.action);
-      if (light) await changeLight({ sendControl, householdId, press: light });
+      if (light) await changeLight({ sendControl, householdId, deviceId, press: light });
 
       const watch = watchPress(deviceEvent.cardId, deviceEvent.action);
       if (watch) await recordWatchPress(householdId, watch);
@@ -254,7 +256,8 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
       if (deviceEvent.action === 'sharing' && WEEK_CARD_ID.test(deviceEvent.cardId)) {
         await showSharing({ sendCard, householdId, page: 0, respondsTo: deviceEvent.cardId });
       } else if (deviceEvent.cardId === SHARING_CARD_ID) {
-        await advanceSharing({ sendCard, householdId, action: deviceEvent.action });
+        // What is shared decides whether there is a light at all: a change is told to every home screen.
+        if (await advanceSharing({ sendCard, householdId, action: deviceEvent.action })) await tellEveryHome({ sendControl, householdId, deviceId });
       }
     }
 
@@ -468,14 +471,17 @@ async function advanceSharing({ sendCard, householdId, action }) {
     ]);
     const storedQueued = stored.Item?.data?.S ? JSON.parse(stored.Item.data.S) : undefined;
     const step = sharingStep(storedQueued, action, readExclusions(meta));
-    if (!step) return;
+    if (!step) return false;
     if (step.set) {
       await ddb.send(new UpdateItemCommand(exclusionUpdate({ table: TABLE, householdId, ...step.set })));
       console.log(JSON.stringify({ level: 'info', msg: 'sharing_changed', factClass: step.set.factClass, keepPrivate: step.set.keepPrivate }));
     }
     await showSharing({ sendCard, householdId, page: step.page, respondsTo: storedQueued?.respondsTo });
+    // Whether what is shared changed.
+    return Boolean(step.set);
   } catch (err) {
     console.error('sharing_step_failed', { householdId, action, err: err?.name });
+    return false;
   }
 }
 
@@ -517,10 +523,30 @@ async function loadHomeRows(householdId) {
 async function tellHome({ sendControl, householdId }) {
   try {
     const items = await loadHomeRows(householdId);
+    const home = homeState({ items, now: Date.now(), timeZone: HOUSEHOLD_TZ });
     // `whole`: this is all of it, so a light she has since made private is not left showing.
-    await sendControl({ t: 'home', home: homeState({ items, now: Date.now(), timeZone: HOUSEHOLD_TZ }), whole: true });
+    await sendControl({ t: 'home', home, whole: true });
+    return home;
   } catch (err) {
     console.error('home_state_failed', { householdId, err: err?.name });
+    return undefined;
+  }
+}
+
+/**
+ * The home screen changed by a press here — her light, or what is shared.
+ * This television is told at once; the home's others are the agent plane's
+ * to tell (light.mjs buildHomeChangedEntry; INV-2). Logged, never thrown:
+ * one that is not told now is told when it next connects.
+ */
+async function tellEveryHome({ sendControl, householdId, deviceId }) {
+  const home = await tellHome({ sendControl, householdId });
+  if (!home) return;
+  try {
+    const res = await events.send(new PutEventsCommand({ Entries: [buildHomeChangedEntry({ busName: BUS, householdId, deviceId, home, at: Date.now() })] }));
+    if (res.FailedEntryCount) console.error('home_changed_publish_rejected', { householdId, code: res.Entries?.[0]?.ErrorCode });
+  } catch (err) {
+    console.error('home_changed_publish_failed', { householdId, err: err?.name });
   }
 }
 
@@ -536,7 +562,7 @@ async function showLight({ sendCard, householdId }) {
 }
 
 /** "Put it out for today" or "Light it again". The time is this server's own; then the home screen is told how it stands. */
-async function changeLight({ sendControl, householdId, press }) {
+async function changeLight({ sendControl, householdId, deviceId, press }) {
   try {
     await ddb.send(new UpdateItemCommand(lightUpdate({ table: TABLE, householdId, press, at: Date.now() })));
     // The press and nothing about the household: which way the light went is hers alone.
@@ -545,7 +571,7 @@ async function changeLight({ sendControl, householdId, press }) {
     console.error('light_change_failed', { householdId, err: err?.name });
     return;
   }
-  await tellHome({ sendControl, householdId });
+  await tellEveryHome({ sendControl, householdId, deviceId });
 }
 
 /**

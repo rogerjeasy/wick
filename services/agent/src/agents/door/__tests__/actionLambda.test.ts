@@ -27,7 +27,7 @@ describe('routeCardAction — which presses need the runtime, and which do not',
     const invoke = vi.fn();
     const askFamily = vi.fn(async () => 'asked' as const);
 
-    const out = await routeCardAction({ detail: ask }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn() });
+    const out = await routeCardAction({ detail: ask }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn() });
 
     expect(askFamily).toHaveBeenCalledWith(ask);
     expect(invoke).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ describe('routeCardAction — which presses need the runtime, and which do not',
     const invoke = vi.fn(async () => ({ result: 'rang' }));
     const askFamily = vi.fn();
 
-    const out = await routeCardAction({ detail }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn() });
+    const out = await routeCardAction({ detail }, { invoke, askFamily, tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn() });
 
     expect(invoke).toHaveBeenCalledWith('door.action', 'margaret', { detail });
     expect(askFamily).not.toHaveBeenCalled();
@@ -53,6 +53,7 @@ describe('routeCardAction — "Shall I tell Sarah?"', () => {
     tellAnswer: vi.fn(async () => 'told' as const),
     askResident: vi.fn(async () => ['missed_visit-maria-2026-10-09']),
     withdraw: vi.fn(async () => undefined),
+    tellHome: vi.fn(async () => undefined),
   });
 
   it('looks for something to ask when a television says its resident is there', async () => {
@@ -87,7 +88,7 @@ describe('routeCardAction — "Shall I tell Sarah?"', () => {
 });
 
 describe('routeCardAction — a card finished on one television', () => {
-  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(async () => undefined) });
+  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(async () => undefined), tellHome: vi.fn(async () => undefined) });
   const retired = { householdId: 'margaret', deviceId: 'wick-tv', cardId: 'note-abc', at: 5 };
 
   it('is taken off the home’s other televisions, without waking the runtime', async () => {
@@ -108,5 +109,45 @@ describe('routeCardAction — a card finished on one television', () => {
     expect(await routeCardAction({ 'detail-type': 'card.retired', detail: { householdId: 'margaret' } }, r)).toEqual({ result: 'ignored' });
     expect(r.withdraw).not.toHaveBeenCalled();
     expect(r.invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('routeCardAction — the home screen changed on one television', () => {
+  const routes = () => ({ invoke: vi.fn(), askFamily: vi.fn(), tellAnswer: vi.fn(), askResident: vi.fn(), withdraw: vi.fn(), tellHome: vi.fn(async () => undefined) });
+  const home = { light: 'out', lightOutUntil: 9000 };
+
+  it('is told to the home’s other televisions, whole, without waking the runtime', async () => {
+    const r = routes();
+
+    const out = await routeCardAction({ 'detail-type': 'home.changed', detail: { householdId: 'margaret', deviceId: 'wick-tv', home, at: 5 } }, r);
+
+    // Not the one that was pressed: the edge has told it already.
+    expect(r.tellHome).toHaveBeenCalledWith('margaret', home, 'wick-tv');
+    expect(out).toEqual({ result: 'home_told' });
+    expect(r.invoke).not.toHaveBeenCalled();
+  });
+
+  it('passes on only what a home screen is ever told', async () => {
+    const r = routes();
+
+    await routeCardAction({ 'detail-type': 'home.changed', detail: { householdId: 'margaret', home: { light: 'on', programme: 'sintel', lookedIn: { name: 'Sarah' } } } }, r);
+
+    expect(r.tellHome).toHaveBeenCalledWith('margaret', { light: 'on' }, undefined);
+  });
+
+  it('tells them when there is no light left to show: nobody can see one any more', async () => {
+    const r = routes();
+
+    await routeCardAction({ 'detail-type': 'home.changed', detail: { householdId: 'margaret', deviceId: 'wick-tv', home: {} } }, r);
+
+    expect(r.tellHome).toHaveBeenCalledWith('margaret', {}, 'wick-tv');
+  });
+
+  it('does nothing with one that names no household or carries no state', async () => {
+    const r = routes();
+
+    expect(await routeCardAction({ 'detail-type': 'home.changed', detail: { home } }, r)).toEqual({ result: 'ignored' });
+    expect(await routeCardAction({ 'detail-type': 'home.changed', detail: { householdId: 'margaret' } }, r)).toEqual({ result: 'ignored' });
+    expect(r.tellHome).not.toHaveBeenCalled();
   });
 });

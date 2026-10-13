@@ -530,6 +530,7 @@ async function answerDoorQuestion(requestId, answer, buttons) {
 function renderCard(card) {
   if (card.kind === 'door') return renderDoorCard(card);
   if (card.kind === 'watch') return renderWatchCard(card);
+  if (card.kind === 'invitation') return renderInvitationCard(card);
   if (card.kind === 'light') return renderLightCard(card);
   const node = el('article', 'card');
   const head = el('div', 'card-head');
@@ -1237,6 +1238,46 @@ function renderWatchCard(card) {
 
   node.append(head, screen, status, actions, question, attribution, cardFoot(card.footnote));
   drawSeat({ node, screen, video, status, actions, question, attribution, sessionId: card.sessionId }, card);
+  return node;
+}
+
+/**
+ * An invitation still waiting on the television, with the one thing that can
+ * be done about it from here: taking it back. The press is the person's own,
+ * on a button that says what it does, so it is not asked twice.
+ */
+function renderInvitationCard(card) {
+  const node = el('article', 'card watch');
+  const head = el('div', 'card-head');
+  head.appendChild(el('h2', 'card-title', card.title));
+  head.appendChild(el('span', 'card-meta', card.meta));
+  const status = el('p', 'watch-status', 'Waiting for an answer on the television.');
+  status.setAttribute('aria-live', 'polite');
+  const actions = el('div', 'actions');
+  const takeBack = el('button', 'btn', 'Take it back');
+  takeBack.type = 'button';
+  takeBack.addEventListener('click', async () => {
+    takeBack.disabled = true;
+    try {
+      const result = await callTool('withdraw_watch_invitation', { sessionId: card.sessionId });
+      const text = result.content?.[0]?.text ?? '';
+      const presented = presentResult('withdraw_watch_invitation', text, {}, formatTime, result.isError === true);
+      // Taken back, or answered a moment before: either way it is said as the server said it, and there is nothing left to press.
+      status.textContent = presented.say;
+      if (presented.tone !== 'error') {
+        // Nothing is waiting any more: the note under the card must not go on saying that it is.
+        // Only one really taken back can be asked again; one already answered stands as it was answered.
+        foot.querySelector('.note').textContent = text.startsWith('{') ? 'You can ask again whenever you like.' : '';
+        return takeBack.remove();
+      }
+    } catch (err) {
+      status.textContent = err.message;
+    }
+    takeBack.disabled = false;
+  });
+  actions.appendChild(takeBack);
+  const foot = cardFoot(card.footnote);
+  node.append(head, status, actions, foot);
   return node;
 }
 

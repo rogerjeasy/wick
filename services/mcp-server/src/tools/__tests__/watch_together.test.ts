@@ -23,6 +23,7 @@ import { registerInviteToWatch } from '../invite_to_watch.js';
 import { registerGetWatchTogether } from '../get_watch_together.js';
 import { registerJoinWatchTogether } from '../join_watch_together.js';
 import { registerAnswerWatchTogether } from '../answer_watch_together.js';
+import { registerWithdrawWatchInvitation } from '../withdraw_watch_invitation.js';
 import { allowedContext } from './toolContext.js';
 // The television's half of a session is the edge's own conditional updates, run here as they are deployed.
 import {
@@ -45,12 +46,16 @@ const SINTEL = programmeById('sintel')!;
 async function connected(table: MemoryTable, ctx: ToolContext = allowedContext('hh-1'), clock: { now: number } = { now: NOW }) {
   const cards: QueuedCard[] = [];
   const sendCard = async (card: QueuedCard): Promise<void> => void cards.push(card);
+  /** Cards taken back off the home's televisions, as [household, card]. */
+  const withdrawn: [string, string][] = [];
+  const withdrawCard = async (householdId: string, cardId: string): Promise<void> => void withdrawn.push([householdId, cardId]);
   const now = (): number => clock.now;
   const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
   registerInviteToWatch(mcpServer, table.ddb, ctx, sendCard, now);
   registerGetWatchTogether(mcpServer, table.ddb, ctx, now);
   registerJoinWatchTogether(mcpServer, table.ddb, ctx, sendCard, now);
   registerAnswerWatchTogether(mcpServer, table.ddb, ctx, sendCard, now);
+  registerWithdrawWatchInvitation(mcpServer, table.ddb, ctx, withdrawCard, now);
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.1.0' });
   await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
@@ -62,7 +67,7 @@ async function connected(table: MemoryTable, ctx: ToolContext = allowedContext('
       isError: result.isError === true,
     };
   };
-  return { call, cards, clock };
+  return { call, cards, withdrawn, clock };
 }
 
 const watchCard = (queued: QueuedCard | undefined): WatchCard => {
@@ -288,6 +293,119 @@ describe('get_watch_together', () => {
     expect((await tom.call('get_watch_together', { sessionId })).text).toBe("You haven't asked Margaret to watch anything.");
     expect((await tom.call('join_watch_together', { sessionId })).text).toBe("You haven't asked Margaret to watch anything.");
     expect((await tom.call('answer_watch_together', { sessionId, answer: 'loved_it' })).text).toBe("You haven't asked Margaret to watch anything.");
+  });
+});
+
+describe('withdraw_watch_invitation — taking an invitation back', () => {
+  it('takes an invitation she has not answered off the television', async () => {
+    const { sarah, sessionId } = await invited();
+
+    const taken = await sarah.call('withdraw_watch_invitation', { sessionId });
+
+    expect(taken.structured).toEqual({ withdrawn: true, sessionId, film: 'Sintel', when: 'Sunday 18 October at 3 pm' });
+    expect(sarah.withdrawn).toEqual([['hh-1', watchCardId('invite', sessionId)]]);
+    expect((await sarah.call('get_watch_together')).structured).toMatchObject({ sessionId, state: 'withdrawn' });
+  });
+
+  it('takes back the newest one when none is named', async () => {
+    const { sarah, sessionId } = await invited();
+
+    expect((await sarah.call('withdraw_watch_invitation')).structured).toMatchObject({ withdrawn: true, sessionId });
+  });
+
+  it('cannot be answered afterwards: a press that was already on its way changes nothing', async () => {
+    const { sarah, sessionId, tv } = await invited();
+    await sarah.call('withdraw_watch_invitation', { sessionId });
+
+    expect(await tv.accepts(NOW + MIN)).toBeUndefined();
+    expect((await sarah.call('get_watch_together')).structured).toMatchObject({ state: 'withdrawn' });
+  });
+
+  it('leaves the way open for another invitation at once', async () => {
+    const { sarah, sessionId } = await invited();
+    await sarah.call('withdraw_watch_invitation', { sessionId });
+
+    const second = await sarah.call('invite_to_watch', { programme: 'big-buck-bunny', date: '2026-10-19', time: '11:00' });
+
+    expect(second.structured).toMatchObject({ invited: true, film: 'Big Buck Bunny' });
+  });
+
+  it('does not take back what she has already said yes to', async () => {
+    const { sarah, sessionId, tv } = await invited();
+    await tv.accepts(NOW + MIN);
+
+    const taken = await sarah.call('withdraw_watch_invitation', { sessionId });
+
+    expect(taken.text).toBe('Margaret has already said yes to Sintel on Sunday 18 October at 3 pm, so it cannot be taken back.');
+    expect(sarah.withdrawn).toEqual([]);
+    expect((await sarah.call('get_watch_together')).structured).toMatchObject({ state: 'accepted' });
+  });
+
+  it('has nothing to take back once she has said no, or the time has passed', async () => {
+    const said = await invited();
+    await said.tv.declines(NOW + MIN);
+    expect((await said.sarah.call('withdraw_watch_invitation', { sessionId: said.sessionId })).text).toBe('Margaret has already said not this time. There is nothing to take back.');
+
+    const gone = await invited();
+    const late = await connected(gone.table, allowedContext('hh-1'), { now: SUNDAY_AT_THREE + WATCH_OPEN_FOR_MS });
+    expect((await late.call('withdraw_watch_invitation', { sessionId: gone.sessionId })).text).toBe('The time for Sintel has passed. There is nothing to take back.');
+    expect(late.withdrawn).toEqual([]);
+  });
+
+  it('says what she answered when her press came first', async () => {
+    const { table, sessionId, tv } = await invited();
+    // Her "Yes, let’s." lands between this call's look and its write.
+    let raced = false;
+    const racing = {
+      send: async (command: { constructor: { name: string } }) => {
+        if (command.constructor.name === 'UpdateItemCommand' && !raced) {
+          raced = true;
+          await tv.accepts(NOW + MIN);
+        }
+        return table.ddb.send(command as never);
+      },
+    };
+    const sarah = await connected({ ...table, ddb: racing as never });
+
+    const taken = await sarah.call('withdraw_watch_invitation', { sessionId });
+
+    expect(taken.text).toBe('Margaret has already said yes to Sintel on Sunday 18 October at 3 pm, so it cannot be taken back.');
+    expect(sarah.withdrawn).toEqual([]);
+  });
+
+  it('can be asked twice: the card is taken off again and the answer is the same', async () => {
+    const { sarah, sessionId } = await invited();
+    const first = await sarah.call('withdraw_watch_invitation', { sessionId });
+
+    const second = await sarah.call('withdraw_watch_invitation', { sessionId });
+
+    expect(second.structured).toEqual(first.structured);
+    expect(sarah.withdrawn).toHaveLength(2);
+  });
+
+  it('is only for the person who sent it', async () => {
+    const { table, sessionId, sarah } = await invited();
+    const tom = await connected(table, allowedContext('hh-1', { userId: 'u_tom', name: 'Tom' }));
+
+    expect((await tom.call('withdraw_watch_invitation', { sessionId })).text).toBe("You haven't asked Margaret to watch anything.");
+    expect(tom.withdrawn).toEqual([]);
+    expect((await sarah.call('get_watch_together')).structured).toMatchObject({ state: 'invited' });
+  });
+
+  it('answers nobody the resident has not allowed', async () => {
+    const waiting: ToolContext = { householdId: 'hh-1', userId: 'u_new', access: async () => ({ ok: false, reason: 'waiting', say: "Margaret hasn't allowed this yet." }) };
+    const { call, withdrawn } = await connected(createMemoryTable(), waiting);
+
+    expect((await call('withdraw_watch_invitation')).text).toBe("Margaret hasn't allowed this yet.");
+    expect(withdrawn).toEqual([]);
+  });
+
+  it('leaves no seat to take', async () => {
+    const { table, sessionId, sarah } = await invited();
+    await sarah.call('withdraw_watch_invitation', { sessionId });
+    const sunday = await connected(table, allowedContext('hh-1'), { now: SUNDAY_AT_THREE });
+
+    expect((await sunday.call('join_watch_together', { sessionId })).text).toBe('You took that invitation back. You can ask again whenever you like.');
   });
 });
 
