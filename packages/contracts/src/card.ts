@@ -144,7 +144,19 @@ export interface LightCard extends CardBase {
   readonly detail: string;
 }
 
-export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard | LightCard;
+/**
+ * Hold for Sarah (reach.ts): the card her two-second hold on OK brings, and
+ * every later state of the same request — who was asked, who is next, what
+ * was answered. The server writes every word; the television only renders
+ * it. Its id is always `reach-<reachId>`.
+ */
+export interface ReachCard extends CardBase {
+  readonly type: 'REACH';
+  readonly headline: string;
+  readonly detail?: string;
+}
+
+export type Card = DoorCard | MessageCard | WeekCard | SharingCard | CircleCard | TellCard | WatchCard | LightCard | ReachCard;
 
 export interface QueuedCard {
   readonly id: string;

@@ -15,6 +15,7 @@ import { CircleCardView } from './CircleCard.js';
 import { DoorCardView } from './DoorCard.js';
 import { LightCardView } from './LightCard.js';
 import { MessageCardView } from './MessageCard.js';
+import { ReachCardView } from './ReachCard.js';
 import { SharingCardView } from './SharingCard.js';
 import { TellCardView } from './TellCard.js';
 import { WatchCardView } from './WatchCard.js';
@@ -52,5 +53,8 @@ export function CardRenderer({ card, onAction }: CardRendererProps): React.JSX.E
 
     case 'LIGHT':
       return <LightCardView card={card} onAction={handle} />;
+
+    case 'REACH':
+      return <ReachCardView card={card} onAction={handle} />;
   }
 }

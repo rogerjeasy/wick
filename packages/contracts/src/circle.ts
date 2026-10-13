@@ -11,8 +11,14 @@
  * the remote is their consent.
  */
 
-/** The organiser set the household up and manages the circle; family joins by invitation. */
-export type CircleRole = 'organiser' | 'family';
+/**
+ * The organiser set the household up and manages the circle; family joins by
+ * invitation. A neighbour joins by invitation too, and for two things only:
+ * to be asked to look at who is at the door, and to be asked to ring her
+ * (reach.ts). A neighbour is shown nothing else about the house
+ * (mcp-server tools/context.ts `gated`).
+ */
+export type CircleRole = 'organiser' | 'family' | 'neighbour';
 
 export type MemberStatus = 'pending' | 'allowed' | 'declined' | 'removed';
 
