@@ -92,7 +92,7 @@ export function registerWithdrawWatchInvitation(
 
       let session: WatchSession | undefined = first;
       for (let look = 0; look < LOOKS && session; look += 1, session = await mySession(ddb, ctx.householdId, ctx.userId, first.sessionId)) {
-        const view = describeWatch(session, at);
+        const view = describeWatch(session, at, residentName);
         const done = (told: boolean) => data({ withdrawn: true, told, sessionId: view.sessionId, film: view.film, when: view.when });
 
         if (view.state === 'declined') return say(`${residentName} has already said not this time. There is nothing to take back.`);

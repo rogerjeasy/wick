@@ -22,15 +22,22 @@ import { DEFAULT_LANGUAGE } from '@wick/contracts';
 import { fontSize, safe } from '@wick/vega-calm-ui';
 import { words } from '../words/words.js';
 import type { PairingStartResponse } from './PairingFlow.js';
+import { STILL_TRYING } from './connect.js';
 
 export interface PairingScreenProps {
   readonly info?: PairingStartResponse;
+  /**
+   * The pairing service could not be reached, and is being tried again
+   * (connect.ts). The screen then says so under "Getting a code…", rather
+   * than go on promising one.
+   */
+  readonly trying?: boolean;
 }
 
 /** English, always: see the header. */
 const say = words(DEFAULT_LANGUAGE);
 
-export function PairingScreen({ info }: PairingScreenProps): React.JSX.Element {
+export function PairingScreen({ info, trying }: PairingScreenProps): React.JSX.Element {
   return (
     <View style={styles.root}>
       <Text style={styles.headline}>{say('pairing.title')}</Text>
@@ -41,7 +48,10 @@ export function PairingScreen({ info }: PairingScreenProps): React.JSX.Element {
           <Text style={styles.link}>{info.url}</Text>
         </>
       ) : (
-        <Text style={styles.body}>{say('pairing.gettingCode')}</Text>
+        <>
+          <Text style={styles.body}>{say('pairing.gettingCode')}</Text>
+          {trying ? <Text style={styles.body}>{STILL_TRYING}</Text> : null}
+        </>
       )}
     </View>
   );

@@ -18,7 +18,7 @@ import {
 } from '@wick/contracts';
 import { createMemoryTable, type MemoryTable } from '../../__tests__/memoryTable.js';
 import type { ToolContext } from '../context.js';
-import { whenInWords } from '../watchSession.js';
+import { answersInWords, whenInWords } from '../watchSession.js';
 import { registerInviteToWatch } from '../invite_to_watch.js';
 import { registerGetWatchTogether } from '../get_watch_together.js';
 import { registerJoinWatchTogether } from '../join_watch_together.js';
@@ -791,6 +791,99 @@ describe('following the film', () => {
       // Answered: the buttons are not offered again.
       expect(view).not.toHaveProperty('answers');
       expect(sarah.cards.filter((c) => c.id === watchCardId('answer', sessionId))).toHaveLength(1);
+    });
+
+    describe('who said what, in a sentence nobody has to work out', () => {
+      const answersOf = async (who: { call: (name: string, args?: Record<string, unknown>) => Promise<{ structured?: Record<string, unknown> | undefined }> }) =>
+        (await who.call('get_watch_together')).structured!;
+
+      it('says neither has answered, from the moment the question is asked', async () => {
+        const { sarah } = await atTheCredits();
+
+        expect((await answersOf(sarah)).answersInWords).toBe('You have not answered yet. Margaret has not answered yet.');
+      });
+
+      it('says what the family member said, and that the resident has not answered — never the one for the other', async () => {
+        const { sarah, sessionId } = await atTheCredits();
+        await sarah.call('answer_watch_together', { sessionId, answer: 'loved_it' });
+
+        const view = await answersOf(sarah);
+
+        expect(view.answersInWords).toBe('You said: “I loved it.” Margaret has not answered yet.');
+        expect(view).toMatchObject({ yourAnswer: WATCH_ANSWERS.loved_it });
+        expect(view).not.toHaveProperty('theirAnswer');
+      });
+
+      it('says what the resident said, and that the family member has not answered', async () => {
+        const { sarah, tv, clock } = await atTheCredits();
+        await tv.answers('all_right', clock.now + 5_000);
+
+        const view = await answersOf(sarah);
+
+        expect(view.answersInWords).toBe('You have not answered yet. Margaret said: “It was all right.”');
+        expect(view).toMatchObject({ theirAnswer: WATCH_ANSWERS.all_right });
+        expect(view).not.toHaveProperty('yourAnswer');
+      });
+
+      it('says what each said when both have, and goes on saying it after the session has closed', async () => {
+        const { sarah, sessionId, tv, clock } = await atTheCredits();
+        await tv.answers('not_for_me', clock.now + 5_000);
+        await sarah.call('answer_watch_together', { sessionId, answer: 'loved_it' });
+
+        expect((await answersOf(sarah)).answersInWords).toBe('You said: “I loved it.” Margaret said: “Not really for me.”');
+        clock.now = SUNDAY_AT_THREE + WATCH_OPEN_FOR_MS + MIN;
+        expect((await answersOf(sarah)).answersInWords).toBe('You said: “I loved it.” Margaret said: “Not really for me.”');
+      });
+
+      it('is not there before the question has been asked: there is nothing to say about answers', async () => {
+        const { sarah } = await started();
+
+        expect(await answersOf(sarah)).not.toHaveProperty('answersInWords');
+      });
+
+      it('comes back with the answer itself, so the moment of answering is said rightly too', async () => {
+        const first = await atTheCredits();
+        const alone = await first.sarah.call('answer_watch_together', { sessionId: first.sessionId, answer: 'loved_it' });
+
+        const second = await atTheCredits();
+        await second.tv.answers('all_right', second.clock.now + 5_000);
+        const both = await second.sarah.call('answer_watch_together', { sessionId: second.sessionId, answer: 'loved_it' });
+
+        expect(alone.structured).toEqual({ shown: true, by: 'Sarah', text: WATCH_ANSWERS.loved_it, answersInWords: 'You said: “I loved it.” Margaret has not answered yet.' });
+        expect(both.structured).toEqual({
+          shown: true,
+          by: 'Sarah',
+          text: WATCH_ANSWERS.loved_it,
+          theirAnswer: WATCH_ANSWERS.all_right,
+          answersInWords: 'You said: “I loved it.” Margaret said: “It was all right.”',
+        });
+      });
+
+      it('is the pure sentence the television uses too, with the resident named and “You” spelled out', () => {
+        expect(answersInWords('Edith', undefined, undefined)).toBe('You have not answered yet. Edith has not answered yet.');
+        expect(answersInWords('Edith', 'I loved it.', undefined)).toBe('You said: “I loved it.” Edith has not answered yet.');
+        expect(answersInWords('Edith', undefined, 'Not really for me.')).toBe('You have not answered yet. Edith said: “Not really for me.”');
+        expect(answersInWords('Edith', 'It was all right.', 'I loved it.')).toBe('You said: “It was all right.” Edith said: “I loved it.”');
+      });
+
+      it('tells an assistant, in the tools’ own descriptions, whose answer each field is and which sentence to say', async () => {
+        const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
+        const nothing = async (): Promise<void> => {};
+        registerGetWatchTogether(mcpServer, createMemoryTable().ddb, allowedContext('hh-1'));
+        registerAnswerWatchTogether(mcpServer, createMemoryTable().ddb, allowedContext('hh-1'), nothing);
+        const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+        const client = new Client({ name: 'test-client', version: '0.1.0' });
+        await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+        const { tools } = await client.listTools();
+
+        for (const name of ['get_watch_together', 'answer_watch_together']) {
+          const description = tools.find((tool) => tool.name === name)!.description!;
+          expect(description).toContain('`answersInWords` is the sentence to say');
+          expect(description).toContain('`theirAnswer` is the resident’s answer');
+        }
+        expect(tools.find((tool) => tool.name === 'get_watch_together')!.description).toContain('`yourAnswer` is the signed-in family member’s own answer');
+        expect(tools.find((tool) => tool.name === 'answer_watch_together')!.description).toContain('`text` is the signed-in family member’s own answer');
+      });
     });
 
     it('cannot be answered with a sentence somebody wrote', async () => {

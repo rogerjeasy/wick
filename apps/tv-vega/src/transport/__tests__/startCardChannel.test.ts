@@ -152,6 +152,73 @@ describe('startCardChannel — the card channel, runnable in whichever process r
     running.stop();
   });
 
+  // Her hold on OK, and her press on the light, are questions: the answer
+  // is a card. One that could not leave within a minute of her asking is
+  // dropped, not sent late — the server would answer it as if she had just
+  // asked (home/asked.ts).
+  it('drops a question that has waited a minute to leave, and sends everything else however old', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_800_000_000_000);
+    const asked = Date.now();
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    channel.state = 'backoff';
+    const running = startCardChannel(store, channel);
+
+    await store.enqueueOutbound({ t: 'reach', at: asked });
+    await store.enqueueOutbound({ t: 'light', at: asked });
+    await store.enqueueOutbound({ t: 'card_action', cardId: 'c1', action: 'dismiss', at: asked });
+    await vi.advanceTimersByTimeAsync(61_000);
+    channel.state = 'open';
+    await vi.advanceTimersByTimeAsync(1_100);
+
+    expect(channel.sent).toEqual([{ t: 'card_action', cardId: 'c1', action: 'dismiss', at: asked }]);
+    // Dropped for good: not kept for a later tick.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(channel.sent).toHaveLength(1);
+    running.stop();
+  });
+
+  it('sends a question that the channel opened in time for — twenty seconds late is still hers to have answered', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_800_000_000_000);
+    const asked = Date.now();
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    channel.state = 'backoff';
+    const sent: Array<{ event: DeviceEvent; at: number }> = [];
+    const running = startCardChannel(store, channel, (event, at) => void sent.push({ event, at }));
+
+    await store.enqueueOutbound({ t: 'reach', at: asked });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(sent).toEqual([]);
+    channel.state = 'open';
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(channel.sent).toEqual([{ t: 'reach', at: asked }]);
+    // Whoever is waiting for the answer is told when the question really left.
+    expect(sent).toEqual([{ event: { t: 'reach', at: asked }, at: asked + 21_000 }]);
+    running.stop();
+  });
+
+  it('says a question has left only when it has: not for a send that failed', async () => {
+    vi.useFakeTimers();
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const sent: DeviceEvent[] = [];
+    const running = startCardChannel(store, channel, (event) => void sent.push(event));
+
+    channel.failSends = true;
+    await store.enqueueOutbound({ t: 'reach', at: Date.now() });
+    await vi.advanceTimersByTimeAsync(3_300);
+    expect(sent).toEqual([]);
+
+    channel.failSends = false;
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(sent).toHaveLength(1);
+    running.stop();
+  });
+
   it('stop() closes the channel, detaches every handler and stops flushing', async () => {
     vi.useFakeTimers();
     const store = new QueueStore(brokenFs());
@@ -272,6 +339,32 @@ describe('holdCardChannel — what App.tsx runs once the device is ready', () =>
 
     expect(channel.closed).toBe(true);
     expect(channel.listenerCount).toBe(0);
+  });
+});
+
+describe('holdCardChannel — telling the app when her question has left', () => {
+  it('passes each event on as it is sent, once the channel it was waiting for has opened', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_800_000_000_000);
+    const asked = Date.now();
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    let open: (c: FakeChannel) => void = () => {};
+    const sent: Array<{ event: DeviceEvent; at: number }> = [];
+    const held = holdCardChannel(store, TOKEN, () => new Promise<FakeChannel>((resolve) => (open = resolve)), { websocketUrl: 'wss://ws.example' }, undefined, (event, at) => void sent.push({ event, at }));
+
+    // She holds OK while the channel is still connecting.
+    await store.enqueueOutbound({ t: 'reach', at: asked });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(sent).toEqual([]);
+
+    open(channel);
+    await vi.advanceTimersByTimeAsync(1_100);
+
+    expect(channel.sent).toEqual([{ t: 'reach', at: asked }]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.at - asked).toBeGreaterThanOrEqual(20_000);
+    held.stop();
   });
 });
 

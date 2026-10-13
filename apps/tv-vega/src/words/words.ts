@@ -63,6 +63,8 @@ const en = {
   'pairing.title': 'Set up Wick',
   'pairing.instructions': 'Enter this code in the Wick family app. There you say whose television this is.',
   'pairing.gettingCode': 'Getting a code…',
+  /** Under "Getting a code…" while the pairing service cannot be reached (pairing/connect.ts). The family screen's own words, word for word. */
+  'pairing.stillTrying': 'Wick cannot reach the home just now.',
 
   // A programme, playing (watch/WatchScreen.tsx).
   'watch.failed': '{title} will not play just now. Press Back.',
@@ -113,6 +115,7 @@ const es: Readonly<Record<WordKey, string>> = {
   'pairing.title': 'Configurar Wick',
   'pairing.instructions': 'Escriba este código en la app familiar de Wick. Allí se indica de quién es este televisor.',
   'pairing.gettingCode': 'Pidiendo un código…',
+  'pairing.stillTrying': 'Wick no puede comunicarse con la casa ahora.',
 
   'watch.failed': '{title} no se puede ver ahora. Presione Atrás.',
   'watch.starting': 'Iniciando {title}…',
