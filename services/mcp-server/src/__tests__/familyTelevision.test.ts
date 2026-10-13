@@ -1,94 +1,14 @@
 /**
  * Sarah's television, end to end: the real express app on a real socket,
- * asked over HTTP as a television would ask it. Nothing is paired here —
- * the two rows pairing leaves behind (the television's own, and the pairing
- * key's public half) are written directly, and the token is signed by the
- * edge's own signJwt.
+ * asked over HTTP as a television would ask it (familyTvApp.ts).
  */
-import { generateKeyPairSync } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DOOR_ANSWERS, PAIRING_PUBLIC_KEY_ROW, REACH_ANSWERS, familyTvCardId, type CardPatch, type FamilyTvHome, type HomeState } from '@wick/contracts';
+import { DOOR_ANSWERS, REACH_ANSWERS, familyTvCardId, type FamilyTvHome } from '@wick/contracts';
 import { reachFromItem, reachItem } from '@wick/agent';
-// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
-import { signJwt } from '../../../edge-device/lambda/jwt.mjs';
-import { linkNewOrganiser, residentAllows, startServer, TOM, type Harness, type Linked } from './harness.js';
-import { createMemoryTable, type MemoryTable } from './memoryTable.js';
+import { PAIRING, PICTURE, MIN, askToLook, closeServers, connectTelevision, lookRow, press, server, sign, tv } from './familyTvApp.js';
+import { linkNewOrganiser, residentAllows, TOM } from './harness.js';
 
-const MIN = 60_000;
-const PICTURE = 'https://download.example/ring/frame.jpg?sig=abc';
-
-const PAIRING = generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } });
-const sign = signJwt as (claims: object, privateKeyPem: string, options: { expiresInSec: number }) => string;
-
-const closers: (() => Promise<void>)[] = [];
-
-afterEach(async () => {
-  await Promise.all(closers.splice(0).map((close) => close()));
-});
-
-interface Home {
-  readonly h: Harness;
-  readonly table: MemoryTable;
-  readonly patches: { patch: CardPatch; householdId: string }[];
-  readonly homes: { householdId: string; home: HomeState }[];
-}
-
-async function server(): Promise<Home> {
-  const table = createMemoryTable();
-  const patches: Home['patches'] = [];
-  const homes: Home['homes'] = [];
-  const h = await startServer({
-    ddb: table.ddb,
-    sendPatch: async (patch, householdId) => void patches.push({ patch, householdId }),
-    sendHome: async (householdId, home) => void homes.push({ householdId, home }),
-  });
-  closers.push(h.close);
-  // What pair-claim.mjs publishes when a family television is connected.
-  table.put({ pk: { S: PAIRING_PUBLIC_KEY_ROW.pk }, sk: { S: PAIRING_PUBLIC_KEY_ROW.sk }, publicKeyPem: { S: PAIRING.publicKey } });
-  return { h, table, patches, homes };
-}
-
-/** Connects a television as this person's own, as pair-claim.mjs would with `as: 'family'`, and returns its token. */
-function connectTelevision(table: MemoryTable, who: Linked, deviceId = 'tv-own'): string {
-  table.put({
-    pk: { S: `HH#${who.householdId}` },
-    sk: { S: `FTV#${deviceId}` },
-    deviceId: { S: deviceId },
-    householdId: { S: who.householdId },
-    userId: { S: who.userId },
-    pairedAt: { N: String(Date.now()) },
-    denylisted: { BOOL: false },
-  });
-  return sign({ deviceId, householdId: who.householdId, kind: 'family', userId: who.userId }, PAIRING.privateKey, { expiresInSec: 3600 });
-}
-
-const tv = (h: Harness, token: string | undefined, path: string, init: RequestInit = {}): Promise<Response> =>
-  fetch(`${h.base}${path}`, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), ...(token ? { authorization: `Bearer ${token}` } : {}) } });
-
-const press = (h: Harness, token: string | undefined, body: unknown, path = '/tv/press', headers: Record<string, string> = {}): Promise<Response> =>
-  tv(h, token, path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
-
-/** A stranger at the door, and the resident's press on "Ask … to look". */
-function askToLook(table: MemoryTable, householdId: string, cardId = 'door-abc'): void {
-  const now = Date.now();
-  table.put({
-    pk: { S: `HH#${householdId}` },
-    sk: { S: `CARD#${cardId}` },
-    data: {
-      S: JSON.stringify({
-        id: cardId,
-        urgency: 'DOOR',
-        queuedAt: now - MIN,
-        expiresAt: now + 4 * MIN,
-        shownCount: 0,
-        card: { type: 'DOOR', id: cardId, householdId, line: "Someone's at the front door.", description: 'A man in a yellow jacket.', imageRef: PICTURE, actions: [] },
-      }),
-    },
-  });
-  table.put({ pk: { S: `HH#${householdId}` }, sk: { S: `LOOK#${cardId}` }, cardId: { S: cardId }, askedAt: { N: String(now - 30_000) } });
-}
-
-const lookRow = (table: MemoryTable, householdId: string, cardId = 'door-abc') => table.rows(`HH#${householdId}`).find((row) => row.sk?.S === `LOOK#${cardId}`);
+afterEach(closeServers);
 
 describe('GET /tv/home', () => {
   it('shows the member’s own television the home, in the shape the television draws', async () => {
@@ -120,6 +40,7 @@ describe('GET /tv/home', () => {
           ],
         },
       ],
+      wave: { label: 'Wave to Margaret', cardId: 'ftv-wave-new' },
     } satisfies FamilyTvHome);
     // Asking for the light is a look, and the resident's own home screen is told through the server's sender.
     expect(homes).toHaveLength(1);

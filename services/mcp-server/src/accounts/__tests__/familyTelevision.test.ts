@@ -1,252 +1,45 @@
-import { createHmac, createSign, generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { DeleteItemCommand, type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import {
-  DOOR_ANSWERS,
-  PAIRING_PUBLIC_KEY_ROW,
-  REACH_ANSWERS,
-  familyTvCardId,
-  reachCardId,
-  type CardPatch,
-  type FamilyTvHome,
-  type HomeState,
-  type QueuedCard,
-  type ReachPerson,
-  type ReachRequest,
-} from '@wick/contracts';
-import { reachFromItem, reachItem } from '@wick/agent';
+import { DeleteItemCommand } from '@aws-sdk/client-dynamodb';
+import { DOOR_ANSWERS, PAIRING_PUBLIC_KEY_ROW, REACH_ANSWERS, familyTvCardId, reachCardId } from '@wick/contracts';
+import { reachItem } from '@wick/agent';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { signJwt } from '../../../../edge-device/lambda/jwt.mjs';
-import { createMemoryTable, type MemoryTable } from '../../__tests__/memoryTable.js';
+import { createMemoryTable } from '../../__tests__/memoryTable.js';
 import { LOOK_EVERY_MS } from '../../tools/lookIn.js';
-import { createFamilyTelevision, type FamilyTelevisionDeps } from '../familyTelevision.js';
-import type { AccountStore } from '../store.js';
-import type { Membership } from '../types.js';
+import { createFamilyTelevision } from '../familyTelevision.js';
 import { createMemoryStore } from './memoryStore.js';
+import {
+  HOUR,
+  MIN,
+  NOW,
+  PAIRING,
+  PICTURE,
+  REACH_ID,
+  SARAHS_TV,
+  STRANGER,
+  b64,
+  bearer,
+  david,
+  homeOf,
+  householdRequests,
+  keepsRhythmPrivate,
+  litToday,
+  lookInRow,
+  lookRow,
+  member,
+  putDoorCard,
+  putFamilyTv,
+  putLook,
+  putPublicKey,
+  reach,
+  sarah,
+  storedReach,
+  token,
+  world,
+  type World,
+} from './familyTvWorld.js';
 
-/** Monday 12 October 2026, 10:30 in London (BST). */
-const NOW = Date.UTC(2026, 9, 12, 9, 30);
-const MIN = 60_000;
-const HOUR = 60 * MIN;
-const PICTURE = 'https://download.example/ring/frame.jpg?sig=abc';
-
-const pem = () => generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } });
-/** The pairing key, as the edge holds it (Secrets Manager) and publishes its public half. */
-const PAIRING = pem();
-/** Somebody else's key: a token signed with it is nobody's. */
-const STRANGER = pem();
-
-const b64 = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString('base64url');
-
-const SARAHS_TV = { deviceId: 'tv-sarah', householdId: 'hh-1', kind: 'family', userId: 'u_sarah' };
-
-/**
- * A token as jwt.mjs's signJwt makes one, with every part open to being
- * made wrong: the header, when it expires, and what it is signed with.
- */
-function token(
-  claims: Record<string, unknown> = SARAHS_TV,
-  made: { header?: Record<string, unknown>; exp?: unknown; signedWith?: string; signature?: 'rsa' | 'hmac-of-public-key' | 'none' } = {},
-): string {
-  const iat = Math.floor(NOW / 1000) - 60;
-  const payload = { ...claims, iat, ...(made.exp === null ? {} : { exp: made.exp ?? iat + 3600 }) };
-  const signingInput = `${b64(made.header ?? { alg: 'RS256', typ: 'JWT' })}.${b64(payload)}`;
-  const signature =
-    made.signature === 'none'
-      ? ''
-      : made.signature === 'hmac-of-public-key'
-        ? createHmac('sha256', PAIRING.publicKey).update(signingInput).digest('base64url')
-        : createSign('RSA-SHA256').update(signingInput).sign(made.signedWith ?? PAIRING.privateKey).toString('base64url');
-  return `${signingInput}.${signature}`;
-}
-
-const bearer = (jwt: string = token()): string => `Bearer ${jwt}`;
-
-interface TableRequest {
-  readonly command: string;
-  readonly pk: string;
-  readonly sk: string;
-  readonly consistent: boolean;
-}
-
-interface World {
-  readonly table: MemoryTable;
-  readonly store: AccountStore;
-  readonly tv: ReturnType<typeof createFamilyTelevision>;
-  /** Every request made of the table, in order. */
-  readonly requests: TableRequest[];
-  /** Every call made of the account store, by name. */
-  readonly storeCalls: string[];
-  readonly patches: { patch: CardPatch; householdId: string }[];
-  readonly cards: QueuedCard[];
-  readonly homes: { householdId: string; home: HomeState }[];
-  /** Something to do just before the table carries out a request (a race, a fault). */
-  before(hook: (request: TableRequest) => void): void;
-  clock: number;
-}
-
-const member = (over: Partial<Membership> = {}): Membership => ({
-  householdId: 'hh-1',
-  userId: 'u_sarah',
-  name: 'Sarah Hughes',
-  role: 'organiser',
-  status: 'allowed',
-  requestedAt: 1,
-  ...over,
-});
-
-/** The row pair-claim.mjs writes for a family member's own television. */
-function putFamilyTv(table: MemoryTable, over: { householdId?: string; deviceId?: string; userId?: string; denylisted?: boolean } = {}): void {
-  const householdId = over.householdId ?? 'hh-1';
-  const deviceId = over.deviceId ?? 'tv-sarah';
-  table.put({
-    pk: { S: `HH#${householdId}` },
-    sk: { S: `FTV#${deviceId}` },
-    deviceId: { S: deviceId },
-    householdId: { S: householdId },
-    userId: { S: over.userId ?? 'u_sarah' },
-    pairedAt: { N: String(NOW - HOUR) },
-    denylisted: { BOOL: over.denylisted ?? false },
-  });
-}
-
-const putPublicKey = (table: MemoryTable, publicKeyPem: string = PAIRING.publicKey): void =>
-  table.put({ pk: { S: PAIRING_PUBLIC_KEY_ROW.pk }, sk: { S: PAIRING_PUBLIC_KEY_ROW.sk }, publicKeyPem: { S: publicKeyPem } });
-
-/**
- * Margaret's home (hh-1) with Sarah allowed and her television connected,
- * and a second home (hh-2, Edith's) that nothing here may ever reach.
- */
-async function world(options: { publicKey?: boolean; familyTv?: boolean; sarah?: Partial<Membership>; simulated?: boolean } = {}): Promise<World> {
-  const table = createMemoryTable();
-  const requests: TableRequest[] = [];
-  const hooks: ((request: TableRequest) => void)[] = [];
-  const ddb = {
-    send: async (command: { constructor: { name: string }; input: { Key?: Record<string, AttributeValue>; Item?: Record<string, AttributeValue>; ExpressionAttributeValues?: Record<string, AttributeValue>; ConsistentRead?: boolean } }) => {
-      const { input } = command;
-      const request: TableRequest = {
-        command: command.constructor.name,
-        pk: input.Key?.pk?.S ?? input.Item?.pk?.S ?? input.ExpressionAttributeValues?.[':pk']?.S ?? '',
-        sk: input.Key?.sk?.S ?? input.Item?.sk?.S ?? input.ExpressionAttributeValues?.[':prefix']?.S ?? '',
-        consistent: input.ConsistentRead === true,
-      };
-      requests.push(request);
-      for (const hook of hooks) hook(request);
-      return (table.ddb as unknown as { send: (c: unknown) => Promise<unknown> }).send(command);
-    },
-  } as unknown as DynamoDBClient;
-
-  const memory = createMemoryStore();
-  const storeCalls: string[] = [];
-  const store = new Proxy(memory, {
-    get(target, property, receiver) {
-      const value: unknown = Reflect.get(target, property, receiver);
-      if (typeof value !== 'function') return value;
-      return (...args: unknown[]) => {
-        storeCalls.push(String(property));
-        return (value as (...a: unknown[]) => unknown).apply(target, args);
-      };
-    },
-  }) as AccountStore;
-
-  await memory.createHousehold({ householdId: 'hh-1', name: 'Mum’s house', residentName: 'Margaret', createdBy: 'u_sarah', createdAt: 1, ...(options.simulated ? { simulated: true } : {}) });
-  await memory.putMembership(member(options.sarah));
-  await memory.createHousehold({ householdId: 'hh-2', name: 'Edith’s home', residentName: 'Edith', createdBy: 'u_tom', createdAt: 1 });
-  await memory.putMembership(member({ householdId: 'hh-2', userId: 'u_tom', name: 'Tom' }));
-
-  if (options.publicKey !== false) putPublicKey(table);
-  if (options.familyTv !== false) putFamilyTv(table);
-
-  const patches: World['patches'] = [];
-  const cards: QueuedCard[] = [];
-  const homes: World['homes'] = [];
-  const w: World = {
-    table,
-    store,
-    requests,
-    storeCalls,
-    patches,
-    cards,
-    homes,
-    before: (hook) => void hooks.push(hook),
-    clock: NOW,
-    tv: undefined as never,
-  };
-  const deps: FamilyTelevisionDeps = {
-    ddb,
-    store,
-    sendCard: async (card) => void cards.push(card),
-    sendPatch: async (patch, householdId) => void patches.push({ patch, householdId }),
-    sendHome: async (householdId, home) => void homes.push({ householdId, home }),
-    now: () => w.clock,
-  };
-  (w as { tv: World['tv'] }).tv = createFamilyTelevision(deps);
-  return w;
-}
-
-/** A door card on the resident's television, as egress.ts stores it. */
-function putDoorCard(table: MemoryTable, cardId: string, over: { description?: string; imageRef?: string } = {}, expiresAt = NOW + 4 * MIN, householdId = 'hh-1'): void {
-  table.put({
-    pk: { S: `HH#${householdId}` },
-    sk: { S: `CARD#${cardId}` },
-    data: {
-      S: JSON.stringify({
-        id: cardId,
-        urgency: 'DOOR',
-        queuedAt: NOW - MIN,
-        expiresAt,
-        shownCount: 0,
-        card: { type: 'DOOR', id: cardId, householdId, line: "Someone's at the front door.", actions: [], ...over },
-      }),
-    },
-  });
-}
-
-/** The row askFamily.ts writes when the resident presses "Ask … to look". */
-function putLook(table: MemoryTable, cardId: string, askedAt: number, over: Record<string, AttributeValue> = {}, householdId = 'hh-1'): void {
-  table.put({
-    pk: { S: `HH#${householdId}` },
-    sk: { S: `LOOK#${cardId}` },
-    cardId: { S: cardId },
-    askedAt: { N: String(askedAt) },
-    ...over,
-  });
-}
-
-const lookRow = (table: MemoryTable, cardId: string, householdId = 'hh-1') => table.rows(`HH#${householdId}`).find((row) => row.sk?.S === `LOOK#${cardId}`);
-
-const REACH_ID = String(NOW - 2 * MIN);
-const sarah: ReachPerson = { userId: 'u_sarah', name: 'Sarah Hughes', role: 'organiser' };
-const david: ReachPerson = { userId: 'u_david', name: 'David', role: 'family' };
-
-const reach = (over: Partial<ReachRequest> = {}): ReachRequest => ({
-  householdId: 'hh-1',
-  reachId: REACH_ID,
-  kind: 'ring',
-  askedAt: NOW - 2 * MIN,
-  order: [sarah, david],
-  asked: 1,
-  ...over,
-});
-
-const storedReach = (table: MemoryTable, householdId = 'hh-1'): ReachRequest | undefined =>
-  reachFromItem(table.rows(`HH#${householdId}`).find((row) => row.sk?.S === `REACH#${REACH_ID}`));
-
-/** A television of Margaret's that has been in use today: her light is lit. */
-const litToday = (table: MemoryTable): void => table.put({ pk: { S: 'HH#hh-1' }, sk: { S: 'DEV#wick-tv' }, activeSignalAt: { N: String(NOW - HOUR) } });
-
-const keepsRhythmPrivate = (table: MemoryTable): void => table.put({ pk: { S: 'HH#hh-1' }, sk: { S: 'META' }, residentExclusions: { SS: ['RHYTHM'] } });
-
-const lookInRow = (table: MemoryTable) => table.rows('HH#hh-1').find((row) => row.sk?.S === 'LOOKIN#u_sarah');
-
-const homeOf = async (w: World, authorization: string = bearer()): Promise<FamilyTvHome> => {
-  const reply = await w.tv.home(authorization);
-  expect(reply.status).toBe(200);
-  return reply.body as FamilyTvHome;
-};
-
-/** The household rows asked for: everything but the published key. */
-const householdRequests = (w: World): TableRequest[] => w.requests.filter((r) => r.pk !== PAIRING_PUBLIC_KEY_ROW.pk);
 
 describe('who a family television is — the token', () => {
   it('answers the television of a member the resident has allowed', async () => {
@@ -640,6 +433,7 @@ describe('GET /tv/home', () => {
       memberName: 'Sarah',
       light: { lit: false, line: 'The light isn’t on at Margaret’s. It may not be lit yet today, or Margaret may have put it out.' },
       cards: [],
+      wave: { label: 'Wave to Margaret', cardId: 'ftv-wave-new' },
     });
   });
 
@@ -735,6 +529,7 @@ describe('GET /tv/home', () => {
         store,
         sendCard: async () => {},
         sendPatch: async () => {},
+        withdrawCard: async () => {},
         sendHome: async () => {
           throw new Error('television is off');
         },
@@ -751,7 +546,7 @@ describe('GET /tv/home', () => {
       const store = createMemoryStore();
       await store.createHousehold({ householdId: 'hh-1', name: 'Mum’s house', residentName: 'Margaret', createdBy: 'u_sarah', createdAt: 1 });
       await store.putMembership(member());
-      const tv = createFamilyTelevision({ ddb: table.ddb, store, sendCard: async () => {}, sendPatch: async () => {}, now: () => NOW });
+      const tv = createFamilyTelevision({ ddb: table.ddb, store, sendCard: async () => {}, sendPatch: async () => {}, withdrawCard: async () => {}, now: () => NOW });
 
       expect((await tv.home(bearer())).status).toBe(200);
       expect(lookInRow(table)).toMatchObject({ name: { S: 'Sarah' } });
@@ -943,7 +738,20 @@ describe('GET /tv/home', () => {
     expect(made.filter((r) => r.command !== 'GetItemCommand' && r.command !== 'QueryCommand')).toEqual([
       { command: 'UpdateItemCommand', pk: 'HH#hh-1', sk: 'LOOKIN#u_sarah', consistent: false },
     ]);
-    expect(made.length).toBeLessThanOrEqual(8);
+    // The television's own row; what she shares; the look and her light; the door and its card; her weeks; her asking; the films; the wave.
+    expect(made.map((r) => `${r.command.replace('Command', '')} ${r.sk}`).sort()).toEqual([
+      'GetItem CARD#door-abc',
+      'GetItem FTV#tv-sarah',
+      'GetItem LIGHT',
+      'GetItem META',
+      'GetItem WAVE#u_sarah',
+      'Query DEV#',
+      'Query LOOK#',
+      'Query NARR#',
+      'Query REACH#',
+      'Query WATCH#',
+      'UpdateItem LOOKIN#u_sarah',
+    ]);
   });
 });
 

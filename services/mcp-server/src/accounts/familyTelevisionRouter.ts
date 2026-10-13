@@ -1,15 +1,21 @@
 /**
- * /tv — the two things a family member's own television asks of the Wick
- * server (accounts/familyTelevision.ts decides both; this only carries them).
+ * /tv — what a family member's own television asks of the Wick server
+ * (accounts/familyTelevision.ts decides all of it; this only carries it).
  *
- *   GET  /tv/home    everything the television shows   → FamilyTvHome
- *   POST /tv/press   a press on one of its cards        → FamilyTvPressResult
+ *   GET  /tv/home      everything the television shows       → FamilyTvHome
+ *   POST /tv/press     a press on one of its cards           → FamilyTvPressResult
+ *   GET  /tv/seat      the seat beside her film, if any      → FamilyTvSeatReply
+ *   GET  /tv/waiting   what waits while its app is off screen → FamilyTvWaiting
  *
  * Authenticated by the television's own device token and by nothing else:
- * not by a person's access token, so `requireAuth` is not used here. INV-8:
- * what is handed on is the Authorization header and, for a press, the JSON
- * body, of which only a card id and an answer's key are ever read. No path
- * segment, query or other header reaches the logic at all.
+ * not by a person's access token, so `requireAuth` is not used here. The
+ * last route also takes the narrower token the television's background
+ * service holds (`scope: 'waiting'`), which the other three refuse.
+ *
+ * INV-8: what is handed on is the Authorization header and, for a press,
+ * the JSON body, of which only a card id and an answer's key are ever read.
+ * No path segment, query or other header reaches the logic at all — the
+ * three GETs are handed the header and nothing more.
  *
  * A television is a native app, but the virtual television is a browser tab
  * on another origin (apps/ops-console), and it sends an `authorization`
@@ -42,9 +48,11 @@ export function createFamilyTelevisionRouter(deps: FamilyTelevisionDeps): expres
       }
     };
 
-  router.options(['/tv/home', '/tv/press'], tvCors);
+  router.options(['/tv/home', '/tv/press', '/tv/seat', '/tv/waiting'], tvCors);
   router.get('/tv/home', tvCors, answer((req) => television.home(req.headers.authorization)));
   router.post('/tv/press', tvCors, answer((req) => television.press(req.headers.authorization, req.body as unknown)));
+  router.get('/tv/seat', tvCors, answer((req) => television.seat(req.headers.authorization)));
+  router.get('/tv/waiting', tvCors, answer((req) => television.waiting(req.headers.authorization)));
 
   return router;
 }
