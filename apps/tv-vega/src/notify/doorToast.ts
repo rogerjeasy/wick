@@ -74,6 +74,27 @@ export function notificationBytes(toast: ToastContent): number {
 }
 
 /**
+ * A toast of Wick's, in the one shape the platform draws (FL-022): a title,
+ * a line under it, an icon, and one button that brings Wick forward. Every
+ * toast Wick posts is made here, so the channel name and the launch target
+ * cannot drift between them (notify/waitingToast.ts is the other).
+ */
+export function wickToast(title: string, description: string, iconUri: string): ToastContent {
+  return {
+    mTitle: title,
+    mDescription: description,
+    mIconUri: iconUri,
+    mTimeout: TOAST_SECONDS,
+    mLaunchTargets: [{ appUri: WICK_APP_URI, title: 'Open Wick', iconUri: 'not_used' }],
+    mChannel: {
+      importance: { importance: 'NORMAL' },
+      kind: { kindDescriptor: TOAST_KIND },
+      name: 'MenuToastRenderTemplate',
+    },
+  };
+}
+
+/**
  * The toast for a door card that arrived while Wick was not on screen, or
  * nothing if the card should wait. Built from the card as it stands, so
  * the same card gives a fuller toast once its picture and description
@@ -82,18 +103,7 @@ export function notificationBytes(toast: ToastContent): number {
 export function doorToast(queued: QueuedCard): ToastContent | undefined {
   const card = queued.card;
   if (card.type !== 'DOOR') return undefined;
-  const withIcon = (icon: string): ToastContent => ({
-    mTitle: card.line,
-    mDescription: card.description ?? 'Open Wick to see who it is.',
-    mIconUri: icon,
-    mTimeout: TOAST_SECONDS,
-    mLaunchTargets: [{ appUri: WICK_APP_URI, title: 'Open Wick', iconUri: 'not_used' }],
-    mChannel: {
-      importance: { importance: 'NORMAL' },
-      kind: { kindDescriptor: TOAST_KIND },
-      name: 'MenuToastRenderTemplate',
-    },
-  });
+  const withIcon = (icon: string): ToastContent => wickToast(card.line, card.description ?? 'Open Wick to see who it is.', icon);
 
   if (card.imageRef?.startsWith('https://')) {
     const withPicture = withIcon(card.imageRef);

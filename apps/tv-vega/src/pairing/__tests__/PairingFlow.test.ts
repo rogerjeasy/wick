@@ -321,6 +321,121 @@ describe('PairingFlow', () => {
       });
     });
 
+    // What waits, said off the screen (Vega): the app cannot hand its
+    // background service anything on the television (FL-013), so it opens a
+    // short way for it at the pairing service, with its own token — and the
+    // service, with no token to show, says that it is the service
+    // (edge-device pair-refresh.mjs, the second contained exception).
+    describe('for the background service', () => {
+      const SCOPED = { ...FRESH, jwt: 'scoped-jwt', scope: 'waiting' } as DeviceToken;
+
+      it('the app opens the way with the token it holds, and keeps nothing of the answer', async () => {
+        const fs = await holding(EXPIRED);
+        const { asked, fetchImpl } = api([ok(FRESH)]);
+
+        await expect(flowOn(fs, fetchImpl).openServiceWindow('d1', 'in-memory-jwt')).resolves.toBeUndefined();
+        expect(asked).toEqual([{ url: 'https://pair.example/pair/refresh', authorization: 'Bearer in-memory-jwt', body: { deviceId: 'd1', forService: true } }]);
+        // Not a refresh of its own token: what is on disk stays as it was.
+        expect(JSON.parse(await fs.readFileAsString(TOKEN_FILE, 'utf8'))).toEqual(EXPIRED);
+      });
+
+      it('never throws and never forgets the token, whatever the pairing service answers', async () => {
+        for (const answer of [new Response('invalid_token', { status: 401 }), new Response('refresh_rate_limited', { status: 429 }), new TypeError('Network request failed')]) {
+          const fs = await holding(EXPIRED);
+          const { fetchImpl } = api([answer]);
+
+          await expect(flowOn(fs, fetchImpl).openServiceWindow('d1', 'held-jwt')).resolves.toBeUndefined();
+          expect(JSON.parse(await fs.readFileAsString(TOKEN_FILE, 'utf8'))).toEqual(EXPIRED);
+        }
+      });
+
+      it('the service, with no token to show, says it is the service', async () => {
+        const { asked, fetchImpl } = api([ok(SCOPED)]);
+
+        expect(await flowOn(await holding(undefined), fetchImpl).loadToken('d1', { asService: true })).toEqual(SCOPED);
+        expect(asked).toEqual([{ url: 'https://pair.example/pair/refresh', authorization: undefined, body: { deviceId: 'd1', forService: true } }]);
+      });
+
+      it('says so again each time it waits out a "too soon"', async () => {
+        const { asked, fetchImpl } = api([new Response('refresh_rate_limited', { status: 429 }), ok(SCOPED)]);
+        const flow = flowOn(await holding(undefined), fetchImpl, async () => undefined);
+
+        expect(await flow.loadToken('d1', { asService: true, waitIfRefreshedJustNow: true })).toEqual(SCOPED);
+        expect(asked.map((a) => a.body)).toEqual([{ deviceId: 'd1', forService: true }, { deviceId: 'd1', forService: true }]);
+      });
+
+      it('never writes the narrow token down: it must not be found where the app keeps its own', async () => {
+        const fs = await holding(undefined);
+        const { fetchImpl } = api([ok(SCOPED)]);
+
+        await flowOn(fs, fetchImpl).loadToken('d1', { asService: true });
+
+        expect(await fs.exists(TOKEN_FILE)).toBe(false);
+      });
+
+      it('where the disk holds a token, the service shows it like anyone — and opens no way of its own', async () => {
+        const { asked, fetchImpl } = api([ok(FRESH)]);
+
+        await flowOn(await holding(EXPIRED), fetchImpl).loadToken('d1', { asService: true });
+
+        expect(asked).toEqual([{ url: 'https://pair.example/pair/refresh', authorization: 'Bearer held-jwt', body: { deviceId: 'd1' } }]);
+      });
+
+      it('tells the service why it was given nothing, so "not now" is not taken for "never"', async () => {
+        const refusals: number[] = [];
+        const { fetchImpl } = api([new Response('token_required', { status: 401 })]);
+
+        expect(await flowOn(await holding(undefined), fetchImpl).loadToken('d1', { asService: true, onRefusal: (status) => void refusals.push(status) })).toBeNull();
+        expect(refusals).toEqual([401]);
+
+        const fine = api([ok(SCOPED)]);
+        await flowOn(await holding(undefined), fine.fetchImpl).loadToken('d1', { asService: true, onRefusal: (status) => void refusals.push(status) });
+        expect(refusals).toEqual([401]);
+      });
+
+      it('knocks: one ask without a token, as the service, with the disk left alone', async () => {
+        const fs = await holding(EXPIRED);
+        const { asked, fetchImpl } = api([ok(SCOPED)]);
+
+        expect(await flowOn(fs, fetchImpl).claimForService('d1')).toEqual({ token: SCOPED });
+        expect(asked).toEqual([{ url: 'https://pair.example/pair/refresh', authorization: undefined, body: { deviceId: 'd1', forService: true } }]);
+        expect(JSON.parse(await fs.readFileAsString(TOKEN_FILE, 'utf8'))).toEqual(EXPIRED);
+      });
+
+      it('tells a way not open from a television no longer connected, and both from "not now"', async () => {
+        const knock = async (answer: Response | Error) => flowOn(await holding(undefined), api([answer]).fetchImpl).claimForService('d1');
+
+        expect(await knock(new Response('token_required', { status: 401 }))).toBe('no_way');
+        expect(await knock(new Response('device_not_paired', { status: 404 }))).toBe('not_paired');
+        expect(await knock(new Response('device_denylisted', { status: 403 }))).toBe('not_paired');
+        expect(await knock(new Response('refresh_rate_limited', { status: 429 }))).toBe('try_later');
+        expect(await knock(new Response('oops', { status: 500 }))).toBe('try_later');
+        expect(await knock(new TypeError('Network request failed'))).toBe('try_later');
+        expect(await knock(new Response('not json', { status: 200 }))).toBe('try_later');
+      });
+
+      it('renews without touching the disk when told to remember nothing: neither the fresh token nor a refusal', async () => {
+        const kept = await holding(EXPIRED);
+        const renewed = api([ok(SCOPED)]);
+        expect(await flowOn(kept, renewed.fetchImpl).renew('d1', 'scoped-jwt', { remember: false })).toEqual({ token: SCOPED });
+        expect(renewed.asked).toEqual([{ url: 'https://pair.example/pair/refresh', authorization: 'Bearer scoped-jwt', body: { deviceId: 'd1' } }]);
+        expect(JSON.parse(await kept.readFileAsString(TOKEN_FILE, 'utf8'))).toEqual(EXPIRED);
+
+        const refused = api([new Response('invalid_token', { status: 401 })]);
+        expect(await flowOn(kept, refused.fetchImpl).renew('d1', 'scoped-jwt', { remember: false })).toBe('not_connected');
+        expect(JSON.parse(await kept.readFileAsString(TOKEN_FILE, 'utf8'))).toEqual(EXPIRED);
+      });
+
+      it('does not write a narrow token down even when asked to remember', async () => {
+        const fs = await holding(EXPIRED);
+        const { fetchImpl } = api([ok(SCOPED)]);
+
+        await flowOn(fs, fetchImpl).renew('d1', 'scoped-jwt');
+
+        expect(JSON.parse(await fs.readFileAsString(TOKEN_FILE, 'utf8'))).toEqual(EXPIRED);
+      });
+    });
+
     describe('renew, on screen', () => {
       it('shows the token the television is holding in memory — the one just refused — whatever the disk holds', async () => {
         const { asked, fetchImpl } = api([ok(FRESH)]);

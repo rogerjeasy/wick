@@ -16,6 +16,10 @@
  *
  * FL-014, resolved: nothing starts this process by itself. App.tsx starts
  * it, by its `pkg://` URI, once the television is paired (FL-022).
+ *
+ * On a family member's own television it holds no connection at all:
+ * nothing of the resident's is sent to one. It asks the Wick server what
+ * waits for that member and says so in a toast (headless/waitingService.ts).
  */
 import type { DeviceChannel } from '@wick/contracts';
 import { createDeviceChannel, type DeviceChannelConfig } from '../transport/createDeviceChannel.js';
@@ -25,7 +29,9 @@ import { QueueStore, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
 import { resolveDeviceId } from '../deviceId.js';
+import { createFamilyClient, type Renewed } from '../family/familyClient.js';
 import { televisionMode } from '../family/mode.js';
+import { runWaitingService, type Claimed } from './waitingService.js';
 
 interface TestDeps {
   readonly fs: FileSystemLike;
@@ -46,7 +52,12 @@ export function __setCardServiceTestDeps(deps: TestDeps | null): void {
 
 const START_BUDGET_MS = 3000;
 
-let running: RunningCardChannel | undefined;
+/** What this process holds: the resident's background connection, or a family television's asking. */
+let running: Pick<RunningCardChannel, 'stop'> | undefined;
+/** What a family television has already been told is waiting, for the life of this process — a stop and a start do not make it news again. */
+const saidWaiting = new Set<string>();
+/** The pairing service's "a token is required": this is a family member's television, and the way for its service is not open. */
+const TOKEN_REQUIRED = 401;
 /** Counts starts and stops, so a start that was still waiting for its token knows it was overtaken. */
 let starts = 0;
 
@@ -78,16 +89,54 @@ export async function onStartCardService(): Promise<void> {
   const announce = testDeps?.postToast ?? postToast;
   let late = false;
   const holding = (async () => {
-    const token = await pairing.loadToken(await resolveDeviceId(fs), { waitIfRefreshedJustNow: true });
-    if (!token) return; // genuinely unpaired — App.tsx shows the pairing screen; nothing to hold open yet
-    // A family member's own television has no card channel: nothing of the
-    // resident's is sent to it. The app never starts this service for one
-    // (App.tsx); if anything else does, it still holds nothing.
-    if (televisionMode(token) !== 'resident') return;
+    const deviceId = await resolveDeviceId(fs);
+    let refusal: number | undefined;
+    // With no token to show, the request says it is the service: a family
+    // television's is then handed the one narrow token its app opened the
+    // way for (PairingFlow.openServiceWindow). The resident's is answered
+    // as it always was.
+    const token = await pairing.loadToken(deviceId, {
+      waitIfRefreshedJustNow: true,
+      asService: true,
+      onRefusal: (status) => {
+        refusal = status;
+      },
+    });
     if (starting !== starts) return; // stopped, or started again, while waiting
-    running = holdCardChannel(store, token, createChannel, config, (card) => {
-      const toast = doorToast(card);
-      if (toast) void announce(toast);
+    if (token && televisionMode(token) === 'resident') {
+      running = holdCardChannel(store, token, createChannel, config, (card) => {
+        const toast = doorToast(card);
+        if (toast) void announce(toast);
+      });
+      return;
+    }
+    // Genuinely unpaired — App.tsx shows the pairing screen; nothing to hold
+    // open, and nothing to wait for. Only "a token is required" says this
+    // is a family television whose way is not open yet: that is waited for.
+    if (!token && refusal !== TOKEN_REQUIRED) return;
+
+    // A family member's own television has no card channel: nothing of the
+    // resident's is sent to it. It asks what waits, and says so.
+    running = runWaitingService(token ?? undefined, {
+      said: saidWaiting,
+      announce: (toast) => void announce(toast),
+      claim: async (): Promise<Claimed> => {
+        const claimed = await pairing.claimForService(deviceId);
+        // Only ever a family television's token is taken here; anything else is not this service's to use.
+        return typeof claimed === 'object' && televisionMode(claimed.token) !== 'family' ? 'not_paired' : claimed;
+      },
+      clientFor: (held) =>
+        createFamilyClient({
+          serverUrl: config.wickServerUrl,
+          jwt: held.jwt,
+          ...(testDeps?.fetchImpl ? { fetchImpl: testDeps.fetchImpl } : {}),
+          // The token in hand is the proof. Nothing is written down and nothing forgotten: the file on disk is the app's.
+          renew: async (heldJwt): Promise<Renewed> => {
+            const renewed = await pairing.renew(deviceId, heldJwt, { remember: false });
+            if (renewed === 'not_connected' || renewed === 'try_later') return renewed;
+            return televisionMode(renewed.token) === 'family' ? { jwt: renewed.token.jwt } : 'not_connected';
+          },
+        }),
     });
   })().catch((err: unknown) => {
     if (!late) throw err;
