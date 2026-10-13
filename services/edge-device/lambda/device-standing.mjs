@@ -24,3 +24,17 @@ export function deviceBindingKey(householdId, deviceId) {
 export function isServed(item) {
   return Boolean(item) && item.denylisted?.BOOL !== true;
 }
+
+/**
+ * Whether a verified token is the resident's television's: a television, a
+ * home, and no kind. A family member's own television carries
+ * `kind: 'family'` (family-television.mjs) and has no place on the
+ * resident's channel — where cards for her arrive and a press counts as
+ * hers. It has no DEV# row either, so `isServed` already refuses it; this
+ * is said as well, and first, so that nothing rests on a row being absent.
+ */
+export function isResidentsToken(claims) {
+  return Boolean(claims) && typeof claims.deviceId === 'string' && claims.deviceId !== ''
+    && typeof claims.householdId === 'string' && claims.householdId !== '' && claims.kind === undefined;
+}
+

@@ -12,6 +12,10 @@
  *   - A television that already belongs to another household is refused
  *     (device-owner.mjs).
  *
+ * With `as: 'family'` the television is connected as the signed-in member's
+ * own ("Sarah's television", family-television.mjs): any member the resident
+ * has allowed, a row of its own kind, and a token that says whose it is.
+ *
  * Binds deviceId <-> householdId, mints the device-bound JWT (§4.2 step 3),
  * and stores it on the pairing nonce for the TV's next poll to collect.
  *
@@ -22,12 +26,13 @@ import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } fro
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { signJwt } from './jwt.mjs';
 import { isExpired, DEVICE_TOKEN_TTL_SEC } from './pairing-code.mjs';
-import { accessTokenKey, bearerToken, grantFromItem, mayConnectTelevision, membershipKey } from './wick-auth.mjs';
+import { accessTokenKey, bearerToken, grantFromItem, mayConnectOwnTelevision, mayConnectTelevision, membershipKey } from './wick-auth.mjs';
+import { FAMILY_KIND, familyClaims, familyTelevisionKey, kindAskedFor, publicKeyItem } from './family-television.mjs';
 import { claimDeviceOwner } from './device-owner.mjs';
 
 const conditionFailed = (err) => err?.name === 'ConditionalCheckFailedException';
 
-export function createHandler({ send, privateKey, now, table }) {
+export function createHandler({ send, privateKey, publicKey, now, table }) {
   const get = async (Key, extra = {}) => (await send(new GetItemCommand({ TableName: table, Key, ...extra }))).Item;
 
   return async (event) => {
@@ -39,6 +44,9 @@ export function createHandler({ send, privateKey, now, table }) {
     }
     const { code } = body;
     if (!code) return { statusCode: 400, body: 'code_required' };
+    const kind = kindAskedFor(body.as);
+    if (kind === null) return { statusCode: 400, body: 'bad_kind' };
+    const asFamily = kind === FAMILY_KIND;
 
     const token = bearerToken(event.headers);
     if (!token) return { statusCode: 401, body: 'sign_in_required' };
@@ -47,7 +55,11 @@ export function createHandler({ send, privateKey, now, table }) {
     const { householdId, userId } = grant;
 
     const member = await get(membershipKey(householdId, userId), { ConsistentRead: true });
-    if (!mayConnectTelevision(member)) return { statusCode: 403, body: 'only_the_organiser_can_connect_a_television' };
+    if (asFamily) {
+      if (!mayConnectOwnTelevision(member)) return { statusCode: 403, body: 'not_allowed_yet' };
+    } else if (!mayConnectTelevision(member)) {
+      return { statusCode: 403, body: 'only_the_organiser_can_connect_a_television' };
+    }
 
     const item = await get({ pk: { S: `PAIR#${code}` }, sk: { S: 'META' } });
     if (!item) return { statusCode: 404, body: 'unknown_or_expired_code' };
@@ -55,6 +67,13 @@ export function createHandler({ send, privateKey, now, table }) {
     if (item.claimed?.BOOL) return { statusCode: 409, body: 'already_claimed' };
 
     const deviceId = item.deviceId.S;
+
+    // One television, one kind. The resident's is a DEV# row and a family
+    // member's own is an FTV# row; a television with both would be served
+    // as either. It has to be disconnected before it can be the other.
+    const residents = { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } };
+    if (asFamily && (await get(residents, { ConsistentRead: true }))) return { statusCode: 409, body: 'already_the_residents_television' };
+    if (!asFamily && (await get(familyTelevisionKey(householdId, deviceId), { ConsistentRead: true }))) return { statusCode: 409, body: 'already_a_family_television' };
 
     // A television belongs to one household. Claimed before anything else is
     // written, so a refusal here leaves no trace.
@@ -65,7 +84,7 @@ export function createHandler({ send, privateKey, now, table }) {
       return { statusCode: 409, body: 'television_in_another_home' };
     }
 
-    const jwt = signJwt({ deviceId, householdId }, await privateKey(), { expiresInSec: DEVICE_TOKEN_TTL_SEC });
+    const jwt = signJwt({ deviceId, householdId, ...(asFamily ? familyClaims(userId) : {}) }, await privateKey(), { expiresInSec: DEVICE_TOKEN_TTL_SEC });
     const tokenExpiresAt = now() + DEVICE_TOKEN_TTL_SEC * 1000;
 
     // Atomically claim the pairing code BEFORE writing the device binding.
@@ -83,7 +102,7 @@ export function createHandler({ send, privateKey, now, table }) {
         ExpressionAttributeValues: {
           ':true': { BOOL: true },
           ':false': { BOOL: false },
-          ':tok': { S: JSON.stringify({ jwt, deviceId, householdId, expiresAt: tokenExpiresAt }) },
+          ':tok': { S: JSON.stringify({ jwt, deviceId, householdId, expiresAt: tokenExpiresAt, ...(asFamily ? { kind: FAMILY_KIND } : {}) }) },
         },
       }));
     } catch (err) {
@@ -101,11 +120,14 @@ export function createHandler({ send, privateKey, now, table }) {
     // access. UpdateItem + if_not_exists only initializes `denylisted` to
     // false when the attribute is not already present; an existing `true`
     // survives untouched.
+    // A family television's row is of its own kind — never DEV#, which is
+    // what makes a television the resident's (family-television.mjs) — and
+    // says whose it is.
     await send(new UpdateItemCommand({
       TableName: table,
-      Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
+      Key: asFamily ? familyTelevisionKey(householdId, deviceId) : { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
       UpdateExpression:
-        'SET deviceId = :did, householdId = :hhid, pairedAt = :pa, pairedBy = :by, denylisted = if_not_exists(denylisted, :false)',
+        `SET deviceId = :did, householdId = :hhid, pairedAt = :pa, pairedBy = :by, denylisted = if_not_exists(denylisted, :false)${asFamily ? ', userId = :by' : ''}`,
       ExpressionAttributeValues: {
         ':did': { S: deviceId },
         ':hhid': { S: householdId },
@@ -115,24 +137,36 @@ export function createHandler({ send, privateKey, now, table }) {
       },
     }));
 
-    return { statusCode: 200, body: JSON.stringify({ ok: true, deviceId }) };
+    if (asFamily && publicKey) {
+      // So the Wick server can check this television's token (family-television.mjs). Never the reason a pairing fails.
+      try {
+        await send(new PutItemCommand({ TableName: table, Item: publicKeyItem(await publicKey()) }));
+      } catch (err) {
+        console.error('pairing_public_key_not_published', { err: err?.name });
+      }
+    }
+
+    return { statusCode: 200, body: JSON.stringify({ ok: true, deviceId, ...(asFamily ? { kind: FAMILY_KIND } : {}) }) };
   };
 }
 
 const ddb = new DynamoDBClient({});
 const sm = new SecretsManagerClient({});
 
-let cachedPrivateKey = null;
-async function privateKey() {
-  if (cachedPrivateKey) return cachedPrivateKey;
+let cachedKeys = null;
+async function keys() {
+  if (cachedKeys) return cachedKeys;
   const r = await sm.send(new GetSecretValueCommand({ SecretId: process.env.PAIRING_SIGNING_KEY_SECRET_ARN }));
-  cachedPrivateKey = JSON.parse(r.SecretString).privateKeyPem;
-  return cachedPrivateKey;
+  cachedKeys = JSON.parse(r.SecretString);
+  return cachedKeys;
 }
+const privateKey = async () => (await keys()).privateKeyPem;
+const publicKey = async () => (await keys()).publicKeyPem;
 
 export const handler = createHandler({
   send: (command) => ddb.send(command),
   privateKey,
+  publicKey,
   now: Date.now,
   table: process.env.TABLE_NAME,
 });

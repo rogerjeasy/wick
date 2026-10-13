@@ -4,7 +4,7 @@ import { GetItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { createHandler } from '../pair-refresh.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
-import { verifyJwt } from '../jwt.mjs';
+import { signJwt, verifyJwt } from '../jwt.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { REFRESH_MAX_PER_WINDOW, REFRESH_WINDOW_MS, nextRefreshWindow } from '../pairing-code.mjs';
 
@@ -131,5 +131,64 @@ describe('POST /pair/refresh', () => {
       expect(nextRefreshWindow({ refreshWindowAt: at, refreshCount: { N: String(REFRESH_MAX_PER_WINDOW) } }, NOW + 29_000)).toBeNull();
       expect(nextRefreshWindow({ refreshWindowAt: at, refreshCount: { N: String(REFRESH_MAX_PER_WINDOW) } }, NOW + REFRESH_WINDOW_MS)).toEqual({ at: NOW + REFRESH_WINDOW_MS, count: 1 });
     });
+  });
+});
+
+describe('POST /pair/refresh for a family television', () => {
+  const family = { 'DEV#tv-2|META': { householdId: { S: 'hh_1' } }, 'HH#hh_1|FTV#tv-2': { deviceId: { S: 'tv-2' }, userId: { S: 'u_sarah' } } };
+  const worldWithKey = (items: Record<string, Item>) => {
+    const send = async (command: { input: { Key: Item } }) => {
+      if (command instanceof GetItemCommand) return { Item: items[`${command.input.Key.pk!.S}|${command.input.Key.sk!.S}`] };
+      return {};
+    };
+    return createHandler({ send, privateKey: async () => privateKey, publicKey: async () => publicKey, now: () => NOW, table: 'wick' });
+  };
+  const held = (claims: object, expiresInSec = -3600) => signJwt(claims, privateKey, { expiresInSec });
+  const sarahs = { deviceId: 'tv-2', householdId: 'hh_1', kind: 'family', userId: 'u_sarah' };
+  const withToken = (o: unknown, jwt?: string) => ({ body: JSON.stringify(o), headers: jwt ? { authorization: `Bearer ${jwt}` } : {} });
+
+  it('mints its token again when it shows the one it held — even one that has run out', async () => {
+    const res = await worldWithKey(family)(withToken({ deviceId: 'tv-2' }, held(sarahs)));
+
+    expect(res.statusCode).toBe(200);
+    const { token } = JSON.parse(res.body) as { token: { jwt: string; kind?: string; householdId: string } };
+    expect(token).toMatchObject({ kind: 'family', householdId: 'hh_1' });
+    expect(verifyJwt(token.jwt, publicKey)).toMatchObject(sarahs);
+  });
+
+  it('never from the device id alone: a family television sees one person’s view of a home, and an id can be guessed', async () => {
+    const res = await worldWithKey(family)(withToken({ deviceId: 'tv-2' }));
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toBe('token_required');
+  });
+
+  it('refuses a token that is not this television’s, not this member’s, not a family one, or not Wick’s', async () => {
+    const stranger = generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } });
+    const wrong = [
+      held({ ...sarahs, deviceId: 'tv-3' }),
+      held({ ...sarahs, householdId: 'hh_2' }),
+      held({ ...sarahs, userId: 'u_dan' }),
+      held({ deviceId: 'tv-2', householdId: 'hh_1' }),
+      signJwt(sarahs, stranger.privateKey, { expiresInSec: 600 }),
+      'not.a.token',
+    ];
+    for (const jwt of wrong) {
+      expect((await worldWithKey(family)(withToken({ deviceId: 'tv-2' }, jwt))).statusCode).toBe(401);
+    }
+  });
+
+  it('never makes the resident’s television a family one, and asks the resident’s for nothing new', async () => {
+    const res = await worldWithKey({ 'DEV#tv-1|META': { householdId: { S: 'hh_1' } }, 'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' } } })(withToken({ deviceId: 'tv-1', kind: 'family' }));
+    expect(res.statusCode).toBe(200);
+    const { token } = JSON.parse(res.body) as { token: { jwt: string; kind?: string } };
+    expect(token.kind).toBeUndefined();
+    expect(verifyJwt(token.jwt, publicKey).kind).toBeUndefined();
+  });
+
+  it('refuses one that has been revoked, or whose row does not say whose it is', async () => {
+    const revoked = { ...family, 'HH#hh_1|FTV#tv-2': { deviceId: { S: 'tv-2' }, userId: { S: 'u_sarah' }, denylisted: { BOOL: true } } };
+    expect((await worldWithKey(revoked)(withToken({ deviceId: 'tv-2' }, held(sarahs)))).statusCode).toBe(403);
+    const nobody = { ...family, 'HH#hh_1|FTV#tv-2': { deviceId: { S: 'tv-2' } } };
+    expect((await worldWithKey(nobody)(withToken({ deviceId: 'tv-2' }, held(sarahs)))).statusCode).toBe(404);
   });
 });

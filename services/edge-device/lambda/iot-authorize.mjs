@@ -13,7 +13,7 @@
 import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { verifyJwt } from './jwt.mjs';
-import { deviceBindingKey, isServed } from './device-standing.mjs';
+import { deviceBindingKey, isResidentsToken, isServed } from './device-standing.mjs';
 import { DENIED, SAFE_DEVICE_ID, allowed, placeOf, tokenFrom } from './iot-policy.mjs';
 
 const ddb = new DynamoDBClient({});
@@ -39,6 +39,8 @@ export const handler = async (event, context) => {
   } catch {
     return DENIED;
   }
+  // The resident's channel is for the resident's television (device-standing.mjs).
+  if (!isResidentsToken(claims)) return DENIED;
   const { deviceId, householdId, exp } = claims;
   if (typeof deviceId !== 'string' || !SAFE_DEVICE_ID.test(deviceId) || typeof householdId !== 'string') return DENIED;
 

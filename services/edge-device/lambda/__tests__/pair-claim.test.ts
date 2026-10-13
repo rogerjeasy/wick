@@ -126,3 +126,102 @@ describe('POST /pair/claim', () => {
     expect((await world({ 'PAIR#123456|META': { ...pairingCode, claimed: { BOOL: true } } }).handler(event({ code: '123456' }))).statusCode).toBe(409);
   });
 });
+
+describe('POST /pair/claim as a family television — "this one is mine"', () => {
+  const asFamily = (over: Record<string, Item | undefined> = {}, failing: string[] = []) =>
+    world({ 'HH#hh_1|MEM#u_sarah': member('family', 'allowed'), ...over }, failing);
+  const writeTo = (writes: Command[], key: string) =>
+    writes.find((w) => keyOf(((w.input as { Item?: Item }).Item ?? (w.input as { Key?: Item }).Key) as Item) === key);
+
+  it('connects it as the television of the member who is signed in — not as the resident’s', async () => {
+    const { handler, writes } = asFamily();
+
+    const res = await handler(event({ code: '123456', as: 'family' }));
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ ok: true, deviceId: 'tv-1', kind: 'family' });
+    // Never a DEV# row: that is what every card for the resident, and every press that counts as hers, is keyed on.
+    expect(writeTo(writes, 'HH#hh_1|DEV#tv-1')).toBeUndefined();
+    const row = writeTo(writes, 'HH#hh_1|FTV#tv-1') as UpdateItemCommand;
+    expect(row.input.ExpressionAttributeValues).toMatchObject({ ':did': { S: 'tv-1' }, ':hhid': { S: 'hh_1' }, ':by': { S: 'u_sarah' } });
+  });
+
+  it('gives it a token that says whose it is, and that it is a family television', async () => {
+    const { handler, writes } = asFamily();
+    await handler(event({ code: '123456', as: 'family' }));
+
+    const claim = writeTo(writes, 'PAIR#123456|META') as UpdateItemCommand;
+    const delivered = JSON.parse(claim.input.ExpressionAttributeValues![':tok']!.S!) as { jwt: string; kind: string; householdId: string };
+    expect(delivered).toMatchObject({ kind: 'family', householdId: 'hh_1', deviceId: 'tv-1' });
+    expect(verifyJwt(delivered.jwt, publicKey)).toMatchObject({ deviceId: 'tv-1', householdId: 'hh_1', kind: 'family', userId: 'u_sarah' });
+  });
+
+  it('is for someone the resident has allowed: not for a person still waiting, turned down or removed', async () => {
+    for (const status of ['pending', 'declined', 'removed']) {
+      const { handler, writes } = asFamily({ 'HH#hh_1|MEM#u_sarah': member('family', status) });
+      const res = await handler(event({ code: '123456', as: 'family' }));
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toBe('not_allowed_yet');
+      expect(writes).toEqual([]);
+    }
+  });
+
+  it('is not for a neighbour: a neighbour is asked things, and has no television of the house', async () => {
+    const { handler, writes } = asFamily({ 'HH#hh_1|MEM#u_sarah': member('neighbour', 'allowed') });
+    expect((await handler(event({ code: '123456', as: 'family' }))).statusCode).toBe(403);
+    expect(writes).toEqual([]);
+  });
+
+  it('lets the organiser connect a television of their own too, once allowed', async () => {
+    const { handler } = asFamily({ 'HH#hh_1|MEM#u_sarah': member('organiser', 'allowed') });
+    expect((await handler(event({ code: '123456', as: 'family' }))).statusCode).toBe(200);
+  });
+
+  it('still belongs to one home only', async () => {
+    const { handler, writes } = asFamily({}, ['DEV#tv-1|META']);
+    const res = await handler(event({ code: '123456', as: 'family' }));
+    expect(res.statusCode).toBe(409);
+    expect(writeTo(writes, 'HH#hh_1|FTV#tv-1')).toBeUndefined();
+  });
+
+  it('publishes the key a family television’s token is checked with, so the Wick server can check it', async () => {
+    const world_ = asFamily();
+    const handler = createHandler({ send: world_.send, privateKey: async () => privateKey, publicKey: async () => publicKey, now: () => NOW, table: 'wick' });
+    await handler(event({ code: '123456', as: 'family' }));
+    const published = writeTo(world_.writes, 'CONFIG#pairing|PUBLIC_KEY') as PutItemCommand;
+    expect(published.input.Item).toMatchObject({ publicKeyPem: { S: publicKey } });
+  });
+
+  it('refuses a kind it has not heard of, and leaves the resident’s way exactly as it was', async () => {
+    const odd = asFamily();
+    expect((await odd.handler(event({ code: '123456', as: 'admin' }))).statusCode).toBe(400);
+    expect(odd.writes).toEqual([]);
+
+    // No `as`: the resident's television, the organiser's to connect, a DEV# row, and no kind in the token.
+    const { handler, writes } = world();
+    expect(JSON.parse((await handler(event({ code: '123456' }))).body)).toEqual({ ok: true, deviceId: 'tv-1' });
+    expect(writeTo(writes, 'HH#hh_1|DEV#tv-1')).toBeDefined();
+    const delivered = JSON.parse((writeTo(writes, 'PAIR#123456|META') as UpdateItemCommand).input.ExpressionAttributeValues![':tok']!.S!) as { jwt: string; kind?: string };
+    expect(delivered.kind).toBeUndefined();
+    expect(verifyJwt(delivered.jwt, publicKey).kind).toBeUndefined();
+  });
+});
+
+describe('POST /pair/claim — one television, one kind', () => {
+  it('will not make the resident’s television somebody’s own as well', async () => {
+    const { handler, writes } = world({ 'HH#hh_1|MEM#u_sarah': member('organiser', 'allowed'), 'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' } } });
+    const res = await handler(event({ code: '123456', as: 'family' }));
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toBe('already_the_residents_television');
+    expect(writes).toEqual([]);
+  });
+
+  it('will not make somebody’s own television the resident’s as well', async () => {
+    const { handler, writes } = world({ 'HH#hh_1|FTV#tv-1': { deviceId: { S: 'tv-1' }, userId: { S: 'u_dan' } } });
+    const res = await handler(event({ code: '123456' }));
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toBe('already_a_family_television');
+    expect(writes).toEqual([]);
+  });
+});
+

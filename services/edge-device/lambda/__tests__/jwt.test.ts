@@ -45,3 +45,36 @@ describe('signJwt / verifyJwt', () => {
     expect(() => verifyJwt('not-a-jwt', publicKeyPem)).toThrow('malformed_token');
   });
 });
+
+describe('verifyJwt — what it will not take', () => {
+  const { privateKeyPem, publicKeyPem } = testKeyPair();
+  const b64 = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+
+  it('refuses a token that names any way of signing but the one Wick uses', async () => {
+    const { createHmac, createSign } = await import('node:crypto');
+    const payload = b64({ deviceId: 'tv-1', householdId: 'hh_1', exp: Math.floor(Date.now() / 1000) + 600 });
+
+    // Unsigned, and saying so.
+    expect(() => verifyJwt(`${b64({ alg: 'none', typ: 'JWT' })}.${payload}.`, publicKeyPem)).toThrow();
+
+    // Signed with the public key as if it were a shared secret.
+    const hsInput = `${b64({ alg: 'HS256', typ: 'JWT' })}.${payload}`;
+    const hsSig = createHmac('sha256', publicKeyPem).update(hsInput).digest('base64url');
+    expect(() => verifyJwt(`${hsInput}.${hsSig}`, publicKeyPem)).toThrow('unsupported_alg');
+
+    // A genuine RSA signature under a header that claims something else.
+    const lying = `${b64({ alg: 'HS256', typ: 'JWT' })}.${payload}`;
+    const rsSig = createSign('RSA-SHA256').update(lying).sign(privateKeyPem).toString('base64url');
+    expect(() => verifyJwt(`${lying}.${rsSig}`, publicKeyPem)).toThrow('unsupported_alg');
+  });
+
+  it('can be asked to look past the expiry — for telling that a television once held a token — and never past the signature', () => {
+    const expired = signJwt({ deviceId: 'tv-1', householdId: 'hh_1' }, privateKeyPem, { expiresInSec: -60 });
+    expect(() => verifyJwt(expired, publicKeyPem)).toThrow('expired');
+    expect(verifyJwt(expired, publicKeyPem, { ignoreExpiry: true })).toMatchObject({ deviceId: 'tv-1' });
+
+    const other = testKeyPair();
+    expect(() => verifyJwt(expired, other.publicKeyPem, { ignoreExpiry: true })).toThrow('bad_signature');
+  });
+});
+
