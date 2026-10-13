@@ -792,4 +792,96 @@ describe('PairingFlow', () => {
       await expect(flow.pollUntilBound('123456')).rejects.toThrow('pairing_timed_out');
     });
   });
+
+  // A television already on screen takes a fresh token when its own nears
+  // its end (pairing/standing.ts). A fresh token lasts an hour; the one a
+  // pairing writes lasts thirty days. The disk must come out of it no worse.
+  describe('keepIfLonger — a fresh token taken while the television runs, and the disk', () => {
+    const TOKEN_FILE = '/data/wick-token.json';
+    const HOUR = 3_600_000;
+    const DAY = 24 * HOUR;
+    const now = Date.now();
+    const hours = (name: string, endsAt: number): DeviceToken => ({ jwt: name, deviceId: 'd1', householdId: 'h1', expiresAt: endsAt });
+    const flowWith = async (stored?: DeviceToken) => {
+      const fs = fakeFs();
+      if (stored) await fs.writeStringToFile(TOKEN_FILE, JSON.stringify(stored), 'utf8');
+      const fetchImpl = vi.fn(async () => new Response('', { status: 500 }));
+      const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fs, fetchImpl as unknown as typeof fetch);
+      const onDisk = async (): Promise<DeviceToken | null> => ((await fs.exists(TOKEN_FILE)) ? (JSON.parse(await fs.readFileAsString(TOKEN_FILE, 'utf8')) as DeviceToken) : null);
+      return { flow, fetchImpl, onDisk };
+    };
+
+    it('a thirty-day token mid-life is never replaced by an hour’s', async () => {
+      const thirtyDays = hours('thirty-days', now + 15 * DAY);
+      const { flow, onDisk } = await flowWith(thirtyDays);
+
+      await flow.keepIfLonger(hours('an-hour', now + HOUR));
+
+      expect(await onDisk()).toEqual(thirtyDays);
+    });
+
+    it('a thirty-day token that has just run out gives way to the fresh one', async () => {
+      const { flow, onDisk } = await flowWith(hours('thirty-days', now - 1_000));
+      const fresh = hours('an-hour', now + HOUR);
+
+      await flow.keepIfLonger(fresh);
+
+      expect(await onDisk()).toEqual(fresh);
+    });
+
+    it('so does one that ends sooner than the fresh one: last hour’s token, minutes from its end', async () => {
+      const { flow, onDisk } = await flowWith(hours('last-hour', now + 4 * 60_000));
+      const fresh = hours('an-hour', now + HOUR);
+
+      await flow.keepIfLonger(fresh);
+
+      expect(await onDisk()).toEqual(fresh);
+    });
+
+    it('a disk that holds nothing is given it', async () => {
+      const { flow, onDisk } = await flowWith();
+      const fresh = hours('an-hour', now + HOUR);
+
+      await flow.keepIfLonger(fresh);
+
+      expect(await onDisk()).toEqual(fresh);
+    });
+
+    // Both ends are the pairing service's: the television's own clock is not asked.
+    it('goes by the two ends the tokens name, whatever this television’s clock says of them', async () => {
+      // A clock days fast: by it, both have run out.
+      const thirtyDays = hours('thirty-days', now - 2 * DAY);
+      const { flow, onDisk } = await flowWith(thirtyDays);
+
+      await flow.keepIfLonger(hours('an-hour', now - 20 * DAY));
+
+      expect(await onDisk()).toEqual(thirtyDays);
+    });
+
+    it('never writes a token narrowed to one purpose: the file is where the app finds its own', async () => {
+      const { flow, onDisk } = await flowWith();
+
+      await flow.keepIfLonger({ ...hours('narrow', now + HOUR), kind: 'family', scope: 'waiting' } as DeviceToken);
+
+      expect(await onDisk()).toBeNull();
+    });
+
+    it('asks nobody anything', async () => {
+      const { flow, fetchImpl } = await flowWith(hours('thirty-days', now - 1_000));
+
+      await flow.keepIfLonger(hours('an-hour', now + HOUR));
+
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('never throws on storage that cannot be read or written (FRICTION.md FL-013): the token in hand is what counts', async () => {
+      const fail = () => Promise.reject(new Error('com.amazon.kepler.io.IoError'));
+      const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example' }, { exists: fail, readFileAsString: fail, writeStringToFile: fail });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(flow.keepIfLonger(hours('an-hour', now + HOUR))).resolves.toBeUndefined();
+
+      vi.restoreAllMocks();
+    });
+  });
 });

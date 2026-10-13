@@ -80,10 +80,13 @@ import { QueueStore, type Mantel } from './headless/QueueStore.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
 import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
 import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
+import { homeBehind } from './home/behind.js';
 import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, waitingLine } from './home/waiting.js';
 import { asking } from './home/asked.js';
 import { pressSettle } from './press/settle.js';
+import { standingWatch } from './pairing/standing.js';
+import type { RenewResult } from './pairing/PairingFlow.js';
 import { lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
 import { backAnswersReach, holdGuard, newestReachCard, reachOffersToPutAway } from './home/reach.js';
 import { ReadHint } from './read/ReadHint.js';
@@ -121,9 +124,22 @@ export interface ResidentAppProps {
   /** The resident's television's token: one that names no kind. */
   readonly token: DeviceToken;
   readonly config: DeviceConfig;
+  /**
+   * How to learn that the family has disconnected this television
+   * (pairing/standing.ts): the question to put to the pairing service, what
+   * to do when the answer is "no longer connected", and — when the service
+   * has only just handed this token over — when that was. And where to
+   * write down a fresh token taken in its place (`keep`).
+   */
+  readonly standing?: {
+    readonly ask: (held: DeviceToken) => Promise<RenewResult>;
+    readonly onGone: () => void;
+    readonly keep: (fresh: DeviceToken) => Promise<void>;
+    readonly since?: number;
+  };
 }
 
-export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Element {
+export function ResidentApp({ token, config, standing }: ResidentAppProps): React.JSX.Element {
   const store = React.useMemo(() => new QueueStore(KeplerFileSystem), []);
   const breakController = React.useMemo(() => new BreakController({ calmPointsOf }), []);
 
@@ -240,15 +256,50 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
     if (onScreen && !wasOnScreen.current) settle.returned(Date.now());
     wasOnScreen.current = onScreen;
   }, [onScreen, settle]);
+  // A television the family has disconnected must not go on looking like
+  // hers. Nothing tells it: the edge only refuses it. So while it is on
+  // screen it asks the pairing service, now and then and whenever its
+  // channel is in trouble, and on "no longer connected" it forgets what it
+  // holds of the home and says so (App.tsx then shows the pairing screen).
+  // No network, or a service in trouble, changes nothing.
+  //
+  // And a television that is still connected is handed a fresh token with
+  // that answer. It is taken when the one in use is near its end — an hour
+  // after launch, where the disk keeps none — and the channel is opened
+  // again with it, before the edge ends the session the old one opened and
+  // refuses every reconnection. Only the channel and live view go by the
+  // token in use. A fresh token is not a new television: the watch, the
+  // card service and "Wick is in front" (below) go by the one it was
+  // launched with, so the edge is told nothing but the new connection.
+  const [fresh, setFresh] = React.useState<{ readonly of: DeviceToken; readonly token: DeviceToken } | null>(null);
+  const inUse = fresh?.of === token ? fresh.token : token;
+  const standingNow = React.useRef(standing);
+  standingNow.current = standing;
+  const watch = React.useMemo(
+    () =>
+      standingWatch({
+        held: { token, ...(standingNow.current?.since !== undefined ? { since: standingNow.current.since } : {}) },
+        ask: (held) => standingNow.current?.ask(held) ?? Promise.resolve<RenewResult>('try_later'),
+        onGone: () => void store.forget().then(() => standingNow.current?.onGone()),
+        onFresh: (next) => {
+          void standingNow.current?.keep(next);
+          setFresh({ of: token, token: next });
+        },
+      }),
+    // A new token from App.tsx is a new asking: the pairing service has just answered for it, or has yet to.
+    [store, token],
+  );
+  React.useEffect(() => watch.onScreen(onScreen), [watch, onScreen]);
+  React.useEffect(() => () => watch.stop(), [watch]);
   React.useEffect(() => {
     if (!onScreen) return;
-    const held = holdCardChannel(store, token, createDeviceChannel, config, undefined, questionLeft);
+    const held = holdCardChannel(store, inUse, createDeviceChannel, config, undefined, questionLeft, watch.trouble);
     cardChannel.current = held;
     return () => {
       cardChannel.current = null;
       held.stop();
     };
-  }, [token, onScreen, store, config, questionLeft]);
+  }, [inUse, onScreen, store, config, questionLeft, watch]);
 
   // A picture card whose address is missing or has run out — a card may wait for days, an address lives an
   // hour. The server mints a new one each time it sends the card, so the cards are asked for again: once for a
@@ -628,6 +679,8 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
   // Not yet known which language to say it in: a moment, at launch. Nothing is drawn in the wrong one.
   if (language === null) return <View style={styles.unlit} />;
   const say = words(language);
+  // The home screen behind whatever is over it (home/behind.ts): while a card is on screen, none of it is drawn.
+  const behind = homeBehind({ card: card !== null, mantelOpen, idle });
 
   return (
     <View style={styles.screen}>
@@ -650,10 +703,11 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
         />
       ) : (
         <HomeScreen
+          drawn={behind.rows}
           language={language}
           programmes={CATALOG}
           onChoose={handleChoose}
-          cardVisible={card !== null || mantelOpen || blocksHome(idle)}
+          cardVisible={!behind.reach}
           lastWatchedId={lastWatchedId}
           waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting, language) : undefined}
           onOpenWaiting={handleOpenWaiting}
@@ -697,7 +751,7 @@ export function ResidentApp({ token, config }: ResidentAppProps): React.JSX.Elem
       {liveFor ? (
         <LiveView
           pairingApiUrl={config.pairingApiUrl}
-          jwt={token.jwt}
+          jwt={inUse.jwt}
           cardId={liveFor}
           language={language}
           onClose={() => {

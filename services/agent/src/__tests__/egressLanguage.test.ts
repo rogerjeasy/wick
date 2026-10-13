@@ -92,7 +92,7 @@ function world(options: { readonly language?: HouseholdLanguage; readonly transl
   const table = new Map<string, Row>((options.rows ?? []).map((row) => [keyOf(row), row]));
   const sent: unknown[] = [];
   const pushed: { readonly householdId: string; readonly bytes: string; readonly exceptDeviceId: string | undefined }[] = [];
-  const asked: { readonly householdId: string; readonly fresh: boolean }[] = [];
+  const asked: string[] = [];
   const translate = (options.translate ?? translator()) as TranslateCall & ReturnType<typeof vi.fn>;
 
   const send = async (command: unknown): Promise<unknown> => {
@@ -123,8 +123,8 @@ function world(options: { readonly language?: HouseholdLanguage; readonly transl
     push: async (householdId, payload, exceptDeviceId) => {
       pushed.push({ householdId, bytes: JSON.stringify(await payload), exceptDeviceId });
     },
-    languageOf: async (householdId, opts) => {
-      asked.push({ householdId, fresh: opts?.fresh === true });
+    languageOf: async (householdId) => {
+      asked.push(householdId);
       return options.language ?? 'en';
     },
     translate,
@@ -451,16 +451,16 @@ describe('the home screen is told in her language, and told which it is', () => 
       kind: 'control',
       control: { t: 'home', home: { lookedIn: { name: 'Sarah', at: 5, line: '[es] Sarah looked in this morning.', until: 9 }, language: 'es' } },
     });
-    expect(w.asked).toEqual([{ householdId: 'hh-1', fresh: false }]);
+    expect(w.asked).toEqual(['hh-1']);
   });
 
-  it('reads the language afresh for a home told whole — that is how the other televisions hear she has just changed it', async () => {
+  it('reads the language for a home told whole, and says it — that is how the other televisions hear she has just changed it', async () => {
     const w = world({ language: 'es' });
 
     // What the edge said a moment ago, before it had heard: the row is what counts.
     await w.egress.sendHomeToDevices('hh-1', { light: 'on' }, { whole: true, exceptDeviceId: 'tv-1' });
 
-    expect(w.asked).toEqual([{ householdId: 'hh-1', fresh: true }]);
+    expect(w.asked).toEqual(['hh-1']);
     expect(w.pushed[0]!.exceptDeviceId).toBe('tv-1');
     expect(w.message()).toEqual({ kind: 'control', control: { t: 'home', home: { light: 'on', language: 'es' }, whole: true } });
   });

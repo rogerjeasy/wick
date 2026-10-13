@@ -45,6 +45,11 @@ export function LiveView({ pairingApiUrl, jwt, cardId, language, onClose }: Live
   const [now, setNow] = React.useState(Date.now());
   const session = React.useRef<LiveSessionResponse | null>(null);
   const player = React.useRef<VideoPlayer | null>(null);
+  // The token this view was opened with is its token until it closes. The
+  // television takes a fresh one when its own nears its end
+  // (pairing/standing.ts), always with minutes to spare — far longer than a
+  // live view lasts — and that must not start the picture again.
+  const [openedWith] = React.useState(jwt);
 
   const release = React.useCallback(() => {
     const p = player.current;
@@ -52,8 +57,8 @@ export function LiveView({ pairingApiUrl, jwt, cardId, language, onClose }: Live
     if (p) void p.deinitialize();
     const s = session.current;
     session.current = null;
-    if (s) void stopLiveSession({ pairingApiUrl, jwt, sessionId: s.sessionId });
-  }, [pairingApiUrl, jwt]);
+    if (s) void stopLiveSession({ pairingApiUrl, jwt: openedWith, sessionId: s.sessionId });
+  }, [pairingApiUrl, openedWith]);
 
   const close = React.useCallback(() => {
     release();
@@ -64,7 +69,7 @@ export function LiveView({ pairingApiUrl, jwt, cardId, language, onClose }: Live
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
-      const started = await startLiveSession({ pairingApiUrl, jwt, cardId });
+      const started = await startLiveSession({ pairingApiUrl, jwt: openedWith, cardId });
       if (cancelled) return;
       if (!started.ok) {
         setPhase({ kind: 'done', outcome: started.reason });
@@ -119,7 +124,7 @@ export function LiveView({ pairingApiUrl, jwt, cardId, language, onClose }: Live
       cancelled = true;
       release();
     };
-  }, [pairingApiUrl, jwt, cardId, release]);
+  }, [pairingApiUrl, openedWith, cardId, release]);
 
   // Ring's limit, counted down once a second; at zero, say so and wait.
   React.useEffect(() => {

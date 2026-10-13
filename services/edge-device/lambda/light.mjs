@@ -17,9 +17,11 @@
  *
  * Pure: device-event.mjs owns the DynamoDB client.
  */
-import { DEFAULT_LANGUAGE, languageOfMeta } from './language.mjs';
+import { DEFAULT_LANGUAGE, LANGUAGES, languageOfMeta } from './language.mjs';
 import { mantelOf } from './mantel.mjs';
 import { readExclusions, visibleClasses } from './sharing.mjs';
+
+const isHouseholdLanguage = (value) => typeof value === 'string' && LANGUAGES.includes(value);
 
 export const LIGHT_SK = 'LIGHT';
 export const LOOKIN_SK_PREFIX = 'LOOKIN#';
@@ -144,12 +146,19 @@ export function homeState({ items, now, timeZone }) {
  * (INV-2): so the agent plane is told, and sends it on (services/agent
  * egress.ts sendHomeToDevices). Resident-bound, like the state itself.
  */
-export function buildHomeChangedEntry({ busName, householdId, deviceId, home, at }) {
+export function buildHomeChangedEntry({ busName, householdId, deviceId, home, at, languageChangedTo, correlationId }) {
+  // When her press changed the language (language.mjs), the event says which
+  // it now is — and nothing else is added: the agent plane then puts the
+  // free text of the cards she has not answered into it (services/agent
+  // egress.ts), which the edge cannot do, since it never asks a translator.
+  // An id goes with it, to follow that one change by (INV-6). No card and no
+  // words are ever on the bus.
+  const changed = isHouseholdLanguage(languageChangedTo) ? { languageChangedTo, ...(correlationId ? { correlationId } : {}) } : {};
   return {
     EventBusName: busName,
     Source: 'wick.device',
     DetailType: 'home.changed',
-    Detail: JSON.stringify({ householdId, deviceId, home, at }),
+    Detail: JSON.stringify({ householdId, deviceId, home, at, ...changed }),
   };
 }
 

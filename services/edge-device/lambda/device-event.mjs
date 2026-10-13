@@ -115,7 +115,7 @@
 import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { randomUUID } from 'node:crypto';
-import { finishedAmong, isReplayable, markCardActed, markCardShown, replayedCard, retiresCard } from './card-acted.mjs';
+import { finishedAmong, finishedSince, isReplayable, markCardActed, markCardShown, replayedCard, retiresCard } from './card-acted.mjs';
 import { deviceBindingKey, isServed } from './device-standing.mjs';
 import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
 import { announcesRetirement, buildCardActionEntry, buildCardRetiredEntry, shouldPublish } from './card-action-event.mjs';
@@ -124,7 +124,7 @@ import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpd
 import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
 import { LIGHT_CARD_ID, buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
-import { inHerLanguage, languageAnswerUpdate, languageOfMeta, languagePress, languageRead } from './language.mjs';
+import { LANGUAGE_ACTIONS, inHerLanguage, languageAnswerUpdate, languageOfMeta, languagePress, languageRead } from './language.mjs';
 import {
   PHOTO_ACTIONS,
   PHOTO_STATES,
@@ -337,9 +337,10 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
 
       const language = languagePress(deviceEvent.cardId, deviceEvent.action);
       if (language) {
-        await recordLanguageAnswer(householdId, language);
+        const languageChangedTo = await recordLanguageAnswer(householdId, language);
         // Which language the home speaks is told to every television in it — this one at once, the others by the agent plane.
-        await tellEveryHome({ sendControl, householdId, deviceId, consistent: true });
+        // And when this press changed it, the agent plane is told so, to put what she has not yet answered into it.
+        await tellEveryHome({ sendControl, householdId, deviceId, consistent: true, languageChangedTo });
       }
 
       const watch = watchPress(deviceEvent.cardId, deviceEvent.action);
@@ -374,7 +375,10 @@ export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, se
     await readToHer({ sendControl, cardAsShown, householdLanguage, householdId, cardId, synthesize });
   } else if (deviceEvent.t === 'reconcile') {
     await reconcile({ sendCard, sendControl, householdId, holding: deviceEvent.holding });
-    await tellHome({ sendControl, householdId });
+    // Read as it is this instant: a television asks for what it is owed the
+    // moment its language changes, and this home is told whole — a read a
+    // moment old would tell it the language she has just left.
+    await tellHome({ sendControl, householdId, consistent: true });
   }
 
   if (isActiveSignal(deviceEvent)) await signalActive(householdId, deviceId);
@@ -458,17 +462,23 @@ async function recordCircleDecision(householdId, decision, at) {
  * say. Logged, never thrown: the press is already on the timeline. A failed
  * condition means the question was no longer open, or was about another
  * language, and what the household's row says stands.
+ *
+ * Answers with the language the household now speaks when — and only when —
+ * this press changed it: her yes, written. Undefined for a no, and for a
+ * press that changed nothing.
  */
 async function recordLanguageAnswer(householdId, { language, answer }) {
   try {
     await ddb.send(new UpdateItemCommand(languageAnswerUpdate({ table: TABLE, householdId, language, answer, at: Date.now() })));
     console.log(JSON.stringify({ level: 'info', msg: 'language_answered', language, answer }));
+    return answer === LANGUAGE_ACTIONS.yes ? language : undefined;
   } catch (err) {
     if (err?.name === 'ConditionalCheckFailedException') {
       console.log(JSON.stringify({ level: 'info', msg: 'language_question_not_open' }));
-      return;
+      return undefined;
     }
     console.error('language_answer_write_failed', { householdId, err: err?.name });
+    return undefined;
   }
 }
 
@@ -681,11 +691,13 @@ async function tellHome({ sendControl, householdId, consistent = false }) {
  * to tell (light.mjs buildHomeChangedEntry; INV-2). Logged, never thrown:
  * one that is not told now is told when it next connects.
  */
-async function tellEveryHome({ sendControl, householdId, deviceId, consistent = false }) {
+async function tellEveryHome({ sendControl, householdId, deviceId, consistent = false, languageChangedTo }) {
   const home = await tellHome({ sendControl, householdId, consistent });
   if (!home) return;
   try {
-    const res = await events.send(new PutEventsCommand({ Entries: [buildHomeChangedEntry({ busName: BUS, householdId, deviceId, home, at: Date.now() })] }));
+    // A change of language gets an id of its own, carried by whatever the agent plane does about it (INV-6).
+    const changed = languageChangedTo ? { languageChangedTo, correlationId: randomUUID() } : {};
+    const res = await events.send(new PutEventsCommand({ Entries: [buildHomeChangedEntry({ busName: BUS, householdId, deviceId, home, at: Date.now(), ...changed })] }));
     if (res.FailedEntryCount) console.error('home_changed_publish_rejected', { householdId, code: res.Entries?.[0]?.ErrorCode });
   } catch (err) {
     console.error('home_changed_publish_failed', { householdId, err: err?.name });
@@ -1060,11 +1072,13 @@ async function publishCardRetired(detail) {
   }
 }
 
-async function reconcile({ sendCard, sendControl, householdId, holding }) {
-  // Every CARD# item for the household, page by page: a card the resident
-  // hasn't acted on is replayed whatever its id (card-acted.mjs's
-  // isReplayable says why the device's sinceCardId is no longer used to
-  // filter). The device upserts by id, so a card it already holds is a no-op.
+/**
+ * Every CARD# item of the household, as it is this instant, page by page.
+ * A consistent read: what a television is handed, and what is taken back
+ * from it, is decided by whether a card has been answered — and an answer
+ * given a moment ago, on another television, must count.
+ */
+async function loadCardRows(householdId) {
   const items = [];
   let ExclusiveStartKey;
   do {
@@ -1072,11 +1086,21 @@ async function reconcile({ sendCard, sendControl, householdId, holding }) {
       TableName: TABLE,
       KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
       ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':prefix': { S: 'CARD#' } },
+      ConsistentRead: true,
       ...(ExclusiveStartKey ? { ExclusiveStartKey } : {}),
     }));
     items.push(...(page.Items ?? []));
     ExclusiveStartKey = page.LastEvaluatedKey;
   } while (ExclusiveStartKey);
+  return items;
+}
+
+async function reconcile({ sendCard, sendControl, householdId, holding }) {
+  // Every CARD# item for the household: a card the resident
+  // hasn't acted on is replayed whatever its id (card-acted.mjs's
+  // isReplayable says why the device's sinceCardId is no longer used to
+  // filter). The device upserts by id, so a card it already holds is a no-op.
+  const items = await loadCardRows(householdId);
 
   // First what to put away: a card this television still holds that was
   // answered on another one while it was off (card-acted.mjs finishedAmong).
@@ -1088,11 +1112,32 @@ async function reconcile({ sendCard, sendControl, householdId, holding }) {
   }
 
   const now = Date.now();
+  const replayed = [];
   for (const item of items) {
     if (!isReplayable(item, now)) continue;
     // The stored card is English; it goes out in her language, with the free
     // text the agent plane translated and kept on this same row (language.mjs).
-    if (!(await sendCard(replayedCard(item), { row: item }))) {
+    const queued = replayedCard(item);
+    if (!(await sendCard(queued, { row: item }))) {
+      console.log('reconcile: television gone mid-replay, stopping', { householdId });
+      return;
+    }
+    replayed.push(queued.id);
+  }
+
+  // The cards were read, then handed over one by one — and in that time a
+  // card can be answered on another television of the home, taken back by
+  // its sender, or (a door card) be over. Its own `revoke` may have reached
+  // this television before the card did, which would leave a finished card
+  // on her screen until she next reconnects. So the rows are read once more
+  // — one read for all of them, and none when nothing was handed over — and
+  // anything just replayed that is finished by now is taken back
+  // (card-acted.mjs finishedSince). What is left is the instant between
+  // this read and the `revoke` arriving; a press in it changes nothing,
+  // since every answer is written only while its question is open.
+  if (replayed.length === 0) return;
+  for (const cardId of finishedSince(replayed, await loadCardRows(householdId), Date.now())) {
+    if (!(await sendControl({ t: 'revoke', cardId }))) {
       console.log('reconcile: television gone mid-replay, stopping', { householdId });
       return;
     }

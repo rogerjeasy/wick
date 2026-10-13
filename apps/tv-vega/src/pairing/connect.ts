@@ -49,7 +49,13 @@ export type Connecting =
    * service could not be reached, and is being tried again.
    */
   | { readonly kind: 'pairing'; readonly info?: PairingStartResponse; readonly trying?: boolean }
-  | { readonly kind: 'ready'; readonly token: DeviceToken };
+  /**
+   * `asked`: the token is fresh from the pairing service — a refresh, or
+   * the code just entered — so the service has just said this television is
+   * connected. A token only read from the disk has asked nobody
+   * (standing.ts asks, then).
+   */
+  | { readonly kind: 'ready'; readonly token: DeviceToken; readonly asked?: true };
 
 /**
  * Said under "Getting a code…" from the first failed try. The family screen's own words (family/familyScreen.ts `unreachableLine`).
@@ -143,9 +149,11 @@ export function connectTelevision(deps: ConnectDeps): { cancel(): void } {
           await deps.pairing.clearToken();
           forgotten = true;
         }
+        // What the disk held before anything was asked: a token that comes back the same was only read from it.
+        const before = await remembered();
         const token = deps.signedOut ? null : await deps.pairing.loadToken(deviceId);
         if (cancelled) return;
-        if (token) return say({ kind: 'ready', token });
+        if (token) return say(token.jwt === before?.jwt ? { kind: 'ready', token } : { kind: 'ready', token, asked: true });
 
         const info = await deps.pairing.start(deviceId);
         if (cancelled) return;
@@ -154,7 +162,7 @@ export function connectTelevision(deps: ConnectDeps): { cancel(): void } {
         say({ kind: 'pairing', info });
         try {
           const bound = await deps.pairing.pollUntilBound(info.code);
-          return say({ kind: 'ready', token: bound });
+          return say({ kind: 'ready', token: bound, asked: true });
         } catch (err) {
           // The code ran out, or was never entered. Not a failure to reach
           // anything: a new one is fetched after a short pause, and this

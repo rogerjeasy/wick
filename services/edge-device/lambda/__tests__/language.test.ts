@@ -22,6 +22,7 @@ import {
   languageOfMeta,
   languageOfRows,
   languagePress,
+  languageRead,
   translationAttribute,
   // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 } from '../language.mjs';
@@ -70,6 +71,18 @@ describe('languageOfMeta — the household’s language, from its own row', () =
 
     expect(languageOfRows(rows)).toBe('es');
     expect(languageOfRows(rows.slice(0, 2))).toBe('en');
+  });
+});
+
+describe('languageRead — the language for a card on its way out, as it is this instant', () => {
+  it('reads the one attribute of the household’s own row, consistently: her television asks for its cards the moment she changes the language, and that read must not be a moment old', () => {
+    expect(languageRead({ table: 'wick', householdId: 'hh-1' })).toEqual({
+      TableName: 'wick',
+      Key: { pk: { S: 'HH#hh-1' }, sk: { S: 'META' } },
+      ProjectionExpression: '#language',
+      ExpressionAttributeNames: { '#language': CONTRACT_ATTRS.language },
+      ConsistentRead: true,
+    });
   });
 });
 

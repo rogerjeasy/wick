@@ -114,6 +114,24 @@ describe('buildHomeChangedEntry — telling the home’s other televisions', () 
     expect(JSON.parse(entry.Detail)).toEqual({ householdId: 'margaret', deviceId: 'wick-tv', home, at: NOW });
   });
 
+  it('is, to the byte, what it always was when her press did not change the language', () => {
+    expect(entry.Detail).toBe(JSON.stringify({ householdId: 'margaret', deviceId: 'wick-tv', home, at: NOW }));
+    expect(buildHomeChangedEntry({ busName: 'wick-bus', householdId: 'margaret', deviceId: 'wick-tv', home, at: NOW, languageChangedTo: undefined, correlationId: undefined }).Detail).toBe(entry.Detail);
+  });
+
+  it('says so when it did: which language the home now speaks, and an id to follow the change by — never a card, never a word', () => {
+    const changed = buildHomeChangedEntry({ busName: 'wick-bus', householdId: 'margaret', deviceId: 'wick-tv', home: { language: 'es' }, at: NOW, languageChangedTo: 'es', correlationId: 'corr-9' });
+
+    expect(JSON.parse(changed.Detail)).toEqual({ householdId: 'margaret', deviceId: 'wick-tv', home: { language: 'es' }, at: NOW, languageChangedTo: 'es', correlationId: 'corr-9' });
+    expect(changed.DetailType).toBe('home.changed');
+  });
+
+  it('says nothing of a language that is not one', () => {
+    for (const not of ['fr', '', 7, null]) {
+      expect(JSON.parse(buildHomeChangedEntry({ busName: 'b', householdId: 'm', deviceId: 't', home: {}, at: 1, languageChangedTo: not, correlationId: 'c' }).Detail)).toEqual({ householdId: 'm', deviceId: 't', home: {}, at: 1 });
+    }
+  });
+
   it('carries a state the agent plane can read as it stands', () => {
     expect(readHomeState(JSON.parse(entry.Detail).home)).toEqual(home);
   });

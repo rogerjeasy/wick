@@ -17,6 +17,7 @@
 import { evaluate, type Audience, type HouseholdPolicy } from '@wick/policy';
 import {
   DEFAULT_LANGUAGE,
+  DOOR_CARD_TTL_MS,
   MANTEL_URL_TTL_SEC,
   MAX_CARD_ACTIONS,
   PUSH_SK_PREFIX,
@@ -45,7 +46,7 @@ import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-sec
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { TranslateClient, TranslateTextCommand } from '@aws-sdk/client-translate';
 import webpush from 'web-push';
-import { languageCache } from './language/householdLanguage.js';
+import { languageReader } from './language/householdLanguage.js';
 import { knownNames, translateFree, type TranslateCall } from './language/translate.js';
 import { nudge, subscriptionFromItem, type NudgeOutcome, type StoredSubscription } from './push/nudge.js';
 import { loadHouseholdLanguage } from './store/household.js';
@@ -355,8 +356,24 @@ export function cardItem(
 // nowhere else. What is stored stays the English it was written in.
 //
 // An English household is sent, and has written for it, exactly what it
-// always was: the only thing added is a look at which language it is,
-// remembered for a minute (language/householdLanguage.ts).
+// always was: the only thing added is one small read of which language it
+// is — made at every send, never remembered from an earlier one
+// (language/householdLanguage.ts says why).
+//
+// A send that straddles her answer. The read and the push are two steps, so
+// a card whose language was read an instant before she changed it arrives
+// in the old one. Nothing stale is stored by that: `data` is the English
+// card whichever language was read. Her television asks for its cards again
+// when its language changes, and the edge replays each stored card in the
+// language as it is then (edge-device language.mjs) — Wick's own sentences
+// from the phrasebook, and free text from the translation kept beside the
+// card. If the card was sent while the household still read as English, no
+// translation was made, and none is made later: THE EDGE NEVER CALLS A
+// TRANSLATOR. Such a note is replayed with Wick's words in her language and
+// its own text as it was written — exactly as a note sent before she chose
+// the language at all. That is accepted: it is one card, in the instant of
+// the change, and its words are whole and true in the language they were
+// written in.
 // ---------------------------------------------------------------------------
 
 /** The phrasebook's four functions (packages/contracts phrasebook). */
@@ -373,8 +390,8 @@ export interface DeviceEgressDeps {
   readonly db: Pick<DynamoDBClient, 'send'>;
   /** pushToDevices: one push per live television. */
   readonly push: (householdId: string, message: DeviceWireMessage | Promise<DeviceWireMessage>, exceptDeviceId?: string) => Promise<void>;
-  /** The household's language; never throws. `fresh` is what is so this instant. */
-  readonly languageOf: (householdId: string, options?: { readonly fresh?: boolean }) => Promise<HouseholdLanguage>;
+  /** The household's language, read now — never one remembered from an earlier send. Never throws. */
+  readonly languageOf: (householdId: string) => Promise<HouseholdLanguage>;
   /** One call to Amazon Translate (language/translate.ts). */
   readonly translate: TranslateCall;
   readonly phrasebook: Phrasebook;
@@ -384,7 +401,24 @@ export interface DeviceEgressDeps {
    * card goes with its words and no picture.
    */
   readonly pictureAddress?: (householdId: string, photoId: string) => Promise<string | undefined>;
+  readonly now?: () => number;
   readonly log?: (line: Record<string, unknown>) => void;
+}
+
+/** How many of the cards she has not answered are put into a language she has just chosen: the newest. */
+export const CATCH_UP_MAX_CARDS = 20;
+/** How long all of that may take, translations and all. */
+export const CATCH_UP_BUDGET_MS = 6000;
+
+/**
+ * What a catching-up came to: the cards still waiting for her; how many had
+ * a translation kept beside them; and how many were sent again and stand —
+ * one that was answered, withdrawn or over by then is not among those.
+ */
+export interface CatchUpOutcome {
+  readonly waiting: number;
+  readonly translated: number;
+  readonly sent: number;
 }
 
 const FREE_FIELDS: readonly FreeField[] = ['transcript', 'description', 'text'];
@@ -420,10 +454,33 @@ function asStored(card: QueuedCard): QueuedCard {
   return { ...card, card: words };
 }
 
+/**
+ * A stored card as it is sent again — the edge's own rule, to the letter
+ * (edge-device card-acted.mjs replayedCard): as it was stored, with the
+ * showings counted since. A door card keeps the count it was sent with.
+ */
+function asReplayed(row: Record<string, AttributeValue>, stored: QueuedCard): QueuedCard {
+  if (stored.urgency === 'DOOR' || !row.shown?.N) return stored;
+  return { ...stored, shownCount: Math.max(Number(stored.shownCount ?? 0), Number(row.shown.N)) };
+}
+
+/**
+ * Whether a stored card is still waiting for her: not answered, and — for a
+ * door card — its visitor not gone. The edge's rule for what a television
+ * is handed again (card-acted.mjs isReplayable), so the two agree on which
+ * cards there are to send.
+ */
+function stillWaiting(row: Record<string, AttributeValue>, stored: QueuedCard, now: number): boolean {
+  if (row.actedAt) return false;
+  if (stored.urgency !== 'DOOR') return true;
+  return now < (stored.expiresAt ?? (stored.queuedAt ?? 0) + DOOR_CARD_TTL_MS);
+}
+
 export function deviceEgress(deps: DeviceEgressDeps) {
-  const { table, db, push, languageOf, translate, phrasebook, pictureAddress, log } = deps;
-  const inHerLanguage = (free: FreeText, language: OtherLanguage, names: readonly string[]): Promise<FreeText> =>
-    translateFree({ free, language, names, call: translate, ...(log ? { log } : {}) });
+  const { table, db, push, languageOf, translate, phrasebook, pictureAddress, log, now = Date.now } = deps;
+  const say = log ?? ((line: Record<string, unknown>) => console.log(JSON.stringify(line)));
+  const inHerLanguage = (free: FreeText, language: OtherLanguage, names: readonly string[], timeoutMs?: number): Promise<FreeText> =>
+    translateFree({ free, language, names, call: translate, ...(timeoutMs === undefined ? {} : { timeoutMs }), ...(log ? { log } : {}) });
 
   /**
    * The last step before a card is pushed, in every language: a picture's
@@ -530,10 +587,10 @@ export function deviceEgress(deps: DeviceEgressDeps) {
       options: { readonly whole?: boolean; readonly exceptDeviceId?: string | undefined } = {},
     ): Promise<void> {
       const message = async (): Promise<DeviceWireMessage> => {
-        // A home told whole says everything, the language with it — it is how
-        // the home's other televisions hear that she has just changed it. So
-        // the language is read afresh, never taken from a minute ago.
-        const language = await languageOf(householdId, { fresh: options.whole === true });
+        // What the home is told carries the language with it — told whole,
+        // it is how the home's other televisions hear that she has just
+        // changed it. Like every send, it is read now.
+        const language = await languageOf(householdId);
         let told = home;
         if (language !== DEFAULT_LANGUAGE) {
           told = phrasebook.homeIn(language, { ...home, language });
@@ -546,6 +603,211 @@ export function deviceEgress(deps: DeviceEgressDeps) {
       };
       // The language is read while the televisions are found (pushToDevices).
       await push(householdId, message(), options.exceptDeviceId);
+    },
+
+    /**
+     * She has just chosen a language that is not English: the cards she has
+     * not yet answered are put into it, whole.
+     *
+     * Her television asks for its cards again the moment its language
+     * changes, and the edge replays each in her language — Wick's own
+     * sentences from the phrasebook, free text from the translation kept
+     * beside the card. A card sent while the home was English has none, and
+     * the edge never asks a translator: so a waiting note came back with
+     * Spanish buttons under English words. This closes that. For each card
+     * still waiting that has free text and no translation yet, the text is
+     * translated here — by the same translator, under the same guards, as a
+     * card on its way out — kept beside the card, and the card is sent to
+     * the home's televisions again.
+     *
+     * Sent again, not sent anew. Nothing of the card is rewritten: `data`
+     * stays the English it was, the same id, the same `queuedAt`, the
+     * showings as the edge has counted them — it is, to the byte, what the
+     * edge's replay now gives (asReplayed), so her television replaces the
+     * card it holds and does not take it for another showing.
+     *
+     * The order of things: her television's own asking usually arrives
+     * first, before a translation is kept — for a moment that replay shows
+     * the note with its English text, and then this replaces it. An asking
+     * that arrives after uses the translation kept here, and is the same
+     * card.
+     *
+     * Bounded: the newest twenty of the cards still waiting, and one budget
+     * of time for all of it. A translation that is not to be had leaves that
+     * card exactly as it was. The translation is kept only if the card is
+     * still unanswered and still the card that was read — one she answers
+     * meanwhile, or whose words change, is left alone and not sent.
+     *
+     * NOTHING FINISHED IS PUT BACK ON HER SCREEN. Translating takes time,
+     * and in that time a card can be answered on another television of the
+     * home, or taken back by its sender — its `revoke` reaches her
+     * televisions, and a push made from what was read earlier would put the
+     * finished card back in front of her. So the reading at the start
+     * decides nothing about the push (sendAgain, below):
+     *
+     *   - a card whose translation could not be kept is never pushed;
+     *   - immediately before the push the row is read again, as it is that
+     *     instant — still there, still unanswered, not over, the same card
+     *     that was read, and the household still speaking this language — or
+     *     it is not pushed;
+     *   - and once more after the push: if it has been answered or is gone,
+     *     it is taken back off her televisions with the same `revoke` a
+     *     withdrawn card gets; if its words or the household's language
+     *     changed underneath, it is sent once more as it now stands, so the
+     *     copy just pushed does not hide the change.
+     *
+     * What is left is the instant between that last look and a `revoke`
+     * reaching the television: a card answered in exactly that instant is
+     * taken off by its own answer's `revoke` (which then comes after the
+     * push), or — if that had already passed — stays until her television
+     * next asks for its cards, when the edge takes back every finished card
+     * it holds (edge-device card-acted.mjs finishedAmong). A press on it in
+     * between changes nothing: every answer is written on a condition that
+     * the question is still open.
+     *
+     * The household's row, read now, is what counts — not what the event
+     * said: delivered late, after she has changed back, it does nothing.
+     * Delivered twice, the second finds every translation there and makes
+     * none. English needs nothing: the stored card is English.
+     *
+     * Never throws. Says what it did in numbers, under the id of the change
+     * (INV-6) — never a card's words, or which cards.
+     */
+    async catchUpInLanguage(householdId: string, language: HouseholdLanguage, options: { readonly correlationId?: string | undefined; readonly budgetMs?: number } = {}): Promise<CatchUpOutcome> {
+      const nothing: CatchUpOutcome = { waiting: 0, translated: 0, sent: 0 };
+      if (language === DEFAULT_LANGUAGE) return nothing;
+      const budgetMs = options.budgetMs ?? CATCH_UP_BUDGET_MS;
+      try {
+        if ((await languageOf(householdId)) !== language) return nothing;
+
+        const rows: Record<string, AttributeValue>[] = [];
+        let startKey: Record<string, AttributeValue> | undefined;
+        do {
+          const page = await db.send(new QueryCommand({
+            TableName: table,
+            KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+            ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':prefix': { S: 'CARD#' } },
+            ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+          }));
+          rows.push(...(page.Items ?? []));
+          startKey = page.LastEvaluatedKey;
+        } while (startKey);
+
+        const at = now();
+        const attribute = translationAttribute(language);
+        const waiting = rows
+          .flatMap((row) => {
+            if (!row.data?.S) return [];
+            try {
+              const stored = JSON.parse(row.data.S) as QueuedCard;
+              return stored?.card && typeof stored.id === 'string' && stillWaiting(row, stored, at) ? [{ row, stored }] : [];
+            } catch {
+              return [];
+            }
+          })
+          // The newest first, and no more than the bound.
+          .sort((a, b) => (b.stored.queuedAt ?? 0) - (a.stored.queuedAt ?? 0));
+
+        type Row = Record<string, AttributeValue>;
+        /** One card's row as it is this instant. */
+        const rowNow = async (Key: Row): Promise<Row | undefined> => (await db.send(new GetItemCommand({ TableName: table, Key, ConsistentRead: true }))).Item;
+        /** The card a row holds, if it is still waiting for her now: there, unanswered, and not over. */
+        const waitingIn = (row: Row | undefined): QueuedCard | undefined => {
+          if (!row?.data?.S) return undefined;
+          try {
+            const card = JSON.parse(row.data.S) as QueuedCard;
+            return card?.card && stillWaiting(row, card, now()) ? card : undefined;
+          } catch {
+            return undefined;
+          }
+        };
+        /** A stored card as her television should show it now — exactly what the edge's replay of that row gives. */
+        const asItStands = (row: Row, card: QueuedCard, speaking: HouseholdLanguage): QueuedCard => {
+          const again = asReplayed(row, card);
+          return speaking === DEFAULT_LANGUAGE ? again : { ...again, card: phrasebook.cardIn(speaking, again.card, storedTranslations(row[translationAttribute(speaking)])) };
+        };
+        const takeBack = (cardId: string): Promise<void> => push(householdId, { kind: 'control', control: { t: 'revoke', cardId } });
+
+        /**
+         * One card sent again — only if, at this instant, it is still the
+         * card that was read and still hers to answer; and looked at once
+         * more afterwards. Says whether a copy now stands on her televisions.
+         */
+        const sendAgain = async (Key: Row, cardId: string, dataRead: string): Promise<boolean> => {
+          const [before, speaking] = await Promise.all([rowNow(Key), languageOf(householdId)]);
+          const card = waitingIn(before);
+          if (!before || !card || before.data!.S !== dataRead || speaking !== language) return false;
+          await push(householdId, { kind: 'card', card: await withPicture(asItStands(before, card, language)) });
+
+          const [after, then] = await Promise.all([rowNow(Key), languageOf(householdId)]);
+          const still = waitingIn(after);
+          if (!after || !still) {
+            // Answered, withdrawn or over while it was on its way: it comes off again.
+            await takeBack(cardId);
+            return false;
+          }
+          if (after.data!.S === before.data!.S && then === language) return true;
+
+          // Its words, or the household's language, changed underneath: once more, as it now stands.
+          await push(householdId, { kind: 'card', card: await withPicture(asItStands(after, still, then)) });
+          if (!waitingIn(await rowNow(Key))) {
+            await takeBack(cardId);
+            return false;
+          }
+          return true;
+        };
+
+        const results = await Promise.all(waiting.slice(0, CATCH_UP_MAX_CARDS).map(async ({ row, stored }): Promise<{ readonly translated: boolean; readonly sent: boolean }> => {
+          const untouched = { translated: false, sent: false };
+          try {
+            // The question that asks for a language is in both already, and is never put through anything.
+            if (stored.card.type === 'LANGUAGE') return untouched;
+            const english = freeWords(phrasebook.freeTextOf(stored.card));
+            const kept = storedTranslations(row[attribute]);
+            const missing = freeWords(Object.fromEntries(Object.entries(english).filter(([field]) => kept[field as FreeField] === undefined)));
+            if (Object.keys(missing).length === 0) return untouched;
+
+            const free = await inHerLanguage(missing, language, knownNames(stored.card), budgetMs);
+            if (Object.keys(free).length === 0) return untouched;
+            const all = freeWords({ ...kept, ...free });
+            const Key = { pk: row.pk!, sk: row.sk! };
+
+            try {
+              await db.send(new UpdateItemCommand({
+                TableName: table,
+                Key,
+                UpdateExpression: 'SET #tr = :tr',
+                // Still there, still unanswered, and still the card these words are a translation of.
+                ConditionExpression: 'attribute_exists(pk) AND attribute_not_exists(actedAt) AND #data = :data',
+                ExpressionAttributeNames: { '#tr': attribute, '#data': 'data' },
+                ExpressionAttributeValues: { ':tr': { S: JSON.stringify(all) }, ':data': { S: row.data!.S! } },
+              }));
+            } catch (err) {
+              // Answered, gone or changed since it was read: nothing is kept, and it is never pushed.
+              if ((err as { name?: string }).name === 'ConditionalCheckFailedException') return untouched;
+              throw err;
+            }
+
+            try {
+              return { translated: true, sent: await sendAgain(Key, stored.id, row.data!.S!) };
+            } catch (err) {
+              say({ level: 'error', msg: 'card_not_put_in_her_language', correlationId: options.correlationId, reason: (err as { name?: unknown } | undefined)?.name?.toString() ?? 'error' });
+              return { translated: true, sent: false };
+            }
+          } catch (err) {
+            // One card that could not be done does not cost the others. Why, and never which.
+            say({ level: 'error', msg: 'card_not_put_in_her_language', correlationId: options.correlationId, reason: (err as { name?: unknown } | undefined)?.name?.toString() ?? 'error' });
+            return untouched;
+          }
+        }));
+
+        const outcome: CatchUpOutcome = { waiting: waiting.length, translated: results.filter((r) => r.translated).length, sent: results.filter((r) => r.sent).length };
+        say({ level: 'info', msg: 'cards_put_in_her_language', correlationId: options.correlationId, language, ...outcome });
+        return outcome;
+      } catch (err) {
+        say({ level: 'error', msg: 'cards_not_put_in_her_language', correlationId: options.correlationId, reason: (err as { name?: unknown } | undefined)?.name?.toString() ?? 'error' });
+        return nothing;
+      }
     },
   };
 }
@@ -609,7 +871,7 @@ async function signPictureAddress(householdId: string, photoId: string): Promise
   return getSignedUrl(pictures, new GetObjectCommand({ Bucket: request.Bucket, Key: request.Key }), { expiresIn: request.expiresIn });
 }
 
-const languages = languageCache({ read: (householdId, options) => loadHouseholdLanguage(ddb, TABLE, householdId, options) });
+const languages = languageReader({ read: (householdId, options) => loadHouseholdLanguage(ddb, TABLE, householdId, options) });
 
 const toDevices = deviceEgress({
   table: TABLE,
@@ -715,6 +977,17 @@ export async function takeBackFromDevices(cardId: string, householdId: string, a
     if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
   }
   await withdrawFromDevices(cardId, householdId);
+}
+
+/**
+ * She has just chosen a language: the cards she has not yet answered are
+ * put into it and sent to her televisions again (deviceEgress
+ * catchUpInLanguage says how, and why here). The only caller is the
+ * function that hears the edge say her press changed the language
+ * (agents/door/actionLambda.ts). Never throws.
+ */
+export async function sendWaitingCardsInLanguage(householdId: string, language: HouseholdLanguage, correlationId?: string): Promise<CatchUpOutcome> {
+  return toDevices.catchUpInLanguage(householdId, language, { correlationId });
 }
 
 /**

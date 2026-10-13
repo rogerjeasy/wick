@@ -48,7 +48,7 @@ function loadDevice(): Device {
   });
   const context = vm.createContext({
     document: { getElementById: element, createElement: element, addEventListener() {}, removeEventListener() {}, head: element(), hidden: false, activeElement: null },
-    window: {},
+    window: { addEventListener() {} },
     console,
     URL,
     setInterval,
@@ -402,6 +402,8 @@ interface Node {
 }
 
 function page() {
+  /** Where a thing is on the page, top and bottom. Nothing is laid out here: everything is at 0 until a test says where things are. */
+  const places: { of: (node: Node) => { top: number; bottom: number } } = { of: () => ({ top: 0, bottom: 0 }) };
   const make = (tagName: string): Node => {
     const node: Node = {
       tagName,
@@ -410,11 +412,35 @@ function page() {
       children: [],
       parent: null,
       listeners: {},
-      style: {},
+      style: {
+        setProperty(name: string, value: string) {
+          (node.style as Record<string, unknown>)[name] = value;
+        },
+      },
       dataset: {},
-      classList: { add() {}, remove() {} },
+      // Kept in className, as a browser keeps them: what a test reads there is what the page set.
+      classList: {
+        contains: (name: string) => node.className.split(' ').includes(name),
+        add(...names: string[]) {
+          for (const name of names) if (!node.className.split(' ').includes(name)) node.className = `${node.className} ${name}`.trim();
+        },
+        remove(...names: string[]) {
+          node.className = node.className.split(' ').filter((name) => name && !names.includes(name)).join(' ');
+        },
+        toggle(name: string, force?: boolean) {
+          const on = force ?? !node.className.split(' ').includes(name);
+          if (on) this.add(name);
+          else this.remove(name);
+          return on;
+        },
+      },
+      querySelector: () => null,
       disabled: false,
       setAttribute() {},
+      removeAttribute(name: string) {
+        delete node[name];
+      },
+      getBoundingClientRect: () => places.of(node),
       focus() {},
       blur() {},
       contains: () => false,
@@ -468,7 +494,7 @@ function page() {
     hidden: false,
     activeElement: null,
   };
-  return { document, keys, screen: () => document.getElementById('tv-screen') };
+  return { document, keys, places, screen: () => document.getElementById('tv-screen') };
 }
 
 /** Everything written on a node and under it, in the order it is drawn. */
@@ -476,9 +502,10 @@ const textOf = (node: Node): string[] => [...(node.textContent ? [node.textConte
 const buttonsOf = (node: Node): Node[] => [...(node.tagName === 'button' ? [node] : []), ...node.children.flatMap(buttonsOf)];
 const marksOf = (node: Node): Node[] => [...(node.tagName === 'span' && String(node.className).includes('tv-read') ? [node] : []), ...node.children.flatMap(marksOf)];
 const imagesOf = (node: Node): Node[] => [...(node.tagName === 'img' ? [node] : []), ...node.children.flatMap(imagesOf)];
+const paragraphsOf = (node: Node): Node[] => [...(String(node.className).split(' ').includes('body-text') ? [node] : []), ...node.children.flatMap(paragraphsOf)];
 
 function television() {
-  const { document, keys, screen } = page();
+  const { document, keys, places, screen } = page();
   /** The sounds the page has made: where each is fetched from, and what was done with it. */
   const sounds: Array<{ src: string; played: number; paused: number; onplaying?: () => void; onended?: () => void; onerror?: () => void }> = [];
   class FakeAudio {
@@ -511,7 +538,16 @@ function television() {
     }
     close() {}
   }
-  const context = vm.createContext({ document, window: {}, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, fetch: () => Promise.reject(new Error('a test asks nobody')) });
+  /** What the page listens for on the window: its size changing. */
+  const windowListeners: Record<string, Array<() => void>> = {};
+  const window = {
+    addEventListener(type: string, listener: () => void) {
+      (windowListeners[type] ??= []).push(listener);
+    },
+  };
+  // Nothing is styled here: a card has no padding of its own unless a test says where things are.
+  const getComputedStyle = () => ({});
+  const context = vm.createContext({ document, window, getComputedStyle, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, fetch: () => Promise.reject(new Error('a test asks nobody')) });
   vm.runInContext(readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8'), context, { filename: 'device.js' });
 
   // Paired as the resident's television, and connected.
@@ -538,6 +574,18 @@ function television() {
     /** The pictures on the screen: where each is fetched from, and what it is called. */
     pictures: () => imagesOf(screen()).map((img) => ({ src: img.src, alt: img.alt })),
     /** A picture's address stops answering. */
+    /** A picture arrives: it has a height now. */
+    loadPicture: () => {
+      for (const img of imagesOf(screen())) (img.onload as (() => void) | undefined)?.();
+    },
+    /** The window changes size. */
+    resize: () => {
+      for (const listener of windowListeners.resize ?? []) listener();
+    },
+    /** The classes on the screen itself, and on the one thing shown on it (never the film under it). */
+    screenClasses: () => String(screen().className).split(' ').filter(Boolean),
+    shownClasses: () => String(screen().children.filter((child) => !String(child.className).split(' ').includes('tv-film')).at(-1)?.className ?? '').split(' ').filter(Boolean),
+    screenNode: screen,
     failPicture: () => {
       for (const img of imagesOf(screen())) (img.onerror as (() => void) | undefined)?.();
     },
@@ -547,6 +595,12 @@ function television() {
       if (!img) throw new Error('no picture on the screen');
       for (const listener of img.listeners.click ?? []) listener();
     },
+    /** Says where things are on the page: the screen itself, and each thing drawn on it. */
+    laidOut: (of: (node: Node, isScreen: boolean) => { top: number; bottom: number }) => {
+      places.of = (node) => of(node, node === screen());
+    },
+    /** The paragraphs under a card's headline: what each says, how it is set, and the language it is marked as being in. */
+    paragraphs: () => paragraphsOf(screen()).map((node) => ({ lang: node.lang as string | undefined, className: node.className, text: node.textContent })),
     home: (home: Record<string, unknown>, whole = true) => receive({ kind: 'control', control: { t: 'home', home, ...(whole ? { whole: true } : {}) } }),
     says: () => textOf(screen()),
     buttons: () => buttonsOf(screen()).map((button) => button.textContent),
@@ -728,10 +782,12 @@ describe('the browser television — the question that asks which language', () 
 
     tv.card(LANGUAGE_CARD);
 
+    // Every word of the detail, in the order the server wrote it: the language asked for first, each in a paragraph of its own.
     expect(tv.says()).toEqual([
       'English · español',
       '¿Quiere que Wick le hable en español?',
-      'Sarah ha pedido que este televisor le hable en español. Solo cambia si usted dice que sí. Sarah asks whether this television should use Spanish. Nothing changes unless you say yes.',
+      'Sarah ha pedido que este televisor le hable en español. Solo cambia si usted dice que sí.',
+      'Sarah asks whether this television should use Spanish. Nothing changes unless you say yes.',
       'Sí, en español',
       'No, keep English',
     ]);
@@ -772,6 +828,858 @@ describe('the browser television — the question that asks which language', () 
 
     expect(tv.sent().slice(2)).toEqual([{ t: 'card_action', cardId: 'language-es', action: LANGUAGE_ACTIONS.no }]);
     expect(tv.says()).toEqual(['No card currently shown.', 'Light on']);
+  });
+});
+
+/*
+ * The question's detail is one string from the contract with the two
+ * languages one after the other (languageQuestion): the language asked for,
+ * two sentences, then the other, two sentences. This page draws each
+ * language as a paragraph of its own — split by the contract's own shape,
+ * the sentence each half closes with, and never by guessing at punctuation:
+ * a name can hold a full stop. Text that is not of that shape is drawn as
+ * the one paragraph it came as.
+ */
+describe('the browser television — the two languages of the question, a paragraph each', () => {
+  const CLOSES = { es: 'Solo cambia si usted dice que sí.', en: 'Nothing changes unless you say yes.' } as const;
+  const OTHER = { es: 'en', en: 'es' } as const;
+  const questionCard = (language: 'en' | 'es', askedBy: string, over: Record<string, unknown> = {}) => ({
+    id: languageCardId(language),
+    type: 'LANGUAGE',
+    language,
+    ...languageQuestion(language, askedBy),
+    ...over,
+  });
+  const NAMES = [
+    'Sarah',
+    'Tom',
+    'María José',
+    'O’Brien',
+    // Full stops, and three dots of its own.
+    'Dr. J. Smith',
+    'Ana… y Luis',
+    // Longer than the contract carries: cut at 24 characters, the last of them "…".
+    'Maximiliano Bartholomew Fitzgerald',
+    // Names made of the question's own words, as near to its closing sentences as 24 characters allow.
+    'you say yes. Solo cambia',
+    'dice que sí. Nothing',
+    'Sí. Yes.',
+    'Nothing changes unless you say yes. Solo cambia si usted dice que sí.',
+    'Solo cambia si usted dice que sí. Nothing changes unless you say yes.',
+  ];
+
+  it('knows the sentence each language’s half closes with, as the contract writes it', () => {
+    const closes = device.constant('TV_LANGUAGE_CLOSES') as Record<string, string>;
+
+    expect(Object.keys(closes).sort()).toEqual([...LANGUAGES].sort());
+    for (const language of LANGUAGES) {
+      const { detail } = languageQuestion(language, 'Sarah');
+      // The half in the language asked for closes with its sentence; the whole closes with the other's.
+      expect(detail).toContain(`${closes[language]} `);
+      expect(detail.endsWith(closes[OTHER[language]]!)).toBe(true);
+      expect(closes[language]).toBe(CLOSES[language]);
+    }
+  });
+
+  it('splits the contract’s question in two where the second language begins, whoever asked — the language asked for first', () => {
+    for (const language of LANGUAGES) {
+      for (const name of NAMES) {
+        const card = questionCard(language, name);
+        const shown = name.length > 24 ? `${name.slice(0, 23)}…` : name;
+
+        const drawn = device.languageParagraphs!(card) as Array<{ text: string; language?: string }>;
+        const paragraphs = drawn.map((paragraph) => paragraph.text);
+
+        expect(paragraphs, `${language} ${name}`).toHaveLength(2);
+        expect(drawn.map((paragraph) => paragraph.language), `${language} ${name}`).toEqual([language, OTHER[language]]);
+        // Nothing added, nothing lost, nothing moved: the two paragraphs are the server's string, parted at one space.
+        expect(paragraphs.join(' '), `${language} ${name}`).toBe(card.detail);
+        // Each is two whole sentences of one language, beginning with who asked.
+        expect(paragraphs[0]!.endsWith(CLOSES[language]), `${language} ${name}`).toBe(true);
+        expect(paragraphs[1]!.endsWith(CLOSES[OTHER[language]]), `${language} ${name}`).toBe(true);
+        expect(paragraphs[0], `${language} ${name}`).toBe(
+          language === 'es'
+            ? `${shown} ha pedido que este televisor le hable en español. Solo cambia si usted dice que sí.`
+            : `${shown} asks whether this television should go back to English. Nothing changes unless you say yes.`,
+        );
+        expect(paragraphs[1], `${language} ${name}`).toBe(
+          language === 'es'
+            ? `${shown} asks whether this television should use Spanish. Nothing changes unless you say yes.`
+            : `${shown} pregunta si este televisor debe volver al inglés. Solo cambia si usted dice que sí.`,
+        );
+      }
+    }
+  });
+
+  it('carries the longest name the contract writes — cut at 24 characters — in both paragraphs', () => {
+    const paragraphs = device.languageParagraphs!(questionCard('es', 'Maximiliano Bartholomew Fitzgerald'));
+
+    expect(paragraphs).toEqual([
+      { language: 'es', text: 'Maximiliano Bartholomew… ha pedido que este televisor le hable en español. Solo cambia si usted dice que sí.' },
+      { language: 'en', text: 'Maximiliano Bartholomew… asks whether this television should use Spanish. Nothing changes unless you say yes.' },
+    ]);
+  });
+
+  it('leaves text that is not of that shape as the one paragraph it came as', () => {
+    const es = languageQuestion('es', 'Sarah').detail;
+    const en = languageQuestion('en', 'Sarah').detail;
+    const [esFirst, esSecond] = [es.slice(0, es.indexOf(CLOSES.es) + CLOSES.es.length), es.slice(es.indexOf(CLOSES.es) + CLOSES.es.length + 1)];
+    const one = (language: string, detail: unknown) => device.languageParagraphs!({ id: `language-${language}`, type: 'LANGUAGE', language, detail });
+
+    for (const [why, language, detail] of [
+      ['some other sentence', 'es', 'Sarah would like the television to speak Spanish.'],
+      ['only the first language', 'es', esFirst],
+      ['only the second language', 'es', esSecond],
+      ['the other language first: not what this card asked for', 'es', en],
+      ['the other language first: not what this card asked for', 'en', es],
+      ['the halves the wrong way round', 'es', `${esSecond} ${esFirst}`],
+      ['the first half twice', 'es', `${esFirst} ${es}`],
+      ['the whole question twice', 'es', `${es} ${es}`],
+      ['something after the last sentence', 'es', `${es} And one thing more.`],
+      ['nothing before the first closing sentence', 'es', `${CLOSES.es} ${esSecond}`],
+      ['nothing between the two closing sentences', 'es', `${esFirst} ${CLOSES.en}`],
+      ['the first closing sentence run on from the word before it', 'es', `Sarah lo ha pedido.${CLOSES.es} ${esSecond}`],
+      ['the last closing sentence run on from the word before it', 'es', `${esFirst} Sarah asks.${CLOSES.en}`],
+      ['no space between the halves', 'es', `${esFirst}${esSecond}`],
+      ['two spaces between the halves', 'es', `${esFirst}  ${esSecond}`],
+      ['a line break between the halves', 'es', `${esFirst}\n${esSecond}`],
+      ['a language this page has no words in', 'fr', es],
+      ['no language at all', 'undefined', es],
+      ['an empty detail', 'es', ''],
+    ] as const) {
+      // One paragraph, the text as it came, and no language said of it.
+      expect(one(language, detail), why).toStrictEqual([{ text: detail }]);
+    }
+  });
+
+  it('goes by the language the card says was asked for, not by its id, and draws nothing for a detail that is not text', () => {
+    const es = languageQuestion('es', 'Sarah').detail;
+
+    expect(device.languageParagraphs!({ id: 'language-en', type: 'LANGUAGE', language: 'es', detail: es })).toHaveLength(2);
+    expect(device.languageParagraphs!({ id: 'language-es', type: 'LANGUAGE', language: 'en', detail: es })).toStrictEqual([{ text: es }]);
+    for (const detail of [undefined, null, 7, { text: es }, [es]]) {
+      expect(device.languageParagraphs!({ id: 'language-es', type: 'LANGUAGE', language: 'es', detail })).toEqual([]);
+    }
+  });
+
+  it('draws the question to go back to English with English first, each paragraph marked with its language', () => {
+    const tv = television();
+    tv.home({ light: 'on', language: 'es' });
+
+    tv.card(queuedCard(questionCard('en', 'Sarah')));
+
+    expect(tv.says()).toEqual([
+      'English · español',
+      'Shall Wick speak English again?',
+      'Sarah asks whether this television should go back to English. Nothing changes unless you say yes.',
+      'Sarah pregunta si este televisor debe volver al inglés. Solo cambia si usted dice que sí.',
+      'Yes, in English',
+      'No, seguir en español',
+    ]);
+    expect(tv.paragraphs()).toEqual([
+      { lang: 'en', className: 'body-text', text: 'Sarah asks whether this television should go back to English. Nothing changes unless you say yes.' },
+      { lang: 'es', className: 'body-text next-language', text: 'Sarah pregunta si este televisor debe volver al inglés. Solo cambia si usted dice que sí.' },
+    ]);
+  });
+
+  it('marks the Spanish paragraph and the English one on the question for Spanish, and sets the second apart from the first', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+
+    tv.card(LANGUAGE_CARD);
+
+    expect(tv.paragraphs().map((paragraph) => paragraph.lang)).toEqual(['es', 'en']);
+    expect(tv.paragraphs().map((paragraph) => paragraph.className)).toEqual(['body-text', 'body-text next-language']);
+    const css = readFileSync(fileURLToPath(new URL('../device.css', import.meta.url)), 'utf8');
+    expect(css).toMatch(/\.tv-card \.body-text\.next-language\s*\{[^}]*margin-top:/);
+  });
+
+  it('draws a question that is not of the contract’s shape as one paragraph, with no language marked on it', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+
+    tv.card(queuedCard(questionCard('es', 'Sarah', { detail: 'Sarah would like the television to speak Spanish.' })));
+
+    expect(tv.says()).toEqual(['English · español', '¿Quiere que Wick le hable en español?', 'Sarah would like the television to speak Spanish.', 'Sí, en español', 'No, keep English']);
+    expect(tv.paragraphs()).toEqual([{ lang: undefined, className: 'body-text', text: 'Sarah would like the television to speak Spanish.' }]);
+  });
+
+  it('leaves every other card’s detail as one paragraph, whatever it says', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    const detail = languageQuestion('es', 'Sarah').detail;
+
+    tv.card(queuedCard({ id: 'tell-1', type: 'TELL', headline: 'Shall I tell Sarah?', detail }));
+
+    expect(tv.says()).toEqual(['Something is different today', 'Shall I tell Sarah?', detail]);
+  });
+});
+
+/*
+ * The words that are this page's own (TV_WORDS) are written when a thing is
+ * drawn, and the home's language can change while that thing is still on
+ * the screen: she answers the question with a film open, or with her
+ * mantelpiece open on another television's say-so. Each of them is put on
+ * the screen here, the language is changed under it and changed back, and
+ * the page is read each time. The card's own words are the server's and
+ * stay as they came until it sends the card again.
+ */
+describe('the browser television — its own words follow the language while they are on screen', () => {
+  const table = device.constant('TV_WORDS') as Record<'en' | 'es', Record<string, string>>;
+  const fill = (sentence: string, values: Record<string, unknown> = {}) => sentence.replace(/\{(\w+)\}/g, (_place, name: string) => String(values[name]));
+  /** Everything on the page that is words: what is written, what each picture is called, what each mark is called. */
+  const read = (tv: ReturnType<typeof television>) => ({ says: tv.says(), pictures: tv.pictures().map((picture) => picture.alt), marks: tv.marks() });
+  type Reading = Partial<ReturnType<typeof read>>;
+  const whole = (reading: Reading) => ({ says: [], pictures: [], marks: [], ...reading });
+  const HOME = { light: 'on', mantel: 3 };
+  const FILM = queuedCard({
+    id: 'watch-s1',
+    type: 'WATCH',
+    sessionId: 's1',
+    headline: 'Sintel is ready.',
+    withName: 'Sarah',
+    programmeId: 'sintel',
+    followedUntil: Date.now() + 3_600_000,
+    actions: [{ id: 'start', label: 'Start the film', kind: 'primary' }],
+  });
+  const HINT = { en: 'Press P to hear this.', es: 'Presione P para oír esto.' };
+  const plainCard = (type: string, over: Record<string, unknown> = {}) => queuedCard({ id: `${type.toLowerCase()}-1`, type, headline: 'A headline.', detail: 'A detail.', ...over });
+  /** A card with a kicker of this page's own, the server's two lines under it, and the mark that reads it. */
+  const labelled = (type: string, key: string) => ({
+    name: `the ${type} card’s label, and what its mark is called`,
+    keys: [[key], ['readHint']] as Array<[string, Record<string, unknown>?]>,
+    on: (tv: ReturnType<typeof television>) => tv.card(plainCard(type)),
+    en: { says: [table.en[key]!, 'A headline.', 'A detail.'], marks: [HINT.en] },
+    es: { says: [table.es[key]!, 'A headline.', 'A detail.'], marks: [HINT.es] },
+  });
+
+  const SCENES: Array<{
+    name: string;
+    /** The sentences of the table this puts on the screen, with what they name. */
+    keys: Array<[string, Record<string, unknown>?]>;
+    on: (tv: ReturnType<typeof television>) => void;
+    en: Reading;
+    es: Reading;
+    /** What may be sent while the language changes twice, besides asking for the cards again. */
+    off?: (tv: ReturnType<typeof television>) => void;
+  }> = [
+    {
+      name: 'the empty screen, her light and the way to her mantelpiece',
+      keys: [['empty'], ['lightOn'], ['mantel']],
+      on: () => {},
+      en: { says: ['No card currently shown.', 'Light on', 'Mantelpiece'] },
+      es: { says: ['No hay ninguna tarjeta en pantalla.', 'Luz encendida', 'Repisa'] },
+    },
+    {
+      name: 'her light, put out',
+      keys: [['lightOut']],
+      on: (tv) => tv.home({ light: 'out' }, false),
+      en: { says: ['No card currently shown.', 'Light out', 'Mantelpiece'] },
+      es: { says: ['No hay ninguna tarjeta en pantalla.', 'Luz apagada', 'Repisa'] },
+    },
+    {
+      name: 'the film, with someone watching beside her',
+      keys: [['filmBack'], ['filmWith', { name: 'Sarah' }]],
+      on: (tv) => {
+        tv.card(FILM);
+        tv.press('Start the film');
+      },
+      en: { says: ['Back', 'Sarah is watching with you.'] },
+      es: { says: ['Atrás', 'Sarah ve la película con usted.'] },
+      off: (tv) => tv.press('Back'),
+    },
+    {
+      name: 'the film, watched alone',
+      keys: [['filmBack']],
+      on: (tv) => {
+        tv.card(queuedCard({ ...FILM.card, followedUntil: Date.now() - 1 }));
+        tv.press('Start the film');
+      },
+      en: { says: ['Back'] },
+      es: { says: ['Atrás'] },
+      off: (tv) => tv.press('Back'),
+    },
+    {
+      name: 'the film, under a note that came while it played',
+      keys: [['filmBack'], ['filmWith', { name: 'Sarah' }], ['message', { name: 'Sarah' }], ['readHint']],
+      on: (tv) => {
+        tv.card(FILM);
+        tv.press('Start the film');
+        tv.card(NOTE('See you on Sunday.'));
+      },
+      en: { says: ['Back', 'Sarah is watching with you.', 'Message from Sarah', 'See you on Sunday.'], marks: [HINT.en] },
+      es: { says: ['Atrás', 'Sarah ve la película con usted.', 'Mensaje de Sarah', 'See you on Sunday.'], marks: [HINT.es] },
+      off: (tv) => tv.press('Back'),
+    },
+    {
+      name: 'her mantelpiece, before the server has answered',
+      keys: [['filmBack']],
+      on: (tv) => tv.press('Mantelpiece'),
+      en: { says: ['…', 'Back'] },
+      es: { says: ['…', 'Atrás'] },
+    },
+    {
+      name: 'a picture on her mantelpiece: who it is from, where it stands, and the three buttons',
+      keys: [['mantelFrom', { name: 'Tom' }], ['mantelPlace', { place: 2, count: 3 }], ['mantelPrevious'], ['mantelNext'], ['filmBack'], ['photoPicture', { name: 'Tom' }]],
+      on: (tv) => {
+        tv.press('Mantelpiece');
+        tv.control({ t: 'mantel', items: [kept('p1'), kept('p2', 'Tom'), kept('p3')] });
+        tv.press('Next');
+      },
+      en: { says: ['From Tom · 2 of 3', 'Previous', 'Next', 'Back'], pictures: ['A picture from Tom'] },
+      es: { says: ['De Tom · 2 de 3', 'Anterior', 'Siguiente', 'Atrás'], pictures: ['Una foto de Tom'] },
+    },
+    {
+      name: 'the choice over a picture on her mantelpiece',
+      keys: [['mantelFrom', { name: 'Sarah' }], ['mantelPlace', { place: 1, count: 2 }], ['mantelChoice', { name: 'Sarah' }], ['mantelChoiceDetail'], ['mantelLeave'], ['mantelTakeDown']],
+      on: (tv) => {
+        tv.press('Mantelpiece');
+        tv.control({ t: 'mantel', items: [kept('p1'), kept('p2', 'Tom')] });
+        tv.pressPicture();
+      },
+      en: { says: ['From Sarah · 1 of 2', 'A picture from Sarah.', 'Nobody is told if you take it down.', 'Leave it', 'Take it down'], pictures: ['A picture from Sarah'] },
+      es: { says: ['De Sarah · 1 de 2', 'Una foto de Sarah.', 'Nadie se entera si la quita.', 'Dejarla', 'Quitarla'], pictures: ['Una foto de Sarah'] },
+    },
+    {
+      name: 'a picture on her mantelpiece whose address has no https',
+      keys: [['photoUnavailable'], ['mantelFrom', { name: 'Sarah' }], ['mantelPlace', { place: 1, count: 1 }]],
+      on: (tv) => {
+        tv.press('Mantelpiece');
+        tv.control({ t: 'mantel', items: [kept('p1')] });
+        // What the server sends is always https (readMantelItems keeps nothing else): the address goes bad in the page's memory.
+        tv.evaluate("(mantel.items[0].url = 'http://pictures.example/p1.jpg', renderMantel())");
+      },
+      en: { says: ['The picture cannot be shown just now.', 'From Sarah · 1 of 1', 'Previous', 'Next', 'Back'] },
+      es: { says: ['La foto no se puede mostrar ahora.', 'De Sarah · 1 de 1', 'Anterior', 'Siguiente', 'Atrás'] },
+    },
+    {
+      name: 'a picture’s card: its label, what the picture is called, and its mark',
+      keys: [['photo'], ['photoPicture', { name: 'Sarah' }], ['readHint']],
+      on: (tv) => tv.card(PHOTO()),
+      en: { says: ['A picture', 'A picture from Sarah.', 'Keep it', 'Thank you'], pictures: ['A picture from Sarah'], marks: [HINT.en] },
+      es: { says: ['Una foto', 'A picture from Sarah.', 'Keep it', 'Thank you'], pictures: ['Una foto de Sarah'], marks: [HINT.es] },
+    },
+    {
+      name: 'a picture’s card with no picture to show: the calm line in its place',
+      keys: [['photo'], ['photoUnavailable'], ['readHint']],
+      on: (tv) => tv.card(PHOTO({ photoUrl: undefined })),
+      en: { says: ['A picture', 'A picture from Sarah.', 'The picture cannot be shown just now.', 'Keep it', 'Thank you'], marks: [HINT.en] },
+      es: { says: ['Una foto', 'A picture from Sarah.', 'La foto no se puede mostrar ahora.', 'Keep it', 'Thank you'], marks: [HINT.es] },
+    },
+    {
+      name: 'the door’s card: its label, what its picture is called, and its mark',
+      keys: [['door'], ['doorPicture'], ['readHint']],
+      on: (tv) => tv.card(queuedCard({ id: 'door-1', type: 'DOOR', line: 'Someone is at the front door.', imageRef: 'https://ring.example/still.jpg' }, 'DOOR')),
+      en: { says: ['Someone is at the door', 'Someone is at the front door.'], pictures: ['Door camera still'], marks: [HINT.en] },
+      es: { says: ['Hay alguien en la puerta', 'Someone is at the front door.'], pictures: ['Imagen fija de la cámara de la puerta'], marks: [HINT.es] },
+    },
+    {
+      name: 'a note not yet heard: its label and the line in place of its words',
+      keys: [['message', { name: 'Sarah' }], ['messageUnheard'], ['readHint']],
+      on: (tv) => tv.card(queuedCard({ id: 'note-2', type: 'MESSAGE', fromName: 'Sarah', suggestedReplies: [] })),
+      en: { says: ['Message from Sarah', 'Tap to hear the message'], marks: [HINT.en] },
+      es: { says: ['Mensaje de Sarah', 'Toque para oír el mensaje'], marks: [HINT.es] },
+    },
+    {
+      name: 'the week’s card: its label, with the week in it',
+      keys: [['week', { week: '2026-W41' }], ['readHint']],
+      on: (tv) => tv.card(queuedCard({ id: 'week-1', type: 'WEEK', isoWeek: '2026-W41', text: 'A quiet week.' })),
+      en: { says: ['Your week — 2026-W41', 'A quiet week.'], marks: [HINT.en] },
+      es: { says: ['Su semana — 2026-W41', 'A quiet week.'], marks: [HINT.es] },
+    },
+    labelled('CIRCLE', 'circle'),
+    labelled('SHARING', 'sharing'),
+    labelled('TELL', 'tell'),
+    labelled('WATCH', 'watch'),
+    labelled('LIGHT', 'light'),
+    labelled('REACH', 'reach'),
+    labelled('VISIT', 'visit'),
+  ];
+
+  for (const scene of SCENES) {
+    it(`${scene.name}`, () => {
+      const tv = television();
+      tv.home(HOME);
+      scene.on(tv);
+      const home = tv.evaluate('home') as Record<string, unknown>;
+      const before = tv.sent();
+      expect(read(tv)).toEqual(whole(scene.en));
+
+      // She says yes on another television, or with this still open: the home says Spanish.
+      tv.home({ ...home, language: 'es' });
+      expect(read(tv)).toEqual(whole(scene.es));
+
+      // And she goes back to English.
+      tv.home(home);
+      expect(read(tv)).toEqual(whole(scene.en));
+
+      // What changed is what the page says: nothing was pressed for her, nothing called shown again, nothing asked
+      // for but the cards in the language she has now, once for each change.
+      expect(tv.sent().slice(before.length)).toEqual([{ t: 'reconcile' }, { t: 'reconcile' }]);
+
+      // And each sentence it was meant to show is on the page, in each language.
+      for (const language of ['en', 'es'] as const) {
+        const reading = whole(scene[language]);
+        const drawn = [...reading.says, ...reading.pictures, ...reading.marks];
+        for (const [key, values] of scene.keys) {
+          const sentence = fill(table[language][key]!, values);
+          expect(drawn.some((text) => text === sentence || text.split(' · ').includes(sentence)), `${language} ${key}: ${sentence}`).toBe(true);
+        }
+      }
+      scene.off?.(tv);
+    });
+  }
+
+  it('has every sentence of the table on the screen in one of those: a sentence added to it is one more to follow', () => {
+    const followed = new Set(SCENES.flatMap((scene) => scene.keys.map(([key]) => key)));
+
+    expect([...followed].sort()).toEqual(Object.keys(table.en).sort());
+  });
+
+  it('follows from Spanish to English with the film open — the way round it was first seen to stay behind', () => {
+    const tv = television();
+    tv.home({ light: 'on', language: 'es' });
+    tv.card(queuedCard({ ...FILM.card, headline: 'Sintel está lista.', actions: [{ id: 'start', label: 'Empezar la película', kind: 'primary' }] }));
+    tv.press('Empezar la película');
+    expect(tv.says()).toEqual(['Atrás', 'Sarah ve la película con usted.']);
+
+    tv.home({ light: 'on' });
+
+    expect(tv.says()).toEqual(['Back', 'Sarah is watching with you.']);
+    // The same film, where it was: the layer and its player were not made again.
+    expect(tv.evaluate('[...tvScreen.children].filter((child) => child.className === "tv-film").length')).toBe(1);
+    tv.press('Back');
+    expect(tv.says()).toEqual(['No card currently shown.', 'Light on']);
+  });
+
+  it('leaves the film where it is when its words change: the same layer, the same player, and nothing said of where it has got to', () => {
+    const tv = television();
+    tv.home(HOME);
+    tv.card(FILM);
+    tv.press('Start the film');
+    tv.evaluate('(film.video.marked = true, film.layer.marked = true)');
+    const before = tv.sent().length;
+
+    tv.home({ ...HOME, language: 'es' });
+
+    expect(tv.evaluate('[film.video.marked, film.layer.marked, tvScreen.children[0] === film.layer]')).toEqual([true, true, true]);
+    expect(tv.sent().slice(before)).toEqual([{ t: 'reconcile' }]);
+    tv.press('Atrás');
+  });
+
+  it('keeps her place on the mantelpiece and the choice she had open, and asks the server for nothing more', () => {
+    const tv = television();
+    tv.home(HOME);
+    tv.press('Mantelpiece');
+    tv.control({ t: 'mantel', items: [kept('p1'), kept('p2', 'Tom'), kept('p3')] });
+    tv.press('Next');
+    tv.pressPicture();
+
+    tv.home({ ...HOME, language: 'es' });
+
+    expect(tv.says()).toEqual(['De Tom · 2 de 3', 'Una foto de Tom.', 'Nadie se entera si la quita.', 'Dejarla', 'Quitarla']);
+    expect(tv.pictures()).toEqual([{ src: 'https://pictures.example/p2.jpg', alt: 'Una foto de Tom' }]);
+    expect(tv.sent().filter((event) => event.t === 'mantel' || event.t === 'mantel_take_down')).toEqual([{ t: 'mantel' }]);
+  });
+
+  it('says the calm line in her language when a picture’s address stops answering again after the change', () => {
+    const tv = television();
+    tv.home(HOME);
+    tv.card(PHOTO());
+    tv.failPicture();
+    expect(tv.says()).toContain('The picture cannot be shown just now.');
+
+    // Drawn again in her language, the card tries its picture once more: the address may be a new one by then.
+    tv.home({ ...HOME, language: 'es' });
+    expect(tv.pictures()).toEqual([{ src: PICTURE, alt: 'Una foto de Sarah' }]);
+    tv.failPicture();
+
+    expect(tv.says()).toEqual(['Una foto', 'A picture from Sarah.', 'La foto no se puede mostrar ahora.', 'Keep it', 'Thank you']);
+    expect(tv.says()).not.toContain('The picture cannot be shown just now.');
+  });
+
+  it('leaves the question about her language as it is: it reads the same whichever language the television is in', () => {
+    const tv = television();
+    tv.home(HOME);
+    tv.card(LANGUAGE_CARD);
+    const asked = tv.says();
+
+    tv.home({ ...HOME, language: 'es' });
+
+    expect(tv.says()).toEqual(asked);
+    expect(tv.marks()).toEqual([HINT.es]);
+  });
+});
+
+/*
+ * This page is a demonstration of a television, not a television: its screen is a box in a web page, as wide as
+ * the window lets it be, and a card written for a television can be taller than that box. Nothing of a card may be
+ * cut off — its buttons least of all, some of them are her consent. So each time something is put on the screen it
+ * is measured, and the remedies are tried in order, each only if the one before was not enough: the card as it is
+ * written; a size smaller; the smallest size (both are sizes the family view already uses); and then the screen
+ * itself grows taller than sixteen by nine. What is measured is the browser's business and is checked in one
+ * (the stand-in runs); what is decided from the measurements is checked here.
+ */
+describe('fitRemedy — which remedy a card needs, given how much of it would be off the screen at each size', () => {
+  const remedy = (cuts: number[]) => {
+    const measured: number[] = [];
+    const chosen = device.fitRemedy!(cuts.length, (size: number) => (measured.push(size), cuts[size]!));
+    return { chosen, measured };
+  };
+
+  it('has three sizes, the card as it is written first', () => {
+    expect(device.constant('TV_FIT_SIZES')).toEqual(['', 'fit-snug', 'fit-small']);
+  });
+
+  it('leaves a card that fits as it is written, and measures nothing more', () => {
+    expect(remedy([0, 0, 0])).toEqual({ chosen: { size: 0, grown: false }, measured: [0] });
+  });
+
+  it('sets it a size smaller when that is enough', () => {
+    expect(remedy([42, 0, 0])).toEqual({ chosen: { size: 1, grown: false }, measured: [0, 1] });
+  });
+
+  it('sets it at the smallest size when only that is enough', () => {
+    expect(remedy([90, 31, 0])).toEqual({ chosen: { size: 2, grown: false }, measured: [0, 1, 2] });
+  });
+
+  it('lets the screen grow, at the smallest size, when no size is enough', () => {
+    expect(remedy([140, 96, 55])).toEqual({ chosen: { size: 2, grown: true }, measured: [0, 1, 2] });
+  });
+
+  it('never chooses a larger size after a smaller one: the first that fits is the one', () => {
+    // A smaller size that happens to fit worse (a line that wraps differently) is never reached.
+    expect(remedy([0, 12, 0]).chosen).toEqual({ size: 0, grown: false });
+    expect(remedy([8, 0, 20]).chosen).toEqual({ size: 1, grown: false });
+  });
+
+  it('takes half a pixel for nothing — a browser’s rounding — and anything more for something cut off', () => {
+    expect(remedy([0.5, 0, 0]).chosen).toEqual({ size: 0, grown: false });
+    expect(remedy([0.6, 0, 0]).chosen).toEqual({ size: 1, grown: false });
+    expect(remedy([3, 2, 0.51]).chosen).toEqual({ size: 2, grown: true });
+  });
+
+  it('with one size only — a family member’s own television, which is at its sizes already — fits or lets the screen grow', () => {
+    expect(remedy([0])).toEqual({ chosen: { size: 0, grown: false }, measured: [0] });
+    expect(remedy([17])).toEqual({ chosen: { size: 0, grown: true }, measured: [0] });
+  });
+});
+
+describe('the browser television — nothing on the screen is ever cut off', () => {
+  type Tv = ReturnType<typeof television>;
+  const sizeOf = (classes: string) => (classes.split(' ').includes('fit-small') ? 'fit-small' : classes.split(' ').includes('fit-snug') ? 'fit-snug' : '');
+  /**
+   * A screen 300 high. The thing shown fills it; what is on it ends where `ends` says for the size it is set at
+   * (and whether the screen has grown), and so is cut off by whatever that is past 300 — unless the screen has
+   * grown, when it is as tall as it needs to be.
+   */
+  const room = (tv: Tv, ends: (size: string, tv: Tv) => number) => {
+    tv.laidOut((node, isScreen) => {
+      const grown = tv.screenClasses().includes('grown');
+      const shown = tv.screenNode().children.at(-1)!;
+      const needed = ends(sizeOf(String(shown.className)), tv);
+      const height = grown ? Math.max(300, needed) : 300;
+      if (isScreen || node === shown) return { top: 0, bottom: height };
+      return { top: 0, bottom: needed };
+    });
+  };
+  const REACH = queuedCard({
+    id: 'reach-1',
+    type: 'REACH',
+    headline: 'Ask Sarah to ring you?',
+    detail: 'Sarah will be told only that you would like a call.',
+    actions: [
+      { id: 'ring_me', label: 'Yes, ask Sarah', kind: 'primary' },
+      { id: 'say_hello', label: 'Just say hello', kind: 'secondary' },
+      { id: 'not_now', label: 'No, not now', kind: 'dismiss' },
+    ],
+  });
+  const DOOR = (over: Record<string, unknown> = {}) =>
+    queuedCard({ id: 'door-1', type: 'DOOR', line: 'Someone is at the front door.', actions: [{ id: 'ask_family', label: 'Ask Sarah to look', kind: 'primary' }, { id: 'dismiss', label: 'Not now', kind: 'dismiss' }], ...over }, 'DOOR');
+
+  it('leaves a card that fits as it is written, on a screen of sixteen by nine', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, () => 280);
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('sets a card that does not fit a size smaller, and stops there when that is enough', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, (size) => ({ '': 340, 'fit-snug': 296, 'fit-small': 250 })[size]!);
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-snug']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('sets it at the smallest size when the one between is not enough', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, (size) => ({ '': 380, 'fit-snug': 330, 'fit-small': 299 })[size]!);
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-small']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('lets the screen grow taller than sixteen by nine when the smallest size is not enough — and then nothing is cut off', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, (size) => ({ '': 520, 'fit-snug': 450, 'fit-small': 390 })[size]!);
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-small']);
+    expect(tv.screenClasses()).toContain('grown');
+    expect(tv.evaluate('cutOff([...tvScreen.children].at(-1))')).toBe(0);
+    // Every button is still there, and still answers.
+    expect(tv.buttons()).toEqual(['Yes, ask Sarah', 'Just say hello', 'No, not now']);
+    tv.press('No, not now');
+    expect(tv.sent().at(-1)).toEqual({ t: 'card_action', cardId: 'reach-1', action: 'not_now' });
+  });
+
+  it('measures again when the window changes size: what fits now is as it is written again', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    let needs: Record<string, number> = { '': 520, 'fit-snug': 450, 'fit-small': 390 };
+    room(tv, (size) => needs[size]!);
+    tv.card(REACH);
+    expect(tv.screenClasses()).toContain('grown');
+    const sentBefore = tv.sent().length;
+
+    // The window is made wider: the same card needs less height.
+    needs = { '': 330, 'fit-snug': 290, 'fit-small': 240 };
+    tv.resize();
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-snug']);
+    expect(tv.screenClasses()).not.toContain('grown');
+
+    needs = { '': 240, 'fit-snug': 200, 'fit-small': 180 };
+    tv.resize();
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+
+    // And narrower again.
+    needs = { '': 520, 'fit-snug': 450, 'fit-small': 390 };
+    tv.resize();
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-small']);
+    expect(tv.screenClasses()).toContain('grown');
+    // Measuring is not showing: nothing was sent, and the card was not drawn again.
+    expect(tv.sent().length).toBe(sentBefore);
+  });
+
+  it('measures again when the card on screen is patched: a door’s description arriving makes it taller', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, (size, t) => (t.says().includes('A man in a yellow jacket, holding a parcel.') ? { '': 345, 'fit-snug': 290, 'fit-small': 250 } : { '': 260, 'fit-snug': 230, 'fit-small': 200 })[size]!);
+    tv.card(DOOR());
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-door']);
+
+    tv.control({ t: 'patch', patch: { cardId: 'door-1', description: 'A man in a yellow jacket, holding a parcel.' } });
+
+    expect(tv.says()).toContain('A man in a yellow jacket, holding a parcel.');
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-door', 'fit-snug']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('measures again when a picture arrives or is taken away: a picture has no height until it has come', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    let arrived = false;
+    room(tv, (size) => (arrived ? { '': 420, 'fit-snug': 330, 'fit-small': 280 } : { '': 200, 'fit-snug': 180, 'fit-small': 160 })[size]!);
+    tv.card(PHOTO());
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+
+    arrived = true;
+    tv.loadPicture();
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-small']);
+
+    // Its address stops answering: the calm line in its place is shorter.
+    arrived = false;
+    tv.failPicture();
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+  });
+
+  it('measures the door’s picture too, when it arrives', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    let arrived = false;
+    room(tv, (size) => (arrived ? { '': 400, 'fit-snug': 350, 'fit-small': 310 } : { '': 200, 'fit-snug': 180, 'fit-small': 160 })[size]!);
+    tv.card(DOOR({ imageRef: 'https://ring.example/still.jpg' }));
+    expect(tv.screenClasses()).not.toContain('grown');
+
+    arrived = true;
+    tv.loadPicture();
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-door', 'fit-small']);
+    expect(tv.screenClasses()).toContain('grown');
+  });
+
+  it('starts from the card as it is written each time one is drawn: a size is never carried over from the card before', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    room(tv, (_size, t) => (t.says().includes('Ask Sarah to ring you?') ? 600 : 200));
+    tv.card(NOTE('See you on Sunday.'));
+    tv.card(REACH);
+    expect(tv.screenClasses()).toContain('grown');
+
+    tv.press('No, not now');
+
+    // The note under it is back, and fits: as written, on a screen of sixteen by nine.
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('keeps the question about her language in two paragraphs at every remedy: it is made to fit, not put back in one', () => {
+    for (const needs of [{ '': 280 }, { '': 340, 'fit-snug': 290 }, { '': 380, 'fit-snug': 330, 'fit-small': 295 }, { '': 520, 'fit-snug': 450, 'fit-small': 390 }] as Array<Record<string, number>>) {
+      const tv = television();
+      tv.home({ light: 'on' });
+      room(tv, (size) => needs[size]!);
+
+      tv.card(LANGUAGE_CARD);
+
+      expect(tv.paragraphs().map((paragraph) => paragraph.lang)).toEqual(['es', 'en']);
+      expect(tv.buttons()).toEqual(['Sí, en español', 'No, keep English']);
+    }
+  });
+
+  it('never sets the home screen or her mantelpiece’s words smaller, but lets the screen grow for them too', () => {
+    const tv = television();
+    room(tv, () => 380);
+
+    tv.home({ light: 'on', mantel: 2, lookedIn: { name: 'Sarah', at: Date.now(), line: 'Sarah looked in this morning.' } });
+
+    expect(tv.shownClasses()).toEqual(['tv-empty']);
+    expect(tv.screenClasses()).toContain('grown');
+  });
+
+  it('sets her mantelpiece smaller like any card: its picture gives way before anything is cut off', () => {
+    const tv = television();
+    tv.home({ light: 'on', mantel: 2 });
+    room(tv, (size, t) => (t.pictures().length ? { '': 460, 'fit-snug': 350, 'fit-small': 290 } : { '': 100, 'fit-snug': 100, 'fit-small': 100 })[size]!);
+    tv.press('Mantelpiece');
+    tv.control({ t: 'mantel', items: [kept('p1'), kept('p2', 'Tom')] });
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'tv-mantel', 'fit-small']);
+    expect(tv.screenClasses()).not.toContain('grown');
+  });
+
+  it('measures the card over a film, never the film: with a film alone on the screen nothing is measured and nothing grows', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    const FILM = queuedCard({ id: 'watch-s1', type: 'WATCH', sessionId: 's1', headline: 'Sintel is ready.', withName: 'Sarah', programmeId: 'sintel', followedUntil: Date.now() + 3_600_000, actions: [{ id: 'start', label: 'Start the film', kind: 'primary' }] });
+    tv.card(FILM);
+    tv.press('Start the film');
+    let measured = 0;
+    tv.laidOut(() => ((measured += 1), { top: 0, bottom: 900 }));
+
+    tv.resize();
+    expect(measured).toBe(0);
+    expect(tv.screenClasses()).not.toContain('grown');
+
+    room(tv, (size) => ({ '': 340, 'fit-snug': 280, 'fit-small': 240 })[size]!);
+    tv.card(NOTE('See you on Sunday.'));
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-snug']);
+    expect(tv.says().slice(0, 2)).toEqual(['Back', 'Sarah is watching with you.']);
+    tv.press('Back');
+  });
+
+  it('tells the screen how tall sixteen by nine is at its width, for what is sized by it', () => {
+    const tv = television();
+    tv.screenNode().clientWidth = 640;
+
+    tv.home({ light: 'on' });
+
+    expect((tv.screenNode().style as Record<string, unknown>)['--tv-height']).toBe('360px');
+  });
+
+  it('gives a family member’s own television no smaller size — it is at its sizes already — and lets its screen grow', () => {
+    const tv = television();
+    room(tv, () => 410);
+
+    tv.evaluate('renderFamilySentence("Margaret has not said yes to this television yet. When she does, it will show her home here.")');
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'tv-family']);
+    expect(tv.screenClasses()).toContain('grown');
+  });
+
+  it('counts what would have to be scrolled to be seen as cut off: a television has no scroll', () => {
+    const tv = television();
+    tv.evaluate('renderFamilySentence("One moment.")');
+    expect(tv.screenClasses()).not.toContain('grown');
+
+    const shown = tv.screenNode().children.at(-1)!;
+    shown.scrollHeight = 330;
+    shown.clientHeight = 300;
+    tv.resize();
+
+    expect(tv.screenClasses()).toContain('grown');
+  });
+
+  it('counts the card’s own padding as part of what it needs: its words do not run to the edge of the screen', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    // The card fills a screen 300 high and its words end at 290 — inside the screen, but 14 into a padding of 24.
+    tv.laidOut((node, isScreen) => (isScreen || String(node.className).includes('tv-card') ? { top: 0, bottom: 300 } : { top: 24, bottom: sizeOf(String(tv.screenNode().children.at(-1)!.className)) === '' ? 290 : 270 }));
+    tv.evaluate('void (globalThis.getComputedStyle = () => ({ paddingTop: "24px", paddingBottom: "24px" }))');
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred', 'fit-snug']);
+  });
+
+  it('does not count the mark that reads a card aloud: it stands in the card’s corner, inside its padding', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.laidOut((node, isScreen) => (isScreen || String(node.className).includes('tv-card') ? { top: 0, bottom: 300 } : String(node.className).includes('tv-read') ? { top: 6, bottom: 22 } : { top: 24, bottom: 270 }));
+    tv.evaluate('void (globalThis.getComputedStyle = () => ({ paddingTop: "24px", paddingBottom: "24px" }))');
+
+    tv.card(REACH);
+
+    expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
+  });
+
+  describe('device.css — the sizes and the screen that grows', () => {
+    const css = readFileSync(fileURLToPath(new URL('../device.css', import.meta.url)), 'utf8');
+    /** The smallest a `font-size: clamp(…)` can be, in rem, for the rule with that selector. */
+    const least = (selector: string): number => {
+      const rule = css.slice(css.indexOf(`\n${selector} {`));
+      const size = /font-size:\s*clamp\(([\d.]+)rem/.exec(rule.slice(0, rule.indexOf('}')));
+      if (!size) throw new Error(`no font-size for ${selector}`);
+      return Number(size[1]);
+    };
+
+    it('steps a card’s words down, and never below the smallest the family view already uses', () => {
+      const familyHeadline = least('.tv-family.has-card .family-head .headline');
+      const familyBody = least('.tv-family.has-card .family-head .body-text');
+      expect([familyHeadline, familyBody]).toEqual([1, 0.85]);
+
+      expect(least('.tv-card .headline')).toBeGreaterThan(least('.tv-card.fit-snug .headline'));
+      expect(least('.tv-card.fit-snug .headline')).toBeGreaterThan(least('.tv-card.fit-small .headline'));
+      expect(least('.tv-card.fit-small .headline')).toBeGreaterThanOrEqual(familyHeadline);
+
+      expect(least('.tv-card .body-text')).toBeGreaterThan(least('.tv-card.fit-snug .body-text'));
+      expect(least('.tv-card.fit-snug .body-text')).toBeGreaterThan(least('.tv-card.fit-small .body-text'));
+      expect(least('.tv-card.fit-small .body-text')).toBeGreaterThanOrEqual(familyBody);
+    });
+
+    it('lets a screen that has grown be as tall as what is on it, and never shorter than sixteen by nine', () => {
+      expect(css).toMatch(/\n\.tv-screen\.grown \{[^}]*aspect-ratio:\s*auto;/);
+      expect(css).toMatch(/\n\.tv-screen\.grown > \.tv-card[^{]*\{[^}]*position:\s*relative;/);
+      expect(css).toMatch(/min-height:\s*var\(--tv-height/);
+    });
+
+    it('never hides a button behind a line that will not break: a button’s words wrap before they leave the screen', () => {
+      const pill = css.slice(css.indexOf('\n.tv-card .actions .pill {'));
+      expect(pill.slice(0, pill.indexOf('}'))).not.toMatch(/white-space:\s*nowrap/);
+    });
   });
 });
 
@@ -1285,7 +2193,7 @@ function televisionAsking(remembered: Record<string, string> = {}) {
   const asked: { path: string; method: string; as: string | undefined; aborted: () => boolean; answer: (status: number, body: unknown) => void }[] = [];
   const context = vm.createContext({
     document: { getElementById: element, createElement: element, addEventListener() {}, removeEventListener() {}, head: element(), hidden: false, activeElement: null },
-    window: {},
+    window: { addEventListener() {} },
     console,
     URL,
     AbortController,

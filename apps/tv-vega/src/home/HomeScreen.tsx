@@ -23,7 +23,14 @@
  * The remote is not always this screen's: a card, the mantelpiece, or her
  * pictures filling an idle screen may have it (`cardVisible`). Then nothing
  * here can be focused; and when the remote comes back, the focus goes back
- * to where it was — not to the first film.
+ * to where she was — not to the first film, and not to wherever the
+ * platform passed the focus on its way to the card (home/focusMemory.ts).
+ *
+ * And while a card is on screen nothing of this screen is partly visible
+ * (home/behind.ts): its rows are left out whole and the card is alone on
+ * the ground colour. A card's top edge can fall anywhere, and it used to
+ * fall across the question. The screen itself stays, so it still knows
+ * where the focus was when its rows come back.
  */
 import * as React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
@@ -31,10 +38,17 @@ import type { HouseholdLanguage } from '@wick/contracts';
 import { fontSize, safe } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
 import { HOLD_MS } from '../watch/hold.js';
+import { HOME_FOCUS_START, focusOnReturn, focusReported, reachChanged, type HomeFocus } from './focusMemory.js';
 import { programmeLine, words } from '../words/words.js';
 import { POSTERS } from './posters.js';
 
 export interface HomeScreenProps {
+  /**
+   * Whether this screen's rows are drawn at all (home/behind.ts): not while
+   * a card is on screen over it. Then it is the ground colour and nothing
+   * else — nothing to see part of, to focus, or for a screen reader to find.
+   */
+  readonly drawn: boolean;
   /**
    * The language she chose (packages/contracts language.ts). This screen's
    * own words are said in it (words/words.ts); `waiting`, `light` and
@@ -81,7 +95,7 @@ export interface HomeScreenProps {
   readonly onKeyUp?: (() => void) | undefined;
 }
 
-export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ drawn, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
   const say = words(language);
   // One quiet row under the films, and a card waiting to be opened comes first.
   const quiet = waiting ? undefined : lookedIn;
@@ -90,10 +104,19 @@ export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWa
 
   // Where the focus starts: the film she last watched, or the first. Never a pill.
   const start = `programme:${lastWatchedId ?? programmes[0]?.id}`;
-  // And where it was when the remote was last this screen's. Kept only while it is still something on the screen.
-  const focused = React.useRef<string | undefined>(undefined);
+  // And where she was when the remote was last this screen's (home/focusMemory.ts). Only a focus she made is
+  // remembered: one reported while the screen is out of the remote's reach, or in the moment after it comes
+  // back, is the platform handing the focus along, and is not hers.
+  const focus = React.useRef<HomeFocus>(HOME_FOCUS_START);
+  focus.current = reachChanged(focus.current, drawn && !cardVisible, Date.now());
+  const reportFocus = (item: string): void => {
+    focus.current = focusReported(focus.current, item, Date.now());
+  };
   const here = [...programmes.map((programme) => `programme:${programme.id}`), ...(light ? ['light'] : []), ...(waiting ? ['waiting'] : []), ...(mantel ? ['mantel'] : [])];
-  const preferred = focused.current !== undefined && here.includes(focused.current) ? focused.current : start;
+  const preferred = focusOnReturn(focus.current, here, start);
+
+  // A card is on screen: nothing of this screen is drawn behind it. Left out whole, never partly covered.
+  if (!drawn) return <View style={styles.screen} />;
 
   return (
     <View style={styles.screen}>
@@ -108,9 +131,7 @@ export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWa
             onLongPress={onHold}
             delayLongPress={HOLD_MS}
             onPressOut={onKeyUp}
-            onFocus={() => {
-              focused.current = 'light';
-            }}
+            onFocus={() => reportFocus('light')}
             focusable={!cardVisible}
             hasTVPreferredFocus={!cardVisible && preferred === 'light'}
             accessibilityRole="button"
@@ -132,9 +153,7 @@ export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWa
             onLongPress={onHold}
             delayLongPress={HOLD_MS}
             onPressOut={onKeyUp}
-            onFocus={() => {
-              focused.current = `programme:${programme.id}`;
-            }}
+            onFocus={() => reportFocus(`programme:${programme.id}`)}
             focusable={!cardVisible}
             hasTVPreferredFocus={!cardVisible && preferred === `programme:${programme.id}`}
             accessibilityRole="button"
@@ -163,9 +182,7 @@ export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWa
               onLongPress={onHold}
               delayLongPress={HOLD_MS}
               onPressOut={onKeyUp}
-              onFocus={() => {
-                focused.current = 'waiting';
-              }}
+              onFocus={() => reportFocus('waiting')}
               focusable={!cardVisible}
               hasTVPreferredFocus={!cardVisible && preferred === 'waiting'}
               accessibilityRole="button"
@@ -197,9 +214,7 @@ export function HomeScreen({ language, programmes, onChoose, cardVisible, lastWa
               onLongPress={onHold}
               delayLongPress={HOLD_MS}
               onPressOut={onKeyUp}
-              onFocus={() => {
-                focused.current = 'mantel';
-              }}
+              onFocus={() => reportFocus('mantel')}
               focusable={!cardVisible}
               hasTVPreferredFocus={!cardVisible && preferred === 'mantel'}
               accessibilityRole="button"

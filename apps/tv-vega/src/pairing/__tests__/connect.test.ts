@@ -40,7 +40,7 @@ describe('connectTelevision — getting a television its token', () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(h.states).toEqual([{ kind: 'ready', token: TOKEN }]);
+    expect(h.states).toEqual([{ kind: 'ready', token: TOKEN, asked: true }]);
     expect(h.pairing.loadToken).toHaveBeenCalledWith('d1');
     expect(h.pairing.start).not.toHaveBeenCalled();
   });
@@ -57,7 +57,7 @@ describe('connectTelevision — getting a television its token', () => {
 
     entered(TOKEN);
     await vi.advanceTimersByTimeAsync(0);
-    expect(h.last()).toEqual({ kind: 'ready', token: TOKEN });
+    expect(h.last()).toEqual({ kind: 'ready', token: TOKEN, asked: true });
   });
 });
 
@@ -78,7 +78,7 @@ describe('connectTelevision — when the pairing service cannot be reached', () 
     await vi.advanceTimersByTimeAsync(1);
 
     expect(h.pairing.loadToken).toHaveBeenCalledTimes(2);
-    expect(h.last()).toEqual({ kind: 'ready', token: TOKEN });
+    expect(h.last()).toEqual({ kind: 'ready', token: TOKEN, asked: true });
   });
 
   it('tries again when it is the code that could not be had', async () => {
@@ -102,7 +102,7 @@ describe('connectTelevision — when the pairing service cannot be reached', () 
     await vi.advanceTimersByTimeAsync(retryDelayMs(1) + retryDelayMs(2));
 
     expect(h.pairing.loadToken).toHaveBeenCalledTimes(3);
-    expect(h.last()).toEqual({ kind: 'ready', token: TOKEN });
+    expect(h.last()).toEqual({ kind: 'ready', token: TOKEN, asked: true });
   });
 
   it('tries calmly: a few seconds at first, backing off to a quarter of a minute and no further', () => {
@@ -288,7 +288,7 @@ describe('connectTelevision — what is on screen while the first request has no
 
       expect(h.states).toEqual([
         { kind: 'ready', token: FAMILY_STALE },
-        { kind: 'ready', token: { ...FAMILY_STALE, jwt: 'fresh', expiresAt: 9 } },
+        { kind: 'ready', token: { ...FAMILY_STALE, jwt: 'fresh', expiresAt: 9 }, asked: true },
       ]);
     });
 
@@ -300,7 +300,7 @@ describe('connectTelevision — what is on screen while the first request has no
 
       await vi.advanceTimersByTimeAsync(5_000);
 
-      expect(h.states).toEqual([{ kind: 'ready', token: TOKEN }]);
+      expect(h.states).toEqual([{ kind: 'ready', token: TOKEN, asked: true }]);
     });
 
     it('shows its own screen at once when the first request is refused outright', async () => {
@@ -377,5 +377,59 @@ describe('connectTelevision — what is on screen while the first request has no
     await vi.advanceTimersByTimeAsync(30_000);
 
     expect(h.states).toEqual([]);
+  });
+});
+
+// Whether the pairing service has just answered for this television matters
+// to what comes next: a television that was only read from its own disk has
+// asked nobody, and may have been disconnected since (standing.ts).
+describe('connectTelevision — whether the token is fresh from the pairing service', () => {
+  const ON_DISK: DeviceToken = { jwt: 'kept', deviceId: 'd1', householdId: 'h1', expiresAt: Number.MAX_SAFE_INTEGER };
+
+  it('says a token read from the disk was not asked for', async () => {
+    const h = harness();
+    h.pairing.rememberedToken.mockResolvedValue(ON_DISK);
+    h.pairing.loadToken.mockResolvedValue(ON_DISK);
+    h.begin();
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(h.states).toEqual([{ kind: 'ready', token: ON_DISK }]);
+  });
+
+  it('says a token the pairing service has just handed over was', async () => {
+    const h = harness();
+    h.pairing.loadToken.mockResolvedValue(TOKEN);
+    h.begin();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.states).toEqual([{ kind: 'ready', token: TOKEN, asked: true }]);
+
+    const refreshed = harness();
+    refreshed.pairing.rememberedToken.mockResolvedValue({ ...ON_DISK, expiresAt: 0 });
+    refreshed.pairing.loadToken.mockResolvedValue(TOKEN);
+    refreshed.begin();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refreshed.last()).toEqual({ kind: 'ready', token: TOKEN, asked: true });
+  });
+
+  it('says so of the token that comes when the code is entered', async () => {
+    const h = harness();
+    h.pairing.pollUntilBound.mockResolvedValue(TOKEN);
+    h.begin();
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(h.last()).toEqual({ kind: 'ready', token: TOKEN, asked: true });
+  });
+
+  it('does not say it of a token it remembers and shows while nothing has answered', async () => {
+    const h = harness();
+    h.pairing.rememberedToken.mockResolvedValue({ ...ON_DISK, expiresAt: 0 });
+    h.pairing.loadToken.mockRejectedValue(new TypeError('Network request failed'));
+    h.begin();
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(h.last()).toEqual({ kind: 'ready', token: { ...ON_DISK, expiresAt: 0 } });
   });
 });
