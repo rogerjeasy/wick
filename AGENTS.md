@@ -67,12 +67,18 @@ share nothing on the device — no launch data, no storage, no message
 holds, opens a window on its own `FTV#` row, and inside that window one
 unproven request for that television is answered. What bounds it: only the
 app's own proof opens it; it lasts 90 seconds and is used once; the request
-must come from the address that opened it; and the token it yields carries
+must come from the address that opened it (kept on the row as a keyed
+fingerprint, never the address); and the token it yields carries
 `scope: 'waiting'`, which the Wick server accepts on `GET /tv/waiting` and
 refuses everywhere else. That one route says, in one sentence each, what
 is waiting for that member's answer — never the picture from the door, the
 light, the week or where a film is. A scoped token is only ever exchanged
-for another scoped token, and never once it has expired.
+for another scoped token, and never once it has expired. It belongs to one
+session, named on the television's row: there is one at a time, each time
+the app comes on screen the session before it is over — at the pairing
+service and at the Wick server, which checks it on every call — and none
+lasts past seven days. And its refreshes are counted apart from the app's,
+so the least trusted token on a television cannot lock its app out.
 
 **Never** widen that scope, never let a scoped token reach `/tv/home`,
 `/tv/press` or `/tv/seat`, and never answer `/tv/waiting` with anything a
