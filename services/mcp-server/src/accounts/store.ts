@@ -21,9 +21,18 @@ import {
   UpdateItemCommand,
   type AttributeValue,
 } from '@aws-sdk/client-dynamodb';
-import { FAMILY_TV_SK_PREFIX, type CircleRole, type MemberStatus } from '@wick/contracts';
+import {
+  DEFAULT_LANGUAGE,
+  FAMILY_TV_SK_PREFIX,
+  HOUSEHOLD_LANGUAGE_ATTRS,
+  LANGUAGE_ASK_AGAIN_AFTER_MS,
+  isHouseholdLanguage,
+  type CircleRole,
+  type HouseholdLanguage,
+  type MemberStatus,
+} from '@wick/contracts';
 import { announcedVisitPrefix } from './announcedVisits.js';
-import type { FamilyTelevision, Household, Membership, RecordKind, Television, User } from './types.js';
+import type { AskedLanguage, FamilyTelevision, Household, Membership, RecordKind, Television, User } from './types.js';
 
 type Item = Record<string, AttributeValue>;
 
@@ -48,7 +57,24 @@ export interface AccountStore {
 
   /** Throws HouseholdExistsError rather than take over a household somebody created. */
   createHousehold(household: Household): Promise<void>;
-  getHousehold(householdId: string): Promise<Household | undefined>;
+  /** `consistent` for a decision that has to stand on what was written a moment ago (the television's language). */
+  getHousehold(householdId: string, options?: { readonly consistent?: boolean }): Promise<Household | undefined>;
+
+  /**
+   * Puts a question about the television's language beside the household
+   * (packages/contracts language.ts): the three `languageAsked*` attributes,
+   * in one conditional update. False, and nothing written, when the
+   * household is no longer as it was read — it speaks that language already,
+   * the question open on it is not `replacing` (none, when undefined), or
+   * she said no to that language within the week before `question.at`.
+   *
+   * The language itself is never written from here. Only the resident's
+   * press on her own television does that (the edge), for the same reason
+   * nothing on the family side writes `status: 'allowed'` (INV-9).
+   */
+  askLanguage(householdId: string, question: AskedLanguage, replacing: HouseholdLanguage | undefined): Promise<boolean>;
+  /** Takes back exactly that question. False when it is no longer the one open: answered, or asked again since. */
+  clearLanguageQuestion(householdId: string, question: Pick<AskedLanguage, 'language' | 'at'>): Promise<boolean>;
 
   putMembership(membership: Membership): Promise<void>;
   getMembership(householdId: string, userId: string): Promise<Membership | undefined>;
@@ -88,6 +114,28 @@ export interface AccountStore {
 }
 
 const householdPk = (householdId: string): AttributeValue => ({ S: `HH#${householdId}` });
+
+const LANGUAGE = HOUSEHOLD_LANGUAGE_ATTRS;
+/** The attributes of a question about the language. These are all this store ever writes of it. */
+const QUESTION_NAMES = { '#asked': LANGUAGE.asked, '#by': LANGUAGE.askedBy, '#at': LANGUAGE.askedAt } as const;
+
+const conditionFailed = (err: unknown): boolean => (err as { name?: string }).name === 'ConditionalCheckFailedException';
+
+/** The language on a household's row, a question open beside it, and her last no. English is the absence of a language. */
+function languageFromItem(item: Item): Pick<Household, 'language' | 'languageAsked' | 'languageDeclined'> {
+  const language = item[LANGUAGE.language]?.S;
+  const asked = item[LANGUAGE.asked]?.S;
+  const declined = item[LANGUAGE.declined]?.S;
+  const declinedAt = Number(item[LANGUAGE.declinedAt]?.N);
+  return {
+    // A no with no time cannot be counted from, and is not kept against anybody.
+    ...(isHouseholdLanguage(declined) && Number.isFinite(declinedAt) ? { languageDeclined: { language: declined, at: declinedAt } } : {}),
+    ...(isHouseholdLanguage(language) && language !== DEFAULT_LANGUAGE ? { language } : {}),
+    ...(isHouseholdLanguage(asked)
+      ? { languageAsked: { language: asked, by: item[LANGUAGE.askedBy]?.S ?? '', at: Number(item[LANGUAGE.askedAt]?.N ?? 0) } }
+      : {}),
+  };
+}
 const userPk = (userId: string): AttributeValue => ({ S: `USER#${userId}` });
 const num = (value: number): AttributeValue => ({ N: String(value) });
 
@@ -194,8 +242,12 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
       }
     },
 
-    async getHousehold(householdId) {
-      const item = (await send(new GetItemCommand({ TableName: table, Key: { pk: householdPk(householdId), sk: { S: 'META' } } }))).Item;
+    async getHousehold(householdId, options) {
+      const item = (await send(new GetItemCommand({
+        TableName: table,
+        Key: { pk: householdPk(householdId), sk: { S: 'META' } },
+        ...(options?.consistent ? { ConsistentRead: true } : {}),
+      }))).Item;
       // A META item with a policy but no creator is a household nobody has claimed.
       if (!item?.createdBy?.S || !item.name?.S || !item.residentName?.S) return undefined;
       return {
@@ -205,7 +257,57 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         createdBy: item.createdBy.S,
         createdAt: Number(item.createdAt?.N ?? 0),
         ...(item.simulated?.BOOL ? { simulated: true } : {}),
+        ...languageFromItem(item),
       };
+    },
+
+    async askLanguage(householdId, question, replacing) {
+      // English is the absence of the attribute, so "does not speak it already" is asked two ways.
+      const speaksAnother =
+        question.language === DEFAULT_LANGUAGE
+          ? 'attribute_exists(#language) AND #language <> :asked'
+          : '(attribute_not_exists(#language) OR #language <> :asked)';
+      const questionAsRead = replacing === undefined ? 'attribute_not_exists(#asked)' : '#asked = :replacing';
+      // Her no stands for a week, even against a request that read the household a moment before she gave it.
+      const noStandingNo = '(attribute_not_exists(#declined) OR #declined <> :asked OR #declinedAt <= :stale)';
+      try {
+        await send(new UpdateItemCommand({
+          TableName: table,
+          Key: { pk: householdPk(householdId), sk: { S: 'META' } },
+          UpdateExpression: 'SET #asked = :asked, #by = :by, #at = :at',
+          // Named in the condition only: the language and her no are read here to refuse, and never set.
+          ConditionExpression: `attribute_exists(createdBy) AND ${speaksAnother} AND ${questionAsRead} AND ${noStandingNo}`,
+          ExpressionAttributeNames: { '#language': LANGUAGE.language, '#declined': LANGUAGE.declined, '#declinedAt': LANGUAGE.declinedAt, ...QUESTION_NAMES },
+          ExpressionAttributeValues: {
+            ':asked': { S: question.language },
+            ':by': { S: question.by },
+            ':at': num(question.at),
+            ':stale': num(question.at - LANGUAGE_ASK_AGAIN_AFTER_MS),
+            ...(replacing === undefined ? {} : { ':replacing': { S: replacing } }),
+          },
+        }));
+        return true;
+      } catch (err) {
+        if (conditionFailed(err)) return false;
+        throw err;
+      }
+    },
+
+    async clearLanguageQuestion(householdId, question) {
+      try {
+        await send(new UpdateItemCommand({
+          TableName: table,
+          Key: { pk: householdPk(householdId), sk: { S: 'META' } },
+          UpdateExpression: 'REMOVE #asked, #by, #at',
+          ConditionExpression: '#asked = :asked AND #at = :at',
+          ExpressionAttributeNames: { ...QUESTION_NAMES },
+          ExpressionAttributeValues: { ':asked': { S: question.language }, ':at': num(question.at) },
+        }));
+        return true;
+      } catch (err) {
+        if (conditionFailed(err)) return false;
+        throw err;
+      }
     },
 
     async putMembership(m) {

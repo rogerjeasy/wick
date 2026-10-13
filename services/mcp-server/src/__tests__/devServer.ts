@@ -73,6 +73,19 @@
  *     "Shall I tell …?" (answered, like any other, by /dev/tell). What the
  *     family is given is get_visits: "were the visits confirmed?"
  *
+ *   - The television speaks her language: the family app's own card asks
+ *     ("what language is Mum's television in?", then "Ask Margaret for
+ *     Spanish") through the server's real /api/language, and the question is
+ *     printed here as the television would show it, in both languages.
+ *     GET /dev/language is her press on "Sí, en español" (or "Yes, in
+ *     English") in every home that connected the stand-in television, and
+ *     /dev/language?press=no her "No" — what the edge will do with that
+ *     press: only a question still open is answered, a yes makes it the
+ *     television's language, a no is kept with when it was said (it stands
+ *     for a week, and the same language is refused until then), and either
+ *     answer closes the question. The card in the family app says so within
+ *     a few seconds.
+ *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
  * answers; without it there is none, and the app answers by its rules.
@@ -225,6 +238,10 @@ const sendCard = async (card: QueuedCard): Promise<void> => {
   table.put({ pk: { S: `HH#${card.card.householdId}` }, sk: { S: `CARD#${card.id}` }, data: { S: JSON.stringify(card) } });
   // Hold for Sarah: each state of the one card, as the television would now show it.
   if (card.card.type === 'REACH') console.log(`television: "${card.card.headline}"${card.card.detail ? ` ${card.card.detail}` : ''}`);
+  // The language question: both languages at once, and the two buttons she can press (GET /dev/language presses the first).
+  if (card.card.type === 'LANGUAGE') {
+    console.log(`television: "${card.card.headline}" ${card.card.detail} [${card.card.actions.map((action) => action.label).join('] [')}]`);
+  }
 };
 
 const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
@@ -556,6 +573,24 @@ app.get('/dev/visit', async (req, res) => {
     noted[householdId] = { visitor: visitor.name, door, asked, television };
   }
   res.json({ noted });
+});
+
+/**
+ * The television speaks her language: the resident's press on the LANGUAGE
+ * card, as the edge will have it (the store's own stand-in, memoryStore.ts
+ * answerLanguage). Yes unless ?press=no. Nothing here can set a language
+ * nobody asked for: a home with no question open is left exactly as it was.
+ */
+app.get('/dev/language', (req, res) => {
+  const press = req.query.press === 'no' ? 'no' : 'yes';
+  const speaks: Record<string, string> = {};
+  for (const householdId of homesWithATelevision) {
+    const language = store.answerLanguage(householdId, press);
+    if (language === undefined) continue;
+    speaks[householdId] = language;
+    console.log(`television (${householdId}): she pressed ${press}; it speaks ${language}`);
+  }
+  res.json({ press, speaks });
 });
 
 /**

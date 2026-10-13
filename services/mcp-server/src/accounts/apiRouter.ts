@@ -16,6 +16,10 @@
  * packages/contracts familyTelevision.ts). The Lambda decides that too; this
  * router asks first only so the refusal can be a sentence with the
  * resident's name in it.
+ *
+ * And the language the resident's television speaks (`/api/language`,
+ * accounts/language.ts): the organiser asks for another, and that is all
+ * this server does about it. The answer is hers, on her television.
  */
 import cors from 'cors';
 import express, { type Request, type RequestHandler, type Response } from 'express';
@@ -34,6 +38,7 @@ import {
   type CircleErrorCode,
 } from './circle.js';
 import { isGuest } from './demo.js';
+import { LanguageRefusal, askForLanguage, readLanguage, takeBackLanguageQuestion, type LanguageDeps } from './language.js';
 import { grantOf } from './oauthProvider.js';
 import { parseSubscription, type PushStore } from './push.js';
 
@@ -163,11 +168,18 @@ export interface ApiOptions {
   readonly push?: PushStore | undefined;
   /** The households' IANA time zone (one for the deployment, as the Narrator's). */
   readonly timeZone?: string | undefined;
+  /**
+   * egress.ts's takeBackFromDevices (INV-2): how a question about the
+   * television's language leaves her television when the organiser takes it
+   * back. Absent, `/api/language` is read-only — a question that could not
+   * be taken back is not one this server will ask.
+   */
+  readonly withdrawCard?: LanguageDeps['withdrawCard'] | undefined;
 }
 
 export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHandler, options: ApiOptions = {}): express.Router {
   const { store } = circle;
-  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone, push } = options;
+  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone, push, withdrawCard } = options;
   const router = express.Router();
   // Any origin: nothing here uses a cookie, and a token is only ever sent by
   // the page that holds it.
@@ -322,6 +334,42 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
     await removeMember(circle, grant, String(req.params.userId));
     res.status(204).end();
   }));
+
+  // --- The language her television speaks ----------------------------------
+  //
+  // Read by the family she allows; asked for by the organiser alone; changed
+  // by nobody here — only her press on her own television does that
+  // (accounts/language.ts). The household is the token's in all three: there
+  // is none in any of these requests to read (INV-8).
+
+  /** Runs one of the three, and turns a refusal into the sentence it carries. */
+  const languageRoute =
+    (act: (grant: { userId: string; householdId: string }, req: Request) => Promise<object>): RequestHandler =>
+    withGrant(async (grant, req, res) => {
+      try {
+        res.json(await act(grant, req));
+      } catch (err) {
+        if (!(err instanceof LanguageRefusal)) throw err;
+        res.status(err.status).json({ error: err.code, message: err.message });
+      }
+    });
+
+  router.get('/api/language', languageRoute((grant) => readLanguage({ store, now: circle.now, timeZone }, grant)));
+
+  if (withdrawCard) {
+    const language: LanguageDeps = { store, sendCard: circle.sendCard, withdrawCard, now: circle.now, timeZone };
+
+    router.post('/api/language', languageRoute(async (grant, req) => {
+      // The language, and nothing else: who is asking, and for which home, are the token's.
+      const { view, say } = await askForLanguage(language, grant, (req.body as { language?: unknown } | undefined)?.language);
+      return { ...view, say };
+    }));
+
+    router.delete('/api/language/question', languageRoute(async (grant) => {
+      const { view, say } = await takeBackLanguageQuestion(language, grant);
+      return { ...view, say };
+    }));
+  }
 
   // --- The home's own Ring link -------------------------------------------
   //

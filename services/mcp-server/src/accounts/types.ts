@@ -5,7 +5,7 @@
  * has no account at all (packages/contracts/src/circle.ts). A membership
  * joins the two, and carries the resident's answer.
  */
-import type { CircleRole, MemberStatus } from '@wick/contracts';
+import type { CircleRole, HouseholdLanguage, MemberStatus } from '@wick/contracts';
 
 export interface User {
   readonly userId: string;
@@ -28,6 +28,29 @@ export interface Household {
    * person set up for someone.
    */
   readonly simulated?: boolean;
+  /**
+   * The language the resident's television speaks (packages/contracts
+   * language.ts). Absent: English. Read here and never written from here —
+   * only her own press on the television changes it.
+   */
+  readonly language?: HouseholdLanguage;
+  /** A question still open on her television: the organiser asked for another language, and she has not answered. */
+  readonly languageAsked?: AskedLanguage;
+  /**
+   * The language she last said no to, and when. Her no is an answer too: it
+   * stands for a week (LANGUAGE_ASK_AGAIN_AFTER_MS). Written only by her
+   * press, at the edge, like the language itself — read here, never written.
+   */
+  readonly languageDeclined?: { readonly language: HouseholdLanguage; readonly at: number };
+}
+
+/** A question about the television's language, as it is kept beside the household. */
+export interface AskedLanguage {
+  /** The language asked for. */
+  readonly language: HouseholdLanguage;
+  /** The first name of the organiser who asked, as the card says it. */
+  readonly by: string;
+  readonly at: number;
 }
 
 export interface Membership {
