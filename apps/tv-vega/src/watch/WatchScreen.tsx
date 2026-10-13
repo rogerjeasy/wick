@@ -11,6 +11,11 @@
  * left/right move 30 seconds; Back returns to the home screen. What the keys
  * mean is decided in remoteKeys.ts and tested there.
  *
+ * And OK held for two seconds is not a press (hold.ts): it brings the card
+ * that offers to ask someone to ring her (packages/contracts/src/reach.ts).
+ * The pause or resume its first moment made is put back, so the programme
+ * is as it was when the card arrives.
+ *
  * Nothing here decides whether a card shows. This screen reports; the engine
  * decides; App.tsx renders the card over the picture.
  */
@@ -21,6 +26,7 @@ import { fontSize, safe } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
 import { PlayerService, type PlayerSnapshot } from '../player/PlayerService.js';
 import { PlaybackRecorder } from './playbackRecorder.js';
+import { isOkKey, okHold, type OkHold } from './hold.js';
 import { seekTarget, watchCommand } from './remoteKeys.js';
 
 export interface WatchScreenProps {
@@ -45,6 +51,8 @@ export interface WatchScreenProps {
    * anything: nobody follows a film she has not been told they are following.
    */
   readonly companion?: string | undefined;
+  /** OK was held for two seconds, with nothing else on screen to take it (hold.ts). */
+  readonly onHold?: (() => void) | undefined;
   readonly onExit: () => void;
 }
 
@@ -113,13 +121,35 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
     };
   }, [programme]);
 
+  // Whether the OK press now under way paused or resumed the programme as it went down.
+  const okToggled = React.useRef(false);
+  const toggle = (p: VideoPlayer): void => {
+    if (p.paused) void p.play();
+    else p.pause();
+  };
+  const hold = React.useRef<OkHold | null>(null);
+  hold.current ??= okHold({
+    // OK is free to be held only while it is the programme's: not a card's, and not the door camera's.
+    canHold: () => playerRef.current !== null && !latest.current.cardVisible && !latest.current.suspended,
+    onHold: () => {
+      const p = playerRef.current;
+      // It was a hold, not a press: the programme goes back to how it was.
+      if (p && okToggled.current) toggle(p);
+      okToggled.current = false;
+      latest.current.onHold?.();
+    },
+  });
+  React.useEffect(() => () => hold.current?.cancel(), []);
+
   useTVEventHandler((event) => {
+    hold.current?.onEvent(event);
+    if (isOkKey(event.eventType) && event.eventKeyAction === 1) okToggled.current = false;
     const p = playerRef.current;
     if (!p || latest.current.suspended) return;
     const command = watchCommand(event, { cardVisible: latest.current.cardVisible });
     if (command === 'toggle') {
-      if (p.paused) void p.play();
-      else p.pause();
+      okToggled.current = isOkKey(event.eventType);
+      toggle(p);
     } else if (command) {
       p.currentTime = seekTarget(p.currentTime * 1000, command, programme.durationMs) / 1000;
     }

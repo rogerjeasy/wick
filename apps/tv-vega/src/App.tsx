@@ -18,6 +18,11 @@
  * card that says someone is ready opens that film, and from then on this
  * television says where the film is, for that one person
  * (watch/togetherReporter.ts). Nothing else she plays is ever sent that way.
+ *
+ * Hold for Sarah (packages/contracts/src/reach.ts): OK held for two seconds,
+ * on the home screen or over a programme, asks the server for the card that
+ * offers to have someone ring her. That card is hers to see at once, like
+ * the Light card — she has just asked for it (home/reach.ts).
  */
 import * as React from 'react';
 import { AppState, Linking } from 'react-native';
@@ -37,6 +42,7 @@ import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/
 import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, waitingLine } from './home/waiting.js';
 import { answersHerPress, lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
+import { backAnswersReach, newestReachCard, reachOffersToPutAway } from './home/reach.js';
 import { WatchScreen } from './watch/WatchScreen.js';
 import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { TogetherReporter, type Together } from './watch/togetherReporter.js';
@@ -94,6 +100,12 @@ export default function App(): React.JSX.Element {
   const [lookedIn, setLookedIn] = React.useState<string | undefined>(undefined);
   /** When she pressed the light on the home screen. The card that answers it is opened as soon as it comes. */
   const lightAskedAt = React.useRef<number | null>(null);
+  /**
+   * When she last held OK. For a little while after it the newest Reach card
+   * is the one on screen — the offer her hold brings, or her request as it
+   * stands — until she answers it or lets it go.
+   */
+  const reachAskedAt = React.useRef<number | null>(null);
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
@@ -213,6 +225,16 @@ export default function App(): React.JSX.Element {
         cards = await store.readAll();
       }
 
+      // Hold for Sarah: what her hold brings is hers to see at once, and an
+      // offer she is not looking at is put away rather than left for a break.
+      const reach = newestReachCard(cards);
+      if (reach && answersHerPress(reachAskedAt.current, now)) openedId.current = reach.id;
+      const offers = reachOffersToPutAway(cards, openedId.current);
+      if (offers.length > 0) {
+        for (const id of offers) await store.remove(id);
+        cards = await store.readAll();
+      }
+
       // A waiting card the resident opened is shown until it is answered —
       // unless someone is at the door, which always comes first.
       const opened = openedId.current ? cards.find((c) => c.id === openedId.current) : undefined;
@@ -291,18 +313,12 @@ export default function App(): React.JSX.Element {
     void store.enqueueOutbound({ t: 'light', at });
   }, [store]);
 
-  // Back on a waiting card the resident opened puts it back to waiting.
-  // Registered again whenever what is on screen changes, so it is asked
-  // before the screens underneath; it declines anything that is not its own.
-  React.useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (!backClosesOpened({ openedId: openedId.current, shownId: card?.id ?? null, liveOpen: liveFor !== null })) return false;
-      openedId.current = null;
-      setCard(null);
-      return true;
-    });
-    return () => sub.remove();
-  }, [card, liveFor]);
+  // OK held for two seconds: ask for the card that offers to have someone ring her.
+  const handleHold = React.useCallback(() => {
+    const at = Date.now();
+    reachAskedAt.current = at;
+    void store.enqueueOutbound({ t: 'reach', at });
+  }, [store]);
 
   const handleAction = React.useCallback(
     (cardId: string, actionId: string) => {
@@ -313,6 +329,8 @@ export default function App(): React.JSX.Element {
         setTogether(film.together ?? null);
         setWatching(programme);
       }
+      // Any answer on the card her hold brought ends the little while in which the newest one is brought forward.
+      if (card && card.id === cardId && card.card.type === 'REACH') reachAskedAt.current = null;
       if (card && card.id === cardId && removesCard(card.card, actionId)) {
         void store.remove(cardId);
         setCard(null);
@@ -323,6 +341,25 @@ export default function App(): React.JSX.Element {
     },
     [store, card],
   );
+
+  // Back on a waiting card the resident opened puts it back to waiting.
+  // Registered again whenever what is on screen changes, so it is asked
+  // before the screens underneath; it declines anything that is not its own.
+  React.useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!backClosesOpened({ openedId: openedId.current, shownId: card?.id ?? null, liveOpen: liveFor !== null })) return false;
+      // On the card her hold brought, Back is an answer: an offer or a request left half read would come back at the next break (home/reach.ts).
+      const reachAnswer = backAnswersReach(card?.card);
+      if (card && reachAnswer) {
+        handleAction(card.id, reachAnswer);
+        return true;
+      }
+      openedId.current = null;
+      setCard(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [card, liveFor, handleAction]);
 
   if (!screen) return <View style={{ flex: 1 }} />;
   // exactOptionalPropertyTypes forbids passing `info={undefined}` explicitly —
@@ -342,6 +379,7 @@ export default function App(): React.JSX.Element {
           held={breakController.holdsProgramme(card ?? undefined)}
           suspended={liveFor !== null}
           companion={together && together.programmeId === watching.id ? together.withName : undefined}
+          onHold={handleHold}
           onExit={handleExitWatching}
         />
       ) : (
@@ -355,6 +393,7 @@ export default function App(): React.JSX.Element {
           light={light}
           onOpenLight={handleOpenLight}
           lookedIn={lookedIn}
+          onHold={handleHold}
         />
       )}
       {/* Over the programme, at the bottom, never instead of it. */}

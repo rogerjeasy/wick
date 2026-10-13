@@ -81,11 +81,20 @@ describe('remotePresses', () => {
     expect(press({ eventType: 'left' })).toEqual({ eventType: 'left', eventKeyAction: 0 });
   });
 
-  it('is one press when a key goes down and comes back up', () => {
+  it('is one press when a key goes down and comes back up: the second half is passed on as the key coming up, never as a press', () => {
     const press = remotePresses();
 
-    expect(press({ eventType: 'select', eventKeyAction: DOWN })).toBeDefined();
-    expect(press({ eventType: 'select', eventKeyAction: UP })).toBeUndefined();
+    expect(press({ eventType: 'select', eventKeyAction: DOWN })).toEqual({ eventType: 'select', eventKeyAction: 0 });
+    // Vega's own "key up" (HWEvent 1): what tells a hold from a press (apps/tv-vega/src/watch/hold.ts).
+    const released = press({ eventType: 'select', eventKeyAction: UP });
+    expect(released).toEqual({ eventType: 'select', eventKeyAction: 1 });
+    expect(watchCommand(released!, { cardVisible: false })).toBeUndefined();
+  });
+
+  it('gives the media keys their Vega names on the way up as well', () => {
+    const press = remotePresses();
+    press({ eventType: 'playPause', eventKeyAction: DOWN });
+    expect(press({ eventType: 'playPause', eventKeyAction: UP })).toEqual({ eventType: 'playpause', eventKeyAction: 1 });
   });
 
   it('is still one press when only the key coming up arrives — what the Android TV emulator sends for play/pause', () => {
@@ -103,8 +112,9 @@ describe('remotePresses', () => {
       press({ eventType: 'select', eventKeyAction: UP }),
       press({ eventType: 'select', eventKeyAction: DOWN }),
       press({ eventType: 'select', eventKeyAction: UP }),
-    ].filter(Boolean);
+    ].filter((e) => e?.eventKeyAction === 0);
 
+    // A press is a key going down, as the Vega app hears it; the key coming up after it is not one.
     expect(heard.map((e) => e!.eventType)).toEqual(['playpause', 'playpause', 'select', 'select']);
   });
 
@@ -112,7 +122,8 @@ describe('remotePresses', () => {
     const press = remotePresses();
     const heard = [DOWN, DOWN, DOWN, UP].map((eventKeyAction) => press({ eventType: 'fastForward', eventKeyAction })).filter(Boolean);
 
-    expect(heard).toHaveLength(1);
+    // Down once, however long it is held, and then up: so a hold can be timed and is never a run of presses.
+    expect(heard).toEqual([{ eventType: 'skip_forward', eventKeyAction: 0 }, { eventType: 'skip_forward', eventKeyAction: 1 }]);
   });
 
   it('keeps each key\'s press apart from another\'s', () => {
@@ -120,8 +131,8 @@ describe('remotePresses', () => {
 
     expect(press({ eventType: 'left', eventKeyAction: DOWN })).toBeDefined();
     expect(press({ eventType: 'right', eventKeyAction: DOWN })).toBeDefined();
-    expect(press({ eventType: 'left', eventKeyAction: UP })).toBeUndefined();
-    expect(press({ eventType: 'right', eventKeyAction: UP })).toBeUndefined();
+    expect(press({ eventType: 'left', eventKeyAction: UP })).toEqual({ eventType: 'left', eventKeyAction: 1 });
+    expect(press({ eventType: 'right', eventKeyAction: UP })).toEqual({ eventType: 'right', eventKeyAction: 1 });
   });
 
   it('says nothing for focus moving, which arrives the same way', () => {

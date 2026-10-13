@@ -27,6 +27,9 @@ export function waitingLine(queued: QueuedCard): string {
     // Never waits (home/light.ts unaskedLightCards); here only so every card has its line.
     case 'LIGHT':
       return card.headline;
+    // What was said about a request of her own (home/reach.ts): the card's own sentence.
+    case 'REACH':
+      return card.headline;
     default:
       return 'Something is waiting for you.';
   }
