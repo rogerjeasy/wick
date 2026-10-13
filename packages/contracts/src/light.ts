@@ -18,6 +18,7 @@
  *   `HH#<household>` / `LOOKIN#<userId>`    `name`, `lookedAt`: that person's latest look
  */
 import { DEFAULT_LANGUAGE, isHouseholdLanguage, type OtherLanguage } from './language.js';
+import { MAX_MANTEL } from './mantel.js';
 
 export const LIGHT_SK = 'LIGHT';
 export const LOOKIN_SK_PREFIX = 'LOOKIN#';
@@ -61,6 +62,12 @@ export interface HomeState {
    * of the home is told whole, at every connection.
    */
   readonly language?: OtherLanguage;
+  /**
+   * How many things are on her mantelpiece (mantel.ts), when there are
+   * any — so the home screen knows to offer it. A count and nothing else:
+   * what they are is asked for by the television, never told on the way.
+   */
+  readonly mantel?: number;
 }
 
 const dayIn = (at: number, timeZone: string): string =>
@@ -99,7 +106,7 @@ const isTime = (value: unknown): value is number => typeof value === 'number' &&
  */
 export function readHomeState(value: unknown): HomeState | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const { light, lightOutUntil, lookedIn, language } = value as Record<string, unknown>;
+  const { light, lightOutUntil, lookedIn, language, mantel } = value as Record<string, unknown>;
   const look = typeof lookedIn === 'object' && lookedIn !== null ? (lookedIn as Record<string, unknown>) : undefined;
   const wellFormedLook = look !== undefined && typeof look.name === 'string' && isTime(look.at) && typeof look.line === 'string';
   return {
@@ -109,6 +116,7 @@ export function readHomeState(value: unknown): HomeState | undefined {
       ? { lookedIn: { name: look.name as string, at: look.at as number, line: look.line as string, ...(isTime(look.until) ? { until: look.until } : {}) } }
       : {}),
     ...(isHouseholdLanguage(language) && language !== DEFAULT_LANGUAGE ? { language } : {}),
+    ...(typeof mantel === 'number' && Number.isInteger(mantel) && mantel >= 1 && mantel <= MAX_MANTEL ? { mantel } : {}),
   };
 }
 
