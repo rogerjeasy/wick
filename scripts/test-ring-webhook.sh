@@ -33,7 +33,23 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE="${WICK_EDGE_URL:-$(terraform -chdir="$ROOT/infra" output -raw ring_webhook_url 2>/dev/null)}"
 [ -n "$BASE" ] || { echo "cannot resolve webhook url" >&2; exit 1; }
 
-set -a; . "$ROOT/.env"; set +a
+# The signing key and nothing else, read as text: .env is never run as shell,
+# so a value with a `$` or a quote in it (a pasted token, say) cannot break
+# this or be evaluated.
+HMAC_KEY_RING="${HMAC_KEY_RING:-$(python3 - "$ROOT/.env" <<'PY'
+import re, sys, pathlib
+path = pathlib.Path(sys.argv[1])
+value = ''
+if path.exists():
+    for line in path.read_text().splitlines():
+        m = re.match(r'\s*HMAC_KEY_RING\s*=\s*(.*)', line)
+        if m:
+            value = m.group(1).strip().strip('"').strip("'")
+print(value)
+PY
+)}"
+[ -n "$HMAC_KEY_RING" ] || { echo "HMAC_KEY_RING is not set in .env" >&2; exit 1; }
+export HMAC_KEY_RING
 REQ_ID="test-$(date +%s)-$RANDOM"
 DEVICE_ID="${RING_TEST_DEVICE_ID:-synthetic-doorbell-0001}"
 OCCURRED_AT="${RING_TEST_OCCURRED_AT:-}"
