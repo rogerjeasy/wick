@@ -250,6 +250,39 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   a field that tells the family what is playing, or where it has got to,
   outside a session the resident started. And the family member's player has
   no pause and no skip: nobody reaches the resident's remote.
+- **A request to be rung reaches one person at a time, and calls nobody.**
+  Hold for Sarah (`packages/contracts/src/reach.ts`): OK held for two seconds
+  brings a card that offers to ask someone to ring the resident. Holding the
+  button files nothing and tells nobody — it only brings the offer
+  (`services/edge-device/lambda/reach.mjs`). Her press on the card is the
+  consent, and what it sets going is deterministic
+  (`services/agent/src/agents/reach`): the first person in her circle as it
+  stands at the press is told, by a nudge that carries a kind and nothing
+  else (INV-2); three minutes on, if nobody has answered, the next person is
+  — the family first, a neighbour last — and the circle is read again each
+  time, so somebody she has removed is passed over and never named as asked
+  (INV-9). The timer in between carries which request and which step, never
+  who. Somebody not yet asked is told nothing: `get_reach_request` gives
+  them the very words it gives when there is no request, and never says who
+  else was asked, how many, or who is next. An answer is a key from
+  `REACH_ANSWERS`, shown under the name of the person the resident allowed;
+  the first answer is the answer. **Never** have Wick place a call, name an
+  emergency service, sound anything, or word this as an alarm; never tell
+  anyone a request exists before their turn; never carry a reason with it —
+  she is not asked for one, and none may be guessed.
+- **A neighbour is asked two things, and shown nothing.** A member whose
+  role is `neighbour` (`packages/contracts/src/circle.ts`) joins by an
+  invitation that says so and is allowed by the resident's own press like
+  anyone else (INV-9). A neighbour can be asked to look at who is at the
+  door and to ring when asked, and that is all: `gated`
+  (`services/mcp-server/src/tools/context.ts`) refuses a neighbour every
+  tool that does not declare `neighbour: true`, so a tool written later
+  refuses them without having to remember to. Wherever Wick says or decides
+  who can *see* something — the light, "What Sarah sees", "Shall I tell
+  Sarah?", the name on the week card — a neighbour is left out
+  (`familyOnly`, and the edge's `light.mjs` / `sharing.mjs`). **Never** mark
+  a tool `neighbour: true` unless it is the door or being asked to ring,
+  and never count a neighbour among those who can see.
 - **Never commit real household data.** No captures, no HAR files, no Ring
   snapshots. `.gitignore` covers the common cases; you are still
   responsible.
