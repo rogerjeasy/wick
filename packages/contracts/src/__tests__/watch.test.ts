@@ -21,12 +21,13 @@ describe('PROGRAMMES', () => {
 });
 
 describe('watchCardId / watchCardOf', () => {
-  it('names each of a session’s four cards, and reads the session back from the name', () => {
+  it('names each of a session’s cards — the four in their order, and the one that says it is called off — and reads the session back from the name', () => {
     for (const kind of WATCH_CARD_KINDS) {
       const id = watchCardId(kind, 'a1b2-c3');
       expect(watchCardOf(id)).toEqual({ kind, sessionId: 'a1b2-c3' });
     }
-    expect(new Set(WATCH_CARD_KINDS.map((kind) => watchCardId(kind, 's'))).size).toBe(4);
+    expect(WATCH_CARD_KINDS).toEqual(['invite', 'ready', 'question', 'answer', 'cancelled']);
+    expect(new Set(WATCH_CARD_KINDS.map((kind) => watchCardId(kind, 's'))).size).toBe(5);
   });
 
   it('is nothing for any other card', () => {

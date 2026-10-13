@@ -72,6 +72,12 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
     async listTelevisions(householdId) {
       return televisions.get(householdId) ?? [];
     },
+    async removeTelevision(householdId, deviceId) {
+      const held = televisions.get(householdId) ?? [];
+      if (!held.some((tv) => tv.deviceId === deviceId)) return false;
+      televisions.set(householdId, held.filter((tv) => tv.deviceId !== deviceId));
+      return true;
+    },
     addTelevision(householdId, tv) {
       televisions.set(householdId, [...(televisions.get(householdId) ?? []), tv]);
     },

@@ -1137,6 +1137,25 @@ function drawSeat(ui, card) {
     ui.sit = null;
   }
 
+  // Until the film is started it can still be called off; her television then says so (undoButton).
+  if (card.canCallOff && !ui.callOff) {
+    ui.callOff = undoButton(
+      { sessionId: ui.sessionId, accepted: true },
+      (presented) => {
+        if (seat === ui) closeSeat();
+        ui.status.textContent = presented.say;
+        ui.actions.replaceChildren();
+        ui.sit = null;
+        ui.callOff = null;
+      },
+      (message) => { ui.status.textContent = message; },
+    );
+    ui.actions.appendChild(ui.callOff);
+  } else if (!card.canCallOff && ui.callOff) {
+    ui.callOff.remove();
+    ui.callOff = null;
+  }
+
   if (card.stream) {
     ui.attribution.textContent = card.stream.attribution;
     openSeat(ui, card.stream);
@@ -1242,41 +1261,70 @@ function renderWatchCard(card) {
 }
 
 /**
- * An invitation still waiting on the television, with the one thing that can
- * be done about it from here: taking it back. The press is the person's own,
- * on a button that says what it does, so it is not asked twice.
+ * The button that undoes an invitation (withdraw_watch_invitation). One not
+ * yet answered is taken back in one press: nothing is said to anybody. One
+ * she has said yes to is called off, and her television says so — so that
+ * takes two presses, the first only asking, like removing someone from the
+ * circle.
+ *
+ * @param {{sessionId: string, accepted: boolean}} what
+ * @param {(presented: {say: string, tone: string}, undone: boolean) => void} done  what the server said, and whether anything was undone
+ * @param {(message: string) => void} failed
+ */
+function undoButton(what, done, failed) {
+  const label = what.accepted ? 'I can’t make it' : 'Take it back';
+  const button = el('button', what.accepted ? 'btn link' : 'btn', label);
+  button.type = 'button';
+  button.addEventListener('click', async () => {
+    if (what.accepted && button.dataset.armed !== 'true') {
+      button.dataset.armed = 'true';
+      button.textContent = 'Call it off — sure?';
+      return;
+    }
+    button.disabled = true;
+    try {
+      const result = await callTool('withdraw_watch_invitation', { sessionId: what.sessionId });
+      const text = result.content?.[0]?.text ?? '';
+      const presented = presentResult('withdraw_watch_invitation', text, {}, formatTime, result.isError === true);
+      // Undone, or she got there a moment before: either way it is said as the server said it, and there is nothing left to press.
+      if (presented.tone !== 'error') return done(presented, text.startsWith('{'));
+      failed(presented.say);
+    } catch (err) {
+      failed(err.message);
+    }
+    button.disabled = false;
+    button.dataset.armed = 'false';
+    button.textContent = label;
+  });
+  return button;
+}
+
+/**
+ * An invitation with nothing to do yet but wait — still unanswered, or
+ * answered yes and not yet time — and the one thing that can be done about
+ * it from here: undoing it.
  */
 function renderInvitationCard(card) {
   const node = el('article', 'card watch');
   const head = el('div', 'card-head');
   head.appendChild(el('h2', 'card-title', card.title));
   head.appendChild(el('span', 'card-meta', card.meta));
-  const status = el('p', 'watch-status', 'Waiting for an answer on the television.');
+  const status = el('p', 'watch-status', card.accepted ? 'The answer was yes.' : 'Waiting for an answer on the television.');
   status.setAttribute('aria-live', 'polite');
   const actions = el('div', 'actions');
-  const takeBack = el('button', 'btn', 'Take it back');
-  takeBack.type = 'button';
-  takeBack.addEventListener('click', async () => {
-    takeBack.disabled = true;
-    try {
-      const result = await callTool('withdraw_watch_invitation', { sessionId: card.sessionId });
-      const text = result.content?.[0]?.text ?? '';
-      const presented = presentResult('withdraw_watch_invitation', text, {}, formatTime, result.isError === true);
-      // Taken back, or answered a moment before: either way it is said as the server said it, and there is nothing left to press.
-      status.textContent = presented.say;
-      if (presented.tone !== 'error') {
-        // Nothing is waiting any more: the note under the card must not go on saying that it is.
-        // Only one really taken back can be asked again; one already answered stands as it was answered.
-        foot.querySelector('.note').textContent = text.startsWith('{') ? 'You can ask again whenever you like.' : '';
-        return takeBack.remove();
-      }
-    } catch (err) {
-      status.textContent = err.message;
-    }
-    takeBack.disabled = false;
-  });
-  actions.appendChild(takeBack);
   const foot = cardFoot(card.footnote);
+  const undo = undoButton(
+    { sessionId: card.sessionId, accepted: card.accepted === true },
+    (presented, undone) => {
+      status.textContent = presented.say;
+      // Nothing is waiting any more: the note under the card must not go on saying that it is.
+      // Only one really undone can be asked again; anything else stands as she answered it.
+      foot.querySelector('.note').textContent = undone ? 'You can ask again whenever you like.' : '';
+      undo.remove();
+    },
+    (message) => { status.textContent = message; },
+  );
+  actions.appendChild(undo);
   node.append(head, status, actions, foot);
   return node;
 }
@@ -1599,6 +1647,37 @@ function renderCircleCard(view) {
   }
   body.appendChild(rows);
   body.appendChild(el('p', 'empty', view.television));
+
+  // Each television, and — for the organiser — the way to disconnect one that was replaced or only ever a test.
+  if (view.televisions.length > 0) {
+    const sets = el('ul', 'rows');
+    for (const tv of view.televisions) {
+      const li = el('li', 'row');
+      li.appendChild(el('span', 'primary', tv.primary));
+      li.appendChild(el('span', 'secondary', tv.secondary));
+      if (tv.removable) {
+        // Two presses: the first only asks.
+        const disconnect = el('button', 'btn link', 'Disconnect');
+        disconnect.type = 'button';
+        disconnect.addEventListener('click', async () => {
+          if (disconnect.dataset.armed !== 'true') {
+            disconnect.dataset.armed = 'true';
+            disconnect.textContent = 'Disconnect — sure?';
+            return;
+          }
+          try {
+            await api(`/api/televisions/${encodeURIComponent(tv.deviceId)}`, { method: 'DELETE' });
+            await showCircle();
+          } catch (err) {
+            assistantSays({ say: err.message, tone: 'error' });
+          }
+        });
+        li.appendChild(disconnect);
+      }
+      sets.appendChild(li);
+    }
+    body.appendChild(sets);
+  }
 
   if (view.organiser) {
     const actions = el('div', 'actions');

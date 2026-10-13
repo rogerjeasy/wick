@@ -5,7 +5,12 @@
 </p>
 
 <p align="center">
-  <strong><a href="#">▶ Demo video (3 min)</a></strong> ·
+  <strong><a href="https://dmaz25jvryojp.cloudfront.net/">Try the family app</a></strong> ·
+  <a href="https://d2sbabcft8sm3m.cloudfront.net/device.html">A television in a browser tab</a> ·
+  <a href="https://rogerjeasy.github.io/wick/calm-points/">The calm-point map</a>
+</p>
+
+<p align="center">
   <a href="docs/WICK.md">Product definition</a> ·
   <a href="docs/WICK-TECHNICAL.md">Technical document</a> ·
   <a href="FRICTION.md">Friction log</a>
@@ -31,6 +36,32 @@ nothing, wear nothing and change nothing.
 | **The Door** | A Ring doorbell press puts a card on the television within a few seconds. A still from the doorbell and one plain sentence describing who is actually there are added to it as soon as they are ready — about ten seconds in our tests on the simulators. One button rings the Ring Chime in the hallway, so whoever else is home knows someone is at the door — and the card says whether it rang. *(Built and tested against Ring's chime contract; not in the demo, because Ring's only simulator has no chime — [FL-019](FRICTION.md).)* Another opens the doorbell camera live, full screen, and Back returns to the card. |
 | **The Family** | A distant daughter asks Alexa+ *"how's Mum been this week?"* and gets a truthful, unsensational narrative. (Here she asks a simulated Alexa+ surface; the MCP server behind it is the real one — see [what is real, and what is simulated](#what-is-real-and-what-is-simulated).) Notes go back the other way — at the end of an episode, never mid-scene — and the resident replies with one button. |
 | **The Rhythm** | Wick learns what a normal week looks like in this house, so it can stay silent when nothing is wrong — and so the weekly narrative can say *"that's up from last week"* and mean it. |
+
+### Five things built on those three
+
+Each of these runs today on the deployed stack. Each is something the resident
+does with one button, on their own television.
+
+| | What happens | What it never does |
+|---|---|---|
+| **Ask Sarah to look** | Someone is at the door and nobody is expected. One button on the door card asks the family member to look at the same picture. They answer with one of three fixed sentences — *"It's all right, I know who that is."*, *"Please don't open the door. I'll ring you now."* — and it appears on the door card under their name. | The family is never shown the picture from the door unasked. The notification that reaches their phone carries no name, no picture and no sentence. |
+| **Shall I tell Sarah?** | Wick notices when a day is unlike this household's usual — the carer who comes every Friday did not come. It does not tell the family. It asks the resident, showing the very sentence that would be told, and only *"Tell Sarah"* makes that one thing readable. | *"Keep it to myself"* looks, to the family, exactly like nothing having happened. Wick never says "nothing is different": it cannot know what was kept. |
+| **Calm points** | A note from the family waits for a natural break: the credits, a pause, or a calm point inside the film — a cut that falls in silence, measured on the published encode with Amazon Rekognition and ffmpeg. The film holds on the cut while the note is read and goes on when it is answered. [The map of every calm point](https://rogerjeasy.github.io/wick/calm-points/). | A note never talks over the story, and no model chooses the moment. Only someone at the door interrupts. |
+| **Watch together** | The family member invites the resident to one of Wick's films, at a day and a time. One button says yes. When the time comes they sit down, each at home, and the resident's press on *"Start the film"* lets the other screen follow hers: where she pauses, it pauses. At the credits each is asked one question and sees the other's answer. Plans change: an invitation can be taken back, and a film she said yes to can be called off — her television then says so. | No camera, no microphone, and nobody reaches her remote. Where her film has got to leaves the house only after her own press, only for that one film, and only to the person she said yes to. |
+| **The light in the window** | The family sees one thing about today: a light, lit once the resident's day has begun. No time, no room, no programme. She can put it out for the day — and a light that is out looks exactly like one not yet lit, so an unlit window never says why. | Looking is never hidden from the person looked at. Her home screen says *"Sarah looked in this morning."* |
+
+The family reaches all of it through the MCP server's eighteen tools — the week,
+today, visitors, notes and replies, the door, watching together, the light — and
+every one of them asks again, on every call, whether the resident still allows
+that person ([`AGENTS.md`](AGENTS.md), INV-9).
+
+### Try it
+
+No account and no hardware are needed.
+
+1. Open the [family app](https://dmaz25jvryojp.cloudfront.net/) and choose **Try the demo**. You get a guest account and a demo home of your own, with six weeks of simulated history.
+2. Open [a television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/device.html), press **Pair & connect**, and enter its code in the family app.
+3. On the television, allow yourself. From then on, ask the family app anything — *"How has my mum been this week?"*, *"Is the light on?"*, *"Ask Mum to watch Sintel with me on Sunday at three"* — and answer on the television.
 
 ## Why this needs Amazon
 

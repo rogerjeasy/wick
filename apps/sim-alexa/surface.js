@@ -705,12 +705,27 @@ function presentWatch(view) {
     };
   }
   if (view.state === 'withdrawn') return quiet(`You took back the invitation to watch ${film} on ${when}. You can ask again whenever you like.`);
+  if (view.state === 'cancelled') return quiet(`You called off ${film} on ${when}, and the television says so. You can ask again whenever you like.`);
   if (view.state === 'declined') return quiet(`The answer to ${film} on ${when} was: not this time.`);
   if (view.state === 'passed') return quiet('When it came to it, the answer was: not now.');
   if (view.state === 'over') return quiet(`The time for ${film} has passed.`);
   // She started it and left it. Her television follows nobody after that, so there is no seat to offer.
   if (view.state === 'stopped') return quiet(`${film} was stopped on the television before the end. You can ask again whenever you like.`);
-  if (view.state === 'accepted' && view.canSitDown !== true) return quiet(`The answer was yes. ${film} is on ${when}; you can sit down from half an hour before.`);
+  // Yes, and not time yet: nothing to do but wait — or say that it cannot be made after all (withdraw_watch_invitation).
+  if (view.state === 'accepted' && view.canSitDown !== true) {
+    return {
+      say: `The answer was yes. ${film} is on ${when}; you can sit down from half an hour before.`,
+      tone: 'answer',
+      card: {
+        kind: 'invitation',
+        title: film,
+        meta: when,
+        sessionId: view.sessionId,
+        accepted: true,
+        footnote: 'If you cannot make it, say so here: the television will say so too.',
+      },
+    };
+  }
   if (view.state === 'watched' && !stream && !offered) {
     const yours = typeof view.yourAnswer === 'string' ? ` You said: “${view.yourAnswer}”` : '';
     const theirs = typeof view.theirAnswer === 'string' ? ` The answer on the television was: “${view.theirAnswer}”` : '';
@@ -732,6 +747,8 @@ function presentWatch(view) {
       sessionId: view.sessionId,
       state: view.state,
       canSitDown: view.canSitDown === true,
+      // Until the film has been started it can still be called off; after that there is only stopping watching.
+      canCallOff: view.state === 'accepted' || view.state === 'ready',
       stream,
       playback,
       question: typeof view.question === 'string' ? view.question : null,
@@ -938,6 +955,9 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if ((toolName === 'get_watch_together' || toolName === 'join_watch_together') && typeof parsed.sessionId === 'string' && typeof parsed.state === 'string') {
     return presentWatch(parsed);
   }
+  if (toolName === 'withdraw_watch_invitation' && parsed.withdrawn === true && parsed.told === true) {
+    return { say: `Called off. The television now says that you cannot make ${parsed.film ?? 'the film'} on ${parsed.when ?? ''}.`, card: null, tone: 'answer' };
+  }
   if (toolName === 'withdraw_watch_invitation' && parsed.withdrawn === true) {
     return { say: `Taken back. The invitation to watch ${parsed.film ?? 'the film'} on ${parsed.when ?? ''} is no longer on the television.`, card: null, tone: 'answer' };
   }
@@ -1125,7 +1145,7 @@ export function confirmWrite(toolName, args = {}, title) {
       title: 'Take the invitation back?',
       fields: otherFields(args, ['sessionId']),
       confirmLabel: 'Take it back',
-      footnote: 'It leaves the television. You can ask again whenever you like.',
+      footnote: 'An invitation not yet answered simply leaves the television. If the answer was yes, the television will say that you cannot make it.',
     };
   }
   return {
@@ -1225,6 +1245,28 @@ function televisionLine(televisions) {
   return `${n}. ${count(on)} ${on === 1 ? 'is' : 'are'} on now.`;
 }
 
+/** "4 October" — the day a television was connected. Said in UTC: a day either side is not worth a time zone. */
+const dayConnected = (at) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+
+/**
+ * Each television of the home, in the order they were connected. They have
+ * no names, so they are numbered; when each was connected, and whether it
+ * is on, are what tell an old one from the one in the sitting room.
+ */
+function televisionRows(televisions, organiser) {
+  return [...televisions]
+    .sort((a, b) => (a.pairedAt ?? 0) - (b.pairedAt ?? 0) || String(a.deviceId).localeCompare(String(b.deviceId)))
+    .map((tv, i) => {
+      const state = tv.connected ? 'on now' : 'off, or showing something else';
+      return {
+        deviceId: tv.deviceId,
+        primary: `Television ${i + 1}`,
+        secondary: Number.isFinite(tv.pairedAt) ? `Connected ${dayConnected(tv.pairedAt)} · ${state}` : sentenceCase(state),
+        removable: organiser,
+      };
+    });
+}
+
 /**
  * @param circle  GET /api/circle
  * @param me      GET /api/me
@@ -1248,6 +1290,7 @@ export function presentCircle(circle, me) {
         removable: organiser && !m.you,
       })),
       television: televisionLine(circle.televisions),
+      televisions: televisionRows(circle.televisions, organiser),
       organiser,
       footnote: `${resident} allows each person on the television, one press each.`,
     },

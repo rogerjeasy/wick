@@ -92,7 +92,7 @@ import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
 import { announcesRetirement, buildCardActionEntry, buildCardRetiredEntry, shouldPublish } from './card-action-event.mjs';
 import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
 import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate, watchPress } from './watch-together.mjs';
-import { SHARING_CARD_ID, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
+import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
 import { buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
 
@@ -100,8 +100,6 @@ const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
 const TABLE = process.env.TABLE_NAME;
 const BUS = process.env.EVENT_BUS_NAME;
-/** The family member as the resident knows them — "What Sarah sees". */
-const FAMILY_NAME = process.env.WICK_FAMILY_NAME || undefined;
 /** Where the house is: what "today" means for the light in the window (light.mjs). */
 const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ || 'Europe/London';
 
@@ -441,13 +439,15 @@ async function loadMeta(householdId) {
 
 async function showSharing({ sendCard, householdId, page, respondsTo }) {
   try {
-    const meta = await loadMeta(householdId);
+    // The household's own row and its circle sit in one range (light.mjs homeRange): who can see is read with what is shared.
+    const rows = await loadHomeRows(householdId);
+    const meta = rows.find((item) => item.sk?.S === 'META');
     const queued = buildSharingCard({
       householdId,
       page,
       policyJson: meta?.policy?.S,
       exclusions: readExclusions(meta),
-      familyName: FAMILY_NAME,
+      watchers: allowedFirstNames(rows),
       now: Date.now(),
       respondsTo,
     });

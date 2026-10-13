@@ -32,7 +32,7 @@ export interface CircleDeps {
   readonly newId: () => string;
 }
 
-export type CircleErrorCode = 'name_required' | 'not_organiser' | 'not_a_member' | 'invitation_invalid' | 'cannot_remove_self';
+export type CircleErrorCode = 'name_required' | 'not_organiser' | 'not_a_member' | 'invitation_invalid' | 'cannot_remove_self' | 'not_a_television';
 
 export class CircleError extends Error {
   readonly code: CircleErrorCode;
@@ -256,6 +256,18 @@ export async function removeMember(deps: CircleDeps, actor: { householdId: strin
   // they announced must not have the door go on saying a caller looks like
   // them (tools/expect_visit.ts).
   await deps.store.forgetAnnouncedVisits(actor.householdId, userId);
+}
+
+/**
+ * Disconnects a television from the organiser's own home — one that was
+ * replaced, given away, or only ever a test. The household is the actor's
+ * (INV-8): a television of another home is simply not found. The resident
+ * loses nothing by it: a television still in the house shows its pairing
+ * code again, and connecting it asks nobody's leave twice.
+ */
+export async function removeTelevision(deps: CircleDeps, actor: { householdId: string; userId: string }, deviceId: string): Promise<void> {
+  await requireOrganiser(deps, actor);
+  if (!(await deps.store.removeTelevision(actor.householdId, deviceId))) throw new CircleError('not_a_television');
 }
 
 export interface CircleView {

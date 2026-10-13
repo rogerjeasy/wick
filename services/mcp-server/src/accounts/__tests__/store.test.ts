@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DeleteItemCommand,
-  GetItemCommand,
-  PutItemCommand,
-  QueryCommand,
-  UpdateItemCommand,
-  type AttributeValue,
-} from '@aws-sdk/client-dynamodb';
+import { DeleteItemCommand, GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand, type AttributeValue, type TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb';
 import { createDynamoAccountStore, HouseholdExistsError, type DdbSend } from '../store.js';
 import type { Membership } from '../types.js';
 
@@ -191,6 +184,31 @@ describe('televisions', () => {
       { deviceId: 'tv-1', pairedAt: 5, connected: true },
       { deviceId: 'tv-2', pairedAt: 6, connected: false },
     ]);
+  });
+});
+
+describe('removeTelevision — disconnecting one from a home', () => {
+  it('takes away the pairing and the claim on the television’s id together, so it can be connected again', async () => {
+    const { sent, store } = recorder();
+
+    expect(await store.removeTelevision('hh_1', 'tv-2')).toBe(true);
+
+    expect(sent).toHaveLength(1);
+    const [pairing, claim] = (sent[0] as unknown as TransactWriteItemsCommand).input.TransactItems!;
+    // Without this row the television is refused everywhere it is served (edge-device device-standing.mjs).
+    expect(pairing!.Delete).toMatchObject({ Key: { pk: { S: 'HH#hh_1' }, sk: { S: 'DEV#tv-2' } }, ConditionExpression: 'attribute_exists(pk)' });
+    // Only this home's claim: a television since connected somewhere else keeps the one it has.
+    expect(claim!.Delete).toMatchObject({
+      Key: { pk: { S: 'DEV#tv-2' }, sk: { S: 'META' } },
+      ConditionExpression: 'attribute_not_exists(pk) OR householdId = :hh',
+      ExpressionAttributeValues: { ':hh': { S: 'hh_1' } },
+    });
+  });
+
+  it('says so when the television is not this home’s, and removes nothing', async () => {
+    const { store } = recorder([Object.assign(new Error('cancelled'), { name: 'TransactionCanceledException' })]);
+
+    expect(await store.removeTelevision('hh_1', 'tv-9')).toBe(false);
   });
 });
 

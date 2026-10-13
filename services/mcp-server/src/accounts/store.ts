@@ -16,6 +16,7 @@ import {
   GetItemCommand,
   PutItemCommand,
   QueryCommand,
+  TransactWriteItemsCommand,
   UpdateItemCommand,
   type AttributeValue,
 } from '@aws-sdk/client-dynamodb';
@@ -55,6 +56,14 @@ export interface AccountStore {
   setMemberStatus(householdId: string, userId: string, status: MemberStatus, at: number): Promise<void>;
 
   listTelevisions(householdId: string): Promise<Television[]>;
+  /**
+   * Disconnects a television from the household: its pairing, and the claim
+   * that keeps its id from being connected anywhere else. False when it was
+   * not this household's. A television with no pairing is refused everywhere
+   * it is served (edge-device device-standing.mjs), and shows the pairing
+   * code again when it is next opened.
+   */
+  removeTelevision(householdId: string, deviceId: string): Promise<boolean>;
 
   /** Takes every visit a person announced off the household's roster (announcedVisits.ts). */
   forgetAnnouncedVisits(householdId: string, userId: string): Promise<void>;
@@ -266,6 +275,30 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
           ...(item.pairedAt?.N ? { pairedAt: Number(item.pairedAt.N) } : {}),
           connected: Boolean(item.connectionId?.S),
         }));
+    },
+
+    async removeTelevision(householdId, deviceId) {
+      try {
+        // Both or neither: a pairing without its claim could be claimed twice, a claim without its pairing never again.
+        await send(new TransactWriteItemsCommand({
+          TransactItems: [
+            { Delete: { TableName: table, Key: { pk: householdPk(householdId), sk: { S: `DEV#${deviceId}` } }, ConditionExpression: 'attribute_exists(pk)' } },
+            {
+              Delete: {
+                TableName: table,
+                Key: { pk: { S: `DEV#${deviceId}` }, sk: { S: 'META' } },
+                // Only this home's claim: a television since connected somewhere else keeps the one it has.
+                ConditionExpression: 'attribute_not_exists(pk) OR householdId = :hh',
+                ExpressionAttributeValues: { ':hh': { S: householdId } },
+              },
+            },
+          ],
+        }));
+        return true;
+      } catch (err) {
+        if ((err as { name?: string }).name === 'TransactionCanceledException') return false;
+        throw err;
+      }
     },
 
     async putRecord(kind, id, value, expiresAt) {

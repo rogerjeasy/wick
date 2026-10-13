@@ -18,12 +18,16 @@ import { DynamoDBClient, PutItemCommand, QueryCommand, ScanCommand, type Attribu
 import { currentIsoWeek, padTimestamp, parseTimestampFromSortKey, type WeekNarrative } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { householdsWithTelevision, narrateEveryHousehold } from './everyHousehold.js';
+import { familyNameForWeekCard } from './weekCard.js';
+import { lookStore, type LookSend } from '../../store/looks.js';
 import { writeNarrative } from './prose.js';
 import type { WeekRange } from './isoWeek.js';
 import { sendToDevice } from '../../egress.js';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
+/** Who each household has allowed: the week card's second button names them (weekCard.ts). */
+const looks = lookStore((cmd) => ddb.send(cmd as never) as ReturnType<LookSend>, TABLE);
 
 /**
  * Paged: this is the week and the six before it (rhythm/baseline.ts), and
@@ -112,7 +116,7 @@ export const handler = async (): Promise<void> => {
     now: Date.now,
     newCorrelationId: randomUUID,
     timeZone: process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London',
-    ...(process.env.WICK_FAMILY_NAME ? { familyName: process.env.WICK_FAMILY_NAME } : {}),
+    familyNameOf: async (householdId) => familyNameForWeekCard((await looks.listFamily(householdId)).map((member) => member.name)),
   });
 
   // A failed household is logged by name above and not rethrown: a thrown

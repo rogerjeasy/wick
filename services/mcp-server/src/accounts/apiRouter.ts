@@ -14,7 +14,7 @@
  */
 import cors from 'cors';
 import express, { type Request, type RequestHandler, type Response } from 'express';
-import { CircleError, createInvitation, describeCircle, removeMember, requireOrganiser, type CircleDeps, type CircleErrorCode } from './circle.js';
+import { CircleError, createInvitation, describeCircle, removeMember, removeTelevision, requireOrganiser, type CircleDeps, type CircleErrorCode } from './circle.js';
 import { isGuest } from './demo.js';
 import { grantOf } from './oauthProvider.js';
 import { parseSubscription, type PushStore } from './push.js';
@@ -25,6 +25,7 @@ const CIRCLE_ERRORS: Readonly<Record<CircleErrorCode, { status: number; message:
   not_a_member: { status: 404, message: 'That person is not in this family circle.' },
   invitation_invalid: { status: 400, message: 'That invitation has expired. Ask for a new one.' },
   cannot_remove_self: { status: 400, message: 'You cannot remove yourself.' },
+  not_a_television: { status: 404, message: 'That television is not connected to this home.' },
 };
 
 /** POSTs a code to the pairing service as the caller. Returns its status and raw body. */
@@ -219,6 +220,15 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
       return void unavailable();
     }
     res.status(reply.status).json({ error: reply.body, message });
+  }));
+
+  // Disconnects a television from the home in the caller's own token (INV-8): there is no household here to name.
+  router.delete('/api/televisions/:deviceId', withGrant(async (grant, req, res) => {
+    const deviceId = String(req.params.deviceId);
+    // A television's id as pairing makes it. Anything else is not one, and is not looked for.
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) throw new CircleError('not_a_television');
+    await removeTelevision(circle, grant, deviceId);
+    res.status(204).end();
   }));
 
   router.delete('/api/circle/members/:userId', withGrant(async (grant, req, res) => {

@@ -378,6 +378,18 @@ describe('presentCircle', () => {
     expect(line(false, false)).toBe('Two televisions connected. They are off, or showing something else.');
   });
 
+  it('lists each television, in the order they were connected, and lets the organiser disconnect one', () => {
+    const two = { ...circle, televisions: [{ deviceId: 'tv-new', pairedAt: Date.UTC(2026, 9, 12, 10), connected: true }, { deviceId: 'tv-old', pairedAt: Date.UTC(2026, 9, 4, 10), connected: false }] };
+
+    expect(presentCircle(two, me('organiser', 'allowed')).card.televisions).toEqual([
+      { deviceId: 'tv-old', primary: 'Television 1', secondary: 'Connected 4 October · off, or showing something else', removable: true },
+      { deviceId: 'tv-new', primary: 'Television 2', secondary: 'Connected 12 October · on now', removable: true },
+    ]);
+    // Somebody who is not the organiser sees them, and cannot disconnect one.
+    expect(presentCircle(two, me('family', 'allowed')).card.televisions.every((tv: { removable: boolean }) => tv.removable === false)).toBe(true);
+    expect(presentCircle({ ...circle, televisions: [] }, me('organiser', 'allowed')).card.televisions).toEqual([]);
+  });
+
   it('offers inviting, connecting and removing to the organiser only', () => {
     expect(presentCircle(circle, me('organiser', 'allowed')).card.organiser).toBe(true);
     const family = presentCircle(circle, me('family', 'allowed'));
@@ -1150,7 +1162,45 @@ describe('watching a film together', () => {
       const r = presentResult('get_watch_together', view({ state: 'accepted', canSitDown: false, opensAt: 4000 }), {}, at);
 
       expect(r.say).toBe('The answer was yes. Sintel is on Sunday 18 October at 3 pm; you can sit down from half an hour before.');
+      // Nothing to do yet but wait — or say that it cannot be made after all.
+      expect(r.card).toEqual({
+        kind: 'invitation',
+        title: 'Sintel',
+        meta: 'Sunday 18 October at 3 pm',
+        sessionId: 's-1',
+        accepted: true,
+        footnote: 'If you cannot make it, say so here: the television will say so too.',
+      });
+    });
+
+    it('offers calling it off from the seat, until the film has been started', () => {
+      const seat = (over: object) => presentResult('get_watch_together', view(over), {}, at).card;
+
+      expect(seat({ state: 'accepted', canSitDown: true }).canCallOff).toBe(true);
+      expect(seat({ state: 'ready', stream: STREAM }).canCallOff).toBe(true);
+      expect(seat({ state: 'watching', stream: STREAM }).canCallOff).toBe(false);
+      expect(seat({ state: 'watched', stream: STREAM, question: WATCH_QUESTION, answers: ANSWERS }).canCallOff).toBe(false);
+    });
+
+    it('says a film was called off, and that the television says so', () => {
+      const r = presentResult('get_watch_together', view({ state: 'cancelled' }), {}, at);
+
+      expect(r.say).toBe('You called off Sintel on Sunday 18 October at 3 pm, and the television says so. You can ask again whenever you like.');
       expect(r.card).toBeNull();
+    });
+
+    it('says so when a film has just been called off, and that she has been told', () => {
+      const called = JSON.stringify({ withdrawn: true, told: true, sessionId: 's-1', film: 'Sintel', when: 'Sunday 18 October at 3 pm' });
+
+      expect(presentResult('withdraw_watch_invitation', called, {}, at)).toEqual({
+        say: 'Called off. The television now says that you cannot make Sintel on Sunday 18 October at 3 pm.',
+        card: null,
+        tone: 'answer',
+      });
+    });
+
+    it('keeps an invitation not yet answered as it was: taken back in one press, with nothing said', () => {
+      expect(presentResult('get_watch_together', view(), {}, at).card.accepted).toBeUndefined();
     });
 
     it('says no as it was said', () => {
@@ -1229,7 +1279,8 @@ describe('watching a film together', () => {
 
       expect(asked.title).toBe('Take the invitation back?');
       expect(asked.confirmLabel).toBe('Take it back');
-      expect(asked.footnote).toBe('It leaves the television. You can ask again whenever you like.');
+      // Said for both cases: the page does not know which it is until the server has looked.
+      expect(asked.footnote).toBe('An invitation not yet answered simply leaves the television. If the answer was yes, the television will say that you cannot make it.');
     });
 
     it('names each step in plain words', () => {
