@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { REACH_ACTIONS, buildReachAskCard, buildReachCard, type QueuedCard, type ReachPerson } from '@wick/contracts';
-import { backAnswersReach, newestReachCard, reachOffersToPutAway } from '../reach.js';
+import { HOLD_GUARD_MS, RELEASE_GRACE_MS, backAnswersReach, holdGuard, newestReachCard, reachOffersToPutAway } from '../reach.js';
 import { removesCard } from '../../cards/cardActions.js';
 import { waitingLine } from '../waiting.js';
 
@@ -63,3 +63,57 @@ describe('waiting on the home screen', () => {
     expect(waitingLine(status(NOW))).toBe('Sarah has been asked to ring you.');
   });
 });
+
+describe('holdGuard — letting go of the hold must never press the card it brought', () => {
+  const HELD = NOW;
+
+  it('swallows the press that is only her thumb coming up, when the card arrived while OK was still down', () => {
+    const guard = holdGuard();
+    guard.held(HELD);
+    // No release was seen: the card's focused button took the key coming up as a press.
+    expect(guard.swallows(HELD + 4_000)).toBe(true);
+  });
+
+  it('swallows it whichever is heard first, the release or the press it made', () => {
+    const guard = holdGuard();
+    guard.held(HELD);
+    guard.released(HELD + 4_000);
+    expect(guard.swallows(HELD + 4_000 + RELEASE_GRACE_MS - 1)).toBe(true);
+  });
+
+  it('swallows once: the next press is hers', () => {
+    const guard = holdGuard();
+    guard.held(HELD);
+    expect(guard.swallows(HELD + 4_000)).toBe(true);
+    expect(guard.swallows(HELD + 4_050)).toBe(false);
+  });
+
+  it('takes nothing from a press she makes after letting go and reading the card', () => {
+    const guard = holdGuard();
+    guard.held(HELD);
+    guard.released(HELD + 300);
+    expect(guard.swallows(HELD + 300 + RELEASE_GRACE_MS)).toBe(false);
+    expect(guard.swallows(HELD + 6_000)).toBe(false);
+  });
+
+  it('gives up after a while, so a remote that never says the key came up costs her one press at most, and only at first', () => {
+    const guard = holdGuard();
+    guard.held(HELD);
+    expect(guard.swallows(HELD + HOLD_GUARD_MS)).toBe(false);
+  });
+
+  it('is nothing when there was no hold, and a release with no hold is nothing either', () => {
+    const guard = holdGuard();
+    guard.released(HELD);
+    expect(guard.swallows(HELD + 1)).toBe(false);
+  });
+
+  it('starts afresh with each hold', () => {
+    const guard = holdGuard();
+    guard.held(HELD);
+    guard.released(HELD + 300);
+    guard.held(HELD + 60_000);
+    expect(guard.swallows(HELD + 64_000)).toBe(true);
+  });
+});
+

@@ -962,7 +962,7 @@ describe('suggestionsFor', () => {
   it('then the app\'s own chips, without the ones that ask the same thing', () => {
     const labels = suggestionsFor(listing).slice(3).map((s: { label: string }) => s.label);
 
-    expect(labels).toEqual(['What happened today?', 'Is the light on?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Did Mum ask for me?', 'Watch a film with Mum', 'What can I see?', 'Family circle']);
+    expect(labels).toEqual(['What happened today?', 'Were this week’s visits confirmed?', 'Is the light on?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Did Mum ask for me?', 'Watch a film with Mum', 'What can I see?', 'Family circle']);
   });
 
   it('is the app\'s own chips when there is no listing', () => {
@@ -1755,5 +1755,136 @@ describe('the light in the window', () => {
 
   it('says in a few words what the step did', () => {
     expect(describeCall('get_light')).toBe('Looked at the light');
+  });
+});
+
+describe('the visit, witnessed — which visits were made, and which she confirmed', () => {
+  const visitOn = (date: string, day: string, over: object = {}) => ({
+    personId: 'maria', name: 'Maria', date, day, arrived: '9:02 am', left: '9:47 am', arrivedAt: 1000, leftAt: 2000, confirmed: true, ...over,
+  });
+  const answer = (visits: object[], over: object = {}) => JSON.stringify({
+    days: 7,
+    visits,
+    confirmedCount: visits.filter((v) => (v as { confirmed: boolean }).confirmed).length,
+    residentName: 'Margaret',
+    summary: 'Maria came twice in the last 7 days. Margaret has confirmed 1 of them.',
+    ...over,
+  });
+  const two = [visitOn('2026-10-13', 'Tuesday', { confirmed: false }), visitOn('2026-10-09', 'Friday', { arrived: '8:55 am', left: '9:44 am' })];
+  const visits = { kind: 'tool', tool: 'get_visits', args: {} };
+
+  it('is asked for in the words a person would use, and has a chip', () => {
+    expect(routeUtterance('Did Maria come this week?')).toEqual(visits);
+    expect(routeUtterance('Were the visits confirmed?')).toEqual(visits);
+    expect(routeUtterance('Has Mum confirmed Maria’s visits?')).toEqual(visits);
+    expect(routeUtterance('How long was the carer here?')).toEqual(visits);
+    expect(routeUtterance('Show me the visit record')).toEqual(visits);
+
+    const chip = SUGGESTIONS.find((s: { label: string }) => s.label === 'Were this week’s visits confirmed?');
+    expect(routeUtterance(chip.utterance)).toEqual(visits);
+  });
+
+  it('looks further back when a longer stretch is named', () => {
+    expect(routeUtterance('Did Maria come last week?')).toEqual({ kind: 'tool', tool: 'get_visits', args: { days: 14 } });
+    expect(routeUtterance('Were the carer’s visits confirmed this month?')).toEqual({ kind: 'tool', tool: 'get_visits', args: { days: 31 } });
+  });
+
+  it('leaves one day’s yes or no where it was, and the week its story', () => {
+    const oneDay = { kind: 'tool', tool: 'did_visitor_come', args: { personId: 'maria' } };
+
+    expect(routeUtterance('Did Maria come today?')).toEqual(oneDay);
+    expect(routeUtterance('did the carer come today')).toEqual(oneDay);
+    expect(routeUtterance('Has the carer been?')).toEqual(oneDay);
+    expect(routeUtterance("How's Mum been this week?").tool).toBe('get_week_narrative');
+    expect(routeUtterance('How was last week?').tool).toBe('get_week_narrative');
+    expect(routeUtterance('Is anything different this week?').tool).toBe('get_whats_different');
+    expect(routeUtterance('Has Mum replied?').tool).toBe('get_replies');
+    expect(routeUtterance('Tell Mum the carer will come twice this week')).toMatchObject({ kind: 'compose' });
+  });
+
+  it('says the server’s sentence as it stands, and shows one line for each visit', () => {
+    const r = presentResult('get_visits', answer(two), {}, at);
+
+    expect(r.say).toBe('Maria came twice in the last 7 days. Margaret has confirmed 1 of them.');
+    expect(r.tone).toBe('answer');
+    expect(r.card).toEqual({
+      kind: 'visits',
+      title: 'Visits in the last 7 days',
+      meta: '',
+      items: [
+        { primary: 'Tuesday 13 Oct · 9:02 am to 9:47 am', secondary: 'not confirmed' },
+        { primary: 'Friday 9 Oct · 8:55 am to 9:44 am', secondary: 'confirmed by Margaret' },
+      ],
+      more: null,
+      note: 'The times are what the doorbell noted. Only Margaret can confirm a visit, on her television.',
+      footnote: '',
+    });
+  });
+
+  it('says only when she came, for a visit nobody was seen leaving', () => {
+    const { left: _left, leftAt: _leftAt, ...arrivalOnly } = visitOn('2026-10-13', 'Tuesday');
+
+    expect(presentResult('get_visits', answer([arrivalOnly]), {}, at).card.items).toEqual([
+      { primary: 'Tuesday 13 Oct · came at 9:02 am', secondary: 'confirmed by Margaret' },
+    ]);
+  });
+
+  it('shows the seven most recent, and says how many came before them', () => {
+    const ten = Array.from({ length: 10 }, (_, i) => visitOn(`2026-10-${String(20 - i).padStart(2, '0')}`, 'Tuesday'));
+    const card = presentResult('get_visits', answer(ten, { days: 31 }), {}, at).card;
+
+    expect(card.title).toBe('Visits in the last 31 days');
+    expect(card.items).toHaveLength(7);
+    expect(card.items[0].primary).toBe('Tuesday 20 Oct · 9:02 am to 9:47 am');
+    expect(card.items[6].primary).toBe('Tuesday 14 Oct · 9:02 am to 9:47 am');
+    expect(card.more).toBe('and 3 earlier');
+    expect(presentResult('get_visits', answer(ten.slice(0, 7)), {}, at).card.more).toBeNull();
+  });
+
+  it('says who, on each line, when more than one regular visitor came', () => {
+    const card = presentResult('get_visits', answer([visitOn('2026-10-13', 'Tuesday'), visitOn('2026-10-12', 'Monday', { personId: 'joan', name: 'Joan', confirmed: false })]), {}, at).card;
+
+    expect(card.items).toEqual([
+      { primary: 'Maria · Tuesday 13 Oct · 9:02 am to 9:47 am', secondary: 'confirmed by Margaret' },
+      { primary: 'Joan · Monday 12 Oct · 9:02 am to 9:47 am', secondary: 'not confirmed' },
+    ]);
+  });
+
+  it('says a demo home’s visits are simulated, as it does of its weeks', () => {
+    expect(presentResult('get_visits', answer(two, { simulated: true }), {}, at).card.footnote).toBe('Simulated: this is a demo home, and nobody made the visits in its history.');
+  });
+
+  it('shows no card when no visit was noted: the sentence is the whole answer', () => {
+    const none = answer([], { summary: 'No visits by a regular visitor have been noted in the last 7 days.' });
+
+    expect(presentResult('get_visits', none, {}, at)).toEqual({ say: 'No visits by a regular visitor have been noted in the last 7 days.', card: null, tone: 'answer' });
+  });
+
+  it('has one word for a visit that is not confirmed, and never a reason, a colour or a mark', () => {
+    const card = presentResult('get_visits', answer(two), {}, at).card;
+
+    expect(new Set(card.items.map((i: { secondary: string }) => i.secondary))).toEqual(new Set(['not confirmed', 'confirmed by Margaret']));
+    expect(JSON.stringify(card)).not.toMatch(/disput|wrong|not right|waiting|asked|forgot|refus|missing|alert|warning|overdue/i);
+  });
+
+  it('carries nothing it was not told: without her name, a visit is simply confirmed', () => {
+    const card = presentResult('get_visits', answer(two, { residentName: undefined }), {}, at).card;
+
+    expect(card.items[1].secondary).toBe('confirmed');
+    expect(card.note).toBe('The times are what the doorbell noted. Only the person at home can confirm a visit, on their own television.');
+  });
+
+  it('says a refusal as the server said it, and an answer it cannot read as unreadable', () => {
+    const kept = "That's something the resident is keeping to themselves. I'm not able to share it.";
+
+    expect(presentResult('get_visits', kept, {}, at)).toEqual({ say: kept, card: null, tone: 'private' });
+    for (const odd of [JSON.stringify({ visits: two }), JSON.stringify({ summary: 'x', visits: [{ name: 'Maria' }] }), JSON.stringify({ summary: 'x', visits: 'none' })]) {
+      expect(presentResult('get_visits', odd, {}, at)).toEqual({ say: 'I got an answer I could not read.', card: null, tone: 'error' });
+    }
+  });
+
+  it('is a read, and says in a few words what the step did', () => {
+    expect(needsConfirmation('get_visits', { readOnlyHint: true })).toBe(false);
+    expect(describeCall('get_visits', {})).toBe('Looked at the visits');
   });
 });

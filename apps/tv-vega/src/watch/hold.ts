@@ -39,6 +39,8 @@ export interface OkHold {
 
 export function okHold(input: {
   readonly onHold: () => void;
+  /** OK came up after a hold — not after a press. */
+  readonly onRelease?: (() => void) | undefined;
   /** Whether OK is free to be held: not while a card, or the door camera, has the remote. */
   readonly canHold: () => boolean;
 }): OkHold {
@@ -60,8 +62,10 @@ export function okHold(input: {
       }
       if (event.eventKeyAction === KEY_UP) {
         stop();
+        const wasHold = becameHold;
         isDown = false;
         becameHold = false;
+        if (wasHold) input.onRelease?.();
         return;
       }
       // No halves given: there is no telling a hold from a press, so there is no hold.

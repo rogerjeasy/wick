@@ -42,13 +42,29 @@
  * only, which left a home made on a Monday with nothing different in it:
  * a guest who arrived then was never asked anything.
  *
+ * The visits Maria did make in the last fortnight are on record too (The
+ * visit, witnessed — packages/contracts visit.ts): the VISIT# rows the
+ * Door agent opens, each with the leaving the door would have noted and
+ * the resident's "Yes, that's right", so that "were this week's visits
+ * confirmed?" has an answer. All of them are confirmed, and none is left
+ * for the television to ask about. That is not a choice but a consequence
+ * of the paragraph above: the morning she missed, and any since, are left
+ * out, so the latest visit there is to seed is always at least three days
+ * old — and a visit is only asked about within a day of it (visit.ts
+ * `readyToAsk`). A visit recent enough to ask about would have to be
+ * Maria's, which would make "she did not come" untrue, or somebody else's,
+ * and this home has no other regular visitor: adding one would change what
+ * the door, the week's story and Something's Different say of it. In a
+ * demo home the question "Is this right?" comes from a real ring at the
+ * door, as in any other.
+ *
  * Deterministic: the same moment gives the same history. Only events that
  * have already happened are written, so "today" is as true at nine in the
  * morning as at nine at night.
  */
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { currentIsoWeek, padTimestamp, parseTimestampFromSortKey, type RosterEntry, type WeekNarrative } from '@wick/contracts';
-import { VISIT_GRACE_MS, factsWeekNarrative, isoWeekRange, parsePattern } from '@wick/agent';
+import { VISIT_SETTLED_MS, currentIsoWeek, padTimestamp, parseTimestampFromSortKey, type RosterEntry, type WeekNarrative } from '@wick/contracts';
+import { VISIT_GRACE_MS, factsWeekNarrative, isoWeekRange, parsePattern, visitItem } from '@wick/agent';
 
 type Item = Record<string, AttributeValue>;
 
@@ -65,9 +81,12 @@ const FIRST_WEEK_AGO = DEMO_HISTORY_WEEKS + 1;
 /** The demo home's regular visitor. Times are UTC, as the Door agent matches them (door/roster.ts). */
 export const DEMO_VISITOR: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' };
 
+/** How far back the demo home's visits are on record, as visits the resident confirmed (packages/contracts visit.ts). */
+export const DEMO_VISIT_RECORD_DAYS = 14;
+
 /**
  * How long the history is kept. A demo home costs one click and no email,
- * and its history is some seventy-five rows: left for ever, the demo
+ * and its history is some seventy rows: left for ever, the demo
  * button would be a way to grow the table without limit. Every row carries
  * the table's own expiry (infra/core.tf `ttl`), sixty days on — past the
  * end of judging for a home made on the last day. The guest rate limit
@@ -122,6 +141,27 @@ function eventItems(householdId: string, at: number, key: string, visitor: Roste
   }];
 }
 
+/** How long a simulated visit lasted: forty-five to fifty-five minutes, a different length from one visit to the next. Never random. */
+const stayedMinutes = (weeksAgo: number, slot: number): number => 45 + ((weeksAgo * 3 + slot * 2) % 11);
+/** How long after the leaving had stood the simulated resident was at the television, and how long she took to answer. */
+const ASKED_AFTER_SETTLED_MS = 15 * MINUTE;
+const ANSWERED_AFTER_MS = 2 * MINUTE;
+
+/**
+ * A visit of the demo home's, as the Door agent's own row (services/agent
+ * store/visits.ts): the leaving the door would have noted, the question,
+ * and the resident's "Yes, that's right". Undefined for a visit whose
+ * answer would not have been given yet — nothing is written that has not
+ * happened.
+ */
+function confirmedVisitItem(householdId: string, visitor: RosterEntry, arrivedAt: number, stayedMin: number, now: number): Item | undefined {
+  const leftAt = arrivedAt + stayedMin * MINUTE;
+  const askedAt = leftAt + VISIT_SETTLED_MS + ASKED_AFTER_SETTLED_MS;
+  const answeredAt = askedAt + ANSWERED_AFTER_MS;
+  if (answeredAt > now) return undefined;
+  return visitItem({ householdId, personId: visitor.personId, name: visitor.name, arrivedAt, leftAt, askedAt, answer: 'confirmed', answeredAt, simulated: true });
+}
+
 /** When Maria is due in a given week: the start of her window on that slot's day, without the jitter. */
 const dueAt = (thisMonday: number, weeksAgo: number, slot: Slot, minuteOfDay: number): number =>
   thisMonday - weeksAgo * WEEK + slot.day * DAY + minuteOfDay * MINUTE;
@@ -165,6 +205,8 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
   const missed = missedVisitDueAt(thisMonday, now);
 
   const events: Item[] = [];
+  const visits: Item[] = [];
+  const recordedSince = now - DEMO_VISIT_RECORD_DAYS * DAY;
   for (let weeksAgo = FIRST_WEEK_AGO; weeksAgo >= 0; weeksAgo -= 1) {
     WEEK_PATTERN.forEach((slot, index) => {
       if (slot.inWeek && !slot.inWeek(weeksAgo)) return;
@@ -173,7 +215,11 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
       // counts coming late, or on a later day, as having come.
       if (slot.visitor && missed !== undefined && dueAt(thisMonday, weeksAgo, slot, visitorMinuteOfDay) >= missed) return;
       const at = thisMonday - weeksAgo * WEEK + slot.day * DAY + slot.hour * HOUR + (slot.minute + jitterMinutes(weeksAgo, index)) * MINUTE;
-      if (at <= now) events.push(...eventItems(householdId, at, `${weeksAgo}-${index}`, slot.visitor));
+      if (at > now) return;
+      events.push(...eventItems(householdId, at, `${weeksAgo}-${index}`, slot.visitor));
+      // The visit, witnessed: a visit she made lately is one the resident has confirmed.
+      const visit = slot.visitor && at >= recordedSince ? confirmedVisitItem(householdId, slot.visitor, at, stayedMinutes(weeksAgo, index), now) : undefined;
+      if (visit) visits.push(visit);
     });
   }
 
@@ -194,7 +240,8 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
 
   const ttl = { N: String(Math.floor((now + DEMO_HISTORY_TTL_MS) / 1000)) };
   const roster: Item = { pk, sk: { S: `PER#${DEMO_VISITOR.personId}` }, data: { S: JSON.stringify(DEMO_VISITOR) } };
-  return [roster, ...events, ...weeks].map((item) => ({ ...item, ttl }));
+  // The demo home's own expiry, on every row: a visit's row would otherwise keep its thirteen months (store/visits.ts).
+  return [roster, ...events, ...weeks, ...visits].map((item) => ({ ...item, ttl }));
 }
 
 const WRITES_AT_ONCE = 10;

@@ -87,6 +87,7 @@ export const SUGGESTIONS = [
   { label: 'How’s Mum been this week?', utterance: "How's Mum been this week?" },
   { label: 'What happened today?', utterance: 'What happened today?' },
   { label: 'Did Maria come today?', utterance: 'Did Maria come today?' },
+  { label: 'Were this week’s visits confirmed?', utterance: "Were this week's visits confirmed?" },
   { label: 'Is anything different?', utterance: 'Is anything different?' },
   { label: 'Is the light on?', utterance: "Is the light on at Mum's?" },
   { label: 'Send a note to her television', utterance: "Put a note on Mum's television" },
@@ -195,6 +196,15 @@ export function routeUtterance(text, now = Date.now()) {
   if (/\b(can|may) i see\b|\bshare[sd]?\b|\bprivate\b/.test(t)) return tool('get_resident_shared_view');
   // Before "today" and "Maria": "is anything different today" is this question, not the day's list.
   if (/\bdifferent\b|\bunusual\b|\bal(?:l ?)?right\b|\bshould i know\b/.test(t)) return tool('get_whats_different');
+  // The visit, witnessed: the visits of a stretch of days, and whether each was confirmed. One day's yes or
+  // no — "did Maria come today", "has the carer been" — stays where it was, on the line below.
+  if (
+    /\bvisit record\b|\bvisits?\b.*\bconfirm|\bconfirm\w*\b.*\bvisits?\b|\bhow long\b.*\b(maria|carer|visit|here|stay)/.test(t) ||
+    (/\bmaria\b|\bcarer\b/.test(t) && /\b(this|last|past) (week|fortnight|month)\b/.test(t))
+  ) {
+    // Seven days unless a longer stretch was named: "last week" is this week and the one before.
+    return tool('get_visits', /\bmonth\b/.test(t) ? { days: 31 } : /\blast week\b|\bfortnight\b/.test(t) ? { days: 14 } : {});
+  }
   if (/\bmaria\b|\bcarer\b/.test(t)) return tool('did_visitor_come', { personId: 'maria' });
   if (/\btoday\b/.test(t)) return tool('get_today');
   // "This week" is whichever week there is to read (the server picks the
@@ -293,7 +303,7 @@ export function suggestionsFor(listing) {
 }
 
 export const HELP_TEXT =
-  'I can tell you how the week has been, what happened today, whether Maria came, whether anything is different, ' +
+  'I can tell you how the week has been, what happened today, whether Maria came, whether her visits were confirmed, whether anything is different, ' +
   'put a note on the television, tell you if there is a reply, show what you are able to see, ' +
   'or open the family circle.';
 
@@ -902,6 +912,64 @@ function presentVisitors(list, formatTime) {
   };
 }
 
+/** How many visits a card lists before it says how many came earlier. */
+const VISIT_LINES = 7;
+
+/** "13 Oct" from the server's "2026-10-13" — the day as it was at the house, which the server worked out. */
+function dayAndMonth(date) {
+  const at = new Date(`${date}T00:00:00Z`);
+  return Number.isNaN(at.getTime()) ? '' : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+
+/** Whether a get_visits result is the shape this page draws. Anything else is said to be unreadable, never guessed at. */
+const isVisits = (parsed) =>
+  typeof parsed.summary === 'string' &&
+  Array.isArray(parsed.visits) &&
+  parsed.visits.every((v) => typeof v?.name === 'string' && typeof v.day === 'string' && typeof v.date === 'string' && typeof v.arrived === 'string' && typeof v.confirmed === 'boolean');
+
+/**
+ * The visits of the regular visitors, and which of them the resident
+ * confirmed (get_visits). The server writes the sentence, and it is said as
+ * it stands. Each visit is one line, and says one of two things: confirmed,
+ * or not confirmed. There is no third, no reason, and nothing that marks a
+ * line out — a visit that is not confirmed is not a fault, and this page
+ * does not know why it is not (the server does not say, on purpose).
+ */
+function presentVisits(answer) {
+  const visits = answer.visits;
+  if (visits.length === 0) return { say: answer.summary, card: null, tone: 'answer' };
+
+  const resident = typeof answer.residentName === 'string' && answer.residentName ? answer.residentName : null;
+  const days = Number.isInteger(answer.days) ? answer.days : null;
+  const severalPeople = new Set(visits.map((v) => v.name)).size > 1;
+  const earlier = visits.length - VISIT_LINES;
+  return {
+    say: answer.summary,
+    tone: 'answer',
+    card: {
+      kind: 'visits',
+      title: days === null ? 'Visits' : days === 1 ? 'Visits in the last day' : `Visits in the last ${days} days`,
+      meta: '',
+      // Newest first, as the server gives them.
+      items: visits.slice(0, VISIT_LINES).map((v) => ({
+        primary: [
+          ...(severalPeople ? [v.name] : []),
+          `${v.day} ${dayAndMonth(v.date)}`.trim(),
+          typeof v.left === 'string' ? `${v.arrived} to ${v.left}` : `came at ${v.arrived}`,
+        ].join(' · '),
+        secondary: v.confirmed ? (resident ? `confirmed by ${resident}` : 'confirmed') : 'not confirmed',
+      })),
+      more: earlier > 0 ? `and ${earlier} earlier` : null,
+      note: resident
+        ? `The times are what the doorbell noted. Only ${resident} can confirm a visit, on her television.`
+        : 'The times are what the doorbell noted. Only the person at home can confirm a visit, on their own television.',
+      // A demo home's visits were written, not made (the server's demoHome.ts): said as it is of its weeks. Worded
+      // to stay true when a visit from a real ring at its door is listed beside them — the server marks the answer, not each line.
+      footnote: answer.simulated === true ? 'Simulated: this is a demo home, and nobody made the visits in its history.' : '',
+    },
+  };
+}
+
 function presentExpectedVisit(visit, formatTime) {
   const also = visit.alsoExpectedThatDay ?? [];
   return {
@@ -1019,6 +1087,7 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (toolName === 'get_today' && Array.isArray(parsed.events)) return presentToday(parsed, formatTime, now);
   if (toolName === 'did_visitor_come' && typeof parsed.visited === 'boolean') return presentVisitor(parsed, formatTime, now);
   if (toolName === 'list_regular_visitors' && Array.isArray(parsed.visitors)) return presentVisitors(parsed, formatTime);
+  if (toolName === 'get_visits' && isVisits(parsed)) return presentVisits(parsed);
   if (toolName === 'get_whats_different' && Array.isArray(parsed.differences)) return presentDifferent(parsed, formatTime);
   if (toolName === 'get_light' && typeof parsed.lit === 'boolean') return presentLight(parsed);
   if (toolName === 'expect_visit' && parsed.expected === true) return presentExpectedVisit(parsed, formatTime);
@@ -1104,6 +1173,7 @@ export function describeCall(toolName, args = {}) {
     case 'get_whats_different': return 'Looked for anything to tell you';
     case 'get_light': return 'Looked at the light';
     case 'did_visitor_come': return `Checked ${dayAsked(args)}’s visits`;
+    case 'get_visits': return 'Looked at the visits';
     case 'get_replies': return 'Looked for a reply';
     case 'get_resident_shared_view': return 'Checked what is shared';
     case 'send_note_to_tv': return 'Put a note on the television';

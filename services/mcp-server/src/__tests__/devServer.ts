@@ -59,6 +59,18 @@
  *     plane's own due.ts, which asks the next person, or says that nobody
  *     has answered yet. What the television would show is printed here.
  *
+ *   - The visit, witnessed: GET /dev/visit stands in for the door, twice, in
+ *     every home that connected the stand-in television — a regular visitor
+ *     (the demo home's Maria) seen arriving fifty minutes ago, and somebody
+ *     seen leaving twelve minutes ago — through the agent plane's own
+ *     note.ts, and then for the television saying its resident is there:
+ *     ask.ts puts "Is this right? Maria was here on … from … to …" on the
+ *     stand-in television. GET /dev/visit?press=right is the resident's
+ *     "Yes, that's right" on every such question still open, and
+ *     ?press=wrong her "No, that's not right" — answer.ts, which then asks
+ *     "Shall I tell …?" (answered, like any other, by /dev/tell). What the
+ *     family is given is get_visits: "were the visits confirmed?"
+ *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
  * answers; without it there is none, and the app answers by its rules.
@@ -84,6 +96,14 @@ import { nudge, subscriptionFromItem, type StoredSubscription } from '../../../a
 import { TELL_SK_PREFIX, tellCardId, type PushKind } from '@wick/contracts';
 import { REACH_ACTIONS, reachCardId, reachUnderWay } from '@wick/contracts';
 import { reachStore, type ReachSend } from '@wick/agent';
+import { VISIT_ACTIONS, VISIT_ASK_WITHIN_MS, isVisitPersonId, userIdOfMemberPerson, visitCardId, visitId, type RosterEntry, type VisitorMatch } from '@wick/contracts';
+import { isSharedWithFamily, loadHouseholdPolicy, visitStore, type VisitSend } from '@wick/agent';
+import { noteDoorSighting } from '../../../agent/src/agents/visit/note.js';
+import { askAboutVisits } from '../../../agent/src/agents/visit/ask.js';
+import { handleVisitAnswer } from '../../../agent/src/agents/visit/answer.js';
+import { buildTellCard } from '../../../agent/src/agents/tell/ask.js';
+import { familyToAsk } from '../../../agent/src/agents/door/index.js';
+import { DEMO_VISITOR } from '../accounts/demoHome.js';
 import { handleReachAsk, type ReachDue } from '../../../agent/src/agents/reach/ask.js';
 import { handleReachDue } from '../../../agent/src/agents/reach/due.js';
 import { reachDueEvent } from '../../../agent/src/agents/reach/timer.js';
@@ -398,6 +418,122 @@ app.get('/dev/reach', async (req, res) => {
     asked[householdId] = await handleReachAsk(press, { ...reachDeps, claimOnce: reaches.claimOnce });
   }
   res.json({ kind, asked });
+});
+
+/**
+ * The visit, witnessed: the VISIT# rows in the table get_visits reads, written
+ * and answered by the agent plane's own code (services/agent agents/visit)
+ * through its own store — so the conditions that keep a visit asked about
+ * once, and answered once, are the real ones.
+ */
+const visits = visitStore((command) => table.ddb.send(command as never) as ReturnType<VisitSend>, 'dev');
+/** Where the house is: as the server this starts reads it (server.ts, tools/get_visits.ts), so the card and the answer agree. */
+const VISIT_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
+const VISIT_BEGAN_AGO_MS = 50 * 60_000;
+const VISIT_LEFT_AGO_MS = 12 * 60_000;
+
+/** Who the door takes the visitor for: the home's own Maria, else another regular visitor it has, else the demo home's. */
+function regularVisitor(householdId: string): RosterEntry {
+  const roster = table.rows(`HH#${householdId}`)
+    .filter((row) => row.sk?.S?.startsWith('PER#'))
+    .flatMap((row) => (row.data?.S ? [JSON.parse(row.data.S) as RosterEntry] : []));
+  return (
+    roster.find((person) => person.personId === DEMO_VISITOR.personId) ??
+    roster.find((person) => isVisitPersonId(person.personId) && userIdOfMemberPerson(person.personId) === undefined) ??
+    DEMO_VISITOR
+  );
+}
+
+/** The family the resident allows — not a neighbour, who is shown nothing (AGENTS.md). */
+const familyAllowedIn = async (householdId: string) =>
+  (await store.listMembers(householdId)).filter((member) => member.status === 'allowed' && member.role !== 'neighbour').map(({ userId, name }) => ({ userId, name }));
+
+/**
+ * Stands in for the door and for the television. With no `press`: a regular
+ * visitor is seen arriving and somebody is seen leaving (note.ts), and the
+ * resident, now at the television, is asked whether that is right (ask.ts).
+ * With ?press=right or ?press=wrong it is her answer to every such question
+ * still open (answer.ts); a "No" becomes "Shall I tell …?", filed and shown
+ * as actionLambda.ts files and shows it.
+ */
+app.get('/dev/visit', async (req, res) => {
+  const press = typeof req.query.press === 'string' ? req.query.press : undefined;
+
+  if (press !== undefined) {
+    if (press !== 'right' && press !== 'wrong') return void res.status(400).json({ error: 'press=right|wrong, or no press for a visit the door has noted' });
+    const answered: Record<string, string> = {};
+    const offered: Record<string, string> = {};
+    for (const householdId of homesWithATelevision) {
+      const now = Date.now();
+      const open = (await visits.recent(householdId, now - VISIT_ASK_WITHIN_MS)).filter((visit) => visit.askedAt !== undefined && visit.answer === undefined);
+      for (const visit of open) {
+        const id = visitId(visit);
+        const detail = { householdId, deviceId: 'wick-tv', cardId: visitCardId(id), action: press === 'right' ? VISIT_ACTIONS.right : VISIT_ACTIONS.wrong, at: now };
+        answered[id] = await handleVisitAnswer(detail, {
+          answer: visits.answer,
+          withdraw: async (hh, cardId) => void console.log(`television (${hh}): card ${cardId} taken back`),
+          // As actionLambda.ts decides it: somebody she allows, who she shares her visitors and the shape of her week with.
+          whoToTell: async (hh) => {
+            const policy = await loadHouseholdPolicy(table.ddb, 'dev', hh);
+            if (!isSharedWithFamily('PRESENCE', policy) || !isSharedWithFamily('RHYTHM', policy)) return undefined;
+            return familyToAsk((await familyAllowedIn(hh)).map((member) => member.name));
+          },
+          offerToTell: async (offer) => {
+            if (tellRows(offer.householdId).some((held) => held.differenceId?.S === offer.differenceId)) return false;
+            table.put(tellRowItem({
+              householdId: offer.householdId,
+              differenceId: offer.differenceId,
+              kind: 'visit_disputed',
+              factClass: 'PRESENCE',
+              sentence: offer.sentence,
+              at: offer.at,
+              askedAt: offer.now,
+              weeksObserved: 0,
+            }));
+            const card = buildTellCard({ ...offer, correlationId: `dev-${offer.now.toString(36)}` });
+            await sendCard(card);
+            if (card.card.type === 'TELL') {
+              console.log(`television: "${card.card.headline}" ${card.card.detail}`);
+              offered[id] = `${card.card.headline} ${card.card.detail}`;
+            }
+            return true;
+          },
+          now: () => now,
+          timeZone: VISIT_TZ,
+        });
+      }
+    }
+    return void res.json({ press, answered, ...(press === 'wrong' ? { offered } : {}) });
+  }
+
+  const noted: Record<string, { visitor: string; door: string[]; asked: readonly string[]; television: string[] }> = {};
+  for (const householdId of homesWithATelevision) {
+    const now = Date.now();
+    const visitor = regularVisitor(householdId);
+    // What the Door agent's roster match hands on (door/roster.ts): by the day and the time, never by a face.
+    const match: VisitorMatch = { personId: visitor.personId, name: visitor.name, basis: 'schedule', expectedToday: true, confidence: 1 };
+    const door = [
+      await noteDoorSighting({ householdId, match, at: now - VISIT_BEGAN_AGO_MS }, visits),
+      // Somebody at the door again, and the door cannot tell who: taken as the visitor leaving.
+      await noteDoorSighting({ householdId, match: undefined, at: now - VISIT_LEFT_AGO_MS }, visits),
+    ];
+    const television: string[] = [];
+    const asked = await askAboutVisits(householdId, {
+      recent: visits.recent,
+      claimAsk: visits.claimAsk,
+      releaseAsk: visits.releaseAsk,
+      sendCard: async (card) => {
+        await sendCard(card);
+        if (card.card.type !== 'VISIT') return;
+        television.push(`${card.card.headline} ${card.card.detail}`);
+        console.log(`television: "${card.card.headline}" ${card.card.detail}`);
+      },
+      now: () => now,
+      timeZone: VISIT_TZ,
+    });
+    noted[householdId] = { visitor: visitor.name, door, asked, television };
+  }
+  res.json({ noted });
 });
 
 /**

@@ -98,6 +98,7 @@ describe('the demo button — an anonymous account in one click', () => {
     expect(rows).toContain('PER#maria');
     expect(rows.filter((sk) => sk.startsWith('EVT#')).length).toBeGreaterThan(40);
     expect(rows.filter((sk) => sk.startsWith('NARR#')).length).toBe(7);
+    expect(rows.filter((sk) => sk.startsWith('VISIT#')).length).toBeGreaterThan(0);
   });
 
   it('lets the guest, once Margaret has allowed them, ask about a week that is there to ask about', async () => {
@@ -132,6 +133,18 @@ describe('the demo button — an anonymous account in one click', () => {
     // The carer the suggested question asks about is someone this home knows.
     expect(await ask('did_visitor_come', { personId: 'maria' })).toMatchObject({ name: 'Maria' });
     expect(await ask('get_today')).toMatchObject({ keptPrivate: [] });
+
+    // The visits she did make are on record, each confirmed by Margaret, and said to be simulated (The visit, witnessed).
+    const visits = JSON.parse(((await client.callTool({ name: 'get_visits', arguments: { days: 14 } })).content as { text: string }[])[0]!.text) as {
+      visits: { name: string; confirmed: boolean }[];
+      confirmedCount: number;
+      summary: string;
+      simulated?: boolean;
+    };
+    expect(visits.visits.length).toBeGreaterThan(0);
+    expect(visits.visits.every((v) => v.name === 'Maria' && v.confirmed)).toBe(true);
+    expect(visits).toMatchObject({ confirmedCount: visits.visits.length, simulated: true });
+    expect(visits.summary).toMatch(/^Maria came (once|twice|\d+ times) in the last 14 days\. Margaret has confirmed (it|both of them|all of them)\.$/);
   });
 
   it('still makes the guest when the history cannot be written', async () => {

@@ -30,6 +30,7 @@ function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     recordDoorEvent: vi.fn(async (_at: number) => {}),
     recordDoorActivity: vi.fn(async (_deviceId: string, _subType: string, _measureName: 'motion' | 'button_press', _at: number) => {}),
     recordPresenceActivity: vi.fn(async (_personId: string, _at: number) => {}),
+    noteSighting: vi.fn(async (_match: VisitorMatch | undefined, _at: number) => {}),
     sendToDevice: vi.fn(async (_card: QueuedCard) => {}),
     runPhase2: vi.fn(async (_cardId: string, _event: RingHistoryEvent) => ({
       image: 'patched' as const,
@@ -285,6 +286,23 @@ describe('routeRingEvent', () => {
 
     expect(deps.recordPresenceActivity).toHaveBeenCalledTimes(1);
     expect(deps.recordPresenceActivity).toHaveBeenCalledWith('maria', 1789455093305);
+  });
+
+  it('tells the visit record of every sighting: who it looked like, or that it looked like nobody', async () => {
+    const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE 06:51±30m' };
+    const matched = baseDeps({ listRoster: vi.fn(async () => [maria]) });
+    await routeRingEvent(detail, matched);
+    expect(matched.noteSighting).toHaveBeenCalledWith(expect.objectContaining({ personId: 'maria', name: 'Maria' }), 1789455093305);
+
+    const stranger = baseDeps();
+    await routeRingEvent(detail, stranger);
+    expect(stranger.noteSighting).toHaveBeenCalledWith(undefined, 1789455093305);
+  });
+
+  it('still reports "sent", and still describes the visitor, when the visit record cannot be written', async () => {
+    const deps = baseDeps({ noteSighting: vi.fn(async () => { throw new Error('ddb_down'); }) });
+    expect(await routeRingEvent(detail, deps)).toBe('sent');
+    expect(deps.runPhase2).toHaveBeenCalledTimes(1);
   });
 
   it('S6: never records presence activity when nobody on the roster matches', async () => {

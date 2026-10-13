@@ -48,6 +48,8 @@ import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
 import { matchVisitor, stillWelcome } from './roster.js';
 import { cachedRoster } from './rosterCache.js';
 import { buildDoorEventItem, buildPresenceItem } from './presence.js';
+import { noteDoorSighting } from '../visit/note.js';
+import { visitStore, type VisitSend } from '../../store/visits.js';
 import { runDoorPhase2, type Phase2Outcome } from './phase2.js';
 import { describeViaRuntime } from './describeRemote.js';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
@@ -81,6 +83,11 @@ export interface RouteDeps {
   ) => Promise<void>;
   /** S6. Written only on a roster match — an arrival occurrence for the Rhythm baseline (§8.2's presence table). */
   readonly recordPresenceActivity: (personId: string, at: number) => Promise<void>;
+  /**
+   * The visit, witnessed (agents/visit/note.ts): every door-worthy sighting, with who it looked like or nobody —
+   * a regular visitor arriving opens a visit, and anybody seen later is taken as that visitor leaving.
+   */
+  readonly noteSighting: (match: VisitorMatch | undefined, at: number) => Promise<void>;
   readonly sendToDevice: (card: QueuedCard, ringDeviceId: string) => Promise<void>;
   readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<Phase2Outcome>;
   readonly now: () => number;
@@ -161,6 +168,15 @@ export async function routeRingEvent(
   }
 
   try {
+    await deps.noteSighting(match ?? undefined, event.start);
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'error', msg: 'visit_note_failed', correlationId,
+      err: err instanceof Error ? err.message : String(err),
+    }));
+  }
+
+  try {
     const outcome = await deps.runPhase2(queued.id, event);
     console.log(JSON.stringify({ level: 'info', msg: 'phase2_outcome', correlationId, ...outcome }));
   } catch (err) {
@@ -224,6 +240,7 @@ const TABLE = process.env.TABLE_NAME ?? '';
 // is DynamoDB rather than Timestream.
 const rhythmWriter = createRhythmWriter(ddb, TABLE);
 const ringDevices = ringDeviceOwners((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
+const visits = visitStore((cmd) => ddb.send(cmd as never) as ReturnType<VisitSend>, TABLE);
 
 async function loadRoster(householdId: string): Promise<readonly RosterEntry[]> {
   const rows = (prefix: string) => ddb.send(new QueryCommand({
@@ -307,6 +324,7 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
       recordDoorActivity: (deviceId, subType, measureName, at) =>
         recordDoorActivity(householdId, deviceId, subType, measureName, at),
       recordPresenceActivity: (personId, at) => recordPresenceActivity(householdId, personId, at),
+      noteSighting: async (match, at) => void (await noteDoorSighting({ householdId, match, at }, visits)),
       sendToDevice: (card, ringDeviceId) => realSendToDevice(card, DEFAULT_POLICY, { ringDeviceId }),
       runPhase2: (cardId, event) =>
         runDoorPhase2(cardId, {

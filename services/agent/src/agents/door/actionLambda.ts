@@ -8,7 +8,9 @@
  *     ask_family               → door/askFamily.ts, here: gate → file the request → patch → TV → nudge
  *     tell_family/keep_private → tell/answer.ts, here: record the answer → nudge, or nothing
  *     ring_me/say_hello        → reach/ask.ts, here: file the request → card → TV → nudge one person → set the timer
+ *     visit_right/visit_wrong  → visit/answer.ts, here: her yes or no on a visit → kept; a no becomes "Shall I tell …?"
  *   television.active          → tell/ask.ts, here: is anything different? → file the question → card → TV
+ *                              → visit/ask.ts too: a visit that is ready is put to her
  *   card.retired               → egress.ts, here: the home's other televisions put the card away
  *   home.changed               → egress.ts, here: the home's other televisions are told how the home screen stands
  *   reach.due                  → reach/due.ts, here: three minutes on and no answer → the next person is asked
@@ -25,7 +27,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { CreateScheduleCommand, SchedulerClient } from '@aws-sdk/client-scheduler';
 import { randomUUID } from 'node:crypto';
-import { DOOR_ACTIONS, PUSH_KINDS, reachKindOf, readHomeState, tellAnswerOf, type HomeState } from '@wick/contracts';
+import { DOOR_ACTIONS, PUSH_KINDS, reachKindOf, readHomeState, tellAnswerOf, visitAnswerOf, type HomeState } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { nudgeFamily, sendHomeToDevices, sendPatchToDevice, sendToDevice, withdrawFromDevices } from '../../egress.js';
 import { loadShareableDifferences } from '../../rhythm/loadDifferent.js';
@@ -39,6 +41,12 @@ import { handleReachAsk, type ReachAskResult, type ReachDue } from '../reach/ask
 import { handleReachDue, type ReachDueResult } from '../reach/due.js';
 import { REACH_DUE, reachDueSchedule } from '../reach/timer.js';
 import { reachStore, type ReachSend } from '../../store/reaches.js';
+import { askAboutVisits } from '../visit/ask.js';
+import { handleVisitAnswer, type VisitAnswerResult } from '../visit/answer.js';
+import { visitStore, type VisitSend } from '../../store/visits.js';
+import { isSharedWithFamily, loadHouseholdPolicy } from '../../store/household.js';
+import { buildTellCard } from '../tell/ask.js';
+import { familyToAsk } from './index.js';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
 
 type Invoke = (kind: string, householdId: string, payload: Record<string, unknown>) => Promise<unknown>;
@@ -64,6 +72,10 @@ export interface CardActionRoutes {
   readonly reachAsk: (detail: Record<string, unknown>) => Promise<ReachAskResult>;
   /** Three minutes on and no answer: the next person is asked (reach/due.ts). */
   readonly reachDue: (detail: Record<string, unknown>) => Promise<ReachDueResult>;
+  /** The resident's yes or no to what the door noted of a visit (visit/answer.ts). */
+  readonly visitAnswer: (detail: Record<string, unknown>) => Promise<VisitAnswerResult>;
+  /** Puts any visit that is ready to the resident (visit/ask.ts). Answers with the visits asked about. */
+  readonly askVisits: (householdId: string) => Promise<readonly string[]>;
 }
 
 export interface DeviceBusEvent {
@@ -76,7 +88,12 @@ export async function routeCardAction(evt: DeviceBusEvent, routes: CardActionRou
   if (evt['detail-type'] === 'television.active') {
     const householdId = evt.detail.householdId;
     if (typeof householdId !== 'string' || !householdId) return { result: 'ignored' };
-    return { result: 'asked', about: (await routes.askResident(householdId)).length };
+    // She is at the television: a visit that is ready is put to her too. Never in the way of the other asking.
+    const visits = await routes.askVisits(householdId).catch((err: unknown) => {
+      console.error(JSON.stringify({ level: 'error', msg: 'visits_not_asked', err: err instanceof Error ? err.name : 'unknown' }));
+      return [];
+    });
+    return { result: 'asked', about: (await routes.askResident(householdId)).length, visits: visits.length };
   }
   if (evt['detail-type'] === 'card.retired') {
     // Answered on one television: a second one in the home must not go on asking.
@@ -98,6 +115,7 @@ export async function routeCardAction(evt: DeviceBusEvent, routes: CardActionRou
   if (evt.detail.action === DOOR_ACTIONS.askFamily) return { result: await routes.askFamily(evt.detail) };
   if (reachKindOf(evt.detail.action)) return { result: await routes.reachAsk(evt.detail) };
   if (tellAnswerOf(evt.detail.action)) return { result: await routes.tellAnswer(evt.detail) };
+  if (visitAnswerOf(evt.detail.action)) return { result: await routes.visitAnswer(evt.detail) };
   return forwardCardAction(evt, routes.invoke);
 }
 
@@ -198,6 +216,51 @@ function reachDue(detail: Record<string, unknown>): Promise<ReachDueResult> {
   });
 }
 
+const visits = () => visitStore((cmd) => ddb.send(cmd as never) as ReturnType<VisitSend>, TABLE);
+const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
+
+function askVisits(householdId: string): Promise<readonly string[]> {
+  const store = visits();
+  return askAboutVisits(householdId, {
+    recent: store.recent,
+    claimAsk: store.claimAsk,
+    releaseAsk: store.releaseAsk,
+    sendCard: (card) => sendToDevice(card, DEFAULT_POLICY),
+    now: Date.now,
+    timeZone: HOUSEHOLD_TZ,
+  });
+}
+
+function visitAnswer(detail: Record<string, unknown>): Promise<VisitAnswerResult> {
+  return handleVisitAnswer(detail, {
+    answer: visits().answer,
+    withdraw: (householdId, cardId) => withdrawFromDevices(cardId, householdId),
+    // Somebody she allows, who she shares her visitors and the shape of her week with:
+    // otherwise what she told could not be read (get_whats_different), so it is not offered.
+    whoToTell: async (householdId) => {
+      const policy = await loadHouseholdPolicy(ddb, TABLE, householdId);
+      if (!isSharedWithFamily('PRESENCE', policy) || !isSharedWithFamily('RHYTHM', policy)) return undefined;
+      return familyToAsk((await listFamilyOnly(householdId)).map((member) => member.name));
+    },
+    offerToTell: async (offer) => {
+      const claimed = await tells().claimOnce({
+        householdId: offer.householdId,
+        differenceId: offer.differenceId,
+        kind: 'visit_disputed',
+        factClass: 'PRESENCE',
+        sentence: offer.sentence,
+        at: offer.at,
+        askedAt: offer.now,
+        weeksObserved: 0,
+      });
+      if (claimed) await sendToDevice(buildTellCard({ ...offer, correlationId: randomUUID() }), DEFAULT_POLICY);
+      return claimed;
+    },
+    now: Date.now,
+    timeZone: HOUSEHOLD_TZ,
+  });
+}
+
 export const handler = async (evt: DeviceBusEvent): Promise<void> => {
   const out = await routeCardAction(evt, {
     // The runtime is looked up only for a press that needs it.
@@ -209,6 +272,8 @@ export const handler = async (evt: DeviceBusEvent): Promise<void> => {
     tellHome: (householdId, home, pressedOn) => sendHomeToDevices(householdId, home, { whole: true, exceptDeviceId: pressedOn }),
     reachAsk,
     reachDue,
+    visitAnswer,
+    askVisits,
   });
   // Ids and the outcome only — never card content.
   console.log(JSON.stringify({ level: 'info', msg: 'card_action_handled', cardId: evt.detail.cardId, action: evt.detail.action, out }));

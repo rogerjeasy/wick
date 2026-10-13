@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { storageFileSystem, type KeyValueStorage } from '../adapters/storageFileSystem.js';
-import { remotePresses } from '../adapters/remoteEvents.js';
+import { remoteKeyEvents, type AndroidRemoteEvent } from '../adapters/remoteEvents.js';
 import { VideoPlayer } from '../adapters/videoPlayer.js';
 import { deriveSnapshot, PlayerService, type MediaElementLike, type PlayerSnapshot } from '../../../tv-vega/src/player/PlayerService.js';
 import { watchCommand } from '../../../tv-vega/src/watch/remoteKeys.js';
+import { HOLD_MS, okHold } from '../../../tv-vega/src/watch/hold.js';
 import { QueueStore } from '../../../tv-vega/src/headless/QueueStore.js';
 import { resolveDeviceId, SIMULATOR_DEVICE_ID } from '../../../tv-vega/src/deviceId.js';
 
@@ -62,7 +63,13 @@ describe('storageFileSystem', () => {
   });
 });
 
-describe('remotePresses', () => {
+/** The first thing each Android event becomes: the press, or the key coming up after it. */
+const remotePresses = () => {
+  const keys = remoteKeyEvents();
+  return (event: AndroidRemoteEvent | null | undefined) => keys(event)[0];
+};
+
+describe('remoteKeyEvents — one press at a time', () => {
   const DOWN = 0;
   const UP = 1;
 
@@ -284,3 +291,97 @@ describe('VideoPlayer', () => {
     expect(states).toEqual(['PAUSED', 'BUFFERING', 'PLAYING', 'PAUSED', 'STOPPED']);
   });
 });
+
+describe('remoteKeyEvents — a press, and a hold, as Fire OS really reports them', () => {
+  const UP = 1;
+  const DOWN = 0;
+
+  it('makes a whole press of a key that is only reported coming up: down, then up — never a key left down', () => {
+    // React Native on Android sends no key-down to JavaScript unless a flag is set, so a short OK is one `select`, action 1.
+    const keys = remoteKeyEvents();
+    expect(keys({ eventType: 'select', eventKeyAction: UP })).toEqual([
+      { eventType: 'select', eventKeyAction: 0 },
+      { eventType: 'select', eventKeyAction: 1 },
+    ]);
+    // And the next press is a press again, not a key "still held".
+    expect(keys({ eventType: 'select', eventKeyAction: UP })).toHaveLength(2);
+  });
+
+  it('says a held OK as OK going down and, when it is let go, coming up — Android calls both "longSelect"', () => {
+    const keys = remoteKeyEvents();
+    expect(keys({ eventType: 'longSelect', eventKeyAction: DOWN })).toEqual([{ eventType: 'select', eventKeyAction: 0 }]);
+    expect(keys({ eventType: 'longSelect', eventKeyAction: DOWN })).toEqual([]);
+    expect(keys({ eventType: 'longSelect', eventKeyAction: UP })).toEqual([{ eventType: 'select', eventKeyAction: 1 }]);
+  });
+
+  it('is one press when a key-down was reported and the hold is then noticed', () => {
+    const keys = remoteKeyEvents();
+    expect(keys({ eventType: 'select', eventKeyAction: DOWN })).toHaveLength(1);
+    expect(keys({ eventType: 'longSelect', eventKeyAction: DOWN })).toEqual([]);
+    expect(keys({ eventType: 'longSelect', eventKeyAction: UP })).toEqual([{ eventType: 'select', eventKeyAction: 1 }]);
+  });
+});
+
+describe('holding OK on Fire OS (apps/tv-vega/src/watch/hold.ts, fed through this adapter)', () => {
+  const feed = () => {
+    const keys = remoteKeyEvents();
+    const onHold = vi.fn();
+    const hold = okHold({ onHold, canHold: () => true });
+    const send = (event: AndroidRemoteEvent) => keys(event).forEach((e) => hold.onEvent(e));
+    return { send, onHold, hold };
+  };
+
+  it('is never begun by a short press — the press that used to bring the card two seconds later', () => {
+    vi.useFakeTimers();
+    try {
+      const { send, onHold, hold } = feed();
+      send({ eventType: 'select', eventKeyAction: 1 });
+      vi.advanceTimersByTime(10 * HOLD_MS);
+      expect(onHold).not.toHaveBeenCalled();
+      expect(hold.held()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is never begun by a press reported with no halves at all', () => {
+    vi.useFakeTimers();
+    try {
+      const { send, onHold } = feed();
+      send({ eventType: 'select' });
+      vi.advanceTimersByTime(10 * HOLD_MS);
+      expect(onHold).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is a hold when OK stays down two seconds, and can be made again afterwards', () => {
+    vi.useFakeTimers();
+    try {
+      const { send, onHold } = feed();
+      for (let i = 0; i < 2; i += 1) {
+        send({ eventType: 'longSelect', eventKeyAction: 0 });
+        vi.advanceTimersByTime(HOLD_MS);
+        send({ eventType: 'longSelect', eventKeyAction: 1 });
+      }
+      expect(onHold).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is not one when a long-ish press is let go before two seconds: that pauses the film, once', () => {
+    vi.useFakeTimers();
+    try {
+      const keys = remoteKeyEvents();
+      const heard = [...keys({ eventType: 'longSelect', eventKeyAction: 0 })];
+      vi.advanceTimersByTime(1_000);
+      heard.push(...keys({ eventType: 'longSelect', eventKeyAction: 1 }));
+      expect(heard.filter((e) => watchCommand(e, { cardVisible: false }) === 'toggle')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
