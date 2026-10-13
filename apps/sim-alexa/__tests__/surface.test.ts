@@ -40,6 +40,16 @@ import {
   languageOffer,
   presentLanguage,
   LANGUAGE_UNAVAILABLE,
+  MAX_PHOTO_BYTES,
+  PHOTO_MAX_EDGE_PX,
+  encodeWithin,
+  newPhotoKey,
+  photoFit,
+  photoNews,
+  photoOffer,
+  photoRetry,
+  presentPhotoComposer,
+  presentSentPictures,
 } from '../surface.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +58,7 @@ import { DOOR_ANSWERS as CONTRACT_DOOR_ANSWERS } from '../../../packages/contrac
 import { REACH_ANSWERS as CONTRACT_REACH_ANSWERS } from '../../../packages/contracts/src/reach.js';
 import { PROGRAMMES } from '../../../packages/contracts/src/programmes.js';
 import { WATCH_ANSWERS as CONTRACT_WATCH_ANSWERS, WATCH_QUESTION } from '../../../packages/contracts/src/watch.js';
+import * as MANTEL from '../../../packages/contracts/src/mantel.js';
 
 const at = (ms: number) => `t${ms}`;
 
@@ -1122,7 +1133,7 @@ describe('suggestionsFor', () => {
   it('then the app\'s own chips, without the ones that ask the same thing', () => {
     const labels = suggestionsFor(listing).slice(3).map((s: { label: string }) => s.label);
 
-    expect(labels).toEqual(['What happened today?', 'Were this week’s visits confirmed?', 'Is the light on?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Did Mum ask for me?', 'Watch a film with Mum', 'What can I see?', 'Family circle', 'Television language']);
+    expect(labels).toEqual(['What happened today?', 'Were this week’s visits confirmed?', 'Is the light on?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Did Mum ask for me?', 'Watch a film with Mum', 'What can I see?', 'Family circle', 'Television language', 'Send a picture']);
   });
 
   it('is the app\'s own chips when there is no listing', () => {
@@ -2415,5 +2426,317 @@ describe('the language card in the family app', () => {
 
   it('marks a language’s own name as that language, for a screen reader', () => {
     expect(main).toMatch(/own\.lang = row\.language;/);
+  });
+});
+
+describe('the mantelpiece — asking to send a picture, or after one', () => {
+  const picture = { kind: 'picture' };
+
+  it('opens the app’s own card: a picture is a file, and no tool can be handed one', () => {
+    for (const said of [
+      'Send Mum a picture',
+      'send mum a photo',
+      'I want to send her a photograph',
+      'Put a picture on Mum’s television',
+      'Has Mum seen my picture?',
+      'Did she get the photo I sent?',
+      'Share a photo with Mum',
+      'pictures',
+    ]) {
+      expect(routeUtterance(said), said).toEqual(picture);
+    }
+  });
+
+  it('has a chip, and the chip opens the card', () => {
+    const chip = SUGGESTIONS.find((s: { label: string }) => s.label === 'Send a picture');
+
+    expect(routeUtterance(chip.utterance)).toEqual(picture);
+  });
+
+  it('leaves a note that mentions a picture a note, the door’s picture the door’s, and a film a film', () => {
+    expect(routeUtterance('Tell Mum I will bring the photos on Sunday')).toMatchObject({ kind: 'compose' });
+    expect(routeUtterance("Put a note on Mum's television about the pictures")).toEqual({ kind: 'compose' });
+    expect(routeUtterance('Send a message saying: lovely picture!')).toMatchObject({ kind: 'compose' });
+    expect(routeUtterance("Who's at Mum's door in the picture?").tool).toBe('get_door_request');
+    expect(routeUtterance('Ask Mum to watch a film with me')).toEqual({ kind: 'invite' });
+    expect(routeUtterance("Put a note on Mum's television")).toEqual({ kind: 'compose' });
+    expect(routeUtterance('What can I see about Mum?').tool).toBe('get_resident_shared_view');
+  });
+});
+
+describe('photoOffer — who the picture card is for', () => {
+  it('is for the organiser and the family Margaret has allowed', () => {
+    expect(photoOffer(me('organiser', 'allowed'))).toEqual({ offered: true });
+    expect(photoOffer(me('family', 'allowed'))).toEqual({ offered: true });
+  });
+
+  it('is never for a neighbour, allowed or not: a picture is for the family to send', () => {
+    for (const status of ['allowed', 'pending', 'declined', 'removed']) {
+      expect(photoOffer(me('neighbour', status))).toEqual({ offered: false, say: 'A neighbour cannot send a picture.', tone: 'answer' });
+    }
+  });
+
+  it('INV-9: is for nobody Margaret has not allowed — an organiser still waiting included — in the server’s own words', () => {
+    for (const role of ['organiser', 'family']) {
+      expect(photoOffer(me(role, 'pending'))).toEqual({
+        offered: false,
+        say: 'Margaret hasn’t allowed this yet. A card is waiting on the television, and it only takes one press.',
+        tone: 'waiting',
+      });
+      expect(photoOffer(me(role, 'declined'))).toEqual({ offered: false, say: 'Margaret chose not to share this with you.', tone: 'private' });
+      expect(photoOffer(me(role, 'removed'))).toEqual({ offered: false, say: 'You are no longer part of this family circle.', tone: 'private' });
+    }
+  });
+});
+
+describe('presentPhotoComposer — the card’s own words', () => {
+  it('says what is sent, what is not, and what happens next', () => {
+    expect(presentPhotoComposer(me('family', 'allowed'))).toEqual({
+      say: 'Choose a picture for Margaret’s television.',
+      title: 'Send a picture to Margaret’s television',
+      choose: 'Choose a picture',
+      preview: 'The picture as it will be sent',
+      privacy: 'Wick sends only the picture itself — not where or when it was taken.',
+      footnote: 'It arrives at a quiet moment. She can keep it or simply thank you. You are told only that she has seen it.',
+      confirm: 'Send it to her television',
+      cancel: 'Not now',
+      preparing: 'Getting the picture ready…',
+      ready: 'This is the picture as it will be sent.',
+      sending: 'Sending it to Margaret’s television…',
+      unreadable: 'This browser cannot open that file as a picture. Choose another.',
+      tooLarge: 'That picture could not be made small enough to send. Choose another.',
+      unreachable: 'The picture could not be sent just now. Check the connection, and press send again: it will only be sent once.',
+      unavailable: 'This Wick cannot send pictures yet.',
+      sentTitle: 'Pictures you have sent',
+    });
+  });
+});
+
+describe('getting a picture ready — a television’s worth, and no more', () => {
+  it('keeps the numbers the server keeps', () => {
+    expect(MAX_PHOTO_BYTES).toBe(MANTEL.MAX_PHOTO_BYTES);
+    expect(PHOTO_MAX_EDGE_PX).toBe(MANTEL.PHOTO_MAX_EDGE_PX);
+  });
+
+  it('scales the longest side down to the most a television shows, keeping the shape', () => {
+    expect(photoFit(4032, 3024)).toEqual({ width: 1920, height: 1440 });
+    expect(photoFit(3024, 4032)).toEqual({ width: 1440, height: 1920 });
+    expect(photoFit(6000, 1000)).toEqual({ width: 1920, height: 320 });
+    expect(photoFit(1920, 1080)).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it('never makes a small picture bigger, and never makes a side nothing', () => {
+    expect(photoFit(800, 600)).toEqual({ width: 800, height: 600 });
+    expect(photoFit(1, 1)).toEqual({ width: 1, height: 1 });
+    expect(photoFit(20000, 3)).toEqual({ width: 1920, height: 1 });
+  });
+
+  it('has nothing to offer for a size that is not one', () => {
+    for (const [w, h] of [[0, 10], [10, 0], [-5, 5], [NaN, 5], [Infinity, 5]]) expect(photoFit(w, h)).toBeNull();
+  });
+
+  /** A stand-in for the canvas: a JPEG's size goes with its area and its quality. */
+  const canvas = (bytesPerPixelAtFull: number) => {
+    const tried: { width: number; height: number; quality: number }[] = [];
+    const encode = async (width: number, height: number, quality: number) => {
+      tried.push({ width, height, quality });
+      return { size: Math.round(width * height * bytesPerPixelAtFull * quality), type: 'image/jpeg' };
+    };
+    return { tried, encode };
+  };
+
+  it('sends a picture as it first comes out when that is small enough', async () => {
+    const { tried, encode } = canvas(0.2);
+
+    const made = await encodeWithin(encode, { width: 4032, height: 3024 });
+
+    expect(made).toMatchObject({ width: 1920, height: 1440, quality: 0.86 });
+    expect(made.blob.size).toBeLessThanOrEqual(MAX_PHOTO_BYTES);
+    expect(tried).toHaveLength(1);
+  });
+
+  it('steps the quality down first, and only then the size, until it fits', async () => {
+    const { tried, encode } = canvas(1.2);
+
+    const made = await encodeWithin(encode, { width: 4032, height: 3024 });
+
+    expect(made.blob.size).toBeLessThanOrEqual(MAX_PHOTO_BYTES);
+    // Every quality was tried at full size before the picture was made smaller.
+    const full = tried.filter((t) => t.width === 1920);
+    expect(full.map((t) => t.quality)).toEqual([0.86, 0.78, 0.7, 0.6, 0.5]);
+    expect(tried[full.length]!.width).toBeLessThan(1920);
+    expect(tried[full.length]!.quality).toBe(0.86);
+    // And it kept its shape.
+    expect(made.width / made.height).toBeCloseTo(4 / 3, 1);
+  });
+
+  it('gives up, rather than send a smudge or something too large, when nothing fits', async () => {
+    const { tried, encode } = canvas(500);
+
+    expect(await encodeWithin(encode, { width: 4032, height: 3024 })).toBeNull();
+    expect(tried.length).toBeGreaterThan(5);
+    expect(Math.max(...tried.map((t) => Math.max(t.width, t.height)))).toBe(1920);
+    expect(Math.min(...tried.map((t) => Math.max(t.width, t.height)))).toBeGreaterThanOrEqual(640);
+  });
+
+  it('never takes something that is not a JPEG for one: a browser that hands back another kind is not sent from', async () => {
+    const encode = async () => ({ size: 10, type: 'image/png' });
+
+    expect(await encodeWithin(encode, { width: 100, height: 100 })).toBeNull();
+    expect(await encodeWithin(async () => null, { width: 100, height: 100 })).toBeNull();
+  });
+
+  it('keeps under whatever limit it is given', async () => {
+    const { encode } = canvas(0.2);
+
+    const made = await encodeWithin(encode, { width: 1000, height: 1000 }, { maxBytes: 50_000 });
+
+    expect(made.blob.size).toBeLessThanOrEqual(50_000);
+  });
+});
+
+describe('newPhotoKey — the id the app makes for one picture, so sending it twice sends it once', () => {
+  it('is shaped like a picture’s id, as the server checks it', () => {
+    const key = newPhotoKey(new Uint8Array([0, 1, 2, 250, 251, 252, 253, 254, 255, 16, 32, 64, 128, 7, 8, 9]));
+
+    expect(key).toBe('000102fafbfcfdfeff10204080070809');
+    expect(MANTEL.isPhotoId(key)).toBe(true);
+  });
+
+  it('is different for different pictures', () => {
+    const random = () => crypto.getRandomValues(new Uint8Array(16));
+
+    expect(newPhotoKey(random())).not.toBe(newPhotoKey(random()));
+    expect(MANTEL.isPhotoId(newPhotoKey(random()))).toBe(true);
+  });
+});
+
+describe('photoRetry — what pressing send again can do after a refusal', () => {
+  it('keeps the same key where the first try may have got somewhere: sent once, however often it is tried', () => {
+    for (const code of ['not_sent', 'not_checked', 'server_error', undefined]) expect(photoRetry(code)).toEqual({ again: true, newKey: false });
+  });
+
+  it('makes a new key where the server would not have this one', () => {
+    for (const code of ['key_in_use', 'bad_key']) expect(photoRetry(code)).toEqual({ again: true, newKey: true });
+  });
+
+  it('has nothing to try again where the answer would be the same: another picture, or another day', () => {
+    for (const code of ['not_sendable', 'too_many_today', 'too_many_tries', 'too_large', 'not_a_jpeg', 'not_allowed_yet', 'not_for_a_neighbour', 'no_television', 'photos_unavailable']) {
+      expect(photoRetry(code)).toEqual({ again: false, newKey: false });
+    }
+  });
+});
+
+describe('presentSentPictures — how the pictures you sent stand', () => {
+  const photos = [
+    { photoId: 'b', sentAt: 2000, seen: false, say: 'It is waiting on Margaret’s television.' },
+    { photoId: 'a', sentAt: 1000, seen: true, say: 'Margaret has seen your picture.' },
+  ];
+
+  it('lists each by when it was sent, with the server’s own sentence', () => {
+    expect(presentSentPictures({ photos }, at)).toEqual({
+      rows: [
+        { photoId: 'b', primary: 'Sent t2000', secondary: 'It is waiting on Margaret’s television.', seen: false },
+        { photoId: 'a', primary: 'Sent t1000', secondary: 'Margaret has seen your picture.', seen: true },
+      ],
+      waiting: true,
+    });
+  });
+
+  it('has nothing to wait for once every one has been seen, or when there are none', () => {
+    expect(presentSentPictures({ photos: [photos[1]] }, at).waiting).toBe(false);
+    expect(presentSentPictures({ photos: [] }, at)).toEqual({ rows: [], waiting: false });
+    expect(presentSentPictures({}, at)).toEqual({ rows: [], waiting: false });
+    expect(presentSentPictures(null, at)).toEqual({ rows: [], waiting: false });
+  });
+
+  it('shows nothing it was not sent: only what the server lists, and only its four fields', () => {
+    const out = presentSentPictures({ photos: [{ ...photos[0], kept: true, url: 'https://x/y.jpg', seenAt: 5 }, { nonsense: true }, null] }, at);
+
+    expect(out.rows).toHaveLength(1);
+    expect(JSON.stringify(out)).not.toMatch(/kept|https|seenAt/);
+  });
+});
+
+describe('photoNews — what the card says when a look finds she has seen one', () => {
+  const waiting = { photoId: 'a', sentAt: 1000, seen: false, say: 'It is waiting on Margaret’s television.' };
+  const seen = { ...waiting, seen: true, say: 'Margaret has seen your picture.' };
+
+  it('says nothing while nothing has changed', () => {
+    expect(photoNews({ photos: [waiting] }, { photos: [waiting] })).toBeNull();
+    expect(photoNews({ photos: [seen] }, { photos: [seen] })).toBeNull();
+    expect(photoNews({ photos: [] }, { photos: [] })).toBeNull();
+  });
+
+  it('says the server’s sentence when one that was waiting has been seen — and never more than that', () => {
+    expect(photoNews({ photos: [waiting] }, { photos: [seen] })).toEqual({ say: 'Margaret has seen your picture.' });
+  });
+
+  it('has the list drawn again, with nothing said, for any other change', () => {
+    expect(photoNews({ photos: [] }, { photos: [waiting] })).toEqual({ say: '' });
+    expect(photoNews({ photos: [waiting] }, { photos: [] })).toEqual({ say: '' });
+  });
+});
+
+describe('presentResult — get_pictures, when an assistant asks for you', () => {
+  const answer = {
+    summary: 'You have sent Margaret two pictures this week. Margaret has seen one of them.',
+    pictures: [
+      { sent: 'Monday 21 September at 2:13 pm', sentAt: 2000, seen: false, say: 'It is waiting on Margaret’s television.' },
+      { sent: 'Sunday 20 September at 9 am', sentAt: 1000, seen: true, say: 'Margaret has seen your picture.' },
+    ],
+  };
+
+  it('says the server’s summary, and lists each picture by when it was sent', () => {
+    expect(presentResult('get_pictures', JSON.stringify(answer), {}, at)).toEqual({
+      say: answer.summary,
+      tone: 'answer',
+      card: {
+        kind: 'list',
+        title: 'Pictures you have sent',
+        meta: '',
+        items: [
+          { primary: 'Sent t2000', secondary: 'It is waiting on Margaret’s television.' },
+          { primary: 'Sent t1000', secondary: 'Margaret has seen your picture.' },
+        ],
+      },
+    });
+  });
+
+  it('says a sentence as it stands when there is none', () => {
+    expect(presentResult('get_pictures', 'You have not sent a picture to Margaret’s television this week.', {}, at)).toMatchObject({
+      say: 'You have not sent a picture to Margaret’s television this week.',
+      card: null,
+    });
+  });
+
+  it('says in a few words what the step did', () => {
+    expect(describeCall('get_pictures')).toBe('Looked at your pictures');
+  });
+});
+
+describe('the picture card in the family app', () => {
+  const main = readFileSync(fileURLToPath(new URL('../main.js', import.meta.url)), 'utf8');
+
+  it('is the app’s own business: opened before the assistant is asked, and by the rules where there is none', () => {
+    expect(main).toMatch(/if \(routeUtterance\(text\)\.kind === 'picture'\) return void showPictures\(\);/);
+    expect(main).toMatch(/if \(route\.kind === 'picture'\) return void showPictures\(\);/);
+  });
+
+  it('takes any picture, and sends only what it drew again itself — the raw JPEG, with the key it made for it', () => {
+    expect(main).toMatch(/file\.accept = 'image\/\*';/);
+    expect(main).toMatch(/canvas\.toBlob\(resolve, 'image\/jpeg', quality\)/);
+    expect(main).toMatch(/authorizedFetch\('\/api\/photos', \{\s*method: 'POST',\s*headers: \{ 'content-type': 'image\/jpeg', 'idempotency-key': chosen\.key \},\s*body: chosen\.blob,\s*\}\)/);
+    // The file as it was chosen never leaves the page: only the blob the canvas made is sent.
+    expect(main).not.toMatch(/body: file\b|body: input\.files|FormData/);
+  });
+
+  it('says so in words against a Wick server from before this — the page is published by itself, and may be the newer', () => {
+    expect(main).toMatch(/answer\.message \?\? \(res\.status === 404 \? words\.unavailable : words\.unreachable\)/);
+  });
+
+  it('names no household, no key and no address in what it sends (INV-8)', () => {
+    expect(main).not.toMatch(/householdId\s*:/);
+    expect(main).not.toMatch(/photos\/\$\{|\.jpg/);
   });
 });
