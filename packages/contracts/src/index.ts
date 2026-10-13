@@ -13,3 +13,4 @@ export * from './watch.js';
 export * from './light.js';
 export * from './reach.js';
 export * from './visit.js';
+export * from './familyTelevision.js';

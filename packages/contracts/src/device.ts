@@ -98,6 +98,13 @@ export interface DeviceToken {
   readonly deviceId: string;
   readonly householdId: string;
   readonly expiresAt: number;
+  /**
+   * Present, and 'family', on a television a family member connected as their
+   * own (familyTelevision.ts). Such a television never opens the card channel:
+   * it asks the Wick server for its home screen instead. Absent on the
+   * resident's television.
+   */
+  readonly kind?: 'family';
 }
 
 export interface DeviceChannel {
