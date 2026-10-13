@@ -35,17 +35,8 @@ export interface WatchCardFound {
   readonly settled: boolean;
 }
 
-/**
- * What each of them answered at the credits, once the member has: the two
- * sentences Wick offered, as each was chosen. Her answer is said here only
- * after the member has given theirs — until then the question is open, and
- * the seat says the question.
- */
-const whatWasSaid = (resident: string, yourAnswer: string, theirAnswer: string | undefined): string =>
-  `You said: “${yourAnswer}” ${theirAnswer ? `${resident} said: “${theirAnswer}”` : `${resident} has not answered yet.`}`;
-
 function cardFor(resident: string, session: WatchSession, now: number): WatchCardFound | undefined {
-  const view = describeWatch(session, now);
+  const view = describeWatch(session, now, resident);
   const id = familyTvCardId('watch', view.sessionId);
   const card = (headline: string, actions: readonly CardAction[], detail?: string): FamilyTvCard => ({ id, kind: 'watch', headline, ...(detail ? { detail } : {}), actions });
 
@@ -63,9 +54,10 @@ function cardFor(resident: string, session: WatchSession, now: number): WatchCar
     case 'watched':
       // While the question can still be answered: `answers` is offered until the member has, and the window is open.
       if (view.answers) return { timeToSit: false, settled: false, card: card(`${view.film} has ended. There is one question for you.`, TAKE_SEAT) };
-      // Answered: what was said, for as long as the invitation's window is open.
-      if (view.yourAnswer && now < session.closesAt) {
-        return { timeToSit: false, settled: true, card: card(`${view.film}. ${whatWasSaid(resident, view.yourAnswer, view.theirAnswer)}`, []) };
+      // Answered: who said what — the tools' own sentence (watchSession.ts answersInWords) — for as long as the
+      // invitation's window is open. Her answer is on this card only once the member has given theirs.
+      if (view.yourAnswer && view.answersInWords && now < session.closesAt) {
+        return { timeToSit: false, settled: true, card: card(`${view.film}. ${view.answersInWords}`, []) };
       }
       return undefined;
     // Not answered yet, declined, taken back, called off, passed over, left, or the time gone: nothing to show.
@@ -87,7 +79,7 @@ export function watchCard(who: TvCaller, sessions: readonly WatchSession[], now:
 function seatFor(resident: string, session: WatchSession, now: number): FamilyTvSeat | undefined {
   // The seat is for somebody who has sat down, and for no longer than the invitation's own window.
   if (session.joinedAt === undefined || now >= session.closesAt) return undefined;
-  const view = describeWatch(session, now);
+  const view = describeWatch(session, now, resident);
   const base = { cardId: familyTvCardId('watch', view.sessionId), film: view.film };
   // Exactly as the view has them: there only while the rule in watch.ts allows.
   const following = { ...(view.stream ? { stream: view.stream } : {}), ...(view.playback ? { playback: view.playback } : {}) };
@@ -108,7 +100,8 @@ function seatFor(resident: string, session: WatchSession, now: number): FamilyTv
         ...base,
         state: 'over',
         // The seat goes on being asked while it is over, so her answer arrives in this line when she gives it.
-        line: view.yourAnswer ? whatWasSaid(resident, view.yourAnswer, view.theirAnswer) : `${view.film} has ended.`,
+        // Who said what is the tools' own sentence, so the television and get_watch_together cannot disagree.
+        line: view.yourAnswer && view.answersInWords ? view.answersInWords : `${view.film} has ended.`,
         ...following,
         question: WATCH_QUESTION,
         ...said,

@@ -3,6 +3,12 @@
  * real WebSocket transport, and renders whatever cards arrive. Replaces
  * docs/SIMULATOR-TESTING-GUIDE.md §3's curl + wscat sequence with clicks.
  *
+ * It is also the television somebody with no Fire TV is sent to try the
+ * product on, so what the product says a resident can do, she can do here:
+ * every card's answers are buttons (a note's replies among them), a card
+ * still unanswered is kept when another arrives and comes back when that
+ * one is put away, and a reload of the tab does not lose the television.
+ *
  * Placeholders below are replaced at deploy time (infra/ops-console.tf),
  * the same trick sim-alexa's index.html and this app's status.js use.
  *
@@ -36,7 +42,22 @@ const logEl = document.getElementById('log');
 const telemetryButtons = ['fg-btn', 'bg-btn', 'play-btn', 'pause-btn', 'reach-btn'].map((id) => document.getElementById(id));
 
 let ws = null;
+/** The card on the screen, if one is. */
 let currentQueuedCard = null;
+/**
+ * The cards this television has been sent and that are not finished, in the
+ * order they arrived (keepCard). The newest is the one shown; when it is
+ * answered or taken back, the one before it comes back — so a question
+ * still open is not lost to a card that arrives after it.
+ *
+ * This is the browser's simplification of the television's own queue, not
+ * the natural-break engine (apps/tv-vega/src/break): this page has no
+ * programme to wait for a break in, so nothing waits for one, and a card
+ * that has been shown twice is not left on a home screen to be asked for.
+ */
+let keptCards = [];
+/** What the screen said when the page was first opened: put back when a remembered television turns out to be gone. */
+const firstLoadText = typeof tvScreen.textContent === 'string' ? tvScreen.textContent.trim() : '';
 /** The film on screen (watching together): its layer, its player, and — while someone is following — the session it speaks for. */
 let film = null;
 const MAX_LOG_LINES = 200;
@@ -113,7 +134,9 @@ async function pairAndConnect() {
     if (!token) throw new Error('nobody entered the code in time');
 
     // Connected as a family member's own: never the device channel, which is the resident's.
-    if (token.kind === FAMILY_KIND) enterFamilyView(token.jwt, deviceId);
+    const mine = token.kind === FAMILY_KIND;
+    rememberTelevision({ kind: mine ? FAMILY_KIND : RESIDENT_KIND, jwt: token.jwt, deviceId });
+    if (mine) enterFamilyView(token.jwt, deviceId);
     else connectWebSocket(token.jwt, deviceId);
   } catch (err) {
     setConnBadge('disconnected');
@@ -122,12 +145,94 @@ async function pairAndConnect() {
   }
 }
 
+/* --- What this tab remembers ------------------------------------------- */
+
+/*
+ * A reload must not lose the television this tab is: somebody following the
+ * README would have to pair it again, as a new television, and the one
+ * they had would be left connected with nobody at it. So the television's
+ * token is kept in sessionStorage — this tab only, gone when the tab is
+ * closed, and never localStorage — and a page that loads with one goes
+ * straight back to being that television.
+ *
+ * Why a tab-scoped copy is acceptable here: this is a demonstration page,
+ * the token is already in this page's memory for as long as the tab is
+ * open, and it is the device-bound kind that INV-1 assumes extractable — it
+ * reaches one television's cards, or (kind 'family') one member's view of
+ * one home, and nothing else. The television's own app keeps its token in
+ * the platform's storage, not in a web page (apps/tv-vega pairing).
+ */
+const TELEVISION_KEY = 'wick_virtual_television';
+const RESIDENT_KIND = 'resident';
+
+function tabStorage() {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
+  } catch {
+    // Storage the browser will not let this page have: the television then lasts as long as the page does.
+    return null;
+  }
+}
+
+/** @param {{kind: 'family' | 'resident', jwt: string, deviceId: string}} television */
+function rememberTelevision(television) {
+  try {
+    tabStorage()?.setItem(TELEVISION_KEY, JSON.stringify(television));
+  } catch {
+    // As above.
+  }
+}
+
+/** The television this tab was, or null — for anything that is not exactly one. */
+function rememberedTelevision() {
+  try {
+    const television = JSON.parse(tabStorage()?.getItem(TELEVISION_KEY) ?? 'null');
+    const known = television && (television.kind === FAMILY_KIND || television.kind === RESIDENT_KIND);
+    return known && isText(television.jwt) && isText(television.deviceId) ? television : null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetTelevision() {
+  try {
+    tabStorage()?.removeItem(TELEVISION_KEY);
+  } catch {
+    // As above.
+  }
+}
+
+/** The page as it first loads: nothing paired, nothing shown. */
+function showFirstLoad(detail) {
+  setConnBadge('disconnected');
+  connDetail.textContent = detail;
+  disconnectBtn.disabled = true;
+  pairBtn.disabled = false;
+  show(el('div', 'tv-empty', firstLoadText));
+}
+
+/** On load: the television this tab remembers being, again — with nothing paired anew. */
+function restoreTelevision() {
+  const television = rememberedTelevision();
+  if (!television) return;
+  pairBtn.disabled = true;
+  if (television.kind === FAMILY_KIND) return enterFamilyView(television.jwt, television.deviceId, { restored: true });
+  setConnBadge('connecting');
+  connDetail.textContent = 'connecting again…';
+  connectWebSocket(television.jwt, television.deviceId);
+}
+
 /* --- WebSocket -------------------------------------------------------- */
 
 function connectWebSocket(jwt, deviceId) {
+  // A new connection is told afresh what it is owed (`reconcile`): nothing is carried over from the last.
+  keptCards = [];
+  currentQueuedCard = null;
+  let opened = false;
   ws = new WebSocket(`${WEBSOCKET_URL}?token=${encodeURIComponent(jwt)}`);
 
   ws.onopen = () => {
+    opened = true;
     setConnBadge('connected');
     connDetail.textContent = `paired as ${deviceId}`;
     disconnectBtn.disabled = false;
@@ -147,6 +252,8 @@ function connectWebSocket(jwt, deviceId) {
   };
 
   ws.onclose = () => {
+    // A channel that never opened is a television the server no longer takes: it is not tried again on the next reload.
+    if (!opened) forgetTelevision();
     setConnBadge('disconnected');
     connDetail.textContent = 'connection closed';
     disconnectBtn.disabled = true;
@@ -166,35 +273,117 @@ function send(deviceEvent) {
 }
 
 function disconnect() {
+  // Asked for by hand: this tab stops being that television, and a reload does not bring it back.
+  forgetTelevision();
   if (family) leaveFamilyView('connection closed');
   if (ws) ws.close();
 }
 
 /* --- Incoming messages -------------------------------------------------- */
 
+/** The card as kept: any earlier copy under the same id is replaced, and it is the newest. */
+function keepCard(kept, queued) {
+  return [...dropCard(kept, queued.card.id), queued];
+}
+
+/** Without the card of that id: finished, or taken back. */
+function dropCard(kept, cardId) {
+  return kept.filter((queued) => queued.card.id !== cardId);
+}
+
+/** A patch goes to the card with its id, whether or not that card is the one showing. */
+function patchCard(kept, patch) {
+  return kept.map((queued) => (queued.card.id === patch.cardId ? { ...queued, card: { ...queued.card, ...stripUndefined(patch) } } : queued));
+}
+
+/**
+ * The card to show: the newest still to be answered. One whose time has
+ * passed is not brought back — a doorbell of ten minutes ago is not
+ * somebody at the door now. A door card is always sent as it happens, so it
+ * is the newest when it arrives, and comes over anything.
+ */
+function cardToShow(kept, now) {
+  return [...kept].reverse().find((queued) => typeof queued.expiresAt !== 'number' || queued.expiresAt > now);
+}
+
+/**
+ * A card's buttons. A note's are its replies — each sends `reply_<n>`, and
+ * the words come from the server's own copy of the card (edge-device
+ * note-reply.mjs) — exactly as the television's own app draws them
+ * (apps/tv-vega/src/cards/messageActions.ts): the first one first, never
+ * more than three.
+ */
+function cardButtons(card) {
+  if (card.type !== 'MESSAGE') return card.actions ?? [];
+  return (Array.isArray(card.suggestedReplies) ? card.suggestedReplies : [])
+    .slice(0, 3)
+    .map((label, i) => ({ id: `reply_${i}`, label, kind: i === 0 ? 'primary' : 'secondary' }));
+}
+
+/**
+ * Whether a press finishes its card, from the screen's point of view — the
+ * television's own rule (apps/tv-vega/src/cards/cardActions.ts removesCard;
+ * keep the two in step): on a door card only "Not now" does; "What Sarah
+ * sees" opens over the week card, and only Done finishes the sharing card;
+ * on the card her hold brings, "Yes, ask …" and "Just say hello" leave it
+ * where it is, for who was asked to be written onto it. Any other press on
+ * any other card is its answer, and the card is done.
+ */
+function finishesCard(card, actionId) {
+  switch (card.type) {
+    case 'DOOR':
+      return actionId === 'dismiss';
+    case 'WEEK':
+      return actionId !== 'sharing';
+    case 'SHARING':
+      return actionId === 'done';
+    case 'REACH':
+      return !REACH_KEEPS_CARD.includes(actionId);
+    default:
+      return true;
+  }
+}
+
+/**
+ * Puts the card that should be showing on the screen, or the home screen
+ * when there is none. The server is told `card_shown` when a card becomes
+ * the one on screen — once for each time it does, so a card that comes back
+ * after the one over it was answered is said to have been shown again, as
+ * the television's own app says it (BreakController.noteShown). A card
+ * drawn again in place, patched or sent again under its own id while it is
+ * showing, has not been shown anew.
+ */
+function showKeptCard() {
+  const now = Date.now();
+  keptCards = keptCards.filter((queued) => typeof queued.expiresAt !== 'number' || queued.expiresAt > now);
+  const next = cardToShow(keptCards, now) ?? null;
+  const was = currentQueuedCard?.card.id;
+  currentQueuedCard = next;
+  if (!next) return renderEmpty();
+  renderCard(next);
+  if (next.card.id !== was) send({ t: 'card_shown', cardId: next.card.id, at: now });
+}
+
 function handleWireMessage(msg) {
   if (msg.kind === 'card') {
-    // Every card is drawn as it arrives: this page has no programme to wait
-    // for a break in. So the card her hold brings is on screen at once, and
-    // one that arrives with the id of the card already shown — who was asked,
-    // written by the server onto the Reach card she pressed — takes its place.
-    currentQueuedCard = msg.card;
-    renderCard(currentQueuedCard);
-    send({ t: 'card_shown', cardId: currentQueuedCard.card.id, at: Date.now() });
+    // A card is drawn as it arrives: this page has no programme to wait for
+    // a break in. So the card her hold brings is on screen at once, and one
+    // that arrives with the id of a card already held — who was asked,
+    // written by the server onto the Reach card she pressed — takes its
+    // place. What it covers is kept, and comes back (keptCards).
+    keptCards = keepCard(keptCards, msg.card);
+    showKeptCard();
     return;
   }
 
   if (msg.kind === 'control') {
     const control = msg.control;
-    if (control.t === 'patch' && currentQueuedCard?.card.id === control.patch.cardId) {
-      currentQueuedCard = {
-        ...currentQueuedCard,
-        card: { ...currentQueuedCard.card, ...stripUndefined(control.patch) },
-      };
-      renderCard(currentQueuedCard);
-    } else if (control.t === 'revoke' && currentQueuedCard?.card.id === control.cardId) {
-      currentQueuedCard = null;
-      renderEmpty();
+    if (control.t === 'patch') {
+      keptCards = patchCard(keptCards, control.patch);
+      if (currentQueuedCard?.card.id === control.patch.cardId) showKeptCard();
+    } else if (control.t === 'revoke') {
+      keptCards = dropCard(keptCards, control.cardId);
+      if (currentQueuedCard?.card.id === control.cardId) showKeptCard();
     } else if (control.t === 'home') {
       // The light in the window, and who looked in: for the home screen, not a card (tv-vega home/light.ts).
       home = control.whole === true ? { ...control.home } : { ...home, ...control.home };
@@ -291,12 +480,8 @@ function renderCard(queuedCard) {
     if (card.notice) wrapper.appendChild(el('div', 'body-text notice', card.notice));
   } else if (card.type === 'MESSAGE') {
     wrapper.appendChild(el('div', 'kicker', `Message from ${card.fromName}`));
+    // Its replies are its buttons, below (cardButtons).
     wrapper.appendChild(el('div', 'headline', card.transcript ?? 'Tap to hear the message'));
-    if (card.suggestedReplies?.length) {
-      const list = el('ul', 'day-items');
-      for (const reply of card.suggestedReplies) list.appendChild(el('li', undefined, reply));
-      wrapper.appendChild(list);
-    }
   } else if (card.type === 'WEEK') {
     wrapper.appendChild(el('div', 'kicker', `Your week — ${card.isoWeek}`));
     wrapper.appendChild(el('div', 'body-text', card.text));
@@ -336,23 +521,23 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'body-text', `Unrecognized card type: ${card.type}`));
   }
 
-  if (card.actions?.length) {
+  const buttons = cardButtons(card);
+  if (buttons.length) {
     const actions = el('div', 'actions');
-    for (const action of card.actions) {
+    for (const action of buttons) {
       const pill = el('button', `pill ${action.kind === 'primary' ? 'primary' : ''}`, action.label);
       pill.type = 'button';
       pill.addEventListener('click', () => {
         send({ t: 'card_action', cardId: card.id, action: action.id, at: Date.now() });
         // "Start the film" opens it, and from here this television says where it is (cardActions.ts startsFilm).
         if (card.type === 'WATCH' && action.id === 'start' && card.programmeId) startFilm(card);
-        // An answer to the family circle, to "Shall I tell …?", to anything about watching together, or about her light, finishes its card, as on the television (cardActions.ts).
-        // On the card her hold brought, "Yes, ask …" and "Just say hello" leave it where it is: who was asked is
-        // written onto that same card a moment later. Its other buttons finish it (cardActions.ts removesCard).
-        const finishesReach = card.type === 'REACH' && !REACH_KEEPS_CARD.includes(action.id);
-        // Her yes or her no to a visit is the whole of her answer: either finishes the card, as on the television.
-        if (card.type === 'CIRCLE' || card.type === 'TELL' || card.type === 'WATCH' || card.type === 'LIGHT' || card.type === 'VISIT' || finishesReach) {
-          currentQueuedCard = null;
-          renderEmpty();
+        // A press that is the card's answer finishes it, as on the television (finishesCard), and the newest
+        // card still open — her question at the credits, under the card that said what the family thought —
+        // comes back. On the card her hold brought, "Yes, ask …" and "Just say hello" leave it where it is:
+        // who was asked is written onto that same card a moment later.
+        if (finishesCard(card, action.id)) {
+          keptCards = dropCard(keptCards, card.id);
+          showKeptCard();
         }
       });
       actions.appendChild(pill);
@@ -484,9 +669,9 @@ function startFilm(card) {
  * writes every word and every button; this renders them.
  *
  * It looks when the view opens and then every few seconds while the tab can
- * be seen — never two requests at once — and nothing on the screen goes away
- * by itself: a card stays until it is answered, put away, or the server no
- * longer lists it.
+ * be seen — never two looks at the same thing at once (familyAsk) — and
+ * nothing on the screen goes away by itself: a card stays until it is
+ * answered, put away, or the server no longer lists it.
  *
  * Three buttons the television answers itself, sending nothing (the
  * contract's FAMILY_TV_OWN_ACTIONS): "later" puts a card away on this
@@ -740,10 +925,13 @@ function familyPageLine(index, count) {
 /** What a card says, so one put away comes back when the server changes it. */
 const cardSignature = (card) => JSON.stringify([card.headline, card.detail, card.pictureUrl, card.pages, card.actions]);
 
-function enterFamilyView(jwt, deviceId) {
+function enterFamilyView(jwt, deviceId, { restored = false } = {}) {
   family = {
     jwt,
     deviceId,
+    /** Come back from a reload (restoreTelevision), and whether the server has answered it as a television since. */
+    restored,
+    answered: false,
     /** The server's last home screen, the sentence that answered a press, and the cards put away here (id → what each said). */
     home: null,
     said: null,
@@ -753,8 +941,11 @@ function enterFamilyView(jwt, deviceId) {
     /** The look that is out, if one is: there is never a second. */
     looking: null,
     pressing: false,
-    /** The last thing asked of the Wick server. The next waits for it: one request at a time, whatever is asking. */
-    turn: Promise.resolve(),
+    /**
+     * The last thing asked of the Wick server in each lane (familyAsk); the next in that lane waits for it.
+     * The seat has a lane of its own, so a slow answer about the home never holds up where her film is.
+     */
+    turns: { seat: Promise.resolve(), rest: Promise.resolve() },
     /** What was last logged and last drawn, so the same answer is neither logged nor redrawn every few seconds. */
     lastSeen: '',
     drawn: '',
@@ -805,25 +996,57 @@ function lookWhenSeenAgain() {
 const FAMILY_NOT_ASKED = new Error('not asked');
 
 /**
+ * How long an answer is waited for. A request that has none by then is
+ * given up — a failed ask like any other — so one that never answers cannot
+ * freeze the television: the next look goes out when its turn comes round,
+ * and a press says it could not be sent and can be pressed again.
+ */
+const FAMILY_ASK_LIMIT_MS = 10000;
+
+/**
  * One request to the Wick server as this television — never the device
- * channel — and never two at once: each waits its turn behind the last, be
- * it a look at the home screen, a look at the seat or a press. A request
- * whose turn comes after the television has stopped being a family
- * television, or (`still`) after what asked it has gone, is not sent.
+ * channel. Two lanes, and in each never two requests at once:
+ *
+ *   - the seat (GET /tv/seat): where her film is, asked every two seconds.
+ *     A lane of its own, because her pause must be followed within a breath
+ *     whatever else is slow;
+ *   - everything else (GET /tv/home, POST /tv/press), each waiting its turn
+ *     behind the last. A press and a look at the home are kept in order on
+ *     purpose: a home screen asked for before a press and answered after it
+ *     would draw the card that was just answered again.
+ *
+ * A request whose turn comes after the television has stopped being a
+ * family television, or (`still`) after what asked it has gone, is not sent.
+ * One with no answer within FAMILY_ASK_LIMIT_MS is given up and its lane is
+ * free again.
  *
  * @returns {Promise<{status: number, ok: boolean, body: unknown}>}
  */
 function familyAsk(mine, path, init = {}, still = () => true) {
+  const lane = path === '/tv/seat' ? 'seat' : 'rest';
   const ask = async () => {
     if (family !== mine || !still()) throw FAMILY_NOT_ASKED;
-    const res = await fetch(`${WICK_SERVER_URL}${path}`, {
-      ...init,
-      headers: { ...(init.headers ?? {}), Authorization: `Bearer ${mine.jwt}` },
-    });
-    return { status: res.status, ok: res.ok, body: await res.json().catch(() => null) };
+    const givenUp = new AbortController();
+    const limit = setTimeout(() => givenUp.abort(), FAMILY_ASK_LIMIT_MS);
+    try {
+      const res = await fetch(`${WICK_SERVER_URL}${path}`, {
+        ...init,
+        signal: givenUp.signal,
+        headers: { ...(init.headers ?? {}), Authorization: `Bearer ${mine.jwt}` },
+      });
+      // The limit covers the whole answer: an answer begun and never finished is no answer either.
+      const body = await res.json().catch(() => null);
+      if (givenUp.signal.aborted) throw new Error('given up');
+      return { status: res.status, ok: res.ok, body };
+    } catch (err) {
+      if (givenUp.signal.aborted) throw new Error(`${path.slice(1)}: no answer in ${FAMILY_ASK_LIMIT_MS / 1000} s`);
+      throw err;
+    } finally {
+      clearTimeout(limit);
+    }
   };
-  const turn = mine.turn.then(ask);
-  mine.turn = turn.catch(() => {});
+  const turn = mine.turns[lane].then(ask);
+  mine.turns[lane] = turn.catch(() => {});
   return turn;
 }
 
@@ -835,7 +1058,15 @@ function familyAsk(mine, path, init = {}, still = () => true) {
  */
 function familyRefused(reply) {
   if (reply.status === 401) {
+    // Not a television any more: it is not what this tab comes back as after a reload either.
+    const neverCameBack = family?.restored === true && !family.answered;
+    forgetTelevision();
     stopFamilyView();
+    // Remembered from before a reload and already gone: the page as it first loads, with nothing to explain.
+    if (neverCameBack) {
+      showFirstLoad('not connected');
+      return true;
+    }
     setConnBadge('disconnected');
     connDetail.textContent = 'no longer connected';
     disconnectBtn.disabled = true;
@@ -884,6 +1115,7 @@ async function lookOnce(mine) {
     if (!reply.ok) throw new Error(`tv/home: HTTP ${reply.status}`);
     const home = readFamilyHome(reply.body);
     if (!home) throw new Error('tv/home: not a home screen');
+    mine.answered = true;
     // Said in the log only when it changes: the same answer every few seconds is not news.
     const seen = JSON.stringify(home);
     if (seen !== mine.lastSeen) log('←', home);
@@ -1045,8 +1277,10 @@ function familyKey(event) {
       return leaveFamilySeat();
     }
     if (mine.seat.following) {
-      // No pause, no skip, no seek: every other key is let fall.
-      if (step !== undefined || event.key === 'Enter' || event.key === ' ') event.preventDefault();
+      // No pause, no skip, no seek: every other key is let fall. One exception, and it is this television's own
+      // business, not her film's: when the browser has held the sound back, OK on "Turn the sound on" turns it on.
+      const onSound = document.activeElement?.dataset?.key === 'seat-sound';
+      if (step !== undefined || ((event.key === 'Enter' || event.key === ' ') && !onSound)) event.preventDefault();
       return;
     }
   } else if (mine.reader) {
@@ -1244,8 +1478,10 @@ function renderFamilyNoLongerConnected() {
  * For the member who invited her and has sat down (GET /tv/seat). This
  * television follows and never leads: it plays the film where hers is, is
  * still when hers is, and has no pause, no seek and no skip of its own —
- * the one thing the remote does here is Back, which leaves the seat. Her
- * film goes on, and the card with the seat is still on the home screen.
+ * the one thing the remote does here is Back, which leaves the seat (and,
+ * if the browser has held the sound back, OK turns this television's own
+ * sound on). Her film goes on, and the card with the seat is still on the
+ * home screen.
  *
  * The film is played as the resident's is in this page (loadHls above), in
  * a player with no controls. The home screen goes on being asked for from
@@ -1343,7 +1579,7 @@ function leaveFamilySeat() {
   void lookAtFamilyHome();
 }
 
-/** Asks where her film is. Not while the tab is hidden, not once it is over, and never while another request is out. */
+/** Asks where her film is. Not while the tab is hidden, not once it is over, and never while another look at the seat is out. */
 function lookAtFamilySeat() {
   const mine = family;
   const seat = mine?.seat;
@@ -1534,8 +1770,8 @@ function drawFamilySeat() {
         seat.silent = false;
         drawFamilySeat();
       }, 'seat-sound');
+      // The one thing over the film the remote can be on: without it somebody with no mouse would watch in silence.
       sound.classList.add('seat-sound');
-      sound.tabIndex = -1;
       parts.push(sound);
     }
   } else {
@@ -1595,3 +1831,6 @@ document.getElementById('reach-btn').addEventListener('click', () => send({ t: '
 
 pairBtn.addEventListener('click', pairAndConnect);
 disconnectBtn.addEventListener('click', disconnect);
+
+// A reload: back to being the television this tab was.
+restoreTelevision();

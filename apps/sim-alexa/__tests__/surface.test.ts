@@ -36,6 +36,10 @@ import {
   follow,
   watchStatus,
   watchToAnnounce,
+  fetchWithin,
+  requestLimitFor,
+  REQUEST_LIMITS_MS,
+  NO_ANSWER_TEXT,
 } from '../surface.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -1673,6 +1677,34 @@ describe('watching a film together', () => {
       expect(r.card).toBeNull();
     });
 
+    it.each([
+      ['You have not answered yet. Margaret has not answered yet.'],
+      ['You said: “I loved it.” Margaret has not answered yet.'],
+      ['You have not answered yet. Margaret said: “It was all right.”'],
+      ['You said: “I loved it.” Margaret said: “It was all right.”'],
+    ])('says who has answered in the server’s own sentence, and makes none of its own: %s', (answersInWords) => {
+      // The fields are there too; the sentence is not made from them. An answer of one's own must never be read as hers.
+      const r = presentResult('get_watch_together', view({ state: 'watched', question: WATCH_QUESTION, yourAnswer: 'I loved it.', theirAnswer: 'It was all right.', answersInWords }), {}, at);
+
+      expect(r).toEqual({ say: `You watched Sintel together. ${answersInWords}`, card: null, tone: 'answer' });
+    });
+
+    it('says so even when she has not answered: the server’s sentence names who has not', () => {
+      const r = presentResult('get_watch_together', view({ state: 'watched', question: WATCH_QUESTION, yourAnswer: 'I loved it.', answersInWords: 'You said: “I loved it.” Margaret has not answered yet.' }), {}, at);
+
+      expect(r.say).toBe('You watched Sintel together. You said: “I loved it.” Margaret has not answered yet.');
+    });
+
+    it('falls back to its own two lines for a Wick that sends no such sentence', () => {
+      const older = (extra: object) => presentResult('get_watch_together', view({ state: 'watched', question: WATCH_QUESTION, ...extra }), {}, at).say;
+
+      expect(older({ yourAnswer: 'I loved it.', theirAnswer: 'It was all right.' })).toBe('You watched Sintel together. You said: “I loved it.” The answer on the television was: “It was all right.”');
+      expect(older({ yourAnswer: 'I loved it.' })).toBe('You watched Sintel together. You said: “I loved it.”');
+      expect(older({})).toBe('You watched Sintel together.');
+      // Not a sentence: not said.
+      expect(older({ yourAnswer: 'I loved it.', answersInWords: 7 })).toBe('You watched Sintel together. You said: “I loved it.”');
+    });
+
     it('says an answer is on the television', () => {
       const r = presentResult('answer_watch_together', JSON.stringify({ shown: true, by: 'Sarah', text: 'I loved it.' }), {}, at);
       expect(r.say).toBe('It is on the television now: “Sarah says: I loved it.”');
@@ -2083,3 +2115,110 @@ describe('a pairing link in the family app', () => {
   });
 });
 
+
+describe('fetchWithin — a request that never answers does not leave the app waiting for ever', () => {
+  /** The page's clock and its network, stood in for: a timer is fired by hand, and an answer comes only when the test gives one. */
+  function standIns() {
+    const timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
+    const asked: { url: string; init: RequestInit; answer: (res: Response) => void; fail: (err: Error) => void }[] = [];
+    const deps = {
+      setTimeout: (fn: () => void, ms: number) => timers.push({ fn, ms, cleared: false }) - 1,
+      clearTimeout: (id: number) => { if (timers[id]) timers[id].cleared = true; },
+      // As a browser's: nothing until an answer is given, and a rejection the moment the request is given up.
+      fetch: (url: string, init: RequestInit = {}) =>
+        new Promise<Response>((resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })));
+          asked.push({ url, init, answer: resolve, fail: reject });
+        }),
+    };
+    return { timers, asked, deps, fire: () => timers.filter((t) => !t.cleared).forEach((t) => { t.cleared = true; t.fn(); }) };
+  }
+
+  it('hands back the answer as it came — status, headers and words — and stops the clock', async () => {
+    const { timers, asked, deps } = standIns();
+
+    const waiting = fetchWithin(15_000, 'https://wick.example/api/me', { method: 'GET', headers: { authorization: 'Bearer t' } }, deps);
+    expect(asked[0].url).toBe('https://wick.example/api/me');
+    expect(asked[0].init).toMatchObject({ method: 'GET', headers: { authorization: 'Bearer t' } });
+    expect(timers.map((t) => t.ms)).toEqual([15_000]);
+    asked[0].answer(new Response(JSON.stringify({ user: { name: 'Sarah' } }), { status: 200, headers: { 'content-type': 'application/json', 'mcp-session-id': 's1' } }));
+    const res = await waiting;
+
+    expect(res.status).toBe(200);
+    expect(res.ok).toBe(true);
+    expect(res.headers.get('mcp-session-id')).toBe('s1');
+    expect(await res.json()).toEqual({ user: { name: 'Sarah' } });
+    expect(timers[0].cleared).toBe(true);
+  });
+
+  it('keeps a refusal a refusal, and an answer with no words an answer with none', async () => {
+    const { asked, deps } = standIns();
+
+    const refused = fetchWithin(15_000, 'https://wick.example/api/circle', {}, deps);
+    asked[0].answer(new Response(JSON.stringify({ error: 'not_allowed_yet', message: 'Not yet.' }), { status: 403 }));
+    const res = await refused;
+    expect([res.status, res.ok, await res.json()]).toEqual([403, false, { error: 'not_allowed_yet', message: 'Not yet.' }]);
+
+    const empty = fetchWithin(15_000, 'https://wick.example/api/push', { method: 'DELETE' }, deps);
+    asked[1].answer(new Response(null, { status: 204 }));
+    expect((await empty).status).toBe(204);
+  });
+
+  it('gives a request up when no answer has come in time, and says so in words a person can act on', async () => {
+    const { asked, deps, fire } = standIns();
+
+    const waiting = fetchWithin(15_000, 'https://wick.example/api/me', {}, deps);
+    const outcome = waiting.then(() => 'answered', (err: Error & { timedOut?: boolean }) => [err.message, err.timedOut]);
+    fire();
+
+    expect(await outcome).toEqual([NO_ANSWER_TEXT, true]);
+    expect((asked[0].init.signal as AbortSignal).aborted).toBe(true);
+    expect(NO_ANSWER_TEXT).toBe('Wick did not answer in time. Try again in a moment.');
+  });
+
+  it('counts an answer that starts and never finishes as no answer', async () => {
+    const { asked, deps, fire } = standIns();
+
+    const waiting = fetchWithin(15_000, 'https://wick.example/mcp', { method: 'POST' }, deps);
+    const outcome = waiting.then(() => 'answered', (err: Error) => err.message);
+    // The headers arrive; the body never does, until the request is given up.
+    const signal = asked[0].init.signal as AbortSignal;
+    const body = new ReadableStream({ start(controller) { signal.addEventListener('abort', () => controller.error(Object.assign(new Error('aborted'), { name: 'AbortError' }))); } });
+    asked[0].answer(new Response(body, { status: 200 }));
+    await new Promise((resolve) => setImmediate(resolve));
+    fire();
+
+    expect(await outcome).toBe(NO_ANSWER_TEXT);
+  });
+
+  it('leaves any other failure as it was: the network’s own, not a time limit', async () => {
+    const { timers, asked, deps } = standIns();
+
+    const waiting = fetchWithin(15_000, 'https://wick.example/api/me', {}, deps);
+    asked[0].fail(new TypeError('Failed to fetch'));
+
+    await expect(waiting).rejects.toThrow('Failed to fetch');
+    expect(timers[0].cleared).toBe(true);
+  });
+});
+
+describe('requestLimitFor — how long each kind of request is waited for', () => {
+  it('waits fifteen seconds for the app’s own business with the server', () => {
+    for (const path of ['/api/me', '/api/circle', '/api/televisions', '/account/options', '/token', '/register', '/.well-known/oauth-authorization-server']) {
+      expect(requestLimitFor(path)).toBe(15_000);
+    }
+    expect(REQUEST_LIMITS_MS.api).toBe(15_000);
+  });
+
+  it('waits longer for a tool, which may have a television to reach', () => {
+    expect(requestLimitFor('/mcp')).toBe(REQUEST_LIMITS_MS.tool);
+    expect(REQUEST_LIMITS_MS.tool).toBe(20_000);
+  });
+
+  it('waits longest for the assistant, whose one step the server itself gives a model twenty seconds for', () => {
+    expect(requestLimitFor('/assistant/next')).toBe(REQUEST_LIMITS_MS.assistant);
+    // services/mcp-server/src/assistant/bedrock.ts STEP_TIMEOUT_MS is 20 s: the page must outwait it, or it would give up on an answer the server is about to give.
+    expect(REQUEST_LIMITS_MS.assistant).toBeGreaterThan(20_000);
+    expect(REQUEST_LIMITS_MS.assistant).toBe(30_000);
+  });
+});

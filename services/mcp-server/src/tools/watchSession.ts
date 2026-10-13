@@ -224,14 +224,39 @@ export interface WatchView {
   readonly question?: string;
   /** Offered until the family member has answered. */
   readonly answers?: readonly { readonly key: WatchAnswer; readonly text: string }[];
+  /** The answer of the family member this view is for — the one who is signed in. Never the resident's. */
   readonly yourAnswer?: string;
+  /** The resident's answer, given on her television. Never the family member's. */
   readonly theirAnswer?: string;
+  /**
+   * Who said what, as one sentence to be said as it stands — there from the
+   * moment the question is asked. "Your" and "their" are names a reader can
+   * take the wrong way round, and an assistant did: this spells out "You"
+   * and the resident's name, so nobody has to work it out.
+   */
+  readonly answersInWords?: string;
+}
+
+/**
+ * What each of the two answered at the credits, or that they have not yet:
+ * the family member first, as "You", then the resident by name. The one
+ * wording for it — the tools' view and a family member's own television
+ * (accounts/familyTvWatch.ts) both say this, so they cannot disagree.
+ */
+export function answersInWords(residentName: string, yourAnswer: string | undefined, theirAnswer: string | undefined): string {
+  const yours = yourAnswer ? `You said: “${yourAnswer}”` : 'You have not answered yet.';
+  const theirs = theirAnswer ? `${residentName} said: “${theirAnswer}”` : `${residentName} has not answered yet.`;
+  return `${yours} ${theirs}`;
 }
 
 const ANSWERS = (Object.entries(WATCH_ANSWERS) as [WatchAnswer, string][]).map(([key, text]) => ({ key, text }));
 
-/** What the person who made a session is told about it now. */
-export function describeWatch(session: WatchSession, now: number, timeZone: string = HOUSEHOLD_TZ): WatchView {
+/**
+ * What the person who made a session is told about it now. `residentName`
+ * is the resident as that person knows them: it is how the answers are
+ * told apart in words.
+ */
+export function describeWatch(session: WatchSession, now: number, residentName: string, timeZone: string = HOUSEHOLD_TZ): WatchView {
   const base = { sessionId: session.sessionId, film: session.programmeTitle, startsAt: session.startsAt, when: whenInWords(session.startsAt, timeZone) };
   const open = now < session.closesAt;
   const programme = programmeById(session.programmeId);
@@ -249,13 +274,16 @@ export function describeWatch(session: WatchSession, now: number, timeZone: stri
   if (session.status === 'withdrawn') return { ...base, state: 'withdrawn' };
   if (session.status === 'cancelled') return { ...base, state: 'cancelled' };
   if (session.askedAt !== undefined) {
+    const yourAnswer = session.familyAnswer ? WATCH_ANSWERS[session.familyAnswer] : undefined;
+    const theirAnswer = session.residentAnswer ? WATCH_ANSWERS[session.residentAnswer] : undefined;
     return {
       ...base,
       state: 'watched',
       ...following(),
       question: WATCH_QUESTION,
-      ...(session.familyAnswer ? { yourAnswer: WATCH_ANSWERS[session.familyAnswer] } : open ? { answers: ANSWERS } : {}),
-      ...(session.residentAnswer ? { theirAnswer: WATCH_ANSWERS[session.residentAnswer] } : {}),
+      ...(yourAnswer ? { yourAnswer } : open ? { answers: ANSWERS } : {}),
+      ...(theirAnswer ? { theirAnswer } : {}),
+      answersInWords: answersInWords(residentName, yourAnswer, theirAnswer),
     };
   }
   if (!open) return { ...base, state: 'over' };

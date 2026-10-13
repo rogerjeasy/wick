@@ -86,7 +86,7 @@ export function registerInviteToWatch(
         const guard = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: guardKey, ConsistentRead: true }));
         const seen = guard.Item?.sessionId?.S;
         const session = seen ? await mySession(ddb, ctx.householdId, ctx.userId, seen) : undefined;
-        const view = session ? describeWatch(session, at) : undefined;
+        const view = session ? describeWatch(session, at, residentName) : undefined;
         return { seen, open: view && isOpen(view.state) ? view : undefined };
       };
       const alreadyAsked = (open: WatchView): string => {

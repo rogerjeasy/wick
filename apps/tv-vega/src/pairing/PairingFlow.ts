@@ -41,6 +41,8 @@ export interface PairingConfig {
   readonly pairingApiUrl: string;
   readonly pollIntervalMs?: number;
   readonly pollTimeoutMs?: number;
+  /** How long any one request to the pairing service is waited for. */
+  readonly requestTimeoutMs?: number;
   /** How long to wait before asking for a refresh again after the server said "too soon". */
   readonly refreshRetryMs?: number;
   /** Injectable so tests do not sit through the wait. */
@@ -101,11 +103,29 @@ export function isNarrowToken(token: DeviceToken): boolean {
   return (token as { readonly scope?: unknown }).scope !== undefined;
 }
 
+/**
+ * No request to the pairing service is waited for longer than this. One
+ * that has not answered by then has failed, like one the network refused —
+ * and whoever asked decides what a failure means: the launch tries again
+ * (connect.ts), a renewal is "not now". Without it, a request that never
+ * answers holds the television on "Getting a code…" for as long as it likes
+ * (seen on the Vega simulator after a cold boot, 2026-10-13).
+ */
+export const PAIRING_REQUEST_TIMEOUT_MS = 10_000;
+
 const DEFAULT_POLL_INTERVAL_MS = 3000;
 const DEFAULT_POLL_TIMEOUT_MS = 15 * 60 * 1000; // matches the pairing nonce's 15-minute TTL
 // A little over the server's window (edge-device pairing-code.mjs REFRESH_WINDOW_MS, 30 s): by then it has opened a new one.
 const DEFAULT_REFRESH_RETRY_MS = 32_000;
 const REFRESH_RETRIES = 3;
+
+/** The code on screen is no longer one the pairing service knows. */
+class CodeExpired extends Error {
+  constructor() {
+    super('pairing_code_expired');
+    this.name = 'CodeExpired';
+  }
+}
 
 export class PairingFlow {
   readonly #config: PairingConfig;
@@ -116,8 +136,30 @@ export class PairingFlow {
   constructor(config: PairingConfig, fs: FileSystemLike, fetchImpl: typeof fetch = fetch) {
     this.#config = config;
     this.#fs = fs;
-    this.#fetch = fetchImpl;
+    this.#fetch = (url, init) => PairingFlow.#inTime(fetchImpl, url, init, config.requestTimeoutMs ?? PAIRING_REQUEST_TIMEOUT_MS);
     this.#wait = config.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  }
+
+  /**
+   * One request, over when it answers or when its time is up — whichever
+   * comes first. Out of time is a failure like any other: it throws. React
+   * Native has AbortController on both televisions; the timer holds even
+   * where it is missing.
+   */
+  static async #inTime(fetchImpl: typeof fetch, url: Parameters<typeof fetch>[0], init: RequestInit | undefined, timeoutMs: number): Promise<Response> {
+    const controller = typeof AbortController === 'undefined' ? undefined : new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tooLong = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller?.abort();
+        reject(new Error('pairing_request_timed_out'));
+      }, timeoutMs);
+    });
+    try {
+      return await Promise.race([fetchImpl(url, { ...init, ...(controller ? { signal: controller.signal } : {}) }), tooLong]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -351,21 +393,33 @@ export class PairingFlow {
     return (await res.json()) as PairingStartResponse;
   }
 
-  /** Polls until the organiser enters the code in the family app, or the nonce's TTL elapses. Persists the token on success. */
+  /**
+   * Polls until the code is entered in the family app, or the nonce's TTL
+   * elapses. Persists the token on success.
+   *
+   * One question that fails — not answered in time, the network gone for a
+   * moment, the pairing service in trouble — does not end the wait: the
+   * code on screen is still good, and it is asked again at the next
+   * interval. Only the code having gone (404), or its time being over,
+   * ends it.
+   */
   async pollUntilBound(code: string): Promise<DeviceToken> {
     const interval = this.#config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     const timeout = this.#config.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
     const deadline = Date.now() + timeout;
 
     while (Date.now() < deadline) {
-      const res = await this.#fetch(
-        `${this.#config.pairingApiUrl}/pair/status?code=${encodeURIComponent(code)}`,
-      );
-      if (res.status === 404) throw new Error('pairing_code_expired');
-      if (!res.ok) throw new Error(`pairing_status_failed: ${res.status}`);
+      let body: PairingStatusResponse | undefined;
+      try {
+        const res = await this.#fetch(`${this.#config.pairingApiUrl}/pair/status?code=${encodeURIComponent(code)}`);
+        if (res.status === 404) throw new CodeExpired();
+        if (res.ok) body = (await res.json()) as PairingStatusResponse;
+      } catch (err) {
+        if (err instanceof CodeExpired) throw err;
+        // Asked again below.
+      }
 
-      const body = (await res.json()) as PairingStatusResponse;
-      if (body.status === 'bound') {
+      if (body?.status === 'bound') {
         // The server has already confirmed the claim; that must be enough to
         // proceed. Caching the token to disk is a best-effort optimization
         // for skipping re-pairing on the next launch — losing it just means

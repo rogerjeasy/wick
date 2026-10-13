@@ -64,8 +64,17 @@ export function familyLines(home: FamilyTvHome, on: { readonly unreachable: bool
   };
 }
 
-/** Cards put away on this screen: each one's id, and what it said when it was put away. */
+/**
+ * Cards put away on this screen: each one's id, and what it said when it
+ * was put away. Kept for as long as the app runs — a card put away stays
+ * away until what it SAYS changes, whether or not the server goes on
+ * listing it in the meantime. Bounded: the newest PUT_AWAY_KEPT, in the
+ * order they were put away.
+ */
 export type PutAway = Readonly<Record<string, string>>;
+
+/** How many put-away cards are remembered. One put away longer ago than that many others may come back. */
+export const PUT_AWAY_KEPT = 50;
 
 /**
  * What a card says, for telling whether it has changed. Not the address of
@@ -77,16 +86,24 @@ function saying(card: FamilyTvCard): string {
 }
 
 export function putAway(put: PutAway, card: FamilyTvCard): PutAway {
-  return { ...put, [card.id]: saying(card) };
+  // Taken out first, so that it is the newest however long ago it was first put away.
+  const { [card.id]: _before, ...others } = put;
+  const kept = Object.entries({ ...others, [card.id]: saying(card) });
+  return Object.fromEntries(kept.slice(Math.max(0, kept.length - PUT_AWAY_KEPT)));
 }
 
-/** What is still put away now that the server has answered again: not a card that changed, nor one that left. */
+/**
+ * What is still put away now that the server has answered again. A card it
+ * lists with other words has changed: it is shown, and no longer
+ * remembered. A card it does not list is remembered all the same — a
+ * settled card the server stops listing for a while and then lists again
+ * does not come back for that (seen on the Fire OS emulator, 2026-10-13).
+ * The very same memory comes back when nothing in it changed.
+ */
 export function stillPutAway(put: PutAway, home: FamilyTvHome): PutAway {
-  const kept: Record<string, string> = {};
-  for (const card of home.cards) {
-    if (put[card.id] !== undefined && put[card.id] === saying(card)) kept[card.id] = put[card.id]!;
-  }
-  return Object.keys(kept).length === Object.keys(put).length ? put : kept;
+  const changed = home.cards.filter((card) => put[card.id] !== undefined && put[card.id] !== saying(card)).map((card) => card.id);
+  if (changed.length === 0) return put;
+  return Object.fromEntries(Object.entries(put).filter(([id]) => !changed.includes(id)));
 }
 
 /** The card in front: the first the server sent that is not put away on this screen. */

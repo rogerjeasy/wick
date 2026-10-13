@@ -25,18 +25,14 @@
 import * as React from 'react';
 import { View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
-import type { DeviceToken } from '@wick/contracts';
-import { PairingFlow, type PairingStartResponse } from './pairing/PairingFlow.js';
+import { PairingFlow } from './pairing/PairingFlow.js';
 import { PairingScreen } from './pairing/PairingScreen.js';
+import { connectTelevision, type Connecting } from './pairing/connect.js';
 import { loadDeviceConfig } from './config.js';
 import { resolveDeviceId } from './deviceId.js';
 import { televisionMode } from './family/mode.js';
 import { FamilyApp } from './family/FamilyApp.js';
 import { ResidentApp } from './ResidentApp.js';
-
-type Screen =
-  | { readonly kind: 'pairing'; readonly info?: PairingStartResponse }
-  | { readonly kind: 'ready'; readonly token: DeviceToken };
 
 export default function App(): React.JSX.Element {
   const config = React.useMemo(() => loadDeviceConfig(), []);
@@ -45,7 +41,7 @@ export default function App(): React.JSX.Element {
     [config],
   );
 
-  const [screen, setScreen] = React.useState<Screen | null>(null);
+  const [screen, setScreen] = React.useState<Connecting | null>(null);
   /**
    * How many times a family member's television has been told it is no
    * longer connected (family/FamilyApp.tsx). Each time, the token is
@@ -53,44 +49,20 @@ export default function App(): React.JSX.Element {
    */
   const [signedOut, setSignedOut] = React.useState(0);
 
+  // The stored token, a refreshed one, or a code and the token that comes
+  // when it is entered — tried again, calmly, for as long as the pairing
+  // service cannot be reached (pairing/connect.ts). A try that fails never
+  // leaves the screen empty, and never leaves it claiming for ever that a
+  // code is on its way.
   React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const deviceId = await resolveDeviceId(KeplerFileSystem);
-        // Signed out: the token is forgotten, and none is asked for again —
-        // the server has just refused this television, and a refresh that
-        // still answered would only bring it straight back here.
-        if (signedOut > 0) await pairing.clearToken();
-        const token = signedOut > 0 ? null : await pairing.loadToken(deviceId);
-        if (cancelled) return;
-        if (token) {
-          setScreen({ kind: 'ready', token });
-          return;
-        }
-        const info = await pairing.start(deviceId);
-        if (cancelled) return;
-        setScreen({ kind: 'pairing', info });
-        try {
-          const bound = await pairing.pollUntilBound(info.code);
-          if (!cancelled) setScreen({ kind: 'ready', token: bound });
-        } catch (e) {
-          // pairing_timed_out / pairing_code_expired — the pairing screen
-          // is already the correct fallback UI; nothing else to show.
-          console.error('pairing_poll_failed', e);
-        }
-      } catch {
-        // loadToken/start failing (e.g. no network reaching the pairing
-        // API) must not leave `screen` stuck at null forever — that
-        // renders as an empty View with zero feedback, indistinguishable
-        // from a hang. Fall through to the pairing screen with no info;
-        // PairingScreen's no-info case is already handled below.
-        if (!cancelled) setScreen({ kind: 'pairing' });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    const connecting = connectTelevision({
+      deviceId: () => resolveDeviceId(KeplerFileSystem),
+      pairing,
+      // Signed out: the token is forgotten, and none is asked for again.
+      signedOut: signedOut > 0,
+      onChange: setScreen,
+    });
+    return () => connecting.cancel();
   }, [pairing, signedOut]);
 
   const handleSignedOut = React.useCallback(() => {
@@ -103,7 +75,7 @@ export default function App(): React.JSX.Element {
   // exactOptionalPropertyTypes forbids passing `info={undefined}` explicitly —
   // PairingScreenProps.info is optional (absent), not nullable.
   if (screen.kind === 'pairing') {
-    return screen.info ? <PairingScreen info={screen.info} /> : <PairingScreen />;
+    return screen.info ? <PairingScreen info={screen.info} /> : <PairingScreen trying={screen.trying === true} />;
   }
 
   // The one branch. Nothing of the resident's is mounted on a family member's television.
