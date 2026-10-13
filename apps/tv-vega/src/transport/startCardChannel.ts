@@ -34,6 +34,8 @@ import type { ReconcilingChannel } from './DeviceChannel.js';
 const OUTBOX_POLL_MS = 1000;
 const FIRST_CONNECT_MIN_RETRY_MS = 2000;
 const FIRST_CONNECT_MAX_RETRY_MS = 30_000;
+/** How often a channel that has been open is looked at, to say when it no longer is. */
+const STATE_WATCH_MS = 1000;
 
 export type ChannelFactory = (config: DeviceChannelConfig, token: DeviceToken) => Promise<ReconcilingChannel>;
 
@@ -191,6 +193,15 @@ export function holdCardChannel(
   announce?: (card: QueuedCard) => void,
   /** Given by the app: told of each event as it leaves. The card service sends none. */
   onSent?: SentObserver,
+  /**
+   * Told when the channel is in trouble: each time a connection is refused
+   * or cannot be made, and every second that a channel which was open is
+   * not. From here a television the family has disconnected looks exactly
+   * like one whose network has gone — so whoever is told asks the pairing
+   * service which it is (pairing/standing.ts). This only says; the channel
+   * goes on trying as it always did.
+   */
+  onTrouble?: () => void,
 ): RunningCardChannel {
   // What a reconcile says of this television: the last card it saw, and the ones it holds.
   const reconcileWith = {
@@ -208,6 +219,7 @@ export function holdCardChannel(
   let running: RunningCardChannel | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let retryMs = FIRST_CONNECT_MIN_RETRY_MS;
+  let stateWatch: ReturnType<typeof setInterval> | undefined;
 
   const attempt = async (): Promise<void> => {
     let channel: ReconcilingChannel;
@@ -216,6 +228,7 @@ export function holdCardChannel(
     } catch (err) {
       if (stopped) return;
       console.error('card_channel_connect_failed — retrying', { retryMs }, err);
+      onTrouble?.();
       retryTimer = setTimeout(() => void attempt(), retryMs);
       retryMs = Math.min(retryMs * 2, FIRST_CONNECT_MAX_RETRY_MS);
       return;
@@ -225,6 +238,12 @@ export function holdCardChannel(
       return;
     }
     running = announce ? startBackgroundChannel(store, channel, announce) : startCardChannel(store, channel, onSent);
+    // From here the channel reconnects by itself, and says nothing of being refused: its state is all there is to go by.
+    if (onTrouble) {
+      stateWatch = setInterval(() => {
+        if (channel.state !== 'open') onTrouble();
+      }, STATE_WATCH_MS);
+    }
   };
   void attempt();
 
@@ -232,6 +251,7 @@ export function holdCardChannel(
     stop() {
       stopped = true;
       clearTimeout(retryTimer);
+      clearInterval(stateWatch);
       running?.stop();
       running = undefined;
     },

@@ -605,3 +605,79 @@ describe('startCardChannel — when her language changes (packages/contracts lan
     running.stop();
   });
 });
+
+// A television the family has disconnected is refused its channel — and
+// from here that looks exactly like a network that has gone. So the app is
+// told when the channel is in trouble, and asks the pairing service whether
+// it is still connected (pairing/standing.ts).
+describe('holdCardChannel — saying when the channel is in trouble', () => {
+  it('says so each time a connection is refused', async () => {
+    vi.useFakeTimers();
+    const store = new QueueStore(brokenFs());
+    const trouble = vi.fn();
+    const held = holdCardChannel(store, TOKEN, async () => {
+      throw new Error('403');
+    }, { websocketUrl: 'wss://ws.example' }, undefined, undefined, trouble);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(trouble).toHaveBeenCalledTimes(1);
+    // Retried after two seconds, then four: refused each time, and said each time.
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(trouble).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(trouble).toHaveBeenCalledTimes(3);
+    held.stop();
+  });
+
+  it('says nothing while the channel is open, and says so every second that an open one is not', async () => {
+    vi.useFakeTimers();
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    const trouble = vi.fn();
+    const held = holdCardChannel(store, TOKEN, async () => channel, { websocketUrl: 'wss://ws.example' }, undefined, undefined, trouble);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(trouble).not.toHaveBeenCalled();
+
+    // The edge cuts it off; the channel is reconnecting, and being refused.
+    channel.state = 'backoff';
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(trouble).toHaveBeenCalledTimes(3);
+
+    channel.state = 'open';
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(trouble).toHaveBeenCalledTimes(3);
+    held.stop();
+  });
+
+  it('says it for the card service’s connection too', async () => {
+    vi.useFakeTimers();
+    const store = new QueueStore(brokenFs());
+    const channel = new FakeChannel();
+    channel.state = 'backoff';
+    const trouble = vi.fn();
+    const held = holdCardChannel(store, TOKEN, async () => channel, { websocketUrl: 'wss://ws.example' }, () => undefined, undefined, trouble);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(trouble.mock.calls.length).toBeGreaterThanOrEqual(1);
+    held.stop();
+  });
+
+  it('says nothing more once it has been stopped, and tries nothing more', async () => {
+    vi.useFakeTimers();
+    const store = new QueueStore(brokenFs());
+    const trouble = vi.fn();
+    const create = vi.fn(async () => {
+      throw new Error('403');
+    });
+    const held = holdCardChannel(store, TOKEN, create, { websocketUrl: 'wss://ws.example' }, undefined, undefined, trouble);
+    await vi.advanceTimersByTimeAsync(0);
+
+    held.stop();
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(trouble).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+});

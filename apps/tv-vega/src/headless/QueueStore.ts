@@ -155,6 +155,32 @@ export class QueueStore {
     return this.language();
   }
 
+  /**
+   * Forgets the home. The family has disconnected this television
+   * (pairing/standing.ts): her cards, what was about to be told to the
+   * server, the last card seen, the language she chose and what the home
+   * screen said are a home's, and none of it is this television's to keep
+   * — nor the next home's to find. In memory at once, and on disk where
+   * there is one. Never rejects: on a disk that cannot be written, nothing
+   * was kept.
+   */
+  async forget(): Promise<void> {
+    this.#state = Promise.resolve({ queue: [], highWaterMark: undefined });
+    this.#memoryOutbox = [];
+    this.#home = {};
+    this.#language = undefined;
+    this.#languageTold = false;
+    this.#showingFrom.clear();
+    await Promise.all([this.#persist(this.#queuePath, '[]'), this.#persist(this.#highWaterMarkPath, ''), this.#persist(this.#languagePath, '')]);
+    await this.#outboxOp(async () => {
+      try {
+        await this.#fs.writeStringToFile(this.#outboxPath, '[]', ENCODING);
+      } catch (err) {
+        this.#logDiskFailure('write', err);
+      }
+    });
+  }
+
   async readAll(): Promise<readonly QueuedCard[]> {
     return (await this.#load()).queue;
   }

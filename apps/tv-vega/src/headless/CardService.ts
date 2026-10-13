@@ -21,12 +21,13 @@
  * nothing of the resident's is sent to one. It asks the Wick server what
  * waits for that member and says so in a toast (headless/waitingService.ts).
  */
-import type { DeviceChannel } from '@wick/contracts';
+import type { DeviceChannel, DeviceToken } from '@wick/contracts';
 import { createDeviceChannel, type DeviceChannelConfig } from '../transport/createDeviceChannel.js';
 import { holdCardChannel, type RunningCardChannel } from '../transport/startCardChannel.js';
 import { doorToast, postToast, type ToastContent } from '../notify/doorToast.js';
 import { QueueStore, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
+import { standingWatch } from '../pairing/standing.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
 import { resolveDeviceId } from '../deviceId.js';
 import { createFamilyClient, type Renewed } from '../family/familyClient.js';
@@ -95,6 +96,11 @@ export async function onStartCardService(): Promise<void> {
     // television's is then handed the one narrow token its app opened the
     // way for (PairingFlow.openServiceWindow). The resident's is answered
     // as it always was.
+    //
+    // What the disk held before anything was asked: a token that comes back
+    // different was handed over by the pairing service just now, and its
+    // hour is counted from here (pairing/held.ts).
+    const before = await pairing.rememberedToken();
     const token = await pairing.loadToken(deviceId, {
       waitIfRefreshedJustNow: true,
       asService: true,
@@ -104,10 +110,54 @@ export async function onStartCardService(): Promise<void> {
     });
     if (starting !== starts) return; // stopped, or started again, while waiting
     if (token && televisionMode(token) === 'resident') {
-      running = holdCardChannel(store, token, createChannel, config, (card) => {
-        const toast = doorToast(card);
-        if (toast) void announce(toast);
+      // A television the family has disconnected is refused this connection
+      // for good, and from here that looks like a network that has gone:
+      // the channel would try again for ever. So its trouble is asked about
+      // (pairing/standing.ts), and "not connected" ends it. The token file
+      // is left alone — it is the app's, which asks the same question when
+      // it is next on screen, and forgets.
+      //
+      // So is a television whose token has run out — an hour after this
+      // service started, where the disk keeps none. This connection is
+      // checked only as it opens, so the hour passes unnoticed until it
+      // next drops; the reconnection is then refused for good, with the
+      // token it was given. The answer to the same question is "connected",
+      // and comes with a fresh token: the connection is let go and held
+      // again with that one. Nothing is written down here either.
+      const hold = (inUse: DeviceToken): RunningCardChannel =>
+        holdCardChannel(
+          store,
+          inUse,
+          createChannel,
+          config,
+          (card) => {
+            const toast = doorToast(card);
+            if (toast) void announce(toast);
+          },
+          undefined,
+          () => standing.trouble(),
+        );
+      let channel: RunningCardChannel | undefined;
+      const held = {
+        stop(): void {
+          standing.stop();
+          channel?.stop();
+        },
+      };
+      const standing = standingWatch({
+        held: { token, ...(token.jwt !== before?.jwt ? { since: Date.now() } : {}) },
+        ask: (inUse) => pairing.renew(deviceId, inUse.jwt, { remember: false }),
+        onGone: () => {
+          held.stop();
+          if (running === held) running = undefined;
+        },
+        onFresh: (fresh) => {
+          channel?.stop();
+          channel = hold(fresh);
+        },
       });
+      channel = hold(token);
+      running = held;
       return;
     }
     // Genuinely unpaired — App.tsx shows the pairing screen; nothing to hold
