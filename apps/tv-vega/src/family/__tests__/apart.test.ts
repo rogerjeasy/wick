@@ -98,6 +98,7 @@ describe("a family member's own television, kept apart from the resident's", () 
       'family/FamilySeat.tsx',
       'family/familyClient.ts',
       'family/familyScreen.ts',
+      'family/layout.ts',
       'family/looker.ts',
       'family/mode.ts',
       'family/offScreen.ts',
@@ -196,6 +197,7 @@ describe('App.tsx — the one branch', () => {
       'family/mode.ts',
       'pairing/PairingFlow.ts',
       'pairing/PairingScreen.tsx',
+      'pairing/connect.ts',
       'react',
     ]);
   });
