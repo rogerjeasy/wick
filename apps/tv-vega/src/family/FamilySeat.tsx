@@ -31,8 +31,9 @@ import { FAMILY_TV_SEAT_EVERY_MS, type FamilyTvPress, type FamilyTvSeat } from '
 import { CalmCard, assertContrast, fontSize, safe } from '@wick/vega-calm-ui';
 import type { FamilyClient, SeatAnswer } from './familyClient.js';
 import { ALL_RIGHT, SOMETHING_WAITS } from './familyScreen.js';
+import { pressGuard } from './presses.js';
 import { repeat } from './repeat.js';
-import { asksAgain, follow, maySeek, seatNotice, seatView, type SeatView } from './seat.js';
+import { asksAgain, follow, maySeek, seatNotice, seatSurface, seatView, type SeatView } from './seat.js';
 
 export interface FamilySeatProps {
   readonly client: Pick<FamilyClient, 'seat'>;
@@ -121,6 +122,13 @@ export function FamilySeat({ client, onScreen, waiting, onLeave, onAnswer, onRef
     return () => sub.remove();
   }, []);
 
+  // OK does nothing while the film is on, and somebody will press it to
+  // find that out. A card that arrives here — the question at the credits
+  // most of all — takes no press in its first second (presses.ts).
+  const guard = React.useMemo(() => pressGuard(), []);
+  guard.surface(seatSurface(view, said, answering), Date.now());
+  const pressCounts = (): boolean => guard.cardActs(Date.now());
+
   const seat = view.kind === 'sitting' ? view.seat : undefined;
   const seatCardId = seat?.cardId ?? (view.kind === 'asked' ? view.cardId : undefined);
   const somethingWaits = waiting(seatCardId);
@@ -134,7 +142,7 @@ export function FamilySeat({ client, onScreen, waiting, onLeave, onAnswer, onRef
   const notice = seat ? (failed ? `${seat.film} will not play on this television just now. Press Back.` : seatNotice(seat)) : undefined;
 
   const handleAnswer = (press: FamilyTvPress): void => {
-    if (pressOut.current) return;
+    if (pressOut.current || !pressCounts()) return;
     pressOut.current = true;
     setAnswering(true);
     void onAnswer(press)
@@ -172,7 +180,7 @@ export function FamilySeat({ client, onScreen, waiting, onLeave, onAnswer, onRef
 
       {said ? (
         <View style={styles.cardLayer} pointerEvents="box-none">
-          <CalmCard key={`said:${said}`} headline={said} actions={[ALL_RIGHT]} onAction={() => setSaid(undefined)} compact />
+          <CalmCard key={`said:${said}`} headline={said} actions={[ALL_RIGHT]} onAction={() => pressCounts() && setSaid(undefined)} compact />
         </View>
       ) : null}
 
@@ -192,7 +200,7 @@ export function FamilySeat({ client, onScreen, waiting, onLeave, onAnswer, onRef
       {/* The server's last sentence, redrawn when it changes; the button does not move, so the focus stays on it. */}
       {!said && view.kind === 'over' ? (
         <View style={styles.cardLayer} pointerEvents="box-none">
-          <CalmCard key="over" headline={view.line} actions={[ALL_RIGHT]} onAction={onLeave} compact />
+          <CalmCard key="over" headline={view.line} actions={[ALL_RIGHT]} onAction={() => pressCounts() && onLeave()} compact />
         </View>
       ) : null}
     </View>

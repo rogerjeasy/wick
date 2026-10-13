@@ -4,6 +4,7 @@ import {
   ALL_RIGHT,
   afterPress,
   afterSeatAnswer,
+  startingLines,
   SOMETHING_WAITS,
   somethingWaits,
   waveOf,
@@ -493,5 +494,23 @@ describe('somethingWaits — one calm line over the seat', () => {
   it('is not so with nothing on the home, or no home yet', () => {
     expect(somethingWaits(home(), NONE, SEATED.id)).toBe(false);
     expect(somethingWaits(undefined, NONE, SEATED.id)).toBe(false);
+  });
+});
+
+// Before the first answer there is no home to name. The screen is laid out
+// as the home will be all the same — a heading, and under it what there is
+// to say — so that it is never blank, and never one stray sentence.
+describe('startingLines — the family screen before it has reached a home', () => {
+  it('has its heading from the first moment: the name of the thing, since there is no home to name yet', () => {
+    expect(startingLines(false)).toEqual({ heading: 'Wick', quiet: [] });
+  });
+
+  it('says under it that Wick cannot reach the home, once a look has failed — in the words the home screen uses', () => {
+    expect(startingLines(true)).toEqual({ heading: 'Wick', quiet: ['Wick cannot reach the home just now.'] });
+    expect(startingLines(true).quiet[0]).toBe(unreachableLine(undefined));
+  });
+
+  it('claims nothing it does not know: no name, no "nothing is waiting", no word of a light', () => {
+    expect(JSON.stringify(startingLines(true))).not.toMatch(/waiting for you|light|television/i);
   });
 });

@@ -38,7 +38,7 @@
 import * as React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import { CalmCard, assertContrast, fontSize, safe } from '@wick/vega-calm-ui';
-import { familyLines, unreachableLine, type Showing, type Wave } from './familyScreen.js';
+import { familyLines, startingLines, type Showing, type Wave } from './familyScreen.js';
 import { rowsDrawn, waveDrawn } from './layout.js';
 import type { LookState } from './looker.js';
 
@@ -53,6 +53,11 @@ export interface FamilyHomeProps {
   /** The wave, for a member who may send one (familyScreen.ts `waveOf`). */
   readonly wave?: Wave | undefined;
   readonly onWave?: (() => void) | undefined;
+  /** The focus has arrived on the wave, or left it: said to the guard that decides whether a press on it counts (presses.ts). */
+  readonly onWaveFocus?: (() => void) | undefined;
+  readonly onWaveBlur?: (() => void) | undefined;
+  /** How many times Wick has come back on screen. Each time, the focus is taken off the wave again. */
+  readonly returns?: number | undefined;
 }
 
 /** What a View says of itself once it has been laid out: where it starts, and how tall it is, in dp within its parent. */
@@ -60,7 +65,7 @@ interface LaidOut {
   readonly nativeEvent: { readonly layout: { readonly y: number; readonly height: number } };
 }
 
-export function FamilyHome({ look, shown, pictureUrl, onAction, wave, onWave }: FamilyHomeProps): React.JSX.Element {
+export function FamilyHome({ look, shown, pictureUrl, onAction, wave, onWave, onWaveFocus, onWaveBlur, returns }: FamilyHomeProps): React.JSX.Element {
   // The card checks its own surface; these are the words drawn straight on the ground.
   assertContrast(safe.ink, safe.ground);
   assertContrast(safe.inkDim, safe.ground);
@@ -90,15 +95,21 @@ export function FamilyHome({ look, shown, pictureUrl, onAction, wave, onWave }: 
     );
   }
 
-  // No answer yet: nothing, rather than a spinner. Only once the looks have failed is there something true to say.
+  // No answer yet. Not a blank screen, and not a spinner: the heading the
+  // home will have, in its place, and under it — once a look has failed —
+  // the one true thing there is to say.
   if (look.kind === 'starting') {
+    const starting = startingLines(look.unreachable);
     return (
       <View style={styles.screen}>
-        {look.unreachable ? (
-          <Text style={styles.quiet} numberOfLines={2} accessibilityRole="text">
-            {unreachableLine(undefined)}
+        <Text style={styles.heading} accessibilityRole="header" numberOfLines={1}>
+          {starting.heading}
+        </Text>
+        {starting.quiet.map((line) => (
+          <Text key={line} style={styles.quiet} numberOfLines={2} accessibilityRole="text">
+            {line}
           </Text>
-        ) : null}
+        ))}
       </View>
     );
   }
@@ -109,8 +120,11 @@ export function FamilyHome({ look, shown, pictureUrl, onAction, wave, onWave }: 
   const waving = !wave || !waveDrawn(shown.kind) ? null : wave.kind === 'button' ? (
     <Pressable
       onPress={onWave}
+      onFocus={onWaveFocus}
+      onBlur={onWaveBlur}
       accessibilityRole="button"
       accessibilityLabel={wave.label}
+      // Never where the focus is asked to go: that is the heading above, or a card's first button.
       style={({ focused }: { focused: boolean }) => [styles.wave, focused && styles.waveFocused]}
     >
       <Text style={styles.waveLabel} numberOfLines={1}>
@@ -133,13 +147,30 @@ export function FamilyHome({ look, shown, pictureUrl, onAction, wave, onWave }: 
   const unless = (row: number) =>
     drawn[row] ? {} : ({ style: styles.unseen, accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' } as const);
 
+  // With no card in front, something has to hold the remote's focus — on
+  // Fire OS a key goes to what holds it and to nothing otherwise — and it
+  // must not be the wave. So the heading holds it, and does nothing with
+  // OK: it has no press. It is mounted afresh each time it takes over — a
+  // card has gone, Wick has come back on screen — so that the focus is
+  // asked for then, and the wave is a D-pad move away, not where OK lands.
+  const holding = shown.kind === 'nothing';
+
   return (
     <View style={styles.screen}>
-      <View onLayout={measureRow(HEADING)} {...unless(0)}>
-        <Text style={styles.heading} accessibilityRole="header" numberOfLines={1}>
+      <Pressable
+        key={holding ? `holding:${returns ?? 0}` : 'heading'}
+        onLayout={measureRow(HEADING)}
+        focusable={holding}
+        hasTVPreferredFocus={holding}
+        // To a screen reader it is what it is: the screen's heading. Not a button, and it promises nothing.
+        accessibilityRole="header"
+        accessibilityLabel={lines.heading}
+        {...unless(0)}
+      >
+        <Text style={styles.heading} numberOfLines={1}>
           {lines.heading}
         </Text>
-      </View>
+      </Pressable>
       <View onLayout={measureRow(OWNER)} {...unless(1)}>
         <Text style={styles.quiet} numberOfLines={1}>
           {lines.owner}

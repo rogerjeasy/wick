@@ -119,6 +119,19 @@ function viewOf(seat: FamilyTvSeat | undefined): SeatView {
 }
 
 /**
+ * The name of what there is to press in the seat, for the guard that keeps
+ * a press from landing on something that has only just appeared
+ * (presses.ts): nothing while the film is on, the question at the credits
+ * (by its answers), the last sentence (the same however its words change),
+ * or what was said of an answer.
+ */
+export function seatSurface(view: SeatView, said: string | undefined, answering: boolean): string {
+  if (said) return `said:${said}`;
+  if (view.kind === 'asked') return answering ? 'answering' : `asked:${view.answers.map((answer) => answer.id).join(',')}`;
+  return view.kind;
+}
+
+/**
  * Whether the seat asks again after this answer. It does at every state of
  * a seat, `over` included. It stops when there is no seat any more, and
  * when this television may not sit here (FamilyApp.tsx then leaves it).
