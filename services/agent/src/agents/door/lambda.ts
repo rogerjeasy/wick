@@ -48,7 +48,7 @@ import { cachedRoster } from './rosterCache.js';
 import { buildDoorEventItem, buildPresenceItem } from './presence.js';
 import { noteDoorSighting } from '../visit/note.js';
 import { visitStore, type VisitSend } from '../../store/visits.js';
-import { runDoorPhase2 } from './phase2.js';
+import { runDoorPhase2, withinDeadline } from './phase2.js';
 import { describeViaRuntime } from './describeRemote.js';
 import { routeDoorEvent, type RouteDeps, type RouteResult } from './route.js';
 import { routeDemoDoorEvent, standInPictures, type StandInBase } from './demoDoor.js';
@@ -82,6 +82,22 @@ function devicesOf(householdId: string, client: RingClient): CachedDevices {
   return cached;
 }
 let runtime: RuntimeTarget | undefined;
+
+/*
+ * The door Lambda's time, spent in order (its timeout is 40 s, infra/agent.tf):
+ *   Phase 1   the device list, if not cached: one Ring call, 5 s at most
+ *             (RING_REQUEST_TIMEOUT_MS), then the table and the push.
+ *   Phase 2a  the frame: FRAME_DEADLINE_MS for every attempt together. A
+ *             frame takes about 3 s, and FL-008's settling retries wait 2 s
+ *             between attempts, so three refusals and a success fit.
+ *   Phase 2b  the sentence: DESCRIBE_DEADLINE_MS for the agent plane,
+ *             a cold session included. A later sentence is worse than none.
+ * 5 + 14 + 8 = 27 s, with the table, the push and a cold start inside the rest.
+ */
+const FRAME_DEADLINE_MS = 14_000;
+const DESCRIBE_DEADLINE_MS = 8_000;
+/** The agent plane, held to the door's own deadline rather than the default. */
+const doorAgents = (): RuntimeTarget => ({ ...agentCoreTarget(), timeoutMs: DESCRIBE_DEADLINE_MS });
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
@@ -166,7 +182,7 @@ const STAND_IN_PICTURES = new URL('./demo-door/', import.meta.url);
 
 /** The stand-in doorbell's composition: the table, the television and the agent plane, and no Ring at all. */
 function standInBase(): StandInBase {
-  const agents = (runtime ??= agentCoreTarget());
+  const agents = (runtime ??= doorAgents());
   return {
     put: async (item) => void (await ddb.send(new PutItemCommand({ TableName: TABLE, Item: item }))),
     rhythm: createRhythmWriter(ddb, TABLE, { simulated: true }),
@@ -193,7 +209,7 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
 };
 
 async function routeRing(detail: Record<string, unknown>): Promise<RouteResult> {
-  const agents = (runtime ??= agentCoreTarget());
+  const agents = (runtime ??= doorAgents());
 
   const depsFor = (householdId: string): RouteDeps => {
     // This household's own Ring link, and the devices it can see. A doorbell's
@@ -222,7 +238,7 @@ async function routeRing(detail: Record<string, unknown>): Promise<RouteResult> 
       sendToDevice: (card, ringDeviceId) => realSendToDevice(card, DEFAULT_POLICY, { ringDeviceId }),
       runPhase2: (cardId, event) =>
         runDoorPhase2(cardId, {
-          fetchImage: () => imageForEvent(ringClient, event.deviceId, event),
+          fetchImage: withinDeadline(() => imageForEvent(ringClient, event.deviceId, event), FRAME_DEADLINE_MS, 'frame_deadline'),
           describe,
           sendPatch: (patch) => realSendPatchToDevice(patch, householdId),
         }, event.eventType),

@@ -108,6 +108,40 @@ describe('routeRingEvent', () => {
     expect(deps.runPhase2).not.toHaveBeenCalled();
   });
 
+  it('still tells her someone is at the door when Ring does not answer the device list, offering nothing that needs Ring', async () => {
+    const deps = baseDeps({
+      findDevice: vi.fn(async () => { throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }); }),
+      hasHallwayChime: vi.fn(async () => true),
+    });
+
+    expect(await routeRingEvent(detail, deps)).toBe('sent');
+
+    expect(deps.sendToDevice).toHaveBeenCalledTimes(1);
+    const [sent, ringDeviceId] = vi.mocked(deps.sendToDevice).mock.calls[0]!;
+    expect(sent.card.type).toBe('DOOR');
+    expect(sent.card.householdId).toBe('hh-1');
+    // Live view and the chime both need Ring: a button that would fail when pressed is left off (D6).
+    expect(sent.card.actions.map((a) => a.id)).toEqual(['dismiss']);
+    // The doorbell is the one the ring named, kept beside the card for when Ring is back.
+    expect(ringDeviceId).toBe(device.id);
+    // The chime question is Ring's too, and is not asked of a Ring that is not answering.
+    expect(deps.hasHallwayChime).not.toHaveBeenCalled();
+    // The picture is still tried: Ring may be back by then, and Phase 2 already stands a failure.
+    expect(deps.runPhase2).toHaveBeenCalledTimes(1);
+  });
+
+  it('still offers to ask the family when Ring does not answer — that button needs no Ring', async () => {
+    const deps = baseDeps({
+      findDevice: vi.fn(async () => { throw new Error('ring_api_503'); }),
+      listFamily: vi.fn(async () => ['Sarah']),
+    });
+
+    await routeRingEvent(detail, deps);
+
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0];
+    expect(sent.card.actions.map((a) => a.id)).toEqual(['ask_family', 'dismiss']);
+  });
+
   it('propagates a malformed payload rather than sending a broken card', async () => {
     const deps = baseDeps();
 

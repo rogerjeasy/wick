@@ -52,6 +52,23 @@ function describeError(err: unknown): string {
 }
 
 /**
+ * `work`, or a failure named `reason` once `ms` have passed — whichever is
+ * first. The frame is a retry loop over Ring calls (FL-008), each with its
+ * own deadline but not the loop as a whole; this bounds the whole, so
+ * Phase 2 always ends inside the door Lambda's timeout (infra/agent.tf).
+ * What is still in flight at the deadline ends at its own.
+ */
+export function withinDeadline<T>(work: () => Promise<T>, ms: number, reason: string): () => Promise<T> {
+  return () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(reason)), ms);
+    });
+    return Promise.race([work(), deadline]).finally(() => clearTimeout(timer));
+  };
+}
+
+/**
  * `eventType` picks the corrected headline when the frame shows nobody (index.ts);
  * `standIn`, that it is said as a demo home's stand-in doorbell (demoDoor.ts).
  */

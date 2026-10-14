@@ -91,6 +91,12 @@ export interface DoorCardInput {
    * is no camera) and no chime.
    */
   readonly standIn?: boolean;
+  /**
+   * Ring did not answer when the card was made (route.ts): she is still told
+   * someone is at the door, and offered nothing that needs Ring to work —
+   * no live view and no chime, which would fail when pressed (D6).
+   */
+  readonly ringUnanswered?: boolean;
 }
 
 /** The longest first name that still fits a button in 32pt type beside two others. */
@@ -125,13 +131,16 @@ export function familyToAsk(family: readonly string[] | undefined): string | und
  * Never both. Three, never four (Principle 6), and when a stranger is at the
  * door someone who can look matters more than a sound in the hall.
  */
-function actionsFor(hallwayChime: boolean, ask: string | undefined, standIn = false): readonly CardAction[] {
-  // A stand-in doorbell has no camera to watch and no chime to ring: a button that cannot work is worse than none (D6).
-  const actions: CardAction[] = standIn ? [] : [{ id: DOOR_ACTIONS.watchLive, label: 'Watch live', kind: 'primary' }];
+function actionsFor(hallwayChime: boolean, ask: string | undefined, standIn = false, ringUnanswered = false): readonly CardAction[] {
+  // A stand-in doorbell has no camera to watch and no chime to ring, and a
+  // Ring that is not answering cannot open either: a button that cannot work
+  // is worse than none (D6).
+  const noRing = standIn || ringUnanswered;
+  const actions: CardAction[] = noRing ? [] : [{ id: DOOR_ACTIONS.watchLive, label: 'Watch live', kind: 'primary' }];
 
   if (ask) {
     actions.push({ id: DOOR_ACTIONS.askFamily, label: `Ask ${ask} to look`, kind: 'secondary' });
-  } else if (hallwayChime && !standIn) {
+  } else if (hallwayChime && !noRing) {
     actions.push({ id: DOOR_ACTIONS.hallwayChime, label: 'Ring the hallway chime', kind: 'secondary' });
   }
 
@@ -162,7 +171,7 @@ function cardIdFor(eventId: string): string {
  * (INV-6: idempotent and correlated).
  */
 export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
-  const { event, hallwayChime, householdId, correlationId, now, roster, family, standIn = false } = input;
+  const { event, hallwayChime, householdId, correlationId, now, roster, family, standIn = false, ringUnanswered = false } = input;
   const match = roster ? matchVisitor(roster, event.start) : undefined;
 
   return {
@@ -172,7 +181,7 @@ export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
     correlationId,
     createdAt: now,
     line: standIn ? STAND_IN_DOOR_LINE : DOOR_LINE,
-    actions: actionsFor(hallwayChime, match ? undefined : familyToAsk(family), standIn),
+    actions: actionsFor(hallwayChime, match ? undefined : familyToAsk(family), standIn, ringUnanswered),
     ...(match ? { match } : {}),
   };
 }
