@@ -14,6 +14,8 @@ COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages ./packages
 COPY services ./services
 COPY scripts/build-lambda.mjs ./scripts/build-lambda.mjs
+# The stand-in doorbell's pictures: build-lambda.mjs copies them beside the door Lambda.
+COPY docs/demo-door ./docs/demo-door
 COPY apps/tv-vega/package.json ./apps/tv-vega/package.json
 # --ignore-scripts: simple-git-hooks' postinstall expects a .git directory.
 # esbuild's own postinstall is the one script the build needs.
