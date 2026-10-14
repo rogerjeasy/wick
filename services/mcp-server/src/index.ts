@@ -6,6 +6,7 @@ import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { RekognitionClient } from '@aws-sdk/client-rekognition';
 import { S3Client } from '@aws-sdk/client-s3';
 import { DEFAULT_POLICY } from '@wick/policy';
+import { DEMO_DOOR_DETAIL_TYPE, DEMO_DOOR_SOURCE, type DemoDoorEvent } from '@wick/contracts';
 import { sendHomeToDevices, sendPatchToDevice, sendToDevice, takeBackFromDevices } from '@wick/agent';
 import { createApp } from './server.js';
 import { createCognitoIdentity, type CognitoSend } from './accounts/identity.js';
@@ -96,6 +97,22 @@ const ringLinks = lambda
     })
   : undefined;
 
+// A demo home's stand-in doorbell (accounts/demoDoorbell.ts): one ring is
+// handed to the Door agent's own Lambda, asynchronously — the card reaches
+// her television from there, as a Ring doorbell's does. The function's name
+// is fixed (infra/agent.tf, `${local.prefix}-agent-door-event`), so the
+// deployment needs no new setting; only this server's role may invoke it.
+const DEMO_DOOR_FUNCTION = process.env.WICK_DEMO_DOOR_FUNCTION || 'wick-agent-door-event';
+const doorLambda = new LambdaClient({});
+const ringDemoDoor = async (event: DemoDoorEvent): Promise<void> => {
+  const reply = await doorLambda.send(new InvokeCommand({
+    FunctionName: DEMO_DOOR_FUNCTION,
+    InvocationType: 'Event',
+    Payload: new TextEncoder().encode(JSON.stringify({ source: DEMO_DOOR_SOURCE, 'detail-type': DEMO_DOOR_DETAIL_TYPE, detail: event })),
+  }));
+  if (reply.StatusCode !== 202) throw new Error(`door agent answered ${reply.StatusCode ?? 'nothing'}`);
+};
+
 const PORT = Number(process.env.PORT ?? 3300);
 const ISSUER_URL = new URL(process.env.MCP_ISSUER_URL ?? `http://127.0.0.1:${PORT}`);
 
@@ -123,6 +140,7 @@ const app = createApp(ISSUER_URL, {
     return { status: res.status, body: await res.text() };
   },
   demoAccounts: DEMO_ACCOUNTS,
+  ringDemoDoor,
   ...(assistant ? { assistant } : {}),
   ...(ringLinks ? { ringLinks } : {}),
   ...(photos ? { photos } : {}),

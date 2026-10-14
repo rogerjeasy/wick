@@ -27,7 +27,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { CardPatch, QueuedCard } from '@wick/contracts';
+import type { CardPatch, DemoDoorEvent, QueuedCard } from '@wick/contracts';
 import { createAuth } from './auth.js';
 import { createApiRouter, type ClaimTelevision, type RingLinks } from './accounts/apiRouter.js';
 import { createFamilyTelevisionRouter } from './accounts/familyTelevisionRouter.js';
@@ -176,6 +176,12 @@ export interface AppDeps {
    * a picture is refused in words: nothing is ever sent unchecked.
    */
   readonly photos?: { readonly objects: PhotoObjects; readonly moderate: Moderation } | undefined;
+  /**
+   * A demo home's stand-in doorbell (accounts/demoDoorbell.ts): hands one
+   * ring to the Door agent. Absent, a member of a demo home is told this
+   * Wick has none.
+   */
+  readonly ringDemoDoor?: ((event: DemoDoorEvent) => Promise<void>) | undefined;
   readonly now?: () => number;
   readonly newId?: () => string;
 }
@@ -225,6 +231,8 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
       newId: circle.newId,
       timeZone: HOUSEHOLD_TZ,
     }),
+    // Somebody at a demo home's door, for the Door agent's own path (accounts/demoDoorbell.ts).
+    demoDoorbell: { ddb, store: deps.store, ring: deps.ringDemoDoor, now: circle.now, newId: circle.newId },
   }));
 
   // The tool list is the same for everyone and for the life of the process: asked for once, on first need.
