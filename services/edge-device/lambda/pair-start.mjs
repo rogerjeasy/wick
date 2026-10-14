@@ -1,5 +1,5 @@
 /**
- * POST /pair/start {deviceId, proof?, replaces?} -> {code, url, expiresAt}
+ * POST /pair/start {deviceId, proof? | keeps?, replaces?} -> {code, url, expiresAt}
  * TV boots unpaired, calls this once, displays the code and URL.
  * See docs/WICK-TECHNICAL.md §4.2.
  *
@@ -8,6 +8,11 @@
  * pair-claim.mjs moves it to the television's row: from then on a refresh
  * for that television must show the secret (pair-refresh.mjs). A television
  * that can keep nothing — the Vega Virtual Device — sends none.
+ *
+ * `keeps: true` instead says the television keeps a file but cannot make a
+ * secret (no cryptographic generator — Vega): pair-claim.mjs makes one for
+ * it. Never for the simulator's id, whose storage keeps nothing, and never
+ * beside a proof of its own.
  *
  * `replaces` is `{deviceId, proof}` of the television this one was until
  * now. A television with storage takes a new id each time it is paired
@@ -24,7 +29,7 @@
  */
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { generatePairingCode, PAIRING_CODE_TTL_MS, pairingUrl } from './pairing-code.mjs';
-import { isProof, proofHashOf } from './proof.mjs';
+import { SIMULATOR_DEVICE_ID, isProof, proofHashOf } from './proof.mjs';
 import { SAFE_DEVICE_ID } from './iot-policy.mjs';
 
 export function createHandler({ send, now, table, pairingUrlBase, code = generatePairingCode }) {
@@ -40,6 +45,9 @@ export function createHandler({ send, now, table, pairingUrlBase, code = generat
     // An id is a key on the table and a name on the MQTT channel (iot-policy.mjs): nothing else is one.
     if (typeof deviceId !== 'string' || !SAFE_DEVICE_ID.test(deviceId)) return { statusCode: 400, body: 'bad_deviceId' };
     if (body.proof !== undefined && !isProof(body.proof)) return { statusCode: 400, body: 'bad_proof' };
+    if (body.keeps !== undefined && body.keeps !== true) return { statusCode: 400, body: 'bad_keeps' };
+    // A secret made by the server, for a television that keeps a file and cannot make one — not for the simulator, which keeps nothing.
+    const wantsProof = body.keeps === true && body.proof === undefined && deviceId !== SIMULATOR_DEVICE_ID;
     const replaces = body.replaces;
     const replacing = replaces !== undefined && replaces !== null;
     if (replacing && (typeof replaces.deviceId !== 'string' || !SAFE_DEVICE_ID.test(replaces.deviceId) || replaces.deviceId === deviceId || !isProof(replaces.proof))) {
@@ -65,6 +73,7 @@ export function createHandler({ send, now, table, pairingUrlBase, code = generat
             ttl: { N: String(Math.floor(expiresAt / 1000)) },
             // Hashes only: the secrets stay on the television.
             ...(body.proof !== undefined ? { proofHash: { S: proofHashOf(body.proof) } } : {}),
+            ...(wantsProof ? { keeps: { BOOL: true } } : {}),
             ...(replacing ? { replacesDeviceId: { S: replaces.deviceId }, replacesProofHash: { S: proofHashOf(replaces.proof) } } : {}),
           },
           ConditionExpression: 'attribute_not_exists(pk)',

@@ -250,6 +250,31 @@ describe('POST /pair/claim — the television’s proof, its name for the family
     expect(verifyJwt(delivered.jwt, publicKey)).toMatchObject({ proof: 'pairing' });
   });
 
+  it('makes a secret for a television that asked for one, keeps only its hash on the row, and leaves the secret for the poll alone', async () => {
+    const { handler, writes } = world({ 'PAIR#123456|META': { ...pairingCode, keeps: { BOOL: true } } });
+
+    expect((await handler(event({ code: '123456' }))).statusCode).toBe(200);
+
+    const nonce = (writeTo(writes, 'PAIR#123456|META') as UpdateItemCommand).input;
+    const secret = nonce.ExpressionAttributeValues![':proof']!.S!;
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(nonce.UpdateExpression).toContain('deliveryProof = :proof');
+    expect(binding(writes).input.ExpressionAttributeValues![':proofHash']).toEqual({ S: proofHashOf(secret) });
+    expect(JSON.stringify(binding(writes).input)).not.toContain(secret);
+  });
+
+  it('never makes one for the simulator’s id, nor over a secret the television made itself', async () => {
+    const simulator = world({ 'PAIR#123456|META': { ...pairingCode, deviceId: { S: 'wick-tv' }, keeps: { BOOL: true } } });
+    await simulator.handler(event({ code: '123456' }));
+    expect((writeTo(simulator.writes, 'PAIR#123456|META') as UpdateItemCommand).input.ExpressionAttributeValues).not.toHaveProperty(':proof');
+    expect(binding(simulator.writes, 'HH#hh_1|DEV#wick-tv').input.UpdateExpression).toMatch(/ REMOVE proofHash$/);
+
+    const own = world({ 'PAIR#123456|META': { ...pairingCode, keeps: { BOOL: true }, proofHash: { S: SECRET_HASH } } });
+    await own.handler(event({ code: '123456' }));
+    expect((writeTo(own.writes, 'PAIR#123456|META') as UpdateItemCommand).input.ExpressionAttributeValues).not.toHaveProperty(':proof');
+    expect(binding(own.writes).input.ExpressionAttributeValues![':proofHash']).toEqual({ S: SECRET_HASH });
+  });
+
   it('leaves a television paired without a proof with none — even over a row that had one', async () => {
     const { handler, writes } = world();
 

@@ -6,11 +6,14 @@
  * constant `wick-tv`. So an id alone must not be enough to be handed a
  * token for it.
  *
- * A television that can keep something in its own storage — Fire OS, the
- * browser television, a Fire TV whose disk works — makes a secret of its
- * own when it is paired, keeps it, and sends it with every refresh. The
- * server keeps only its SHA-256 on the television's row (`proofHash`), so
- * nobody who reads the table can use what is there. The secret is long and
+ * A television that can keep something in its own storage keeps a secret
+ * and sends it with every refresh. Fire OS and the browser television make
+ * it themselves, from their cryptographic generator, and send it when they
+ * ask for a code (pair-start.mjs). A Vega television has no such generator,
+ * so it says it can keep one (`keeps`) and the server makes it when the code
+ * is entered (`newProof`). Either way the server keeps only its SHA-256 on
+ * the television's row (`proofHash`), so nobody who reads the table can use
+ * what is there. The secret is long and
  * random, so a plain hash is enough: there is nothing to guess.
  *
  * Every device token says how it was earned, in the claim `proof`:
@@ -28,8 +31,26 @@
  *
  * Pure: no AWS. Tested (__tests__/proof.test.ts).
  */
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { REFRESH_TOKEN_TTL_SEC } from './pairing-code.mjs';
+
+/**
+ * The id every Vega Virtual Device has (apps/tv-vega/src/deviceId.ts): its
+ * storage keeps nothing, so it is never given a secret — one it could not
+ * keep would lock it out at its next launch — whatever a request says.
+ */
+export const SIMULATOR_DEVICE_ID = 'wick-tv';
+
+/**
+ * A secret the server makes for a television that keeps a file but has no
+ * cryptographic generator of its own (Vega: apps/tv-vega/src/random.ts).
+ * pair-claim.mjs makes it when the code is entered; pair-status.mjs hands it
+ * over once, with the token, to the television polling that code — which
+ * already receives the thirty-day token the same way, so this is no weaker.
+ */
+export function newProof() {
+  return randomBytes(32).toString('hex');
+}
 
 export const PROVEN_BY_PAIRING = 'pairing';
 export const PROVEN_BY_SECRET = 'secret';

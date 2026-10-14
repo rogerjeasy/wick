@@ -50,6 +50,27 @@ describe('POST /pair/start', () => {
     expect(JSON.stringify(written)).not.toContain(OLD_SECRET);
   });
 
+  // A Vega television keeps a file but has no cryptographic generator: it asks the server to make its secret.
+  it('marks the nonce for a secret made by the server when the television keeps a file but cannot make one', async () => {
+    const { written, ask } = pairStart();
+
+    await ask({ deviceId: 'wick-abc', keeps: true });
+
+    expect(written[0]).toMatchObject({ keeps: { BOOL: true } });
+    expect(written[0]).not.toHaveProperty('proofHash');
+  });
+
+  it('never for the simulator’s id, whose storage keeps nothing, nor beside a secret of the television’s own', async () => {
+    const { written, ask } = pairStart();
+
+    await ask({ deviceId: 'wick-tv', keeps: true });
+    await ask({ deviceId: 'wick-abc', keeps: true, proof: SECRET });
+
+    expect(written[0]).not.toHaveProperty('keeps');
+    expect(written[1]).not.toHaveProperty('keeps');
+    expect(written[1]!.proofHash).toEqual({ S: proofHashOf(SECRET) });
+  });
+
   it('refuses what is not an id, a secret or a television it was, and writes nothing', async () => {
     const { written, ask } = pairStart();
     const refused = [
@@ -61,6 +82,7 @@ describe('POST /pair/start', () => {
       { deviceId: 'wick-abc', proof: SECRET, replaces: { deviceId: 'wick-old' } },
       { deviceId: 'wick-abc', proof: SECRET, replaces: { deviceId: 'wick-abc', proof: OLD_SECRET } },
       { deviceId: 'wick-abc', proof: SECRET, replaces: { deviceId: 'no good', proof: OLD_SECRET } },
+      { deviceId: 'wick-abc', keeps: 'yes' },
     ];
     for (const body of refused) expect((await ask(body)).statusCode).toBe(400);
     expect(written).toEqual([]);

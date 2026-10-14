@@ -959,10 +959,12 @@ import { createHandler as createStart } from '../pair-start.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { createHandler as createClaim } from '../pair-claim.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { createHandler as createStatus } from '../pair-status.mjs';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { accessTokenKey } from '../wick-auth.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { proofHashOf } from '../proof.mjs';
-import { PutItemCommand, TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb';
+import { DeleteItemCommand, PutItemCommand, TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb';
 
 type Av = { S?: string; N?: string; BOOL?: boolean };
 type Row = Record<string, Av>;
@@ -1023,6 +1025,14 @@ function memoryTable() {
       applied.push(`update ${key}`);
       return {};
     }
+    if (command instanceof DeleteItemCommand) {
+      const key = keyOf(input.Key!);
+      const row = rows.get(key);
+      if (!holds(row, input.ConditionExpression, input.ExpressionAttributeValues)) throw failed();
+      rows.delete(key);
+      applied.push(`delete ${key}`);
+      return { Attributes: row };
+    }
     if (command instanceof TransactWriteItemsCommand) {
       for (const { Delete } of input.TransactItems!) {
         if (!holds(rows.get(keyOf(Delete.Key)), Delete.ConditionExpression, Delete.ExpressionAttributeValues)) throw Object.assign(new Error('cancelled'), { name: 'TransactionCanceledException' });
@@ -1067,6 +1077,7 @@ function homes({ secret, family = false }: { secret: boolean; family?: boolean }
   let code = 100000;
   const start = createStart({ send: table.send, now: () => now, table: 'wick', pairingUrlBase: 'https://wick.example', code: () => String((code += 1)) });
   const claim = createClaim(deps);
+  const status = createStatus({ send: table.send, table: 'wick' });
 
   const organiser = (token: string, householdId: string, userId: string) => {
     table.put(`${accessTokenKey(token).pk.S}|META`, { data: { S: JSON.stringify({ userId, householdId }) }, expiresAt: { N: String(NOW_A + 86_400_000) } });
@@ -1101,6 +1112,10 @@ function homes({ secret, family = false }: { secret: boolean; family?: boolean }
     start: async (body: object) => (await start({ body: JSON.stringify(body) })) as { statusCode: number; body: string },
     claim: async (pairingCode: string, token: string, as?: string) =>
       (await claim({ headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ code: pairingCode, ...(as ? { as } : {}) }) })) as { statusCode: number; body: string },
+    poll: async (pairingCode: string) => {
+      const res = (await status({ queryStringParameters: { code: pairingCode } })) as { statusCode: number; body: string };
+      return { status: res.statusCode, body: res.statusCode === 200 ? (JSON.parse(res.body) as { status: string; proof?: string; token?: { deviceId: string } }) : undefined };
+    },
     later: (ms: number) => {
       now += ms;
     },
@@ -1301,5 +1316,69 @@ describe('LOCKOUT — nothing without the secret can keep the real television ou
     for (let i = 0; i < 10; i += 1) await h.ask({}, old);
     expect(h.table.applied).toEqual([]);
     expect((await h.ask({ proof: REAL }, old)).status).toBe(200);
+  });
+});
+
+// A Vega television keeps a file but has no cryptographic generator, so the
+// server makes its secret when the code is entered and hands it over once,
+// with the token, to the television polling that code.
+describe('a secret made by the server, for a television that cannot make one', () => {
+  const pairAs = async (h: ReturnType<typeof homes>, body: object) => {
+    const started = await h.start(body);
+    const code = (JSON.parse(started.body) as { code: string }).code;
+    expect((await h.claim(code, 'sarahs-token')).statusCode).toBe(200);
+    return code;
+  };
+  const askAs = async (h: ReturnType<typeof homes>, deviceId: string, body: object) => {
+    const refresh = createHandler({ send: h.table.send, privateKey: async () => privateKey, publicKey: async () => publicKey, now: () => NOW_A, table: 'wick' });
+    const res = (await refresh({ body: JSON.stringify({ deviceId, ...body }) })) as { statusCode: number; body: string };
+    return { status: res.statusCode, minted: res.statusCode === 200 ? (verifyJwt((JSON.parse(res.body) as { token: { jwt: string } }).token.jwt, publicKey) as Record<string, unknown>) : undefined };
+  };
+
+  it('is handed over exactly once, with the token, to the code’s own poll; the row keeps its hash; a refresh needs it', async () => {
+    const h = homes({ secret: false });
+    const code = await pairAs(h, { deviceId: 'wick-vega', keeps: true });
+
+    const first = await h.poll(code);
+    expect(first.body).toMatchObject({ status: 'bound', token: { deviceId: 'wick-vega' } });
+    const secret = first.body!.proof!;
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    // Once: the nonce went with it, and nothing else holds the secret.
+    expect((await h.poll(code)).status).toBe(404);
+    expect(h.table.row('HH#hh_1|DEV#wick-vega')?.proofHash).toEqual({ S: proofHashOf(secret) });
+    expect(JSON.stringify([...h.table.rows.values()])).not.toContain(secret);
+
+    expect((await askAs(h, 'wick-vega', {})).status).toBe(401);
+    expect((await askAs(h, 'wick-vega', { proof: ATTACKERS })).status).toBe(401);
+    expect((await askAs(h, 'wick-vega', { proof: secret })).minted).toMatchObject({ proof: 'secret' });
+  });
+
+  it('is never made for a television that does not say it keeps a file, nor for the simulator’s id whatever it says', async () => {
+    const h = homes({ secret: false });
+    for (const body of [{ deviceId: 'wick-vega' }, { deviceId: 'wick-tv', keeps: true }]) {
+      const code = await pairAs(h, body);
+      const polled = await h.poll(code);
+      expect(polled.body).toMatchObject({ status: 'bound' });
+      expect(polled.body).not.toHaveProperty('proof');
+      expect(h.table.row(`HH#hh_1|DEV#${body.deviceId}`)).not.toHaveProperty('proofHash');
+      // Answered from its id alone, as before: the documented exception, not locked out.
+      expect((await askAs(h, body.deviceId, {})).minted).toMatchObject({ proof: 'none' });
+    }
+  });
+
+  it('cannot be had by somebody who does not hold the code: polling any other code hands over nothing', async () => {
+    const h = homes({ secret: false });
+    const code = await pairAs(h, { deviceId: 'wick-vega', keeps: true });
+    for (const other of ['000000', '999999', `${code}0`]) expect((await h.poll(other)).body).toBeUndefined();
+    expect((await h.poll(code)).body?.proof).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('asked for with the victim’s id by an attacker: their own home cannot claim it, so no secret is made', async () => {
+    const h = homes({ secret: false });
+    const started = await h.start({ deviceId: 'tv-1', keeps: true });
+    const code = (JSON.parse(started.body) as { code: string }).code;
+    expect((await h.claim(code, 'mallorys-token')).statusCode).toBe(409);
+    expect((await h.poll(code)).body).toEqual({ status: 'pending' });
+    expect(h.victim()).not.toHaveProperty('proofHash');
   });
 });

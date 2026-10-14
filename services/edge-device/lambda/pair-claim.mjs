@@ -39,7 +39,7 @@ import { isExpired, DEVICE_TOKEN_TTL_SEC } from './pairing-code.mjs';
 import { accessTokenKey, bearerToken, grantFromItem, mayConnectOwnTelevision, mayConnectTelevision, membershipKey } from './wick-auth.mjs';
 import { FAMILY_KIND, familyClaims, familyTelevisionKey, kindAskedFor, publicKeyItem } from './family-television.mjs';
 import { claimDeviceOwner, deviceOwnerKey } from './device-owner.mjs';
-import { PROVEN_BY_PAIRING } from './proof.mjs';
+import { PROVEN_BY_PAIRING, SIMULATOR_DEVICE_ID, newProof, proofHashOf } from './proof.mjs';
 
 /**
  * What the family app may call a television by (`televisionRef` on its row):
@@ -106,6 +106,14 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
     }
 
     const jwt = signJwt({ deviceId, householdId, ...(asFamily ? familyClaims(userId) : {}), proof: PROVEN_BY_PAIRING }, await privateKey(), { expiresInSec: DEVICE_TOKEN_TTL_SEC });
+
+    // The television's proof: the hash of the secret it made, which the
+    // code was asked for with — or, for one that keeps a file but cannot
+    // make a secret (`keeps`, pair-start.mjs), a secret made here, handed
+    // over once beside the token (pair-status.mjs) and kept nowhere else
+    // but its hash. Never for the simulator's id.
+    const issued = !item.proofHash?.S && item.keeps?.BOOL === true && deviceId !== SIMULATOR_DEVICE_ID ? newProof() : undefined;
+    const proofHash = item.proofHash?.S ?? (issued ? proofHashOf(issued) : undefined);
     const tokenExpiresAt = now() + DEVICE_TOKEN_TTL_SEC * 1000;
 
     // Atomically claim the pairing code BEFORE writing the device binding.
@@ -118,12 +126,13 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
       await send(new UpdateItemCommand({
         TableName: table,
         Key: { pk: { S: `PAIR#${code}` }, sk: { S: 'META' } },
-        UpdateExpression: 'SET claimed = :true, deliveryToken = :tok',
+        UpdateExpression: `SET claimed = :true, deliveryToken = :tok${issued ? ', deliveryProof = :proof' : ''}`,
         ConditionExpression: 'attribute_exists(pk) AND claimed = :false',
         ExpressionAttributeValues: {
           ':true': { BOOL: true },
           ':false': { BOOL: false },
           ':tok': { S: JSON.stringify({ jwt, deviceId, householdId, expiresAt: tokenExpiresAt, ...(asFamily ? { kind: FAMILY_KIND } : {}) }) },
+          ...(issued ? { ':proof': { S: issued } } : {}),
         },
       }));
     } catch (err) {
@@ -145,10 +154,9 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
     // what makes a television the resident's (family-television.mjs) — and
     // says whose it is.
     //
-    // The proof is the pairing's: the hash this code was asked for with, or
-    // none. A television paired again brings its own, and the organiser
-    // entering the code on its screen is what makes it the right one.
-    const proofHash = item.proofHash?.S;
+    // The proof is the pairing's (above), or none. A television paired again
+    // brings its own, and the organiser entering the code on its screen is
+    // what makes it the right one.
     await send(new UpdateItemCommand({
       TableName: table,
       Key: asFamily ? familyTelevisionKey(householdId, deviceId) : { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
