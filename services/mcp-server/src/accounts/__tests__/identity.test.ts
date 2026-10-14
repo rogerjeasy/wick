@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ConfirmForgotPasswordCommand,
   ConfirmSignUpCommand,
+  DeleteUserCommand,
   ForgotPasswordCommand,
   InitiateAuthCommand,
   SignUpCommand,
@@ -133,5 +134,33 @@ describe('a forgotten password', () => {
     const { identity } = cognito(awsError('LimitExceededException'));
 
     await expect(identity.forgotPassword({ email: 'a@b.co' })).rejects.toMatchObject({ code: 'too_many_attempts' });
+  });
+});
+
+describe('deleting an account', () => {
+  it('signs in with the password once more, and deletes that user with its own access token — never as an administrator', async () => {
+    const { sent, identity } = cognito({ AuthenticationResult: { IdToken: idToken({ sub: 'u1' }), AccessToken: 'the-persons-own-token' } });
+
+    await identity.deleteAccount({ email: ' Sarah@Example.com', password: 'correct horse battery' });
+
+    expect(sent[0]).toBeInstanceOf(InitiateAuthCommand);
+    expect(sent[0]!.input).toMatchObject({ AuthFlow: 'USER_PASSWORD_AUTH', AuthParameters: { USERNAME: 'sarah@example.com', PASSWORD: 'correct horse battery' } });
+    expect(sent[1]).toBeInstanceOf(DeleteUserCommand);
+    expect(sent[1]!.input).toEqual({ AccessToken: 'the-persons-own-token' });
+    expect(sent).toHaveLength(2);
+  });
+
+  it('deletes nothing for a wrong password, and says so as sign-in would', async () => {
+    const { sent, identity } = cognito(awsError('NotAuthorizedException'));
+
+    await expect(identity.deleteAccount({ email: 'sarah@example.com', password: 'wrong' })).rejects.toMatchObject({ code: 'wrong_credentials' });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('deletes nothing when Cognito hands back a challenge instead of a token', async () => {
+    const { sent, identity } = cognito({ AuthenticationResult: undefined });
+
+    await expect(identity.deleteAccount({ email: 'sarah@example.com', password: 'pw' })).rejects.toBeInstanceOf(IdentityError);
+    expect(sent).toHaveLength(1);
   });
 });

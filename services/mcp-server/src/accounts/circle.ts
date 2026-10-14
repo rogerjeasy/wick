@@ -209,7 +209,8 @@ export async function createInvitation(deps: CircleDeps, actor: { householdId: s
     createdAt: now,
     expiresAt: now + INVITATION_TTL_MS,
   };
-  await deps.store.putRecord('INV', invitation.code, invitation, invitation.expiresAt);
+  // Filed under the organiser who made it: it is in their export, and goes with their account.
+  await deps.store.putRecord('INV', invitation.code, invitation, invitation.expiresAt, actor.userId);
   return invitation;
 }
 

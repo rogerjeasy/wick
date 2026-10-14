@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error — a plain browser module, deliberately untyped (no build step).
 import {
   CAPTURE_WORKLET_NAME,
-  CAPTURE_WORKLET_SOURCE,
+  CAPTURE_WORKLET_URL,
   HEAR_CONTENT_TYPE,
   HEAR_MAX_MS,
   HEAR_SAMPLE_RATE,
@@ -185,10 +185,14 @@ describe('the control is offered only where a microphone can be asked for', () =
   });
 
   it('captures with an AudioWorklet, and a ScriptProcessor where there is none', () => {
-    expect(main).toMatch(/context\.audioWorklet\.addModule\(url\)/);
+    expect(main).toMatch(/context\.audioWorklet\.addModule\(CAPTURE_WORKLET_URL\)/);
     expect(main).toMatch(/new AudioWorkletNode\(context, CAPTURE_WORKLET_NAME/);
     expect(main).toMatch(/context\.createScriptProcessor\(4096, 1, 1\)/);
-    expect(CAPTURE_WORKLET_SOURCE).toContain(`registerProcessor('${CAPTURE_WORKLET_NAME}'`);
+    // A file of the page's own, which the page's CSP allows; never a blob: address, which it does not.
+    expect(CAPTURE_WORKLET_URL).toBe('./capture-worklet.js');
+    const worklet = readFileSync(new URL('../capture-worklet.js', import.meta.url), 'utf8');
+    expect(worklet).toContain(`registerProcessor('${CAPTURE_WORKLET_NAME}'`);
+    expect(main).not.toMatch(/createObjectURL\(new Blob\(\[CAPTURE/);
     // Not the browser's own recogniser, which would send the sound somewhere else.
     expect(main).not.toMatch(/SpeechRecognition/);
   });

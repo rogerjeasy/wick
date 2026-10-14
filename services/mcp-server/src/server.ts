@@ -30,6 +30,7 @@ import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { CardPatch, DemoDoorEvent } from '@wick/contracts';
 import { createAuth } from './auth.js';
 import { createApiRouter, type ClaimTelevision, type RingLinks } from './accounts/apiRouter.js';
+import { createAccountDataRouter } from './accounts/accountDataRouter.js';
 import { createFamilyTelevisionRouter } from './accounts/familyTelevisionRouter.js';
 import { checkAccess, type CircleDeps } from './accounts/circle.js';
 import { seedDemoHome } from './accounts/demoHome.js';
@@ -202,6 +203,26 @@ export interface AppDeps {
   readonly newId?: () => string;
 }
 
+/**
+ * What every answer of this server says about itself. The sign-in and
+ * Approve pages are never shown inside another site's frame — a framed
+ * Approve button is a press somebody else arranged — and nothing here is
+ * read as another type than it says. No address leaves in a Referer: an
+ * invitation's code and an authorization code both travel in one. Over
+ * HTTPS, a browser is told to come back no other way for a year.
+ */
+export function securityHeaders(issuerUrl: URL): express.RequestHandler {
+  const https = issuerUrl.protocol === 'https:';
+  return (_req, res, next) => {
+    res.setHeader('x-content-type-options', 'nosniff');
+    res.setHeader('x-frame-options', 'DENY');
+    res.setHeader('content-security-policy', "frame-ancestors 'none'");
+    res.setHeader('referrer-policy', 'no-referrer');
+    if (https) res.setHeader('strict-transport-security', 'max-age=31536000');
+    next();
+  };
+}
+
 export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   const { ddb } = deps;
   const circle: CircleDeps = {
@@ -226,14 +247,27 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   // no more: the address used is the one App Runner itself appended, which a
   // caller cannot forge. Locally (http) there is no proxy, and none is trusted.
   if (issuerUrl.protocol === 'https:') app.set('trust proxy', 1);
+  app.use(securityHeaders(issuerUrl));
   app.use(express.json());
   app.use(authRouter);
+  const push = createPushStore(ddb, process.env.TABLE_NAME ?? 'wick');
+  // A person's own data: the file of it, and their account's deletion (accounts/myData.ts). Before the
+  // rest of /api, so the one sign-in check is this router's.
+  app.use(createAccountDataRouter({
+    store: deps.store,
+    ddb,
+    identity: deps.identity,
+    now: circle.now,
+    push,
+    ringLinks: deps.ringLinks,
+    photos: deps.photos?.objects,
+  }, requireAuth));
   app.use(createApiRouter(circle, requireAuth, {
     claimTelevision: deps.claimTelevision,
     ringLinks: deps.ringLinks,
     virtualTelevisionUrl: deps.virtualTelevisionUrl,
     timeZone: HOUSEHOLD_TZ,
-    push: createPushStore(ddb, process.env.TABLE_NAME ?? 'wick'),
+    push,
     // The language of her television (accounts/language.ts): a question the organiser can take back again.
     withdrawCard: deps.withdrawCard,
     // The mantelpiece: a picture reaches her television through the same sender as a note (INV-2).

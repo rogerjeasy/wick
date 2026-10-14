@@ -2,9 +2,12 @@
  * Who a person is: their email and password, kept by Amazon Cognito.
  *
  * Wick never stores a password and never sees one again after handing it to
- * Cognito over TLS. Everything here is one of Cognito's public,
- * unauthenticated client operations, so the server needs no IAM permission
- * for them — only the user pool's app client id.
+ * Cognito over TLS. Everything here is one of Cognito's public client
+ * operations, so the server needs no IAM permission for them — only the user
+ * pool's app client id. Deleting an account is one of them too: the person
+ * signs in once more with their password, and the access token Cognito hands
+ * back is what deletes their own user (`DeleteUser`). The server is never
+ * given the power to delete anybody else's (`AdminDeleteUser`).
  *
  * `send` is a CognitoIdentityProviderClient's send, injected so the exact
  * requests and the mapping of every failure are tested without AWS.
@@ -12,6 +15,7 @@
 import {
   ConfirmForgotPasswordCommand,
   ConfirmSignUpCommand,
+  DeleteUserCommand,
   ForgotPasswordCommand,
   InitiateAuthCommand,
   ResendConfirmationCodeCommand,
@@ -53,10 +57,16 @@ export interface IdentityProvider {
   /** Sends a reset code to the email. */
   forgotPassword(input: { email: string }): Promise<void>;
   resetPassword(input: { email: string; code: string; password: string }): Promise<void>;
+  /**
+   * Deletes the person's own user, once their password has been given again.
+   * `wrong_credentials` when it is not theirs — and when there is no such user
+   * any more, which is the same answer sign-in gives.
+   */
+  deleteAccount(input: { email: string; password: string }): Promise<void>;
 }
 
 export type CognitoSend = (command: { readonly input: object }) => Promise<{
-  AuthenticationResult?: { IdToken?: string | undefined } | undefined;
+  AuthenticationResult?: { IdToken?: string | undefined; AccessToken?: string | undefined } | undefined;
 }>;
 
 const ERROR_CODES: Readonly<Record<string, IdentityErrorCode>> = {
@@ -151,6 +161,18 @@ export function createCognitoIdentity(send: CognitoSend, clientId: string): Iden
         ConfirmationCode: code.trim(),
         Password: password,
       }));
+    },
+
+    async deleteAccount({ email, password }) {
+      const res = await call(new InitiateAuthCommand({
+        ClientId: clientId,
+        AuthFlow: 'USER_PASSWORD_AUTH',
+        AuthParameters: { USERNAME: normaliseEmail(email), PASSWORD: password },
+      }));
+      const accessToken = res.AuthenticationResult?.AccessToken;
+      if (!accessToken) throw new IdentityError('unavailable');
+      // The person's own token, just handed back for their own password: it deletes that user and nobody else.
+      await call(new DeleteUserCommand({ AccessToken: accessToken }));
     },
   };
 }

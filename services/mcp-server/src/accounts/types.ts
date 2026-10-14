@@ -102,4 +102,18 @@ export type RecordKind =
   | 'OAUTH#AT'
   | 'OAUTH#RT'
   | 'SESSION'
-  | 'INV';
+  | 'INV'
+  /** A deletion under way: the person's password was checked, and their Cognito user may already be gone (accounts/myData.ts). */
+  | 'DELETING';
+
+/**
+ * A keyed record somebody holds — a token, a sign-in, an invitation — found
+ * again by the person it is for (`AccountStore.listOwnedRecords`), so that
+ * all of them can be shown to that person and taken away with their account.
+ */
+export interface OwnedRecord {
+  readonly kind: RecordKind;
+  readonly id: string;
+  readonly value: unknown;
+  readonly expiresAt?: number;
+}

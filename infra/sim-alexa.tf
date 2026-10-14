@@ -113,6 +113,131 @@ resource "aws_s3_object" "sim_alexa_sw_js" {
   cache_control = "no-cache"
 }
 
+# The look of the page, out of index.html so that no inline style needs
+# allowing (the Content-Security-Policy below).
+resource "aws_s3_object" "sim_alexa_styles_css" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "styles.css"
+  source        = "${path.module}/../apps/sim-alexa/styles.css"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/styles.css")
+  content_type  = "text/css; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+# Your own account: the file of what Wick holds, and deleting it — what is
+# said, tested without a browser (apps/sim-alexa/__tests__/account.test.ts).
+resource "aws_s3_object" "sim_alexa_account_js" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "account.js"
+  source        = "${path.module}/../apps/sim-alexa/account.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/account.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+# Ask by voice's AudioWorklet, as a file of the page's own: the policy below
+# runs no script from a blob: address.
+resource "aws_s3_object" "sim_alexa_capture_worklet_js" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "capture-worklet.js"
+  source        = "${path.module}/../apps/sim-alexa/capture-worklet.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/capture-worklet.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+# The web app manifest and its icons: what lets a telephone add the family
+# app to its home screen — and an iPhone receives Web Push only from an app
+# added there. The icons are made by scripts/make-brand-assets.py.
+resource "aws_s3_object" "sim_alexa_manifest" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "manifest.webmanifest"
+  source        = "${path.module}/../apps/sim-alexa/manifest.webmanifest"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/manifest.webmanifest")
+  content_type  = "application/manifest+json; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "sim_alexa_icons" {
+  for_each      = fileset("${path.module}/../apps/sim-alexa/icons", "*.png")
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "icons/${each.value}"
+  source        = "${path.module}/../apps/sim-alexa/icons/${each.value}"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/icons/${each.value}")
+  content_type  = "image/png"
+  cache_control = "max-age=86400"
+}
+
+# ---------------------------------------------------------------------------
+# What the browser is told about the page, on every answer CloudFront gives.
+#
+# Content-Security-Policy, from infra/csp/family-app.csp (one directive per
+# line; the local dev server sends the same file with its own addresses, so
+# the app is always run under it). Scripts and styles come from this site
+# alone, and from one file on jsDelivr: hls.js 1.5.17, which is also loaded
+# with Subresource Integrity. There is no 'unsafe-inline' and no
+# 'unsafe-eval' anywhere. It connects to the Wick server and the films and
+# nowhere else. The one wide directive is img-src https:, and on purpose: a
+# door's picture comes from Ring's media host, which Ring does not name and
+# reaches by a redirect (FRICTION.md FL-005), and an image runs no code.
+# media-src and worker-src allow blob: because hls.js plays through Media
+# Source Extensions and demuxes in a worker made from a Blob.
+#
+# Permissions-Policy: the microphone for this site only (Ask by voice asks
+# for it on a press), and no camera, place or payment for anyone.
+# Strict-Transport-Security for a year; the page is never framed, never
+# sniffed, and sends no Referer — an invitation's code and an authorization
+# code both arrive in its address.
+# ---------------------------------------------------------------------------
+
+locals {
+  sim_alexa_wick_servers = distinct([
+    "https://${aws_apprunner_service.mcp_server.service_url}",
+    var.mcp_issuer_url,
+  ])
+  sim_alexa_csp = replace(trimspace(templatefile("${path.module}/csp/family-app.csp", {
+    wick_server = join(" ", compact(local.sim_alexa_wick_servers))
+    films       = "https://${aws_cloudfront_distribution.programmes.domain_name}"
+  })), "\n", " ")
+}
+
+resource "aws_cloudfront_response_headers_policy" "sim_alexa" {
+  name    = "${local.prefix}-sim-alexa-security"
+  comment = "Wick family app: CSP, HSTS, no framing, no sniffing, no referrer, microphone for itself only"
+
+  security_headers_config {
+    content_security_policy {
+      content_security_policy = local.sim_alexa_csp
+      override                = true
+    }
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = false
+      preload                    = false
+      override                   = true
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+    content_type_options {
+      override = true
+    }
+    referrer_policy {
+      referrer_policy = "no-referrer"
+      override        = true
+    }
+  }
+
+  custom_headers_config {
+    items {
+      header   = "Permissions-Policy"
+      value    = "microphone=(self), camera=(), geolocation=(), payment=(), usb=()"
+      override = true
+    }
+  }
+}
+
 resource "aws_cloudfront_origin_access_control" "sim_alexa" {
   name                              = "${local.prefix}-sim-alexa"
   origin_access_control_origin_type = "s3"
@@ -136,6 +261,8 @@ resource "aws_cloudfront_distribution" "sim_alexa" {
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = "sim-alexa-s3"
     viewer_protocol_policy = "redirect-to-https"
+    # The security headers above, on every answer.
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.sim_alexa.id
 
     forwarded_values {
       query_string = false

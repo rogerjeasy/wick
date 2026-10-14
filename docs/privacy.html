@@ -18,7 +18,7 @@
 </head>
 <body>
 <h1>Wick — Privacy Policy</h1>
-<p class="sub">Last updated: 14 September 2026</p>
+<p class="sub">Last updated: 14 October 2026</p>
 
 <p>Wick turns a television into a care surface for the person being cared for. It is
 built on a simple commitment: the resident is the user, not the subject. This
@@ -62,11 +62,60 @@ never as raw logs. The resident sees their own weekly narrative <em>before</em> 
 family member can read it, and can permanently remove anything from what is shared
 using a single button on their own television.</p>
 
+<h2>What Wick holds about a family member</h2>
+<p>A family member signs in with an email address and a password, or tries Wick
+as a guest with neither. Wick keeps:</p>
+<ul>
+  <li><strong>Your account</strong>: your name and email. Your password is kept by
+      Amazon Cognito; Wick never stores it.</li>
+  <li><strong>Your place in each family circle</strong>: the name the person at
+      home sees, your role, and whether they have allowed you.</li>
+  <li><strong>What you sent</strong>: notes and their replies, pictures (and
+      whether she has seen each), invitations, visits you said you would make,
+      a television you connected as your own.</li>
+  <li><strong>Sign-ins</strong>: the tokens the family app holds, and the
+      browsers you asked to be told on. Only a digest of each token is stored.</li>
+</ul>
+
 <h2>How long data is kept</h2>
-<p>Door images are discarded within 24 hours, enforced by storage policy rather
-than by application code. Events and derived facts are retained for 90 days by
-default and can be set lower. Rhythm baselines are statistical and contain no
-content.</p>
+<ul>
+  <li><strong>Door images</strong> are discarded within 24 hours, enforced by
+      storage policy rather than by application code.</li>
+  <li><strong>Sign-ins</strong>: an access token lasts one hour, a refresh token
+      and the sign-in page's cookie 30 days. Signing out of the family app ends
+      both tokens and the cookie at once.</li>
+  <li><strong>Invitations</strong> expire after 7 days.</li>
+  <li><strong>Pictures</strong>: a picture she lets go of is deleted within a day;
+      one never answered, after about 13 months; one she keeps, when she takes it
+      down. A reading of a card aloud is kept one day.</li>
+  <li><strong>Your account</strong> is kept until you delete it.</li>
+  <li><strong>Backups</strong>: the database keeps point-in-time backups for 35
+      days, so anything deleted is gone from them 35 days later.</li>
+</ul>
+<p>Events and derived facts are retained for 90 days by default and can be set
+lower. Rhythm baselines are statistical and contain no content.</p>
+
+<h2>Download your data, or delete your account</h2>
+<p>In the family app, press <strong>Account</strong> (or say “my account”):</p>
+<ul>
+  <li><strong>Download my data</strong> gives you a JSON file of everything above
+      that Wick holds about you. It contains no password, code or token.</li>
+  <li><strong>Delete my account</strong> asks for your password again (a guest has
+      none), names what goes, and then deletes at once: your account and your
+      Cognito sign-in, every token and sign-in on every device, the browsers kept
+      to tell you, your place in each circle, the visits you announced and any
+      television you connected as your own.</li>
+</ul>
+<p><strong>A home is never left without the person who set it up.</strong> If
+you set up a home, deleting your account closes it, and the app asks you to
+choose that in so many words first. Closing a home disconnects its Ring doorbell
+and its televisions (the resident's shows its pairing code again), removes
+everyone from its circle, and deletes everything Wick holds about it — its
+notes, pictures, weeks and history. If the doorbell cannot be disconnected,
+nothing is deleted and you are asked to try again.</p>
+<p>A note or a picture you sent to a home somebody else set up was given to the
+person who lives there: it stays with that home, and is deleted when that home
+is closed. It is listed in your download.</p>
 
 <h2>Where data is processed</h2>
 <p>Amazon Web Services. Conversational context is processed on equipment inside
@@ -75,9 +124,10 @@ the household; only derived facts are transmitted.</p>
 <h2>Your rights</h2>
 <p>The resident may withdraw at any time, for any reason, without explanation.
 Withdrawal deletes everything — events, derived facts, rhythm baselines, stored
-media and agent memory. It is a single action and is not negotiated. Residents and
-connected family members may also request access to, correction of, or export of
-the information held about them.</p>
+media and agent memory. It is a single action and is not negotiated. Family members can
+download what Wick holds about them, and delete their account, themselves in the
+family app (above); they may also ask for correction through the contact
+address.</p>
 
 <h2>Children</h2>
 <p>Wick is not designed for or directed at children and does not knowingly collect

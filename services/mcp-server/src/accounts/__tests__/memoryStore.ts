@@ -5,7 +5,7 @@
  */
 import { DEFAULT_LANGUAGE, LANGUAGE_ASK_AFTER_TAKING_BACK_MS, LANGUAGE_ASK_AGAIN_AFTER_MS } from '@wick/contracts';
 import { HouseholdExistsError, type AccountStore } from '../store.js';
-import type { FamilyTelevision, Household, Membership, Television, User } from '../types.js';
+import type { FamilyTelevision, Household, Membership, OwnedRecord, RecordKind, Television, User } from '../types.js';
 
 export interface MemoryStore extends AccountStore {
   /** Pretend a television was paired, as pair-claim.mjs would have done. */
@@ -32,7 +32,7 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
   const memberships = new Map<string, Membership>();
   const televisions = new Map<string, Television[]>();
   const familyTelevisions = new Map<string, FamilyTelevision[]>();
-  const records = new Map<string, { value: string; expiresAt: number | undefined }>();
+  const records = new Map<string, { value: string; expiresAt: number | undefined; owner?: { userId: string; kind: RecordKind; id: string } }>();
 
   const memberKey = (householdId: string, userId: string) => `${householdId}/${userId}`;
   const live = <T>(key: string): T | undefined => {
@@ -158,8 +158,8 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
       // One row per television, as the table's key makes it: connecting it again replaces whose it was.
       familyTelevisions.set(householdId, [...(familyTelevisions.get(householdId) ?? []).filter((held) => held.deviceId !== tv.deviceId), tv]);
     },
-    async putRecord(kind, id, value, expiresAt) {
-      records.set(`${kind}#${id}`, { value: JSON.stringify(value), expiresAt });
+    async putRecord(kind, id, value, expiresAt, ownerId) {
+      records.set(`${kind}#${id}`, { value: JSON.stringify(value), expiresAt, ...(ownerId === undefined ? {} : { owner: { userId: ownerId, kind, id } }) });
     },
     async getRecord<T>(kind: string, id: string) {
       return live<T>(`${kind}#${id}`);
@@ -172,6 +172,25 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
     },
     async deleteRecord(kind, id) {
       records.delete(`${kind}#${id}`);
+    },
+    async listOwnedRecords(userId) {
+      return [...records.entries()].flatMap(([key, record]): OwnedRecord[] => {
+        if (record.owner?.userId !== userId) return [];
+        const value = live<unknown>(key);
+        if (value === undefined) return [];
+        return [{ kind: record.owner.kind, id: record.owner.id, value, ...(record.expiresAt === undefined ? {} : { expiresAt: record.expiresAt }) }];
+      });
+    },
+    async deleteUser(userId) {
+      users.delete(userId);
+    },
+    async deleteMembership(householdId, userId) {
+      memberships.delete(memberKey(householdId, userId));
+    },
+    async deleteHousehold(householdId) {
+      households.delete(householdId);
+      televisions.delete(householdId);
+      familyTelevisions.delete(householdId);
     },
   };
 }

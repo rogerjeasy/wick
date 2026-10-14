@@ -31,6 +31,7 @@ import {
   resetPage,
   signInPage,
   signUpPage,
+  signedOutPage,
   verifyPage,
   type ConsentHousehold,
 } from './pages.js';
@@ -127,7 +128,8 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
 
   const setSession = async (res: Response, who: Identity): Promise<void> => {
     const token = randomToken();
-    await store.putRecord('SESSION', hashToken(token), who, now() + SESSION_TTL_MS);
+    // Filed under the person too: deleting their account ends every browser's sign-in (myData.ts).
+    await store.putRecord('SESSION', hashToken(token), who, now() + SESSION_TTL_MS, who.userId);
     res.setHeader(
       'set-cookie',
       `${SESSION_COOKIE}=${token}; Path=/account; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? '; Secure' : ''}`,
@@ -334,12 +336,40 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     }
   });
 
-  router.post('/account/sign-out', async (req, res) => {
-    const tx = field(req, 'tx');
+  /** Forgets this browser's sign-in: the row it names, and the cookie. */
+  const endSession = async (req: Request, res: Response): Promise<void> => {
     const token = readCookie(req, SESSION_COOKIE);
     if (token) await store.deleteRecord('SESSION', hashToken(token));
     res.setHeader('set-cookie', `${SESSION_COOKIE}=; Path=/account; HttpOnly; SameSite=Lax; Max-Age=0${secure ? '; Secure' : ''}`);
+  };
+
+  router.post('/account/sign-out', async (req, res) => {
+    const tx = field(req, 'tx');
+    await endSession(req, res);
     back(res, tx);
+  });
+
+  /**
+   * Signing out of the family app, last of all. The app has already revoked
+   * its own tokens (/revoke); what is left is this server's sign-in cookie,
+   * which would otherwise have the next person to press "Sign in" on this
+   * browser approved as the last one with a single press. The cookie is
+   * SameSite=Lax and lives on this server's origin, so only a page the
+   * browser itself goes to — never the app's own fetch — is sent it and can
+   * clear it: the app goes here, and is sent back.
+   *
+   * Back only to an address the app registered as its own (`redirect_uris`),
+   * the same addresses /authorize would send it to; anything else ends on a
+   * page that says it is done. Signing somebody out is all a link to this
+   * can do.
+   */
+  router.get('/account/sign-out', async (req, res) => {
+    await endSession(req, res);
+    const clientId = typeof req.query.client_id === 'string' ? req.query.client_id : '';
+    const redirectUri = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : '';
+    const client = clientId ? await oauth.provider.clientsStore.getClient(clientId) : undefined;
+    if (redirectUri && client?.redirect_uris.some((uri) => String(uri) === redirectUri)) return res.redirect(303, redirectUri);
+    html(res, signedOutPage());
   });
 
   router.post('/account/household', async (req, res) => {

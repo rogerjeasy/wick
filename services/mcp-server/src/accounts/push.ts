@@ -32,6 +32,10 @@ export interface PushStore {
   publicKey(): Promise<string | undefined>;
   save(userId: string, subscription: BrowserSubscription, now: number): Promise<void>;
   remove(userId: string, endpoint: string): Promise<void>;
+  /** The browsers kept for this person, oldest first: what their export says about them (accounts/myData.ts). */
+  list(userId: string): Promise<{ readonly endpoint: string; readonly savedAt: number }[]>;
+  /** Every browser kept for this person: their account is being deleted. */
+  removeAll(userId: string): Promise<void>;
 }
 
 /** A laptop, a telephone, a tablet and two to spare. One press at the door nudges at most this many per person. */
@@ -58,6 +62,13 @@ export function pushSubscriptionSk(endpoint: string): string {
 
 export function createPushStore(ddb: DynamoDBClient, table: string): PushStore {
   const userPk = (userId: string) => ({ S: `USER#${userId}` });
+  /** A person's browsers, as rows. At most MAX_BROWSERS_PER_PERSON and a moment's extra: one page holds them. */
+  const held = async (userId: string) =>
+    (await ddb.send(new QueryCommand({
+      TableName: table,
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: { ':pk': userPk(userId), ':prefix': { S: PUSH_SK_PREFIX } },
+    }))).Items ?? [];
 
   return {
     async publicKey() {
@@ -91,6 +102,18 @@ export function createPushStore(ddb: DynamoDBClient, table: string): PushStore {
 
     async remove(userId, endpoint) {
       await ddb.send(new DeleteItemCommand({ TableName: table, Key: { pk: userPk(userId), sk: { S: pushSubscriptionSk(endpoint) } } }));
+    },
+
+    async list(userId) {
+      return (await held(userId))
+        .flatMap((row) => (row.endpoint?.S ? [{ endpoint: row.endpoint.S, savedAt: Number(row.savedAt?.N ?? 0) }] : []))
+        .sort((a, b) => a.savedAt - b.savedAt);
+    },
+
+    async removeAll(userId) {
+      for (const row of await held(userId)) {
+        if (row.sk?.S) await ddb.send(new DeleteItemCommand({ TableName: table, Key: { pk: userPk(userId), sk: { S: row.sk.S } } }));
+      }
     },
   };
 }

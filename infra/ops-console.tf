@@ -119,6 +119,64 @@ resource "aws_s3_object" "ops_console_device_js" {
   cache_control = "no-cache"
 }
 
+# ---------------------------------------------------------------------------
+# What the browser is told about these pages, on every answer: the same
+# headers as the family app's (infra/sim-alexa.tf, where each is explained),
+# with infra/csp/ops-console.csp for the policy. A television in a tab talks
+# to the edge API to pair, to its WebSocket for the cards, to the Wick server
+# for a family member's own television, and to the films; it plays Read to
+# me from the media bucket (a presigned address). It has no microphone.
+# ---------------------------------------------------------------------------
+
+locals {
+  ops_console_csp = replace(trimspace(templatefile("${path.module}/csp/ops-console.csp", {
+    edge_api  = aws_apigatewayv2_api.edge.api_endpoint
+    websocket = replace(aws_apigatewayv2_stage.transport.invoke_url, "/^(wss://[^/]+).*$/", "$1")
+    # The issuer setting, not the service's own address: the service is told this site's address
+    # (WICK_VIRTUAL_TV_URL), so naming it here would make each wait for the other.
+    wick_server = var.mcp_issuer_url != "" ? var.mcp_issuer_url : "https://*.awsapprunner.com"
+    films       = "https://${aws_cloudfront_distribution.programmes.domain_name}"
+    speech      = "https://${aws_s3_bucket.media.bucket}.s3.${local.region}.amazonaws.com"
+  })), "\n", " ")
+}
+
+resource "aws_cloudfront_response_headers_policy" "ops_console" {
+  name    = "${local.prefix}-ops-console-security"
+  comment = "Wick ops console and virtual television: CSP, HSTS, no framing, no sniffing, no referrer"
+
+  security_headers_config {
+    content_security_policy {
+      content_security_policy = local.ops_console_csp
+      override                = true
+    }
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = false
+      preload                    = false
+      override                   = true
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+    content_type_options {
+      override = true
+    }
+    referrer_policy {
+      referrer_policy = "no-referrer"
+      override        = true
+    }
+  }
+
+  custom_headers_config {
+    items {
+      header   = "Permissions-Policy"
+      value    = "microphone=(), camera=(), geolocation=(), payment=(), usb=()"
+      override = true
+    }
+  }
+}
+
 resource "aws_cloudfront_origin_access_control" "ops_console" {
   name                              = "${local.prefix}-ops-console"
   origin_access_control_origin_type = "s3"
@@ -142,6 +200,8 @@ resource "aws_cloudfront_distribution" "ops_console" {
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = "ops-console-s3"
     viewer_protocol_policy = "redirect-to-https"
+    # The security headers above, on every answer.
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.ops_console.id
 
     forwarded_values {
       query_string = false

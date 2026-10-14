@@ -165,8 +165,9 @@ import { LinkError, createLinkService } from '../../../edge-ring/lambda/househol
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate } from '../../../edge-device/lambda/watch-together.mjs';
 
-const API_PORT = 3300;
-const APP_PORT = 4173;
+// Other ports, for a second copy beside one already running: WICK_DEV_API_PORT, WICK_DEV_APP_PORT.
+const API_PORT = Number(process.env.WICK_DEV_API_PORT ?? 3300);
+const APP_PORT = Number(process.env.WICK_DEV_APP_PORT ?? 4173);
 // The family app's player fetches the films through this server here (see /dev/programmes below).
 process.env.WICK_PROGRAMMES_ORIGIN ??= `http://127.0.0.1:${API_PORT}/dev/programmes`;
 const store = createMemoryStore();
@@ -852,18 +853,53 @@ app.get('/dev/allow', async (_req, res) => {
 app.listen(API_PORT, () => console.log(`Wick server (in memory) on http://127.0.0.1:${API_PORT}`));
 
 const appDir = fileURLToPath(new URL('../../../../apps/sim-alexa/', import.meta.url));
-const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8' };
+const TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.png': 'image/png',
+};
 /** Published beside the page when deployed (infra/sim-alexa.tf); served from where it lives here. */
 const ADDON_MANIFEST = fileURLToPath(new URL('../../../../addon-package/addon.json', import.meta.url));
+
+/**
+ * The family app's Content-Security-Policy, from the very file CloudFront
+ * sends it from (infra/csp/family-app.csp), with this machine's addresses:
+ * the app is run here under the policy it is deployed with, and a page that
+ * breaks it says so in the browser's console. WICK_DEV_CSP=off sends none.
+ */
+const CSP_TEMPLATE = fileURLToPath(new URL('../../../../infra/csp/family-app.csp', import.meta.url));
+const FAMILY_APP_CSP =
+  process.env.WICK_DEV_CSP === 'off'
+    ? undefined
+    : (await readFile(CSP_TEMPLATE, 'utf8'))
+        .trim()
+        .replace(/\$\{wick_server\}/g, `http://127.0.0.1:${API_PORT}`)
+        .replace(/\$\{films\}/g, new URL(process.env.WICK_PROGRAMMES_ORIGIN!).origin)
+        .replace(/\n/g, ' ');
+/** The rest of what CloudFront says about the page (infra/sim-alexa.tf); no HSTS over plain HTTP. */
+const FAMILY_APP_HEADERS: Record<string, string> = {
+  ...(FAMILY_APP_CSP ? { 'content-security-policy': FAMILY_APP_CSP } : {}),
+  'permissions-policy': 'microphone=(self), camera=(), geolocation=(), payment=(), usb=()',
+  'x-frame-options': 'DENY',
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'no-referrer',
+};
 
 createServer(async (req, res) => {
   const path = new URL(req.url ?? '/', 'http://x').pathname;
   const file = path === '/' ? 'index.html' : path.slice(1);
+  // Only this directory's own files, as the bucket holds them.
+  if (file.split('/').includes('..')) return void res.writeHead(404).end('not found');
   try {
-    const body = await readFile(file === 'addon.json' ? ADDON_MANIFEST : join(appDir, file));
-    res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+    let body: Buffer | string = await readFile(file === 'addon.json' ? ADDON_MANIFEST : join(appDir, file));
+    // The default server, as infra/sim-alexa.tf rewrites it for the deployed copy.
+    if (file === 'index.html') body = body.toString('utf8').replace('http://127.0.0.1:3300', `http://127.0.0.1:${API_PORT}`);
+    res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store', ...FAMILY_APP_HEADERS });
     res.end(body);
   } catch {
     res.writeHead(404).end('not found');
   }
-}).listen(APP_PORT, () => console.log(`Family app on http://127.0.0.1:${APP_PORT}`));
+}).listen(APP_PORT, () => console.log(`Family app on http://127.0.0.1:${APP_PORT}${FAMILY_APP_CSP ? ', under its Content-Security-Policy' : ''}`));

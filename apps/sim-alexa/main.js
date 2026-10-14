@@ -56,8 +56,18 @@ import {
   watchToAnnounce,
 } from './surface.js';
 import {
+  DELETED_SAID,
+  EXPORT_SAID,
+  exportFileName,
+  isAboutMyAccount,
+  presentAccount,
+  presentDeletion,
+  revocationBody,
+  signOutAddress,
+} from './account.js';
+import {
   CAPTURE_WORKLET_NAME,
-  CAPTURE_WORKLET_SOURCE,
+  CAPTURE_WORKLET_URL,
   HEAR_CONTENT_TYPE,
   HEAR_MAX_MS,
   HOLD_MS,
@@ -111,6 +121,7 @@ function enableToolButtons(enabled) {
   for (const el of document.querySelectorAll('.chip, #ask-input, #ask-send, #ask-voice')) el.disabled = !enabled;
   $('link-card').hidden = enabled;
   $('sign-out').hidden = !enabled;
+  if ($('account')) $('account').hidden = !enabled;
 }
 
 async function discoverAuthServer(serverUrl) {
@@ -2733,6 +2744,8 @@ async function handleUtterance(text) {
   if (routeUtterance(text).kind === 'standin') return void showStandInDoorbell();
   // And so are this browser's notifications.
   if (routeUtterance(text).kind === 'notifications') return void showNotifications();
+  // And so is one's own account: the file of it, and deleting it.
+  if (isAboutMyAccount(text)) return void showAccount();
   if (noAssistant) return answerByRules(text);
 
   answering = true;
@@ -2866,12 +2879,8 @@ async function startListening() {
   const frames = [];
   let node;
   try {
-    const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET_SOURCE], { type: 'application/javascript' }));
-    try {
-      await context.audioWorklet.addModule(url);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    // A file of this page's own, not a blob: the page's Content-Security-Policy runs scripts from here and nowhere else.
+    await context.audioWorklet.addModule(CAPTURE_WORKLET_URL);
     node = new AudioWorkletNode(context, CAPTURE_WORKLET_NAME, { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
     node.port.onmessage = (event) => frames.push(event.data);
   } catch {
@@ -2994,8 +3003,199 @@ $('sign-out').addEventListener('click', async () => {
   // While the link still stands, so the server forgets this browser too:
   // the next person to sign in here must not be told about this home.
   await forgetThisBrowser({ tellServer: true });
+  const ended = link;
+  // Both tokens end at the server, not only in this page's memory: an hour's
+  // access and a month's refresh would otherwise go on working for whoever
+  // copied them.
+  await revokeTokens(ended);
   signedOut('Not connected');
-  window.location.replace(redirectUri());
+  // Last, the server's own sign-in cookie, which only a page the browser goes to can clear. It sends the browser back here.
+  window.location.replace(ended ? signOutAddress(ended.serverUrl, ended.clientId, redirectUri()) : redirectUri());
+});
+
+/**
+ * Revokes the link's refresh and access tokens (RFC 7009) at the server's
+ * revocation endpoint, as the public client they were issued to. Best
+ * effort, and quick: signing out goes on whatever the answer.
+ */
+async function revokeTokens(ended) {
+  if (!ended?.clientId) return;
+  let endpoint = `${ended.serverUrl}/revoke`;
+  try {
+    endpoint = (await discoverAuthServer(ended.serverUrl)).revocation_endpoint ?? endpoint;
+  } catch {
+    // The usual address, then.
+  }
+  const revoke = (token, hint) =>
+    token
+      ? fetchWithin(REQUEST_LIMITS_MS.api, endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: revocationBody(token, hint, ended.clientId),
+        })
+      : Promise.resolve();
+  // The refresh token first: it is the one that would make new access tokens.
+  await Promise.allSettled([revoke(ended.refreshToken, 'refresh_token'), revoke(ended.accessToken, 'access_token')]);
+}
+
+// ---------------------------------------------------------------------------
+// Your own account: the file of everything Wick holds about you, and deleting
+// the account. What is said is decided in account.js; what goes, and the rule
+// that a home is never left without the person who set it up, is the
+// server's (services/mcp-server/src/accounts/myData.ts).
+// ---------------------------------------------------------------------------
+
+function showAccount() {
+  if (!me) return;
+  const view = presentAccount(me);
+  const turn = assistantSays({ say: view.say, tone: 'answer' });
+  const { card, body } = plainCard(view.title, view.footnote);
+  const rows = el('ul', 'rows');
+  for (const row of view.rows) {
+    const item = el('li', 'row');
+    item.append(el('span', 'primary', row.primary), el('span', 'secondary', row.secondary));
+    rows.appendChild(item);
+  }
+  body.appendChild(rows);
+  const actions = el('div', 'actions');
+  const download = el('button', 'btn', view.download);
+  download.type = 'button';
+  const remove = el('button', 'btn quiet', view.remove);
+  remove.type = 'button';
+  actions.append(download, remove);
+  const problem = el('p', 'problem');
+  problem.setAttribute('role', 'alert');
+  body.append(actions, problem);
+  turn.appendChild(card);
+  scrollToEnd();
+
+  download.addEventListener('click', async () => {
+    download.disabled = true;
+    problem.textContent = '';
+    try {
+      await downloadMyData();
+      assistantSays({ say: EXPORT_SAID, tone: 'answer' });
+    } catch (err) {
+      problem.textContent = err.message;
+    } finally {
+      download.disabled = false;
+    }
+  });
+  remove.addEventListener('click', () => void askBeforeDeleting());
+}
+
+/** The file, saved by the browser as a download. Asked for with the token, so it cannot be a plain link. */
+async function downloadMyData() {
+  const res = await authorizedFetch('/api/account/export');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? 'Your data could not be put together just now. Try again in a moment.');
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const save = el('a');
+  save.href = url;
+  save.download = exportFileName(res.headers.get('content-disposition'));
+  document.body.appendChild(save);
+  save.click();
+  save.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** What deleting would take, said in full, with the password asked again and the way out focused. */
+async function askBeforeDeleting() {
+  const thinking = addThinking();
+  let plan;
+  try {
+    plan = await api('/api/account/deletion');
+  } catch (err) {
+    fillAssistantTurn(thinking, { say: err.message, card: null, tone: 'error' });
+    return;
+  }
+  thinking.remove();
+  const view = presentDeletion(plan, me);
+  const turn = el('div', 'turn-assistant');
+  const { card, body } = plainCard(view.title, view.footnote);
+  body.appendChild(el('p', undefined, view.lead));
+  const goes = el('ul', 'rows');
+  for (const line of view.goes) goes.appendChild(el('li', 'row stacked', line));
+  body.appendChild(goes);
+  if (view.stays) body.appendChild(el('p', 'empty', view.stays));
+
+  const form = el('form', 'form');
+  let password;
+  if (view.password) {
+    // Whose password it is, for the browser's password manager: not shown, and not sent.
+    const username = el('input');
+    username.type = 'email';
+    username.autocomplete = 'username';
+    username.value = me?.user?.email ?? '';
+    username.hidden = true;
+    form.appendChild(username);
+    const label = el('label', undefined, view.passwordLabel);
+    password = el('input');
+    password.type = 'password';
+    password.autocomplete = 'current-password';
+    password.required = true;
+    label.appendChild(password);
+    form.appendChild(label);
+  }
+  const actions = el('div', 'actions');
+  const keep = el('button', 'btn quiet', view.cancel);
+  keep.type = 'button';
+  const go = el('button', 'btn final', view.confirm);
+  go.type = 'submit';
+  actions.append(keep, go);
+  const problem = el('p', 'problem');
+  problem.setAttribute('role', 'alert');
+  form.append(actions, problem);
+  body.appendChild(form);
+  turn.appendChild(card);
+  log.appendChild(turn);
+  // The question at the top, where its first line can be read.
+  log.scrollTop = turn.offsetTop - 12;
+  // A press made without reading deletes nothing: the way out has the focus, and the question stays in sight.
+  keep.focus({ preventScroll: true });
+
+  keep.addEventListener('click', () => {
+    turn.remove();
+    $('ask-input').focus();
+  });
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    go.disabled = true;
+    problem.textContent = '';
+    try {
+      await api('/api/account', {
+        method: 'DELETE',
+        body: JSON.stringify({ ...(password ? { password: password.value } : {}), ...(view.closeHomes ? { closeHomes: true } : {}) }),
+      });
+    } catch (err) {
+      problem.textContent = err.message;
+      go.disabled = false;
+      return;
+    }
+    await accountDeleted();
+  });
+}
+
+/** Kept across the trip to the server's sign-out and back, to be said when the page comes back. */
+const FAREWELL_KEY = 'wick_farewell';
+
+/** Everything this browser held for the account goes too, and the server's sign-in cookie with it. */
+async function accountDeleted() {
+  const ended = link;
+  await forgetThisBrowser({ tellServer: false });
+  await revokeTokens(ended);
+  for (const key of [TOLD_SHOWN_KEY, PUSH_OFFERED_KEY]) localStorage.removeItem(key);
+  signedOut(DELETED_SAID);
+  sessionStorage.setItem(FAREWELL_KEY, DELETED_SAID);
+  window.location.replace(ended ? signOutAddress(ended.serverUrl, ended.clientId, redirectUri()) : redirectUri());
+}
+
+$('account')?.addEventListener('click', () => {
+  if (!me || answering) return;
+  addCustomerTurn('My account');
+  showAccount();
 });
 
 /**
@@ -3018,6 +3218,30 @@ async function finishRingSignIn(completion) {
     assistantSays({ say: err.message, tone: err.status === 403 ? 'waiting' : 'error' });
   }
 }
+
+// ---------------------------------------------------------------------------
+// The page on a telephone. The disclosure above the conversation is open
+// where there is room for it, and one line until it is opened where there is
+// not. And the page is as tall as what can be seen of it (styles.css
+// --app-height): when the keyboard opens, the question field stays above it.
+// ---------------------------------------------------------------------------
+
+const wideScreen = window.matchMedia('(min-width: 761px)');
+function openDisclosureIfWide() {
+  if ($('disclosure')) $('disclosure').open = wideScreen.matches;
+}
+openDisclosureIfWide();
+wideScreen.addEventListener?.('change', openDisclosureIfWide);
+
+function fitToWhatIsSeen() {
+  const seen = window.visualViewport;
+  if (!seen) return;
+  document.documentElement.style.setProperty('--app-height', `${Math.round(seen.height)}px`);
+  // A telephone may have moved the whole page up to show the field; it is already the height that shows it.
+  if (window.scrollY !== 0) window.scrollTo(0, 0);
+}
+window.visualViewport?.addEventListener('resize', fitToWhatIsSeen);
+fitToWhatIsSeen();
 
 (async function start() {
   const params = new URLSearchParams(window.location.search);
@@ -3056,7 +3280,11 @@ async function finishRingSignIn(completion) {
     $('connect').textContent = 'Continue';
     return;
   }
+  // What was said before the browser went to the server's sign-out and back: an account just deleted.
+  const farewell = sessionStorage.getItem(FAREWELL_KEY);
+  sessionStorage.removeItem(FAREWELL_KEY);
   if (!link) {
+    if (farewell) $('link-say').textContent = farewell;
     if (pair) $('link-say').textContent = 'To connect that television, sign in to Wick first.';
     void offerDemoIfAllowed();
     return;

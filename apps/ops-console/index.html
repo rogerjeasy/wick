@@ -29,10 +29,10 @@
   </div>
 
   <section>
-    <div class="btn-row" style="margin-bottom: var(--space-3); justify-content: space-between;">
-      <h2 style="margin: 0;">Production health</h2>
+    <div class="btn-row spread below">
+      <h2 class="flush">Production health</h2>
       <div class="btn-row">
-        <span id="last-updated" class="muted mono" style="font-size: 0.85em;"></span>
+        <span id="last-updated" class="muted mono small"></span>
         <button id="refresh-btn" class="secondary" type="button">Refresh now</button>
       </div>
     </div>
@@ -50,7 +50,7 @@
       <code>GET /status</code> reports.
     </p>
     <p>
-      <span class="badge warn" style="margin-right: 0.5em;">warn</span>
+      <span class="badge warn beside">warn</span>
       on <strong>Ring webhook delivery</strong> is expected and documented —
       see <code>FRICTION.md</code> FL-010. It does not mean anything is
       broken; it means Ring's own platform hasn't completed activating

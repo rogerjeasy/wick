@@ -42,6 +42,12 @@ export function createFakeIdentity(): IdentityProvider {
       if (!user || code.trim() !== CONFIRMATION_CODE) throw new IdentityError('bad_code');
       user.password = password;
     },
+    async deleteAccount({ email, password }) {
+      const key = normaliseEmail(email);
+      const user = users.get(key);
+      if (!user || user.password !== password) throw new IdentityError('wrong_credentials');
+      users.delete(key);
+    },
   };
 }
 
