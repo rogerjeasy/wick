@@ -85,9 +85,26 @@ so the least trusted token on a television cannot lock its app out.
 person would have to be looking to be told.
 
 ### INV-2 — Every family-bound string passes through the Guardian
+The family is never sent words: they read. Every string a family member is
+handed comes from the Wick server — an MCP tool, a route of their own
+television, or the family app's assistant, which says only what the tools
+returned — and passes the Guardian's content gate there
+(`services/mcp-server/src/guardian.ts`, INV-4). Every tool is registered on
+the one MCP server `server.ts` makes, and `guardTools` reads each tool's
+answer, string by string, before it leaves; every family-television route
+answers through `guardTelevision`; the assistant's own reply is read in
+`checkReply` (`assistant/brain.ts`). Enforced by `guardian.test.ts`: every
+tool the family is offered is behind the gate, there is one MCP server in
+the source and it is made behind it, and only the guarded endpoints serve
+`/tv/`. There is no second path.
+
+**Never** answer a family member from anywhere else, and never mark words
+as the reader's own (`theirOwnWords`) unless that reader wrote them.
+
 `services/agent/src/egress.ts` is the *only* module permitted to import a
-transport client. Everything else calls `sendToFamily()` / `sendToDevice()`.
-Enforced by an ESLint `no-restricted-imports` rule. There is no second path.
+transport client. Everything else calls `sendToDevice()` and its siblings
+there. Enforced by an ESLint `no-restricted-imports` rule. Nothing it sends
+carries words to the family.
 
 `egress.ts` is also the only module that may reach a family member's own
 browser (`nudgeFamily`, Web Push). A nudge carries a kind from a fixed set
@@ -137,8 +154,40 @@ Do not add an application-level copy, cache or backup of a snapshot or clip.
 ### INV-4 — Nothing protected, and nothing verbatim, reaches the family
 Health, money, relationships, location and verbatim speech are refused for a
 family audience under every policy (`NEVER_TO_FAMILY`, `packages/contracts`).
-Enforced by the Guardian's property tests in `services/policy`, after
-generation — not by the good intentions of a model.
+`evaluate` (`services/policy`) refuses those classes whatever a household's
+policy says, and every check of a whole class on the family side asks it
+(`isSharedWithFamily`).
+
+Free text is read after it is written, and deterministically:
+`clearForFamily` (`services/policy/src/guardian.ts`) reads a string with a
+hand-written lexicon (`lexicon.ts`) and asks `evaluate` about every class it
+finds. A string it cannot read — another script, a look-alike letter, an
+invisible character, an emoji — is not cleared. No model decides what is
+protected: a model is what is being guarded against.
+
+It runs where the family reads (INV-2), and what it holds back takes a shape
+that already happens, so that holding back tells the family nothing (the
+reasoning of INV-10). The door's sentence is left out, as when the vision
+model was unsure. A week is told from its counts, as when the Narrator's
+model failed. A visitor's name that is a role ("Dr Patel") is refused when
+it is typed. A note's words are read back only to the person who wrote them
+— everyone else sees who sent it, when, and her reply — whatever the words
+say. An answer the gate catches anywhere else is not sent at all, and looks
+like any failed answer. The resident's own television is not gated:
+everything on it is about her.
+
+What it cannot do: catch what the lexicon does not list. "How was Tuesday
+at St Mary's?" passes, and so does "d0ctor". It stops Wick being the way a
+protected fact reaches the family by accident; it does not stop a person
+set on spelling one past it.
+
+Enforced by property tests that run through the real tool server, a family
+television's routes and the assistant
+(`services/mcp-server/src/__tests__/guardian.property.test.ts`), and over
+the reading itself (`services/policy/src/__tests__/guardian.property.test.ts`).
+**Never** let a model decide whether text is protected, never hand the
+family a string the gate has not read, and never word what was held back so
+that it can be told apart from an absence.
 
 ### INV-5 — Deferred cards never render during IN_SCENE
 The only immediate urgency class is `DOOR`. Enforced by property tests in
