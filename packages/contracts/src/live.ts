@@ -33,7 +33,8 @@ export const LIVE_MAX_MS = 60_000;
 /**
  * A live view is only obtainable while someone is plausibly at the door:
  * for a DOOR card this recent. It bounds what an extracted device token can
- * watch (INV-1's accepted exception, /pair/refresh).
+ * watch — and what a token minted from a television's id alone can, where
+ * that television keeps no secret (INV-1's accepted exception, /pair/refresh).
  */
 export const LIVE_CARD_MAX_AGE_MS = 5 * 60_000;
 

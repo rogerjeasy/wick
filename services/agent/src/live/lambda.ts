@@ -5,7 +5,8 @@
  *   DELETE /live/sessions/{id}                 → 204
  *
  * This Lambda only authenticates: the device JWT, then the device's DEV#
- * item (a revoked television gets nothing). Whether that household may
+ * item (a revoked television gets nothing, and nor does a token minted
+ * without proof for a television that keeps one — deviceToken.ts). Whether that household may
  * watch, and the stream itself, are the live graph's job in the household's
  * AgentCore session (graphs/live.ts) — the household comes from the token,
  * never from the body.
@@ -14,7 +15,7 @@ import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import type { LiveRefusal } from '@wick/contracts';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../runtime/invoke.js';
-import { verifyDeviceToken, type DeviceClaims } from './deviceToken.js';
+import { refusesUnproven, verifyDeviceToken, type DeviceClaims } from './deviceToken.js';
 
 export interface HttpEvent {
   readonly requestContext: { readonly http: { readonly method: string } };
@@ -33,7 +34,8 @@ export interface HttpResponse {
 
 export interface LiveHttpDeps {
   readonly verify: (token: string) => Promise<DeviceClaims>;
-  readonly deviceAllowed: (householdId: string, deviceId: string) => Promise<boolean>;
+  /** The television's DEV# row allows this token: there, not revoked, and not one minted without proof for a television that keeps one. */
+  readonly deviceAllowed: (claims: DeviceClaims) => Promise<boolean>;
   readonly invoke: (kind: string, householdId: string, payload: Record<string, unknown>) => Promise<unknown>;
 }
 
@@ -79,7 +81,7 @@ export async function handleLiveHttp(event: HttpEvent, deps: LiveHttpDeps): Prom
   } catch {
     return json(401, { error: 'unauthorized' });
   }
-  if (!(await deps.deviceAllowed(claims.householdId, claims.deviceId))) return json(403, { error: 'unauthorized' });
+  if (!(await deps.deviceAllowed(claims))) return json(403, { error: 'unauthorized' });
 
   if (isStop) {
     try {
@@ -128,12 +130,12 @@ export const handler = async (event: HttpEvent): Promise<HttpResponse> => {
   const t = target;
   return handleLiveHttp(event, {
     verify: async (token) => verifyDeviceToken(token, await signingPublicKey()),
-    deviceAllowed: async (householdId, deviceId) => {
+    deviceAllowed: async (claims) => {
       const res = await ddb.send(new GetItemCommand({
         TableName: TABLE,
-        Key: { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } },
+        Key: { pk: { S: `HH#${claims.householdId}` }, sk: { S: `DEV#${claims.deviceId}` } },
       }));
-      return Boolean(res.Item) && res.Item?.denylisted?.BOOL !== true;
+      return Boolean(res.Item) && res.Item?.denylisted?.BOOL !== true && !refusesUnproven(res.Item, claims);
     },
     invoke: (kind, householdId, payload) => invokeRuntime(t, kind, householdId, payload),
   });
