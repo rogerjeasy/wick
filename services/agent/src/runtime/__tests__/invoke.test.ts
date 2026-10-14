@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { householdSessionId, invokeRuntime, type RuntimeSend } from '../invoke.js';
+import { householdSessionId, invokeRuntime, RUNTIME_TIMEOUT_MS, type RuntimeSend } from '../invoke.js';
 
 const ARN = 'arn:aws:bedrock-agentcore:us-east-1:707938860881:runtime/wick_agents-abc';
 
@@ -56,5 +56,34 @@ describe('invokeRuntime', () => {
   it('throws on a non-2xx answer instead of handing back an error body as a result', async () => {
     const send = vi.fn<RuntimeSend>(async () => reply({ error: 'internal' }, 500));
     await expect(invokeRuntime({ send, runtimeArn: ARN }, 'door.action', 'margaret', {})).rejects.toThrow('agentcore_500');
+  });
+});
+
+describe('invokeRuntime — a runtime that never answers', () => {
+  it('gives up at the target\'s deadline, and tells the SDK to stop the request', async () => {
+    let signal: AbortSignal | undefined;
+    const send = vi.fn<RuntimeSend>((_input, options) => {
+      signal = options?.abortSignal;
+      return new Promise(() => {});
+    });
+
+    await expect(invokeRuntime({ send, runtimeArn: ARN, timeoutMs: 20 }, 'door.describe', 'margaret', {})).rejects.toThrow('agentcore_timeout');
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('gives up on an answer whose body never finishes arriving', async () => {
+    const send = vi.fn<RuntimeSend>(async () => ({ statusCode: 200, response: { transformToString: () => new Promise<string>(() => {}) } }));
+
+    await expect(invokeRuntime({ send, runtimeArn: ARN, timeoutMs: 20 }, 'door.describe', 'margaret', {})).rejects.toThrow('agentcore_timeout');
+  });
+
+  it('answers as before when the runtime is in time', async () => {
+    const send = vi.fn<RuntimeSend>(async () => reply({ result: 'rang' }));
+
+    await expect(invokeRuntime({ send, runtimeArn: ARN, timeoutMs: 1_000 }, 'door.action', 'margaret', {})).resolves.toEqual({ result: 'rang' });
+  });
+
+  it('has a default deadline inside the shortest Lambda that waits on the runtime without its own (live, 25 s)', () => {
+    expect(RUNTIME_TIMEOUT_MS).toBeLessThan(25_000);
   });
 });
