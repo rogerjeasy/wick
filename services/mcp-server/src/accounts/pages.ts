@@ -253,3 +253,10 @@ export function refusedPage(text: string): string {
 <h1>That is not something you can do</h1>
 <p class="lead">${esc(text)}</p>`);
 }
+
+/** Where signing out ends when there is no app to go back to. */
+export function signedOutPage(): string {
+  return layout('Signed out', `
+<h1>You are signed out</h1>
+<p class="lead">This browser no longer holds your Wick sign-in. You can close this page.</p>`);
+}

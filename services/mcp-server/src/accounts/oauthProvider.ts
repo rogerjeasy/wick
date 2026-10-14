@@ -97,9 +97,10 @@ export function createWickOAuth(store: AccountStore, now: () => number = Date.no
     const refreshToken = randomToken();
     const expiresAtMs = now() + ACCESS_TOKEN_TTL_SEC * 1000;
     const access: AccessRecord = { ...grant, expiresAt: Math.floor(expiresAtMs / 1000) };
+    // Filed under the person as well, so their export can list the apps they linked and deleting their account ends every one.
     await Promise.all([
-      store.putRecord('OAUTH#AT', hashToken(accessToken), access, expiresAtMs),
-      store.putRecord('OAUTH#RT', hashToken(refreshToken), grant, now() + REFRESH_TOKEN_TTL_MS),
+      store.putRecord('OAUTH#AT', hashToken(accessToken), access, expiresAtMs, grant.userId),
+      store.putRecord('OAUTH#RT', hashToken(refreshToken), grant, now() + REFRESH_TOKEN_TTL_MS, grant.userId),
     ]);
     return {
       access_token: accessToken,
@@ -171,9 +172,24 @@ export function createWickOAuth(store: AccountStore, now: () => number = Date.no
       };
     },
 
-    async revokeToken(_client, request) {
+    /**
+     * RFC 7009. Signing out of the family app ends both of its tokens here,
+     * instead of leaving them good for an hour and a month. The app is a
+     * public client (no secret; the SDK's handler asks only for its id), so a
+     * token is revoked only for the app it was issued to: anybody else's
+     * request is answered the same 200 and changes nothing, as the RFC has it
+     * for a token the server does not recognise.
+     */
+    async revokeToken(client, request) {
       const hash = hashToken(request.token);
-      await Promise.all([store.deleteRecord('OAUTH#AT', hash), store.deleteRecord('OAUTH#RT', hash)]);
+      const [access, refresh] = await Promise.all([
+        store.getRecord<AccessRecord>('OAUTH#AT', hash),
+        store.getRecord<Grant>('OAUTH#RT', hash),
+      ]);
+      await Promise.all([
+        access?.clientId === client.client_id ? store.deleteRecord('OAUTH#AT', hash) : undefined,
+        refresh?.clientId === client.client_id ? store.deleteRecord('OAUTH#RT', hash) : undefined,
+      ]);
     },
   };
 

@@ -8,7 +8,7 @@
  * `if_not_exists`, a `REMOVE` of attributes, a `SET … REMOVE …` of both, or an `ADD` of a number with a `SET` beside it, under a condition of `attribute_exists`,
  * `attribute_not_exists` and comparisons joined by AND, with OR inside
  * brackets), GetItem, DeleteItem, and a
- * Query on `pk` with a `BETWEEN` or `begins_with` on `sk`, an optional
+ * Query on `pk` alone or with a `BETWEEN` or `begins_with` on `sk`, an optional
  * filter of `name = :value` terms joined by AND, `ScanIndexForward` and
  * `Limit` — and throws on anything else, so a new kind of request fails
  * loudly here rather than quietly returning nothing.
@@ -143,6 +143,9 @@ export function createMemoryTable(): MemoryTable {
       matches = (sk) => sk >= text(values[':from']) && sk <= text(values[':to']);
     } else if (/^pk = :pk AND begins_with\(sk, :prefix\)$/.test(condition)) {
       matches = (sk) => sk.startsWith(text(values[':prefix']));
+    } else if (condition === 'pk = :pk') {
+      // A whole partition: a home being closed, every row of it (accounts/myData.ts).
+      matches = () => true;
     } else {
       throw new Error(`memoryTable: unsupported key condition "${condition}"`);
     }

@@ -8,6 +8,7 @@
  *   HH#<id>            / DEV#<deviceId> a paired television (written by the pairing Lambdas)
  *   HH#<id>            / FTV#<deviceId> a member's own television (written by the pairing Lambdas)
  *   <KIND>#<id>        / META           a keyed record with an expiry
+ *                                       (gsi1: USER#<holder> / OWN#<kind>#<id>, when it has a holder)
  *
  * `send` is a DynamoDBClient's send, injected so the exact requests are
  * tested without AWS — the same seam as services/agent/src/store/cards.ts.
@@ -33,7 +34,10 @@ import {
   type MemberStatus,
 } from '@wick/contracts';
 import { announcedVisitPrefix } from './announcedVisits.js';
-import type { AskedLanguage, FamilyTelevision, Household, Membership, RecordKind, Television, User } from './types.js';
+import type { AskedLanguage, FamilyTelevision, Household, Membership, OwnedRecord, RecordKind, Television, User } from './types.js';
+
+/** What a record's place in the index begins with, under the person who holds it. Never `HH#`: that is a membership's. */
+export const OWNED_RECORD_PREFIX = 'OWN#';
 
 type Item = Record<string, AttributeValue>;
 
@@ -126,12 +130,29 @@ export interface AccountStore {
   /** Takes every visit a person announced off the household's roster (announcedVisits.ts). */
   forgetAnnouncedVisits(householdId: string, userId: string): Promise<void>;
 
-  putRecord<T>(kind: RecordKind, id: string, value: T, expiresAt?: number): Promise<void>;
+  /**
+   * With `ownerId`, the record is also filed under that person (gsi1:
+   * `USER#<id>` / `OWN#…`), so `listOwnedRecords` finds it: their tokens,
+   * sign-ins and invitations, shown in their export and taken with their
+   * account.
+   */
+  putRecord<T>(kind: RecordKind, id: string, value: T, expiresAt?: number, ownerId?: string): Promise<void>;
   /** Undefined once past its expiry, whether or not DynamoDB has deleted it yet. */
   getRecord<T>(kind: RecordKind, id: string): Promise<T | undefined>;
   /** Atomic: at most one caller ever receives the record. */
   takeRecord<T>(kind: RecordKind, id: string): Promise<T | undefined>;
   deleteRecord(kind: RecordKind, id: string): Promise<void>;
+
+  // --- A person's own data: their export, and their account's deletion (myData.ts) ---
+
+  /** Every live record put with this person as its owner. */
+  listOwnedRecords(userId: string): Promise<OwnedRecord[]>;
+  /** The person's own rows: `USER#<id>` and everything in it (the profile, the browsers that asked to be told). */
+  deleteUser(userId: string): Promise<void>;
+  /** A membership's row, gone — not `removed`: the person it named has asked for their account to be deleted. */
+  deleteMembership(householdId: string, userId: string): Promise<void>;
+  /** A household's own row (`HH#<id>` / `META`). Only ever as the last step of its organiser closing it. */
+  deleteHousehold(householdId: string): Promise<void>;
 }
 
 const householdPk = (householdId: string): AttributeValue => ({ S: `HH#${householdId}` });
@@ -515,13 +536,17 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
       }
     },
 
-    async putRecord(kind, id, value, expiresAt) {
+    async putRecord(kind, id, value, expiresAt, ownerId) {
       await send(new PutItemCommand({
         TableName: table,
         Item: {
           ...recordKey(kind, id),
           data: { S: JSON.stringify(value) },
           ...(expiresAt === undefined ? {} : { expiresAt: num(expiresAt), ttl: num(Math.floor(expiresAt / 1000)) }),
+          // Filed under its holder too, by kind and id as they were given: the key itself does not say where one ends.
+          ...(ownerId === undefined
+            ? {}
+            : { gsi1pk: userPk(ownerId), gsi1sk: { S: `${OWNED_RECORD_PREFIX}${kind}#${id}` }, recordKind: { S: kind }, recordId: { S: id } }),
         },
       }));
     },
@@ -538,6 +563,37 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
 
     async deleteRecord(kind, id) {
       await send(new DeleteItemCommand({ TableName: table, Key: recordKey(kind, id) }));
+    },
+
+    async listOwnedRecords(userId) {
+      const items = await queryAll({
+        IndexName: 'gsi1',
+        KeyConditionExpression: 'gsi1pk = :pk AND begins_with(gsi1sk, :prefix)',
+        ExpressionAttributeValues: { ':pk': userPk(userId), ':prefix': { S: OWNED_RECORD_PREFIX } },
+      });
+      return items.flatMap((item): OwnedRecord[] => {
+        const kind = item.recordKind?.S as RecordKind | undefined;
+        const id = item.recordId?.S;
+        const value = liveValue<unknown>(item);
+        if (!kind || !id || value === undefined) return [];
+        return [{ kind, id, value, ...(item.expiresAt?.N ? { expiresAt: Number(item.expiresAt.N) } : {}) }];
+      });
+    },
+
+    async deleteUser(userId) {
+      // Every row of the person's own partition, whatever kind: the profile and each browser kept for a nudge.
+      const rows = await queryAll({ KeyConditionExpression: 'pk = :pk', ExpressionAttributeValues: { ':pk': userPk(userId) } });
+      for (const row of rows) {
+        if (row.sk) await send(new DeleteItemCommand({ TableName: table, Key: { pk: userPk(userId), sk: row.sk } }));
+      }
+    },
+
+    async deleteMembership(householdId, userId) {
+      await send(new DeleteItemCommand({ TableName: table, Key: { pk: householdPk(householdId), sk: { S: `MEM#${userId}` } } }));
+    },
+
+    async deleteHousehold(householdId) {
+      await send(new DeleteItemCommand({ TableName: table, Key: { pk: householdPk(householdId), sk: { S: 'META' } } }));
     },
   };
 }

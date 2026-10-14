@@ -513,3 +513,63 @@ describe('the language of the television — read from the household, and only t
     });
   });
 });
+
+describe('a person’s own records', () => {
+  it('files a record with a holder under that person, beside its own key, and never where a membership is listed', async () => {
+    const { sent, store } = recorder();
+
+    await store.putRecord('OAUTH#AT', 'hash-1', { clientId: 'c' }, NOW + 1000, 'u_sarah');
+    await store.putRecord('OAUTH#CODE', 'hash-2', { clientId: 'c' }, NOW + 1000);
+
+    const owned = (sent[0] as PutItemCommand).input.Item!;
+    expect(owned.pk).toEqual({ S: 'OAUTH#AT#hash-1' });
+    expect(owned.gsi1pk).toEqual({ S: 'USER#u_sarah' });
+    expect(owned.gsi1sk).toEqual({ S: 'OWN#OAUTH#AT#hash-1' });
+    expect(owned.recordKind).toEqual({ S: 'OAUTH#AT' });
+    expect(owned.recordId).toEqual({ S: 'hash-1' });
+    // A record nobody holds is filed nowhere else, as before.
+    expect((sent[1] as PutItemCommand).input.Item!.gsi1pk).toBeUndefined();
+  });
+
+  it('lists what a person holds through the index, and not what has expired', async () => {
+    const { sent, store } = recorder([
+      {
+        Items: [
+          { pk: { S: 'SESSION#h1' }, sk: { S: 'META' }, recordKind: { S: 'SESSION' }, recordId: { S: 'h1' }, data: { S: '{"userId":"u_sarah"}' }, expiresAt: { N: String(NOW + 5) } },
+          { pk: { S: 'INV#old' }, sk: { S: 'META' }, recordKind: { S: 'INV' }, recordId: { S: 'old' }, data: { S: '{}' }, expiresAt: { N: String(NOW - 5) } },
+        ],
+      },
+    ]);
+
+    const owned = await store.listOwnedRecords('u_sarah');
+
+    const query = (sent[0] as QueryCommand).input;
+    expect(query.IndexName).toBe('gsi1');
+    expect(query.ExpressionAttributeValues).toEqual({ ':pk': { S: 'USER#u_sarah' }, ':prefix': { S: 'OWN#' } });
+    expect(owned).toEqual([{ kind: 'SESSION', id: 'h1', value: { userId: 'u_sarah' }, expiresAt: NOW + 5 }]);
+  });
+
+  it('deletes every row of the person’s own partition, whatever it is', async () => {
+    const { sent, store } = recorder([{ Items: [{ pk: { S: 'USER#u_sarah' }, sk: { S: 'PROFILE' } }, { pk: { S: 'USER#u_sarah' }, sk: { S: 'PUSH#abc' } }] }]);
+
+    await store.deleteUser('u_sarah');
+
+    expect((sent[0] as QueryCommand).input.KeyConditionExpression).toBe('pk = :pk');
+    expect(sent.slice(1).map((c) => (c as DeleteItemCommand).input.Key)).toEqual([
+      { pk: { S: 'USER#u_sarah' }, sk: { S: 'PROFILE' } },
+      { pk: { S: 'USER#u_sarah' }, sk: { S: 'PUSH#abc' } },
+    ]);
+  });
+
+  it('deletes a membership’s row and a household’s own row by their keys', async () => {
+    const { sent, store } = recorder();
+
+    await store.deleteMembership('hh_1', 'u_tom');
+    await store.deleteHousehold('hh_1');
+
+    expect(sent.map((c) => (c as DeleteItemCommand).input.Key)).toEqual([
+      { pk: { S: 'HH#hh_1' }, sk: { S: 'MEM#u_tom' } },
+      { pk: { S: 'HH#hh_1' }, sk: { S: 'META' } },
+    ]);
+  });
+});
