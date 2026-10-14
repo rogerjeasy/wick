@@ -27,7 +27,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { CardPatch, DemoDoorEvent, QueuedCard } from '@wick/contracts';
+import type { CardPatch, DemoDoorEvent } from '@wick/contracts';
 import { createAuth } from './auth.js';
 import { createApiRouter, type ClaimTelevision, type RingLinks } from './accounts/apiRouter.js';
 import { createFamilyTelevisionRouter } from './accounts/familyTelevisionRouter.js';
@@ -40,6 +40,8 @@ import { grantOf } from './accounts/oauthProvider.js';
 import type { AccountStore } from './accounts/store.js';
 import { randomId } from './accounts/tokens.js';
 import type { ToolContext } from './tools/context.js';
+import { guardTools } from './guardian.js';
+import type { SendCard } from './tools/send_note_to_tv.js';
 import { registerGetResidentSharedView } from './tools/get_resident_shared_view.js';
 import { registerGetWeekNarrative } from './tools/get_week_narrative.js';
 import { registerGetToday } from './tools/get_today.js';
@@ -87,14 +89,15 @@ const TABLE = process.env.TABLE_NAME ?? 'wick';
 /** The same default as the Narrator's and get_week_narrative.ts's. */
 const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
-function createMcpServer(
+export function createMcpServer(
   ddb: DynamoDBClient,
   ctx: ToolContext,
-  sendCard: (card: QueuedCard) => Promise<void>,
+  sendCard: SendCard,
   sendPatch: (patch: CardPatch, householdId: string) => Promise<void>,
   withdrawCard: (householdId: string, cardId: string) => Promise<void>,
 ): McpServer {
-  const mcpServer = new McpServer({ name: 'wick', version: '0.2.0' });
+  // INV-4: every tool's answer is read by the Guardian before it leaves (guardian.ts).
+  const mcpServer = guardTools(new McpServer({ name: 'wick', version: '0.2.0' }));
   registerGetResidentSharedView(mcpServer, ddb, ctx);
   registerGetWeekNarrative(mcpServer, ddb, ctx);
   registerGetToday(mcpServer, ddb, ctx);
@@ -148,8 +151,12 @@ async function listToolSpecs(ddb: DynamoDBClient): Promise<ToolSpec[]> {
 export interface AppDeps {
   readonly store: AccountStore;
   readonly identity: IdentityProvider;
-  /** services/agent/src/egress.ts's sendToDevice — the only path to the television (INV-2). */
-  readonly sendCard: (card: QueuedCard) => Promise<void>;
+  /**
+   * services/agent/src/egress.ts's sendToDevice — the only path to the
+   * television (INV-2). `sentBy` is who wrote a note, kept on its row and
+   * never sent to the television (egress.ts ServerOnly).
+   */
+  readonly sendCard: SendCard;
   /** egress.ts's sendPatchToDevice — how an answer reaches a door card already on the television (INV-2). */
   readonly sendPatch: (patch: CardPatch, householdId: string) => Promise<void>;
   /** egress.ts's takeBackFromDevices — how a card its sender withdrew leaves the television (INV-2). */

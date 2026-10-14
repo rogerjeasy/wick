@@ -40,9 +40,9 @@ Enforced by code and by tests. Breaking one is a build break. These are the shor
 | # | Invariant |
 |---|---|
 | **INV-1** | No Ring or AWS long-lived credential ever resides on the television. It holds one device-bound JWT. A family member's own television holds one token of another kind, good for that one member's view. |
-| **INV-2** | Every string that leaves the system toward the family passes through the Guardian. `services/agent/src/egress.ts` is the only module that may import a transport client, the push sender or the translation client; a lint rule enforces it. |
+| **INV-2** | Every string a family member is handed passes through the Guardian, at the Wick server where the family reads it: one guarded tool server, guarded family-television routes, and a test that nothing answers the family any other way. `services/agent/src/egress.ts` is the only module that may import a transport client, the push sender or the translation client; a lint rule enforces it. |
 | **INV-3** | No Ring video or image is kept beyond one day. Enforced by S3 lifecycle rules, not application code. |
-| **INV-4** | Nothing protected (health, money, relationships, location) and nothing verbatim is ever sent to a family surface. Enforced by the Guardian, after generation. |
+| **INV-4** | Nothing protected (health, money, relationships, location) and nothing verbatim is ever sent to a family surface. Enforced by the Guardian, after generation: a class table no policy can widen, and a deterministic lexicon over free text, held by property tests on the runtime path. A lexicon catches what it lists (§6.5). |
 | **INV-5** | Deferred cards are never shown during `IN_SCENE`. The only immediate class is `DOOR`. |
 | **INV-6** | Every agent tool call is idempotent and carries a correlation id from ingress to the card and back. |
 | **INV-7** | The resident's weekly narrative reaches their television before any family tool can read it. |
@@ -139,7 +139,7 @@ Each is a folder under `services/agent/src/agents/`, with narrow inputs and its 
 | **Tell** (`tell/`) | A difference found in the rhythm (`rhythm/different.ts`) | Asks the resident "Shall I tell …?"; only "Tell" writes the `TELL#` row the family's tool reads (INV-10) | none |
 | **Visit** (`visit/`) | Door sightings of a regular visitor | Opens a visit, asks "Is this right?" at a natural break; only her "Yes" confirms it | none |
 | **Reach** (`reach/`) | Her press on "Ask Sarah to ring you?" | Asks one person; three minutes later, if nobody answered, the next; a neighbour last | none |
-| **Guardian** (`guardian/` → `services/policy`) | Synchronously, on every egress | Allows, transforms or refuses; see §6 | none — rules only |
+| **Guardian** (`services/policy`, run by the Wick server: `services/mcp-server/src/guardian.ts`) | Synchronously, on every answer to the family | Allows or withholds, by class and by content; see §6 | none — rules only |
 
 The family app's assistant is not an agent of the house: it runs in the Wick server (`services/mcp-server/src/assistant`) and uses **Claude Sonnet 4.5** on Bedrock to choose which of the family's tools to call for a question. It never sees anything the tool did not return.
 
@@ -450,7 +450,7 @@ OK held two seconds brings *"Ask Sarah to ring you?"* (`edge-device reach.mjs`).
 
 ### 5.9 egress.ts
 
-`services/agent/src/egress.ts` is the single exit (INV-2): `sendToDevice` (MQTT through the IoT data plane, or the WebSocket management API), `sendToFamily`, `nudgeFamily` (Web Push), and the Amazon Translate call for free text into her language. A lint rule (`no-restricted-imports`) keeps those clients out of every other module.
+`services/agent/src/egress.ts` is the single exit (INV-2): `sendToDevice` (MQTT through the IoT data plane, or the WebSocket management API), `nudgeFamily` (Web Push, a kind and no words), and the Amazon Translate call for free text into her language. Nothing in it sends words to the family: the family reads, through the Wick server, behind the Guardian (§6.3). A lint rule (`no-restricted-imports`) keeps those clients out of every other module.
 
 ### 5.10 Prompt-free features
 
@@ -464,7 +464,9 @@ The most important component in the system and the one most likely to be under-b
 
 ### 6.1 Shape
 
-A pure package — no AWS imports, no network. Input: a typed payload plus household policy. Output: a redacted payload or a typed refusal.
+A pure package, `services/policy` — no AWS imports, no network, no model. Two functions, one built on the other.
+
+`evaluate` decides by class: may this kind of fact reach this audience, under this household's policy?
 
 ```ts
 type Audience = 'RESIDENT' | 'FAMILY' | 'AGENCY';
@@ -486,6 +488,20 @@ function evaluate(
 ): Decision;
 ```
 
+`clearForFamily` decides by content: which class is this sentence about, and may the family read it?
+
+```ts
+function clearForFamily(text: string, policy?: HouseholdPolicy):
+  | { cleared: true; text: string }
+  | { cleared: false; classes: FactClass[] };   // never sent: for the log
+```
+
+It reads the string with a hand-written lexicon (`services/policy/src/lexicon.ts`): clinical roles and places, treatment and medication, illness and the body ("Dr Patel", "medication box", "her hip"); money, benefits, banks and amounts ("pension", "£40"); partners, marriage and estrangement; street addresses, postcodes and coordinates. Every class it finds is put to `evaluate` for the FAMILY audience. All four are in `NEVER_TO_FAMILY`, which no policy can widen, so the household's policy cannot change the answer. Before reading, the text is folded to plain lower-case letters — accents off, full-width forms folded, typographic quotes straightened — and a string that still holds something the lexicon cannot read (another script, a look-alike letter, an invisible character, an emoji) is not cleared. Fail closed.
+
+`VERBATIM` has no entry in the lexicon. Her own words never become text: her television has no microphone, and her replies are keys to sentences Wick wrote. The class is refused by `evaluate`.
+
+Whether a whole class is shown to the family at all — the weekly narrative, who visits by name — is asked of `evaluate` too (`isSharedWithFamily`, `services/agent/src/store/household.ts`), so the class check and the content check are one decision function.
+
 ### 6.2 The default policy table
 
 | Class | RESIDENT | FAMILY | AGENCY |
@@ -494,27 +510,45 @@ function evaluate(
 | `PRESENCE` (arrived/left) | allow | allow | own visits only |
 | `RHYTHM` | allow | **summarise** (narrative only, never raw logs) | deny |
 | `COMMITMENT` | allow | **summarise** | deny |
-| `HEALTH` | allow | **deny unless explicitly permitted** | deny |
-| `FINANCIAL` | allow | deny | deny |
-| `RELATIONSHIP` | allow | deny | deny |
-| `LOCATION` | allow | deny | deny |
-| `VERBATIM` | allow | **deny — always, unconditionally** (INV-4) | deny |
+| `HEALTH` | allow | **deny — always** | deny |
+| `FINANCIAL` | allow | **deny — always** | deny |
+| `RELATIONSHIP` | allow | **deny — always** | deny |
+| `LOCATION` | allow | **deny — always** | deny |
+| `VERBATIM` | allow | **deny — always, unconditionally** | deny |
 
-Resident exclusions are applied **after** the table and can only ever narrow. There is no path by which an exclusion widens access.
+A family opt-in (`familyPermitted`) may widen a class, but never one in `NEVER_TO_FAMILY`. Resident exclusions are applied **after** the table and can only ever narrow. There is no path by which an exclusion widens access.
+
+"Summarise" is kept by what the family is given of those classes: the week's narrative and its counts, never the rows they were counted from. No code transforms a string to summarise it.
 
 ### 6.3 Enforcement
 
-- **One egress module.** `services/agent/egress.ts` is the sole exporter of `sendToFamily` and `sendToDevice`. Every other module is forbidden from importing the transport clients directly.
-- **A lint rule enforces that** (`no-restricted-imports` on the transport packages outside `egress.ts`). A rule you can actually run beats a convention you can only remember.
-- **Property-based tests** (`fast-check`): for any generated item classed `HEALTH`/`FINANCIAL`/`RELATIONSHIP`/`VERBATIM` and any policy, `evaluate(..., 'FAMILY')` never returns `allow: true` with the original content intact. Run 10,000 cases in CI.
+The family is never sent words: they read. So the gate stands where they read, on the Wick server.
+
+- **Every MCP tool.** All of them are registered on the one server `server.ts` makes, through `guardTools` (`services/mcp-server/src/guardian.ts`). Each tool's answer — whatever helper built it, a sentence or structured data — is read string by string before it leaves. Ids and picture addresses are not read as words; an id made from a name is. The SDK's older `tool()` is refused, so it is not a way round.
+- **Every route of a family member's own television** (`/tv/home`, `/tv/press`, `/tv/seat`, `/tv/waiting`) answers through `guardTelevision`.
+- **The family app's assistant** says only what the tools returned, and its own reply is read in `checkReply` (`assistant/brain.ts`): one it cannot clear is asked for again, then replaced by the tools' own sentences.
+- **Field rules, so that holding back says nothing** (the reasoning of INV-10). The door's sentence the gate cannot clear is left out, as when the vision model was unsure (`get_door_request.ts`). A week's paragraph, timeline entry or comparison it cannot clear is dropped and the week told from its counts, as when the Narrator's model failed (`get_week_narrative.ts familyWeek`). A visitor's name it cannot clear is refused when it is typed (`add_regular_visitor.ts`). A note's words go back only to the person who wrote them (`sentBy` on the note's row, never on the card); everyone else is given null for every note of somebody else's, whatever it says (`get_replies.ts`).
+- **Anything else is not sent.** An answer that still holds a string the gate cannot clear is replaced by the sentence any failed answer gets, and `guardian_withheld` is logged with where and which classes — never the words.
+- **Tests.** `guardian.test.ts` holds that every tool the family is offered is behind the gate, that there is one MCP server in the source and it is made behind it, and that only the guarded endpoints serve `/tv/`. Property tests (`fast-check`) put every phrase the lexicon lists — in any case, with accents, in full-width letters, anywhere in a string — through the real tool server, a family television's home and waiting routes, and the assistant, and find it in nothing the family is handed (`services/mcp-server/src/__tests__/guardian.property.test.ts`). Over the reading itself: 10,000 cases that no such string is ever cleared under any policy (`services/policy/src/__tests__/guardian.property.test.ts`), and 10,000 that `evaluate` never lets a `NEVER_TO_FAMILY` class reach the family under any policy (`evaluate.property.test.ts`). CI runs them as their own job.
+- **One egress module** (`services/agent/egress.ts`) is the only importer of a transport client, by a lint rule. Nothing it sends carries words to the family: a push nudge carries a kind and no string.
+
+The resident's own television is not gated. Everything on it is about her, and she sees it as it was written.
 
 ### 6.4 Refusal is a feature
 
-When the Guardian denies, the family surface says so plainly and warmly:
+When a whole class is kept — the resident chose it on "What Sarah sees", which the family can always ask about — the family surface says so plainly and warmly:
 
 > *"That's something Margaret's keeping to herself. I'm not able to share it."*
 
 Never a generic error. Never silence — silence is indistinguishable from "nothing happened", which is a lie. **Film this.** Ten seconds of Alexa declining is one of the most memorable things in the submission.
+
+The content gate is the other way round. What it holds back is a sentence, not a choice she made, and saying "something was held back from the door's description" would tell the family the sentence was about her health. So it is held back in a shape that already happens and says nothing, as INV-10 holds back a difference she kept.
+
+### 6.5 What the gate cannot do
+
+A lexicon catches what it lists. "How was Tuesday at St Mary's?" names no word in it and passes; "d0ctor" and "p e n s i o n" pass. It stops Wick being the way a protected fact reaches the family by accident — a vision model naming a uniform, a family member's question, a name typed as a role — not a person set on spelling one past it, who could as easily telephone. When a real sentence slips through, its word goes into `lexicon.ts` with a test that it is caught, and a test for the ordinary sentence the word must not catch.
+
+It also catches more than it should, and fails closed when it does: "a man on crutches" at the door loses its sentence, a family adding "Dr Patel" to the roster is asked for "Raj Patel" instead, and a name in a script the lexicon does not read is refused for the roster.
 
 ---
 
@@ -755,7 +789,7 @@ Metrics, dashboards and alarms are **not built** (§17).
 
 ### 12.3 Guardian
 
-`services/policy/src/__tests__/evaluate.property.test.ts`: for any generated item of a protected class and any policy, `evaluate(…, 'FAMILY')` never allows the content through intact. CI runs it as its own job (`npm run test:property`).
+`services/policy/src/__tests__/evaluate.property.test.ts`: for any generated item of a protected class and any policy, `evaluate(…, 'FAMILY')` never allows the content through intact. `services/policy/src/__tests__/guardian.property.test.ts`: every phrase the lexicon lists, however it is written, is never cleared. `services/mcp-server/src/__tests__/guardian.property.test.ts`: the same phrases through the real tool server, a family television's routes and the assistant reach nothing the family is handed. CI runs all three as their own job (`npm run test:property`).
 
 ### 12.4 Model output
 

@@ -9,8 +9,8 @@
  * the same two questions, so that there is one answer to each.
  */
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DEFAULT_LANGUAGE, HOUSEHOLD_LANGUAGE_ATTRS, NEVER_TO_FAMILY, isHouseholdLanguage, type FactClass, type HouseholdLanguage, type RosterEntry } from '@wick/contracts';
-import { DEFAULT_POLICY, type HouseholdPolicy } from '@wick/policy';
+import { DEFAULT_LANGUAGE, HOUSEHOLD_LANGUAGE_ATTRS, isHouseholdLanguage, type FactClass, type HouseholdLanguage, type RosterEntry } from '@wick/contracts';
+import { DEFAULT_POLICY, evaluate, type HouseholdPolicy } from '@wick/policy';
 import { stillWelcome } from '../agents/door/roster.js';
 
 /**
@@ -76,17 +76,19 @@ export async function isDemoHome(ddb: Pick<DynamoDBClient, 'send'>, table: strin
 }
 
 /**
- * Mirrors services/policy/src/evaluate.ts's order exactly: table rule allows
- * it, OR it's an explicit opt-in that is not in NEVER_TO_FAMILY (the opt-in
- * can never widen past that hard cap); resident exclusions narrow last. The
- * single source of truth for "is this FactClass visible to FAMILY", so no
- * two surfaces can disagree.
+ * Whether a whole class of fact is shown to the family: the Guardian's own
+ * `evaluate` (services/policy), asked for the FAMILY audience. The table
+ * allows it, or an explicit opt-in that is not in NEVER_TO_FAMILY; the
+ * resident's exclusions narrow last. One function decides it, for the class
+ * here and for the classes the content gate finds in a sentence
+ * (`clearForFamily`), so no two surfaces can disagree.
+ *
+ * A summarised class (RHYTHM, COMMITMENT) counts as shown: what the family
+ * is given of it is already the summary — the week's narrative, never the
+ * rows it was counted from.
  */
 export function isSharedWithFamily(factClass: FactClass, policy: HouseholdPolicy): boolean {
-  const rule = policy.table[factClass].FAMILY;
-  const allowed =
-    rule.allow || (policy.familyPermitted.includes(factClass) && !NEVER_TO_FAMILY.includes(factClass));
-  return allowed && !policy.residentExclusions.includes(factClass);
+  return evaluate({ class: factClass, content: '', sourceIds: [] }, 'FAMILY', policy).allow;
 }
 
 /**

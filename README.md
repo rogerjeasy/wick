@@ -167,7 +167,7 @@ Privacy here is the product, not a compliance section.
 
 1. **No camera ever shows the inside of this house to anyone.** Ring is used for the front door and for the fact that someone arrived. Never to watch the resident.
 2. **The resident can see everything the family can see** — on their own television, and can remove anything from it permanently with one button.
-3. **Nothing about health, money or relationships leaves the house without explicit permission.** Enforced by a policy engine ([`services/policy`](services/policy)) with property-based tests, not by the good intentions of a model.
+3. **Nothing about health, money, relationships or where they go is passed to the family — not with permission, not ever.** A policy engine ([`services/policy`](services/policy)) refuses those classes under every household policy. Free text is read before any family member sees it: the door camera's sentence, the week's paragraph, a visitor's name, the assistant's reply. A hand-written lexicon reads it on the Wick server, where the family's tools and their own televisions are answered, and what it cannot clear is held back in a shape that already happens — a door card with no sentence, a week told from its counts — so holding back says nothing either. A note's words go back only to the person who wrote them. Property tests run through those real paths, not through a function nothing calls. The limit, plainly: a lexicon catches what it lists. It stops Wick passing such a fact on by accident; it does not stop someone set on spelling one past it.
 4. **Wick reports what was said and what happened, never what it thinks you felt.** No mood detection. No wellness scores.
 
 Deliberately **not** built: indoor camera streaming, fall detection, a chatbot on

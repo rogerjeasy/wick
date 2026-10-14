@@ -10,6 +10,11 @@
  * photograph, no description of the person. Saying it again for the same
  * name changes that visitor's days and time; it never makes a second Maria.
  *
+ * And a name is only a name. "Dr Patel GP" on the roster would tell the
+ * whole family, every time the door or the week named the visitor, that a
+ * doctor comes — a fact about her health (INV-4). So a name passes the
+ * Guardian before it is kept, and one it cannot clear is refused in words.
+ *
  * Who visits, by name, is the PRESENCE class. A resident who keeps that
  * from the family is not having it curated by them either: the tool
  * refuses, exactly as list_regular_visitors does.
@@ -68,6 +73,7 @@ import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './
 import { parsePattern, stillWelcome } from '@wick/agent';
 import { describePattern } from './list_regular_visitors.js';
 import { WRITES, data, say } from './result.js';
+import { familyText } from '../guardian.js';
 import { localToUtc } from './when.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
@@ -84,6 +90,14 @@ const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
 type DayName = (typeof DAY_NAMES)[number];
 
 export const VISITOR_BAD_NAME_TEXT = 'I need the name they go by, in a word or two, like Maria.';
+/**
+ * A name the Guardian cannot clear: a role ("Dr Patel", "the nurse"), or
+ * letters it cannot read. It is the family member's own word, so they are
+ * told plainly why — the roster's names are read back to everyone in the
+ * family, and a clinical role is a fact about her health (INV-4).
+ */
+export const VISITOR_NAME_NOT_SHARED_TEXT =
+  'I need just the name they go by, like Maria, written in plain letters: not a title or what they come for. Names on the roster are read back to the whole family.';
 export const VISITOR_BAD_TIME_TEXT = 'I need the time they usually come, like nine in the morning.';
 export const VISITOR_TOO_MANY_TEXT = 'There are already twelve regular visitors, which is as many as the door keeps.';
 export const VISITOR_CHANGED_MEANWHILE_TEXT = 'The roster was changed by someone else just now. Ask me again.';
@@ -99,7 +113,7 @@ export function visitorName(raw: string): string | undefined {
   return /^[\p{L}][\p{L}\p{M}' .-]{0,39}$/u.test(name) ? name : undefined;
 }
 
-/** "Maria" -> "maria", "Dr. O'Neil" -> "dr-o-neil". The roster's key for that name. */
+/** "Maria" -> "maria", "Mary-Jo O'Neil" -> "mary-jo-o-neil". The roster's key for that name. */
 export function personIdFor(name: string): string {
   return name
     .normalize('NFKD')
@@ -222,6 +236,8 @@ export function registerAddRegularVisitor(
       const personId = name ? personIdFor(name) : '';
       // `member-…` is how an announced visit is filed (contracts memberPersonId): never a name's key.
       if (!name || !personId || personId.startsWith('member-')) return say(VISITOR_BAD_NAME_TEXT);
+      // INV-4: a name is read back to the family by every visitor tool, so it is cleared here, once, before it is kept.
+      if (!familyText(name, 'visitor.name')) return say(VISITOR_NAME_NOT_SHARED_TEXT);
       const expectedPattern = regularPattern(asked.days, asked.time, HOUSEHOLD_TZ, now());
       if (!expectedPattern) return say(VISITOR_BAD_TIME_TEXT);
 

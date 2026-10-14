@@ -7,12 +7,19 @@
  * the picture and the sentence from the door card itself while the card is
  * still on the television.
  *
- * No Guardian class applies, for the reason get_replies gives: this is
- * something the resident chose to send, by pressing it. It is also all that
- * is sent. The picture is the one on the resident's own television, it is
+ * The resident chose to send this, by pressing it. It is also all that is
+ * sent. The picture is the one on the resident's own television, it is
  * Ring's address for it and is stored nowhere else (INV-3), and it is
  * handed out only while the question is open — not after an answer, and
  * not once the card has gone.
+ *
+ * Her pressing it does not make the vision model's sentence safe to pass
+ * on. "A woman in a nurse's uniform holding a medication box." is about
+ * her health, and the family is never told that (INV-4). So the sentence
+ * passes the Guardian first (guardian.ts `familyText`), and one it cannot
+ * clear is left out — exactly as when the model was unsure and wrote none,
+ * which already happens: nothing in the answer says a sentence was held
+ * back. Her own television still shows it. The picture is hers to show.
  *
  * Two reads and no model call, inside Alexa+'s 500ms budget (§9.3).
  */
@@ -22,6 +29,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { READS, data, say } from './result.js';
+import { familyText } from '../guardian.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -81,7 +89,9 @@ export async function describeLook(ddb: DynamoDBClient, householdId: string, row
   const expiresAt = queued ? queued.expiresAt ?? queued.queuedAt + DOOR_CARD_TTL_MS : 0;
   if (!queued || queued.card.type !== 'DOOR' || now >= expiresAt) return { ...asked, state: 'gone' };
 
-  const { line, description, imageRef } = queued.card;
+  const { line, imageRef } = queued.card;
+  // For the family, through the Guardian: a sentence it cannot clear is left out, as one the model never wrote.
+  const description = queued.card.description ? familyText(queued.card.description, 'door.description') : undefined;
   return {
     ...asked,
     state: 'waiting',

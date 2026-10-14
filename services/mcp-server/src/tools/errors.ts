@@ -13,6 +13,8 @@
  * server-side, and returns a calm, generic response instead. Deliberately
  * minimal — no error taxonomy, just stop the leak.
  */
+export const SOMETHING_WENT_WRONG_TEXT = 'Something went wrong on my end — try again in a moment.';
+
 export function withFriendlyErrors<Args extends unknown[], R>(
   handler: (...args: Args) => Promise<R>,
 ): (...args: Args) => Promise<R | { content: [{ type: 'text'; text: string }]; isError: true }> {
@@ -22,7 +24,7 @@ export function withFriendlyErrors<Args extends unknown[], R>(
     } catch (err) {
       console.error('[wick/mcp-server] tool handler failed:', err);
       return {
-        content: [{ type: 'text' as const, text: 'Something went wrong on my end — try again in a moment.' }],
+        content: [{ type: 'text' as const, text: SOMETHING_WENT_WRONG_TEXT }],
         isError: true as const,
       };
     }

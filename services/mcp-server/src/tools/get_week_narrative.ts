@@ -19,14 +19,15 @@
  */
 import { z } from 'zod';
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { currentIsoWeek, type WeekNarrative } from '@wick/contracts';
+import { currentIsoWeek, type RhythmDelta, type TimelineEntry, type WeekNarrative } from '@wick/contracts';
 import type { HouseholdPolicy } from '@wick/policy';
-import { isoWeekRange, privateNarrative, summariseWeek, visibleDeltas } from '@wick/agent';
+import { fallbackNarrative, isoWeekRange, privateNarrative, summariseWeek, visibleDeltas } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { READS, data, say } from './result.js';
+import { clears } from '../guardian.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 /** The household's time zone, for rewriting a week with part of it private. Same default as the Narrator's. */
@@ -115,21 +116,37 @@ export type FamilyWeekResult =
  * comparisons go the same way: a private door takes "more callers than
  * usual" with it, and private visitors take "Maria did not visit" — an
  * absence is as much a fact about someone as an arrival.
+ *
+ * And the Guardian reads the week (INV-4). The paragraph is a model's, and
+ * a timeline entry carries a visitor's name as the family typed it ("Dr
+ * Patel visited."). A paragraph the gate cannot clear is rewritten from the
+ * week's counts, in the words the Narrator uses when its model fails — a
+ * week that already happens, and that says nothing was held back. An entry
+ * or a comparison it cannot clear is left out, and out of those counts. The
+ * resident's own television keeps the week as it was written: she has seen
+ * everything the family reads, and more.
  */
 export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, timeZone: string): FamilyWeekResult {
   if (!isSharedWithFamily('RHYTHM', policy)) return { status: 'private' };
 
   const hidden = { door: !isSharedWithFamily('DOOR_EVENT', policy), visits: !isSharedWithFamily('PRESENCE', policy) };
-  if (!hidden.door && !hidden.visits) return { status: 'available', narrative };
+  const unclearEntry = (e: TimelineEntry) => !clears(e.summary) || (e.personId !== undefined && !clears(e.personId));
+  // A comparison names its visitor twice: as a label, and in its metric (`visit:<personId>`).
+  const unclearDelta = (d: RhythmDelta) => !clears(d.metric) || (d.label !== undefined && !clears(d.label));
+  const unclear = !clears(narrative.text) || narrative.timeline.some(unclearEntry) || (narrative.deltas ?? []).some(unclearDelta);
+  if (!hidden.door && !hidden.visits && !unclear) return { status: 'available', narrative };
+  if (unclear) console.warn(JSON.stringify({ level: 'warn', msg: 'guardian_withheld', where: 'week', isoWeek: narrative.isoWeek }));
 
   const hides = (kind: string) => (kind === 'door' && hidden.door) || ((kind === 'visit' || kind === 'presence') && hidden.visits);
-  const timeline = narrative.timeline.filter((e) => !hides(e.kind));
+  const timeline = narrative.timeline.filter((e) => !hides(e.kind) && !unclearEntry(e));
   const facts = summariseWeek(timeline, { timeZone, range: isoWeekRange(narrative.isoWeek), now: narrative.generatedAt });
   // Weeks written before the baseline existed carry no deltas at all.
-  const deltas = visibleDeltas(narrative.deltas ?? [], hidden);
+  const deltas = visibleDeltas(narrative.deltas ?? [], hidden).filter((d) => !unclearDelta(d));
+  // Only her own choice is said to be kept private: what the Guardian held back is not mentioned at all.
+  const text = hidden.door || hidden.visits ? privateNarrative(facts, hidden, deltas) : fallbackNarrative(facts, deltas);
   return {
     status: 'available',
-    narrative: { ...narrative, timeline, deltas, text: privateNarrative(facts, hidden, deltas), textSource: 'facts' },
+    narrative: { ...narrative, timeline, deltas, text, textSource: 'facts' },
   };
 }
 

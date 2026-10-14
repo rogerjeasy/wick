@@ -34,7 +34,7 @@
     "demo:mcp-seed": "vite-node -c vitest.config.ts scripts/seed-mcp-stub-data.ts",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
-    "test:property": "vitest run evaluate.property NaturalBreakEngine",
+    "test:property": "vitest run evaluate.property guardian.property NaturalBreakEngine",
     "test:watch": "vitest",
     "tf:apply": "terraform -chdir=infra apply",
     "tf:fmt": "terraform -chdir=infra fmt -recursive",

@@ -263,6 +263,20 @@ describe('nextStep — one turn of the model', () => {
     expect((retry.at(-1)!.content[0] as { text: string }).text).toContain('"9"');
   });
 
+  it('asks again, saying why, when the reply tells the family something about her health — and never says it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const converse = vi.fn<Converse>()
+      .mockResolvedValueOnce(said('The nurse came about her pills.'))
+      .mockResolvedValueOnce(said('Someone came to the door this week.'));
+
+    expect(await step(converse, [asked('How has she been?')])).toEqual({ done: true, say: 'Someone came to the door this week.' });
+    expect((converse.mock.calls[1]![0].messages.at(-1)!.content[0] as { text: string }).text).toMatch(/health, money, relationships/);
+
+    const twice: Converse = async () => said('The nurse came about her pills.');
+    expect(await step(twice, [asked('How has she been?')])).toEqual({ done: true, unsupported: true });
+    warn.mockRestore();
+  });
+
   it('gives up on the words, not the answer, when the model does it twice: the app says what the tools said', async () => {
     const converse: Converse = async () => said('Someone came 9 times.');
 
