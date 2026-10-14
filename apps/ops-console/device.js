@@ -273,14 +273,20 @@ function setTelemetryEnabled(enabled) {
 /* --- Pairing -------------------------------------------------------- */
 
 /**
- * Random hex, from the browser's cryptographic generator. (A page with none
- * — only ever a test's — falls back to Math.random.)
+ * Random hex from the browser's cryptographic generator — or undefined on a
+ * page that has none. A secret is made from that and nothing weaker
+ * (apps/tv-vega/src/random.ts says the same for the television apps).
  */
-function randomHex(bytes) {
+function secureHex(bytes) {
+  if (typeof crypto === 'undefined' || typeof crypto?.getRandomValues !== 'function') return undefined;
   const out = new Uint8Array(bytes);
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') crypto.getRandomValues(out);
-  else for (let i = 0; i < bytes; i += 1) out[i] = Math.floor(Math.random() * 256);
+  crypto.getRandomValues(out);
   return Array.from(out, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Random hex for an id, which is a label: the generator where there is one, Math.random where not. */
+function randomHex(bytes) {
+  return secureHex(bytes) ?? Array.from({ length: bytes }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
 }
 
 async function pairAndConnect() {
@@ -294,12 +300,13 @@ async function pairAndConnect() {
     // then on answers for this id only to whoever shows the secret (AGENTS.md
     // INV-1, edge-device proof.mjs) — the id alone is worth nothing.
     const deviceId = `ops-console-${randomHex(16)}`;
-    const proof = randomHex(32);
+    // None without a cryptographic generator: then this television is answered from its id alone, the documented exception.
+    const proof = secureHex(32);
 
     const startRes = await fetch(`${PAIRING_API_URL}/pair/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId, proof }),
+      body: JSON.stringify({ deviceId, ...(proof ? { proof } : {}) }),
     });
     if (!startRes.ok) throw new Error(`pair/start: HTTP ${startRes.status}`);
     const { code, url } = await startRes.json();
@@ -324,7 +331,7 @@ async function pairAndConnect() {
 
     // Connected as a family member's own: never the device channel, which is the resident's.
     const mine = token.kind === FAMILY_KIND;
-    rememberTelevision({ kind: mine ? FAMILY_KIND : RESIDENT_KIND, jwt: token.jwt, deviceId, proof });
+    rememberTelevision({ kind: mine ? FAMILY_KIND : RESIDENT_KIND, jwt: token.jwt, deviceId, ...(proof ? { proof } : {}) });
     if (mine) enterFamilyView(token.jwt, deviceId);
     else connectWebSocket(token.jwt, deviceId, proof);
   } catch (err) {
