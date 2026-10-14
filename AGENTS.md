@@ -516,6 +516,20 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   its row gives it, so no request can turn a family television into the
   resident's or the other way round. The resident's televisions and the
   family's are never counted or listed together.
+- **A person can take their data away, and a home is never left without the
+  person who set it up.** A family member downloads what Wick holds about
+  them and deletes their account from the family app
+  (`services/mcp-server/src/accounts/myData.ts`, `/api/account`). It is
+  about the token's person only (INV-8); it asks for the password again,
+  and deletes their own Cognito user with their own token — the server is
+  never given `AdminDeleteUser`. Deleting the account of a home's organiser
+  closes that home, and is refused, in a sentence that says what goes, until
+  they choose it: its Ring link first (and nothing at all if that cannot be
+  ended), then its televisions, its pictures and every `HH#` row. The export
+  holds no code, token or browser address, and a reply or a picture's "seen"
+  only while the resident allows the person. **Never** leave a household
+  without its organiser, delete one without that choice, or count what she
+  kept on the way.
 - **Never commit real household data.** No captures, no HAR files, no Ring
   snapshots. `.gitignore` covers the common cases; you are still
   responsible.
