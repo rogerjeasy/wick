@@ -209,7 +209,24 @@ family app, nor the Wick server. A home's organiser connects Ring from the famil
 app, and the link is made only when that same organiser, in the browser that
 signed in at Ring, finishes it. Ring webhooks are
 HMAC-SHA256 verified with constant-time comparison and idempotency on
-`request_id`. Threat model in [`docs/WICK-TECHNICAL.md`](docs/WICK-TECHNICAL.md) §10.
+`request_id`.
+
+A television's id is not a secret, so it is not what a token is minted for. A
+television that can keep a file — Fire OS, the browser television, a Fire TV
+whose storage works — makes a random secret when it is paired; the server keeps
+only its hash, and refreshes that television's token only for that secret. A
+television paired again gets a new id and secret, and its old row is removed.
+The family app never receives a device id (it names a television by a random
+reference), and no log carries one.
+
+What is still open, said plainly: the Vega Virtual Device keeps nothing on disk
+(FRICTION.md FL-013), so its row has no secret, its id is the constant
+`wick-tv`, and anyone can mint a one-hour token for the home it is paired to —
+read that home's cards, and press its consent buttons. That is why the
+simulator is only ever paired to a demo home. Televisions paired before
+2026-10-14 are under the same exception until their updated app enrols a
+secret. The rule and its limits are in [`AGENTS.md`](AGENTS.md) INV-1; the
+threat model in [`docs/WICK-TECHNICAL.md`](docs/WICK-TECHNICAL.md) §10.
 
 ## Licence
 

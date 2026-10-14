@@ -45,44 +45,91 @@ the member is removed, or the resident stops allowing them.
 (`FTV#`), never send a family television a card meant for the resident, and
 never let a family television's token call a tool by name.
 
-**Known accepted exception:** `POST /pair/refresh` (`services/edge-device/
-lambda/pair-refresh.mjs`) mints a device-bound JWT from `{deviceId}` alone —
-no proof of possession. (The household is looked up from the device id; it is
-no longer taken from the request — INV-8.) It exists because the Vega
-Virtual Device's `/data` never actually persists a write (FRICTION.md
-FL-013/FL-014), so `CardService.ts`'s separate process has no other way to
-learn it's already paired. Real proof-of-possession would need the client to
-hold a secret, which this device can't reliably store *and* this repo can't
-keep confidential (open source). Mitigated, not eliminated: a 1-hour TTL
-(`REFRESH_TOKEN_TTL_SEC`, versus `DEVICE_TOKEN_TTL_SEC`'s 30 days) and a
-per-device cooldown (`REFRESH_MIN_INTERVAL_MS`) bound exposure and throttle
-abuse; they do not stop a single unauthenticated mint. Revisit if SP-8 (real
-Fire TV hardware) shows on-device storage actually works there.
+**A television's id is a label, not a secret, and the family is never told
+one.** A family member is shown, for each television, when it was connected,
+whether it is on, and a random `ref` to disconnect it by
+(`services/mcp-server/src/accounts/circle.ts` `describeCircle`,
+`televisionRef` on its row) — nothing of the id. No log line carries an id
+(`scripts/__tests__/no-device-id-in-logs.test.ts`). A television paired again
+is a new television: where it keeps a file, it takes a new id and a new
+secret, and the row under its old id is removed when the new code is entered
+— in that home only, and only if the old row keeps the old secret
+(`apps/tv-vega/src/deviceId.ts`, `pair-claim.mjs` `removeReplaced`).
+Until 2026-10-14 every member the resident allowed was sent every
+television's id, and ids were logged. Those ids are still known. One is worth
+nothing alone once that television's updated app has enrolled a secret, and
+stops being that television's when it is next paired.
+
+**A television that can keep a file proves every refresh.** It makes a long
+random secret when it is paired, keeps it beside its id, and the server keeps
+only its SHA-256 on the television's row (`proofHash`,
+`services/edge-device/lambda/proof.mjs`). `POST /pair/refresh` then mints a
+token for that id only to a request that shows the secret, compared in
+constant time; without it nothing is minted and nothing is counted. Fire OS,
+the browser television (`apps/ops-console/device.js`) and any Fire TV whose
+storage works are under this rule. A television paired before secrets enrols
+one with its first refresh that also shows a token earned by pairing, not run
+out. Every token says how it was earned (`proof`: `pairing`, `secret` or
+`none`); one minted without proof can never enrol a secret, so whoever minted
+it cannot take the television over or lock it out.
+
+**Known accepted exception:** for a television whose row keeps no secret,
+`POST /pair/refresh` still mints a device-bound JWT from `{deviceId}` alone.
+It exists for the Vega Virtual Device: its `/data` never keeps a write
+(FRICTION.md FL-013/FL-014), so a secret it made would be gone at the next
+launch, and `CardService.ts`'s separate process has no other way to learn it
+is already paired. Its id is the constant `wick-tv`, in this open-source
+repository. So **anyone who knows a simulator's id — anyone — can mint a
+one-hour token for the home that simulator is paired to**, and with it do
+everything that television can: receive and replay the home's cards (the
+picture from the door, the family's notes, the week), mark the week seen
+(INV-7), open Watch live within five minutes of a door card, and press any
+card — including the consent presses: allow a membership that is waiting
+(INV-9), "Tell" (INV-10), yes to a language, "Yes" to a visit, the request to
+be rung. It cannot reach Ring, AWS or any family surface. What bounds it: the
+token says `proof: 'none'` and lives an hour (`REFRESH_TOKEN_TTL_SEC`); the
+per-device cooldown (four in half a minute, `REFRESH_WINDOW_MS`); one simulator id belongs to
+one home at a time (`device-owner.mjs`); and the moment a row keeps a secret
+an unproven token is refused everywhere — by `connect.mjs`, the IoT
+authorizer at every re-check, every message on a WebSocket opened with one
+(`route.mjs`) and Watch live (`refusesUnproven`). The same exception covers a
+television paired before secrets until its app is updated and enrols one.
+
+Consent presses are **not** refused for an unproven token, and that is a
+choice. Unproven tokens now exist only for rows that keep no secret, which in
+practice is the simulator. It mints one at every launch and is the
+television of the demo video; refusing them would leave it unable to say yes
+to anything. **Never** pair the Vega Virtual Device to a home with a real
+person in it, and disconnect it from any home that is not a demo home.
 
 **A second known accepted exception, smaller than the first:** a family
 television's background service is handed a token without proof, once, by
 `POST /pair/refresh`. The app and its service are two processes that can
 share nothing on the device — no launch data, no storage, no message
 (FRICTION.md FL-013, FL-029) — so the app, proving itself with the token it
-holds, opens a window on its own `FTV#` row, and inside that window one
-unproven request for that television is answered. What bounds it: only the
-app's own proof opens it; it lasts 90 seconds and is used once; the request
-must come from the address that opened it (kept on the row as a keyed
-fingerprint, never the address); and the token it yields carries
-`scope: 'waiting'`, which the Wick server accepts on `GET /tv/waiting` and
-refuses everywhere else. That one route says, in one sentence each, what
-is waiting for that member's answer — never the picture from the door, the
-light, the week or where a film is. A scoped token is only ever exchanged
-for another scoped token, and never once it has expired. It belongs to one
-session, named on the television's row: there is one at a time, each time
-the app comes on screen the session before it is over — at the pairing
-service and at the Wick server, which checks it on every call — and none
-lasts past seven days. And its refreshes are counted apart from the app's,
-so the least trusted token on a television cannot lock its app out.
+holds (and its secret, where its row keeps one), opens a window on its own
+`FTV#` row, and inside that window one unproven request for that television
+is answered. What bounds it: only the app's own proof opens it; it lasts 90
+seconds and is used once; the request must come from the address that opened
+it (kept on the row as a keyed fingerprint, never the address); and the token
+it yields carries `scope: 'waiting'`, which the Wick server accepts on
+`GET /tv/waiting` and refuses everywhere else. That one route says, in one
+sentence each, what is waiting for that member's answer — never the picture
+from the door, the light, the week or where a film is. A scoped token is only
+ever exchanged for another scoped token, and never once it has expired. It
+belongs to one session, named on the television's row: there is one at a
+time, each time the app comes on screen the session before it is over — at
+the pairing service and at the Wick server, which checks it on every call —
+and none lasts past seven days. And its refreshes are counted apart from the
+app's, so the least trusted token on a television cannot lock its app out.
+A family television's own full token is renewed only with its secret as well,
+where its row keeps one.
 
 **Never** widen that scope, never let a scoped token reach `/tv/home`,
 `/tv/press` or `/tv/seat`, and never answer `/tv/waiting` with anything a
-person would have to be looking to be told.
+person would have to be looking to be told. **Never** return a device id to
+the family side, log one, mint a token for a row that keeps a secret without
+that secret, or let an unproven token enrol one.
 
 ### INV-2 — Every family-bound string passes through the Guardian
 `services/agent/src/egress.ts` is the *only* module permitted to import a
