@@ -129,6 +129,9 @@ export function LiveView({ pairingApiUrl, jwt, cardId, language, onClose }: Live
   // Ring's limit, counted down once a second; at zero, say so and wait.
   React.useEffect(() => {
     if (phase.kind !== 'live') return;
+    // Counts down Ring's own live-view limit on the live picture. No card is
+    // on screen while it runs, and at zero it shows one and waits for her.
+    // eslint-disable-next-line vega-calm-ui/no-auto-dismiss
     const timer = setInterval(() => {
       const t = Date.now();
       setNow(t);

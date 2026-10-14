@@ -1,10 +1,11 @@
 /**
  * The accessibility floor, as functions rather than review comments.
  *
- * docs/WICK.md Part 5 lists these as principles. A principle you can only
- * remember is one you will eventually forget at 2am before a deadline, so each
- * one here is a call that throws. The components below cannot render a card
- * that breaks them.
+ * A principle you can only remember is one you will eventually forget at 2am
+ * before a deadline, so each one here is a call that throws. The components
+ * in this package cannot render a card that breaks them, and the ESLint rules
+ * in `vega-calm-ui/eslint` catch the same mistakes in your own code before it
+ * runs.
  */
 import { layout, limits, palette, type } from './tokens.js';
 
@@ -116,17 +117,22 @@ export function assertCardFits(shape: CardShape): void {
   }
 }
 
-/** sRGB relative luminance, per WCAG. */
-function luminance(hex: string): number {
+/** A 6-digit hex colour as its three 0–255 channels. Anything else is refused, not guessed at. */
+function rgb(hex: string): [number, number, number] {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
   if (!m) throw new CalmViolation(`Not a 6-digit hex colour: "${hex}"`);
+  const digits = m[1] as string;
+  return [0, 2, 4].map((i) => parseInt(digits.slice(i, i + 2), 16)) as [number, number, number];
+}
 
-  const channels = [0, 2, 4].map((i) => {
-    const c = parseInt(m[1]!.slice(i, i + 2), 16) / 255;
+/** sRGB relative luminance, per WCAG. */
+function luminance(hex: string): number {
+  const [r, g, b] = rgb(hex).map((channel) => {
+    const c = channel / 255;
     return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   }) as [number, number, number];
 
-  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 export function contrastRatio(a: string, b: string): number {
@@ -146,34 +152,43 @@ export function assertContrast(foreground: string, background: string): void {
 }
 
 /**
- * No red. On a television in someone's living room, red means "something is
- * wrong with you" — and nothing Wick shows is ever that.
+ * The hue of a colour in degrees if it is a saturated red — the wedge around
+ * 0deg, more than 35% saturated — and null otherwise. Greys, ambers and
+ * desaturated clays are null.
  *
- * Caught by hue rather than by blocklist, so a newly invented shade of red is
- * caught the same as #FF0000.
+ * The ESLint rule `vega-calm-ui/no-alarm-colour` carries the same arithmetic
+ * (eslint/colour.js); a test holds the two to the same answer on every colour
+ * of a 4096-colour sweep.
  */
-export function assertNoAlarmColour(hex: string): void {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) throw new CalmViolation(`Not a 6-digit hex colour: "${hex}"`);
-
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1]!.slice(i, i + 2), 16)) as [number, number, number];
+export function alarmHue(hex: string): number | null {
+  const [r, g, b] = rgb(hex);
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
-  if (max === min) return; // grey
+  if (max === min) return null; // grey
 
-  // Hue in degrees; red is the wedge around 0.
-  let hue = 0;
+  let hue: number;
   if (max === r) hue = (60 * ((g - b) / (max - min)) + 360) % 360;
   else if (max === g) hue = 60 * ((b - r) / (max - min)) + 120;
   else hue = 60 * ((r - g) / (max - min)) + 240;
 
   const saturated = (max - min) / max > 0.35;
   const isRed = hue >= 345 || hue <= 12;
+  return saturated && isRed ? hue : null;
+}
 
-  if (saturated && isRed) {
+/**
+ * No red. On a television in someone's living room, red means "something is
+ * wrong with you" — and nothing a calm surface shows is ever that.
+ *
+ * Caught by hue rather than by blocklist, so a newly invented shade of red is
+ * caught the same as #FF0000.
+ */
+export function assertNoAlarmColour(hex: string): void {
+  const hue = alarmHue(hex);
+  if (hue !== null) {
     throw new CalmViolation(
       `${hex} is a saturated red (hue ${hue.toFixed(0)}deg). ` +
-        'No red, anywhere — docs/WICK.md Principle 8.',
+        'Red on a television reads as an alarm; a calm surface never uses it.',
     );
   }
 }
