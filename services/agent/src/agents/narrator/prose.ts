@@ -9,7 +9,7 @@
  * Sonnet 4.5. Claude Sonnet 5 is listed in this account, with an inference
  * profile, yet every Converse call to it is refused with
  * AccessDeniedException "not available for this account" — so every weekly
- * run failed until 2026-10-01 (FRICTION.md FL-020). Sonnet 4.5 answers.
+ * run failed until 2026-10-01 (commit 04b55bd). Sonnet 4.5 answers.
  * infra/narrator.tf sets WICK_NARRATIVE_MODEL from the same local it grants
  * InvokeModel on, so the deployed id and the IAM grant cannot drift apart;
  * this default only matters for local runs.

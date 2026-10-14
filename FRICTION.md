@@ -3,9 +3,10 @@
 Developer-experience friction encountered while building Wick on Amazon Devices,
 Ring, Alexa+ and AWS.
 
-**Write entries the moment you hit the problem.** A friction log assembled at the
-end reads like one, and this is assessed during Stage One for a bonus of up to
-10% applied to the final score.
+31 entries, FL-001 to FL-032, newest first, each written when the problem was hit.
+There is no FL-020: the number was taken and the entry never written. The same
+problems, gathered by tool with what worked well beside them, are in
+[docs/PRODUCT-FEEDBACK.md](docs/PRODUCT-FEEDBACK.md).
 
 Every entry needs all six fields. Severity: `Critical` / `Important` / `Nice-to-have`.
 
@@ -29,60 +30,32 @@ Every entry needs all six fields. Severity: `Critical` / `Important` / `Nice-to-
 
 ---
 
-## Open slots — the spikes (see docs/WICK-TECHNICAL.md §14)
+## The spikes these entries refer to
 
-Fill each in as the spike completes, **whatever the answer**. A spike that
-succeeds still often surfaces a documentation or ergonomics gap.
+Before building, eight questions were set as spikes (SP-1 to SP-8, docs/WICK-TECHNICAL.md §14).
+Four were answered, and the entries below cite them:
 
-- [x] **SP-1** Rendering over active playback on Vega — **yes.** A DOOR card composited by
-      the app over its own `w3cmedia` HLS playback on the VVD (2026-10-01): legible, playback
-      uninterrupted. Over *another app's* playback there is still no overlay for a card —
-      but a system toast can be put there, from a service the app starts: FL-022.
-- [x] **SP-2** Ring snapshot latency (`POST /media/image/download`) — **3.15s** end to end
-      (0.8s to the 303, ~2.3s to pull 106KB). And it is not a snapshot: see FL-005.
-- [x] **SP-3** Ring WHEP session negotiation and limits on Vega — **WHEP works; Vega can't be
-      the client.** Relay-held token, Ring answers 201 in ~1.5s, 1280x720 H.264 live in desktop
-      Chromium in 5.6s. Vega has no WebRTC package and its WebView segfaults on the VVD
-      (FL-015), so Watch Live bridges WHEP to HLS in the cloud; the bridge produced its first
-      playlist 6.8s after the request. Cleartext HLS is refused silently (FL-016).
-- [ ] **SP-4** Alexa+ add-on onboarding (`alexa-ai configure → deploy`)
-- [x] **SP-5** WebSocket / MQTT transport inside Vega's RN 0.83 fork — **both work, on the
-      simulator.** `mqtt.js` 5.16 over WSS connects to IoT Core from the Vega Virtual Device
-      with no change to the library; cards come down and replies go up; with MQTT refused
-      the app is on the WebSocket instead (2026-10-11). The four-hour run on hardware was
-      never possible: FL-009, and its update.
-- [ ] **SP-7** Content Personalization round trip to Continue Watching
-- [ ] **SP-8** Vega sample on real Fire TV Stick hardware
+- **SP-1** Rendering over active playback on Vega — **yes.** A DOOR card composited by
+  the app over its own `w3cmedia` HLS playback on the VVD (2026-10-01): legible, playback
+  uninterrupted. Over *another app's* playback there is still no overlay for a card —
+  but a system toast can be put there, from a service the app starts: FL-022.
+- **SP-2** Ring snapshot latency (`POST /media/image/download`) — **3.15s** end to end
+  (0.8s to the 303, ~2.3s to pull 106KB). And it is not a snapshot: see FL-005.
+- **SP-3** Ring WHEP session negotiation and limits on Vega — **WHEP works; Vega can't be
+  the client.** Relay-held token, Ring answers 201 in ~1.5s, 1280x720 H.264 live in desktop
+  Chromium in 5.6s. Vega has no WebRTC package and its WebView segfaults on the VVD
+  (FL-015), so Watch Live bridges WHEP to HLS in the cloud; the bridge produced its first
+  playlist 6.8s after the request. Cleartext HLS is refused silently (FL-016).
+- **SP-5** WebSocket / MQTT transport inside Vega's RN 0.83 fork — **both work, on the
+  simulator.** `mqtt.js` 5.16 over WSS connects to IoT Core from the Vega Virtual Device
+  with no change to the library; cards come down and replies go up; with MQTT refused
+  the app is on the WebSocket instead (2026-10-11). The four-hour run on hardware was
+  never possible: FL-009, and its update.
 
-## Known gaps to write up when encountered
-
-Pre-identified during research (docs/WICK-TECHNICAL.md Appendix E). These are
-leads, not entries — an entry requires that you actually hit it.
-
-| Severity | Gap |
-|---|---|
-| Critical | No third-party overlay / ambient surface on Vega |
-| Critical | No camera, microphone, BLE or presence API on Vega |
-| Critical | No documented hardware-backed keystore on Vega |
-| Important | No public Ambient Experience / presence API |
-| Important | Content Launcher & Account Login partner-gated, no sandbox |
-| Important | Ring: no two-way audio / siren / light endpoints |
-| Important | Ring: no webhook replay, DLQ or synthetic-event sandbox |
-| Important | Ring: WHEP session duration/concurrency limits undocumented |
-| Important | AgentCore Runtime (PUBLIC) gets no outbound UDP — no WebRTC/RTP in the agent runtime (FL-017) |
-| Important | Vega: a missing `com.amazon.mediatransform.service` declaration fails every video decode as MediaError 3, nothing at build time (FL-018) |
-| Important | Ring's Playground simulates cameras only — no chime, so a chime integration cannot be shown without buying hardware (FL-019) |
-| Important | Ring's Playground delivers no doorbell or motion webhook, so nothing event-driven can be shown on it without an own event source (FL-027) |
-| Important | Fire OS: a short key press reaches JavaScript as key-up only and a held key as `longSelect`, undocumented beside `useTVEventHandler` (FL-028) |
-| Important | Vega: an app can start its own service but cannot hand it anything — no launch data, no shared storage, no second message (FL-029) |
-| Important | Alexa+ MCP add-on is US-only |
-| Important | No accessibility-preference API on Vega beyond screen-reader state |
-| Nice-to-have | Ring `sub_type` taxonomy too coarse |
-| Nice-to-have | Ring blocks browser/TV origins, forcing an extra hop |
-| Nice-to-have | Amazon Kids / household profiles unavailable to third-party apps |
-| Nice-to-have | Vega samples ship mock data wired into the real service path |
-
----
+Three were never run: SP-4 (Alexa+ add-on onboarding — the toolkit is partner-gated, FL-001),
+SP-7 (a Content Personalization round trip to Continue Watching) and SP-8 (a real Fire TV
+Stick — there was no hardware, FL-009). SP-6 (a Bee wearable stream) went when Bee was
+removed from the design (2026-10-02).
 
 ## Entries
 
@@ -544,6 +517,9 @@ leads, not entries — an entry requires that you actually hit it.
                         Vega versus Fire OS — which events, which action, and the focus requirement.
                      3. Have `react-native-multi-tv-app-sample` include a full-screen player with
                         no focusable control on it, since that is the case that breaks.
+
+---
+
 ## FL-024 — An MQTT client in a WebSocket cannot authenticate to IoT Core the way MQTT clients are shown to, and the reason is one sentence on one page
 
 **Tool / API:**      AWS IoT Core custom authentication, MQTT over WebSockets; `mqtt.js` 5.x inside
@@ -584,6 +560,9 @@ leads, not entries — an entry requires that you actually hit it.
                         query string or headers; username and password are not available."
                      2. Have the authorizer's refusal reach the client's error with a reason, at
                         least in a development mode. A bare close is the hardest thing to debug.
+
+---
+
 ## FL-023 — The add-on docs name two MCP protocol versions, and only one of them is the one the client is shown sending
 
 **Tool / API:**      Alexa+ MCP Toolkit docs — "Create an MCP Add-on" (quickstart) and "Alexa+ MCP
