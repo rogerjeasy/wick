@@ -11,11 +11,13 @@
 # The M2 live stream runs in the bridge Lambda (live.tf), not here: this
 # microVM has no outbound UDP and WebRTC needs it (FRICTION.md FL-017).
 #
-# Deploy order (the runtime needs an image to exist):
+# Deploy order on a new stack (the runtime needs an image to exist):
 #   1. terraform apply -target=aws_ecr_repository.agents
+#        -target=aws_ecr_repository.live_bridge -target=aws_ssm_parameter.agents_image
 #   2. scripts/push-agent-image.sh   (builds both images, arm64, and pins
-#                                     the tag in images.auto.tfvars)
+#                                     the tag in /wick/images/agents, images.tf)
 #   3. terraform apply
+# After that, deploy-agent.yml does all three on a push to main.
 # ---------------------------------------------------------------------------
 
 resource "aws_ecr_repository" "live_bridge" {
@@ -179,7 +181,7 @@ resource "aws_bedrockagentcore_agent_runtime" "agents" {
 
   agent_runtime_artifact {
     container_configuration {
-      container_uri = "${aws_ecr_repository.agents.repository_url}:${var.agent_image_tag}"
+      container_uri = "${aws_ecr_repository.agents.repository_url}:${local.agent_image_tag}"
     }
   }
 
