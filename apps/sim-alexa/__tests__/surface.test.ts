@@ -55,7 +55,11 @@ import {
   requestLimitFor,
   REQUEST_LIMITS_MS,
   NO_ANSWER_TEXT,
+  STAND_IN_VISITORS,
+  standInDoorOffer,
+  presentStandInDoorbell,
 } from '../surface.js';
+import { DEMO_VISITOR_KEYS, demoVisitor } from '../../../packages/contracts/src/demoDoor.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { REPLY_CHOICES as SERVER_REPLY_CHOICES } from '../../../services/mcp-server/src/tools/send_note_to_tv.js';
@@ -2985,5 +2989,70 @@ describe('requestLimitFor — how long each kind of request is waited for', () =
     expect(main).toMatch(/const answer = await api\('\/api\/photos'\);/);
     // Nothing in the app asks the network any other way.
     expect(main).not.toMatch(/(?<![\w.])fetch\(/);
+  });
+});
+
+describe('the stand-in doorbell of a demo home (contracts demoDoor.ts)', () => {
+  const demo = (role: string, status: string) => ({
+    ...me(role, status),
+    household: { householdId: 'hh_d', name: 'Demo home', residentName: 'Margaret', simulated: true },
+  });
+
+  it('offers the same stand-in visitors the server takes, under the same names', () => {
+    expect(STAND_IN_VISITORS.map((v: { key: string }) => v.key)).toEqual([...DEMO_VISITOR_KEYS]);
+    for (const visitor of STAND_IN_VISITORS as { key: (typeof DEMO_VISITOR_KEYS)[number]; label: string }[]) {
+      expect(visitor.label).toBe(demoVisitor(visitor.key).label);
+    }
+  });
+
+  it('is shown only in a demo home', () => {
+    expect(standInDoorOffer(demo('organiser', 'allowed'))).toEqual({ offered: true });
+    expect(standInDoorOffer(demo('family', 'allowed'))).toEqual({ offered: true });
+    expect(standInDoorOffer(me('organiser', 'allowed'))).toEqual({
+      offered: false,
+      say: 'The stand-in doorbell is only in a demo home. Margaret’s own doorbell rings by itself.',
+      tone: 'answer',
+    });
+  });
+
+  it('is not for a neighbour, nor for anybody Margaret has not allowed yet (INV-9)', () => {
+    expect(standInDoorOffer(demo('neighbour', 'allowed'))).toEqual({ offered: false, say: 'A neighbour cannot ring the stand-in doorbell.', tone: 'answer' });
+    expect(standInDoorOffer(demo('organiser', 'pending'))).toEqual({
+      offered: false,
+      say: 'Margaret hasn’t allowed this yet. A card is waiting on the television, and it only takes one press.',
+      tone: 'waiting',
+    });
+  });
+
+  it('says plainly what it is, and where to answer it', () => {
+    const card = presentStandInDoorbell(demo('organiser', 'allowed'));
+    expect(card.title).toBe('Someone at Margaret’s door (stand-in doorbell)');
+    expect(card.footnote).toBe(
+      'This demo home has no Ring doorbell, so Wick stands one in. The pictures are made up; what happens next is Wick’s own door path: ' +
+        'the card on her television, the sentence about the picture, and asking you to look.',
+    );
+    expect(card.rung).toBe('Margaret’s television will show who is at the door. Answer it there.');
+  });
+
+  it('has its chip only in a demo home', () => {
+    const chip = { label: 'Ring the stand-in doorbell', utterance: 'Ring the stand-in doorbell' };
+    expect(suggestionsFor(null, demo('organiser', 'allowed'))).toEqual([...SUGGESTIONS, chip]);
+    expect(suggestionsFor(null, me('organiser', 'allowed'))).toEqual(SUGGESTIONS);
+    expect(suggestionsFor(null)).toEqual(SUGGESTIONS);
+  });
+
+  it('is what ringing the doorbell asks for — not connecting Ring, and not the question from the door', () => {
+    for (const said of ['Ring the stand-in doorbell', 'ring the doorbell', 'Ring the door bell', 'make someone come to the door']) {
+      expect(routeUtterance(said)).toEqual({ kind: 'standin' });
+    }
+    expect(routeUtterance('Connect the doorbell').kind).toBe('doorbell');
+    expect(routeUtterance('Has Mum asked me to look at the door?')).toMatchObject({ tool: 'get_door_request' });
+  });
+
+  it('is rung with the app’s own request, its time limit and a key so that one press is one ring', () => {
+    const main = readFileSync(fileURLToPath(new URL('../main.js', import.meta.url)), 'utf8');
+    expect(main).toMatch(/api\('\/api\/demo\/doorbell', \{ method: 'POST'/);
+    expect(main).toMatch(/'idempotency-key': newPhotoKey\(/);
+    expect(requestLimitFor('/api/demo/doorbell', 'POST')).toBe(REQUEST_LIMITS_MS.api);
   });
 });

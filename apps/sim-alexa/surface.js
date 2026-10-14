@@ -168,6 +168,10 @@ export function routeUtterance(text, now = Date.now()) {
   // The doorbell is the app's own business too: connecting Ring is something the organiser does here.
   if (/\b(connect|disconnect|link|unlink)\b.*\b(doorbell|ring)\b|\bdoorbell\b.*\bconnected\b/.test(t)) return { kind: 'doorbell' };
 
+  // A demo home's stand-in doorbell: ringing it, or making somebody arrive. Whether this home has one is the card's to say.
+  // "Did someone come to the door" is the day's list, not this.
+  if (/\bstand-?in doorbell\b|^ring (?:the )?door ?bell\b|\bmake (?:someone|somebody) (?:come|arrive)\b/.test(t)) return { kind: 'standin' };
+
   // The language her television speaks is the app's own business as well: the
   // organiser asks for another here, and she answers on the television. Said
   // by the word, or by naming a language together with the television. A note
@@ -332,9 +336,11 @@ export function serverFor(listing, hostname) {
  *
  * @param {{ phrases: string[] } | null} listing
  */
-export function suggestionsFor(listing) {
+export function suggestionsFor(listing, me = null) {
+  // A demo home has a stand-in doorbell, and its chip comes last: the questions come first.
+  const own = me?.household?.simulated === true ? [...SUGGESTIONS, STAND_IN_CHIP] : SUGGESTIONS;
   const phrases = listing?.phrases ?? [];
-  if (phrases.length === 0) return SUGGESTIONS;
+  if (phrases.length === 0) return own;
   const asks = (utterance) => {
     const route = routeUtterance(utterance);
     return route.kind === 'tool' ? route.tool : route.kind;
@@ -342,8 +348,68 @@ export function suggestionsFor(listing) {
   const promised = new Set(phrases.map(asks));
   return [
     ...phrases.map((phrase) => ({ label: `${sentenceCase(phrase).replace(/'/g, '’')}?`, utterance: phrase })),
-    ...SUGGESTIONS.filter((suggestion) => !promised.has(asks(suggestion.utterance))),
+    ...own.filter((suggestion) => !promised.has(asks(suggestion.utterance))),
   ];
+}
+
+// ---------------------------------------------------------------------------
+// A demo home's stand-in doorbell (packages/contracts demoDoor.ts): somebody
+// made to arrive at the door, so that the door card can be seen on her
+// television. The server decides who may ring and how often
+// (POST /api/demo/doorbell); this is what the card says.
+
+/** The chip, shown in a demo home only (suggestionsFor). */
+const STAND_IN_CHIP = { label: 'Ring the stand-in doorbell', utterance: 'Ring the stand-in doorbell' };
+
+/** The stand-in visitors, as the server takes them (contracts demoDoor.ts; held to it by a test). */
+export const STAND_IN_VISITORS = [
+  { key: 'carer', label: 'Maria, the carer' },
+  { key: 'parcel', label: 'A parcel delivery' },
+  { key: 'stranger', label: 'Somebody she does not know' },
+  { key: 'nobody', label: 'Nobody there, only movement' },
+];
+
+/**
+ * Who the card is for: anybody the resident has allowed in a demo home, and
+ * not a neighbour. In any other home there is no stand-in: its door is its own.
+ *
+ * @param me  GET /api/me
+ */
+export function standInDoorOffer(me) {
+  const resident = me.household.residentName;
+  const { role, status } = me.membership;
+  if (me.household.simulated !== true) {
+    return { offered: false, say: `The stand-in doorbell is only in a demo home. ${resident}’s own doorbell rings by itself.`, tone: 'answer' };
+  }
+  if (role === 'neighbour') return { offered: false, say: 'A neighbour cannot ring the stand-in doorbell.', tone: 'answer' };
+  if (status === 'allowed') return { offered: true };
+  if (status === 'declined') return { offered: false, say: `${resident} chose not to share this with you.`, tone: 'private' };
+  if (status === 'removed') return { offered: false, say: 'You are no longer part of this family circle.', tone: 'private' };
+  return {
+    offered: false,
+    say: `${resident} hasn’t allowed this yet. A card is waiting on the television, and it only takes one press.`,
+    tone: 'waiting',
+  };
+}
+
+/**
+ * Every word the card says for itself. What the server says — that it rang,
+ * or why it did not — is said as the server said it.
+ *
+ * @param me  GET /api/me
+ */
+export function presentStandInDoorbell(me) {
+  const resident = me.household.residentName;
+  return {
+    say: `Who should be at ${resident}’s door?`,
+    title: `Someone at ${resident}’s door (stand-in doorbell)`,
+    footnote:
+      'This demo home has no Ring doorbell, so Wick stands one in. The pictures are made up; what happens next is Wick’s own door path: ' +
+      'the card on her television, the sentence about the picture, and asking you to look.',
+    visitors: STAND_IN_VISITORS,
+    ringing: 'Ringing the doorbell…',
+    rung: `${resident}’s television will show who is at the door. Answer it there.`,
+  };
 }
 
 export const HELP_TEXT =
