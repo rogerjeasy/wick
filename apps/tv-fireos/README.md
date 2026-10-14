@@ -2,13 +2,14 @@
 
 The same application as `apps/tv-vega`, on Fire OS. **It has no screens of its
 own.** It bundles the Vega app's source (`apps/tv-vega/src`) and gives it
-Android in place of the three Amazon packages that source was written against:
+Android in place of the four Amazon packages that source was written against:
 
 | The Vega app imports | On Fire OS that is | File |
 |---|---|---|
 | `@amazon-devices/react-native-kepler` — View, Text, Pressable, the remote's key events | React Native's own (`react-native-tvos`), with the media keys renamed | `src/adapters/kepler.ts` |
 | `@amazon-devices/react-native-w3cmedia` — `VideoPlayer`, `KeplerVideoView`, `AudioPlayer` | ExoPlayer through `react-native-video`, behind the same objects | `src/adapters/w3cmedia.tsx`, `videoPlayer.ts`, `audioPlayer.ts`, `AudioHost.tsx` |
 | `@amazon-devices/kepler-file-system` — three file calls | the app's key-value storage | `src/adapters/fileSystem.ts` |
+| `@amazon-devices/kepler-media-controls` — the film as a media session ("Alexa, pause") | nothing yet: the film obeys the remote's keys only | `src/adapters/mediaControls.ts` |
 
 One shared file is replaced outright: `headless/launchCardService.ts`, which on
 Vega starts a background service by a `pkg://` address Android does not have.

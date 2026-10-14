@@ -17,8 +17,24 @@ import { remoteKeyEvents, type RemoteEvent } from './remoteEvents';
 export { Animated, BackHandler, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 export type { ImageSourcePropType } from 'react-native';
 
-/** A Vega headless component's handle. Nothing on Fire OS is one; the type exists so shared files compile. */
-export type IComponentInstance = never;
+/**
+ * A Vega component's handle. On Fire OS there is one app and no component
+ * registry: the handle exists so shared files compile, and the only thing
+ * that takes one here — the media session (adapters/mediaControls.ts) —
+ * does nothing with it.
+ */
+export interface IComponentInstance {
+  readonly name: string;
+  readonly type: number;
+  readonly id: string;
+}
+
+const THIS_APP: IComponentInstance = { name: 'com.wick.tv.main', type: 0, id: 'fireos' };
+
+/** Vega's app-state manager, as much of it as the shared source asks for: which component this is. */
+export function useKeplerAppStateManager(): { getComponentInstance(): IComponentInstance } {
+  return { getComponentInstance: () => THIS_APP };
+}
 
 export function useTVEventHandler(handler: (event: RemoteEvent) => void): void {
   // Which keys are down, kept across renders: a press is acted on once.
