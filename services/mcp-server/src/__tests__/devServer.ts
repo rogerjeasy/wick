@@ -344,11 +344,11 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
       if (me.membership.status !== 'allowed' || me.membership.role === 'neighbour') return { status: 403, body: 'not_allowed_yet' };
       const deviceId = `wick-family-tv-${me.user.userId}`;
       store.addFamilyTelevision(me.household.householdId, { deviceId, userId: me.user.userId, pairedAt: Date.now() });
-      return { status: 200, body: JSON.stringify({ ok: true, deviceId, kind: 'family' }) };
+      return { status: 200, body: JSON.stringify({ ok: true, kind: 'family' }) };
     }
     store.addTelevision(me.household.householdId, { deviceId: 'wick-tv', pairedAt: Date.now(), connected: true });
     homesWithATelevision.add(me.household.householdId);
-    return { status: 200, body: JSON.stringify({ ok: true, deviceId: 'wick-tv' }) };
+    return { status: 200, body: JSON.stringify({ ok: true }) };
   },
 });
 

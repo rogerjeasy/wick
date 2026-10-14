@@ -22,7 +22,7 @@ import {
 } from '@wick/contracts';
 import type { Identity } from './identity.js';
 import type { AccountStore } from './store.js';
-import type { Household, Membership, Television } from './types.js';
+import type { Household, Membership } from './types.js';
 
 export interface CircleDeps {
   readonly store: AccountStore;
@@ -293,9 +293,11 @@ export async function removeMember(deps: CircleDeps, actor: { householdId: strin
  * loses nothing by it: a television still in the house shows its pairing
  * code again, and connecting it asks nobody's leave twice.
  */
-export async function removeTelevision(deps: CircleDeps, actor: { householdId: string; userId: string }, deviceId: string): Promise<void> {
+export async function removeTelevision(deps: CircleDeps, actor: { householdId: string; userId: string }, ref: string): Promise<void> {
   await requireOrganiser(deps, actor);
-  if (!(await deps.store.removeTelevision(actor.householdId, deviceId))) throw new CircleError('not_a_television');
+  // Named by its `ref`, never its id (describeCircle): found among this home's own.
+  const tv = (await deps.store.listTelevisions(actor.householdId)).find((held) => held.ref === ref);
+  if (!tv || !(await deps.store.removeTelevision(actor.householdId, tv.deviceId))) throw new CircleError('not_a_television');
 }
 
 /**
@@ -306,16 +308,18 @@ export async function removeTelevision(deps: CircleDeps, actor: { householdId: s
  * here can touch the resident's own television: that is a row of another
  * kind, and `removeTelevision`'s to remove.
  */
-export async function removeFamilyTelevision(deps: CircleDeps, actor: { householdId: string; userId: string }, deviceId: string): Promise<void> {
+export async function removeFamilyTelevision(deps: CircleDeps, actor: { householdId: string; userId: string }, ref: string): Promise<void> {
   const membership = await deps.store.getMembership(actor.householdId, actor.userId);
   // The organiser as everywhere else here: allowed, or still waiting for the resident.
   const organiser = membership?.role === 'organiser' && (membership.status === 'allowed' || membership.status === 'pending');
   if (!organiser && membership?.status !== 'allowed') throw new CircleError('not_your_television');
 
+  // Named by its `ref`, never its id (describeCircle): found among this home's own.
+  const tv = (await deps.store.listFamilyTelevisions(actor.householdId)).find((held) => held.ref === ref);
+  if (!tv) throw new CircleError('not_a_television');
   // For a member, removed only if it is theirs: the condition is the store's, so there is no moment between looking and removing.
-  if (await deps.store.removeFamilyTelevision(actor.householdId, deviceId, organiser ? undefined : actor.userId)) return;
-  const held = organiser ? undefined : (await deps.store.listFamilyTelevisions(actor.householdId)).find((tv) => tv.deviceId === deviceId);
-  throw new CircleError(held ? 'not_your_television' : 'not_a_television');
+  if (await deps.store.removeFamilyTelevision(actor.householdId, tv.deviceId, organiser ? undefined : actor.userId)) return;
+  throw new CircleError(organiser || tv.userId === actor.userId ? 'not_a_television' : 'not_your_television');
 }
 
 export interface CircleView {
@@ -327,15 +331,20 @@ export interface CircleView {
     readonly status: MemberStatus;
     readonly you: boolean;
   }[];
-  /** The resident's televisions, and only those: they are what "two televisions connected" counts. */
-  readonly televisions: readonly Television[];
+  /**
+   * The resident's televisions, and only those: they are what "two
+   * televisions connected" counts. Each is named by its `ref`, never by its
+   * device id: an id is what a refresh is asked for by, and whoever learns
+   * it learns how to ask (AGENTS.md INV-1).
+   */
+  readonly televisions: readonly TelevisionView[];
   /**
    * The televisions members connected as their own, oldest first — a list
    * of its own, never among the resident's. Empty for a viewer the resident
-   * has not allowed yet (INV-9).
+   * has not allowed yet (INV-9). Named by `ref` as well.
    */
   readonly familyTelevisions: readonly {
-    readonly deviceId: string;
+    readonly ref: string;
     readonly userId: string;
     /** The member's name as the circle shows it. */
     readonly memberName: string;
@@ -343,6 +352,13 @@ export interface CircleView {
     /** Whether it is the viewer's own. */
     readonly yours: boolean;
   }[];
+}
+
+/** A television as the family is shown it: when it was connected, whether it is on, and the name to disconnect it by. */
+export interface TelevisionView {
+  readonly ref: string;
+  readonly pairedAt?: number;
+  readonly connected: boolean;
 }
 
 export async function describeCircle(deps: Pick<CircleDeps, 'store'>, householdId: string, viewerId: string): Promise<CircleView> {
@@ -361,13 +377,14 @@ export async function describeCircle(deps: Pick<CircleDeps, 'store'>, householdI
       .filter((m) => m.status !== 'removed')
       .sort((a, b) => a.requestedAt - b.requestedAt || a.userId.localeCompare(b.userId))
       .map((m) => ({ userId: m.userId, name: m.name, role: m.role, status: m.status, you: m.userId === viewerId })),
-    televisions,
+    // Built field by field, so nothing the store reads — the device id above all — rides along.
+    televisions: televisions.map((tv) => ({ ref: tv.ref, ...(tv.pairedAt === undefined ? {} : { pairedAt: tv.pairedAt }), connected: tv.connected })),
     familyTelevisions: !allowed
       ? []
       : [...familyTelevisions]
-          .sort((a, b) => (a.pairedAt ?? 0) - (b.pairedAt ?? 0) || a.deviceId.localeCompare(b.deviceId))
+          .sort((a, b) => (a.pairedAt ?? 0) - (b.pairedAt ?? 0) || a.ref.localeCompare(b.ref))
           .map((tv) => ({
-            deviceId: tv.deviceId,
+            ref: tv.ref,
             userId: tv.userId,
             // Someone since removed is still named: the organiser has to know whose television they are disconnecting.
             memberName: members.find((m) => m.userId === tv.userId)?.name ?? 'Someone',

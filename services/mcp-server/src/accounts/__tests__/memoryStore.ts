@@ -8,10 +8,10 @@ import { HouseholdExistsError, type AccountStore } from '../store.js';
 import type { FamilyTelevision, Household, Membership, Television, User } from '../types.js';
 
 export interface MemoryStore extends AccountStore {
-  /** Pretend a television was paired, as pair-claim.mjs would have done. */
-  addTelevision(householdId: string, tv: Television): void;
-  /** Pretend a member connected a television of their own, as pair-claim.mjs would have done with `as: 'family'`. */
-  addFamilyTelevision(householdId: string, tv: FamilyTelevision): void;
+  /** Pretend a television was paired, as pair-claim.mjs would have done. Without a `ref`, it is given `ref-<deviceId>`. */
+  addTelevision(householdId: string, tv: Omit<Television, 'ref'> & { ref?: string }): void;
+  /** Pretend a member connected a television of their own, as pair-claim.mjs would have done with `as: 'family'`. Its `ref` as above. */
+  addFamilyTelevision(householdId: string, tv: Omit<FamilyTelevision, 'ref'> & { ref?: string }): void;
   /**
    * Pretend the resident pressed a button on the LANGUAGE card, as the edge
    * will have it: only a question still open is answered; "yes" makes it the
@@ -142,7 +142,7 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
       return true;
     },
     addTelevision(householdId, tv) {
-      televisions.set(householdId, [...(televisions.get(householdId) ?? []), tv]);
+      televisions.set(householdId, [...(televisions.get(householdId) ?? []), { ...tv, ref: tv.ref ?? `ref-${tv.deviceId}` }]);
     },
     async listFamilyTelevisions(householdId) {
       return familyTelevisions.get(householdId) ?? [];
@@ -156,7 +156,7 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
     },
     addFamilyTelevision(householdId, tv) {
       // One row per television, as the table's key makes it: connecting it again replaces whose it was.
-      familyTelevisions.set(householdId, [...(familyTelevisions.get(householdId) ?? []).filter((held) => held.deviceId !== tv.deviceId), tv]);
+      familyTelevisions.set(householdId, [...(familyTelevisions.get(householdId) ?? []).filter((held) => held.deviceId !== tv.deviceId), { ...tv, ref: tv.ref ?? `ref-${tv.deviceId}` }]);
     },
     async putRecord(kind, id, value, expiresAt) {
       records.set(`${kind}#${id}`, { value: JSON.stringify(value), expiresAt });

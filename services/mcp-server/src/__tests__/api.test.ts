@@ -38,7 +38,7 @@ describe('GET /api/circle', () => {
     expect(await res.json()).toMatchObject({
       household: { residentName: 'Margaret' },
       members: [{ name: 'Sarah', role: 'organiser', status: 'pending', you: true }],
-      televisions: [{ deviceId: 'tv-1', connected: true }],
+      televisions: [{ ref: 'ref-tv-1', connected: true }],
     });
   });
 
@@ -144,17 +144,27 @@ describe('removing someone', () => {
   });
 });
 
-describe('DELETE /api/televisions/:deviceId', () => {
+describe('DELETE /api/televisions/:ref', () => {
   it('lets the organiser disconnect a television from the home', async () => {
     const h = await server();
     const sarah = await linkNewOrganiser(h);
     h.store.addTelevision(sarah.householdId, { deviceId: 'tv-1', pairedAt: 5, connected: true });
     h.store.addTelevision(sarah.householdId, { deviceId: 'tv-old', pairedAt: 2, connected: false });
 
-    const res = await api(h, sarah, '/api/televisions/tv-old', { method: 'DELETE' });
+    const res = await api(h, sarah, '/api/televisions/ref-tv-old', { method: 'DELETE' });
 
     expect(res.status).toBe(204);
-    expect(((await (await api(h, sarah, '/api/circle')).json()) as { televisions: { deviceId: string }[] }).televisions.map((tv) => tv.deviceId)).toEqual(['tv-1']);
+    expect(((await (await api(h, sarah, '/api/circle')).json()) as { televisions: { ref: string }[] }).televisions.map((tv) => tv.ref)).toEqual(['ref-tv-1']);
+  });
+
+  // INV-1: the family is never told a television's id, so the id is not a way to name one either.
+  it('is not reached by a television’s device id — only by the ref the circle shows', async () => {
+    const h = await server();
+    const sarah = await linkNewOrganiser(h);
+    h.store.addTelevision(sarah.householdId, { deviceId: 'tv-1', pairedAt: 5, connected: true });
+
+    expect((await api(h, sarah, '/api/televisions/tv-1', { method: 'DELETE' })).status).toBe(404);
+    expect(await h.store.listTelevisions(sarah.householdId)).toHaveLength(1);
   });
 
   it('is the organiser’s alone', async () => {
@@ -164,7 +174,7 @@ describe('DELETE /api/televisions/:deviceId', () => {
     await residentAllows(h, tom.householdId, tom.userId);
     h.store.addTelevision(sarah.householdId, { deviceId: 'tv-1', pairedAt: 5, connected: true });
 
-    const res = await api(h, tom, '/api/televisions/tv-1', { method: 'DELETE' });
+    const res = await api(h, tom, '/api/televisions/ref-tv-1', { method: 'DELETE' });
 
     expect(res.status).toBe(403);
     expect(await h.store.listTelevisions(sarah.householdId)).toHaveLength(1);
@@ -174,19 +184,19 @@ describe('DELETE /api/televisions/:deviceId', () => {
     const h = await server();
     const sarah = await linkNewOrganiser(h);
 
-    const res = await api(h, sarah, '/api/televisions/tv-nobody', { method: 'DELETE' });
+    const res = await api(h, sarah, '/api/televisions/ref-tv-nobody', { method: 'DELETE' });
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'not_a_television', message: 'That television is not connected to this home.' });
   });
 
-  it('INV-8: cannot disconnect another home’s television by knowing its id', async () => {
+  it('INV-8: cannot disconnect another home’s television by knowing its ref', async () => {
     const h = await server();
     const sarah = await linkNewOrganiser(h);
     const other = await linkNewOrganiser(h, { name: 'Priya', email: 'priya@example.com', password: 'another long passphrase' }, 'Asha');
     h.store.addTelevision(sarah.householdId, { deviceId: 'tv-1', pairedAt: 5, connected: true });
 
-    const res = await api(h, other, '/api/televisions/tv-1', { method: 'DELETE' });
+    const res = await api(h, other, '/api/televisions/ref-tv-1', { method: 'DELETE' });
 
     expect(res.status).toBe(404);
     expect(await h.store.listTelevisions(sarah.householdId)).toHaveLength(1);
@@ -419,7 +429,7 @@ describe('family televisions — a member’s own, listed apart from the residen
     h.store.addFamilyTelevision(sarah.householdId, { deviceId: 'tv-tom', userId: tom.userId, pairedAt: 9 });
     return { h, sarah, tom };
   }
-  type Circle = { televisions: { deviceId: string }[]; familyTelevisions: { deviceId: string; userId: string; memberName: string; pairedAt?: number; yours: boolean }[] };
+  type Circle = { televisions: { ref: string }[]; familyTelevisions: { ref: string; userId: string; memberName: string; pairedAt?: number; yours: boolean }[] };
   const circleOf = async (h: Harness, who: Linked) => (await (await api(h, who, '/api/circle')).json()) as Circle;
 
   it('GET /api/circle lists them on their own, by whose they are — never among the resident’s televisions', async () => {
@@ -427,11 +437,13 @@ describe('family televisions — a member’s own, listed apart from the residen
 
     const seen = await circleOf(h, tom);
 
-    expect(seen.televisions.map((tv) => tv.deviceId)).toEqual(['tv-margaret']);
+    expect(seen.televisions.map((tv) => tv.ref)).toEqual(['ref-tv-margaret']);
     expect(seen.familyTelevisions).toEqual([
-      { deviceId: 'tv-sarah', userId: sarah.userId, memberName: 'Sarah', pairedAt: 7, yours: false },
-      { deviceId: 'tv-tom', userId: tom.userId, memberName: 'Tom', pairedAt: 9, yours: true },
+      { ref: 'ref-tv-sarah', userId: sarah.userId, memberName: 'Sarah', pairedAt: 7, yours: false },
+      { ref: 'ref-tv-tom', userId: tom.userId, memberName: 'Tom', pairedAt: 9, yours: true },
     ]);
+    // INV-1: no device id, of any television, reaches a member.
+    expect(JSON.stringify(seen)).not.toMatch(/"tv-(margaret|sarah|tom)"/);
   });
 
   it('INV-9: shows none of them to an organiser the resident has not allowed yet', async () => {
@@ -445,13 +457,13 @@ describe('family televisions — a member’s own, listed apart from the residen
     expect((await circleOf(h, tom)).familyTelevisions).toHaveLength(1);
   });
 
-  it('DELETE /api/family-televisions/:deviceId lets a member disconnect their own', async () => {
+  it('DELETE /api/family-televisions/:ref lets a member disconnect their own', async () => {
     const { h, sarah, tom } = await home();
 
-    const res = await api(h, tom, '/api/family-televisions/tv-tom', { method: 'DELETE' });
+    const res = await api(h, tom, '/api/family-televisions/ref-tv-tom', { method: 'DELETE' });
 
     expect(res.status).toBe(204);
-    expect((await circleOf(h, sarah)).familyTelevisions.map((tv) => tv.deviceId)).toEqual(['tv-sarah']);
+    expect((await circleOf(h, sarah)).familyTelevisions.map((tv) => tv.ref)).toEqual(['ref-tv-sarah']);
     // The resident's own television is not this route's to touch.
     expect(await h.store.listTelevisions(sarah.householdId)).toHaveLength(1);
   });
@@ -459,16 +471,16 @@ describe('family televisions — a member’s own, listed apart from the residen
   it('lets the organiser disconnect anyone’s', async () => {
     const { h, sarah } = await home();
 
-    const res = await api(h, sarah, '/api/family-televisions/tv-tom', { method: 'DELETE' });
+    const res = await api(h, sarah, '/api/family-televisions/ref-tv-tom', { method: 'DELETE' });
 
     expect(res.status).toBe(204);
-    expect((await circleOf(h, sarah)).familyTelevisions.map((tv) => tv.deviceId)).toEqual(['tv-sarah']);
+    expect((await circleOf(h, sarah)).familyTelevisions.map((tv) => tv.ref)).toEqual(['ref-tv-sarah']);
   });
 
   it('does not let one family member disconnect another’s', async () => {
     const { h, sarah, tom } = await home();
 
-    const res = await api(h, tom, '/api/family-televisions/tv-sarah', { method: 'DELETE' });
+    const res = await api(h, tom, '/api/family-televisions/ref-tv-sarah', { method: 'DELETE' });
 
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({
@@ -481,18 +493,18 @@ describe('family televisions — a member’s own, listed apart from the residen
   it('is not a way to disconnect the resident’s television: that one is not a family television', async () => {
     const { h, sarah } = await home();
 
-    const res = await api(h, sarah, '/api/family-televisions/tv-margaret', { method: 'DELETE' });
+    const res = await api(h, sarah, '/api/family-televisions/ref-tv-margaret', { method: 'DELETE' });
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'not_a_television', message: 'That television is not connected to this home.' });
     expect(await h.store.listTelevisions(sarah.householdId)).toHaveLength(1);
   });
 
-  it('INV-8: cannot disconnect another home’s family television by knowing its id', async () => {
+  it('INV-8: cannot disconnect another home’s family television by knowing its ref', async () => {
     const { h, sarah } = await home();
     const other = await linkNewOrganiser(h, { name: 'Priya', email: 'priya@example.com', password: 'another long passphrase' }, 'Asha');
 
-    const res = await api(h, other, '/api/family-televisions/tv-tom', { method: 'DELETE' });
+    const res = await api(h, other, '/api/family-televisions/ref-tv-tom', { method: 'DELETE' });
 
     expect(res.status).toBe(404);
     expect(await h.store.listFamilyTelevisions(sarah.householdId)).toHaveLength(2);

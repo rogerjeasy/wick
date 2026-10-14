@@ -81,6 +81,9 @@ const PAIRING_REFUSALS: Readonly<Record<string, string | ((resident: string) => 
 };
 
 /** Whether the pairing Lambda's answer says it connected the television as a member's own. Its word, never the request's. */
+/** What a television's `ref` can look like (edge-device pair-claim.mjs newTelevisionRef, store.ts: sixteen random bytes, base64url). It is only ever looked for among the caller's own home's televisions. */
+const TELEVISION_REF = /^[A-Za-z0-9_-]{1,64}$/;
+
 function connectedAsFamily(body: string): boolean {
   try {
     return (JSON.parse(body) as { kind?: unknown } | null)?.kind === FAMILY_TV_KIND;
@@ -322,19 +325,20 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
   }));
 
   // Disconnects a television from the home in the caller's own token (INV-8): there is no household here to name.
-  router.delete('/api/televisions/:deviceId', withGrant(async (grant, req, res) => {
-    const deviceId = String(req.params.deviceId);
-    // A television's id as pairing makes it. Anything else is not one, and is not looked for.
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) throw new CircleError('not_a_television');
-    await removeTelevision(circle, grant, deviceId);
+  // It is named by the `ref` the circle shows (circle.ts describeCircle), never by its device id: the family is never told one (AGENTS.md INV-1).
+  router.delete('/api/televisions/:ref', withGrant(async (grant, req, res) => {
+    const ref = String(req.params.ref);
+    // A ref as the pairing Lambda makes it. Anything else is not one, and is not looked for.
+    if (!TELEVISION_REF.test(ref)) throw new CircleError('not_a_television');
+    await removeTelevision(circle, grant, ref);
     res.status(204).end();
   }));
 
   // Disconnects a member's own television: theirs to do, and the organiser's for anyone's. Never the resident's television.
-  router.delete('/api/family-televisions/:deviceId', withGrant(async (grant, req, res) => {
-    const deviceId = String(req.params.deviceId);
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) throw new CircleError('not_a_television');
-    await removeFamilyTelevision(circle, grant, deviceId);
+  router.delete('/api/family-televisions/:ref', withGrant(async (grant, req, res) => {
+    const ref = String(req.params.ref);
+    if (!TELEVISION_REF.test(ref)) throw new CircleError('not_a_television');
+    await removeFamilyTelevision(circle, grant, ref);
     res.status(204).end();
   }));
 
