@@ -2159,8 +2159,12 @@ function presentPictures(answer, formatTime) {
  *     takes longer than the fifteen seconds a table read is given: a minute.
  *     Looking at the pictures already sent (GET) is the app's ordinary
  *     business, and waits as long as that does.
+ *   - `hear`: a spoken question on its way to be heard (POST /api/hear).
+ *     Up to ten seconds of audio, and the server gives Amazon Transcribe
+ *     fifteen seconds for it (services/mcp-server/src/hear/transcribe.ts
+ *     HEAR_TIMEOUT_MS); the page outwaits that, as it does the assistant.
  */
-export const REQUEST_LIMITS_MS = { api: 15_000, tool: 20_000, assistant: 30_000, upload: 60_000 };
+export const REQUEST_LIMITS_MS = { api: 15_000, tool: 20_000, assistant: 30_000, upload: 60_000, hear: 30_000 };
 
 /** Said when a request was given up. The app's own sentence: the server said nothing. */
 export const NO_ANSWER_TEXT = 'Wick did not answer in time. Try again in a moment.';
@@ -2176,6 +2180,7 @@ export function requestLimitFor(path, method = 'GET') {
   if (path.startsWith('/assistant/')) return REQUEST_LIMITS_MS.assistant;
   if (path === '/mcp') return REQUEST_LIMITS_MS.tool;
   if (path === '/api/photos' && String(method).toUpperCase() === 'POST') return REQUEST_LIMITS_MS.upload;
+  if (path === '/api/hear' && String(method).toUpperCase() === 'POST') return REQUEST_LIMITS_MS.hear;
   return REQUEST_LIMITS_MS.api;
 }
 

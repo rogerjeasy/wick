@@ -77,9 +77,20 @@ type scale), that:
 5. shows a refusal as what it is. "Kept private" and "Not yet" are answers,
    in the server's own words, never an error.
 
+**Ask by voice.** The microphone beside the field takes one spoken question,
+ten seconds at most: press to start and again to stop (or hold it, and let
+go). The page brings the sound to 16 kHz, 16-bit PCM itself and sends it to
+the Wick server's `POST /api/hear`, which has Amazon Transcribe turn it into
+words; the words go into the field and are asked as if typed. The microphone
+is asked for on the first press, and let go of when the question ends;
+nothing is recorded or kept. Where the browser has no microphone to offer,
+the button is not shown. Not the browser's own speech recognition, which
+sends the sound elsewhere.
+
 `surface.js` holds the routing and the sentence-and-card logic with no DOM and
-no network, and is tested (`__tests__/surface.test.ts`). `main.js` is the OAuth
-and MCP client and puts the result on the page.
+no network, and is tested (`__tests__/surface.test.ts`); `voice.js` does the
+same for the sound of a question (`__tests__/voice.test.ts`). `main.js` is the
+OAuth and MCP client and puts the result on the page.
 
 **The point.** The server is the real artefact. This is a client. If Alexa+ access
 ever opens, this directory becomes redundant and **not one line of the server
