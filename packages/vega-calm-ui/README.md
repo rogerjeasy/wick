@@ -1,7 +1,7 @@
 # vega-calm-ui
 
 > **Canonical repository: [github.com/rogerjeasy/vega-calm-ui](https://github.com/rogerjeasy/vega-calm-ui)**
-> (`npm install vega-calm-ui`). This folder is Wick's workspace copy,
+> (`npm install github:rogerjeasy/vega-calm-ui`; not yet on npm). This folder is Wick's workspace copy,
 > imported as `@wick/vega-calm-ui` and kept identical to it in `src/` and
 > `eslint/`; changes go upstream first.
 
@@ -65,8 +65,12 @@ the door, a note from the family, the week's summary — is drawn with it.
 ## Install
 
 ```bash
-npm install vega-calm-ui
+npm install github:rogerjeasy/vega-calm-ui
 ```
+
+It is **not yet published to npm**: `npm install vega-calm-ui` will not find
+it. Installing from GitHub runs the repository's `prepare` script, which builds
+the package. The import name is the same either way: `vega-calm-ui`.
 
 Peer dependencies: `react` (18.2 or 19), and on Vega
 `@amazon-devices/react-native-kepler` (which every Vega app already has).

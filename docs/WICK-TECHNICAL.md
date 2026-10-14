@@ -1,15 +1,17 @@
-# WICK — Technical Implementation Document
+# WICK — Technical Document
 
-**Companion to `WICK.md` (product definition).** That document says *what* and *why*. This one says *how*.
+**Companion to `WICK.md` (product definition).** That document says *what* and *why*. This one says *how*, as the system is built today.
 
 | | |
 |---|---|
-| **Version** | 1.0 |
-| **Date** | 14 September 2026 |
-| **Target** | Build, Ship, Shape — Fire TV Track, 1st Place |
+| **Version** | 2.0 — rewritten to match the code |
+| **Date** | 14 October 2026 (version 1.0, 14 September 2026, was the plan written before the build) |
+| **Hackathon** | Build, Ship, Shape — Fire TV track; AWS Builder and Open Source mini challenges |
 | **Deadline** | 23 October 2026, 12:00 PT |
-| **Audience** | The engineer building it. Assumes deep AWS and distributed-systems fluency. Nothing is explained twice. |
-| **Authority** | Where this document and `WICK.md` disagree on *behaviour*, `WICK.md` wins. Where they disagree on *mechanism*, this one does. |
+| **Audience** | An engineer reading the repository. Assumes AWS and distributed-systems fluency. |
+| **Authority** | Where this document and `WICK.md` disagree on *behaviour*, `WICK.md` wins. Where they disagree on *mechanism*, this one does. Where either disagrees with the code, the code is right and the document is a bug. |
+
+What is simulated in this submission — the televisions, the doorbell, Alexa+ and the household — is set out in the README, [*What is real, and what is simulated*](../README.md#what-is-real-and-what-is-simulated). This document describes the deployed system behind them. Ideas that were planned and not built are collected in [§17](#17-considered-and-not-built), not mixed in with what exists.
 
 ---
 
@@ -17,35 +19,36 @@
 
 ### 0.1 Verification markers
 
-Every API claim carries a marker. This matters: a plausible-looking but invented signature costs you a day.
+API claims about Amazon's platforms carry a marker.
 
 | Marker | Meaning |
 |---|---|
-| **✅ V** | **Verified** against live Amazon documentation or the real source of an `AmazonAppDev` sample app on 2026-09-14. Cited inline. |
-| **⚠️ C** | **Confirm.** Structurally correct but the exact signature/field was not read. Check before use. |
-| **🔬 S** | **Spike.** Unknown. Must be answered by a timeboxed experiment before design depends on it. |
+| **✅ V** | **Verified** against Amazon documentation, the source of an `AmazonAppDev` sample app, or the running system. |
+| **⚠️ C** | **Confirm.** Structurally correct but the exact signature or field was not read. |
+| **🔬 S** | **Spike.** Was unknown; §14 says how it was answered. |
 
 ### 0.2 The three facts that shaped every decision below
 
-1. **Vega exposes no camera, microphone, Bluetooth or presence sensor to third-party apps.** ✅ V — verified against the complete dependency manifests of `vega-video-sample`, `vega-sports-app`, `vega-audio-sample`, `vega-tv-interfaces-sample`, `vega-epg-sample`. Consequence: all sensing is off-device. Ring is the eye.
-2. **Alexa+ requires MCP round-trip latency under 500ms** ✅ V — and **the Alexa+ MCP Toolkit is restricted to select partners** ✅ V (add-ons docs home: *"At this time, Category SDK and MCP Toolkit are available to select partners only."*). Consequence: build the MCP server to the published spec regardless — including the 500ms budget, which means the weekly narrative **must be precomputed** — but demo it through an MCP client and a simulated Alexa+ surface, the alternative the rules permit. See §7.3.
-3. **Ring requires a webhook ACK inside 5 seconds and blocks browser-origin requests entirely.** ✅ V — Ring Partner API docs. Consequence: verify-and-enqueue only at the edge; the TV never holds a Ring credential.
+1. **Vega exposes no camera, microphone, Bluetooth or presence sensor to third-party apps.** ✅ V — the dependency manifests of `vega-video-sample`, `vega-sports-app`, `vega-audio-sample`, `vega-tv-interfaces-sample`, `vega-epg-sample`. Consequence: all sensing is off the television. Ring is the eye.
+2. **Alexa+ asks for MCP round trips under 500 ms, and the Alexa+ MCP Toolkit is open to select partners only.** ✅ V (add-ons docs home: *"At this time, Category SDK and MCP Toolkit are available to select partners only."*). Consequence: the MCP server is built to the published spec — the weekly narrative is precomputed so no tool waits on a model — and it is exercised through an MCP client and a simulated Alexa+ surface, the alternative the rules permit. Measured against the deployed server, about half of all calls miss 500 ms today (§9.3, GitHub issue #47).
+3. **Ring requires a webhook acknowledgement inside 5 seconds and blocks browser-origin requests.** ✅ V — Ring Partner API docs. Consequence: the edge verifies and hands on, nothing more; the television never holds a Ring credential.
 
 ### 0.3 Non-negotiable invariants
 
-These are enforced by code and by test, not by convention. Violating any of them is a build break.
+Enforced by code and by tests. Breaking one is a build break. These are the short forms; [`AGENTS.md`](../AGENTS.md) holds the full text, the accepted exceptions and the files that enforce each one.
 
 | # | Invariant |
 |---|---|
-| **INV-1** | No Ring or AWS long-lived credential ever resides on the television. The device holds exactly one device-bound JWT. |
-| **INV-2** | Every string that leaves the system toward the family passes through the Guardian. There is no second path. Enforced by a single egress module and a lint rule. |
-| **INV-3** | No inbound Ring video or image is persisted beyond the S3 lifecycle window (24h). Enforced by bucket lifecycle policy, not by application code. |
-| **INV-4** | Nothing protected (health, money, relationships, location) and nothing verbatim is ever transmitted to a family surface. Enforced by the Guardian, after generation. |
-| **INV-5** | Deferred cards are never rendered during `IN_SCENE`. The only immediate class is `DOOR`. |
-| **INV-6** | Every agent tool call is idempotent and carries a correlation id that survives to CloudWatch. |
-| **INV-7** | The resident's weekly narrative is written to the TV surface before it is readable by any family tool. Ordering is enforced by the write path. |
-| **INV-8** | A request's household comes from a verified token — the family member's access token, or the television's device-bound JWT — never from a request body, a URL or an environment variable. |
-| **INV-9** | Nobody reads a household before the resident has allowed them, on the television, with one press. Checked on every tool call, so the answer counts at once. |
+| **INV-1** | No Ring or AWS long-lived credential ever resides on the television. It holds one device-bound JWT. A family member's own television holds one token of another kind, good for that one member's view. |
+| **INV-2** | Every string that leaves the system toward the family passes through the Guardian. `services/agent/src/egress.ts` is the only module that may import a transport client, the push sender or the translation client; a lint rule enforces it. |
+| **INV-3** | No Ring video or image is kept beyond one day. Enforced by S3 lifecycle rules, not application code. |
+| **INV-4** | Nothing protected (health, money, relationships, location) and nothing verbatim is ever sent to a family surface. Enforced by the Guardian, after generation. |
+| **INV-5** | Deferred cards are never shown during `IN_SCENE`. The only immediate class is `DOOR`. |
+| **INV-6** | Every agent tool call is idempotent and carries a correlation id from ingress to the card and back. |
+| **INV-7** | The resident's weekly narrative reaches their television before any family tool can read it. |
+| **INV-8** | A request's household comes from a verified token, never from a request body, a URL or an environment variable. |
+| **INV-9** | Nobody reads a household before the resident has allowed them, on the television, with one press. Checked on every tool call. |
+| **INV-10** | Nothing different leaves the house before the resident says so. Wick asks *"Shall I tell Sarah?"*, and only *"Tell"* makes that one difference readable. |
 
 ---
 
@@ -54,272 +57,178 @@ These are enforced by code and by test, not by convention. Violating any of them
 ### 1.1 Context
 
 ```
-                      ┌──────────────────────────────────────────┐
-   Margaret's house   │                                          │   Sarah, anywhere
-                      │                                          │
-  ┌────────────┐      │      ┌─────────────────────────┐         │      ┌──────────┐
-  │ Fire TV    │◀────WSS────▶│                         │◀──MCP/HTTPS────│ Alexa+   │
-  │ (Vega OS)  │      │      │      WICK CLOUD         │         │      │ (Echo)   │
-  │  Wick app  │      │      │                         │         │      └──────────┘
-  └────────────┘      │      │  ┌──────────────────┐   │         │
-                      │      │  │ Agent plane      │   │         │
-  ┌────────────┐      │      │  │  Door            │   │         │
-  │ Ring       │──webhook───▶│  │  Narrator        │   │         │
-  │ doorbell   │◀────REST────│  │  ─────────────   │   │         │
-  │ + Chime    │      │      │  │  GUARDIAN (gate) │   │         │
-  └────────────┘      │      │  └──────────────────┘   │         │
-                      │      │                         │         │
-                      │      │  ┌──────────────────┐   │         │
-                      │      │  │ Memory plane     │   │         │
-                      │      │  │ DDB·Timestream·KB│   │         │
-                      │      │  └──────────────────┘   │         │
-                      │      └─────────────────────────┘         │
-                      └──────────────────────────────────────────┘
+   Margaret's house                                                Sarah, anywhere
+  ┌──────────────┐  MQTT (IoT Core)  ┌──────────────────────────┐  MCP / HTTPS  ┌───────────────────┐
+  │ Television   │◀─────────────────▶│ Edge                     │◀────────────▶│ Family app         │
+  │ Vega app or  │  or WebSocket     │  API Gateway · IoT Core  │  OAuth 2.1   │ (simulated Alexa+  │
+  │ Fire OS build│  (API Gateway)    │  Lambda                  │              │  surface, browser) │
+  └──────────────┘                   ├──────────────────────────┤              └───────────────────┘
+  ┌──────────────┐  webhook (HMAC)   │ Wick server (App Runner) │  Web Push           ▲
+  │ Ring doorbell│──────────────────▶│  MCP · accounts · /api   │─────────────────────┘
+  │ (Playground) │◀────── REST ──────├──────────────────────────┤
+  └──────────────┘                   │ Agent plane              │
+                                     │  Door · Narrator · Tell  │
+                                     │  Visit · Reach · Guardian│
+                                     │  Lambda + AgentCore      │
+                                     ├──────────────────────────┤
+                                     │ Memory plane             │
+                                     │  DynamoDB · S3 · Secrets │
+                                     └──────────────────────────┘
 ```
+
+Rendered diagrams are in [`docs/architecture/`](architecture/).
 
 **Four planes, and the boundaries are load-bearing:**
 
 | Plane | Responsibility | Explicitly NOT responsible for |
 |---|---|---|
-| **Device** | Render cards, play video, emit playback state, capture D-pad intent | Any decision about *what* or *when* to show. Any credential. Any inference. |
-| **Edge** | Terminate Ring webhooks, terminate MCP, terminate device WSS. Authn/authz. Sub-5s ACK. | Business logic. Model calls. |
-| **Agent** | All reasoning. Door description, day extraction, narrative writing, policy enforcement. | Persistence decisions. Transport. |
-| **Memory** | Timeline, rhythm series, household knowledge, policy state | Interpretation |
+| **Device** | Render cards, play films, report playback state, turn D-pad presses into events | Any decision about *what* to show. Any credential. Any inference. The one decision it does make is *when*: the Natural-Break Engine (§3.4) runs on the television because only the player knows where the film is. |
+| **Edge** | Terminate Ring webhooks, the device channels, MCP. Authentication, authorisation. Sub-5 s acknowledgement. Answer the television that just spoke. | Model calls. Anything bound for the family. |
+| **Agent** | All reasoning and every outbound card: the door's description, the week, "Shall I tell…?", the visit question, the request to be rung. | Transport details, which live in `egress.ts`. |
+| **Memory** | Timeline, rhythm counts, weeks, cards, memberships, policy state | Interpretation |
 
-**The rule that keeps this clean:** the device is a dumb, fast, beautiful renderer. If you find yourself writing an `if` about *whether* to show something in the TV app, it belongs in the agent plane.
+**The rule that keeps this clean:** if you find yourself writing an `if` about *whether* to show something in the TV app, it belongs in the agent plane.
 
 ### 1.2 Why the thinking is off-device
 
-Three reasons, in order of weight:
+1. **INV-1.** A £30 stick in a stranger's front room is not a credential store. Vega documents no hardware-backed keystore (L10 in `WICK.md`).
+2. **The agent must run when the TV is off.** Vega headless services run only while the app package is alive; they are not a 24/7 process.
+3. **Iteration speed.** Changing a prompt should not require a device deploy.
 
-1. **INV-1.** A £30 stick in a stranger's front room is not a credential store. Vega has no documented hardware-backed keystore (see L10 in `WICK.md`).
-2. **The agent must run when the TV is off.** Most of Margaret's day. Vega headless services run only while the app package is alive; they are not a substitute for a 24/7 process.
-3. **Iteration speed.** Changing a prompt should not require a device deploy. During a five-week build this is worth more than it sounds.
+### 1.3 Runtime topology, as deployed
 
-### 1.3 Runtime topology
+Everything below is in `infra/*.tf` and runs in one AWS account, `us-east-1`.
 
-| Component | Service | Why |
+| Component | Service | Where |
 |---|---|---|
-| Ring webhook receiver | API Gateway HTTP API → Lambda | Sub-5s ACK; scales to zero |
-| Event bus | EventBridge (custom bus `wick`) | Fan-out, replay via archive, DLQ per rule |
-| Agent runtime | **Bedrock AgentCore Runtime** | Managed session isolation, long-running, direct AWS Builder mini-challenge alignment |
-| Agent orchestration | **Strands Agents SDK** | Multi-agent graph; judges explicitly reward this over single-model calls |
-| Long-horizon memory | **AgentCore Memory** | The Rhythm pillar. Episodic + semantic. |
-| Credential custody | **AgentCore Identity** | Ring OAuth token lifecycle, outside our code |
-| Tool surface for Alexa+ | **AgentCore Gateway** ⚠️ C / custom MCP server | See §7.3 — decision gate |
-| Device channel | API Gateway WebSocket **or** AWS IoT Core | See §4.1 — spike decision |
-| Timeline store | DynamoDB (single table) | Access patterns are known and narrow |
-| Rhythm store | Amazon Timestream | Purpose-built; `INTERPOLATE`/binned aggregates give baselines cheaply |
-| Household knowledge | Bedrock Knowledge Base over S3 + S3 Vectors | Natural-language recall over derived facts |
-| Media scratch | S3 with 24h lifecycle | INV-3 |
-| Async work | SQS FIFO per household | Ordering matters for the timeline |
+| Ring webhook, Ring link and token exchange, hourly token refresh | API Gateway HTTP API → Lambda; EventBridge rule `rate(1 hour)` | `infra/edge.tf` |
+| Event bus | EventBridge custom bus `wick` | `infra/core.tf` |
+| Door agent, phase 1 and 2 | Lambda `wick-agent-door-event` on the bus | `infra/agent.tf` |
+| Door description, hallway chime, live view | Strands graphs in one **Bedrock AgentCore Runtime** container; session = household | `infra/agentcore.tf` |
+| Live view bridge (Ring WHEP → HLS) | Lambda from a container image (WebRTC needs outbound UDP, which the AgentCore microVM lacks — FL-017); segments in S3 behind CloudFront | `infra/live.tf` |
+| Card presses, "Ask … to look", "Shall I tell…?", the visit, hold for Sarah | Lambda `wick-agent-card-action` on bus rules | `infra/card-action.tf`, `infra/reach.tf` |
+| The three-minute wait in hold for Sarah | **EventBridge Scheduler**, a one-time schedule that deletes itself | `infra/reach.tf` |
+| Weekly narrative | Lambda `wick-agent-narrator-weekly`, EventBridge schedule `cron(0 20 ? * SUN *)` (Sunday 20:00 UTC) | `infra/narrator.tf` |
+| Television channel, option A | **AWS IoT Core**, MQTT over WSS, custom authorizer on the device token, two topic rules | `infra/iot.tf` |
+| Television channel, option B | API Gateway WebSocket API → Lambda | `infra/transport.tf` |
+| Pairing | API Gateway → Lambda (start, claim, status, refresh); RS256 signing key in Secrets Manager | `infra/pairing.tf` |
+| The Wick server: MCP endpoint, OAuth authorization server, family app's `/api`, the assistant | **App Runner**, one container (1 vCPU, 2 GB) | `infra/mcp.tf` |
+| Family members' accounts | **Amazon Cognito** user pool | `infra/accounts.tf` |
+| Family app, television in a browser tab, films | S3 + **CloudFront** (Origin Access Control, HTTPS only) | `infra/sim-alexa.tf`, `infra/ops-console.tf`, `infra/programmes.tf` |
+| Notifications to a family member's browser | Web Push (VAPID), key pair in Secrets Manager | `infra/push.tf` |
+| Pictures for the mantelpiece | S3 bucket of its own, lifecycle by object tag; **Amazon Rekognition** moderation before sending | `infra/photos.tf` |
+| Cards read aloud | **Amazon Polly**, readings cached one day under `tts/` | `infra/speech.tf` |
+| A spoken question in the family app | **Amazon Transcribe** streaming, from the Wick server | `infra/mcp.tf` |
+| Free text into the resident's language | **Amazon Translate**, from `egress.ts` | `infra/agent.tf`, `infra/card-action.tf` |
+| Timeline, rhythm, weeks, cards, accounts | **DynamoDB**, one table `wick` | `infra/core.tf` |
+| Ring imagery, live segments, readings | S3 media bucket, one-day lifecycle on `snapshots/`, `live/`, `tts/` | `infra/core.tf` |
+| Ring tokens | **Secrets Manager**, one secret per household, `wick/ring/tokens/<householdId>` | `infra/core.tf` |
+| Ops dashboard | Lambda `wick-status` behind the edge API | `infra/status.tf` |
+| CI to AWS | GitHub OIDC provider and a deploy role; no static keys | `infra/github-oidc.tf` |
 
-### 1.4 The three agents
+Counted from the Terraform: 22 Lambda functions, 1 AgentCore runtime, 1 App Runner service, 1 DynamoDB table, 5 S3 buckets, 4 CloudFront distributions, 4 Secrets Manager secrets, 2 API Gateway APIs, 1 IoT authorizer, 8 EventBridge rules and 1 Scheduler group.
 
-Implemented as Strands agents with explicit, narrow tool sets. **Do not let these collapse into one.** The separation is the architecture and it is also the demo.
+### 1.4 The agents
 
-| Agent | Trigger | Tools | Output |
+Each is a folder under `services/agent/src/agents/`, with narrow inputs and its own tests. Only two jobs call a model.
+
+| Agent | Trigger | What it does | Model |
 |---|---|---|---|
-| **Door** | `ring.event` on EventBridge | `get_snapshot`, `describe_image`, `match_roster`, `get_expected_visitors` | `DoorCard` |
-| **Narrator** | Weekly cron + on-demand precompute | `query_timeline`, `query_rhythm`, `compare_baseline` | `WeekNarrative` |
-| **Guardian** | **Synchronously, on every egress** | `get_policy`, `get_resident_exclusions` | Redacted payload, or refusal |
+| **Door** (`door/`) | `wick.ring` event on the bus; or the Wick server's stand-in ring for a demo home | Phase 1 card; Phase 2 picture and one sentence; roster match by schedule; "Ask … to look"; the hallway chime and live view through AgentCore graphs | **Amazon Nova Lite** (`amazon.nova-lite-v1:0`) describes the frame, inside a Strands Agent |
+| **Narrator** (`narrator/`) | Weekly schedule, for every household with a paired television | Counts the week deterministically, compares it with the household's own baseline, has the model write prose from those numbers | **Claude Sonnet 4.5** (`us.anthropic.claude-sonnet-4-5-20250929-v1:0`, a cross-region inference profile) |
+| **Tell** (`tell/`) | A difference found in the rhythm (`rhythm/different.ts`) | Asks the resident "Shall I tell …?"; only "Tell" writes the `TELL#` row the family's tool reads (INV-10) | none |
+| **Visit** (`visit/`) | Door sightings of a regular visitor | Opens a visit, asks "Is this right?" at a natural break; only her "Yes" confirms it | none |
+| **Reach** (`reach/`) | Her press on "Ask Sarah to ring you?" | Asks one person; three minutes later, if nobody answered, the next; a neighbour last | none |
+| **Guardian** (`guardian/` → `services/policy`) | Synchronously, on every egress | Allows, transforms or refuses; see §6 | none — rules only |
 
-The Guardian is not an agent in the autonomous sense. It is a **deterministic policy engine with a model-assisted classifier**, and the deterministic half runs first. See §6.
+The family app's assistant is not an agent of the house: it runs in the Wick server (`services/mcp-server/src/assistant`) and uses **Claude Sonnet 4.5** on Bedrock to choose which of the family's tools to call for a question. It never sees anything the tool did not return.
 
 ---
 
 ## 2. REPOSITORY LAYOUT
 
-Single repository. Public. MIT or Apache-2.0, licence detectable in the About panel (this is a rules requirement and a common fatal omission).
+Public, MIT, licence detected in GitHub's About panel.
 
 ```
 wick/
-├── LICENSE                      # ← must render in GitHub About panel
-├── README.md                    # landing page: demo video first
-├── FRICTION.md                  # started day 1, not day 30
-├── AGENTS.md                    # invariants contract for coding agents
+├── LICENSE                      # MIT
+├── README.md                    # landing page
+├── AGENTS.md                    # the invariants contract
+├── FRICTION.md                  # friction log, written as it happened
 ├── docs/
 │   ├── WICK.md                  # product definition
 │   ├── WICK-TECHNICAL.md        # this file
-│   └── architecture/            # diagrams (source + rendered)
+│   ├── SETUP.md                 # running and deploying it
+│   ├── architecture/            # diagrams
+│   ├── screenshots/             # from live checks
+│   ├── calm-points/             # the published calm-point map
+│   └── demo-door/               # the stand-in doorbell's pictures and their notice
 │
 ├── apps/
-│   ├── tv-vega/                 # the Vega OS application
-│   │   ├── manifest.toml
-│   │   ├── index.js             # interactive entry
-│   │   ├── task.js              # headless TASK registrations
-│   │   ├── service.js           # headless SERVICE registrations
-│   │   └── src/
-│   │       ├── cards/           # Card renderer + the three card types
-│   │       ├── break/           # NaturalBreakEngine
-│   │       ├── player/          # w3cmedia wrapper
-│   │       ├── personalization/ # ContentPersonalization handlers (REAL, not mocks)
-│   │       ├── transport/       # device channel client
-│   │       ├── pairing/         # 6-digit device pairing
-│   │       └── headless/        # service/task implementations
-│   │
-│   ├── tv-fireos/               # Fire OS companion (build LAST)
-│   └── sim-alexa/               # simulated Alexa+ surface (S4a) — a CLIENT of the
-│                                #   real MCP server; see FRICTION.md FL-001
+│   ├── tv-vega/                 # the Vega OS application (React Native for Vega)
+│   ├── tv-fireos/               # the same source on Fire OS, through four adapters
+│   ├── sim-alexa/               # the family app — a simulated Alexa+ surface, a client of the real MCP server
+│   └── ops-console/             # a television in a browser tab, and a status page
 │
 ├── services/
-│   ├── edge-ring/               # webhook receiver (Lambda)
-│   ├── edge-device/             # WS connect/disconnect/route
-│   ├── mcp-server/              # Alexa+ MCP add-on backend
-│   ├── agent/                   # Strands graph, AgentCore deployment
-│   │   ├── agents/{door,narrator,guardian}/
-│   │   ├── tools/
-│   │   └── prompts/             # versioned, tested
-│   ├── connectors/
-│   │   └── ring/                # OAuth, devices, snapshot, WHEP, chime, history
-│   └── policy/                  # Guardian engine — its own package, heavily tested
+│   ├── edge-ring/               # Ring webhook, link, token, refresh, status (Lambda)
+│   ├── edge-device/             # pairing, both device channels, presses (Lambda)
+│   ├── mcp-server/              # the Wick server: MCP, OAuth, accounts, /api, assistant (App Runner)
+│   ├── agent/                   # agents, Strands graphs, live bridge, egress.ts (Lambda + AgentCore)
+│   ├── connectors/ring/         # Ring Partner API client
+│   └── policy/                  # the Guardian — pure, AWS-free, property-tested
 │
 ├── packages/
-│   ├── contracts/               # shared types: Card, DoorEvent, Fact, Narrative
-│   └── vega-calm-ui/            # ← THE OPEN-SOURCE EXTRACTION (see §13.4)
+│   ├── contracts/               # shared types, the phrasebook, key prefixes
+│   └── vega-calm-ui/            # the open-source extraction (§13.4)
 │
-├── infra/                       # CDK (TypeScript)
-├── addon-package/               # Alexa+ addon.json + media assets
-└── .github/workflows/
+├── infra/                       # Terraform (one root, S3 state)
+├── addon-package/               # Alexa+ add-on manifest and assets
+├── scripts/                     # build, check and operator scripts
+└── .github/workflows/           # ci, deploy-edge, deploy-agent, tv-fireos
 ```
 
-**One deliberate choice:** `services/policy` is a standalone package with no AWS dependencies. It is pure functions over typed inputs, which means it is exhaustively testable, and its test suite is a demo artefact.
+**One deliberate choice:** `services/policy` is a standalone package with no AWS dependencies. It is pure functions over typed inputs, so it is exhaustively testable.
 
 ---
 
-## 3. THE VEGA APPLICATION
+## 3. THE TELEVISION
 
-### 3.1 Component model
+### 3.1 Vega component model
 
-Vega's `manifest.toml` declares components of three kinds — `interactive`, `service`, `task` — each bound to a runtime module, optionally grouped into processes. ✅ V (`vega-video-sample/manifest.toml`)
+Vega's `manifest.toml` declares components of three kinds — `interactive`, `service`, `task` — each bound to a runtime module. ✅ V (`vega-video-sample/manifest.toml`)
 
-Wick declares:
+The real manifest is [`apps/tv-vega/manifest.toml`](../apps/tv-vega/manifest.toml). It declares:
 
-| Component | Kind | Id suffix | Purpose |
-|---|---|---|---|
-| Main UI | `interactive` | `.main` | Cards, player, all rendering |
-| Card service | `service` | `.card.service` | Holds the device channel; receives cards while app is alive |
-| Personalization refresh | `service` | `.content.dataRefresh.provider` | Serves Watch Activity to the platform |
-| Nightly rhythm push | `task` | `.rhythmSyncTask` | Batch-uploads local playback events |
-| Install bootstrap | `task` | `.onInstallTask` | First-run pairing state |
+| Component | Kind | Purpose |
+|---|---|---|
+| `com.wick.tv.main` | `interactive` | Cards, player, every screen |
+| `com.wick.tv.card.service` | `service` | Keeps a background connection while another app is in front, and posts a system toast for a door card (FL-022, FL-026). The app starts it by its `pkg://` address. |
+| `com.wick.tv.content.dataRefresh.provider` | `service` | Serves Watch Activity to the platform (§3.3) |
+| `com.wick.tv.rhythmSyncTask` | `task` | Batch upload of local playback events |
+| `com.wick.tv.onInstallTask` | `task` | First-run pairing state |
 
-Manifest skeleton, using only structures verified in the sample: ✅ V
+Two interfaces are provided on `com.wick.tv.main`:
 
-```toml
-schema-version = 1
+- `IContentPersonalizationServer`, with `DataRefreshComponentId = "com.wick.tv.content.dataRefresh.provider"`.
+- `IMediaPlaybackServer`, with `command_options = ["StartOver", "SkipForward", "SkipBackward"]`. Play, Pause, Play/Pause and Stop are the platform's core commands and arrive without being named. There is no Next or Previous, because there is no playlist.
 
-[package]
-id      = "com.wick.tv"
-title   = "Wick"
-version = "0.1.0"
-icon    = "@image/Wick.png"
+> **Not declared:** `IContentLauncherServer` and `IAccountLoginServer`. Both are select-partner gated (`WICK.md` L4). Declaring what cannot be exercised is worse than omitting it.
 
-[os.version]
-min    = "1.2"
-target = "1.2"
-
-[components]
-[[components.interactive]]
-id             = "com.wick.tv.main"
-runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
-categories     = ["com.amazon.category.main", "com.amazon.category.kepler.media"]
-launch-type    = "singleton"
-
-[[components.service]]
-id             = "com.wick.tv.content.dataRefresh.provider"
-runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
-launch-type    = "singleton"
-
-[[components.service]]
-id             = "com.wick.tv.card.service"
-runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
-launch-type    = "singleton"
-
-[[components.task]]
-id             = "com.wick.tv.rhythmSyncTask"
-runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
-
-[[components.task]]
-id             = "com.wick.tv.onInstallTask"
-runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
-
-[processes]
-[[processes.group]]
-component-ids = ["com.wick.tv.main"]
-[[processes.group]]
-component-ids = ["com.wick.tv.card.service"]
-[[processes.group]]
-component-ids = ["com.wick.tv.content.dataRefresh.provider"]
-
-[wants]
-[[wants.service]]   ; personalization data service
-id = "com.amazon.tv.developer.dataservice"
-[[wants.privilege]] ; content personalization
-id = "com.amazon.tv.content-personalization.privilege.provide-data"
-[[wants.privilege]] ; accessibility APIs
-id = "com.amazon.devconf.privilege.accessibility"
-[[wants.service]]   ; media session / transport controls
-id = "com.amazon.media.playersession.service"
-[[wants.service]]   ; remote button events
-id = "com.amazon.inputd.service"
-[[wants.service]]   ; audio ducking
-id = "com.amazon.audio.control"
-[[wants.service]]
-id = "com.amazon.network.service"
-
-[needs]
-[[needs.privilege]]
-id = "com.amazon.network.privilege.net-info"
-[[needs.module]]
-id = "/com.amazon.vega.os@IVega_1_2"
-
-[tasks]
-[[tasks.work]]
-component-id = "com.wick.tv.onInstallTask"
-mode         = "install"
-
-[[extras]]
-key          = "interface.provider"
-component-id = "com.wick.tv.main"
-
-[extras.value.application]
-[[extras.value.application.interface]]
-interface_name    = "com.amazon.kepler.media.IContentPersonalizationServer"
-attribute_options = ["SupportedCustomerLists", "DataRefreshComponentId"]
-
-[extras.value.application.interface.static_values]
-SupportedCustomerLists = ["Watchlist"]
-DataRefreshComponentId = "com.wick.tv.content.dataRefresh.provider"
-
-[[extras.value.application.interface]]
-interface_name  = "com.amazon.kepler.media.IMediaPlaybackServer"
-command_options = ["Play", "Pause", "StartOver", "Previous", "Next"]
-```
-
-> **Do not declare** `IContentLauncherServer` or `IAccountLoginServer`. Both are select-partner-gated (`WICK.md` L4). Declaring what you cannot exercise is worse than omitting it.
+The manifest needs an icon file that exists: `vpt validate` treats a missing icon as a warning, `vpm install` rejects the package without saying why (FL-011; fixed with `assets/image/Wick.png`).
 
 ### 3.2 Headless registration
 
-Tasks and services register through `HeadlessEntryPointRegistry`, with entry-point names of the form `<component-id>::<hook>`. ✅ V (`vega-video-sample/task.js`, `service.js`)
+Tasks and services register through `HeadlessEntryPointRegistry`, with entry-point names of the form `<component-id>::<hook>`. ✅ V — `apps/tv-vega/task.js` and `service.js` do exactly this:
 
 ```js
 // task.js
-import { HeadlessEntryPointRegistry } from '@amazon-devices/headless-task-manager';
-import doRhythmSync from './src/headless/RhythmSyncTask';
-import doOnInstall   from './src/headless/OnInstallTask';
-
 HeadlessEntryPointRegistry.registerHeadlessEntryPoint(
   'com.wick.tv.rhythmSyncTask::doTask', () => doRhythmSync);
 HeadlessEntryPointRegistry.registerHeadlessEntryPoint(
   'com.wick.tv.onInstallTask::doTask', () => doOnInstall);
-```
 
-```js
-// service.js — note registerHeadlessEntryPoint2 for SERVICES (not tasks)
-import { HeadlessEntryPointRegistry } from '@amazon-devices/headless-task-manager';
-import { onStartCardService, onStopCardService }   from './src/headless/CardService';
-import { onStartDataRefresh, onStopDataRefresh }   from './src/headless/DataRefreshService';
-
+// service.js — registerHeadlessEntryPoint2 for SERVICES (not tasks)
 HeadlessEntryPointRegistry.registerHeadlessEntryPoint2(
   'com.wick.tv.card.service::onStartService', () => onStartCardService);
 HeadlessEntryPointRegistry.registerHeadlessEntryPoint2(
@@ -330,131 +239,88 @@ HeadlessEntryPointRegistry.registerHeadlessEntryPoint2(
   'com.wick.tv.content.dataRefresh.provider::onStopService',  () => onStopDataRefresh);
 ```
 
-Services implement `{ onStart(componentInstance), onStop(componentInstance) }` returning `Promise<void>`, where `componentInstance: IComponentInstance` comes from `@amazon-devices/react-native-kepler`. ✅ V (`src/headless/HeadlessInterface.ts`)
+Offering a service in the manifest starts nothing (FL-014). The app starts the card service itself (`src/headless/launchCardService.ts`), and the app and its service share no storage on the Vega simulator (FL-013), which is why the service learns its token through `POST /pair/refresh` (an accepted exception, `AGENTS.md` INV-1).
 
-### 3.3 Content Personalization — the Rhythm pillar's real input
+### 3.3 Content Personalization
 
-This is the least-used Vega surface and it is doing double duty for us: the platform gets correct Continue Watching behaviour, and Wick gets a genuine behavioural signal with **no new sensor**.
+The platform invokes Wick's handlers, Wick pushes chunks into a provider, then `commit()`. ✅ V (`src/headless/DataRefreshService.ts`)
 
-The API is a pull model: the platform invokes your handlers, you push chunks into a provider, then `commit()`. ✅ V (`src/headless/DataRefreshService.ts`)
+`IPlaybackEvent` is built with `PlaybackEventBuilder`, carrying `contentId`, `profileId`, `playbackState`, `playbackPositionMs`, `durationMs`, **`creditsPositionMs`**, `eventTimestamp`. `creditsPositionMs` is the platform's own model of "the episode is ending", which is the `AT_BREAK` signal the Natural-Break Engine needs.
 
-```ts
-import {
-  ContentPersonalizationServer,
-  IPlaybackEventsHandler, IPlaybackEventsProvider,
-  ICustomerListEntriesHandler, ICustomerListEntriesProvider, CustomerListType,
-  IContentEntitlementsHandler, IContentEntitlementsProvider,
-} from '@amazon-devices/kepler-content-personalization';
+The Vega sample ships `ContentPersonalizationMocks.ts` wired into its data service. Wick does not: `npm run check:no-mocks` fails the build if Vega runtime code imports anything matching `/mock/i`. Whether the events reach Continue Watching on a device was not checked (SP-7, §14).
 
-const playbackEventsHandler: IPlaybackEventsHandler = {
-  getPlaybackEventsSince: (since: Date, provider: IPlaybackEventsProvider) => {
-    // REAL events from local store — never mocks. See §12.3.
-    for (const chunk of localStore.playbackEventsSince(since, { chunk: 200 })) {
-      provider.addPlaybackEventChunk(chunk);
-    }
-    provider.commit();
-  },
-};
-```
+### 3.4 The Natural-Break Engine
 
-`IPlaybackEvent` is built with `PlaybackEventBuilder`, carrying `contentId`, `profileId`, `playbackState`, `playbackPositionMs`, `durationMs`, **`creditsPositionMs`**, `eventTimestamp`, optional `channelDescriptor`, terminated by `buildActiveEvent()`. ✅ V (`ContentPersonalizationMocks.ts`)
+The product's defining behaviour, entirely deterministic, with no model anywhere in it (`apps/tv-vega/src/break/NaturalBreakEngine.ts`).
 
-> **`creditsPositionMs` is the single most useful field in this API for Wick.** It is the platform's own model of "the episode is ending" — which is exactly the `AT_BREAK` signal the Natural-Break Engine needs. You get end-of-episode detection for free, from a field you must populate anyway.
-
-**Critical build note.** The sample ships `ContentPersonalizationMocks.ts` and wires it into `DataRefreshService`. **Delete that wiring on day one.** Shipping the sample's mocks would violate the "no simulated data" constraint in the most embarrassing possible place, and a judge reading the repo will find it.
-
-### 3.4 The Natural-Break Engine (S2)
-
-The product's defining behaviour, and it is entirely deterministic. No model involved.
-
-**States**, derived from the player and the content metadata:
+**States**, from the player and the programme's metadata:
 
 | State | Condition | Deferred cards? |
 |---|---|---|
-| `IN_SCENE` | playing, `position < creditsPositionMs − 30s` | **No** |
-| `NEAR_BREAK` | playing, within 30s of `creditsPositionMs` | No — but prefetch and pre-render |
-| `AT_BREAK` | `position ≥ creditsPositionMs`, or paused > 5s, or content ended | **Yes** |
-| `TV_SETTLED` | app foregrounded ≥ 20s with no playback started | **Yes** |
-| `IDLE` | app not foregrounded | No — queue persists |
+| `IN_SCENE` | playing, more than 30 s before `creditsPositionMs`, and not at a calm point | **No** |
+| `NEAR_BREAK` | playing, within 30 s of `creditsPositionMs` | No |
+| `AT_BREAK` | within 8 s after one of the programme's calm points; or paused for more than 5 s; or at or past the credits; or the content ended | **Yes** |
+| `TV_SETTLED` | Wick in front for 20 s or more with nothing playing | **Yes** |
+| `IDLE` | Wick not in front | No — the queue persists |
 
-```ts
-type Urgency = 'DOOR' | 'DEFERRED';          // exactly two. INV-5.
+**Release rules:**
 
-interface QueuedCard {
-  id: string;                                 // idempotency key
-  urgency: Urgency;
-  card: DoorCard | MessageCard;
-  queuedAt: number;
-  expiresAt?: number;                         // DOOR only; DEFERRED never expires (Principle 9)
-  shownCount: number;                         // release at most twice, ever
-}
-```
+1. `DOOR` shows at once, in any state. It never pauses the film and never plays a sound.
+2. `DEFERRED` shows only in `AT_BREAK` or `TV_SETTLED` (INV-5, property-tested).
+3. A deferred card shown in the middle of a programme — at a calm point, or in a pause — **holds the programme on the cut** and lets it go on when the card is answered (`holdsProgramme`). At the credits nothing is held: the story is over.
+4. A card ignored is shown again at a later break; the server counts showings, and after the second it waits in a row on the home screen instead of returning.
 
-**Release rules, verbatim:**
-1. `DOOR` renders immediately in the lower third, regardless of state. Never pauses, never ducks below −6dB, never plays a sound.
-2. `DEFERRED` renders full-screen only in `AT_BREAK` or `TV_SETTLED`.
-3. A `DEFERRED` card ignored once returns at the *next* break, once. After the second showing it drops to a passive home-screen row. It never returns a third time.
-4. Queue survives restart — persisted via `@amazon-devices/kepler-file-system` ⚠️ C.
+**Calm points** are measured, never guessed. `scripts/calm-points` runs **Amazon Rekognition** segment detection (shots, fades, end credits) and ffmpeg's silence detection over the published encode of each film, and keeps a cut that falls in a quiet stretch. `npm run calm:build` writes `apps/tv-vega/src/catalog/calmPoints.ts` from those measurements; nobody edits it by hand. Each calm point's before-and-after frames are described for the public map by Nova Lite (`npm run calm:describe`); that sentence is for the page, and plays no part in choosing the point. The map: <https://rogerjeasy.github.io/wick/calm-points/>.
 
-**This engine is the Design score.** Give it a real test suite over a synthetic playback timeline (§12.2), and show that suite in the video.
+**Media controls.** On Vega the film is a media session (`kepler-media-controls`, `src/watch/mediaControls.ts`), so the system's transport controls and "Alexa, pause" reach it. Each command obeys the rule the same remote key obeys (`src/watch/mediaSession.ts`): a pause is a pause, and so a break; Play over a held note carries on with the film; Stop is a pause. On the Vega simulator the system's Stop reached the session and became a break; a spoken command could not be tried there, because the simulator takes no voice (FL-031). Fire OS has no media session yet.
 
-### 3.5 Card rendering and accessibility
+### 3.5 Cards and accessibility
 
-Three card types, one renderer. All three obey the same spec.
+Every resident card obeys the same floor, enforced at render by `packages/vega-calm-ui` and by four ESLint rules run over `apps/tv-vega/src`:
 
-| Constraint | Value | Source |
+| Constraint | Value | Enforced by |
 |---|---|---|
-| Minimum type | 32pt | `WICK.md` Principle 7 |
-| Contrast | ≥ 7:1 | WCAG AAA |
-| Actions per card | ≤ 3 | Principle 6 |
-| Reachability | D-pad + OK only; zero text entry | Principle 3 |
-| Auto-dismiss | Never | Principle 9 |
-| Animation | ≤ 200ms, ease-out, no flash, no red | Principle 7 |
-| Safe area | Honour TV overscan via `react-native-safe-area-context` | — |
+| Minimum type | 32 pt | `CalmCard` throws below it; `min-font-size` |
+| Contrast | ≥ 7:1 | `CalmCard`, tests |
+| Actions per card | ≤ 3 | `CalmCard`; `max-actions` |
+| Colour | No alarm red | `no-alarm-colour` |
+| Auto-dismiss | Never | `no-auto-dismiss` |
+| Reachability | D-pad + OK only; no text entry | Design rule; every flow |
+| Settle time | A card takes no press for one second after it appears | `src/press/settle.ts` |
 
-Screen-reader state is readable via the accessibility privilege ✅ V (`com.amazon.devconf.privilege.accessibility`); `vega-sports-app` ships a `useScreenReaderEnabled` hook and a `HintBuilder` for list-navigation hints — **read that code before writing yours.** ✅ V
+**Read to me.** While a card is on screen, the Play key asks for it to be read aloud in her language: its sentences, then what she can press. The voice is **Amazon Polly**'s, made at the edge when she asks (`services/edge-device/lambda/speech.mjs`), kept a day so the same card is made once, and answered only to the television that asked. A card never reads itself.
 
-Focus: use the platform focus engine plus `FocusGuideView` patterns from `vega-sports-app/src/services/focusGuide`. ✅ V Do not hand-roll spatial navigation.
+**Her language.** The organiser can ask for Spanish from the family app; only her press on a card that asks in both languages sets it. Wick's own sentences come from a hand-written phrasebook (`packages/contracts/src/phrasebook`), held to the English builders by tests; only free text — a family note, the door's sentence, the week's paragraph — is machine-translated by **Amazon Translate**, in `egress.ts`, and never stored in the card.
 
 ### 3.6 Player
 
-`@amazon-devices/react-native-w3cmedia` gives W3C MSE/EME. ✅ V Owning playback is what makes §3.4 possible — this is not incidental.
+`@amazon-devices/react-native-w3cmedia` plays HLS. ✅ V Owning playback is what makes §3.4 possible. The films are the Blender Foundation's open films (Big Buck Bunny, Sintel, Tears of Steel, CC BY 3.0), transcoded to HLS by `scripts/publish-programmes.sh` and served from CloudFront over HTTPS — the Vega player drops cleartext HLS silently (FL-016).
 
-For the demo, content is the household's own library or public-domain material (`WICK.md` §Real data). Consider the out-of-process player (`kepler-player-client` / `kepler-player-server`, as used by `vega-sports-app`) ⚠️ C — it survives UI crashes, which is a nice robustness note but is **not** worth the complexity in v1. Defer.
+**Watch together.** A family member invites the resident to one of these films at a time. After her press on *"Start the film"*, her player reports where it is (`src/watch/togetherReporter.ts`), the edge keeps only positions that match the session (`watch-together.mjs`), and only the person who sent the invitation can read them back (`mcp-server/src/tools/watchSession.ts`). Their player — in the family app or on their own television — follows hers, with no pause and no skip.
 
-Audio ducking for spoken cards via `@amazon-devices/keplerscript-audio-lib` ⚠️ C, requesting `com.amazon.audio.control`. Duck to −6dB, never mute.
+### 3.7 The Fire OS build
+
+`apps/tv-fireos` has no screens of its own. It bundles `apps/tv-vega/src` and gives it Android in place of four Amazon packages (`react-native-kepler` → `react-native-tvos`; `react-native-w3cmedia` → ExoPlayer through `react-native-video`; `kepler-file-system` → key-value storage; `kepler-media-controls` → nothing yet). Amazon publishes no Fire OS emulator; it runs on the **Android TV emulator** (API 34), the alternative the hackathon FAQ names. It has no background service, so no toast over another app. See [`apps/tv-fireos/README.md`](../apps/tv-fireos/README.md) for what has and has not been seen on the emulator.
+
+### 3.8 Other televisions
+
+- **A television in a browser tab** (`apps/ops-console/device.html`) pairs with the same code and is sent the same cards over the same WebSocket. It exists so a judge with no Fire TV and no simulator can try Wick.
+- **A family member's own television** ("Sarah's television", `apps/tv-vega/src/family`) is the same app connected by a member as *Mine*. Its row is `FTV#`, never `DEV#`, and its token reaches only the Wick server's `/tv/*` routes for that member's view (`AGENTS.md` INV-1).
 
 ---
 
 ## 4. DEVICE ↔ CLOUD
 
-### 4.1 Transport — a decision gate, not a decision
+### 4.1 Transport — both, decided 2026-10-11
 
-> **Decided 2026-10-11: both.** A television tries A and falls back to B
-> (`apps/tv-vega/src/transport/createDeviceChannel.ts`). A is `infra/iot.tf`:
-> a custom authorizer that checks the television's own device token, a policy
-> for its own three topics, and two topic rules — presence, and events, which
-> end at the same handler as the WebSocket's (`device-event.mjs`). The token
-> travels in the address, not the MQTT password (FRICTION.md FL-024). B stays
-> for the fallback and for the background card service. The table and
-> recommendation below are the reasoning as it stood before the decision.
->
-> **Run 2026-10-11, on the Vega simulator and the Android TV emulator:** the
-> television connects over A, cards come down and replies go up, and with A
-> refused it is on B. Not run: hours, a network drop, hardware. A reconnect
-> keeps its IoT session id, so a disconnect is matched to its connection by
-> the event's version number (FRICTION.md FL-009, update).
+A television tries **A** and falls back to **B** (`apps/tv-vega/src/transport/createDeviceChannel.ts`).
 
-**🔬 S — resolve in the first 72 hours.**
+- **A — AWS IoT Core, MQTT over WSS** (`infra/iot.tf`). A custom authorizer checks the television's own device token and returns a policy naming its own three topics and nothing else. The token travels in the address, not the MQTT password (FL-024). Two topic rules: presence, and events, which end at the same handler as the WebSocket's (`device-event.mjs`). A reconnect keeps its IoT session id, so a disconnect is matched to its connection by the event's version number (FL-009, update).
+- **B — API Gateway WebSocket** (`infra/transport.tf`). The fallback, and the only channel the background card service uses.
 
-| Option | Pro | Con |
-|---|---|---|
-| **A. AWS IoT Core**, MQTT over WSS | Per-device identity and policy; **persistent sessions with QoS 1 deliver cards queued while the TV was off, on reconnect** — the Natural-Break Engine's "the card is waiting" requirement solved at the transport layer. Device Shadow gives free state reconciliation. | Requires `mqtt.js` (or similar) to work over WebSocket inside Vega's RN 0.83 fork. Unproven. |
-| **B. API Gateway WebSocket API** | Zero library risk — RN ships a standard `WebSocket`. Trivial to reason about. | Connection state in DynamoDB; you implement catch-up yourself (`GET /cards/pending` on connect). |
+`egress.ts` sends down whichever channel the television's own row names. Run on 2026-10-11 on the Vega simulator and the Android TV emulator: connected over A, cards down and replies up, and with A refused it was on B. Not run: hours, a network drop, hardware.
 
-**Recommendation:** spike A for four hours. If `mqtt.js` over WSS connects and survives a reconnect cycle on real hardware, take A — it is materially better engineering and it demonstrates depth. If it fights you at all, take B and move on the same day. B is not a compromise; it is a smaller correct answer.
-
-Either way the **application-level contract is identical**, so build against this interface and swap the implementation:
+The reasoning that led there: IoT Core gives per-device identity and policy at the transport, and B is a smaller correct answer with zero library risk. Spike SP-5 showed `mqtt.js` over WSS works inside Vega's React Native, so both were kept.
 
 ```ts
 interface DeviceChannel {
@@ -466,17 +332,16 @@ interface DeviceChannel {
 }
 ```
 
-Reconnect: exponential backoff 1s → 30s with full jitter. On `open`, always reconcile: send `lastSeenCardId`, receive everything after it.
+On open, the television asks for the cards it is owed, and the edge answers that one television on the channel the request came in on.
 
-### 4.2 Pairing (INV-1)
+### 4.2 Pairing (INV-1, INV-8, INV-9)
 
-Sarah pairs the device once, in about eight minutes. The TV never sees an account password.
-
-1. TV boots unpaired → displays a 6-digit code and a short URL. Code is a Lambda-generated nonce in DynamoDB, TTL 15 minutes, single use.
-2. Sarah authenticates on her own device and enters the code.
-3. Backend binds `deviceId ↔ householdId`, mints a **device-bound JWT** (RS256, 30-day expiry, rotating via refresh on each successful connect).
-4. Token stored on device via `@amazon-devices/kepler-file-system` ⚠️ C. **Because Vega documents no hardware-backed keystore (L10), assume this token is extractable and scope it accordingly:** it grants exactly the ability to receive cards for one household and post playback events. It grants nothing over Ring or the family surfaces.
-5. Revocation: a `deviceId` denylist checked on every WS connect. Instant.
+1. The television shows a 6-digit code and a link. The code lives 15 minutes and is single use (`pairing-code.mjs`).
+2. The household's organiser, signed in to the family app, enters it. The Wick server calls `POST /pair/claim` with the organiser's own token; `pair-claim.mjs` checks it against the grant the server stored, so the two services share no secret.
+3. The edge binds `deviceId ↔ householdId` and mints a device-bound **RS256** JWT, valid 30 days, signed with a key in Secrets Manager.
+4. The token is stored with `kepler-file-system`. The Vega simulator keeps nothing on disk (FL-013), so on the simulator the app re-proves itself through `POST /pair/refresh`, which mints a one-hour token from the device id alone — an accepted exception, bounded by TTL and cooldown (`AGENTS.md` INV-1).
+5. The first thing the paired television shows is the Circle card: the resident allows, or does not allow, each person who asked (INV-9).
+6. Revocation: a disconnected television's row is marked, and every connect checks it.
 
 ### 4.3 Device → cloud events
 
@@ -490,73 +355,106 @@ type DeviceEvent =
   | { t: 'app_lifecycle'; state: 'fg'|'bg'; at: number };
 ```
 
-`playback` and `app_lifecycle` are the **entire** Rhythm pillar input from the device side. Batch them: 10-second coalescing window, flush on state change. There is no reason to be chatty here.
+The exact shapes are in `packages/contracts/src/device.ts`. A press reaches the bus as `wick.device / card.action`; the agent plane decides what it means.
 
 ---
 
 ## 5. THE AGENT PLANE
 
-### 5.1 Strands graph
-
-Three agents, narrow tools, explicit handoffs. Deployed to **AgentCore Runtime**; **AgentCore Memory** holds household state across weeks; **AgentCore Identity** holds Ring tokens.
+### 5.1 Graphs and models
 
 ```
-  EventBridge ─┬─▶ Door agent ────┐
-               │                  ├──▶ GUARDIAN ──▶ egress
-  cron ────────┴─▶ Narrator ──────┘      (sync)      ├─▶ DeviceChannel  (TV)
-                                                     └─▶ MCP tool result (Alexa+)
+  Ring webhook ─▶ EventBridge "wick" ─▶ door-event Lambda ─┬─ Phase 1 card ──────────┐
+  Wick server (demo home stand-in ring) ──────────────────▶│                         │
+                                                           └─ AgentCore: door.describe│
+  TV press ─▶ edge ─▶ EventBridge ─▶ card-action Lambda ─┬─ AgentCore: door.action   ├─▶ GUARDIAN ─▶ egress.ts
+                                                         ├─ tell / visit / reach     │                ├─▶ MQTT or WebSocket (TV)
+                                                         └─ Scheduler (reach.due)    │                ├─▶ Web Push (family browser)
+  Sunday schedule ─▶ narrator-weekly Lambda ─────────────────────────────────────────┘                └─▶ DynamoDB rows the family's tools read
 ```
 
-**Model selection** — do not use one model for everything:
+AgentCore Runtime runs one container with four Strands graphs (`services/agent/src/graphs`):
+
+| Graph | Nodes | Model |
+|---|---|---|
+| `door.describe` | vision Agent → validate | Nova Lite |
+| `door.action` | gate → ring → notify | none — no model decides to make a sound in someone's home |
+| `live.start` | gate → start bridge | none |
+| `live.stop` | stop | none |
+
+The session id is the household (`runtime/invoke.ts`), so each household's graphs run in their own microVM.
+
+**Model selection:**
 
 | Job | Model | Why |
 |---|---|---|
-| Door image → one sentence | **Nova Lite/Pro (vision)** | Latency-critical (§9.1). Cheap. The task is description, not reasoning. |
-| Day fact triage (pick 3 of N) | **Nova Pro** or **Claude Haiku-class** | Structured selection under a rubric |
-| Weekly narrative | **Claude (Sonnet-class or better)** | Prose quality is the product here. Runs weekly, offline. Cost is irrelevant. |
-| Reply drafting | **Claude** | Register and tone matter (`WICK.md` M3) |
-| Guardian classification | **Nova Lite** + deterministic rules | Rules first; model only for residual classification |
+| Door frame → one sentence | **Amazon Nova Lite** (`amazon.nova-lite-v1:0`) | Latency-critical and cheap. The task is description, not reasoning. |
+| Weekly narrative | **Claude Sonnet 4.5** (`us.anthropic.claude-sonnet-4-5-20250929-v1:0`) | Prose quality is the product. Runs once a week, offline. |
+| Family app: which tool answers this question | **Claude Sonnet 4.5** (same id, `mcp-server/src/assistant/bedrock.ts`) | Tool choice over twenty-two tools; it only ever words what a tool returned. |
+| Calm-point frame descriptions for the public map | Nova Lite | Offline, once per film. |
+| Guardian | none | Rules only. |
+
+Both model ids can be overridden by environment (`WICK_VISION_MODEL`, `WICK_NARRATIVE_MODEL`, `WICK_ASSISTANT_MODEL_ID`).
 
 ### 5.2 Door agent
 
-**Two-phase emission. This is the key latency decision.**
-
-A single-shot card that waits for vision blows the 3-second budget when Bedrock is slow. Instead:
+**Two-phase emission.** A card that waits for vision is a slow card. So:
 
 ```
-Phase 1  (target ≤ 900ms)  ─▶ DoorCard{ image, "Someone's at the front door.", actions }
-Phase 2  (target ≤ 2200ms) ─▶ CardPatch{ cardId, description: "A man in a delivery uniform…" }
+Phase 1 ─▶ DoorCard{ "Someone's at the front door.", actions }           — at once, no picture
+Phase 2 ─▶ CardPatch{ picture }  then  CardPatch{ description }            — as each is ready
 ```
 
-The TV renders Phase 1 immediately and patches the description in when it arrives. **The useful half of the card is never blocked by the interesting half.** If Phase 2 fails or times out at 2.5s, the card simply stays as Phase 1 — which is still better than any competitor.
+Phase 1 has no picture because Ring has no live-capture call: `media/image/download` fetches a *recorded* frame and took 3.15 s end to end when measured (SP-2, FL-005). The description is cancelled at **2.5 s** (`DESCRIBE_TIMEOUT_MS`, `door/describe.ts`): a description that arrives after that is worse than none, and the card stays as it was. Time from press to card on a television has not been measured end to end.
 
-**Description prompt constraints** (these are product requirements, enforced in the prompt and in an output validator):
-- Present tense, one sentence, ≤ 14 words.
-- Observable facts only. No inference about intent, mood, or purpose.
-- Never name a person unless matched against the household's own explicit roster.
-- On low confidence, emit nothing — Phase 1 stands. Principle 11.
+**Description constraints**, in the prompt and in an output validator (`judgeDescribeReply`): present tense, one sentence, short; observable facts only; never a name unless matched from the household's own roster; on low confidence, nothing.
 
-Roster matching: start **schedule-based**, not biometric (`WICK.md` decision D3) — "Maria usually comes Tuesdays at nine" delivers most of the value with none of the weight. If you later add face matching, it is opt-in, household-curated, deletable, and never applied to unknown visitors.
+**Roster matching** is schedule-based, not biometric (`door/roster.ts`): "Maria usually comes Tuesdays at nine". No face is ever matched.
+
+**The buttons.** *Watch live* (a door card under five minutes old) starts the live bridge: Ring WHEP → werift → ffmpeg → one-second HLS segments in S3 → CloudFront → the television's own player. *Ring the hallway chime* (M1) calls Ring's `media/audio/playback` on a Chime — built and contract-tested for every outcome, but Ring's Playground has no chime, so it is not in the demo and its button is drawn only when a household has one (FL-019). *Ask … to look* writes a `LOOK#` row for the family's tools and nudges their browser by Web Push; the nudge carries a kind and no words.
+
+**The stand-in doorbell.** Ring's Playground sends no doorbell or motion webhook (FL-027). A member of a demo home can ring a stand-in from the family app (`POST /api/demo/doorbell`). Only the Wick server's role may invoke the Door agent with that source (`wick.demo-door`); the agent checks again that the home is a demo home and runs its own path with Ring's parts stood in (`door/demoDoor.ts`): one of four pictures made with an image model, of nobody real ([`docs/demo-door/NOTICE.md`](demo-door/NOTICE.md)), and a sentence from the vision model. Every row it writes carries `simulated`; the card says *stand-in doorbell* and offers no live view.
 
 ### 5.3 (removed)
 
 The Day agent chose up to three things from a wearable's record of the day. Wick has no such data source, so the agent and its card were removed. The section number is kept so references to §5.4 and §5.5 still hold.
 
-### 5.4 Narrator — and why it must be precomputed
+### 5.4 Narrator — and why it is precomputed
 
-**Alexa+ requires MCP round trips under 500ms.** ✅ V You cannot generate a week's narrative inside a tool call.
+Alexa+ asks for MCP round trips under 500 ms, so a week's narrative cannot be generated inside a tool call. Therefore:
 
-Therefore:
-- A weekly EventBridge Schedule (Sunday 06:00 local) generates the narrative.
-- A secondary trigger regenerates it on material change (a deviation, a carer no-show).
-- The narrative is **written to the TV surface first** (INV-7), then marked family-readable.
-- The MCP tool does a single DynamoDB `GetItem` and returns. Sub-100ms p99, comfortably.
+- An EventBridge schedule runs `wick-agent-narrator-weekly` on Sundays at 20:00 UTC, for every household with a paired television (`narrator/everyHousehold.ts`).
+- It reads the week's timeline and the household's `RHYTHM#` counts, computes the comparisons deterministically (`comparisons.ts`, `weekFacts.ts`), and gives *numbers and facts* to Claude Sonnet 4.5 to write prose (`prose.ts`). **The model never counts.**
+- The week is written to the resident's television first. `NARR#<isoWeek>.residentSeenAt` is set only by her press on the week card (`edge-device route.mjs`), and the family's tool reads nothing until it is set (INV-7).
+- `get_week_narrative` does one DynamoDB `GetItem`.
 
-Narrative construction: retrieve the week's timeline + the rhythm baseline, compute deltas deterministically, then hand *numbers and facts* to the model for prose. **The model never counts.** It writes. Anything it could get arithmetically wrong is computed before it sees it.
+A demo home's six weeks are written by `mcp-server/src/accounts/demoHome.ts` as the Door agent's own event rows and counted by the Narrator's own code; every such row, week and household is marked `simulated`.
 
-### 5.5 Prompts are code
+### 5.5 Prompts
 
-`services/agent/prompts/` — versioned files, not string literals. Each has a golden-output test (§12.4). A prompt change that alters golden outputs fails CI until the goldens are consciously updated.
+The prompts that run are constants beside the code that calls them: `DESCRIBE_SYSTEM_PROMPT` in `door/describe.ts`, the narrative brief in `narrator/prose.ts`. Each model reply passes a validator before it is used. `services/agent/prompts/` holds the early briefs those were written from; it is not loaded at run time, and `day-select.md` belongs to the removed Day agent.
+
+### 5.6 Something's Different, and "Shall I tell Sarah?"
+
+`rhythm/different.ts` looks for three things against the household's own last six weeks: a regular visitor who did not come on one of their days; somebody at the door in the night in a house where nobody comes at night; a day at the door unlike the same weekday by this hour. Nothing is called different from fewer than three observed weeks. Pure code, no model.
+
+A difference is never sent to the family. `agents/tell/ask.ts` puts the very sentence on the resident's television — *"Shall I tell Sarah?"* — and only her *"Tell"* writes `TELL#<differenceId>`, which is all `get_whats_different` reads (INV-10).
+
+### 5.7 The visit, witnessed
+
+The door's first sighting of a regular visitor opens a `VISIT#` row; the last sighting before she is asked is taken as the leaving. At a natural break the television asks *"Is this right? Maria was here on Tuesday from 9:02 am to 9:47 am."* Only her *"Yes"* confirms it. To the family, unasked, waiting and disputed look the same (`get_visits`). Ring's Playground sends no motion events, so the two sightings in a test come from a signed stand-in, `scripts/visit-sighting.sh` (FL-027).
+
+### 5.8 Hold for Sarah
+
+OK held two seconds brings *"Ask Sarah to ring you?"* (`edge-device reach.mjs`). Her press is the consent. `agents/reach/ask.ts` writes `REACH#<id>`, puts a card on her television and nudges one person. `timer.ts` creates a one-time **EventBridge Scheduler** schedule three minutes on, carrying the request and the step, never a name, and set to delete itself after it runs. When it fires, `due.ts` reads the circle again and asks the next person, a neighbour last. Wick calls nobody and sounds nothing.
+
+### 5.9 egress.ts
+
+`services/agent/src/egress.ts` is the single exit (INV-2): `sendToDevice` (MQTT through the IoT data plane, or the WebSocket management API), `sendToFamily`, `nudgeFamily` (Web Push), and the Amazon Translate call for free text into her language. A lint rule (`no-restricted-imports`) keeps those clients out of every other module.
+
+### 5.10 Prompt-free features
+
+The light in the window, watch together, the mantelpiece, waves from a family member's television and read-to-me involve no model at all. They are edge handlers in `services/edge-device/lambda/` and Wick-server routes, with rules in `packages/contracts` and in `AGENTS.md`'s data rules.
 
 ---
 
@@ -624,89 +522,100 @@ Never a generic error. Never silence — silence is indistinguishable from "noth
 
 ### 7.1 Ring
 
-**Auth** ✅ V — OAuth 2.0 + PKCE (S256). Access tokens ~4h, refresh ~30d. Token custody in **AgentCore Identity**. Never on device (INV-1). All calls server-to-server; `api.amazonvision.com` and `oauth.ring.com` block browser origins.
+**Auth** ✅ V — OAuth 2.0 + PKCE (S256). Access tokens ~4 h, refresh ~30 d. All calls are server to server; `api.amazonvision.com` and `oauth.ring.com` block browser origins.
+
+**Token custody.** Each household's tokens are one Secrets Manager secret, `wick/ring/tokens/<householdId>`. There is no Ring client without a household (`ringClientsByHousehold`, `services/connectors/ring/src/secrets.ts`). A home's organiser links Ring from the family app, and the link is finished only for the same organiser who started it (`edge-ring authorization.mjs`). The Wick server never holds a Ring token: it asks `wick-ring-household-link`, which has custody. **Refresh has one owner**, the hourly `wick-ring-refresh` Lambda, which walks every household's link in turn. Ring's app credentials (client id, secret, webhook HMAC key) are a separate secret, seeded once by `infra/bootstrap/put-ring-secret.sh`.
 
 **Endpoints used:**
 
 | Purpose | Call |
 |---|---|
 | Discovery | `GET /v1/devices?include=status,capabilities,location,configurations` |
-| Image (Phase 1 + vision) ⚠️ **not a live snapshot** | `POST /v1/devices/{id}/media/image/download` — body `{"type":"at_timestamp","timestamp":<ms>}`, returns **303** to a presigned URL. Verified 2026-09-15. |
-| Live view (M2) | `POST /v1/devices/{id}/media/streaming/whep/sessions` (`Content-Type: application/sdp`) |
-| Live view fallback | `rtsps://video.rtsp.amazonvision.com:322/v1/devices/{id}/stream` |
-| **"Ring the hallway chime" (M1)** | `POST /v1/devices/{chimeId}/media/audio/playback` — body `{"data":{"type":"audio","attributes":{"audio_ref":…}}}`, the app's own slot; a chime is the device whose `audio.supported_actions` ∋ `chime.play` |
-| Carer verification (M5) | `GET /v1/history/devices/{id}/events` |
+| Picture for the card ⚠️ **not a live snapshot** | `POST /v1/devices/{id}/media/image/download` — body `{"type":"at_timestamp","timestamp":<ms>}`, returns **303** to a presigned URL. Measured 2026-09-15 at 3.15 s end to end (FL-005). |
+| Watch live (M2) | `POST /v1/devices/{id}/media/streaming/whep/sessions` (`Content-Type: application/sdp`) |
+| Ring the hallway chime (M1) | `POST /v1/devices/{chimeId}/media/audio/playback` — the app's own audio slot, on a device whose `audio.supported_actions` ∋ `chime.play` |
 | Multi-module cameras | append `?component_id=N` |
 
-**Webhook receiver — the whole design is the 5-second budget:** ✅ V
+**Webhook receiver — the whole design is the 5-second budget** (`services/edge-ring/lambda/webhook.mjs`):
 
 ```
-API GW HTTP API → Lambda:
+API Gateway HTTP API → Lambda:
   1. Verify HMAC-SHA256 signature          (constant-time compare)
-  2. Idempotency: conditional PutItem on request_id, TTL 24h
-  3. PutEvents → EventBridge bus "wick"
+  2. Idempotency: conditional PutItem on IDEM#<request_id>, TTL 24h
+  3. PutEvents → EventBridge bus "wick" (source wick.ring)
   4. return 200
-  ── nothing else. No Ring calls, no model calls, no DynamoDB writes beyond (2).
+  ── nothing else. No Ring calls, no model calls.
 ```
 
-Everything downstream is async. Target p99 under 150ms.
+A ring takes its household from the doorbell: the Door agent reads which household holds that device from `RINGDEV#<deviceId>`, and a device nobody holds reaches no television (INV-8). An operator hands a device to a household with `scripts/assign-ring-device.ts`.
 
-**Event types** ✅ V: `motion_detected` (carries `sub_type`, e.g. `"human"`), `button_press`, `device_added`, `device_removed`, `device_online`, `device_offline`, `app_integration_added`, `app_integration_removed`, `subscription_activated`, `subscription_deactivated`.
+**Event types** ✅ V: `motion_detected` (with `sub_type`), `button_press`, `device_added`, `device_removed`, `device_online`, `device_offline`, `app_integration_added`, `app_integration_removed`, `subscription_activated`, `subscription_deactivated`.
 
-**Rate limit** 100 rps ✅ V — irrelevant at household scale, but honour `Retry-After` anyway.
+**What Ring's Playground gives** (the only Ring simulator): a simulated camera behind the real Partner API, real OAuth, real recorded frames and real WHEP live view. It has no chime (FL-019), sends no doorbell or motion webhook (FL-027), and its token lasts 30 minutes with no refresh (FL-010). `npm run ring:check` says whether a household's link can reach the camera before any recording.
 
-**Known gaps** (→ friction log, §14): no two-way audio / siren / light endpoints; no event replay or DLQ on Ring's side; no sandbox that emits synthetic events on demand — which makes CI awkward and is worth writing up properly.
+**Known gaps** (in `FRICTION.md`): no two-way audio, siren or light endpoints; no event replay or dead-letter queue on Ring's side; no sandbox that emits events on demand.
 
 ### 7.2 (removed)
 
 The wearable connector was removed with the Day agent (§5.3). The section number is kept so references to §7.3 still hold.
 
-### 7.3 MCP server (S4a) and the Alexa+ add-on (S4b)
+### 7.3 The Wick server: MCP endpoint (S4a) and the Alexa+ add-on (S4b)
 
-**Access reality first.** The Alexa+ MCP Toolkit is **partner-gated** ✅ V, with no published application path, and is US-only. So this splits:
+**Access reality first.** The Alexa+ MCP Toolkit is **partner-gated** ✅ V, with no published application path, and US-only. So this splits:
 
-| | Status | What we do |
+| | Status | What exists |
 |---|---|---|
-| **S4a — the MCP server** | **Buildable, ungated** | Build it to the full published spec. Exercise via MCP Inspector, Claude, and a small simulated Alexa+ web surface — the alternative the hackathon rules explicitly allow. |
-| **S4b — Alexa+ registration** | **Gated** — staff confirmed in the week of 2026-10-05 that no hackathon participant will be given access | `addon-package/addon.json` is complete and checked: `npm run addon:check` holds it to the quickstart's field table in CI, and `-- --live` runs the rest of what a deploy is documented to need against the deployed stack. The family app reads the same file for Wick's listing and for the server it links against. If access opens, **no code changes** — only a deploy. |
+| **S4a — the MCP server** | **Built and deployed** | `services/mcp-server`, on App Runner. Exercised by MCP Inspector and by the family app (`apps/sim-alexa`), a simulated Alexa+ surface — the alternative the hackathon rules allow. |
+| **S4b — Alexa+ registration** | **Gated** — staff confirmed in the week of 2026-10-05 that no participant will be given access (FL-001) | `addon-package/addon.json` is complete. `npm run addon:check` holds it to the quickstart's field table in CI; `-- --live` runs the rest of what a deploy is documented to need (the 401, PKCE, the tool list, a round trip) against the deployed stack. It has not been uploaded to Amazon, and cannot be. |
 
-**Build to the published requirements anyway.** They are all good engineering independent of Alexa+, and they are what makes the claim "this is a real MCP server, not a demo prop" defensible to a judge.
+**What the server is:**
 
-**Hard requirements** ✅ V (Alexa+ MCP Toolkit quickstart):
+- MCP spec **2025-11-25**, **Streamable HTTP**, in the SDK's **stateless** mode: every request is answered by a server built for the person its own token names, and nothing a request needs is held in process memory. OAuth clients, codes, tokens and the sign-in cookie are in DynamoDB.
+- Its own **OAuth 2.1 authorization server** (PKCE S256, dynamic client registration, metadata at `/.well-known/oauth-authorization-server`), because an Alexa+ add-on needs one. It does not decide who anyone is: its sign-in pages hand the email and password to an **Amazon Cognito** user pool (`accounts/identity.ts`), and everything it issues names the person Cognito vouched for.
+- Unauthenticated requests get `401` with no `WWW-Authenticate`, as the quickstart asks.
+- Every tool is wrapped in `gated` (`tools/context.ts`): the household comes from the token (INV-8), and the resident's allowance is checked on every call (INV-9). A neighbour is refused every tool not marked `neighbour: true`.
+- No tool calls a model. The week is precomputed (§5.4); every other tool reads rows.
+- The same process serves the family app's `/api` (televisions, Ring link, language, pictures, the stand-in doorbell, voice), a family member's television's `/tv/*` routes, and the assistant.
 
-- MCP spec **2025-11-25**, **Streamable HTTP** (migrate off legacy SSE).
-- Public HTTPS endpoint. `cloudflared` is the documented local-dev tunnel.
-- **Round-trip latency under 500ms.** Architectural constraint, not a target (§5.4).
-- Auth is mandatory: return `401` (no `WWW-Authenticate`) when unauthenticated; host Protected Resource Metadata at `/.well-known/oauth-authorization-server`; advertise `code_challenge_methods_supported: ["S256"]`; OAuth 2.1 auth-code + PKCE; `resource` set to the server's canonical URI; Bearer token on authenticated calls.
-- Tools are discovered by **introspection at deploy time** — *"Alexa+ refreshes tool information only on deployment."* **Redeploy after any tool change.** This will bite you at least once; write it down when it does.
+**The twenty-two tools** (`services/mcp-server/src/tools`):
 
-**CLI** ✅ V — *documented, but gated; kept here for the moment access opens.*
+| Area | Tools |
+|---|---|
+| The week and today | `get_week_narrative`, `get_today`, `get_resident_shared_view` ("What Sarah sees"), `get_whats_different` (only what she chose to tell), `get_light` |
+| Visitors | `did_visitor_come`, `get_visits` (confirmed or not, never why), `list_regular_visitors`, `add_regular_visitor`, `expect_visit` |
+| Notes | `send_note_to_tv`, `get_replies` |
+| The door | `get_door_request`, `answer_door_request` — both open to a neighbour |
+| Being asked to ring | `get_reach_request`, `answer_reach_request` — both open to a neighbour |
+| Watching together | `invite_to_watch`, `get_watch_together`, `answer_watch_together`, `join_watch_together`, `withdraw_watch_invitation` |
+| Pictures | `get_pictures` (only that she has seen one) |
+
+**The family app** (`apps/sim-alexa`, on CloudFront) signs in to a real account, and for each question the assistant — **Claude Sonnet 4.5** on Bedrock, in the Wick server — chooses which tool to call; the page then calls that tool on the real MCP server and shows what it returned. *Try the demo* makes a guest account and a demo home with six weeks of simulated history. A family member can also ask by voice: the page sends one utterance of at most ten seconds to `POST /api/hear`, which streams it to **Amazon Transcribe** and asks the words as if typed; nothing of the recording is kept or logged. Built and tested, and seen working locally against a stand-in for Transcribe; not yet seen against the deployed stack.
+
+**Alexa+ routes by intent**, so the name "Wick" is rarely spoken. `examplePhrases` are natural questions (*"how's my mum been this week"*), not invocation patterns.
+
+**CLI** ✅ V — documented, but gated; kept for the moment access opens.
 
 ```bash
 alexa-ai configure                       # LWA OAuth → ~/.alexa-ai/credentials
 alexa-ai new mcp --name "Wick" --locale en-US \
-                 --mcp-server-url "https://mcp.wick.example"
+                 --mcp-server-url "https://<the mcp_server_url output>"
 alexa-ai deploy                          # dev stage
 alexa-ai submit                          # certification
 ```
 
-**`addon-package/addon.json`** ✅ V — `manifestVersion: "1.0"`; `storeListing.distributionCountries: ["US"]`; per-locale `name.value` ≤30 chars, `shortDescription` ≤123, `fullDescription` ≤4000, `examplePhrases` 3–4 items ≤200 chars each, `privacyPolicyUrl` + `termsOfUseUrl` (both must be live HTTPS), `mediaAssets.icons.light` with **all six sizes** (72, 64, 88, 126, 180, 241), ≥1 carousel image at 600×900; `integrations[].type: "MCP"` with `config.endpoints.default.uri`.
+**`addon-package/addon.json`** ✅ V — `manifestVersion: "1.0"`; `storeListing.distributionCountries: ["US"]`; per-locale `name.value` ≤30 chars, `shortDescription` ≤123, `fullDescription` ≤4000, `examplePhrases` 3–4 items ≤200 chars, live `privacyPolicyUrl` and `termsOfUseUrl` (`docs/privacy.html`, `docs/terms.html`), `mediaAssets.icons.light` in all six sizes (72, 64, 88, 126, 180, 241), a 600×900 carousel image; `integrations[].type: "MCP"` with `config.endpoints.default.uri`.
 
-> Two things here consume real time and are always underestimated: **six icon sizes** and **two live legal URLs**. Generate the icons and stand up the two pages in week one. They gate `deploy`.
+### 7.4 Other AWS services, by feature
 
-**Tool surface** — keep it small and boring. Every tool is a `GetItem` against precomputed state.
-
-| Tool | Returns | Guardian audience |
+| Service | Used for | Where |
 |---|---|---|
-| `get_week_narrative` | Precomputed prose + timeline | FAMILY |
-| `get_today` | Today's events, summarised | FAMILY |
-| `did_visitor_come` | Carer/visitor verification (M5) | FAMILY / AGENCY |
-| `send_note_to_tv` | Enqueues a `MessageCard` (M3) | — (inbound) |
-| `get_resident_shared_view` | Exactly what the resident sees is shared | FAMILY |
-
-**MCP Apps extension** (M6) ✅ V renders the week timeline in the conversation view. Since the Alexa+ surface is gated, render the equivalent panel in the simulated surface instead — the tool contract is identical, so the work transfers unchanged if access opens. Build it after the five tools work; it is a differentiator, not the spine.
-
-**Alexa+ routes by intent**, so the name "Wick" is rarely spoken. Write `examplePhrases` as natural questions (*"how's my mum been this week"*), not invocation patterns.
+| Amazon Rekognition | Moderation of a family picture before it is sent (`DetectModerationLabels`; a check that cannot be made refuses); calm-point measurement (segment detection, offline) | `mcp-server/src/photos/moderation.ts`, `scripts/calm-points/measure.sh` |
+| Amazon Polly | Read to me | `edge-device/lambda/speech.mjs` |
+| Amazon Translate | Free text into her language | `agent/src/language/translate.ts`, called from `egress.ts` |
+| Amazon Transcribe (streaming) | Ask by voice, in the family app | `mcp-server/src/hear/transcribe.ts` |
+| Amazon EventBridge Scheduler | The three minutes in hold for Sarah | `agent/src/agents/reach/timer.ts` |
+| AWS IoT Core | The television's MQTT channel | `infra/iot.tf` |
+| Amazon Cognito | Family members' sign-in | `mcp-server/src/accounts/identity.ts` |
 
 ---
 
@@ -714,96 +623,73 @@ alexa-ai submit                          # certification
 
 ### 8.1 DynamoDB — single table `wick`
 
-PK/SK overloaded; one GSI. Access patterns are narrow and known.
+PK/SK overloaded. On-demand capacity. The main entities:
 
 | Entity | PK | SK | Notes |
 |---|---|---|---|
-| Household | `HH#<id>` | `META` | policy, timezone, config |
-| Device | `HH#<id>` | `DEV#<deviceId>` | pairing, last seen, denylist flag |
-| Person (roster) | `HH#<id>` | `PER#<personId>` | name, schedule, photo ref |
-| Timeline event | `HH#<id>` | `EVT#<ts>#<ulid>` | door, presence, card shown/actioned |
-| Fact (derived) | `HH#<id>` | `FACT#<class>#<ulid>` | never verbatim (INV-4) |
-| Card | `HH#<id>` | `CARD#<ulid>` | queue state, shownCount |
-| Narrative | `HH#<id>` | `NARR#<isoWeek>` | `residentSeenAt` gates family read (INV-7) |
-| Pairing nonce | `PAIR#<code>` | `META` | TTL 15m |
-| Webhook idempotency | `IDEM#<requestId>` | `META` | TTL 24h |
+| Household | `HH#<id>` | `META` | timezone, language, policy, `simulated` for a demo home |
+| Resident's television | `HH#<id>` | `DEV#<deviceId>` | channel (MQTT or WebSocket), last seen, revoked flag |
+| Family member's television | `HH#<id>` | `FTV#<deviceId>` | the member's `userId`; never counted with `DEV#` |
+| Membership | `HH#<id>` | `MEM#<userId>` | role (family or neighbour); `pending` until the resident allows (INV-9) |
+| Roster person | `HH#<id>` | `PER#<personId>` | name, usual days, an expected visit; no face is ever matched (an optional `photoRef` field exists in the type and is not used to match) |
+| Timeline event | `HH#<id>` | `EVT#<ts>#<id>` | door, presence, card shown and answered |
+| Rhythm count | `HH#<id>` | `RHYTHM#<dimension>#…` | `(dimension, day of week, hour)` buckets with a count |
+| Card | `HH#<id>` | `CARD#<id>` | queue state, server-side showing count |
+| Week | `HH#<id>` | `NARR#<isoWeek>` | `residentSeenAt` gates the family's read (INV-7) |
+| Feature rows | `HH#<id>` | `LOOK#`, `TELL#`, `VISIT#`, `REACH#`, `WATCH#`, `LIGHT`, `LOOKIN#`, `PHOTO#`, `MANTEL#`, `WAVE#`, `PUSH#`, `LIVE#` | one prefix per feature; the rules for each are in `AGENTS.md` |
+| Account | `USER#<userId>` | … | Cognito holds the password; this holds Wick's view |
+| OAuth state, clients, codes, tokens | `OAUTH#…` | … | the stateless MCP server's memory |
+| Pairing code | `PAIR#<code>` | `META` | TTL 15 min |
+| Ring device holder | `RINGDEV#<deviceId>` | … | which household a doorbell belongs to |
+| Webhook idempotency | `IDEM#<requestId>` | `META` | TTL 24 h |
+| Configuration | `CONFIG#pairing`, `CONFIG#push` | … | public halves of keys |
 
-**GSI-1** (`gsi1pk` = `HH#<id>#<entityType>`, `gsi1sk` = timestamp) covers "recent events of type X".
+### 8.2 The Rhythm
 
-On-demand capacity. At one household this is effectively free; at scale the access patterns stay flat.
-
-### 8.2 Timestream — the Rhythm pillar
-
-One database, three tables. Content-free by construction: these are **measures about behaviour, never about content**.
-
-| Table | Dimensions | Measures |
-|---|---|---|
-| `tv_activity` | householdId, deviceId | `power_on`, `session_minutes`, `foreground` |
-| `door_activity` | householdId, deviceId, subType | `motion`, `button_press` |
-| `presence` | householdId, personId | `arrival`, `departure`, `dwell_minutes` |
-
-Baselines come from binned aggregates over a trailing 4–6 weeks, bucketed by day-of-week and hour. Deviation detection (D1) is a z-score against that baseline with a hard floor on sample count — **do not emit a deviation from fewer than three weeks of data.** A false "something's different" is worse than the feature's absence.
+The rhythm is counts in DynamoDB, not a time-series database. Each door event and each television session increments a `RHYTHM#` bucket keyed by dimension, day of week and hour (`rhythm/records.ts`). Baselines are the household's own last six weeks (`BASELINE_WEEKS = 6`), and **nothing is called different from fewer than three observed weeks** (`MIN_BASELINE_WEEKS = 3`, `rhythm/baseline.ts`). A false "something's different" is worse than the feature's absence.
 
 ### 8.3 S3
 
 | Bucket / prefix | Contents | Lifecycle |
 |---|---|---|
-| `wick-media/snapshots/` | Ring stills, pre-description | **Expire 24h** — INV-3, enforced by bucket policy |
-| `wick-media/voice/` | Family voice notes | 30d |
-| `wick-media/tts/` | Polly output, cached by hash | 30d |
-| `wick-kb/facts/` | Derived facts for the Knowledge Base | Retained; deleted on withdrawal |
+| media `snapshots/` | Ring frames, before description | **1 day** — INV-3, bucket rule |
+| media `live/` | Live-view HLS segments | **1 day**; the bridge also deletes its session's prefix |
+| media `tts/` | Readings made by Polly, keyed by a hash of language, voice and words | **1 day** |
+| media `voice/` | Rule from the plan for voice notes; nothing writes there | 30 days |
+| photos | The family's pictures, tagged `sent`, `kept` or `gone` | by tag: `gone` after a day, `kept` kept, `sent` 400 days |
+| programmes | The films, HLS | kept |
+| family app, ops console | Static pages | kept |
 
-INV-3 is a **bucket lifecycle rule**, not application code. Storage enforces the promise; that is the difference between a claim and a guarantee.
+INV-3 is a **bucket lifecycle rule**, not application code, with `noncurrent_version_expiration` beside it so versioning cannot keep a deleted frame alive.
 
-### 8.4 Knowledge Base
+### 8.4 Withdrawal
 
-Bedrock Knowledge Base over `wick-kb/facts/` with **S3 Vectors** as the store. Powers natural-language recall ("when did she last mention her knee?"). Ingestion is incremental from the fact stream. Every document is pre-classified with its `FactClass` so the Guardian can filter retrievals **before** they reach a prompt — retrieval-time filtering, not post-hoc redaction.
-
-### 8.5 Withdrawal
-
-One operation, no negotiation (`WICK.md` §6.4). `DELETE /household/{id}` cascades: DynamoDB partition scan-and-delete, Timestream record deletion, S3 prefix purge, KB document deletion, AgentCore Memory namespace deletion, Alexa+ account unlink, device denylist. **Write this in week two and test it**, not in week five. It is also thirty seconds of extremely credible demo footage.
+A household's members can be removed and its televisions disconnected, and each takes effect on the next call (INV-9). A single "delete this household and everything about it" operation is **not built**; see §17.
 
 ---
 
 ## 9. PERFORMANCE
 
-### 9.1 The Door Card budget — 3000ms, glass to glass
+What has been measured, and what has not.
 
-The product promise is "under 3 seconds" (`WICK.md` §13). Budget it, instrument it, and put the measured number on screen in the demo.
+### 9.1 The door
 
-| Segment | Target | p99 ceiling | Owner |
-|---|---|---|---|
-| Ring press → webhook arrives | 200–500ms | — | **Ring. Uncontrollable. Measure it and say so.** |
-| HMAC verify + idempotency + EventBridge put | 30ms | 150ms | Us |
-| EventBridge → Door agent invoke | 50ms | 200ms | AWS |
-| Ring snapshot fetch | **300–800ms** 🔬 S | 1200ms | Ring — **measure on day one** |
-| **Phase 1 emit** (image + generic line) | — | **≤ 900ms** from webhook | Us |
-| Bedrock Nova vision | 400–900ms | 1500ms | AWS |
-| Guardian | < 20ms | 50ms | Us |
-| Push to device | 50–150ms | 400ms | Transport |
-| Render | < 100ms | 200ms | Vega |
-| **Phase 2 patch** | — | **≤ 2200ms** from webhook | Us |
-
-**Phase 2 hard-cancels at 2500ms.** A late description is worse than none: the resident has already decided.
-
-**Pre-warm.** On `button_press`, fire the snapshot fetch and the model warm-up concurrently, before the agent has finished routing. The two-phase design (§5.2) exists precisely so the slow leg never gates the useful leg.
-
-### 9.2 App performance
-
-Instrument with `@amazon-devices/kepler-performance-api` ✅ V, then profile with the **Amazon Devices Builder Tools MCP** Perfetto tooling ✅ V and **commit the trace and the numbers to the README.** Very few submissions will show a measured app. It is disproportionately persuasive to a Tech Implementation judge.
-
-| Metric | Target |
+| Segment | What is known |
 |---|---|
-| Cold launch to first frame | < 2.5s |
-| Card render (queue → visible) | < 100ms |
-| Skeleton/overlay frame rate | 60fps sustained |
-| JS thread blocked | Never > 16ms during playback |
+| Ring press → webhook | Not measured: the Playground sends no webhook (FL-027). |
+| Webhook: verify, idempotency, put | Does no network call but one conditional write and one `PutEvents`. Not instrumented. |
+| Ring recorded frame | **3.15 s** end to end, n = 3, 2026-09-15 (SP-2, FL-005). This is why Phase 1 ships with no picture. |
+| Nova Lite description | **Cancelled at 2.5 s** (`DESCRIBE_TIMEOUT_MS`). A late description is worse than none. |
+| Live view | The bridge writes one-second HLS segments; the first picture follows the press by several seconds. Ring allows 30 s on a battery doorbell, 60 s on a wired one. |
+| Press → card on a television | **Not measured end to end.** "Within a few seconds" in the README is what was seen on the simulators, not a figure. |
 
-Keep animation on `react-native-reanimated` + `react-native-worklets` ✅ V so card transitions never touch the JS thread while video is playing.
+### 9.2 The television app
+
+Not instrumented: `kepler-performance-api` and a Perfetto trace were planned and not done (§17). What is held by tests: the break engine's decisions, the one-second settle on every card, and that a deferred card never shows `IN_SCENE`.
 
 ### 9.3 MCP latency
 
-Under 500ms round trip ✅ V — non-negotiable. Every tool is a single `GetItem` over precomputed state. **No model call ever runs inside a tool handler.** If you find yourself wanting one, you have mis-sited the work: precompute it upstream.
+Alexa+ asks for a round trip under 500 ms ✅ V. No tool calls a model, and the week is one `GetItem`. But measured against the deployed server on 13 October 2026, from a laptop in Europe, calls take **either about 0.2–0.3 s or about 0.75–1.15 s**, in bursts, on every tool — about half miss 500 ms. `npm run addon:check -- --live` reports a **median** over five calls (about 0.2 s for `tools/call`), and the median hides the slow mode. The cause is not established; the hypotheses (App Runner idle CPU, per-request server construction, connection reuse, `vite-node` at run time) and the plan to find it are in GitHub issue [#47](https://github.com/rogerjeasy/wick/issues/47).
 
 ---
 
@@ -837,65 +723,51 @@ Ship an `AGENTS.md` at the repo root encoding INV-1…INV-9 as rules for any cod
 
 ## 11. OBSERVABILITY
 
-**Correlation id** minted at the Ring webhook (or at the MCP request) and threaded through EventBridge detail, agent context, DynamoDB writes, and the card payload. The TV echoes it back on `card_shown` and `card_action`, which closes the loop **end to end, including the device**. That closed loop is unusual and worth showing.
+**Correlation id** (INV-6): minted at the Ring webhook or the MCP request and carried through the EventBridge detail, the agent, the rows it writes and the card payload; the television echoes it back on `card_shown` and `card_action`.
 
-**Structured logs**, JSON, one line per decision. Every Guardian decision logs `{class, audience, allow, transform, reason}` — **with no content**. The Guardian's audit trail must itself be safe to read.
+**Logs.** Every Lambda and the App Runner service log to CloudWatch Logs with a retention set in Terraform. API access logs carry no request body and no headers. A spoken question is never logged, nor its length (`AGENTS.md`, ask by voice).
 
-**Metrics (EMF → CloudWatch):**
+**Status page.** `GET /status` (`services/edge-ring/lambda/status.mjs`, read-only) feeds the ops console's dashboard: the Ring link, the last events, the televisions.
 
-| Metric | Why |
-|---|---|
-| `door.glass_to_glass_ms` (p50/p99) | The product promise |
-| `door.phase2_timeout_rate` | Health of the vision leg |
-| `card.deferred_queue_depth` | Is the break engine starving? |
-| `card.dismissed_without_action` | **The most important product metric** (`WICK.md` §13) |
-| `guardian.denials` by class | Is the policy doing anything? |
-| `mcp.roundtrip_ms` p99 | Must stay under 500ms |
-| `device.ws_reconnects` | Transport health |
-
-**Alarms** on p99 breaches and on any `guardian.error` — a Guardian that throws must **fail closed**, and the alarm must fire.
+Metrics, dashboards and alarms are **not built** (§17).
 
 ---
 
 ## 12. TESTING
 
-### 12.1 The real-data tension, resolved
-
-The submission constraint is **no simulated data in the product or the demo**. That is not the same as "no fixtures in tests" — and conflating them produces an untestable system.
+### 12.1 Real and simulated, resolved
 
 | Layer | Rule |
 |---|---|
-| **Unit / property tests** | Fixtures are correct and expected. Derived from real captured payloads, redacted. |
-| **The running product** | Real Ring events, real playback. No mock path may be reachable at runtime. |
-| **The demo** | 100% real. Every frame. |
+| **Unit and property tests** | Fixtures are expected. They live under `__tests__`, redacted, and never ship. |
+| **The running product** | No mock path is reachable at run time. `npm run check:no-mocks` fails the build if Vega runtime code imports anything matching `/mock/i`. |
+| **The demo** | The devices are simulators and the household is a marked demo home; everything between them is the deployed stack. The README's [*What is real, and what is simulated*](../README.md#what-is-real-and-what-is-simulated) is the authority. |
 
-Enforce it: **delete the sample's `ContentPersonalizationMocks` wiring on day one** (§3.3), and add a CI check that no module under `apps/tv-vega/src/**` imports from a path matching `mock`. Say all of this in the README — a judge who sees "mock" in the repo and no explanation will assume the worst.
+`npm run verify` runs typecheck (twice: the workspace and `scripts/`), lint, the no-mocks guard and every test. CI (`.github/workflows/ci.yml`) runs it on every push and pull request, plus a separate job for the property tests.
 
 ### 12.2 Natural-Break Engine
 
-The highest-value test suite in the project, because the engine is the Design score and it is entirely deterministic.
+`apps/tv-vega/src/break/__tests__` drives synthetic playback timelines (positions, credits, calm points, pauses, foreground and background) and asserts, with fast-check:
 
-Drive a synthetic playback timeline (positions, `creditsPositionMs`, pause/resume, foreground/background) and assert:
-- No `DEFERRED` card ever renders in `IN_SCENE`. **INV-5.** Property-based, 10k cases.
-- `DOOR` always renders within one tick regardless of state.
-- A card ignored twice never returns a third time.
-- Queue survives a simulated restart.
+- No `DEFERRED` card ever shows in `IN_SCENE` (INV-5).
+- `DOOR` shows at once in any state.
+- A card shown mid-programme holds the film, and the film goes on when it is answered.
 
 ### 12.3 Guardian
 
-Property-based, as §6.3. Plus a table-driven suite over the full policy matrix (9 classes × 3 audiences × exclusions). This suite going green on camera is a demo asset.
+`services/policy/src/__tests__/evaluate.property.test.ts`: for any generated item of a protected class and any policy, `evaluate(…, 'FAMILY')` never allows the content through intact. CI runs it as its own job (`npm run test:property`).
 
-### 12.4 Prompts
+### 12.4 Model output
 
-Golden-file tests. Each prompt has a set of real, redacted inputs and an expected-shape output (JSON schema + assertions on constraints: word count, tense, no names, no inference verbs). Models drift; goldens catch it.
+No golden-file suite. Each model reply passes a validator before it is used (the door's `judgeDescribeReply`; the narrative's checks in `prose.ts`), and the validators are unit-tested. A reply that fails is dropped: the door card keeps its Phase 1 sentence, the week keeps its counted facts.
 
-### 12.5 Connector contract tests
+### 12.5 Contract tests
 
-Recorded real responses (redacted) replayed against the client. Ring in particular has **no sandbox that emits synthetic events on demand** — so record real ones early and keep them. This gap is itself a friction-log entry.
+Ring responses recorded from the Playground, redacted, replayed against the client (`services/connectors/ring`); the chime is tested against Ring's documented contract for every outcome (rang, snoozed, no audio in the slot, offline, failed), since the Playground has no chime. The tool handlers are tested against an in-memory table; `server.test.ts`, `api.test.ts`, `pair-claim.test.ts` and `pair-refresh.test.ts` hold INV-8 (no household id is accepted from a request).
 
 ### 12.6 Device testing
 
-Run on the real Fire TV Stick 4K Select, not only the Vega Virtual Device. Keep a manual checklist for what cannot be automated: focus order with a real remote, legibility at 3 metres, contrast on a real panel, audio ducking by ear.
+There is no physical Fire TV or Ring device in this project. Live checks ran on the Vega Virtual Device, the Fire OS build on the Android TV emulator, and the television in a browser tab, against the deployed stack; screenshots are in [`docs/screenshots/`](screenshots/). What cannot be checked on a simulator — legibility at three metres, contrast on a real panel, sound — has not been checked.
 
 ---
 
@@ -903,96 +775,115 @@ Run on the real Fire TV Stick 4K Select, not only the Vega Virtual Device. Keep 
 
 ### 13.1 Infrastructure
 
-**AWS CDK (TypeScript)** — shares the language and the `packages/contracts` types with the services. Stacks: `WickCore` (DDB, Timestream, S3, EventBridge), `WickEdge` (API GW, Lambdas), `WickAgent` (AgentCore, Bedrock, KB), `WickMcp`.
+**Terraform** (≥ 1.10, AWS provider ~> 6.0), one root in `infra/`, state in S3 with native locking. One file per concern (§1.3). The state bucket is created by `infra/bootstrap/bootstrap.sh`, and three more scripts seed what Terraform makes the containers for: the pairing signing key, the Web Push key pair, Ring's app credentials. Every stateful resource carries `prevent_destroy`. The first apply, and any apply that adds a new AWS service to the deploy role, is run from a laptop. See [`infra/README.md`](../infra/README.md) and [`docs/SETUP.md`](SETUP.md).
 
 ### 13.2 CI
 
-GitHub Actions, path-filtered per service. OIDC to AWS — **no static keys in the repo, and say so in the README.**
+GitHub Actions, OIDC to AWS — no static keys in the repository.
 
-```
-lint → typecheck → unit → property (guardian, break engine) → build → deploy(dev)
-```
+| Workflow | Does |
+|---|---|
+| `ci.yml` | `npm run verify`, and the property tests as their own job. Touches no AWS. |
+| `deploy-edge.yml` | On `main` (edge, infra, family app, add-on paths): verify, `npm run build:lambda`, `terraform apply` |
+| `deploy-agent.yml` | On `main` (agent, policy, MCP server paths): property tests, verify, build the agent bundle, `terraform apply`. It does not push container images. |
+| `tv-fireos.yml` | Typecheck the Vega source against the Fire OS adapters, build the APK, upload it |
 
-Vega app builds via the Vega CLI ✅ V in a separate job; artefact the `.vpkg`.
+The container images are pushed by hand: `scripts/push-agent-image.sh` builds the AgentCore and live-bridge images (arm64) and pins their tag in `infra/images.auto.tfvars`; the Wick server's image (`services/mcp-server/Dockerfile`, linux/amd64) is pushed to ECR `:latest`, and App Runner deploys it automatically. The Vega app is built with the Vega SDK (`npm run build` in `apps/tv-vega` → `react-native build-vega`) on a developer machine; CI does not build the `.vpkg`.
 
 ### 13.3 Environments
 
-`dev` (yours) and `home` (Margaret's, the real one). There is no staging. **The `home` environment carries real personal data about a real person** — treat deployments to it accordingly: no experiments, no debug logging of content, and a tested rollback.
+One deployed stack (`dev`), used for every live check. There is no real household on it: the only households are test and demo homes.
 
 ### 13.4 The Open Source extraction
 
-`packages/vega-calm-ui` — MIT. A genuinely reusable accessible-TV component set: large-type high-contrast cards of at most three actions that throw at render below the floor, a two-phase card primitive that reserves its space, screen-reader and reduced-motion hooks on Vega's `AccessibilityInfo`, and four ESLint rules (`min-font-size`, `no-alarm-colour`, `max-actions`, `no-auto-dismiss`). A focus-order rule was planned and dropped: Vega's focus engine decides focus at run time. The canonical repository is `github.com/rogerjeasy/vega-calm-ui` (npm `vega-calm-ui`); this folder is Wick's workspace copy of it, and Wick's own ESLint config runs the rules over `apps/tv-vega/src`.
-
-Publish it, then open a PR against `AmazonAppDev/react-native-multi-tv-app-sample` adding an accessibility preset theme. **PRs do not need to be merged.** Capture: contribution URL, repo URL, GitHub username, and the what/how/why.
-
-This is downstream of work you must do anyway, which is exactly what makes it a real contribution rather than a hackathon by-product.
+`packages/vega-calm-ui` — MIT. An accessible-TV component set for Vega: large-type, high-contrast cards of at most three actions that throw at render below the floor; a two-phase card primitive that reserves its space; screen-reader and reduced-motion hooks on Vega's `AccessibilityInfo`; and four ESLint rules (`min-font-size`, `no-alarm-colour`, `max-actions`, `no-auto-dismiss`). A focus-order rule was planned and dropped: Vega's focus engine decides focus at run time. The canonical repository is <https://github.com/rogerjeasy/vega-calm-ui>; this folder is Wick's workspace copy, and Wick's own ESLint config runs the rules over `apps/tv-vega/src`. It is **not published to npm**; it installs from GitHub (`npm install github:rogerjeasy/vega-calm-ui`).
 
 ---
 
-## 14. THE 72-HOUR SPIKE PLAN
+## 14. THE SPIKES, AND WHAT THEY FOUND
 
-Nothing here is product code. The purpose is to find out what is impossible before committing to it. **Every item is a decision gate with a written answer.**
+Each was a decision gate before design depended on it.
 
-| # | Spike | Timebox | Decides |
-|---|---|---|---|
-| **SP-1** | **Can anything render over active playback?** Run a Vega sample, start playback, attempt a lower-third overlay from the app and from a headless service. | 6h | The entire Door Card design. If no → the card waits for foreground, the demo script changes, and you write the headline feature request. **`WICK.md` R1.** |
-| ~~**SP-2**~~ **DONE** | **Ring snapshot latency.** Measured 2026-09-15, n=3: **3.15s end to end** (0.8s to the 303, ~2.3s to fetch 106KB of 1280x720 JPEG). Well over the 1.5s p99 bar — **so Phase 1 ships the card with no image and patches the image in after**, as planned. Also discovered: there is no live-capture call at all; `at_timestamp` retrieves a *recorded* frame. See FL-005. | done | §9.1 |
-| **SP-3** | **Ring WHEP on Vega.** Negotiate a session; render on the TV. Measure setup time and whether sessions are duration-limited. | 6h | M2 (Watch Live). Fallback: short clip via `media/video/download`. |
-| **SP-4** | ~~Alexa+ add-on access~~ **RESOLVED 2026-09-14: partner-gated, no application path** (FL-001). Replacement spike: stand up a spec-2025-11-25 Streamable HTTP server behind `cloudflared` and drive it from MCP Inspector. | 3h | **S4a.** Proves the server is real without waiting on access. Re-request S4b access periodically; it costs nothing. |
-| **SP-5** | ~~**Transport.** `mqtt.js` over WSS inside Vega RN 0.83, including a reconnect cycle.~~ **RUN 2026-10-11 on the simulator: connects, reconnects on reopening the app, falls back to the WebSocket when refused** (FL-009, update). Hours and hardware not run. | 4h | §4.1 — IoT Core or API GW WebSocket. |
-| **SP-7** | **Content Personalization round trip.** Publish one real playback event; confirm it lands in Continue Watching on the device. | 4h | The Rhythm pillar's device-side input. |
-| **SP-8** | **Stage One insurance.** Get a Vega sample running on the real Fire TV Stick and **record it.** | 2h | Non-negotiable. Do it first. |
-
-**Also in the first 72 hours, in parallel:**
-- Request the **$150 AWS credits** (form closes 21 Oct, 12:00 PT).
-- Create the repo with the licence rendering in the About panel.
-- Open `FRICTION.md` and write SP-1's result into it, whatever it is.
-- **Start real data collection in Margaret's household.** Ring events, running continuously. The Rhythm baseline needs ≥3 weeks and cannot be back-filled.
-- Generate the six Alexa+ icon sizes and stand up the privacy/terms pages (§7.3) — they gate `alexa-ai deploy`.
-
----
-
-## 15. IMPLEMENTATION SEQUENCE
-
-Order is not arbitrary. Each step de-risks the next, and each has a binary exit criterion.
-
-| Step | Build | Exit criterion |
+| # | Spike | Outcome |
 |---|---|---|
-| **0** | Spikes SP-1…SP-8; repo, CI, CDK core stack, contracts package | Every spike has a written answer in `FRICTION.md` |
-| **1** | **S1 Door Card** — Ring webhook → EventBridge → Door agent → Phase 1 → device | A real doorbell press produces a real card on real hardware in < 3s, measured |
-| **2** | **S4a Family Line** — spec-compliant MCP server, `get_week_narrative` over stub data, exercised from MCP Inspector | A real MCP client gets a real answer over Streamable HTTP. *(The likeliest surprise already fired — see FL-001 — which is exactly why this sat second.)* |
-| **3** | **S5 Guardian** — policy engine, egress module, lint rule, property tests | 10k property cases green; a real refusal demonstrable on a real Echo |
-| **4** | **S2 Natural-Break Engine** + Content Personalization (real events) | Deferred card provably never appears in `IN_SCENE`, on device |
-| **5** | **S6 Rhythm** — Timestream, baselines, deviation floor | A real 3-week baseline produces a true "nothing unusual this week" |
-| **7** | **M1 "Ring the hallway chime"** | A remote button rings a real Chime down the hall, and the card says whether it rang. Ring's API plays audio only on an indoor Chime, from the app's own slot — it tells the house, not the visitor. |
-| **8** | **M3 One-Button Reply** | Real note in, real reply out, one button |
-| **9** | **M2 Watch Live** | Live doorbell full-screen on the TV, Back restores playback |
-| **10** | **M5 Carer Verification** + **M4 Known Visitors** (schedule-based) | Real carer arrival verified from real history |
-| **11** | **M6 MCP Apps timeline** | Timeline renders in the Alexa+ conversation |
-| **12** | **Film.** Then `tv-fireos`, then Tier 2, in that order | — |
+| **SP-1** | Can anything render over another app's playback? | **Partly.** A third-party Vega app cannot draw over another app, but its background service can post a **system toast** with a button that brings Wick forward (FL-022, FL-026). The door uses it; nothing else interrupts another app. Fire OS: not built. |
+| **SP-2** | Ring snapshot latency | **3.15 s** end to end (n = 3), and the call returns a *recorded* frame, not a live one (FL-005). Phase 1 ships without a picture. |
+| **SP-3** | Ring WHEP on Vega | Vega has no WebRTC and its WebView crashed on the simulator (FL-015). Bridged instead: WHEP → werift → ffmpeg → HLS in a Lambda, because the AgentCore microVM has no outbound UDP (FL-017). Works on both simulators with the Playground camera. |
+| **SP-4** | Alexa+ add-on access | Partner-gated, no application path (FL-001). The MCP server was built to the spec anyway and exercised through MCP Inspector and the family app. |
+| **SP-5** | `mqtt.js` over WSS inside Vega's React Native | Works: connects, reconnects on reopening the app, falls back to the WebSocket when refused (FL-009, update). Hours and hardware not run. |
+| **SP-7** | Content Personalization round trip to Continue Watching | **Not run.** The data service is implemented; whether a real device's Continue Watching shows the events is unchecked. |
+| **SP-8** | A Vega build running on real Fire TV hardware | **Not run.** There is no hardware in this project; the Vega Virtual Device is the Stage One evidence, which the rules allow. |
 
-**Gate rule:** no Tier 1 work begins until steps 1–5 run on real hardware with real data. No Tier 2 work begins until the video is **shot**, not merely planned.
+---
+
+## 15. BUILD ORDER, AS IT HAPPENED
+
+The plan was spine first (S1 door, S4a family line, S5 Guardian, S2 break engine, S6 rhythm), then the multipliers. It held, with these changes:
+
+| Step | Built | Note |
+|---|---|---|
+| 1 | **S1 Door Card** — webhook → EventBridge → Door agent → Phase 1 → television | Measured against the Playground camera; a webhook from a press is stood in (FL-027). |
+| 2 | **S4a Family Line** — the MCP server | Then accounts, Cognito, the stateless server, the family app. |
+| 3 | **S5 Guardian** — policy, egress, lint rule, property tests | |
+| 4 | **S2 Natural-Break Engine**, later calm points and the hold | |
+| 5 | **S6 Rhythm** — `RHYTHM#` counts in DynamoDB, the six-week baseline, the three-week floor | Not Timestream (§17). |
+| 6 | **M1 hallway chime**, **M2 Watch live**, **M3 one-button reply**, **M4 known visitors** (schedule-based), **M5 the visit, witnessed** | M1 is built and contract-tested, not demonstrated (FL-019). |
+| 7 | **D1 Something's Different** as "Shall I tell Sarah?"; **D2 What Sarah sees** | D1 asks the resident first, by INV-10. |
+| 8 | The Fire OS build; the television in a browser tab | |
+| 9 | Ask Sarah to look; the light in the window; watch together; hold for Sarah; Sarah's television; her language; the mantelpiece; read to me; the stand-in doorbell; media controls; ask by voice | Each is a row in the README's table of eleven things, and each has its rules in `AGENTS.md`. |
+
+**M6**, the week rendered as a panel inside the Alexa+ conversation, was not built (§17).
 
 ---
 
 ## 16. OPEN TECHNICAL QUESTIONS
 
-| # | Question | Resolve by | Blocks |
-|---|---|---|---|
-| **Q1** | Can a Vega app or headless service composite over another app's playback? | SP-1 | Door Card scope; the headline feature request |
-| **Q2** | Are Ring WHEP sessions duration- or concurrency-limited? Undocumented. | SP-3 | M2 |
-| **Q3** | Does `mqtt.js` work over WSS in Vega's RN 0.83 fork? | SP-5 | §4.1 |
-| **Q4** | Does `kepler-file-system` offer any at-rest protection, or is the device JWT plaintext? | Week 1 | §4.2 scoping; feature request L10 |
-| **Q5** | Is AgentCore Gateway the right MCP front door, or is a custom Streamable HTTP server simpler given the OAuth 2.1 + PRM requirements? | SP-4 | §7.3 |
-| **Q6** | Exact `keplerscript-audio-lib` ducking API and whether the duck applies to another app's audio. | Week 1 | Spoken cards |
-| **Q7** | Does the accessibility privilege expose contrast/reduced-motion preferences, or only screen-reader state? | Week 1 | §3.5; feature request L11 |
-| **Q8** | ~~Alexa+ certification lead time~~ **CLOSED 2026-09-14.** Moot: the toolkit is partner-gated (FL-001). Replacement question: which MCP client makes the most legible 20 seconds of demo — Inspector, Claude, or the simulated surface? | Week 2, during filming rehearsal | Demo video §14.6 |
+| # | Question | State |
+|---|---|---|
+| **Q1** | Can a Vega app or headless service composite over another app's playback? | **Answered:** no overlay; a system toast from a background service, yes (SP-1). |
+| **Q2** | Are Ring WHEP sessions duration- or concurrency-limited? | Duration: 30 s battery, 60 s wired, as Ring reports. Concurrency: undocumented, untested. |
+| **Q3** | Does `mqtt.js` work over WSS in Vega's React Native? | **Answered:** yes, on the simulator (SP-5). |
+| **Q4** | Does `kepler-file-system` give any at-rest protection, or is the device JWT plaintext? | Undocumented. Assumed plaintext, and the token is scoped accordingly (INV-1). On the Vega simulator, nothing written persists at all (FL-013). |
+| **Q5** | AgentCore Gateway or a custom Streamable HTTP server for MCP? | **Answered:** custom server, because it has to be its own OAuth authorization server with dynamic client registration for Alexa+, and Cognito decides identity. |
+| **Q6** | Audio ducking API, and whether it ducks another app's audio | Not pursued; Wick plays no sound of its own except a reading she asked for. |
+| **Q7** | Does the accessibility privilege expose contrast or reduced-motion preferences? | Reduced motion and screen-reader state are read through `AccessibilityInfo` (`vega-calm-ui`). No text-size or contrast preference API was found (L11). |
+| **Q8** | Which MCP client makes the most legible demo? | The family app (`apps/sim-alexa`), which shows the tool call and its answer. |
+| **Q9** | Why is the deployed MCP server two-speed? | Open — issue #47 (§9.3). |
+
+---
+
+## 17. CONSIDERED AND NOT BUILT
+
+Everything here was in version 1.0 of this document, or was proposed later, and does not exist in the code. It is listed so nobody reads it as built.
+
+| Idea | Why not, or what replaced it |
+|---|---|
+| **Amazon Timestream** for the rhythm | Counts in DynamoDB `RHYTHM#` rows were enough for a six-week baseline by weekday and hour. |
+| **Bedrock Knowledge Bases over S3 Vectors** for natural-language recall | No free-text facts are stored to recall. The family's questions are answered by fixed tools over rows. |
+| **AgentCore Memory** | The household's memory is the DynamoDB table; nothing needed a second store. |
+| **AgentCore Identity** for Ring tokens | Ring tokens are in Secrets Manager, one secret per household, refreshed by one Lambda (§7.1). |
+| **AgentCore Gateway** as the MCP front door | Replaced by the custom server (Q5). |
+| **SQS FIFO per household**, **a DLQ per EventBridge rule**, an EventBridge archive | Not built. EventBridge's and Lambda's own retries are the only retries; an event that exhausts them is not kept anywhere. |
+| **EMF metrics, dashboards and alarms** (`door.glass_to_glass_ms`, `mcp.roundtrip_ms`, …) | Not built. Latency has been measured by hand (§9). |
+| **M6 — the week as a panel in the Alexa+ conversation (MCP Apps)** | Not built. The family app shows the week as text. |
+| **A household withdrawal cascade** (`DELETE /household/{id}`) | Not built. Members can be removed and televisions disconnected; whole-household deletion is a manual operation. |
+| **Voice notes from the family** (Transcribe into a note, `voice/` prefix) | Not built as a note. Transcribe is used only to turn a family member's spoken *question* into words. The `voice/` lifecycle rule exists with nothing writing to it. |
+| **Replies drafted by a model** | Not built as planned. Two of a note's three replies are *chosen* — by the assistant, from a fixed list of sentences Wick wrote (`REPLY_CHOICES`) — and the third is always *"Not right now."* No model writes words the resident would be pressing (`send_note_to_tv.ts`). |
+| **A model-assisted classifier in the Guardian** | Not built. The Guardian is rules only. |
+| **Golden-file tests for prompts** | Replaced by output validators (§12.4). |
+| **Audio ducking**, the out-of-process player | Not built. |
+| **`kepler-performance-api` and a Perfetto trace in the README** | Not done (§9.2). |
+| **Face matching for known visitors** | Rejected for v1: the roster is schedule-based (decision D3 in `WICK.md`). |
+| **A `home` environment with a real household** | There is no real household. Everything runs on test and demo homes. |
+| **Testing on a Fire TV Stick** | No hardware. The simulators are the evidence. |
+| **Content Personalization round trip verified on a device** | SP-7 not run. |
+| **A focus-order lint rule** | Dropped: Vega decides focus at run time. |
 
 ---
 
 ## APPENDIX A — Verified Vega identifiers
 
-All ✅ V from `AmazonAppDev/vega-video-sample/manifest.toml` (2026-09-14).
+All ✅ V from `AmazonAppDev/vega-video-sample/manifest.toml` (2026-09-14). This is the research list, not what Wick declares; Wick's own manifest is `apps/tv-vega/manifest.toml`.
 
 **Runtime module:** `/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0`
 
@@ -1045,7 +936,7 @@ The wearable cheat sheet was removed with the connector (§7.2).
 
 ```
 Spec      MCP 2025-11-25 · Streamable HTTP (not legacy SSE)
-Latency   round trip < 500ms  ← architectural constraint
+Latency   round trip < 500ms  (the deployed server misses it on about half of calls — §9.3)
 Auth      401 without WWW-Authenticate when unauthenticated
           PRM at /.well-known/oauth-authorization-server
           code_challenge_methods_supported: ["S256"]
@@ -1060,33 +951,13 @@ Manifest  addon-package/addon.json
 Region    US only
 Access    PARTNER-GATED — "Category SDK and MCP Toolkit are available to
           select partners only." No published application path. See FL-001.
-          Build to this spec regardless; demo via MCP Inspector / simulated surface.
-Dev       cloudflared tunnel for local MCP server
 ```
 
-## APPENDIX E — Friction-log seeds (technical)
+## APPENDIX E — Friction
 
-Verified gaps found while researching this document. **Write each up properly the moment you hit it** — retrospective friction logs read as retrospective, and this is worth up to 10% of the final score.
-
-| Severity | Gap |
-|---|---|
-| **Critical** | No third-party overlay/ambient surface on Vega (Q1 / L1) |
-| **Critical** | No camera, microphone, BLE or presence API on Vega (L2) |
-| **Critical** | No documented hardware-backed keystore on Vega (L10 / Q4) |
-| **Critical** | Alexa+ MCP Toolkit partner-gated with no application path — **written up as FL-001** |
-| Important | No public Ambient Experience / presence API (L3) |
-| Important | Content Launcher and Account Login partner-gated with no sandbox (L4) |
-| Important | Ring: no two-way audio / siren / light endpoints despite hardware support (L6) |
-| Important | Ring: no webhook replay, DLQ, or synthetic-event sandbox → CI is hard (L8) |
-| Important | Ring: WHEP session duration/concurrency limits undocumented (Q2) |
-| Important | Alexa+ MCP add-on is US-only, compounding the partner gate (L9) |
-| Important | No accessibility-preference API on Vega beyond screen-reader state (L11 / Q7) |
-| Nice-to-have | Ring `sub_type` taxonomy too coarse (L7) |
-| Nice-to-have | Ring blocks browser/TV origins, forcing an extra hop (L5) |
-| Nice-to-have | Amazon Kids/household profiles unavailable to third-party apps (L12) |
-| Nice-to-have | Vega samples ship mock data wired into the real service path (§3.3) |
+Every platform gap found while building is written up in [`FRICTION.md`](../FRICTION.md), with the six fields the rules ask for, at the time it was hit.
 
 ---
 
-*Wick — Technical Implementation Document · Version 1.0 · 14 September 2026*
-*Companion to `WICK.md`. Build, Ship, Shape: Amazon Developer Hackathon — Fire TV Track, 1st Place.*
+*Wick — Technical Document · Version 2.0 · 14 October 2026*
+*Companion to `WICK.md`. Build, Ship, Shape: Amazon Developer Hackathon — Fire TV track.*
