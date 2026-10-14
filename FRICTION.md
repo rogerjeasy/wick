@@ -88,7 +88,7 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
-## FL-031 — Speech to text from a browser through App Runner has to be one buffered POST: App Runner has no WebSockets, says so only in a closed GitHub issue, and documents no request-body limit
+## FL-032 — Speech to text from a browser through App Runner has to be one buffered POST: App Runner has no WebSockets, says so only in a closed GitHub issue, and documents no request-body limit
 
 **Tool / API:**      AWS App Runner (an ECR image service, us-east-1) /
                      Amazon Transcribe streaming, `@aws-sdk/client-transcribe-streaming` 3.1150.0
@@ -155,7 +155,7 @@ leads, not entries — an entry requires that you actually hit it.
 
 ---
 
-## FL-030 — Vega Media Controls: once a session is registered the remote's Play/Pause reaches the app twice, the simulator has no way to send a media command, and two ordinary state shapes fail with errors that name neither field
+## FL-031 — Vega Media Controls: once a session is registered the remote's Play/Pause reaches the app twice, the simulator has no way to send a media command, and two ordinary state shapes fail with errors that name neither field
 
 **Tool / API:**      Vega OS 1.2 / `@amazon-devices/kepler-media-controls` 1.0.25
                      (`MediaControlServerComponentAsync`, `setHandlerForComponent`,

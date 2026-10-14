@@ -11,7 +11,7 @@
  * changing its mind.
  *
  * Why one POST and not a socket: the Wick server runs on App Runner, which
- * has no WebSocket support (FRICTION.md FL-031), and the family app holds
+ * has no WebSocket support (FRICTION.md FL-032), and the family app holds
  * no AWS credential and frames no AWS event stream — it is a page with no
  * build step. So the page sends the whole utterance once it has ended.
  *

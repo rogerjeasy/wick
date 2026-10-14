@@ -40,7 +40,7 @@
  *   (live/LiveView.tsx), and the film is held behind it.
  * - **One press is one press.** On the Vega Virtual Device the remote's
  *   Play/Pause button reaches the app twice: as the key, and some 60 ms
- *   later as the session's Play/Pause command (FRICTION.md FL-030). Acted
+ *   later as the session's Play/Pause command (FRICTION.md FL-031). Acted
  *   on both ways, a press would pause the film and play it again at once. So
  *   the key goes first, as it always did, and a command that echoes a media
  *   key pressed within a moment of it is let go (`keyEchoes`) — waiting that
