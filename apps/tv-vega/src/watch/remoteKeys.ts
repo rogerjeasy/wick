@@ -95,8 +95,12 @@ export function playIsTheCards(at: { readonly card: string | undefined; readonly
   return !(at.holdsFilm && at.askedFor === at.card);
 }
 
-/** Where one press of Play, Play/Pause or Pause goes: to the reading, to the programme, or — carrying on — to both. */
-function playGoesTo(key: string, context: KeyContext): { readonly reader: ReadCommand | undefined; readonly film: boolean } {
+/**
+ * Where one press of Play, Play/Pause or Pause goes: to the reading, to the
+ * programme, or — carrying on — to both. The media session's Play/Pause
+ * command goes the same way (mediaSession.ts).
+ */
+export function playGoesTo(key: string, context: KeyContext): { readonly reader: ReadCommand | undefined; readonly film: boolean } {
   const reading = context.reading === true;
   // Only Pause: it stops a reading and nothing else; with none under way it is the programme's, as before.
   if (key === 'pause') return reading ? { reader: 'stop', film: false } : { reader: undefined, film: true };
@@ -131,8 +135,9 @@ function own<T>(table: Readonly<Record<string, T>>, key: string): T | undefined 
   return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
 }
 
-export function seekTarget(positionMs: number, direction: 'forward' | 'back', durationMs: number): number {
-  if (direction === 'back') return Math.max(0, positionMs - SEEK_STEP_MS);
-  const target = positionMs + SEEK_STEP_MS;
+/** Where one skip lands: a skip key's thirty seconds, or the step the media session asks for (mediaSession.ts). */
+export function seekTarget(positionMs: number, direction: 'forward' | 'back', durationMs: number, stepMs: number = SEEK_STEP_MS): number {
+  if (direction === 'back') return Math.max(0, positionMs - stepMs);
+  const target = positionMs + stepMs;
   return durationMs > 0 ? Math.min(target, durationMs - END_GUARD_MS) : target;
 }
