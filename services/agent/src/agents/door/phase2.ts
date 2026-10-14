@@ -51,8 +51,16 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** `eventType` picks the corrected headline when the frame shows nobody (index.ts). */
-export async function runDoorPhase2(cardId: string, deps: Phase2Deps, eventType?: string): Promise<Phase2Outcome> {
+/**
+ * `eventType` picks the corrected headline when the frame shows nobody (index.ts);
+ * `standIn`, that it is said as a demo home's stand-in doorbell (demoDoor.ts).
+ */
+export async function runDoorPhase2(
+  cardId: string,
+  deps: Phase2Deps,
+  eventType?: string,
+  options: { readonly standIn?: boolean } = {},
+): Promise<Phase2Outcome> {
   let image: RingImage;
   let bytes: Uint8Array;
   try {
@@ -66,7 +74,7 @@ export async function runDoorPhase2(cardId: string, deps: Phase2Deps, eventType?
   const described = await deps.describe(bytes);
   if (!described.candidate) return { image: imageOutcome, description: 'declined', reason: described.reason };
 
-  const patch = buildDescriptionPatch(cardId, described.candidate, eventType);
+  const patch = buildDescriptionPatch(cardId, described.candidate, eventType, options);
   if (!patch) return { image: imageOutcome, description: 'rejected', reason: described.reason };
 
   const descriptionOutcome = (await trySend(deps, patch)) ? 'patched' : 'patch_failed';

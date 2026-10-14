@@ -15,12 +15,21 @@
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { padTimestamp, type VisitorMatch } from '@wick/contracts';
 
+/** `simulated`: written by a demo home's stand-in doorbell (demoDoor.ts), and marked as every row of a demo home is. */
+export interface TimelineItemOptions {
+  readonly simulated?: boolean;
+}
+
+const marked = (options: TimelineItemOptions): Record<string, AttributeValue> =>
+  options.simulated ? { simulated: { BOOL: true } } : {};
+
 /** M4 -> M5: a door event that matched the roster (roster.ts). */
 export function buildPresenceItem(
   householdId: string,
   match: VisitorMatch,
   at: number,
   id: string,
+  options: TimelineItemOptions = {},
 ): Record<string, AttributeValue> {
   return {
     pk: { S: `HH#${householdId}` },
@@ -28,6 +37,7 @@ export function buildPresenceItem(
     type: { S: 'presence' },
     personId: { S: match.personId },
     personName: { S: match.name },
+    ...marked(options),
   };
 }
 
@@ -40,10 +50,12 @@ export function buildDoorEventItem(
   householdId: string,
   at: number,
   id: string,
+  options: TimelineItemOptions = {},
 ): Record<string, AttributeValue> {
   return {
     pk: { S: `HH#${householdId}` },
     sk: { S: `EVT#${padTimestamp(at)}#${id}` },
     type: { S: 'door' },
+    ...marked(options),
   };
 }

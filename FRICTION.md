@@ -88,6 +88,47 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-030 — Amazon's own image models on Bedrock are past end of life, and the model list says nothing until you call one
+
+**Tool / API:**      Amazon Bedrock `InvokeModel`, `amazon.nova-canvas-v1:0` and
+                     `amazon.titan-image-generator-v2:0`, `ListFoundationModels --by-output-modality IMAGE`,
+                     2026-10-14
+
+**Task attempted:**  Make four pictures for a demo home's stand-in doorbell (`docs/demo-door`): a
+                     doorbell camera's frame of a carer, a parcel, a stranger and an empty step, made
+                     with an image model so that no real person or house is shown, and on AWS so the
+                     whole entry stays on one platform.
+
+**Steps taken:**     1. Called `amazon.nova-canvas-v1:0` in us-east-1, eu-west-1 and ap-northeast-1:
+                        `ResourceNotFoundException: This model version has reached the end of its life.`
+                        In us-west-2: `The provided model identifier is invalid.`
+                     2. Did the same for `amazon.titan-image-generator-v2:0`: end of life in us-east-1
+                        and us-west-2, an invalid identifier elsewhere.
+                     3. Listed the image models in us-east-1: neither is listed, and no Amazon model
+                        makes an image any more. In us-west-2 three Stability models do
+                        (`stable-image-ultra-v1:1`, `stable-image-core-v1:1`, `sd3-5-large-v1:0`).
+
+**Expected:**        A model that the Nova documentation still presents as Amazon's image generator
+                     to be callable, or to be marked as retired, with a successor named, wherever it
+                     is documented.
+
+**Actual:**          It is simply absent from the model list, and the only place that says why is the
+                     error of a call to it. The successor is not named. Code and samples written
+                     against Nova Canvas stop working with an error that reads like a typo in the
+                     region.
+
+**Severity:**        Nice-to-have — a third-party model on Bedrock did the job — but it costs the time
+                     of finding out, and an entry that wanted to say "made with Amazon Nova" cannot.
+
+**Workaround:**      Stable Image Ultra on Bedrock in us-west-2. The model, date, prompts and seeds are
+                     in `docs/demo-door/NOTICE.md`.
+
+**Suggestion:**      1. Keep retired models in `ListFoundationModels` with `modelLifecycle.status`
+                        `LEGACY`/`EOL` and the date, rather than dropping them.
+                     2. Name the successor in the end-of-life error, and in the model's documentation.
+
+---
+
 ## FL-029 — A Vega app can start its own service, but cannot hand it anything: no launch data, no shared storage, no second message
 
 **Tool / API:**      Vega OS SDK 0.24.12044 / `@amazon-devices/headless-task-manager` 1.2.8
@@ -233,7 +274,11 @@ leads, not entries — an entry requires that you actually hit it.
                      the JSON Ring documents, signed with the real HMAC key, to the real webhook.
                      Everything after the webhook is the deployed path. Amazon confirmed in the
                      forum (topic 45511) that an entrant's own simulator is acceptable. The README
-                     and the video say which events came from this stand-in.
+                     and the video say which events came from this stand-in. And so that someone
+                     trying Wick sees the door too, a demo home has a stand-in doorbell, rung from
+                     the family app (`POST /api/demo/doorbell`, `packages/contracts/src/demoDoor.ts`):
+                     it never reaches Ring, says it is a stand-in on the card, and everything after
+                     the ring is the Door agent's own path.
 
 **Suggestion:**      1. Give each Playground device "Press doorbell" and "Person detected" buttons
                         that send the real, signed webhook to the registered URL, with a chosen

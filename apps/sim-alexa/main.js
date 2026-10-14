@@ -42,6 +42,8 @@ import {
   presentResult,
   presentTurn,
   presentWelcome,
+  presentStandInDoorbell,
+  standInDoorOffer,
   looksForReach,
   reachToAnnounce,
   routeUtterance,
@@ -69,6 +71,8 @@ let mcpSessionId = null;
 let mcpInitialized = false;
 /** GET /api/me for the linked account, once known. */
 let me = null;
+/** The add-on listing the chips were last drawn from (showSuggestions). */
+let shownListing = null;
 
 function loadLink() {
   try {
@@ -255,6 +259,8 @@ function signedOut(reason) {
   // A link that ended by itself cannot tell the server; the browser still stops listening.
   void forgetThisBrowser({ tellServer: false });
   enableToolButtons(false);
+  // No home, so no stand-in doorbell among the chips.
+  showSuggestions();
   setStatus(reason);
   // The link card is back on screen, so its demo button must be decided
   // again: a link that had expired used to leave it hidden.
@@ -2569,6 +2575,61 @@ async function showPictures() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// A demo home's stand-in doorbell: somebody made to arrive at the door, so
+// the door card can be seen on her television. What is said is decided in
+// surface.js (standInDoorOffer, presentStandInDoorbell); the server decides
+// who may ring and how often (POST /api/demo/doorbell).
+// ---------------------------------------------------------------------------
+
+/** One button per stand-in visitor. A press rings once: it carries a key of its own, and the buttons rest until it is answered. */
+function renderStandInDoorbell(words) {
+  const { card, body } = plainCard(words.title, words.footnote);
+  const actions = el('div', 'actions');
+  const line = el('p', 'watch-status');
+  line.setAttribute('role', 'status');
+  line.setAttribute('aria-live', 'polite');
+  const buttons = words.visitors.map((visitor) => {
+    const button = el('button', 'btn quiet', visitor.label);
+    button.type = 'button';
+    button.addEventListener('click', async () => {
+      for (const b of buttons) b.disabled = true;
+      line.textContent = words.ringing;
+      try {
+        const answer = await api('/api/demo/doorbell', { method: 'POST',
+          body: JSON.stringify({ visitor: visitor.key }),
+          headers: { 'idempotency-key': newPhotoKey(crypto.getRandomValues(new Uint8Array(16))) },
+        });
+        line.textContent = answer?.say ?? words.rung;
+      } catch (err) {
+        line.textContent = err.message;
+      }
+      for (const b of buttons) b.disabled = false;
+      scrollToEnd();
+    });
+    return button;
+  });
+  actions.append(...buttons);
+  body.append(actions, line);
+  return card;
+}
+
+async function showStandInDoorbell() {
+  const turn = addThinking();
+  try {
+    me = await api('/api/me');
+    // Only in a demo home, and only for somebody she has allowed: everyone else is told why, and the server is not asked.
+    const offer = standInDoorOffer(me);
+    if (!offer.offered) return void fillAssistantTurn(turn, { say: offer.say, card: null, tone: offer.tone });
+    const words = presentStandInDoorbell(me);
+    fillAssistantTurn(turn, { say: words.say, card: null, tone: 'answer' });
+    turn.appendChild(renderStandInDoorbell(words));
+    scrollToEnd();
+  } catch (err) {
+    fillAssistantTurn(turn, { say: err.message, card: null, tone: err.status === 403 ? 'waiting' : 'error' });
+  }
+}
+
 async function showCircle() {
   const turn = addThinking();
   try {
@@ -2593,6 +2654,8 @@ async function welcome() {
   formatTime = timeFormatter(me.household.timeZone);
   // A demo home says what it is wherever it is named: its history was written, not lived.
   setStatus(`${me.user.name} · ${me.household.name}${me.household.simulated ? ' · simulated history' : ''}`, 'connected');
+  // A demo home's chips include its stand-in doorbell.
+  showSuggestions();
   // Only the organiser, or someone already allowed, may know about the
   // televisions (INV-9) — so nobody else's app even asks.
   let televisions;
@@ -2632,6 +2695,7 @@ function answerByRules(text) {
   if (route.kind === 'doorbell') return void showDoorbell();
   if (route.kind === 'language') return void showLanguage();
   if (route.kind === 'picture') return void showPictures();
+  if (route.kind === 'standin') return void showStandInDoorbell();
   if (route.kind === 'notifications') return void showNotifications();
   assistantSays({ say: HELP_TEXT, tone: 'answer' });
 }
@@ -2653,6 +2717,8 @@ async function handleUtterance(text) {
   if (routeUtterance(text).kind === 'language') return void showLanguage();
   // And so is a picture for her television: a picture is a file, and no assistant can be handed one.
   if (routeUtterance(text).kind === 'picture') return void showPictures();
+  // And so is a demo home's stand-in doorbell: somebody made to arrive at the door, not a question.
+  if (routeUtterance(text).kind === 'standin') return void showStandInDoorbell();
   // And so are this browser's notifications.
   if (routeUtterance(text).kind === 'notifications') return void showNotifications();
   if (noAssistant) return answerByRules(text);
@@ -2675,12 +2741,14 @@ async function handleUtterance(text) {
 
 /**
  * The chips under the conversation. Drawn once from the app's own list, and
- * again when the add-on listing is read: its phrases then come first.
+ * again when the add-on listing is read: its phrases then come first. And
+ * again once the home is known: a demo home has a stand-in doorbell to ring.
  */
-function showSuggestions(listing) {
+function showSuggestions(listing = shownListing) {
+  shownListing = listing;
   // As enabled as the field beside them: redrawing must not open what sign-in has not.
   const enabled = !$('ask-input').disabled;
-  $('chips').replaceChildren(...suggestionsFor(listing).map((suggestion) => {
+  $('chips').replaceChildren(...suggestionsFor(listing, me).map((suggestion) => {
     const chip = el('button', 'chip', suggestion.label);
     chip.type = 'button';
     chip.disabled = !enabled;

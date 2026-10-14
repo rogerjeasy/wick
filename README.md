@@ -70,7 +70,8 @@ No account and no hardware are needed.
 1. Open the [family app](https://dmaz25jvryojp.cloudfront.net/) and choose **Try the demo**. You get a guest account and a demo home of your own, with six weeks of simulated history.
 2. Open [a television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/device.html), press **Pair & connect**, and enter its code in the family app.
 3. On the television, allow yourself. From then on, ask the family app anything — *"How has my mum been this week?"*, *"Is the light on?"*, *"Ask Mum to watch Sintel with me on Sunday at three"* — and answer on the television.
-4. For the family's side on a television, open a second television tab, press **Pair & connect**, and in the family app answer *"Whose television is it?"* with **Mine**.
+4. To see the door, press the **Ring the stand-in doorbell** chip and choose who is there. A demo home has no Ring doorbell, so this stands one in. The door card comes up on the television within a few seconds, then the picture, then a sentence about it from the vision model. Press **Ask Guest to look** there, and the family app shows you the picture to answer.
+5. For the family's side on a television, open a second television tab, press **Pair & connect**, and in the family app answer *"Whose television is it?"* with **Mine**.
 
 ## Why this needs Amazon
 
@@ -147,7 +148,7 @@ home was recorded to make this.
 | | In this submission |
 |---|---|
 | **Television** | The Vega Virtual Device and a Fire OS emulator, running the same builds a Fire TV would (`apps/tv-vega`, `apps/tv-fireos`). For anyone with neither, a virtual television in a browser tab (`apps/ops-console/device.html`) pairs with the same code and is sent the same cards. |
-| **Doorbell** | Ring's Developer Playground: a simulated camera behind Ring's real Partner API, linked by Ring's real OAuth. The Playground has no chime, so the hallway chime is built and contract-tested but not shown ([FL-019](FRICTION.md)). |
+| **Doorbell** | Ring's Developer Playground: a simulated camera behind Ring's real Partner API, linked by Ring's real OAuth. The Playground has no chime, so the hallway chime is built and contract-tested but not shown ([FL-019](FRICTION.md)). It sends no doorbell or motion webhook either ([FL-027](FRICTION.md)), so a demo home has a stand-in doorbell of Wick's own, rung from the family app. It never reaches Ring. Its four visitors are pictures made with an image model, of nobody real ([`docs/demo-door`](docs/demo-door/NOTICE.md)). The card says *stand-in doorbell* and offers no Watch live, since there is no camera. Everything after the ring is the Door agent's own path: the card, the timeline, the vision model's sentence, *Ask … to look*, and her language. |
 | **Alexa+** | A simulated Alexa+ surface (`apps/sim-alexa`): the add-on surface is open to select partners only ([FL-001](FRICTION.md)). It signs in to a real account by OAuth 2.1, a model chooses which of Wick's tools to call, and each call goes to the real MCP server. |
 | **The household** | A demo home. Its six weeks of history are simulated — written as the Door agent's own event rows and counted by the Narrator's own code — and every such row, week and home is marked `simulated`. The family app says so wherever it names the home. |
 | **The films** | Blender Foundation's open films — Big Buck Bunny, Sintel, Tears of Steel — shown with their attribution. |

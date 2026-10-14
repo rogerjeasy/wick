@@ -21,17 +21,23 @@ interface SendableClient {
   send(command: UpdateItemCommand): Promise<unknown>;
 }
 
-export function createRhythmWriter(client: SendableClient, tableName: string): RhythmWriter {
+/**
+ * `simulated`: the counts of a demo home's stand-in doorbell (agents/door/
+ * demoDoor.ts), marked like every other row of a demo home.
+ */
+export function createRhythmWriter(client: SendableClient, tableName: string, options: { readonly simulated?: boolean } = {}): RhythmWriter {
+  const simulated = options.simulated === true;
   return {
     async increment(key, at) {
       await client.send(new UpdateItemCommand({
         TableName: tableName,
         Key: { pk: { S: key.pk }, sk: { S: key.sk } },
-        UpdateExpression: 'ADD #count :incr SET lastSeenAt = :now',
+        UpdateExpression: `ADD #count :incr SET lastSeenAt = :now${simulated ? ', simulated = :simulated' : ''}`,
         ExpressionAttributeNames: { '#count': 'count' },
         ExpressionAttributeValues: {
           ':incr': { N: '1' },
           ':now': { N: String(at) },
+          ...(simulated ? { ':simulated': { BOOL: true } } : {}),
         },
       }));
     },
