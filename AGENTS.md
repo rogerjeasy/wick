@@ -60,31 +60,39 @@ television's id, and ids were logged. Those ids are still known. One is worth
 nothing alone once that television's updated app has enrolled a secret, and
 stops being that television's when it is next paired.
 
-**A television that can keep a file, and has a cryptographic generator,
-proves every refresh.** It makes a long random secret when it is paired,
-keeps it beside its id, and the server keeps
-only its SHA-256 on the television's row (`proofHash`,
-`services/edge-device/lambda/proof.mjs`). `POST /pair/refresh` then mints a
-token for that id only to a request that shows the secret, compared in
-constant time; without it nothing is minted and nothing is counted. Which
-televisions are under this rule, and where their secret comes from:
+**A television that can keep a file proves every refresh.** It keeps a long
+random secret beside its id, and the server keeps only its SHA-256 on the
+television's row (`proofHash`, `services/edge-device/lambda/proof.mjs`).
+`POST /pair/refresh` then mints a token for that id only to a request that
+shows the secret, compared in constant time; without it nothing is minted
+and nothing is counted. A secret is never made from `Math.random`
+(`apps/tv-vega/src/random.ts`). Which televisions are under this rule, and
+where their secret comes from:
 
-- **Fire OS** — Android's `SecureRandom`, through
-  `react-native-get-random-values`, loaded first by `apps/tv-fireos/index.js`.
-- **The browser television** (`apps/ops-console/device.js`) — the browser's
-  Web Crypto.
-- **Vega — the simulator and Fire TV hardware alike — is not.** React Native
-  for Vega gives the JavaScript runtime no `crypto.getRandomValues`, and the
-  SDK's only crypto package is an Expo module. A secret is never made from
-  `Math.random` (`apps/tv-vega/src/random.ts`): with no generator, no secret
-  is made, and the television is under the exception below.
+- **Fire OS** — made on the television, from Android's `SecureRandom`
+  (`react-native-get-random-values`, loaded first by
+  `apps/tv-fireos/index.js`), and sent when it asks for a code.
+- **The browser television** (`apps/ops-console/device.js`) — made in the
+  tab from Web Crypto, and sent the same way.
+- **A Vega television whose disk keeps a file** — React Native for Vega gives
+  the JavaScript runtime no cryptographic generator, so the television says
+  it can keep one (`keeps`) only after writing its identity and reading it
+  back, and the server makes it with `node:crypto` when the code is entered
+  (`pair-claim.mjs`). It is handed over once, beside the token, to the poll
+  of that code (`pair-status.mjs`) — which already receives the thirty-day
+  token the same way — and the nonce goes with it.
+- **The Vega Virtual Device is not.** Its disk keeps nothing, so it never asks
+  for a secret, and the server never makes one for its id `wick-tv`
+  whatever a request says: one it could not keep would lock it out at its
+  next launch. It is the exception below.
 
 A television that loses its secret — storage cleared, the app reinstalled —
 is refused its next refresh, forgets its token and shows the pairing screen
 with a code: it is set up again as a new television, and the organiser
-disconnects the old one from the family app. A television paired before secrets enrols
-one with its first refresh that also shows a token earned by pairing, not run
-out. Every token says how it was earned (`proof`: `pairing`, `secret` or
+disconnects the old one from the family app. A television paired before
+secrets that can make one enrols it with its first refresh that also shows a
+token earned by pairing, not run out; a Vega television is given one at its
+next pairing. Every token says how it was earned (`proof`: `pairing`, `secret` or
 `none`); one minted without proof can never enrol a secret, so whoever minted
 it cannot take the television over or lock it out.
 
@@ -94,9 +102,8 @@ It exists for the Vega Virtual Device: its `/data` never keeps a write
 (FRICTION.md FL-013/FL-014), so a secret it made would be gone at the next
 launch, and `CardService.ts`'s separate process has no other way to learn it
 is already paired. Its id is the constant `wick-tv`, in this open-source
-repository. It covers every Vega television for now as well, which has no
-cryptographic generator to make a secret with; on one whose disk works the
-id is random and never shown to the family, but it is not proof. So **anyone who knows a simulator's id — anyone — can mint a
+repository. It also covers a television paired before secrets until it
+enrols one, or is paired again. So **anyone who knows a simulator's id — anyone — can mint a
 one-hour token for the home that simulator is paired to**, and with it do
 everything that television can: receive and replay the home's cards (the
 picture from the door, the family's notes, the week), mark the week seen
