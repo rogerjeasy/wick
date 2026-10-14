@@ -23,6 +23,8 @@
     "demo:capture": "vite-node -c vitest.config.ts scripts/capture-event-frame.ts",
     "demo:door": "vite-node -c vitest.config.ts scripts/door-card-demo.ts",
     "addon:check": "vite-node -c vitest.config.ts scripts/addon-check.ts --",
+    "smoke:live": "vite-node -c vitest.config.ts scripts/smoke-live.ts",
+    "deploy:wait-app-runner": "vite-node -c vitest.config.ts scripts/wait-for-app-runner.ts",
     "calm:measure": "scripts/calm-points/measure.sh",
     "calm:describe": "vite-node -c vitest.config.ts scripts/calm-points/describe.ts && npm run calm:build",
     "calm:build": "vite-node -c vitest.config.ts scripts/calm-points/cli.ts",

@@ -6,17 +6,29 @@
 #
 #   AWS_PROFILE=wick-dev scripts/push-agent-image.sh
 #
-# Tags the images with the current git SHA and `latest`, prints the SHA, and
-# pins it in infra/images.auto.tfvars — commit that, and every apply (yours or
-# CI's on main) deploys exactly these images.
+# deploy-agent.yml does this on every push to main that changes what the
+# images hold. This is the same thing from a laptop: for a new stack, or when
+# CI cannot run.
+#
+# Tags both images with the current short git SHA, then pins that tag in the
+# SSM parameter /wick/images/agents (infra/images.tf). The next apply, yours
+# or CI's, deploys exactly these images.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 REGION="${AWS_REGION:-us-east-1}"
+PARAMETER="${WICK_AGENTS_IMAGE_PARAMETER:-/wick/images/agents}"
 REPO_URL="$(terraform -chdir=infra output -raw agents_ecr_repository_url)"
 BRIDGE_URL="${REPO_URL%/*}/wick-live-bridge"
 REGISTRY="${REPO_URL%%/*}"
-TAG="$(git rev-parse --short HEAD)$(git diff --quiet || echo -dirty)"
+TAG="$(git rev-parse --short=7 HEAD)$(git diff --quiet || echo -dirty)"
+
+# Terraform makes the parameter (images.tf). Writing one it has not made
+# would make its next apply fail on a parameter that already exists.
+if ! aws ssm get-parameter --region "$REGION" --name "$PARAMETER" >/dev/null 2>&1; then
+  echo "$PARAMETER does not exist yet: run terraform -chdir=infra apply -target=aws_ssm_parameter.agents_image first" >&2
+  exit 1
+fi
 
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"
 
@@ -24,17 +36,11 @@ aws ecr get-login-password --region "$REGION" | docker login --username AWS --pa
 # arm64 host; on x86 use `docker buildx build --platform linux/arm64`.
 for pair in "services/agent/Dockerfile $REPO_URL" "services/agent/bridge.Dockerfile $BRIDGE_URL"; do
   set -- $pair
-  DOCKER_BUILDKIT=0 docker build -f "$1" -t "$2:$TAG" -t "$2:latest" . >&2
+  DOCKER_BUILDKIT=0 docker build -f "$1" -t "$2:$TAG" . >&2
   docker push "$2:$TAG" >&2
-  docker push "$2:latest" >&2
 done
 
-# Pin it in git: CI's terraform apply on main reads this file, not your shell.
-{
-  sed -n '1,4p' infra/images.auto.tfvars
-  echo "agent_image_tag = \"$TAG\""
-} > infra/images.auto.tfvars.next
-mv infra/images.auto.tfvars.next infra/images.auto.tfvars
-echo "pinned $TAG in infra/images.auto.tfvars: commit it with the change" >&2
+aws ssm put-parameter --region "$REGION" --name "$PARAMETER" --value "$TAG" --overwrite >/dev/null
+echo "pinned $TAG in $PARAMETER: terraform -chdir=infra apply deploys it" >&2
 
 echo "$TAG"
