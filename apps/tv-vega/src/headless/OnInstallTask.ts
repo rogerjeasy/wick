@@ -8,6 +8,7 @@
  * task exists for; ../deviceId.ts reads it back on every launch.
  */
 import type { FileSystemLike } from './QueueStore.js';
+import { randomHex } from '../random.js';
 
 // Flat, directly under /data/ — see PairingFlow.ts's TOKEN_PATH comment for
 // why (/wick/... failed on-device with a bare com.amazon.kepler.io.IoError).
@@ -27,13 +28,16 @@ export function __setOnInstallTestDeps(deps: TestDeps | null): void {
 }
 
 /**
- * Not a secret — INV-1's device-bound JWT is the credential; this id is only
- * a stable label PairingFlow sends alongside the pairing request. Plain JS
- * randomness (no native crypto import) keeps this task free of the
- * import-time TurboModule lookup CardService.ts's header warns about.
+ * Not a secret — INV-1's device-bound JWT is the credential, and the
+ * television's own secret (deviceId.ts) is what a refresh is proved by; this
+ * id is only a stable label PairingFlow sends alongside the pairing request.
+ * Still random through and through, with no time in it, so it cannot be
+ * guessed from when Wick was installed. random.ts imports nothing native,
+ * which keeps this task free of the import-time TurboModule lookup
+ * CardService.ts's header warns about.
  */
-function randomDeviceId(): string {
-  return `wick-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+export function randomDeviceId(): string {
+  return `wick-${randomHex(16)}`;
 }
 
 /** Idempotent — safe to call more than once (reinstall, a retried task). */

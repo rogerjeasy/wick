@@ -30,16 +30,20 @@ import { PairingFlow } from './pairing/PairingFlow.js';
 import { PairingScreen } from './pairing/PairingScreen.js';
 import { connectTelevision, type Connecting } from './pairing/connect.js';
 import { loadDeviceConfig } from './config.js';
-import { resolveDeviceId } from './deviceId.js';
+import { televisionIdentity } from './deviceId.js';
 import { televisionMode } from './family/mode.js';
 import { FamilyApp } from './family/FamilyApp.js';
 import { ResidentApp } from './ResidentApp.js';
 
 export default function App(): React.JSX.Element {
   const config = React.useMemo(() => loadDeviceConfig(), []);
+  // Who this television is: its id, and the secret it proves a refresh with
+  // where its storage keeps one (deviceId.ts). The app is the one process
+  // that makes and changes it.
+  const identity = React.useMemo(() => televisionIdentity(KeplerFileSystem, { writes: true }), []);
   const pairing = React.useMemo(
-    () => new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, KeplerFileSystem),
-    [config],
+    () => new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, KeplerFileSystem, fetch, identity),
+    [config, identity],
   );
 
   const [screen, setScreen] = React.useState<Connecting | null>(null);
@@ -57,14 +61,14 @@ export default function App(): React.JSX.Element {
   // code is on its way.
   React.useEffect(() => {
     const connecting = connectTelevision({
-      deviceId: () => resolveDeviceId(KeplerFileSystem),
+      deviceId: () => identity.deviceId(),
       pairing,
       // Signed out: the token is forgotten, and none is asked for again.
       signedOut: signedOut > 0,
       onChange: setScreen,
     });
     return () => connecting.cancel();
-  }, [pairing, signedOut]);
+  }, [pairing, identity, signedOut]);
 
   const handleSignedOut = React.useCallback(() => {
     // The pairing screen at once, "Getting a code…", while the effect above fetches one.

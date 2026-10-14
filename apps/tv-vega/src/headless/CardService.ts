@@ -29,7 +29,7 @@ import { QueueStore, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
 import { standingWatch } from '../pairing/standing.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
-import { resolveDeviceId } from '../deviceId.js';
+import { resolveDeviceId, televisionIdentity } from '../deviceId.js';
 import { createFamilyClient, type Renewed } from '../family/familyClient.js';
 import { televisionMode } from '../family/mode.js';
 import { runWaitingService, type Claimed } from './waitingService.js';
@@ -75,7 +75,8 @@ export async function onStartCardService(): Promise<void> {
   const createChannel = testDeps?.createChannel ?? createDeviceChannel;
 
   const store = new QueueStore(fs);
-  const pairing = new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, fs, testDeps?.fetchImpl);
+  // The app makes this television's identity and changes it; this process only reads it, for the secret a refresh is proved with (deviceId.ts).
+  const pairing = new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, fs, testDeps?.fetchImpl, televisionIdentity(fs));
 
   // Passing the device id lets loadToken() fall back to a server-side refresh
   // when disk has nothing — this process's only other option, since it

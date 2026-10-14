@@ -17,6 +17,7 @@
  */
 import type { DeviceToken } from '@wick/contracts';
 import type { FileSystemLike } from '../headless/QueueStore.js';
+import type { TelevisionIdentity } from '../deviceId.js';
 
 // Flat, directly under /data/ — the only writable root ever shown in the
 // Vega SDK's own KeplerFileSystemInterface docs (every documented example
@@ -25,7 +26,7 @@ import type { FileSystemLike } from '../headless/QueueStore.js';
 // invented top-level directory like /wick/ fails with a bare, undetailed
 // com.amazon.kepler.io.IoError — confirmed empirically 2026-09-19 by
 // surfacing that error on-device rather than guessing. See FRICTION.md.
-const TOKEN_PATH = '/data/wick-token.json';
+export const TOKEN_PATH = '/data/wick-token.json';
 
 export interface PairingStartResponse {
   readonly code: string;
@@ -127,15 +128,25 @@ class CodeExpired extends Error {
   }
 }
 
+/**
+ * What the pairing flow needs of this television's identity (deviceId.ts):
+ * the secret to prove a refresh with, who to ask for a code as, and being
+ * told when a code was entered. Without one, nothing is proved — as on a
+ * television that keeps nothing.
+ */
+export type PairingIdentitySource = Pick<TelevisionIdentity, 'proofFor'> & Partial<Pick<TelevisionIdentity, 'forPairing' | 'paired'>>;
+
 export class PairingFlow {
   readonly #config: PairingConfig;
   readonly #fs: FileSystemLike;
   readonly #fetch: typeof fetch;
   readonly #wait: (ms: number) => Promise<void>;
+  readonly #identity: PairingIdentitySource | undefined;
 
-  constructor(config: PairingConfig, fs: FileSystemLike, fetchImpl: typeof fetch = fetch) {
+  constructor(config: PairingConfig, fs: FileSystemLike, fetchImpl: typeof fetch = fetch, identity?: PairingIdentitySource) {
     this.#config = config;
     this.#fs = fs;
+    this.#identity = identity;
     this.#fetch = (url, init) => PairingFlow.#inTime(fetchImpl, url, init, config.requestTimeoutMs ?? PAIRING_REQUEST_TIMEOUT_MS);
     this.#wait = config.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
@@ -232,13 +243,30 @@ export class PairingFlow {
    * `forService` is said in two cases only, both about a family television's
    * background service: by the app, with its token, to open the way for it
    * (`openServiceWindow`); and by the service, with none, to take it.
+   *
+   * `proof` is this television's secret (deviceId.ts), whenever it keeps
+   * one: a television whose row keeps a secret is answered for nothing
+   * else, and one whose row has none yet enrols it with a token it was
+   * paired with (edge-device pair-refresh.mjs). A family television's
+   * service knocking without a token needs none — it is answered inside the
+   * way its app opened — and sending it there changes nothing.
    */
-  #askForRefresh(deviceId: string, heldJwt: string | undefined, forService = false): Promise<Response> {
+  async #askForRefresh(deviceId: string, heldJwt: string | undefined, forService = false): Promise<Response> {
+    const proof = await this.#proofFor(deviceId);
     return this.#fetch(`${this.#config.pairingApiUrl}/pair/refresh`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(heldJwt ? { Authorization: `Bearer ${heldJwt}` } : {}) },
-      body: JSON.stringify(forService ? { deviceId, forService: true } : { deviceId }),
+      body: JSON.stringify({ deviceId, ...(forService ? { forService: true } : {}), ...(proof ? { proof } : {}) }),
     });
+  }
+
+  /** The secret for this id, or nothing — a disk that cannot be read proves nothing, and is no reason not to ask. */
+  async #proofFor(deviceId: string): Promise<string | undefined> {
+    try {
+      return await this.#identity?.proofFor(deviceId);
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -419,11 +447,21 @@ export class PairingFlow {
     }
   }
 
+  /**
+   * Asks for a code. Where this television keeps a secret it is paired with
+   * it, and a television that was paired before asks as a new one, saying
+   * which it was (deviceId.ts `forPairing`): the id it had stops being its.
+   */
   async start(deviceId: string): Promise<PairingStartResponse> {
+    const who = this.#identity?.forPairing ? await this.#identity.forPairing(deviceId) : { deviceId };
     const res = await this.#fetch(`${this.#config.pairingApiUrl}/pair/start`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId }),
+      body: JSON.stringify({
+        deviceId: who.deviceId,
+        ...(who.proof ? { proof: who.proof } : {}),
+        ...(who.replaces ? { replaces: who.replaces } : {}),
+      }),
     });
     if (!res.ok) throw new Error(`pairing_start_failed: ${res.status}`);
     return (await res.json()) as PairingStartResponse;
@@ -465,6 +503,12 @@ export class PairingFlow {
         // the app stuck on the pairing screen forever despite a real,
         // server-confirmed claim. See FRICTION.md.
         await this.#keep(body.token);
+        // The identity the code was asked for with is this television's from now on (deviceId.ts). Best-effort, like the token.
+        try {
+          await this.#identity?.paired?.(body.token.deviceId);
+        } catch (err) {
+          console.error('pairing_identity_not_kept', err);
+        }
         return body.token;
       }
       await new Promise((resolve) => setTimeout(resolve, interval));
