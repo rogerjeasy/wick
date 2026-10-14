@@ -302,16 +302,20 @@ baseline clock isn't actually running, not a cosmetic issue.
 
 ## 7. Redeploying a piece that's gone stale
 
-**MCP server** (code change in `services/mcp-server`):
+**MCP server, AgentCore runtime, live bridge** (a change to what their
+images are built from): merging to `main` deploys them. `deploy-agent.yml`
+builds each changed image, pushes it under the short git SHA, pins that tag
+in SSM (`/wick/images/mcp-server`, `/wick/images/agents`), applies
+Terraform, and waits until App Runner runs the pinned image; `smoke.yml`
+then checks the live stack. A push to `:latest` no longer deploys anything
+once a SHA is pinned. When CI cannot run, the same from a laptop:
 ```bash
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ECR_URL="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/wick-mcp-server"
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
-docker build --platform linux/amd64 -f services/mcp-server/Dockerfile -t "${ECR_URL}:latest" .
-docker push "${ECR_URL}:latest"
+scripts/push-mcp-image.sh            # or scripts/push-agent-image.sh
+terraform -chdir=infra plan          # the image identifier should be the only change
+terraform -chdir=infra apply
+npm run smoke:live
 ```
-App Runner auto-deploys on the new `:latest` push — no `terraform apply`
-needed. Watch it land with §1a's `describe-service` command.
+Watch App Runner land with §1a's `describe-service` command.
 
 **sim-alexa** (edit to `index.html`/`main.js`):
 ```bash

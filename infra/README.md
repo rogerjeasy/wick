@@ -13,8 +13,8 @@ scripts below and never pass through Terraform.
 | File | Holds |
 |---|---|
 | `versions.tf` | Provider constraints, the S3 backend (native locking), default tags |
-| `variables.tf` | Every input, with what it is for. Only `agent_image_tag` has no default |
-| `images.auto.tfvars` | `agent_image_tag`: the pinned tag of the AgentCore and live-bridge images, rewritten by `scripts/push-agent-image.sh` |
+| `variables.tf` | Every input, with what it is for, and its default |
+| `images.tf` | Which image each container service runs: the two SSM parameters `/wick/images/agents` and `/wick/images/mcp-server`, written after each push |
 | `main.tf` | Caller identity, naming locals (`wick`, or `wick-home` for the `home` environment) |
 | `core.tf` | The memory plane: the DynamoDB table, the EventBridge bus and its catch-all log, the media bucket (INV-3), the Ring secrets |
 | `edge.tf` | The edge HTTP API and the Ring Lambdas: webhook, token, link, authorize, hourly refresh, a household's own link |
@@ -61,23 +61,21 @@ npm run build:lambda
 
 terraform -chdir=infra init
 
-# 3. The three image repositories, alone: App Runner and AgentCore will not
-#    start without an image to run.
+# 3. The three image repositories and the two parameters that pin their
+#    tags, alone: App Runner and AgentCore will not start without an image
+#    to run.
 terraform -chdir=infra apply \
   -target=aws_ecr_repository.agents \
   -target=aws_ecr_repository.live_bridge \
-  -target=aws_ecr_repository.mcp_server
+  -target=aws_ecr_repository.mcp_server \
+  -target=aws_ssm_parameter.agents_image \
+  -target=aws_ssm_parameter.mcp_server_image
 
-# 4. The images.
-#    AgentCore runtime + live bridge: builds both arm64 images, pushes them
-#    under the git SHA, and pins it in infra/images.auto.tfvars. Commit that.
-scripts/push-agent-image.sh
-#    The Wick server: App Runner runs :latest and redeploys on each push.
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ECR_URL="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/wick-mcp-server"
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
-docker build --platform linux/amd64 -f services/mcp-server/Dockerfile -t "${ECR_URL}:latest" .
-docker push "${ECR_URL}:latest"
+# 4. The images. Each script builds, pushes under the short git SHA, and
+#    writes that SHA to its parameter (images.tf). After this, CI does it
+#    on every push to main.
+scripts/push-agent-image.sh     # wick-agents + wick-live-bridge, arm64
+scripts/push-mcp-image.sh       # wick-mcp-server, amd64 (App Runner)
 
 # 5. Everything. mcp_issuer_url's default is the current deployment's own
 #    address, so a new one starts with it empty (mcp.tf says why).
@@ -106,8 +104,7 @@ scripts/publish-programmes.sh all
 terraform -chdir=infra output -raw github_deploy_role_arn
 ```
 
-Variables with no default: `agent_image_tag` only, and it is set by
-`images.auto.tfvars`. Variables worth setting on purpose: `alarm_email`
+Every variable has a default. Variables worth setting on purpose: `alarm_email`
 (see below), `ring_operator_link` (off; turn on only while linking the
 operator's own Ring account), `ring_playground_link` and `demo_accounts` (on
 for the hackathon, off for a deployment with real doorbells and real people),
@@ -130,13 +127,48 @@ A laptop apply, by someone with administrator rights, is needed for:
   apply stops at the first resource of that kind, part-way through, with
   everything before it already changed. Apply from a laptop first, so the
   grant and the resources exist together; CI's next apply is then a no-op.
-- **The images.** No workflow builds or pushes them. `scripts/push-agent-
-  image.sh` for AgentCore and the live bridge (and commit
-  `images.auto.tfvars`); `docker push` for the Wick server (step 4 above).
+- **The first apply of `images.tf`.** CI pins an image only in a parameter
+  Terraform has already made, so on a stack that has never had `images.tf`
+  applied, `deploy-agent.yml` stops at "pin the images" with that message.
 
 Before a laptop apply, bring the checkout up to date with `main` and run the
 same command as `plan` first. A targeted apply from a stale checkout once
 destroyed nine resources.
+
+## How an image is deployed
+
+`deploy-agent.yml`, on a push to `main` that changes a path an image is
+built from (each Dockerfile's `COPY` lines), or by hand from the Actions tab:
+
+1. **verify** — `npm run test:property` and `npm run verify`.
+2. **mcp-image** and **agent-images**, only for the images the push changed:
+   the Wick server for `linux/amd64` on `ubuntu-latest`; the AgentCore
+   runtime and the live bridge for `linux/arm64` on `ubuntu-24.04-arm`,
+   natively. Each is pushed under the commit's short SHA, never `latest`.
+3. **deploy**, in the `terraform-infra` concurrency group that every apply
+   takes: writes each new SHA to its parameter (only forward along `main`:
+   a slower run of an older commit never moves a pin back), runs
+   `terraform apply`, which points AgentCore, the bridge Lambda and App
+   Runner at exactly those tags, then waits on App Runner's own operations
+   and fails unless the pinned image is the one running. A deployment App
+   Runner rolled back ends `RUNNING` on the old image, which is why the
+   apply alone is not trusted.
+
+Every apply, a laptop's included, reads the tags from SSM, so an apply from
+an older checkout deploys today's images, not that checkout's. With the
+Wick server's parameter at `latest` (a stack CI has never deployed), App
+Runner follows pushes to `:latest` by itself, as it used to; once a SHA is
+pinned, automatic deployments are off and only a moved pin deploys it.
+
+**To roll back**, from a laptop: `terraform -chdir=infra apply -var
+mcp_image_tag=<older sha>` (or `-var agent_image_tag=…`). The override wins
+over the parameter for that apply only; the next CI apply returns to the
+parameter, so also write the older SHA to the parameter with `aws ssm
+put-parameter --overwrite` if it is to stay. ECR keeps the ten most recent
+images of each repository.
+
+**After each deploy**, `smoke.yml` runs `npm run smoke:live` against the
+live stack (also nightly, and by hand). It needs no AWS credentials.
 
 ## What pages someone (`alarms.tf`)
 

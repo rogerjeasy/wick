@@ -208,17 +208,16 @@ npm run build:lambda
 
 # 3. Terraform. On a fresh account the App Runner service and the AgentCore
 #    runtime need their images in ECR before they can start, so the
-#    repositories come first — infra/README.md has the exact first run.
+#    repositories, and the two SSM parameters that pin which image each
+#    runs (infra/images.tf), come first — infra/README.md has the exact
+#    first run.
 terraform -chdir=infra init
 terraform -chdir=infra plan
 
-# 4. The container images
-scripts/push-agent-image.sh         # wick-agents + wick-live-bridge (arm64); pins the tag in infra/images.auto.tfvars
-#    the Wick server (amd64); App Runner deploys every push to :latest
-ECR="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.us-east-1.amazonaws.com"
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "$ECR"
-docker build --platform linux/amd64 -f services/mcp-server/Dockerfile -t "$ECR/wick-mcp-server:latest" .
-docker push "$ECR/wick-mcp-server:latest"
+# 4. The container images, the first time. Each script pushes under the
+#    short git SHA and writes it to its parameter; the apply deploys it.
+scripts/push-agent-image.sh         # wick-agents + wick-live-bridge (arm64)
+scripts/push-mcp-image.sh           # the Wick server (amd64, for App Runner)
 
 terraform -chdir=infra apply
 
@@ -247,9 +246,14 @@ Then:
    `npm run calm:build` measure them again with Amazon Rekognition and ffmpeg.
 9. **CI.** `infra/github-oidc.tf` creates the role GitHub Actions deploys
    with; set the repository variable `AWS_DEPLOY_ROLE_ARN` to it. After that,
-   a push to `main` applies Terraform. The container images are still
-   pushed by hand, and an apply that adds a new AWS service to the deploy
-   role's permissions has to be run from a laptop first.
+   a push to `main` is the deploy: `deploy-agent.yml` builds and pushes the
+   images the push changed, pins their tags and applies Terraform, and
+   `deploy-edge.yml` applies Terraform for the rest; `smoke.yml` then checks
+   the live stack (`npm run smoke:live`, which you can run yourself, with
+   `WICK_SERVER_URL` and the other addresses it names pointed at your
+   stack). A change to the deploy role's own permissions, or an apply that
+   adds a new AWS service, has to be run from a laptop first
+   (infra/README.md, "What CI applies").
 10. **The television.** Put your addresses in `apps/tv-vega/src/config.ts`,
     then path 4 or 5.
 
