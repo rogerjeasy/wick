@@ -88,6 +88,73 @@ leads, not entries — an entry requires that you actually hit it.
 
 <!-- Newest first. -->
 
+## FL-031 — Speech to text from a browser through App Runner has to be one buffered POST: App Runner has no WebSockets, says so only in a closed GitHub issue, and documents no request-body limit
+
+**Tool / API:**      AWS App Runner (an ECR image service, us-east-1) /
+                     Amazon Transcribe streaming, `@aws-sdk/client-transcribe-streaming` 3.1150.0
+                     (`StartStreamTranscriptionCommand`)
+
+**Task attempted:**  Let a family member ask Wick a question out loud from the family app, heard
+                     by Amazon Transcribe. The family app is a static page with no AWS
+                     credential (and must have none), so the sound has to go through the Wick
+                     server on App Runner, which holds the instance role.
+
+**Steps taken:**     2026-10-14, reading before building:
+                     1. Looked for how App Runner carries a long-lived or streamed request. The
+                        developer guide says only that it supports "HTTP 1.0 and HTTP 1.1 to the
+                        container instances" and that there is "a total of 120 seconds request
+                        timeout limit", body read included
+                        (docs.aws.amazon.com/apprunner/latest/dg/develop.html). Nothing about
+                        WebSockets either way.
+                     2. Found the answer in `aws/apprunner-roadmap` issue #13, "Support web
+                        sockets": closed as not planned, AWS's reply "We don't have native
+                        support for web sockets at this point"
+                        (github.com/aws/apprunner-roadmap/issues/13). The same thread notes App
+                        Runner closed to new customers on 2026-04-30 and gets no new features.
+                     3. Looked for a request-body size limit, since the utterance has to go in
+                        one body: neither the developer guide's quotas
+                        (docs.aws.amazon.com/apprunner/latest/dg/architecture.html) nor the
+                        General Reference (docs.aws.amazon.com/general/latest/gr/apprunner.html)
+                        names one. The only number found is WAF's inspection size, which is not
+                        a limit on the body.
+                     4. Fell back on what Wick has already sent through this same service:
+                        `POST /api/photos` takes bodies of up to 1.5 MB and has been seen
+                        working live. Ten seconds of 16 kHz 16-bit audio is 320 KB.
+
+**Expected:**        One sentence in App Runner's own documentation saying WebSockets (and
+                     request streaming) are not supported, and the largest request body it
+                     passes — the two facts any audio or upload design needs first.
+
+**Actual:**          The WebSocket answer is only in a closed roadmap issue, and the body limit
+                     is not documented anywhere I could find. So the natural design — the
+                     browser streams audio over a socket and partial transcripts come back as
+                     she speaks — is out, and the design that works was chosen partly on
+                     Wick's own evidence (1.5 MB pictures already go through) rather than on a
+                     documented number.
+
+**Severity:**        Nice-to-have — there is a working design, but a family member now sees her
+                     words only after she stops speaking, not while she speaks.
+
+**Workaround:**      The page records one utterance (ten seconds at most), turns it into 16 kHz
+                     16-bit PCM itself, and sends it in one POST to `/api/hear`; the server
+                     streams it to Transcribe in 8 KB `AudioEvent`s and answers with the final
+                     words (`services/mcp-server/src/hear`). The route reads at most
+                     328 000 bytes, a long way under what App Runner has been seen to pass, and
+                     Transcribe is given fifteen seconds, a long way under App Runner's 120.
+
+**Suggestion:**      1. Say in the App Runner developer guide, beside "HTTP 1.0 and HTTP 1.1",
+                        that WebSocket upgrades and HTTP/2 to the container are not supported.
+                     2. Publish the maximum request body size App Runner's front end passes
+                        (or state that there is none below the 120-second timeout).
+                     3. Transcribe already accepts a presigned WebSocket URL, which a server could
+                        mint for a browser and so skip App Runner altogether — but the browser
+                        then has to frame audio in AWS's binary event-stream encoding itself,
+                        which the docs leave to the SDK. A small, dependency-free browser
+                        reference for that framing would make the direct path usable from a
+                        page with no build step, as Wick's family app is.
+
+---
+
 ## FL-029 — A Vega app can start its own service, but cannot hand it anything: no launch data, no shared storage, no second message
 
 **Tool / API:**      Vega OS SDK 0.24.12044 / `@amazon-devices/headless-task-manager` 1.2.8
