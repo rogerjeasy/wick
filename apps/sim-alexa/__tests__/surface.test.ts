@@ -50,6 +50,7 @@ import {
   photoRetry,
   presentPhotoComposer,
   presentSentPictures,
+  scrollTopToShow,
   fetchWithin,
   requestLimitFor,
   REQUEST_LIMITS_MS,
@@ -2463,20 +2464,63 @@ describe('the language card in the family app', () => {
 
 describe('the mantelpiece — asking to send a picture, or after one', () => {
   const picture = { kind: 'picture' };
+  const asksAfter = { kind: 'tool', tool: 'get_pictures', args: {} };
 
-  it('opens the app’s own card: a picture is a file, and no tool can be handed one', () => {
+  it('opens the app’s own card for wanting to send one: a picture is a file, and no tool can be handed one', () => {
     for (const said of [
       'Send Mum a picture',
       'send mum a photo',
+      'Send a picture',
       'I want to send her a photograph',
+      'I would like to send Mum some photos',
       'Put a picture on Mum’s television',
-      'Has Mum seen my picture?',
-      'Did she get the photo I sent?',
       'Share a photo with Mum',
+      'Show Mum a photo',
+      'Can I send Mum a picture?',
+      'How do I send her a photo?',
+      'Could I put a picture on her television?',
+      'Let me send another picture',
       'pictures',
+      'A photo for Mum',
     ]) {
       expect(routeUtterance(said), said).toEqual(picture);
     }
+  });
+
+  /*
+   * Seen live, 2026-10-14: "Has Mum seen my picture?" opened the card for choosing a picture and said "Choose a
+   * picture for Margaret’s television." A question about a picture already sent is a question: it goes to the
+   * assistant, whose tool for it is get_pictures — and which says, of whether she kept it or what she thought,
+   * that that is hers.
+   */
+  it('asks the assistant after a picture already sent: whether she has seen it is the server’s to say', () => {
+    for (const said of [
+      'Has Mum seen my picture?',
+      'has mum seen my picture',
+      'Has she seen the photo?',
+      'Did she get the photo I sent?',
+      'Did Mum get my picture',
+      'Did Mum see the picture I sent her?',
+      'Has my picture arrived?',
+      'Did my photo reach her television?',
+      'Has Mum looked at my photos?',
+      'Is my picture still waiting?',
+      'Was my picture sent?',
+      'Which pictures have I sent?',
+      'What happened to the photo I sent?',
+      'Did Mum like my picture?',
+      'What did Mum think of the photo?',
+      'Did Mum keep my picture?',
+      'Mum has seen my picture?',
+    ]) {
+      expect(routeUtterance(said), said).toEqual(asksAfter);
+    }
+  });
+
+  it('takes a wish to send for a wish to send, whatever it says of the last one', () => {
+    // Not a question, and it wants one sent: the card.
+    expect(routeUtterance('Mum has not seen my picture, send it again')).toEqual(picture);
+    expect(routeUtterance('She liked the last photo so I want to send another')).toEqual(picture);
   });
 
   it('has a chip, and the chip opens the card', () => {
@@ -2493,6 +2537,43 @@ describe('the mantelpiece — asking to send a picture, or after one', () => {
     expect(routeUtterance('Ask Mum to watch a film with me')).toEqual({ kind: 'invite' });
     expect(routeUtterance("Put a note on Mum's television")).toEqual({ kind: 'compose' });
     expect(routeUtterance('What can I see about Mum?').tool).toBe('get_resident_shared_view');
+  });
+});
+
+/*
+ * Seen live, 2026-10-14, in a window 1280 by 900: a picture was sent, the card said so, and the list that says how
+ * it stands was below the foot of the conversation, out of sight. What was just sent is brought into sight —
+ * moving the conversation as little as that takes.
+ */
+describe('scrollTopToShow — bringing a stretch of the conversation into sight', () => {
+  const view = { scrollTop: 400, viewHeight: 300 }; // 400 to 700 is in sight
+
+  it('moves nothing when it is in sight already', () => {
+    expect(scrollTopToShow(view, { top: 420, bottom: 680 })).toBe(400);
+    expect(scrollTopToShow(view, { top: 412, bottom: 688 })).toBe(400);
+  });
+
+  it('brings its end up to the foot when it runs below, with a little air under it', () => {
+    expect(scrollTopToShow(view, { top: 560, bottom: 840 })).toBe(840 + 12 - 300);
+  });
+
+  it('brings its start down to the head when it is above', () => {
+    expect(scrollTopToShow(view, { top: 200, bottom: 380 })).toBe(200 - 12);
+  });
+
+  it('shows the start of something taller than the view: what is read first comes first', () => {
+    expect(scrollTopToShow(view, { top: 650, bottom: 1100 })).toBe(650 - 12);
+    expect(scrollTopToShow(view, { top: 300, bottom: 900 })).toBe(300 - 12);
+  });
+
+  it('never scrolls above the top, and takes the air it is given', () => {
+    expect(scrollTopToShow({ scrollTop: 50, viewHeight: 300 }, { top: 4, bottom: 100 })).toBe(0);
+    expect(scrollTopToShow(view, { top: 560, bottom: 840 }, 0)).toBe(540);
+  });
+
+  it('leaves things where they are for measurements that are not numbers', () => {
+    expect(scrollTopToShow(view, { top: Number.NaN, bottom: 840 })).toBe(400);
+    expect(scrollTopToShow({ scrollTop: 400, viewHeight: 0 }, { top: 560, bottom: 840 })).toBe(400);
   });
 });
 

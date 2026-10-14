@@ -32,6 +32,7 @@ import {
   presentPairLink,
   presentPhotoComposer,
   presentSentPictures,
+  scrollTopToShow,
   presentConnected,
   presentDoorbell,
   presentInvitation,
@@ -449,6 +450,14 @@ let lastCustomerTurn = null;
 function scrollToEnd() {
   if (lastCustomerTurn) log.scrollTop = lastCustomerTurn.offsetTop - 12;
   else log.scrollTop = log.scrollHeight;
+}
+
+/** Brings a stretch of the conversation into sight — from one thing's top to another's foot — moving it as little as that takes. */
+function showInLog(first, last) {
+  const view = log.getBoundingClientRect();
+  const top = first.getBoundingClientRect().top - view.top + log.scrollTop;
+  const bottom = last.getBoundingClientRect().bottom - view.top + log.scrollTop;
+  log.scrollTop = scrollTopToShow({ scrollTop: log.scrollTop, viewHeight: log.clientHeight }, { top, bottom });
 }
 
 function addCustomerTurn(text) {
@@ -2438,6 +2447,7 @@ function addPictureCard(turn) {
     problem.textContent = '';
     line.textContent = words.sending;
     let again = true;
+    let sentNow = false;
     try {
       const res = await authorizedFetch('/api/photos', {
         method: 'POST',
@@ -2451,6 +2461,7 @@ function addPictureCard(turn) {
         line.textContent = answer.say ?? '';
         if (answer.say) speak(answer.say);
         again = false;
+        sentNow = true;
         await refresh({ quietly: true });
       } else {
         line.textContent = '';
@@ -2469,6 +2480,9 @@ function addPictureCard(turn) {
     send.disabled = !chosen || !again;
     // Back to where the next thing is done: sending again, or choosing a picture.
     (send.disabled ? file : send).focus();
+    // And what was just sent is in sight: the sentence that says so, and the list under it that says how it stands.
+    // After the focus, which by itself brings the top of the card back and leaves the list below the fold.
+    if (sentNow) showInLog(line, sentRows.hidden ? line : sentRows);
   });
 
   cancel.addEventListener('click', () => {
