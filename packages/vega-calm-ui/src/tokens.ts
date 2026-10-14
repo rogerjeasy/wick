@@ -3,7 +3,7 @@
  * floor is not a floor.
  */
 export const type = {
-  /** Absolute minimum. docs/WICK.md Principle 7. */
+  /** Absolute minimum for anything a viewer has to read. */
   bodyPt: 32,
   headlinePt: 48,
   displayPt: 64,
@@ -25,7 +25,8 @@ export const limits = {
   maxListItems: 3,
   /**
    * A card's detail text is cut at five lines, so no producer can push the
-   * card's buttons off the screen. A week narrative once did, on the VVD.
+   * card's buttons off the screen. (A long generated summary once did, on a
+   * Vega virtual device.)
    */
   maxDetailLines: 5,
 } as const;
