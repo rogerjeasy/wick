@@ -1548,11 +1548,12 @@ const dayConnected = (at) => new Date(at).toLocaleDateString('en-GB', { day: 'nu
  */
 function televisionRows(televisions, organiser) {
   return [...televisions]
-    .sort((a, b) => (a.pairedAt ?? 0) - (b.pairedAt ?? 0) || String(a.deviceId).localeCompare(String(b.deviceId)))
+    .sort((a, b) => (a.pairedAt ?? 0) - (b.pairedAt ?? 0) || String(a.ref).localeCompare(String(b.ref)))
     .map((tv, i) => {
       const state = tv.connected ? 'on now' : 'off, or showing something else';
       return {
-        deviceId: tv.deviceId,
+        // The name the server gave it for this, never its device id: the family is not told one (AGENTS.md INV-1).
+        ref: tv.ref,
         primary: `Television ${i + 1}`,
         secondary: Number.isFinite(tv.pairedAt) ? `Connected ${dayConnected(tv.pairedAt)} · ${state}` : sentenceCase(state),
         removable: organiser,
@@ -1567,7 +1568,7 @@ function televisionRows(televisions, organiser) {
  */
 function familyTelevisionRows(familyTelevisions, organiser) {
   return familyTelevisions.map((tv) => ({
-    deviceId: tv.deviceId,
+    ref: tv.ref,
     primary: `${tv.memberName}’s television`,
     secondary: Number.isFinite(tv.pairedAt) ? `Connected ${dayConnected(tv.pairedAt)}` : '',
     removable: organiser || tv.yours === true,
