@@ -355,6 +355,22 @@ data "aws_iam_policy_document" "github_deploy" {
     }
   }
 
+  # App Runner's UpdateService passes its two roles without saying to which
+  # service: the request carries no iam:PassedToService, so the statement
+  # above can never match it. Seen on 2026-10-14, the first time CI changed
+  # the MCP server (deploy-agent, after #73): "not authorized to perform
+  # iam:PassRole on wick-apprunner-ecr-access"; the IAM policy simulator
+  # agrees — allowed with the key, denied without it. So these two roles, by
+  # their exact ARNs and nothing else, may be passed with no service named.
+  statement {
+    sid     = "PassAppRunnerRoles"
+    actions = ["iam:PassRole"]
+    resources = [
+      aws_iam_role.apprunner_ecr_access.arn,
+      aws_iam_role.apprunner_instance.arn,
+    ]
+  }
+
   # This resource lives in the same state as everything else CI manages, so
   # every apply must be able to REFRESH it — but the role that can create and
   # update every wick-* role must never be able to WRITE its own trust policy
