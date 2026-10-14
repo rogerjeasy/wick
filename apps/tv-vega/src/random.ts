@@ -9,11 +9,12 @@
  *   - The browser television has its own (apps/ops-console/device.js).
  *   - Vega: React Native for Vega gives the JavaScript runtime none, and the
  *     SDK's only crypto package is an Expo module (`@amazon-devices/
- *     expo-crypto`, which needs Expo). So on Vega there is no secret: the
- *     television is answered from its id alone, the same documented
- *     exception as a television whose storage keeps nothing (AGENTS.md
- *     INV-1). Fail closed: a guessable secret would look like proof and be
- *     none.
+ *     expo-crypto`, which needs Expo). So a Vega television makes no secret
+ *     of its own: where its disk keeps a file it asks the pairing service to
+ *     make one (deviceId.ts `keeps`), and where it keeps nothing — the
+ *     simulator — it is answered from its id alone, the documented exception
+ *     (AGENTS.md INV-1). Fail closed: a guessable secret would look like
+ *     proof and be none.
  *
  * An id is a label, not a credential, so it may fall back to `Math.random`
  * where there is no generator (`randomHex`). No native module is imported

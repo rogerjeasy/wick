@@ -891,7 +891,7 @@ describe('PairingFlow', () => {
 // identity it says — a new one, once the television has been paired.
 describe('PairingFlow — the television’s secret', () => {
   const SECRET = 's'.repeat(64);
-  const identity = (over: Partial<{ proofFor: (id: string) => Promise<string | undefined>; forPairing: (id: string) => Promise<{ deviceId: string; proof?: string; replaces?: { deviceId: string; proof: string } }>; paired: (id: string) => Promise<void> }> = {}) => ({
+  const identity = (over: Partial<{ proofFor: (id: string) => Promise<string | undefined>; forPairing: (id: string) => Promise<{ deviceId: string; proof?: string; keeps?: true; replaces?: { deviceId: string; proof: string } }>; paired: (id: string, proof?: string) => Promise<void> }> = {}) => ({
     proofFor: vi.fn(async (id: string) => (id === 'd1' ? SECRET : undefined)),
     forPairing: vi.fn(async () => ({ deviceId: 'd2', proof: SECRET, replaces: { deviceId: 'd1', proof: 'o'.repeat(64) } })),
     paired: vi.fn(async () => undefined),
@@ -955,7 +955,23 @@ describe('PairingFlow — the television’s secret', () => {
 
     await flow.pollUntilBound('123456');
 
-    expect(who.paired).toHaveBeenCalledWith('d2');
+    expect(who.paired).toHaveBeenCalledWith('d2', undefined);
+  });
+
+  it('asks for a secret where the television cannot make one, and hands the one it is given to the identity — never to the token’s file', async () => {
+    const SERVERS = 'v'.repeat(64);
+    const fs = fakeFs();
+    const who = identity({ forPairing: vi.fn(async () => ({ deviceId: 'd2', keeps: true as const })) });
+    const started = recording(() => new Response(JSON.stringify({ code: '123456', url: 'u', expiresAt: 1 }), { status: 200 }));
+    await new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fs, started.fetchMock, who).start('d1');
+    expect(started.asked[0]!.body).toEqual({ deviceId: 'd2', keeps: true });
+
+    const polled = recording(() => new Response(JSON.stringify({ status: 'bound', token: { ...TOKEN, deviceId: 'd2' }, proof: SERVERS }), { status: 200 }));
+    const token = await new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 }, fs, polled.fetchMock, who).pollUntilBound('123456');
+
+    expect(who.paired).toHaveBeenCalledWith('d2', SERVERS);
+    expect(JSON.stringify(token)).not.toContain(SERVERS);
+    expect(await fs.readFileAsString('/data/wick-token.json', 'utf8')).not.toContain(SERVERS);
   });
 
   it('is still paired when the identity cannot be written down: the token in hand is what counts', async () => {

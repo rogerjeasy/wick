@@ -36,7 +36,8 @@ export interface PairingStartResponse {
 
 export type PairingStatusResponse =
   | { readonly status: 'pending' }
-  | { readonly status: 'bound'; readonly token: DeviceToken };
+  /** `proof`: the secret the pairing service made for a television that asked for one (`keeps`), handed over once, with the token. */
+  | { readonly status: 'bound'; readonly token: DeviceToken; readonly proof?: string };
 
 export interface PairingConfig {
   readonly pairingApiUrl: string;
@@ -448,9 +449,11 @@ export class PairingFlow {
   }
 
   /**
-   * Asks for a code. Where this television keeps a secret it is paired with
-   * it, and a television that was paired before asks as a new one, saying
-   * which it was (deviceId.ts `forPairing`): the id it had stops being its.
+   * Asks for a code. Where this television makes its own secret it is paired
+   * with it; where it keeps a file but cannot make one it asks for one
+   * (`keeps`), handed over with the token (`pollUntilBound`). A television
+   * that was paired before asks as a new one, saying which it was
+   * (deviceId.ts `forPairing`): the id it had stops being its.
    */
   async start(deviceId: string): Promise<PairingStartResponse> {
     const who = this.#identity?.forPairing ? await this.#identity.forPairing(deviceId) : { deviceId };
@@ -460,6 +463,7 @@ export class PairingFlow {
       body: JSON.stringify({
         deviceId: who.deviceId,
         ...(who.proof ? { proof: who.proof } : {}),
+        ...(who.keeps ? { keeps: true } : {}),
         ...(who.replaces ? { replaces: who.replaces } : {}),
       }),
     });
@@ -503,9 +507,10 @@ export class PairingFlow {
         // the app stuck on the pairing screen forever despite a real,
         // server-confirmed claim. See FRICTION.md.
         await this.#keep(body.token);
-        // The identity the code was asked for with is this television's from now on (deviceId.ts). Best-effort, like the token.
+        // The identity the code was asked for with is this television's from now on (deviceId.ts), with the secret the
+        // pairing service made for it if it asked for one — kept there, never in the token's file. Best-effort, like the token.
         try {
-          await this.#identity?.paired?.(body.token.deviceId);
+          await this.#identity?.paired?.(body.token.deviceId, body.proof);
         } catch (err) {
           console.error('pairing_identity_not_kept', err);
         }

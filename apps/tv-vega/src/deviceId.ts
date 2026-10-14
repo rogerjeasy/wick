@@ -18,17 +18,25 @@
  *
  * THE SECRET is what makes the id worth nothing on its own (AGENTS.md
  * INV-1). An id is not hidden: it was shown to family members, and it was
- * logged. So a television that can keep a file, and has a cryptographic
- * generator (random.ts: Fire OS does, Vega does not), makes a long random
- * secret, keeps it beside its id, and sends it to the pairing service
- * with every refresh. The service keeps only its hash, and from then on
- * mints a token for this id only to whoever shows the secret (edge-device
- * proof.mjs). The secret is sent when the television is paired
- * (`forPairing`), or — for a television paired before secrets — with its
- * first refresh that also shows a token it was paired with, which enrols it.
- * A television whose storage cannot keep the secret, or that has no
- * cryptographic generator, never makes one: it is answered from its id
- * alone, the accepted exception (the Vega Virtual Device, and Vega now).
+ * logged. So a television whose storage keeps a file keeps a long random
+ * secret beside its id, and sends it to the pairing service with every
+ * refresh. The service keeps only its hash, and from then on mints a token
+ * for this id only to whoever shows the secret (edge-device proof.mjs).
+ * Where the secret comes from:
+ *
+ *   - made here, from the platform's cryptographic generator (random.ts) —
+ *     Fire OS — and sent when the television asks for a code;
+ *   - or, where there is no such generator (Vega), made by the pairing
+ *     service when the code is entered and handed over once with the token
+ *     (`keeps`, `paired`). The television asked for it only after writing
+ *     its identity and reading it back, so it will still have it next launch.
+ *
+ * Never from Math.random. A television paired before secrets that can make
+ * one enrols it with its first refresh that also shows a token it was paired
+ * with; one that cannot gets one at its next pairing. A television whose
+ * storage keeps nothing — the Vega Virtual Device — never asks for one and is
+ * never given one: a secret it could not keep would lock it out at its next
+ * launch. It is answered from its id alone, the accepted exception.
  *
  * A NEW ID AT EVERY NEW PAIRING. A television that has been paired and is
  * paired again — disconnected, signed out, or its token refused — is a new
@@ -63,19 +71,32 @@ export interface Identity {
   readonly proof?: string;
 }
 
-/** What a pairing is asked for with: the identity being paired, and the one it takes the place of. */
+/**
+ * What a pairing is asked for with: the identity being paired, and the one
+ * it takes the place of. `keeps`: this television keeps a file but cannot
+ * make a secret (no cryptographic generator — Vega), so the pairing service
+ * makes one and hands it over with the token (edge-device pair-claim.mjs,
+ * pair-status.mjs).
+ */
 export interface PairingIdentity extends Identity {
+  readonly keeps?: true;
   readonly replaces?: { readonly deviceId: string; readonly proof: string };
 }
 
-/** What is kept in IDENTITY_PATH. */
+/** What is kept in IDENTITY_PATH. That it is there at all says this television's storage keeps a file. */
 interface Kept {
   readonly deviceId: string;
-  readonly proof: string;
+  /** Made here, or handed over by the pairing service; none yet on a television that cannot make one and has not been paired since. */
+  readonly proof?: string;
   /** Whether a pairing has completed under this id: the next pairing is then a new television. */
   readonly paired: boolean;
   /** The identity a pairing under way is for, until its code is entered. */
-  readonly next?: { readonly deviceId: string; readonly proof: string };
+  readonly next?: { readonly deviceId: string; readonly proof?: string };
+}
+
+/** A television whose storage keeps nothing: the simulator, or the card service, which only reads. */
+interface Unkept {
+  readonly deviceId: string;
 }
 
 export interface TelevisionIdentity {
@@ -85,8 +106,8 @@ export interface TelevisionIdentity {
   proofFor(deviceId: string): Promise<string | undefined>;
   /** Who to ask for a code as: this television, or — once it has been paired — a new one in its place. */
   forPairing(deviceId: string): Promise<PairingIdentity>;
-  /** The code was entered for this id: it is this television's identity from now on. */
-  paired(deviceId: string): Promise<void>;
+  /** The code was entered for this id: it is this television's identity from now on, with the secret the pairing service handed over, if it did. */
+  paired(deviceId: string, proof?: string): Promise<void>;
 }
 
 const ENCODING = 'utf8';
@@ -112,13 +133,13 @@ const newProof = (): string | undefined => {
 
 function parse(raw: string | null | undefined): Kept | undefined {
   if (!raw) return undefined;
+  const proofOf = (value: unknown): { proof?: string } => (typeof value === 'string' && PROOF_SHAPE.test(value) ? { proof: value } : {});
   try {
     const kept = JSON.parse(raw) as Partial<Kept> | null;
-    if (!kept || typeof kept.deviceId !== 'string' || !SHAPE.test(kept.deviceId) || typeof kept.proof !== 'string' || !PROOF_SHAPE.test(kept.proof)) return undefined;
-    const next = kept.next && typeof kept.next.deviceId === 'string' && SHAPE.test(kept.next.deviceId) && typeof kept.next.proof === 'string' && PROOF_SHAPE.test(kept.next.proof)
-      ? { deviceId: kept.next.deviceId, proof: kept.next.proof }
-      : undefined;
-    return { deviceId: kept.deviceId, proof: kept.proof, paired: kept.paired === true, ...(next ? { next } : {}) };
+    if (!kept || typeof kept.deviceId !== 'string' || !SHAPE.test(kept.deviceId)) return undefined;
+    if (kept.proof !== undefined && proofOf(kept.proof).proof === undefined) return undefined;
+    const next = kept.next && typeof kept.next.deviceId === 'string' && SHAPE.test(kept.next.deviceId) ? { deviceId: kept.next.deviceId, ...proofOf(kept.next.proof) } : undefined;
+    return { deviceId: kept.deviceId, ...proofOf(kept.proof), paired: kept.paired === true, ...(next ? { next } : {}) };
   } catch {
     return undefined;
   }
@@ -186,27 +207,27 @@ export function televisionIdentity(fs: FileSystemLike, options: IdentityOptions 
   const generateId = options.generateId ?? randomDeviceId;
   const generateProof = options.generateProof ?? newProof;
   /** The app's view: read, and made where it can be, once; then changed only here. */
-  let mine: Promise<Kept | { readonly deviceId: string }> | undefined;
+  let mine: Promise<Kept | Unkept> | undefined;
 
   /**
    * What this television is. A kept identity as it is. Otherwise the id kept
    * on its own (or the simulator's), and — for the app, where storage keeps
-   * a file — a secret made for it now. Somebody holding a token that names
-   * that id was paired under it: its next pairing is a new television.
+   * a file — an identity written for it now, with a secret where one can be
+   * made. Somebody holding a token that names that id was paired under it:
+   * its next pairing is a new television.
    */
-  const make = async (): Promise<Kept | { readonly deviceId: string }> => {
+  const make = async (): Promise<Kept | Unkept> => {
     const kept = await readKept(fs);
     if (kept) return kept;
     const deviceId = await legacyDeviceId(fs, options.generateId);
     if (!writes || deviceId === SIMULATOR_DEVICE_ID) return { deviceId };
-    // No cryptographic generator, no secret: the documented exception, never a guessable secret.
+    // No cryptographic generator, no secret made here — never a guessable one. The pairing service makes it at the next pairing (`keeps`).
     const proof = generateProof();
-    if (proof === undefined) return { deviceId };
-    const made: Kept = { deviceId, proof, paired: await tokenNames(fs, deviceId) };
+    const made: Kept = { deviceId, ...(proof === undefined ? {} : { proof }), paired: await tokenNames(fs, deviceId) };
     return (await writeKept(fs, made)) ? made : { deviceId };
   };
 
-  const current = (): Promise<Kept | { readonly deviceId: string }> => {
+  const current = (): Promise<Kept | Unkept> => {
     if (!writes) return make();
     mine ??= make();
     return mine;
@@ -219,7 +240,10 @@ export function televisionIdentity(fs: FileSystemLike, options: IdentityOptions 
     return true;
   };
 
-  const keeps = (who: Kept | { readonly deviceId: string }): who is Kept => 'proof' in who;
+  const isKept = (who: Kept | Unkept): who is Kept => 'paired' in who;
+  /** How an identity is asked for a code with: its own secret, or — keeping a file but unable to make one — asking for one. */
+  const asked = (who: { readonly deviceId: string; readonly proof?: string }): PairingIdentity =>
+    who.proof === undefined ? { deviceId: who.deviceId, keeps: true } : { deviceId: who.deviceId, proof: who.proof };
 
   return {
     async deviceId() {
@@ -228,28 +252,35 @@ export function televisionIdentity(fs: FileSystemLike, options: IdentityOptions 
 
     async proofFor(deviceId) {
       const who = await current();
-      if (!keeps(who)) return undefined;
+      if (!isKept(who)) return undefined;
       if (who.deviceId === deviceId) return who.proof;
       return who.next?.deviceId === deviceId ? who.next.proof : undefined;
     },
 
     async forPairing() {
       const who = await current();
-      if (!writes || !keeps(who)) return { deviceId: who.deviceId };
-      if (!who.paired) return { deviceId: who.deviceId, proof: who.proof };
+      // The simulator, which keeps nothing, never asks for a secret: one it could not keep would lock it out at its next launch.
+      if (!writes || !isKept(who)) return { deviceId: who.deviceId };
+      if (!who.paired) return asked(who);
       // A new television in place of the one that was paired — the same new one for every code until one is entered.
-      const nextProof = who.next ? who.next.proof : generateProof();
-      if (nextProof === undefined) return { deviceId: who.deviceId, proof: who.proof };
-      const next = who.next ?? { deviceId: generateId(), proof: nextProof };
-      if (!who.next && !(await change({ ...who, next }))) return { deviceId: who.deviceId, proof: who.proof };
-      return { deviceId: next.deviceId, proof: next.proof, replaces: { deviceId: who.deviceId, proof: who.proof } };
+      let next = who.next;
+      if (!next) {
+        const proof = generateProof();
+        next = { deviceId: generateId(), ...(proof === undefined ? {} : { proof }) };
+        if (!(await change({ ...who, next }))) return asked(who);
+      }
+      return { ...asked(next), ...(who.proof === undefined ? {} : { replaces: { deviceId: who.deviceId, proof: who.proof } }) };
     },
 
-    async paired(deviceId) {
+    async paired(deviceId, handedOver) {
       const who = await current();
-      if (!writes || !keeps(who)) return;
-      if (who.next?.deviceId === deviceId) await change({ deviceId: who.next.deviceId, proof: who.next.proof, paired: true });
-      else if (who.deviceId === deviceId && !who.paired) await change({ ...who, paired: true });
+      if (!writes || !isKept(who)) return;
+      const target = who.next?.deviceId === deviceId ? who.next : who.deviceId === deviceId ? who : undefined;
+      if (!target) return;
+      // Its own secret if it made one; otherwise the one the pairing service made for it.
+      const proof = target.proof ?? (typeof handedOver === 'string' && PROOF_SHAPE.test(handedOver) ? handedOver : undefined);
+      if (target === who && who.paired && who.proof === proof) return;
+      await change({ deviceId, ...(proof === undefined ? {} : { proof }), paired: true });
     },
   };
 }

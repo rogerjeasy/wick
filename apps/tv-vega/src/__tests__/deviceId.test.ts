@@ -198,18 +198,62 @@ describe('televisionIdentity — the secret, and a new id at every new pairing',
   });
 });
 
-// Vega has no cryptographic generator (random.ts). There the television makes no secret: it is the documented exception, not a guessable proof.
+// Vega has no cryptographic generator (random.ts). A television there that
+// keeps a file asks the pairing service for its secret instead, and keeps
+// the one handed over; it never makes a guessable one.
 describe('televisionIdentity — no cryptographic generator', () => {
-  it('makes no secret and writes no identity: the television is answered from its id alone, and never rotates', async () => {
+  const HANDED = 'h'.repeat(64);
+  const SECOND = 'k'.repeat(64);
+
+  it('asks the pairing service for a secret, keeps the one handed over with the token, and proves every refresh with it', async () => {
     const fs = workingFs();
     const app = televisionIdentity(fs, { writes: true, generateId: () => 'wick-one', generateProof: () => undefined });
 
-    expect(await app.deviceId()).toBe('wick-one');
     expect(await app.proofFor('wick-one')).toBeUndefined();
-    expect(await app.forPairing('wick-one')).toEqual({ deviceId: 'wick-one' });
-    await app.paired('wick-one');
-    expect(await app.forPairing('wick-one')).toEqual({ deviceId: 'wick-one' });
-    expect(await fs.exists('/data/wick-identity.json')).toBe(false);
+    expect(await app.forPairing('wick-one')).toEqual({ deviceId: 'wick-one', keeps: true });
+
+    await app.paired('wick-one', HANDED);
+
+    expect(await app.proofFor('wick-one')).toBe(HANDED);
+    expect(await televisionIdentity(fs).proofFor('wick-one')).toBe(HANDED);
+    expect(await televisionIdentity(fs, { writes: true }).proofFor('wick-one')).toBe(HANDED);
+  });
+
+  it('paired again, asks as a new television for a new secret, and proves the one it replaces with the one it was handed', async () => {
+    const ids = ['wick-one', 'wick-two'];
+    const app = televisionIdentity(workingFs(), { writes: true, generateId: () => ids.shift()!, generateProof: () => undefined });
+    await app.forPairing(await app.deviceId());
+    await app.paired('wick-one', HANDED);
+
+    expect(await app.forPairing('wick-one')).toEqual({ deviceId: 'wick-two', keeps: true, replaces: { deviceId: 'wick-one', proof: HANDED } });
+    await app.paired('wick-two', SECOND);
+    expect(await app.deviceId()).toBe('wick-two');
+    expect(await app.proofFor('wick-two')).toBe(SECOND);
+    expect(await app.proofFor('wick-one')).toBeUndefined();
+  });
+
+  it('takes no secret it was not asking for, and nothing that is not shaped like one', async () => {
+    const own = televisionIdentity(workingFs(), { writes: true, generateId: () => 'wick-one', generateProof: () => '1'.repeat(64) });
+    await own.paired(await own.deviceId(), HANDED);
+    expect(await own.proofFor('wick-one')).toBe('1'.repeat(64));
+
+    const asking = televisionIdentity(workingFs(), { writes: true, generateId: () => 'wick-one', generateProof: () => undefined });
+    await asking.paired(await asking.deviceId(), 'short');
+    expect(await asking.proofFor('wick-one')).toBeUndefined();
+  });
+
+  it('never asks for one on a television that keeps nothing: the simulator would be locked out at its next launch', async () => {
+    const app = televisionIdentity(refusingFs(), { writes: true, generateProof: () => undefined });
+
+    expect(await app.forPairing(SIMULATOR_DEVICE_ID)).toEqual({ deviceId: SIMULATOR_DEVICE_ID });
+    await app.paired(SIMULATOR_DEVICE_ID, HANDED);
+    expect(await app.proofFor(SIMULATOR_DEVICE_ID)).toBeUndefined();
+  });
+
+  it('never asks for one from the card service, which only reads', async () => {
+    const fs = workingFs();
+    await resolveDeviceId(fs, () => 'wick-one');
+    expect(await televisionIdentity(fs, { generateProof: () => undefined }).forPairing('wick-one')).toEqual({ deviceId: 'wick-one' });
   });
 
   it('by default, on a runtime without crypto.getRandomValues, and says so once', async () => {
@@ -228,13 +272,14 @@ describe('televisionIdentity — no cryptographic generator', () => {
     }
   });
 
-  it('does not become a new television when a new secret cannot be made, and keeps proving with the one it has', async () => {
+  it('asks for a new secret when, paired again, it cannot make one — and proves the old one with its own', async () => {
     let generator = true;
-    const app = televisionIdentity(workingFs(), { writes: true, generateId: () => 'wick-two', generateProof: () => (generator ? '1'.repeat(64) : undefined) });
+    const ids = ['wick-one', 'wick-two'];
+    const app = televisionIdentity(workingFs(), { writes: true, generateId: () => ids.shift()!, generateProof: () => (generator ? '1'.repeat(64) : undefined) });
     const id = await app.deviceId();
     await app.paired(id);
     generator = false;
 
-    expect(await app.forPairing(id)).toEqual({ deviceId: id, proof: '1'.repeat(64) });
+    expect(await app.forPairing(id)).toEqual({ deviceId: 'wick-two', keeps: true, replaces: { deviceId: 'wick-one', proof: '1'.repeat(64) } });
   });
 });
