@@ -160,7 +160,8 @@ describe('POST /api/hear — a spoken question, turned into words', () => {
   });
 
   it(`hears a person ${HEARINGS_PER_PERSON_PER_MINUTE} times a minute and refuses the next with 429 — that person only, and only for the minute`, async () => {
-    let now = Date.UTC(2026, 9, 14, 10);
+    // From the real clock: the invitation below is accepted against it, and a fixed hour stops working once that hour has passed.
+    let now = Date.now();
     const { h, sarah, heard } = await home(undefined, { now: () => now });
     const tom = await linkInvited(h, TOM, await invitation(h, sarah));
     await residentAllows(h, tom.householdId, tom.userId);
