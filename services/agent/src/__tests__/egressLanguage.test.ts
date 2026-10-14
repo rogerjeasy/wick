@@ -165,6 +165,9 @@ describe('an English household — nothing is different, to the byte', () => {
         ttl: { N: '300' },
         ringDeviceId: { S: 'ava1.ring.device.X' },
       },
+      // The same row, written once: a ring handled twice never puts the bare card back (egressDoorRetry.test.ts).
+      ConditionExpression: 'attribute_not_exists(sk)',
+      ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
     });
     expect(w.pushed).toEqual([
       {

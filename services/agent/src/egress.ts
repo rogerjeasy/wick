@@ -508,17 +508,65 @@ export function deviceEgress(deps: DeviceEgressDeps) {
       const householdId = card.card.householdId;
       const english = freeWords(phrasebook.freeTextOf(card.card));
 
-      // The Card item is the queue's source of truth — written unconditionally,
-      // before any attempt at a live push, so connect.mjs's reconcile step can
-      // always deliver it later even if the device is offline right now.
+      /**
+       * The Card item is the queue's source of truth — written before any
+       * attempt at a live push, so connect.mjs's reconcile step can always
+       * deliver it later even if the device is offline right now.
+       *
+       * A door card is written once. Its id comes from Ring's event id
+       * (agents/door/index.ts), so a ring handled twice — a Lambda retry
+       * after a timeout, a webhook Ring sent again — builds the same card,
+       * and by then the first one may have its picture and sentence patched
+       * in, or have been answered. Writing it again would put the bare
+       * Phase 1 card back over all of that. So the second write is refused,
+       * and what is stored is sent instead, if she has not answered it yet:
+       * the first attempt's push may be the part that failed.
+       *
+       * Every other card is written as it always was: some are sent again
+       * under the same id on purpose, to change what they say (Hold for
+       * Sarah's card, agents/reach).
+       */
+      const putCard = async (item: Record<string, AttributeValue>): Promise<Record<string, AttributeValue> | undefined> => {
+        if (card.urgency !== 'DOOR') {
+          await db.send(new PutItemCommand({ TableName: table, Item: item }));
+          return undefined;
+        }
+        try {
+          await db.send(new PutItemCommand({
+            TableName: table,
+            Item: item,
+            ConditionExpression: 'attribute_not_exists(sk)',
+            ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+          }));
+          return undefined;
+        } catch (err) {
+          if ((err as { name?: unknown } | undefined)?.name !== 'ConditionalCheckFailedException') throw err;
+          return (err as { Item?: Record<string, AttributeValue> }).Item ?? {};
+        }
+      };
+
+      /** The door card already stored, sent again as it now stands — or not at all, once answered or gone. */
+      const sendStored = async (row: Record<string, AttributeValue>, language: HouseholdLanguage): Promise<void> => {
+        say({ level: 'info', msg: 'door_card_already_stored', cardId: card.id });
+        let stored: QueuedCard | undefined;
+        try {
+          stored = row.data?.S ? (JSON.parse(row.data.S) as QueuedCard) : undefined;
+        } catch {
+          stored = undefined;
+        }
+        if (!stored || !stillWaiting(row, stored, now())) return;
+        const told = language === DEFAULT_LANGUAGE
+          ? stored
+          : { ...stored, card: phrasebook.cardIn(language, stored.card, storedTranslations(row[translationAttribute(language)])) };
+        await push(householdId, { kind: 'card', card: told });
+      };
+
       if (Object.keys(english).length === 0) {
         // Every word of this card is Wick's own — the door's first card is one —
         // so its row is the same whatever her language: it is written while
         // the language is being read, not after.
-        const [language] = await Promise.all([
-          languageOf(householdId),
-          db.send(new PutItemCommand({ TableName: table, Item: cardItem(card, serverOnly) })),
-        ]);
+        const [language, existing] = await Promise.all([languageOf(householdId), putCard(cardItem(card, serverOnly))]);
+        if (existing) return sendStored(existing, language);
         // No live device: reconcile delivers it the moment one is next seen.
         await push(householdId, { kind: 'card', card: await withPicture(language === DEFAULT_LANGUAGE ? card : { ...card, card: phrasebook.cardIn(language, card.card) }) });
         return;
@@ -526,7 +574,8 @@ export function deviceEgress(deps: DeviceEgressDeps) {
 
       const language = await languageOf(householdId);
       if (language === DEFAULT_LANGUAGE) {
-        await db.send(new PutItemCommand({ TableName: table, Item: cardItem(card, serverOnly) }));
+        const existing = await putCard(cardItem(card, serverOnly));
+        if (existing) return sendStored(existing, language);
         await push(householdId, { kind: 'card', card: await withPicture(card) });
         return;
       }
@@ -535,7 +584,8 @@ export function deviceEgress(deps: DeviceEgressDeps) {
       // the English card in the same write, so the edge can send it again in
       // her language without asking anyone (edge-device language.mjs).
       const free = await inHerLanguage(english, language, knownNames(card.card));
-      await db.send(new PutItemCommand({ TableName: table, Item: cardItem(card, serverOnly, { language, free }) }));
+      const existing = await putCard(cardItem(card, serverOnly, { language, free }));
+      if (existing) return sendStored(existing, language);
       await push(householdId, { kind: 'card', card: await withPicture({ ...card, card: phrasebook.cardIn(language, card.card, free) }) });
     },
 
