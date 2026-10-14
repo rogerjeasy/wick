@@ -78,16 +78,18 @@ describe('POST /pair/refresh', () => {
     function television() {
       const row: Item = { deviceId: { S: 'tv-1' } };
       let now = NOW;
-      const send = async (command: { input: { Key: Item; ExpressionAttributeValues?: Item } }) => {
+      const send = async (command: { input: { Key: Item; UpdateExpression?: string; ExpressionAttributeValues?: Item } }) => {
         if (command instanceof GetItemCommand) {
           return { Item: command.input.Key.pk!.S === 'DEV#tv-1' ? { householdId: { S: 'hh_1' } } : { ...row } };
         }
         if (command instanceof UpdateItemCommand) {
           const v = command.input.ExpressionAttributeValues!;
-          const unchanged = v[':wasAt'] ? row.refreshWindowAt?.N === v[':wasAt'].N && row.refreshCount?.N === v[':wasCount']!.N : row.refreshWindowAt === undefined;
+          // Whichever share it is counted in (pair-refresh.mjs): the names are the update's own.
+          const [, at = '', count = ''] = /^SET (\w+) = :at, (\w+) = :count/.exec(command.input.UpdateExpression ?? '') ?? [];
+          const unchanged = v[':wasAt'] ? row[at]?.N === v[':wasAt'].N && row[count]?.N === v[':wasCount']!.N : row[at] === undefined;
           if (!unchanged) throw Object.assign(new Error('changed'), { name: 'ConditionalCheckFailedException' });
-          row.refreshWindowAt = v[':at']!;
-          row.refreshCount = v[':count']!;
+          row[at] = v[':at']!;
+          row[count] = v[':count']!;
         }
         return {};
       };
@@ -649,7 +651,7 @@ describe('POST /pair/refresh for a family television’s background service', ()
     expect(token).not.toHaveProperty('kind');
     expect(token).not.toHaveProperty('scope');
     expect(verifyJwt(token.jwt, publicKey)).not.toHaveProperty('scope');
-    expect(updates).toEqual(['SET refreshWindowAt = :at, refreshCount = :count']);
+    expect(updates).toEqual(['SET unprovenRefreshWindowAt = :at, unprovenRefreshCount = :count']);
   });
 });
 
@@ -942,5 +944,362 @@ describe('POST /pair/refresh — the service’s session', () => {
       expect(tv.row.serviceSince).toEqual({ N: String(NOW) });
       expect((await tv.renew(claimed.token!.jwt)).status).toBe(200);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adversarial: what someone who knows a television's id can and cannot do
+// (AGENTS.md INV-1). Played against one in-memory table that honours every
+// condition the pairing Lambdas write under, with pair-start, pair-claim and
+// pair-refresh all running against it as they do in AWS.
+// ---------------------------------------------------------------------------
+
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { createHandler as createStart } from '../pair-start.mjs';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { createHandler as createClaim } from '../pair-claim.mjs';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { accessTokenKey } from '../wick-auth.mjs';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { proofHashOf } from '../proof.mjs';
+import { PutItemCommand, TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb';
+
+type Av = { S?: string; N?: string; BOOL?: boolean };
+type Row = Record<string, Av>;
+
+/** A table that keeps rows and honours the condition expressions the pairing Lambdas use. */
+function memoryTable() {
+  const rows = new Map<string, Row>();
+  const keyOf = (k: Row) => `${k.pk!.S}|${k.sk!.S}`;
+  /** Every write that was applied, by key. */
+  const applied: string[] = [];
+  /** Run once, just before the next write is decided: what another request did meanwhile. */
+  let meanwhile: (() => void) | undefined;
+  const holds = (row: Row | undefined, expression: string | undefined, values: Row = {}): boolean =>
+    !expression ||
+    expression.split(' OR ').some((alternative) =>
+      alternative.split(' AND ').every((clause) => {
+        let m: RegExpExecArray | null;
+        if ((m = /^attribute_not_exists\((\w+)\)$/.exec(clause))) return row?.[m[1]!] === undefined;
+        if ((m = /^attribute_exists\((\w+)\)$/.exec(clause))) return row?.[m[1]!] !== undefined;
+        if ((m = /^(\w+) = (:\w+)$/.exec(clause))) return row?.[m[1]!] !== undefined && JSON.stringify(row[m[1]!]) === JSON.stringify(values[m[2]!]);
+        if ((m = /^(\w+) > (:\w+)$/.exec(clause))) return row?.[m[1]!]?.N !== undefined && Number(row[m[1]!]!.N) > Number(values[m[2]!]!.N);
+        throw new Error(`the test table does not know: ${clause}`);
+      }),
+    );
+  const failed = () => Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException' });
+  const decide = () => {
+    const other = meanwhile;
+    meanwhile = undefined;
+    other?.();
+  };
+  const send = async (command: { input: Record<string, unknown> }) => {
+    const input = command.input as { Key?: Row; Item?: Row; ConditionExpression?: string; ExpressionAttributeValues?: Row; UpdateExpression?: string; TransactItems?: { Delete: { Key: Row; ConditionExpression?: string; ExpressionAttributeValues?: Row } }[] };
+    if (command instanceof GetItemCommand) {
+      const row = rows.get(keyOf(input.Key!));
+      return { Item: row ? structuredClone(row) : undefined };
+    }
+    decide();
+    if (command instanceof PutItemCommand) {
+      const key = keyOf(input.Item!);
+      if (!holds(rows.get(key), input.ConditionExpression, input.ExpressionAttributeValues)) throw failed();
+      rows.set(key, structuredClone(input.Item!));
+      applied.push(`put ${key}`);
+      return {};
+    }
+    if (command instanceof UpdateItemCommand) {
+      const key = keyOf(input.Key!);
+      const row = rows.get(key);
+      const values = input.ExpressionAttributeValues ?? {};
+      if (!holds(row, input.ConditionExpression, values)) throw failed();
+      const next: Row = structuredClone(row ?? { ...input.Key! });
+      const [, sets = '', removes = ''] = /^SET (.*?)(?: REMOVE (.*))?$/.exec(input.UpdateExpression ?? '') ?? [];
+      for (const [, name, , ifMissing, plain] of sets.matchAll(/(\w+) = (if_not_exists\(\w+, (:\w+)\)|(:\w+))/g)) {
+        if (ifMissing) next[name!] ??= values[ifMissing]!;
+        else next[name!] = values[plain!]!;
+      }
+      for (const name of removes.split(', ').filter(Boolean)) delete next[name];
+      rows.set(key, next);
+      applied.push(`update ${key}`);
+      return {};
+    }
+    if (command instanceof TransactWriteItemsCommand) {
+      for (const { Delete } of input.TransactItems!) {
+        if (!holds(rows.get(keyOf(Delete.Key)), Delete.ConditionExpression, Delete.ExpressionAttributeValues)) throw Object.assign(new Error('cancelled'), { name: 'TransactionCanceledException' });
+      }
+      for (const { Delete } of input.TransactItems!) {
+        rows.delete(keyOf(Delete.Key));
+        applied.push(`delete ${keyOf(Delete.Key)}`);
+      }
+      return {};
+    }
+    throw new Error('the test table does not know this command');
+  };
+  return {
+    rows,
+    applied,
+    send,
+    row: (key: string) => rows.get(key),
+    put: (key: string, row: Row) => {
+      const [pk, sk] = key.split('|');
+      rows.set(key, { pk: { S: pk }, sk: { S: sk }, ...row });
+    },
+    meanwhile: (what: () => void) => {
+      meanwhile = what;
+    },
+  };
+}
+
+const NOW_A = 1_790_000_000_000;
+const REAL = 'r'.repeat(20) + '0123456789abcdef0123456789abcdef0123456789ab';
+const ATTACKERS = 'a'.repeat(20) + '0123456789abcdef0123456789abcdef0123456789ab';
+
+/**
+ * One home (hh_1, organiser Sarah) with the resident's television tv-1, and
+ * one home of the attacker's own (hh_x, organiser Mallory). `secret`: whether
+ * tv-1's row keeps its secret.
+ */
+function homes({ secret, family = false }: { secret: boolean; family?: boolean }) {
+  const table = memoryTable();
+  let now = NOW_A;
+  const deps = { send: table.send, privateKey: async () => privateKey, publicKey: async () => publicKey, now: () => now, table: 'wick' };
+  const refresh = createHandler(deps);
+  let code = 100000;
+  const start = createStart({ send: table.send, now: () => now, table: 'wick', pairingUrlBase: 'https://wick.example', code: () => String((code += 1)) });
+  const claim = createClaim(deps);
+
+  const organiser = (token: string, householdId: string, userId: string) => {
+    table.put(`${accessTokenKey(token).pk.S}|META`, { data: { S: JSON.stringify({ userId, householdId }) }, expiresAt: { N: String(NOW_A + 86_400_000) } });
+    table.put(`HH#${householdId}|MEM#${userId}`, { role: { S: 'organiser' }, status: { S: 'allowed' } });
+  };
+  organiser('sarahs-token', 'hh_1', 'u_sarah');
+  organiser('mallorys-token', 'hh_x', 'u_mallory');
+  table.put('DEV#tv-1|META', { householdId: { S: 'hh_1' } });
+  const victimKey = family ? 'HH#hh_1|FTV#tv-1' : 'HH#hh_1|DEV#tv-1';
+  table.put(victimKey, {
+    deviceId: { S: 'tv-1' },
+    householdId: { S: 'hh_1' },
+    denylisted: { BOOL: false },
+    ...(family ? { userId: { S: 'u_sarah' } } : {}),
+    ...(secret ? { proofHash: { S: proofHashOf(REAL) } } : {}),
+  });
+
+  const ask = async (body: object, jwt?: string, from = '198.51.100.23') => {
+    const res = (await refresh({
+      body: JSON.stringify({ deviceId: 'tv-1', ...body }),
+      headers: jwt ? { authorization: `Bearer ${jwt}` } : {},
+      requestContext: { http: { sourceIp: from } },
+    })) as { statusCode: number; body: string };
+    const minted = res.statusCode === 200 ? (verifyJwt((JSON.parse(res.body) as { token: { jwt: string } }).token.jwt, publicKey) as Record<string, unknown>) : undefined;
+    return { status: res.statusCode, body: res.body, minted };
+  };
+  return {
+    table,
+    victimKey,
+    victim: () => table.row(victimKey),
+    ask,
+    start: async (body: object) => (await start({ body: JSON.stringify(body) })) as { statusCode: number; body: string },
+    claim: async (pairingCode: string, token: string, as?: string) =>
+      (await claim({ headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ code: pairingCode, ...(as ? { as } : {}) }) })) as { statusCode: number; body: string },
+    later: (ms: number) => {
+      now += ms;
+    },
+  };
+}
+
+const residentsClaims = { deviceId: 'tv-1', householdId: 'hh_1' };
+const tokenFor = (claims: object, expiresInSec: number) => signJwt({ ...residentsClaims, ...claims }, privateKey, { expiresInSec });
+/** What the real television holds from its pairing: thirty days, earned by the code. */
+const pairingToken = () => tokenFor({ proof: 'pairing' }, 30 * 86400);
+
+/** The row, without the refresh counters the exception is allowed to move. */
+const settled = (row: Row | undefined) => {
+  const { unprovenRefreshWindowAt: _a, unprovenRefreshCount: _b, ...rest } = row ?? {};
+  return rest;
+};
+
+describe('TAKEOVER — someone who knows the resident’s television’s id', () => {
+  for (const secret of [true, false]) {
+    describe(secret ? 'a television that keeps its secret' : 'a television whose row keeps no secret yet', () => {
+      const attacks: [string, object, (() => string) | undefined][] = [
+        ['(a) with no token', {}, undefined],
+        ['(a) with no token, and a secret of their own', { proof: ATTACKERS }, undefined],
+        ['(b) with a proof:"none" token they minted', { proof: ATTACKERS }, () => tokenFor({ proof: 'none' }, 3600)],
+        ['(c) with a token from before tokens said how, an hour long', { proof: ATTACKERS }, () => tokenFor({}, 3600)],
+        ['(d) with a pairing token that has run out', { proof: ATTACKERS }, () => tokenFor({ proof: 'pairing' }, -60)],
+        ['(d) with a pairing token of another television', { proof: ATTACKERS }, () => signJwt({ deviceId: 'tv-9', householdId: 'hh_1', proof: 'pairing' }, privateKey, { expiresInSec: 600 })],
+        ['(d) with a family member’s token for this television', { proof: ATTACKERS }, () => tokenFor({ kind: 'family', userId: 'u_sarah', proof: 'pairing' }, 600)],
+      ];
+      for (const [name, body, jwt] of attacks) {
+        it(`${name}: enrols nothing, replaces nothing, removes nothing, and is never handed a proof:"secret" token`, async () => {
+          const h = homes({ secret });
+          const before = structuredClone(h.victim());
+
+          const res = await h.ask(body, jwt?.());
+
+          if (secret) {
+            expect(res.status).toBe(401);
+            expect(res.body).toBe('proof_required');
+            // Refused before anything was written.
+            expect(h.table.applied).toEqual([]);
+            expect(h.victim()).toEqual(before);
+          } else {
+            // The documented exception: a token that says it proves nothing, and only its own share counted.
+            expect(res.minted).toMatchObject({ proof: 'none' });
+            expect(settled(h.victim())).toEqual(settled(before));
+          }
+          expect(res.minted?.proof).not.toBe('secret');
+          expect(h.victim()?.proofHash).toEqual(before?.proofHash);
+          expect(h.victim()?.denylisted).toEqual({ BOOL: false });
+        });
+      }
+
+      it('(e) racing the real television’s enrolment: never the attacker’s secret, and no unproven token once the real one is enrolled', async () => {
+        const h = homes({ secret: false });
+        // The attacker read the row before the real television enrolled, and writes after.
+        h.table.meanwhile(() => {
+          h.table.rows.get(h.victimKey)!.proofHash = { S: proofHashOf(REAL) };
+        });
+        const raced = await h.ask({ proof: ATTACKERS });
+        expect(raced.status).toBe(401);
+        expect(h.victim()?.proofHash).toEqual({ S: proofHashOf(REAL) });
+
+        // And the real television's own enrolment, with its pairing token, wins over nothing but nothing.
+        const fresh = homes({ secret: false });
+        await fresh.ask({ proof: ATTACKERS });
+        expect((await fresh.ask({ proof: REAL }, pairingToken())).minted).toMatchObject({ proof: 'secret' });
+        expect(fresh.victim()?.proofHash).toEqual({ S: proofHashOf(REAL) });
+        expect((await fresh.ask({ proof: ATTACKERS }, tokenFor({ proof: 'none' }, 3600))).status).toBe(401);
+      });
+
+      it('(f) through pair-start with the victim’s id and a secret of their own: nothing changes while nobody enters the code, nor when their own organiser tries', async () => {
+        const h = homes({ secret });
+        const before = structuredClone(h.victim());
+
+        const started = await h.start({ deviceId: 'tv-1', proof: ATTACKERS });
+        expect(started.statusCode).toBe(200);
+        expect(h.victim()).toEqual(before);
+        // The code is no use to them: their own home cannot take a television that is another home's.
+        const code = (JSON.parse(started.body) as { code: string }).code;
+        const theirs = await h.claim(code, 'mallorys-token');
+        expect(theirs.statusCode).toBe(409);
+        expect(theirs.body).toBe('television_in_another_home');
+        expect(h.victim()).toEqual(before);
+        // And the secret they started with buys nothing at the refresh.
+        const res = await h.ask({ proof: ATTACKERS });
+        expect(res.minted?.proof).not.toBe('secret');
+        expect(h.victim()?.proofHash).toEqual(before?.proofHash);
+      });
+
+      it('(g) through pair-start naming the victim as the television it replaces, with a wrong secret: the victim’s row survives — even if its own organiser is talked into entering the code', async () => {
+        const h = homes({ secret });
+        const before = structuredClone(h.victim());
+
+        for (const organiserToken of ['mallorys-token', 'sarahs-token']) {
+          const started = await h.start({ deviceId: `tv-mallory-${organiserToken.length}`, proof: ATTACKERS, replaces: { deviceId: 'tv-1', proof: ATTACKERS } });
+          const code = (JSON.parse(started.body) as { code: string }).code;
+          expect((await h.claim(code, organiserToken)).statusCode).toBe(200);
+          expect(h.victim()).toEqual(before);
+          expect(h.table.row('DEV#tv-1|META')).toMatchObject({ householdId: { S: 'hh_1' } });
+        }
+      });
+    });
+  }
+
+  it('the real television, paired again, does remove the row it replaces — the same machinery, with the right secret', async () => {
+    const h = homes({ secret: true });
+    const started = await h.start({ deviceId: 'tv-1b', proof: ATTACKERS.replace(/a/g, 'b'), replaces: { deviceId: 'tv-1', proof: REAL } });
+    expect((await h.claim((JSON.parse(started.body) as { code: string }).code, 'sarahs-token')).statusCode).toBe(200);
+    expect(h.victim()).toBeUndefined();
+    expect(h.table.row('DEV#tv-1|META')).toBeUndefined();
+  });
+});
+
+describe('TAKEOVER — someone who knows a family member’s television’s id', () => {
+  const sarahs = { deviceId: 'tv-1', householdId: 'hh_1', kind: 'family', userId: 'u_sarah' };
+  const full = (expiresInSec: number) => signJwt(sarahs, privateKey, { expiresInSec });
+  const stranger = generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } });
+
+  for (const secret of [true, false]) {
+    it(`refuses, writing nothing, every token that is not this television’s own (${secret ? 'with' : 'without'} a secret on the row)`, async () => {
+      const h = homes({ secret, family: true });
+      const before = structuredClone(h.victim());
+      const forged = [
+        undefined,
+        tokenFor({ proof: 'pairing' }, 600),
+        signJwt({ ...sarahs, userId: 'u_mallory' }, privateKey, { expiresInSec: 600 }),
+        signJwt({ ...sarahs, householdId: 'hh_x' }, privateKey, { expiresInSec: 600 }),
+        signJwt(sarahs, stranger.privateKey, { expiresInSec: 600 }),
+        signJwt({ ...sarahs, scope: 'everything' }, privateKey, { expiresInSec: 600 }),
+        // A narrow token for a session the row does not name.
+        signJwt({ ...sarahs, scope: 'waiting', since: NOW_A }, privateKey, { expiresInSec: 600 }),
+      ];
+      for (const jwt of forged) {
+        for (const body of [{}, { forService: true }, { proof: ATTACKERS }, { forService: true, proof: ATTACKERS }]) {
+          expect((await h.ask(body, jwt)).status).toBe(401);
+        }
+      }
+      expect(h.table.applied).toEqual([]);
+      expect(h.victim()).toEqual(before);
+    });
+  }
+
+  it('a stolen full token without the secret, run out or not, opens no way, ends no session and counts nothing', async () => {
+    const h = homes({ secret: true, family: true });
+    h.table.rows.get(h.victimKey)!.serviceSince = { N: String(NOW_A - 1000) };
+    const before = structuredClone(h.victim());
+
+    for (const jwt of [full(-3600), full(600)]) {
+      for (const body of [{}, { forService: true }, { forService: true, proof: ATTACKERS }]) {
+        const res = await h.ask(body, jwt, '203.0.113.7');
+        expect(res.status).toBe(401);
+        expect(res.body).toBe('proof_required');
+      }
+    }
+    expect(h.table.applied).toEqual([]);
+    expect(h.victim()).toEqual(before);
+  });
+
+  it('a narrow token, or the service’s knock inside the way, never enrols a secret on a row that keeps none', async () => {
+    const h = homes({ secret: false, family: true });
+    // The real app opens the way, from home.
+    expect((await h.ask({ forService: true }, full(600), '203.0.113.7')).status).toBe(200);
+    // Someone at the same address knocks first, with a secret of their own (the second exception's known residue).
+    const knock = await h.ask({ forService: true, proof: ATTACKERS }, undefined, '203.0.113.7');
+    expect(knock.minted).toMatchObject({ scope: 'waiting' });
+    expect(knock.minted).not.toHaveProperty('proof');
+    const narrow = signJwt({ ...sarahs, scope: 'waiting', since: knock.minted!.since }, privateKey, { expiresInSec: 600 });
+    expect((await h.ask({ proof: ATTACKERS }, narrow)).minted).toMatchObject({ scope: 'waiting' });
+    expect(h.victim()).not.toHaveProperty('proofHash');
+  });
+});
+
+describe('LOCKOUT — nothing without the secret can keep the real television out', () => {
+  it('a stranger asking without the secret, over and over, changes nothing the real television is later refused by', async () => {
+    const h = homes({ secret: true });
+    for (let i = 0; i < 20; i += 1) await h.ask(i % 2 ? { proof: ATTACKERS } : {}, i % 3 ? tokenFor({ proof: 'none' }, 3600) : undefined);
+    expect(h.table.applied).toEqual([]);
+
+    const real = await h.ask({ proof: REAL });
+    expect(real.status).toBe(200);
+    expect(real.minted).toMatchObject({ proof: 'secret' });
+  });
+
+  it('on a row with no secret yet, a stranger using up the share anyone may use does not stop the real television enrolling, or refreshing after', async () => {
+    const h = homes({ secret: false });
+    let refused = 0;
+    for (let i = 0; i < 10; i += 1) if ((await h.ask({})).status === 429) refused += 1;
+    expect(refused).toBeGreaterThan(0);
+
+    expect((await h.ask({ proof: REAL }, pairingToken())).minted).toMatchObject({ proof: 'secret' });
+    expect((await h.ask({ proof: REAL })).status).toBe(200);
+  });
+
+  it('a family television’s secret, once kept, is asked for before anything is counted: a stranger cannot use up its app’s share', async () => {
+    const h = homes({ secret: true, family: true });
+    const old = signJwt({ deviceId: 'tv-1', householdId: 'hh_1', kind: 'family', userId: 'u_sarah' }, privateKey, { expiresInSec: -3600 });
+    for (let i = 0; i < 10; i += 1) await h.ask({}, old);
+    expect(h.table.applied).toEqual([]);
+    expect((await h.ask({ proof: REAL }, old)).status).toBe(200);
   });
 });

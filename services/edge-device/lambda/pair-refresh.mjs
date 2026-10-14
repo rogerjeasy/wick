@@ -203,6 +203,16 @@ function addressFingerprint(event, deviceId, signingKeyPem) {
  */
 const OWN_REFRESHES = { at: 'refreshWindowAt', count: 'refreshCount' };
 const NARROW_REFRESHES = { at: 'serviceRefreshWindowAt', count: 'serviceRefreshCount' };
+/**
+ * And a third, for the resident's television answered from its id alone
+ * (the exception, proof.mjs). Anybody who knows the id can be counted there,
+ * so nothing proven is: a stranger asking over and over can use up only
+ * this share, never the one a television showing its secret, or enrolling
+ * one, is counted in. (Where the row keeps no secret the television itself
+ * is counted here too — the simulator, which has nothing to prove itself
+ * with.)
+ */
+const UNPROVEN_REFRESHES = { at: 'unprovenRefreshWindowAt', count: 'unprovenRefreshCount' };
 
 export function createHandler({ send, privateKey, publicKey, now, table }) {
   return async (event) => {
@@ -367,8 +377,8 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
       }
 
       // A narrow token — being minted, or being renewed — is counted in its
-      // own place, and nothing else is.
-      const bucket = scope ? NARROW_REFRESHES : OWN_REFRESHES;
+      // own place, and nothing else is; so is a mint from the id alone.
+      const bucket = scope ? NARROW_REFRESHES : isResidents && !proven ? UNPROVEN_REFRESHES : OWN_REFRESHES;
       const next = nextRefreshWindow({ refreshWindowAt: item[bucket.at], refreshCount: item[bucket.count] }, now());
       if (!next) return { statusCode: 429, body: 'refresh_rate_limited' };
       const counted = item[bucket.at] && item[bucket.count];
