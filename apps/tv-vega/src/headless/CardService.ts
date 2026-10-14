@@ -29,7 +29,7 @@ import { QueueStore, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
 import { standingWatch } from '../pairing/standing.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
-import { resolveDeviceId } from '../deviceId.js';
+import { resolveDeviceId, televisionIdentity } from '../deviceId.js';
 import { createFamilyClient, type Renewed } from '../family/familyClient.js';
 import { televisionMode } from '../family/mode.js';
 import { runWaitingService, type Claimed } from './waitingService.js';
@@ -75,7 +75,8 @@ export async function onStartCardService(): Promise<void> {
   const createChannel = testDeps?.createChannel ?? createDeviceChannel;
 
   const store = new QueueStore(fs);
-  const pairing = new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, fs, testDeps?.fetchImpl);
+  // The app makes this television's identity and changes it; this process only reads it, for the secret a refresh is proved with (deviceId.ts).
+  const pairing = new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, fs, testDeps?.fetchImpl, televisionIdentity(fs));
 
   // Passing the device id lets loadToken() fall back to a server-side refresh
   // when disk has nothing — this process's only other option, since it
@@ -146,7 +147,9 @@ export async function onStartCardService(): Promise<void> {
       };
       const standing = standingWatch({
         held: { token, ...(token.jwt !== before?.jwt ? { since: Date.now() } : {}) },
-        ask: (inUse) => pairing.renew(deviceId, inUse.jwt, { remember: false }),
+        // Asked by the id the token in use names, never only by the one read when this process began: the app may since have
+        // been paired again as a new television (deviceId.ts), and the old id's row is gone.
+        ask: (inUse) => pairing.renew(inUse.deviceId, inUse.jwt, { remember: false }),
         onGone: () => {
           held.stop();
           if (running === held) running = undefined;

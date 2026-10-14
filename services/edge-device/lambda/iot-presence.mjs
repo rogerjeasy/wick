@@ -44,12 +44,13 @@ export const handler = async (event) => {
   const update = eventType === 'connected' ? presenceConnected(row) : presenceDisconnected(row);
   try {
     await ddb.send(new UpdateItemCommand(update));
-    console.log(JSON.stringify({ level: 'info', msg: `mqtt_${eventType}`, deviceId }));
+    // Never the television's id: it is how a token is asked for (AGENTS.md INV-1), and a log is read by more people than the table.
+    console.log(JSON.stringify({ level: 'info', msg: `mqtt_${eventType}` }));
   } catch (err) {
     // Connected: revoked, never paired, or out of date. Disconnected: the
     // row names another connection. See iot-policy.mjs for the rule.
     if (err?.name !== 'ConditionalCheckFailedException') throw err;
-    console.log(JSON.stringify({ level: 'info', msg: `mqtt_${eventType}_not_applied`, deviceId }));
+    console.log(JSON.stringify({ level: 'info', msg: `mqtt_${eventType}_not_applied` }));
     if (eventType === 'disconnected') await remember(presenceGone(row));
   }
 };

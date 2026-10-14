@@ -72,8 +72,16 @@ export interface Membership {
   readonly invitedBy?: string;
 }
 
+/**
+ * A television of the resident's, as the store reads it. `deviceId` is for
+ * this server's own use — removing the row it names — and never leaves it:
+ * a television's id is what a refresh is asked for by (AGENTS.md INV-1), so
+ * the family is shown `ref` instead (circle.ts describeCircle).
+ */
 export interface Television {
   readonly deviceId: string;
+  /** Random, and nothing of the id (`televisionRef`, written at pairing): what the family app names a television by. */
+  readonly ref: string;
   readonly pairedAt?: number;
   readonly connected: boolean;
 }
@@ -82,9 +90,11 @@ export interface Television {
  * A television a member connected as their own (packages/contracts
  * familyTelevision.ts). Never one of the resident's: nothing meant for the
  * resident is sent to it, and it is not counted among the home's televisions.
+ * Its `deviceId` never leaves this server either.
  */
 export interface FamilyTelevision {
   readonly deviceId: string;
+  readonly ref: string;
   /** The member whose television it is. */
   readonly userId: string;
   readonly pairedAt?: number;

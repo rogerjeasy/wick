@@ -482,7 +482,7 @@ describe('presentCircle', () => {
       { userId: 'u_tom', name: 'Tom', role: 'family', status: 'pending', you: false },
       { userId: 'u_amy', name: 'Amy', role: 'family', status: 'declined', you: false },
     ],
-    televisions: [{ deviceId: 'tv-1', pairedAt: 5, connected: true }],
+    televisions: [{ ref: 'tv-1', pairedAt: 5, connected: true }],
   };
 
   it('says who is in the circle and what the resident has said about each', () => {
@@ -508,14 +508,14 @@ describe('presentCircle', () => {
 
   it('says whether the television is connected', () => {
     expect(presentCircle(circle, me('organiser', 'allowed')).card.television).toBe('One television connected, and on now.');
-    expect(presentCircle({ ...circle, televisions: [{ deviceId: 'tv-1', connected: false }] }, me('organiser', 'allowed')).card.television).toBe(
+    expect(presentCircle({ ...circle, televisions: [{ ref: 'tv-1', connected: false }] }, me('organiser', 'allowed')).card.television).toBe(
       'One television connected. It is off, or showing something else.',
     );
     expect(presentCircle({ ...circle, televisions: [] }, me('organiser', 'allowed')).card.television).toBe('No television is connected yet.');
   });
 
   it('says how many of several televisions are on, and never that all are when some are off', () => {
-    const tvs = (...on: boolean[]) => ({ ...circle, televisions: on.map((connected, i) => ({ deviceId: `tv-${i}`, pairedAt: i, connected })) });
+    const tvs = (...on: boolean[]) => ({ ...circle, televisions: on.map((connected, i) => ({ ref: `tv-${i}`, pairedAt: i, connected })) });
     const line = (...on: boolean[]) => presentCircle(tvs(...on), me('organiser', 'allowed')).card.television;
 
     expect(line(true, false, false)).toBe('Three televisions connected. One is on now.');
@@ -526,11 +526,11 @@ describe('presentCircle', () => {
   });
 
   it('lists each television, in the order they were connected, and lets the organiser disconnect one', () => {
-    const two = { ...circle, televisions: [{ deviceId: 'tv-new', pairedAt: Date.UTC(2026, 9, 12, 10), connected: true }, { deviceId: 'tv-old', pairedAt: Date.UTC(2026, 9, 4, 10), connected: false }] };
+    const two = { ...circle, televisions: [{ ref: 'tv-new', pairedAt: Date.UTC(2026, 9, 12, 10), connected: true }, { ref: 'tv-old', pairedAt: Date.UTC(2026, 9, 4, 10), connected: false }] };
 
     expect(presentCircle(two, me('organiser', 'allowed')).card.televisions).toEqual([
-      { deviceId: 'tv-old', primary: 'Television 1', secondary: 'Connected 4 October · off, or showing something else', removable: true },
-      { deviceId: 'tv-new', primary: 'Television 2', secondary: 'Connected 12 October · on now', removable: true },
+      { ref: 'tv-old', primary: 'Television 1', secondary: 'Connected 4 October · off, or showing something else', removable: true },
+      { ref: 'tv-new', primary: 'Television 2', secondary: 'Connected 12 October · on now', removable: true },
     ]);
     // Somebody who is not the organiser sees them, and cannot disconnect one.
     expect(presentCircle(two, me('family', 'allowed')).card.televisions.every((tv: { removable: boolean }) => tv.removable === false)).toBe(true);
@@ -548,26 +548,26 @@ describe('presentCircle', () => {
     const withFamily = {
       ...circle,
       familyTelevisions: [
-        { deviceId: 'tv-sarah', userId: 'u_sarah', memberName: 'Sarah', pairedAt: Date.UTC(2026, 9, 12, 10), yours: true },
-        { deviceId: 'tv-tom', userId: 'u_tom', memberName: 'Tom', pairedAt: Date.UTC(2026, 9, 13, 10), yours: false },
+        { ref: 'tv-sarah', userId: 'u_sarah', memberName: 'Sarah', pairedAt: Date.UTC(2026, 9, 12, 10), yours: true },
+        { ref: 'tv-tom', userId: 'u_tom', memberName: 'Tom', pairedAt: Date.UTC(2026, 9, 13, 10), yours: false },
       ],
     };
-    const yoursIs = (deviceId: string) => ({ ...withFamily, familyTelevisions: withFamily.familyTelevisions.map((tv) => ({ ...tv, yours: tv.deviceId === deviceId })) });
+    const yoursIs = (ref: string) => ({ ...withFamily, familyTelevisions: withFamily.familyTelevisions.map((tv) => ({ ...tv, yours: tv.ref === ref })) });
 
     it('names each by whose it is, and lets the organiser disconnect anyone’s', () => {
       const card = presentCircle(withFamily, me('organiser', 'allowed')).card;
 
       expect(card.familyTelevisionsTitle).toBe('Family televisions');
       expect(card.familyTelevisions).toEqual([
-        { deviceId: 'tv-sarah', primary: 'Sarah’s television', secondary: 'Connected 12 October', removable: true },
-        { deviceId: 'tv-tom', primary: 'Tom’s television', secondary: 'Connected 13 October', removable: true },
+        { ref: 'tv-sarah', primary: 'Sarah’s television', secondary: 'Connected 12 October', removable: true },
+        { ref: 'tv-tom', primary: 'Tom’s television', secondary: 'Connected 13 October', removable: true },
       ]);
     });
 
     it('lets a family member disconnect their own, and nobody else’s', () => {
       const rows = presentCircle(yoursIs('tv-tom'), me('family', 'allowed')).card.familyTelevisions;
 
-      expect(rows.map((tv: { deviceId: string; removable: boolean }) => [tv.deviceId, tv.removable])).toEqual([['tv-sarah', false], ['tv-tom', true]]);
+      expect(rows.map((tv: { ref: string; removable: boolean }) => [tv.ref, tv.removable])).toEqual([['tv-sarah', false], ['tv-tom', true]]);
     });
 
     it('never counts one among the resident’s televisions', () => {
@@ -579,7 +579,7 @@ describe('presentCircle', () => {
 
     it('is simply empty for a Wick that lists none, and one with no date says no date', () => {
       expect(presentCircle(circle, me('organiser', 'allowed')).card.familyTelevisions).toEqual([]);
-      const undated = { ...circle, familyTelevisions: [{ deviceId: 'tv-tom', userId: 'u_tom', memberName: 'Tom', yours: false }] };
+      const undated = { ...circle, familyTelevisions: [{ ref: 'tv-tom', userId: 'u_tom', memberName: 'Tom', yours: false }] };
       expect(presentCircle(undated, me('organiser', 'allowed')).card.familyTelevisions[0].secondary).toBe('');
     });
 

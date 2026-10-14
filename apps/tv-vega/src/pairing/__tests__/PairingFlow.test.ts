@@ -885,3 +885,147 @@ describe('PairingFlow', () => {
     });
   });
 });
+
+// INV-1: a television's id is not a secret. Where the television keeps one
+// (deviceId.ts), every refresh carries it, and a pairing asks under the
+// identity it says — a new one, once the television has been paired.
+describe('PairingFlow — the television’s secret', () => {
+  const SECRET = 's'.repeat(64);
+  const identity = (over: Partial<{ proofFor: (id: string) => Promise<string | undefined>; forPairing: (id: string) => Promise<{ deviceId: string; proof?: string; keeps?: true; replaces?: { deviceId: string; proof: string } }>; paired: (id: string, proof?: string) => Promise<boolean> }> = {}) => ({
+    proofFor: vi.fn(async (id: string) => (id === 'd1' ? SECRET : undefined)),
+    forPairing: vi.fn(async () => ({ deviceId: 'd2', proof: SECRET, replaces: { deviceId: 'd1', proof: 'o'.repeat(64) } })),
+    paired: vi.fn(async () => true),
+    ...over,
+  });
+  const recording = (answer: () => Response) => {
+    const asked: { url: string; authorization?: string; body?: Record<string, unknown> }[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      asked.push({ url, ...(headers.Authorization ? { authorization: headers.Authorization } : {}), ...(init?.body ? { body: JSON.parse(String(init.body)) as Record<string, unknown> } : {}) });
+      return answer();
+    });
+    return { asked, fetchMock: fetchMock as unknown as typeof fetch };
+  };
+
+  it('proves a launch-time refresh, a renewal and the opening of the service’s way with it', async () => {
+    const { asked, fetchMock } = recording(() => new Response(JSON.stringify({ token: TOKEN }), { status: 200 }));
+    const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fakeFs(), fetchMock, identity());
+
+    await flow.loadToken('d1');
+    await flow.renew('d1', 'held-jwt');
+    await flow.openServiceWindow('d1', 'held-jwt');
+
+    expect(asked.map((a) => a.body)).toEqual([
+      { deviceId: 'd1', proof: SECRET },
+      { deviceId: 'd1', proof: SECRET },
+      { deviceId: 'd1', forService: true, proof: SECRET },
+    ]);
+    expect(asked[1]!.authorization).toBe('Bearer held-jwt');
+  });
+
+  it('sends nothing more for an id it keeps no secret for, and asks all the same when the disk cannot be read', async () => {
+    const { asked, fetchMock } = recording(() => new Response(JSON.stringify({ token: TOKEN }), { status: 200 }));
+    const failing = identity({
+      proofFor: vi.fn(async () => {
+        throw new Error('[com.amazon.kepler.io.IoError]: ');
+      }),
+    });
+
+    await new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fakeFs(), fetchMock, identity()).renew('wick-tv');
+    await new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fakeFs(), fetchMock, failing).renew('d1');
+
+    expect(asked.map((a) => a.body)).toEqual([{ deviceId: 'wick-tv' }, { deviceId: 'd1' }]);
+  });
+
+  it('asks for a code as the identity it is given — with its secret, and the television it replaces', async () => {
+    const { asked, fetchMock } = recording(() => new Response(JSON.stringify({ code: '123456', url: 'u', expiresAt: 1 }), { status: 200 }));
+    const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fakeFs(), fetchMock, identity());
+
+    await flow.start('d1');
+
+    expect(asked).toEqual([
+      { url: 'https://pair.example/pair/start', body: { deviceId: 'd2', proof: SECRET, replaces: { deviceId: 'd1', proof: 'o'.repeat(64) } } },
+    ]);
+  });
+
+  it('takes on that identity once the code is entered, by the id the token was minted for', async () => {
+    const { fetchMock } = recording(() => new Response(JSON.stringify({ status: 'bound', token: { ...TOKEN, deviceId: 'd2' } }), { status: 200 }));
+    const who = identity();
+    const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 }, fakeFs(), fetchMock, who);
+
+    await flow.pollUntilBound('123456');
+
+    expect(who.paired).toHaveBeenCalledWith('d2', undefined);
+  });
+
+  it('asks for a secret where the television cannot make one, and hands the one it is given to the identity — never to the token’s file', async () => {
+    const SERVERS = 'v'.repeat(64);
+    const fs = fakeFs();
+    const who = identity({ forPairing: vi.fn(async () => ({ deviceId: 'd2', keeps: true as const })) });
+    const started = recording(() => new Response(JSON.stringify({ code: '123456', url: 'u', expiresAt: 1 }), { status: 200 }));
+    await new PairingFlow({ pairingApiUrl: 'https://pair.example' }, fs, started.fetchMock, who).start('d1');
+    expect(started.asked[0]!.body).toEqual({ deviceId: 'd2', keeps: true });
+
+    const polled = recording(() => new Response(JSON.stringify({ status: 'bound', token: { ...TOKEN, deviceId: 'd2' }, proof: SERVERS }), { status: 200 }));
+    const token = await new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 }, fs, polled.fetchMock, who).pollUntilBound('123456');
+
+    expect(who.paired).toHaveBeenCalledWith('d2', SERVERS);
+    expect(JSON.stringify(token)).not.toContain(SERVERS);
+    expect(await fs.readFileAsString('/data/wick-token.json', 'utf8')).not.toContain(SERVERS);
+  });
+
+  it('is still paired when the identity cannot be written down: the token in hand is what counts', async () => {
+    const { fetchMock } = recording(() => new Response(JSON.stringify({ status: 'bound', token: TOKEN }), { status: 200 }));
+    const flow = new PairingFlow(
+      { pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 },
+      fakeFs(),
+      fetchMock,
+      identity({
+        paired: vi.fn(async () => {
+          throw new Error('[com.amazon.kepler.io.IoError]: ');
+        }),
+      }),
+    );
+
+    expect(await flow.pollUntilBound('123456')).toEqual(TOKEN);
+  });
+});
+
+// A secret the pairing service made is handed over once. If this television
+// cannot write it down, its row would ask for a secret nobody has: the
+// pairing is not finished, and a new code is shown.
+describe('PairingFlow — a handed-over secret that cannot be kept', () => {
+  const SERVERS = 'v'.repeat(64);
+  const bound = () => vi.fn(async () => new Response(JSON.stringify({ status: 'bound', token: TOKEN, proof: SERVERS }), { status: 200 })) as unknown as typeof fetch;
+
+  it('lets the token go and fails the pairing, so the screen shows a new code', async () => {
+    const fs = fakeFs();
+    const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 }, fs, bound(), {
+      proofFor: async () => undefined,
+      paired: async () => false,
+    });
+
+    await expect(flow.pollUntilBound('123456')).rejects.toThrow('pairing_secret_not_kept');
+    expect(await flow.rememberedToken()).toBeNull();
+  });
+
+  it('treats an identity that throws as not kept, too', async () => {
+    const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 }, fakeFs(), bound(), {
+      proofFor: async () => undefined,
+      paired: async () => {
+        throw new Error('[com.amazon.kepler.io.IoError]: ');
+      },
+    });
+
+    await expect(flow.pollUntilBound('123456')).rejects.toThrow('pairing_secret_not_kept');
+  });
+
+  it('finishes the pairing once the secret is written down and read back', async () => {
+    const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 }, fakeFs(), bound(), {
+      proofFor: async () => undefined,
+      paired: async () => true,
+    });
+
+    expect(await flow.pollUntilBound('123456')).toEqual(TOKEN);
+  });
+});

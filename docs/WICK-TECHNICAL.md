@@ -733,16 +733,27 @@ Alexa+ asks for a round trip under 500 ms ✅ V. No tool calls a model, and the 
 
 | Secret | Lives in | Reachable from device? |
 |---|---|---|
-| Ring OAuth access/refresh | **AgentCore Identity** | Never |
+| Ring OAuth access/refresh | AWS Secrets Manager, one secret per household (`wick/ring/tokens/<householdId>`), read at runtime only for the home being acted for | Never |
 | Alexa+ LWA credentials | CI secret store / `~/.alexa-ai` | Never |
 | Bedrock / AWS | Task roles, no static keys anywhere | Never |
-| Device JWT | Device (`kepler-file-system`) | **Yes — and it is scoped to be worthless if stolen** |
+| Device JWT | Device (`kepler-file-system` on Vega, the app's key-value storage on Fire OS, `sessionStorage` in the browser television) | **Yes — and it is scoped to be worthless if stolen**. It says how it was earned (`proof`: `pairing`, `secret`, `none`) |
+| Device secret (proof of possession) | Device, beside its id (`apps/tv-vega/src/deviceId.ts`); the server keeps only its SHA-256 (`proofHash`). Made only by a cryptographic generator: Android `SecureRandom` on Fire OS, Web Crypto in the browser television, and `node:crypto` on the server for a Vega television that keeps a file (handed over once with the token by `pair-status.mjs`). Never for the Vega Virtual Device | **Yes** — it renews that one television's token, and nothing else |
+| Device id | Device; the table | A label, not a credential. Random, never sent to the family app (it gets a random `televisionRef`), never logged, and new at every new pairing |
+| Six-digit pairing code | The television's screen; the nonce (`PAIR#`), fifteen minutes | It is how the television collects its token and, where the server made it, its secret — once |
 
 ### 10.2 Threat model, briefly
 
 | Threat | Control |
 |---|---|
-| Stolen Fire TV stick | Device JWT grants card receipt + playback posting for one household. No Ring access, no history, no family data. Revoke by `deviceId`. |
+| Stolen Fire TV stick | Device JWT grants card receipt + playback posting for one household. No Ring access, no history, no family data. The organiser disconnects it from the family app, which removes its row: every path that serves a television refuses it from then on. |
+| A copied device token | Good until it runs out (thirty days from pairing, an hour from a refresh). Where the row keeps a secret, it cannot be renewed without the secret. On a row with no secret yet, an unexpired pairing token can enrol a secret — whoever holds one could get in first; disconnecting the television ends it. |
+| Someone who knows a television's id | Where the television keeps a file, `POST /pair/refresh` mints its token only for its secret, compared in constant time; a wrong or missing secret is refused before the refresh is counted, so it cannot use up the television's share either (`edge-device/lambda/proof.mjs`). A token minted without proof says so (`proof: 'none'`), can never enrol a secret, and is refused everywhere once the row keeps one. The family app is never told an id, no log carries one, and a television paired again takes a new id, its old row removed. **Open:** Vega has no cryptographic generator in its JavaScript runtime, so no Vega television keeps a secret; the Vega Virtual Device's id is also the constant `wick-tv` — anyone can mint a one-hour token for the home it is paired to and press any card there, consent included. It is only ever paired to a demo home (AGENTS.md INV-1). |
+| Someone who reads the table | Finds hashes, not secrets: the secret's SHA-256 (256 random bits, so a plain hash is enough), the address fingerprint keyed with a key only the pairing Lambda holds. A server-made secret sits on the nonce, next to the thirty-day token, only until the television's poll collects it (at most fifteen minutes). |
+| Someone who watches the screen, or guesses a code | A code is worth something only once the home's organiser, signed in, enters it in the family app; it then hands over its token (and secret) to one poll, and is gone. Somebody else's code entered by mistake connects their television to the home, as the organiser asked — the family app lists every television, and it can be disconnected. |
+| A request that names a television it replaces | The old row is removed only in the organiser's own home, and only if it keeps the hash of the secret the request shows (`pair-claim.mjs` `removeReplaced`). |
+| A television that loses its secret | Storage cleared or the app reinstalled: its next refresh is refused (`401 proof_required`), it forgets its token and shows the pairing screen with a code. The organiser enters it; it is a new television, and the old entry is disconnected by hand. |
+| Locking a television out from outside | A request without the secret is refused before anything on the row is written. Mints from the id alone are counted in a share of their own, so they cannot use up the share a television proving itself is counted in. Adversarial tests: `edge-device/lambda/__tests__/pair-refresh.test.ts` (TAKEOVER, LOCKOUT). |
+| Logs | No device id in any log line, enforced by a test that reads every logger call (`scripts/__tests__/no-device-id-in-logs.test.ts`). |
 | Forged Ring webhook | HMAC-SHA256 verify, constant-time; reject unknown `device_id`; idempotency on `request_id`. |
 | Prompt injection via a family note or a visitor's clothing/signage | Guardian runs **after** every generation, deterministically, on typed classes. A model that is talked into emitting a health fact still cannot get it past the policy table. This is the main reason the Guardian is rules-first. |
 | Family over-reach | Policy table + resident exclusions; exclusions can only narrow (§6.2). |

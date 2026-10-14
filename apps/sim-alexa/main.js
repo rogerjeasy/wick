@@ -1965,7 +1965,7 @@ function renderCircleCard(view) {
             return;
           }
           try {
-            await api(`${route}/${encodeURIComponent(tv.deviceId)}`, { method: 'DELETE' });
+            await api(`${route}/${encodeURIComponent(tv.ref)}`, { method: 'DELETE' });
             await showCircle();
           } catch (err) {
             assistantSays({ say: err.message, tone: 'error' });

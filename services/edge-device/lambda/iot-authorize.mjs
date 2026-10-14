@@ -15,6 +15,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { verifyJwt } from './jwt.mjs';
 import { deviceBindingKey, isResidentsToken, isServed } from './device-standing.mjs';
 import { DENIED, SAFE_DEVICE_ID, allowed, placeOf, tokenFrom } from './iot-policy.mjs';
+import { isUnproven, refusesUnproven } from './proof.mjs';
 
 const ddb = new DynamoDBClient({});
 const sm = new SecretsManagerClient({});
@@ -52,6 +53,8 @@ export const handler = async (event, context) => {
     ConsistentRead: true,
   }));
   if (!isServed(device.Item)) return DENIED;
+  // A token minted from the id alone is refused once the television has enrolled a secret — at the next re-check too, which ends a connection already open (proof.mjs).
+  if (refusesUnproven(device.Item, isUnproven(claims))) return DENIED;
 
   return allowed({ ...placeOf(context?.invokedFunctionArn), deviceId, exp, nowS: Math.floor(Date.now() / 1000) });
 };

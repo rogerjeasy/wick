@@ -593,7 +593,8 @@ function television(opts: { watched?: boolean; remembered?: Record<string, strin
   };
   // Nothing is styled here: a card has no padding of its own unless a test says where things are.
   const getComputedStyle = () => ({});
-  const context = vm.createContext({ document, window, getComputedStyle, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, fetch: () => Promise.reject(new Error('a test asks nobody')), ...watched });
+  // A browser has a cryptographic generator, and the page makes its television's secret from it.
+  const context = vm.createContext({ document, window, getComputedStyle, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, crypto: globalThis.crypto, fetch: () => Promise.reject(new Error('a test asks nobody')), ...watched });
   vm.runInContext(readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8'), context, { filename: 'device.js' });
 
   // Paired as the resident's television, and connected — or the television the tab remembered being, restored by the page itself.
@@ -2799,6 +2800,43 @@ describe('the browser television — learning that it has been disconnected', ()
     expect(tv.evaluate('film')).toBeNull();
     expect(tv.sent().length).toBe(before);
     expect(before).toBeGreaterThanOrEqual(sent);
+  });
+
+  // INV-1: the id alone is worth nothing to the pairing service once the television has a secret.
+  it('asks with the secret it was paired with, in the body, when it has one', async () => {
+    const secret = 'f'.repeat(64);
+    const tv = television({ watched: true, remembered: { wick_virtual_television: JSON.stringify({ kind: 'resident', jwt: 'a.b.c', deviceId: 'ops-console-7', proof: secret }) } });
+    tv.advance(60_000);
+
+    const ask = standingAsks(tv)[0]!;
+    expect(ask.body).toEqual({ deviceId: 'ops-console-7', proof: secret });
+    expect(Object.keys(ask.headers).map((name) => name.toLowerCase())).toEqual(['content-type']);
+  });
+
+  it('pairs as a television nobody can guess the id of, with a secret of its own, and never shows the id', async () => {
+    const tv = connected();
+    tv.advance(60_000);
+    standingAsks(tv)[0]!.answer(404);
+    await tv.settle();
+
+    tv.press('Pair again');
+
+    const start = tv.asked.at(-1)!;
+    expect(start.body).toMatchObject({ deviceId: expect.stringMatching(/^ops-console-[0-9a-f]{32}$/), proof: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(tv.detail()).not.toContain('ops-console');
+  });
+
+  it('makes no secret on a page without a cryptographic generator — never one from Math.random — and still pairs', async () => {
+    const tv = connected();
+    tv.advance(60_000);
+    standingAsks(tv)[0]!.answer(404);
+    await tv.settle();
+    tv.evaluate('globalThis.crypto = undefined');
+
+    tv.press('Pair again');
+
+    const start = tv.asked.at(-1)!;
+    expect(start.body).toEqual({ deviceId: expect.stringMatching(/^ops-console-[0-9a-f]{32}$/) });
   });
 
   it('offers to pair again, and that starts a pairing', async () => {

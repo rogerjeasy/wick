@@ -173,17 +173,42 @@ describe('televisions', () => {
     const { store } = recorder([
       {
         Items: [
-          { sk: { S: 'DEV#tv-1' }, deviceId: { S: 'tv-1' }, pairedAt: { N: '5' }, connectionId: { S: 'c1' } },
-          { sk: { S: 'DEV#tv-2' }, deviceId: { S: 'tv-2' }, pairedAt: { N: '6' } },
-          { sk: { S: 'DEV#tv-3' }, deviceId: { S: 'tv-3' }, denylisted: { BOOL: true } },
+          { sk: { S: 'DEV#tv-1' }, deviceId: { S: 'tv-1' }, televisionRef: { S: 'ref-1' }, pairedAt: { N: '5' }, connectionId: { S: 'c1' } },
+          { sk: { S: 'DEV#tv-2' }, deviceId: { S: 'tv-2' }, televisionRef: { S: 'ref-2' }, pairedAt: { N: '6' } },
+          { sk: { S: 'DEV#tv-3' }, deviceId: { S: 'tv-3' }, televisionRef: { S: 'ref-3' }, denylisted: { BOOL: true } },
         ],
       },
     ]);
 
     expect(await store.listTelevisions('hh_1')).toEqual([
-      { deviceId: 'tv-1', pairedAt: 5, connected: true },
-      { deviceId: 'tv-2', pairedAt: 6, connected: false },
+      { deviceId: 'tv-1', ref: 'ref-1', pairedAt: 5, connected: true },
+      { deviceId: 'tv-2', ref: 'ref-2', pairedAt: 6, connected: false },
     ]);
+  });
+
+  // INV-1: the family app names a television by its ref, never its id. A
+  // row paired before the pairing Lambda wrote one is given one here, once.
+  it('gives a television paired before refs a random one, the first time it is listed, and only over nothing', async () => {
+    const { sent, store } = recorder([{ Items: [{ sk: { S: 'DEV#tv-old' }, deviceId: { S: 'tv-old' }, pairedAt: { N: '5' } }] }, {}]);
+
+    const [tv] = await store.listTelevisions('hh_1');
+
+    expect(tv!.ref).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(tv!.ref).not.toContain('tv-old');
+    expect((sent[1] as UpdateItemCommand).input).toMatchObject({
+      Key: { pk: { S: 'HH#hh_1' }, sk: { S: 'DEV#tv-old' } },
+      UpdateExpression: 'SET televisionRef = :ref',
+      ConditionExpression: 'attribute_exists(pk) AND attribute_not_exists(televisionRef)',
+      ExpressionAttributeValues: { ':ref': { S: tv!.ref } },
+    });
+  });
+
+  it('takes the ref another request gave it meanwhile, and leaves out a television that went', async () => {
+    const given = recorder([{ Items: [{ sk: { S: 'DEV#tv-old' }, deviceId: { S: 'tv-old' } }] }, conditionFailed(), { Item: { televisionRef: { S: 'theirs' } } }]);
+    expect((await given.store.listTelevisions('hh_1')).map((tv) => tv.ref)).toEqual(['theirs']);
+
+    const gone = recorder([{ Items: [{ sk: { S: 'DEV#tv-old' }, deviceId: { S: 'tv-old' } }] }, conditionFailed(), {}]);
+    expect(await gone.store.listTelevisions('hh_1')).toEqual([]);
   });
 });
 
@@ -217,8 +242,8 @@ describe('family televisions — a member’s own', () => {
     const { sent, store } = recorder([
       {
         Items: [
-          { sk: { S: 'FTV#tv-sarah' }, deviceId: { S: 'tv-sarah' }, userId: { S: 'u_sarah' }, pairedAt: { N: '7' }, denylisted: { BOOL: false } },
-          { sk: { S: 'FTV#tv-tom' }, userId: { S: 'u_tom' } },
+          { sk: { S: 'FTV#tv-sarah' }, deviceId: { S: 'tv-sarah' }, televisionRef: { S: 'ref-sarah' }, userId: { S: 'u_sarah' }, pairedAt: { N: '7' }, denylisted: { BOOL: false } },
+          { sk: { S: 'FTV#tv-tom' }, televisionRef: { S: 'ref-tom' }, userId: { S: 'u_tom' } },
           { sk: { S: 'FTV#tv-gone' }, deviceId: { S: 'tv-gone' }, userId: { S: 'u_tom' }, denylisted: { BOOL: true } },
           // A row that does not say whose it is belongs to nobody, and is not listed.
           { sk: { S: 'FTV#tv-nobody' }, deviceId: { S: 'tv-nobody' } },
@@ -227,8 +252,8 @@ describe('family televisions — a member’s own', () => {
     ]);
 
     expect(await store.listFamilyTelevisions('hh_1')).toEqual([
-      { deviceId: 'tv-sarah', userId: 'u_sarah', pairedAt: 7 },
-      { deviceId: 'tv-tom', userId: 'u_tom' },
+      { deviceId: 'tv-sarah', ref: 'ref-sarah', userId: 'u_sarah', pairedAt: 7 },
+      { deviceId: 'tv-tom', ref: 'ref-tom', userId: 'u_tom' },
     ]);
     // Never the DEV# rows: those are the resident's televisions.
     expect((sent[0] as QueryCommand).input).toMatchObject({

@@ -1,8 +1,10 @@
 /**
  * Who may watch the front door, and when (spec §4.3, "Security bound").
  *
- * The device token that asks is extractable (INV-1's accepted exception:
- * /pair/refresh mints one without proof of possession). So a live view is
+ * The device token that asks is extractable, and for a television that keeps
+ * no secret — the Vega Virtual Device — /pair/refresh mints one from its id
+ * alone (INV-1's accepted exception; a television that keeps one is refused
+ * such a token, deviceToken.ts `refusesUnproven`). So a live view is
  * only granted while someone is plausibly at the door: for a DOOR card of
  * this household that offered Watch live and is under five minutes old. That
  * bounds what a stolen token can see; it does not eliminate it, and the

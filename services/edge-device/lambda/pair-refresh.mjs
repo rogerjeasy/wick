@@ -1,5 +1,5 @@
 /**
- * POST /pair/refresh {deviceId} — mints a fresh device-bound JWT for a
+ * POST /pair/refresh {deviceId, proof?} — mints a fresh device-bound JWT for a
  * television that is already paired, without going through a new six-digit
  * code.
  *
@@ -15,25 +15,39 @@
  * It used to be read from the request body, so a caller could name any
  * household a device id happened to be bound under.
  *
- * SECURITY NOTE (root cause: FRICTION.md FL-013): this endpoint still has
- * no proof of possession — the device id is the only input, and on a
- * television whose storage does not persist it is a constant in the build
- * (apps/tv-vega/src/deviceId.ts). Anyone who knows a paired television's
- * id can mint a token for it. The textbook fix — a client-held asymmetric
- * keypair, proof-of-possession on refresh — doesn't work in this codebase
- * today: the client can't persist anything reliably, and since this repo is
- * open source, no client-embedded secret would be confidential either.
- * Accepted, bounded trade-off instead: INV-1 already scopes what this token
- * can do (no Ring/family-surface access — see PairingFlow.ts),
- * REFRESH_TOKEN_TTL_SEC is far shorter than a real pairing's token so a
- * wrongly-minted one expires fast, the cooldown throttles repeated minting,
- * and a television with working storage generates an unguessable id of its
- * own. Revisit if SP-8 (real Fire TV hardware, FRICTION.md Open Slots) shows
- * on-device storage actually works there, since that would make real
- * proof-of-possession viable.
+ * PROOF OF POSSESSION (proof.mjs). A television's id is not a secret: it
+ * was shown to family members, it was logged, and on every Vega Virtual
+ * Device it is the constant `wick-tv`. So:
+ *
+ *   - A row that holds a proof (`proofHash`) is answered only for a request
+ *     that sends the secret it is the hash of (`proof` in the body,
+ *     compared in constant time). Without it: 401 `proof_required`, before
+ *     anything is counted, so a stranger cannot use up the television's
+ *     share of refreshes either. The television made that secret when it
+ *     was paired (pair-start.mjs) and keeps it in its own storage.
+ *   - A row with no proof — paired before proofs existed, or by a
+ *     television that can keep nothing — takes one the first time the
+ *     television sends a secret WITH a token that proves it: a resident's
+ *     token minted with proof and not run out (proof.mjs `isUnproven`), or a
+ *     family television's own full token, not run out. From then on the
+ *     row is under the rule above. A token minted without proof can never
+ *     enrol one, so whoever minted it cannot take the television over or
+ *     lock it out. Enrolled in the conditional write that counts the
+ *     refresh, so two enrolments cannot both win.
+ *   - A resident's row with no proof is still answered from the id alone:
+ *     the KNOWN ACCEPTED EXCEPTION (AGENTS.md INV-1). It exists for the Vega
+ *     Virtual Device, whose disk keeps nothing (FRICTION.md FL-013/FL-014):
+ *     its separate CardService process has no other way to learn it is
+ *     paired, and a secret it made would be gone at the next launch. Such a
+ *     token says `proof: 'none'`, and is refused everywhere the moment the
+ *     row takes a proof (proof.mjs `refusesUnproven`). Bounded, not
+ *     eliminated: REFRESH_TOKEN_TTL_SEC (an hour) and the per-device
+ *     cooldown. Anyone who knows such a television's id can still mint its
+ *     token; for the simulator that id is public.
  *
  * A family member's own television is not under that exception: its token
- * is minted only for one that shows the token it held (below).
+ * is minted only for one that shows the token it held (below), and the
+ * secret as well once its row holds one.
  *
  * SECOND KNOWN EXCEPTION, CONTAINED — what waits, said off the screen
  * (root cause: FRICTION.md FL-013 again, and what was found on the Vega
@@ -141,6 +155,8 @@ import { signJwt, verifyJwt } from './jwt.mjs';
 import { REFRESH_TOKEN_TTL_SEC, nextRefreshWindow } from './pairing-code.mjs';
 import { deviceOwnerKey, householdOfDevice } from './device-owner.mjs';
 import { FAMILY_KIND, SERVICE_SESSION_MAX_MS, SERVICE_WINDOW_MS, WAITING_SCOPE, familyClaims, familyTelevisionKey } from './family-television.mjs';
+import { PROVEN_BY_SECRET, UNPROVEN, isProof, isUnproven, proofHashOf, proofMatches } from './proof.mjs';
+import { isResidentsToken } from './device-standing.mjs';
 
 /** The bearer token of a request, whatever case the header arrived in. */
 function bearer(headers) {
@@ -187,6 +203,16 @@ function addressFingerprint(event, deviceId, signingKeyPem) {
  */
 const OWN_REFRESHES = { at: 'refreshWindowAt', count: 'refreshCount' };
 const NARROW_REFRESHES = { at: 'serviceRefreshWindowAt', count: 'serviceRefreshCount' };
+/**
+ * And a third, for the resident's television answered from its id alone
+ * (the exception, proof.mjs). Anybody who knows the id can be counted there,
+ * so nothing proven is: a stranger asking over and over can use up only
+ * this share, never the one a television showing its secret, or enrolling
+ * one, is counted in. (Where the row keeps no secret the television itself
+ * is counted here too — the simulator, which has nothing to prove itself
+ * with.)
+ */
+const UNPROVEN_REFRESHES = { at: 'unprovenRefreshWindowAt', count: 'unprovenRefreshCount' };
 
 export function createHandler({ send, privateKey, publicKey, now, table }) {
   return async (event) => {
@@ -197,7 +223,9 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
       return { statusCode: 400, body: 'bad_json' };
     }
     const { deviceId } = body;
-    if (!deviceId) return { statusCode: 400, body: 'deviceId_required' };
+    if (typeof deviceId !== 'string' || !deviceId) return { statusCode: 400, body: 'deviceId_required' };
+    // The television's secret, when it has one (proof.mjs). Anything not shaped like one is no proof at all.
+    const proof = isProof(body.proof) ? body.proof : undefined;
 
     const owner = await send(new GetItemCommand({ TableName: table, Key: deviceOwnerKey(deviceId) }));
     const householdId = householdOfDevice(owner.Item);
@@ -224,6 +252,11 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
     // `serviceSince` when the service is let in, and carried unchanged in
     // every narrow token of that session as the claim `since`.
     let since;
+    // What the row holds of the television's secret, as read; whether this
+    // request showed that secret; whether it enrols one (proof.mjs).
+    let storedHash;
+    let proven = false;
+    let enrols = false;
 
     // Counted on the binding row, and written only if the row still says
     // what was read: the app and its card service ask a second apart, and
@@ -232,7 +265,35 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
       const item = (await send(new GetItemCommand({ TableName: table, Key: bindingKey }))).Item;
       if (!item) return { statusCode: 404, body: 'device_not_paired' };
       if (item.denylisted?.BOOL) return { statusCode: 403, body: 'device_denylisted' };
-      if (!isResidents) {
+      storedHash = item.proofHash?.S;
+      proven = false;
+      enrols = false;
+      if (isResidents) {
+        if (storedHash) {
+          // This television keeps a secret: nothing without it. Refused
+          // before anything is counted, so a stranger who knows the id
+          // cannot use up the television's own share of refreshes.
+          if (!proofMatches(proof, storedHash)) return { statusCode: 401, body: 'proof_required' };
+          proven = true;
+        } else if (proof && publicKey) {
+          // A row with no proof yet takes this one only from a television
+          // that proves itself another way: a token of its own, minted with
+          // proof and not run out. An unproven token proves nothing, so it
+          // can never enrol a secret — and without that, the request is
+          // answered under the exception, exactly as before.
+          const heldToken = bearer(event.headers);
+          let held;
+          try {
+            held = heldToken ? verifyJwt(heldToken, await publicKey()) : undefined;
+          } catch {
+            held = undefined;
+          }
+          if (held && isResidentsToken(held) && held.deviceId === deviceId && held.householdId === householdId && !isUnproven(held)) {
+            proven = true;
+            enrols = true;
+          }
+        }
+      } else {
         familyUserId = item.userId?.S;
         if (!familyUserId) return { statusCode: 404, body: 'device_not_paired' };
         // A family television shows one person's view of a home, so its token
@@ -287,6 +348,27 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
             // Read here only to save a write: the gate is the condition below.
             if (item.serviceSince?.N !== String(held.since)) return { statusCode: 401, body: 'session_replaced' };
           }
+          if (held.scope === undefined) {
+            // The television's own full token. Where its row keeps a secret,
+            // the token alone is not enough: one copied off the television, or
+            // run out and found later, is no use without the secret too. A
+            // row with no secret yet takes one shown with a token that has
+            // not run out.
+            if (storedHash) {
+              if (!proofMatches(proof, storedHash)) return { statusCode: 401, body: 'proof_required' };
+              proven = true;
+            } else if (proof) {
+              let current = false;
+              try {
+                verifyJwt(heldToken, await publicKey());
+                current = true;
+              } catch {
+                current = false;
+              }
+              proven = current;
+              enrols = current;
+            }
+          }
           claims = false;
           scope = held.scope;
           since = held.scope === undefined ? undefined : held.since;
@@ -295,8 +377,8 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
       }
 
       // A narrow token — being minted, or being renewed — is counted in its
-      // own place, and nothing else is.
-      const bucket = scope ? NARROW_REFRESHES : OWN_REFRESHES;
+      // own place, and nothing else is; so is a mint from the id alone.
+      const bucket = scope ? NARROW_REFRESHES : isResidents && !proven ? UNPROVEN_REFRESHES : OWN_REFRESHES;
       const next = nextRefreshWindow({ refreshWindowAt: item[bucket.at], refreshCount: item[bucket.count] }, now());
       if (!next) return { statusCode: 429, body: 'refresh_rate_limited' };
       const counted = item[bucket.at] && item[bucket.count];
@@ -319,14 +401,20 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
           // copy of that token would go on with it. Ended, the service is
           // refused at its next question, knocks, and is let in afresh
           // inside this same way.
-          UpdateExpression: `SET ${bucket.at} = :at, ${bucket.count} = :count${opens ? ', serviceUntil = :until, serviceFrom = :from REMOVE serviceSince' : ''}${claims ? ', serviceSince = :since, serviceLastSince = :since REMOVE serviceUntil, serviceFrom' : ''}`,
+          //
+          // And the row's proof is as it was read: the secret checked above
+          // is still the one it keeps, a row with none has still none — so a
+          // refresh that raced an enrolment is asked again under the new
+          // rule — and a secret is enrolled only over nothing.
+          UpdateExpression: `SET ${bucket.at} = :at, ${bucket.count} = :count${enrols ? ', proofHash = :proofHash' : ''}${opens ? ', serviceUntil = :until, serviceFrom = :from REMOVE serviceSince' : ''}${claims ? ', serviceSince = :since, serviceLastSince = :since REMOVE serviceUntil, serviceFrom' : ''}`,
           ConditionExpression: `${counted
             ? `${bucket.at} = :wasAt AND ${bucket.count} = :wasCount`
-            : `attribute_exists(pk) AND attribute_not_exists(${bucket.at})`}${claims ? ' AND serviceUntil > :now AND serviceFrom = :from' : ''}${scope && !claims ? ' AND serviceSince = :since' : ''}`,
+            : `attribute_exists(pk) AND attribute_not_exists(${bucket.at})`}${storedHash ? ' AND proofHash = :proofHash' : ' AND attribute_not_exists(proofHash)'}${claims ? ' AND serviceUntil > :now AND serviceFrom = :from' : ''}${scope && !claims ? ' AND serviceSince = :since' : ''}`,
           ExpressionAttributeValues: {
             ':at': { N: String(next.at) },
             ':count': { N: String(next.count) },
             ...(counted ? { ':wasAt': item[bucket.at], ':wasCount': item[bucket.count] } : {}),
+            ...(storedHash ? { ':proofHash': { S: storedHash } } : enrols ? { ':proofHash': { S: proofHashOf(proof) } } : {}),
             ...(opens ? { ':until': { N: String(now() + SERVICE_WINDOW_MS) }, ':from': { S: from } } : {}),
             ...(claims ? { ':now': { N: String(now()) }, ':from': { S: from } } : {}),
             ...(scope ? { ':since': { N: String(since) } } : {}),
@@ -339,7 +427,11 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
       }
     }
 
-    const tokenClaims = { deviceId, householdId, ...(familyUserId ? familyClaims(familyUserId, scope, since) : {}) };
+    // How the token was earned (proof.mjs). Only the resident's television is
+    // ever minted one from its id alone, and then it says so; a family
+    // television's token always rested on the token it showed.
+    const proofClaim = proven ? { proof: PROVEN_BY_SECRET } : isResidents ? { proof: UNPROVEN } : {};
+    const tokenClaims = { deviceId, householdId, ...(familyUserId ? familyClaims(familyUserId, scope, since) : {}), ...proofClaim };
     const jwt = signJwt(tokenClaims, await privateKey(), { expiresInSec: REFRESH_TOKEN_TTL_SEC });
     const token = {
       jwt,

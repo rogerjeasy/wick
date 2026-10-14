@@ -74,6 +74,15 @@ data "aws_iam_policy_document" "pair_claim" {
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }
+  # A television paired again takes a new id; the row under its old one is
+  # removed in the same home, only if it keeps the proof the television showed
+  # (pair-claim.mjs removeReplaced). Without this the old row is revoked
+  # instead, which UpdateItem already allows.
+  statement {
+    sid       = "RemoveReplacedTelevision"
+    actions   = ["dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.wick.arn]
+  }
   statement {
     sid       = "ReadSigningKey"
     actions   = ["secretsmanager:GetSecretValue"]

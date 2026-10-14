@@ -33,6 +33,7 @@ import {
   type HouseholdLanguage,
   type MemberStatus,
 } from '@wick/contracts';
+import { randomBytes } from 'node:crypto';
 import { announcedVisitPrefix } from './announcedVisits.js';
 import type { AskedLanguage, FamilyTelevision, Household, Membership, OwnedRecord, RecordKind, Television, User } from './types.js';
 
@@ -223,6 +224,35 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
       startKey = page.LastEvaluatedKey;
     } while (startKey);
     return items;
+  };
+
+  /**
+   * The name the family app calls a television by (`televisionRef`). The
+   * pairing Lambda writes one on every row it connects; a row paired before
+   * it did is given one here, the first time it is listed, and keeps it.
+   * Undefined for a row that went while this was being asked.
+   */
+  const televisionRefOf = async (householdId: string, item: Item): Promise<string | undefined> => {
+    const held = item.televisionRef?.S;
+    if (held) return held;
+    if (!item.sk?.S) return undefined;
+    const Key = { pk: householdPk(householdId), sk: item.sk };
+    try {
+      const ref = randomBytes(16).toString('base64url');
+      await send(new UpdateItemCommand({
+        TableName: table,
+        Key,
+        UpdateExpression: 'SET televisionRef = :ref',
+        ConditionExpression: 'attribute_exists(pk) AND attribute_not_exists(televisionRef)',
+        ExpressionAttributeValues: { ':ref': { S: ref } },
+      }));
+      return ref;
+    } catch (err) {
+      if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
+      // Given one by another request meanwhile, or gone.
+      const again = await send(new GetItemCommand({ TableName: table, Key, ConsistentRead: true }));
+      return again.Item?.televisionRef?.S;
+    }
   };
 
   return {
@@ -457,13 +487,18 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
         ExpressionAttributeValues: { ':pk': householdPk(householdId), ':prefix': { S: 'DEV#' } },
       });
-      return items
-        .filter((item) => item.denylisted?.BOOL !== true)
-        .map((item) => ({
+      const listed: Television[] = [];
+      for (const item of items.filter((row) => row.denylisted?.BOOL !== true)) {
+        const ref = await televisionRefOf(householdId, item);
+        if (!ref) continue;
+        listed.push({
           deviceId: item.deviceId?.S ?? item.sk?.S?.replace(/^DEV#/, '') ?? '',
+          ref,
           ...(item.pairedAt?.N ? { pairedAt: Number(item.pairedAt.N) } : {}),
           connected: Boolean(item.connectionId?.S),
-        }));
+        });
+      }
+      return listed;
     },
 
     async removeTelevision(householdId, deviceId) {
@@ -495,13 +530,17 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
         ExpressionAttributeValues: { ':pk': householdPk(householdId), ':prefix': { S: FAMILY_TV_SK_PREFIX } },
       });
-      return items.flatMap((item): FamilyTelevision[] => {
+      const listed: FamilyTelevision[] = [];
+      for (const item of items) {
         const deviceId = item.deviceId?.S ?? item.sk?.S?.slice(FAMILY_TV_SK_PREFIX.length);
         const userId = item.userId?.S;
         // One revoked, or one that does not say whose it is, is nobody's television.
-        if (!deviceId || !userId || item.denylisted?.BOOL === true) return [];
-        return [{ deviceId, userId, ...(item.pairedAt?.N ? { pairedAt: Number(item.pairedAt.N) } : {}) }];
-      });
+        if (!deviceId || !userId || item.denylisted?.BOOL === true) continue;
+        const ref = await televisionRefOf(householdId, item);
+        if (!ref) continue;
+        listed.push({ deviceId, ref, userId, ...(item.pairedAt?.N ? { pairedAt: Number(item.pairedAt.N) } : {}) });
+      }
+      return listed;
     },
 
     async removeFamilyTelevision(householdId, deviceId, ownedBy) {

@@ -284,7 +284,22 @@ describe('describeCircle', () => {
       { userId: 'u_sarah', name: 'Sarah Bennett', role: 'organiser', status: 'allowed', you: true },
       { userId: 'u_tom', name: 'Tom', role: 'family', status: 'pending', you: false },
     ]);
-    expect(circle.televisions).toEqual([{ deviceId: 'tv-1', pairedAt: 5, connected: true }]);
+    expect(circle.televisions).toEqual([{ ref: 'ref-tv-1', pairedAt: 5, connected: true }]);
+  });
+
+  // INV-1: a television's id is what a refresh is asked for by. The family is shown a ref, and nothing of the id.
+  it('never tells anyone a television’s device id — the resident’s, or a member’s own', async () => {
+    const { deps, store } = setup();
+    const household = await createHousehold(deps, SARAH, { residentName: 'Margaret' });
+    await residentAnswers(deps, household.householdId, 'u_sarah', 'allowed');
+    store.addTelevision(household.householdId, { deviceId: 'wick-secret-id-1', ref: 'opaque-1', pairedAt: 5, connected: true });
+    store.addFamilyTelevision(household.householdId, { deviceId: 'wick-secret-id-2', ref: 'opaque-2', userId: 'u_sarah', pairedAt: 7 });
+
+    const circle = await describeCircle(deps, household.householdId, 'u_sarah');
+
+    expect(JSON.stringify(circle)).not.toContain('wick-secret-id');
+    expect(circle.televisions.map((tv) => tv.ref)).toEqual(['opaque-1']);
+    expect(circle.familyTelevisions.map((tv) => tv.ref)).toEqual(['opaque-2']);
   });
 
   it('lists the family’s own televisions apart from the resident’s, oldest first, by whose each is', async () => {
@@ -301,10 +316,10 @@ describe('describeCircle', () => {
     const circle = await describeCircle(deps, household.householdId, 'u_sarah');
 
     // The resident's televisions are counted in sentences; a family member's is never one of them.
-    expect(circle.televisions).toEqual([{ deviceId: 'tv-1', pairedAt: 5, connected: true }]);
+    expect(circle.televisions).toEqual([{ ref: 'ref-tv-1', pairedAt: 5, connected: true }]);
     expect(circle.familyTelevisions).toEqual([
-      { deviceId: 'tv-sarah', userId: 'u_sarah', memberName: 'Sarah Bennett', pairedAt: 7, yours: true },
-      { deviceId: 'tv-tom', userId: 'u_tom', memberName: 'Tom', pairedAt: 9, yours: false },
+      { ref: 'ref-tv-sarah', userId: 'u_sarah', memberName: 'Sarah Bennett', pairedAt: 7, yours: true },
+      { ref: 'ref-tv-tom', userId: 'u_tom', memberName: 'Tom', pairedAt: 9, yours: false },
     ]);
   });
 
@@ -322,7 +337,7 @@ describe('describeCircle', () => {
     const circle = await describeCircle(deps, household.householdId, 'u_sarah');
 
     expect(circle.members.map((m) => m.userId)).toEqual(['u_sarah']);
-    expect(circle.familyTelevisions).toEqual([{ deviceId: 'tv-tom', userId: 'u_tom', memberName: 'Tom', pairedAt: 9, yours: false }]);
+    expect(circle.familyTelevisions).toEqual([{ ref: 'ref-tv-tom', userId: 'u_tom', memberName: 'Tom', pairedAt: 9, yours: false }]);
   });
 
   it('INV-9: tells nobody about the family’s televisions before the resident has allowed them', async () => {

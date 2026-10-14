@@ -1,8 +1,10 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { GetItemCommand, PutItemCommand, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
-import { createHandler } from '../pair-claim.mjs';
+import { createHandler, removeReplaced } from '../pair-claim.mjs';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { proofHashOf } from '../proof.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { verifyJwt } from '../jwt.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
@@ -139,7 +141,7 @@ describe('POST /pair/claim as a family television — "this one is mine"', () =>
     const res = await handler(event({ code: '123456', as: 'family' }));
 
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ ok: true, deviceId: 'tv-1', kind: 'family' });
+    expect(JSON.parse(res.body)).toEqual({ ok: true, kind: 'family' });
     // Never a DEV# row: that is what every card for the resident, and every press that counts as hers, is keyed on.
     expect(writeTo(writes, 'HH#hh_1|DEV#tv-1')).toBeUndefined();
     const row = writeTo(writes, 'HH#hh_1|FTV#tv-1') as UpdateItemCommand;
@@ -199,7 +201,7 @@ describe('POST /pair/claim as a family television — "this one is mine"', () =>
 
     // No `as`: the resident's television, the organiser's to connect, a DEV# row, and no kind in the token.
     const { handler, writes } = world();
-    expect(JSON.parse((await handler(event({ code: '123456' }))).body)).toEqual({ ok: true, deviceId: 'tv-1' });
+    expect(JSON.parse((await handler(event({ code: '123456' }))).body)).toEqual({ ok: true });
     expect(writeTo(writes, 'HH#hh_1|DEV#tv-1')).toBeDefined();
     const delivered = JSON.parse((writeTo(writes, 'PAIR#123456|META') as UpdateItemCommand).input.ExpressionAttributeValues![':tok']!.S!) as { jwt: string; kind?: string };
     expect(delivered.kind).toBeUndefined();
@@ -225,3 +227,148 @@ describe('POST /pair/claim — one television, one kind', () => {
   });
 });
 
+
+// INV-1: a television's id is not a secret, so the pairing carries the
+// television's proof (proof.mjs) to its row, and a television paired again
+// under a new id leaves no row behind under the old one.
+describe('POST /pair/claim — the television’s proof, its name for the family, and the one it replaces', () => {
+  const SECRET_HASH = proofHashOf('s'.repeat(20) + '0123456789abcdef0123456789abcdef0123456789ab');
+  const OLD_HASH = proofHashOf('o'.repeat(20) + '0123456789abcdef0123456789abcdef0123456789ab');
+  const writeTo = (writes: Command[], key: string) =>
+    writes.find((w) => keyOf(((w.input as { Item?: Item }).Item ?? (w.input as { Key?: Item }).Key) as Item) === key);
+  const binding = (writes: Command[], key = 'HH#hh_1|DEV#tv-1') => writeTo(writes, key) as UpdateItemCommand;
+
+  it('puts the hash the code was asked for with on the television’s row, and the token says it was earned by pairing', async () => {
+    const { handler, writes } = world({ 'PAIR#123456|META': { ...pairingCode, proofHash: { S: SECRET_HASH } } });
+
+    expect((await handler(event({ code: '123456' }))).statusCode).toBe(200);
+
+    const row = binding(writes).input;
+    expect(row.UpdateExpression).toContain('proofHash = :proofHash');
+    expect(row.ExpressionAttributeValues![':proofHash']).toEqual({ S: SECRET_HASH });
+    const delivered = JSON.parse((writeTo(writes, 'PAIR#123456|META') as UpdateItemCommand).input.ExpressionAttributeValues![':tok']!.S!) as { jwt: string };
+    expect(verifyJwt(delivered.jwt, publicKey)).toMatchObject({ proof: 'pairing' });
+  });
+
+  it('makes a secret for a television that asked for one, keeps only its hash on the row, and leaves the secret for the poll alone', async () => {
+    const { handler, writes } = world({ 'PAIR#123456|META': { ...pairingCode, keeps: { BOOL: true } } });
+
+    expect((await handler(event({ code: '123456' }))).statusCode).toBe(200);
+
+    const nonce = (writeTo(writes, 'PAIR#123456|META') as UpdateItemCommand).input;
+    const secret = nonce.ExpressionAttributeValues![':proof']!.S!;
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(nonce.UpdateExpression).toContain('deliveryProof = :proof');
+    expect(binding(writes).input.ExpressionAttributeValues![':proofHash']).toEqual({ S: proofHashOf(secret) });
+    expect(JSON.stringify(binding(writes).input)).not.toContain(secret);
+  });
+
+  it('never makes one for the simulator’s id, nor over a secret the television made itself', async () => {
+    const simulator = world({ 'PAIR#123456|META': { ...pairingCode, deviceId: { S: 'wick-tv' }, keeps: { BOOL: true } } });
+    await simulator.handler(event({ code: '123456' }));
+    expect((writeTo(simulator.writes, 'PAIR#123456|META') as UpdateItemCommand).input.ExpressionAttributeValues).not.toHaveProperty(':proof');
+    expect(binding(simulator.writes, 'HH#hh_1|DEV#wick-tv').input.UpdateExpression).toMatch(/ REMOVE proofHash$/);
+
+    const own = world({ 'PAIR#123456|META': { ...pairingCode, keeps: { BOOL: true }, proofHash: { S: SECRET_HASH } } });
+    await own.handler(event({ code: '123456' }));
+    expect((writeTo(own.writes, 'PAIR#123456|META') as UpdateItemCommand).input.ExpressionAttributeValues).not.toHaveProperty(':proof');
+    expect(binding(own.writes).input.ExpressionAttributeValues![':proofHash']).toEqual({ S: SECRET_HASH });
+  });
+
+  it('leaves a television paired without a proof with none — even over a row that had one', async () => {
+    const { handler, writes } = world();
+
+    await handler(event({ code: '123456' }));
+
+    expect(binding(writes).input.UpdateExpression).toMatch(/ REMOVE proofHash$/);
+    expect(binding(writes).input.ExpressionAttributeValues).not.toHaveProperty(':proofHash');
+  });
+
+  it('gives the television a random name for the family app, and keeps the one a row already has', async () => {
+    const first = world();
+    await first.handler(event({ code: '123456' }));
+    const second = world();
+    await second.handler(event({ code: '123456' }));
+
+    const refOf = (writes: Command[]) => binding(writes).input.ExpressionAttributeValues![':ref']!.S!;
+    expect(binding(first.writes).input.UpdateExpression).toContain('televisionRef = if_not_exists(televisionRef, :ref)');
+    expect(refOf(first.writes)).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(refOf(first.writes)).not.toContain('tv-1');
+    expect(refOf(first.writes)).not.toBe(refOf(second.writes));
+  });
+
+  it('never says the device id back to the Wick server', async () => {
+    const { handler } = world();
+    expect((await handler(event({ code: '123456' }))).body).not.toContain('tv-1');
+  });
+
+  /** A table that records every write, and answers a transaction as `transact` says. */
+  function replacing(transact: (command: TransactWriteItemsCommand) => void) {
+    const writes: (Command | TransactWriteItemsCommand)[] = [];
+    const items: Record<string, Item> = {
+      [keyOf(accessTokenKey(TOKEN))]: tokenItem(),
+      'HH#hh_1|MEM#u_sarah': member('organiser', 'allowed'),
+      'PAIR#123456|META': { ...pairingCode, proofHash: { S: SECRET_HASH }, replacesDeviceId: { S: 'tv-old' }, replacesProofHash: { S: OLD_HASH } },
+    };
+    const send = async (command: Command | TransactWriteItemsCommand) => {
+      if (command instanceof GetItemCommand) return { Item: items[keyOf(command.input.Key as Item)] };
+      writes.push(command);
+      if (command instanceof TransactWriteItemsCommand) transact(command);
+      return {};
+    };
+    return { writes, handler: createHandler({ send, privateKey: async () => privateKey, now: () => NOW, table: 'wick' }) };
+  }
+
+  it('removes the row of the television this one was — in this home, only if it keeps the same proof — and its claim on the old id', async () => {
+    const { handler, writes } = replacing(() => undefined);
+
+    expect((await handler(event({ code: '123456' }))).statusCode).toBe(200);
+
+    const removal = writes.find((w) => w instanceof TransactWriteItemsCommand) as TransactWriteItemsCommand;
+    const [row, claim] = removal.input.TransactItems!;
+    expect(row!.Delete).toMatchObject({
+      Key: { pk: { S: 'HH#hh_1' }, sk: { S: 'DEV#tv-old' } },
+      ConditionExpression: 'proofHash = :proofHash',
+      ExpressionAttributeValues: { ':proofHash': { S: OLD_HASH } },
+    });
+    expect(claim!.Delete).toMatchObject({
+      Key: { pk: { S: 'DEV#tv-old' }, sk: { S: 'META' } },
+      ConditionExpression: 'attribute_not_exists(pk) OR householdId = :hh',
+      ExpressionAttributeValues: { ':hh': { S: 'hh_1' } },
+    });
+  });
+
+  it('looks for it among the family’s televisions when it was not the resident’s, and removes nothing whose proof differs', async () => {
+    const tried: string[] = [];
+    const { handler } = replacing((command) => {
+      tried.push(keyOf(command.input.TransactItems![0]!.Delete!.Key as Item));
+      throw Object.assign(new Error('cancelled'), { name: 'TransactionCanceledException' });
+    });
+
+    expect((await handler(event({ code: '123456' }))).statusCode).toBe(200);
+    expect(tried).toEqual(['HH#hh_1|DEV#tv-old', 'HH#hh_1|FTV#tv-old']);
+  });
+
+  it('revokes the old row where it may not delete it yet, and never fails the pairing for it', async () => {
+    const { handler, writes } = replacing(() => {
+      throw Object.assign(new Error('no'), { name: 'AccessDeniedException' });
+    });
+
+    expect((await handler(event({ code: '123456' }))).statusCode).toBe(200);
+
+    const revoked = writes.find((w) => w instanceof UpdateItemCommand && keyOf(w.input.Key as Item) === 'HH#hh_1|DEV#tv-old') as UpdateItemCommand;
+    expect(revoked.input).toMatchObject({
+      UpdateExpression: 'SET denylisted = :true',
+      ConditionExpression: 'proofHash = :proofHash',
+      ExpressionAttributeValues: { ':true': { BOOL: true }, ':proofHash': { S: OLD_HASH } },
+    });
+  });
+
+  it('says which it did, and never throws', async () => {
+    const send = async () => {
+      throw Object.assign(new Error('down'), { name: 'InternalServerError' });
+    };
+    expect(await removeReplaced({ send, table: 'wick', householdId: 'hh_1', deviceId: 'tv-old', proofHash: OLD_HASH })).toBe('kept');
+    expect(await removeReplaced({ send: async () => ({}), table: 'wick', householdId: 'hh_1', deviceId: 'tv-old', proofHash: OLD_HASH })).toBe('removed');
+  });
+});
