@@ -40,19 +40,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          # The commit whose deploy started this run; on a schedule or by
+          # hand, whatever main is now.
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          for _ in $(seq 1 80); do
-            busy=0
+          # Only the deploys of this one commit are waited for, and each is
+          # named while it is: a run counted as busy that never finishes must
+          # be findable, not a number that stays at 1.
+          for _ in $(seq 1 40); do
+            busy=""
             for workflow in deploy-agent.yml deploy-edge.yml; do
-              n=$(gh run list --workflow "$workflow" --branch main --limit 10 --json status \
-                --jq '[.[] | select(.status != "completed")] | length')
-              busy=$((busy + n))
+              busy+=$(gh run list --workflow "$workflow" --branch main --commit "$SHA" --limit 5 \
+                --json databaseId,status,workflowName \
+                --jq '.[] | select(.status != "completed") | "\(.workflowName) #\(.databaseId) (\(.status)) "')
             done
-            if [ "$busy" -eq 0 ]; then exit 0; fi
-            echo "$busy deploy run(s) still going on main; asking again in 30 s"
+            if [ -z "$busy" ]; then exit 0; fi
+            echo "still deploying ${SHA:0:7}: ${busy}— asking again in 30 s"
             sleep 30
           done
-          echo "::error::deploys still running on main after 40 minutes"
+          echo "::error::the deploys of ${SHA:0:7} were still running after 20 minutes: ${busy}"
           exit 1
 
       # main as it is now, which, with no deploy left running, is what is
