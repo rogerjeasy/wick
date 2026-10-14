@@ -9,7 +9,10 @@
  *
  * This television follows and never leads. There is NO pause, seek or skip
  * here: the play, pause, rewind and forward keys are not listened for at
- * all, and OK and the arrows do nothing while the film is on. Back leaves
+ * all, and OK and the arrows do nothing while the film is on. Nor does a
+ * voice, or the system's transport controls: while the seat is open the
+ * platform's media commands are all refused and there is no media session
+ * (media/noFilm.ts). Back leaves
  * the seat — the film goes on at hers, and the card that offers the seat is
  * still on the home screen. Nobody reaches her remote.
  *
@@ -25,10 +28,11 @@
  * comes). It stops asking only when there is no seat any more.
  */
 import * as React from 'react';
-import { BackHandler, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
+import { BackHandler, StyleSheet, Text, View, useKeplerAppStateManager } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import { FAMILY_TV_SEAT_EVERY_MS, type FamilyTvPress, type FamilyTvSeat } from '@wick/contracts';
 import { CalmCard, assertContrast, fontSize, safe } from '@wick/vega-calm-ui';
+import { refuseFilmCommands } from '../media/noFilm.js';
 import type { FamilyClient, SeatAnswer } from './familyClient.js';
 import { ALL_RIGHT, SOMETHING_WAITS } from './familyScreen.js';
 import { pressGuard } from './presses.js';
@@ -65,6 +69,12 @@ const KEEP_UP_EVERY_MS = 1000;
 export function FamilySeat({ client, onScreen, waiting, onLeave, onAnswer, onRefused }: FamilySeatProps): React.JSX.Element {
   assertContrast(safe.ink, safe.raised);
   assertContrast(safe.inkDim, safe.raised);
+
+  // No media session here: "Alexa, pause" in this room reaches neither her film nor this copy of it.
+  // Once, as the seat opens: the app's component does not change while it runs.
+  const component = useKeplerAppStateManager().getComponentInstance();
+  const refused = React.useRef(component);
+  React.useEffect(() => refuseFilmCommands(refused.current), []);
 
   const [view, setView] = React.useState<SeatView>({ kind: 'opening' });
   /** An answer has been pressed: its buttons are gone at once, so OK twice is one answer. */

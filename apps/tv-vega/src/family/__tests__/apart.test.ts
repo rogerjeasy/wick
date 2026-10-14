@@ -15,6 +15,11 @@
  * tells nobody), and the one line that starts the background service —
  * which, for a family television, holds no card channel either
  * (headless/waitingService.ts, held to the same rule below).
+ *
+ * And one thing it says to the platform, which is no: while the seat is
+ * open every media command ("Alexa, pause") is refused (media/noFilm.ts).
+ * That is the one Vega service a family television names, and it reaches
+ * nothing of the resident's watch screen to do it.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -107,6 +112,8 @@ describe("a family member's own television, kept apart from the resident's", () 
       'family/repeat.ts',
       'family/seat.ts',
       'headless/launchCardService.ts',
+      'media/noFilm.ts',
+      'media/refusal.ts',
       'press/settle.ts',
       'useOnScreen.ts',
     ]);
@@ -116,8 +123,9 @@ describe("a family member's own television, kept apart from the resident's", () 
     expect(family.files.filter((file) => RESIDENTS.test(file))).toEqual([]);
   });
 
-  it('uses no transport of its own and no Vega service: only the screen, the shared film player, and fetch', () => {
+  it('uses no transport of its own and no Vega service but the one that refuses: only the screen, the shared film player, and fetch', () => {
     expect(family.packages).toEqual([
+      '@amazon-devices/kepler-media-controls',
       '@amazon-devices/react-native-kepler',
       '@amazon-devices/react-native-w3cmedia',
       '@wick/contracts',
@@ -148,6 +156,7 @@ describe('the seat beside her film — a player that follows, and tells nobody',
       'family/presses.ts',
       'family/repeat.ts',
       'family/seat.ts',
+      'media/noFilm.ts',
       'react',
     ]);
   });

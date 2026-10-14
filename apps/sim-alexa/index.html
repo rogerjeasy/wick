@@ -305,6 +305,12 @@
   .chip:disabled { opacity: 0.45; cursor: not-allowed; }
   .ask { display: flex; gap: var(--s-s); }
   .ask input { flex: 1; }
+  /* Ask by voice: a quiet round button beside the field. Listening, it takes Wick's colour — never red. */
+  .ask .mic { flex: none; display: inline-grid; place-items: center; padding: var(--s-s); border-radius: var(--r-pill); min-width: 3em; }
+  .ask .mic svg { width: 1.1em; height: 1.1em; }
+  .ask .mic[aria-pressed="true"] { background: var(--wick); color: var(--wick-ink); }
+  .voice-line { margin: 0; display: flex; flex-wrap: wrap; gap: var(--s-2xs) var(--s-m); color: var(--ink-dim); font-size: var(--t-small); }
+  .voice-line .voice-status { color: var(--ink); font-weight: 600; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style>
 </head>
@@ -375,8 +381,16 @@
       <form id="ask" class="ask" autocomplete="off">
         <label class="sr-only" for="ask-input">Ask Wick</label>
         <input id="ask-input" placeholder="Ask about the house…" disabled />
+        <!-- Ask by voice (voice.js). Hidden until main.js finds a microphone this browser can ask for. -->
+        <button id="ask-voice" class="btn quiet mic" type="button" aria-label="Ask by voice" aria-pressed="false" aria-describedby="voice-note" title="Ask by voice" hidden disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 1 0-7 0v6A3.5 3.5 0 0 0 12 15zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V20H8.5a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H13v-2.59a6 6 0 0 0 5-5.91z"/></svg>
+        </button>
         <button id="ask-send" class="btn" type="submit" disabled>Ask</button>
       </form>
+      <p id="voice-line" class="voice-line" hidden>
+        <span id="voice-status" class="voice-status" role="status" aria-live="polite"></span>
+        <span id="voice-note">Amazon Transcribe turns it into words; Wick keeps no recording.</span>
+      </p>
     </footer>
   </main>
 

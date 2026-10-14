@@ -28,9 +28,15 @@
  * its reading — turned down for it by the app, which is told which player
  * this screen has (`onPlayer`) and puts the sound back when the reading is
  * over.
+ *
+ * The platform's media controls reach the film too: "Alexa, pause", the
+ * system's transport controls (mediaControls.ts). Each is decided by the
+ * same rules as her keys (mediaSession.ts) and done here, on the one player:
+ * a pause made by voice is a pause, and a note waiting for a break comes on
+ * screen over it exactly as it does over a pause made by the key.
  */
 import * as React from 'react';
-import { BackHandler, StyleSheet, Text, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
+import { BackHandler, StyleSheet, Text, View, useKeplerAppStateManager, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import type { HouseholdLanguage } from '@wick/contracts';
 import { fontSize, safe } from '@wick/vega-calm-ui';
@@ -39,7 +45,9 @@ import { words } from '../words/words.js';
 import { PlayerService, type PlayerSnapshot } from '../player/PlayerService.js';
 import { PlaybackRecorder } from './playbackRecorder.js';
 import { isOkKey, okHold, type OkHold } from './hold.js';
-import { seekTarget, watchCommand } from './remoteKeys.js';
+import { seekTarget, watchCommand, type ReadCommand } from './remoteKeys.js';
+import { startFilmSession, type FilmSession } from './mediaControls.js';
+import { ECHO_WAIT_MS, keyEchoes, mediaOutcome, moveFilm, type MediaCommand } from './mediaSession.js';
 
 export interface WatchScreenProps {
   readonly programme: Programme;
@@ -55,6 +63,13 @@ export interface WatchScreenProps {
   readonly playReads?: boolean | undefined;
   /** A reading has been asked for and is not over: a key that is only Pause stops it, and nothing else. */
   readonly reading?: boolean | undefined;
+  /**
+   * A media-session command (mediaSession.ts) has something to say to the
+   * reading of the card on screen — the platform's Play/Pause, where it is
+   * the remote's button, reads as the key does; anything that carries on
+   * with the film ends a reading. The app's reader does it, as for a key.
+   */
+  readonly onReadCommand?: ((command: ReadCommand) => void) | undefined;
   /**
    * Which player the programme has — given when it is ready, and `null`
    * when it is let go. Only its volume is ever used by anyone else
@@ -93,10 +108,15 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
   const latest = React.useRef(props);
   latest.current = props;
   const playerRef = React.useRef<VideoPlayer | null>(null);
+  /** This app's component, to which the platform sends its media commands. */
+  const component = useKeplerAppStateManager().getComponentInstance();
+  /** What a media-session command does, once the player is ready: set below, read by the session. */
+  const obey = React.useRef<(command: MediaCommand, deltaMs?: number) => void>(() => undefined);
 
   React.useEffect(() => {
     let cancelled = false;
     let service: PlayerService | undefined;
+    let session: FilmSession | undefined;
     let last: PlayerSnapshot | undefined;
     const recorder = new PlaybackRecorder();
     const p = new VideoPlayer();
@@ -118,6 +138,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       service.onSnapshot((snapshot) => {
         if (cancelled) return;
         report(snapshot);
+        session?.publish(snapshot);
         if (snapshot.state === 'PLAYING') setStatus('playing');
         else if (snapshot.state === 'PAUSED') setStatus((s) => (s === 'opening' ? s : 'paused'));
         // The programme is over: back to the home screen, where a held card
@@ -125,8 +146,10 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
         else if (snapshot.state === 'STOPPED') latest.current.onExit();
       });
       service.start();
-      service.load(programme.id, programme.creditsPositionMs);
       playerRef.current = p;
+      // Her film is the platform's media session from now: "Alexa, pause" reaches it.
+      session = startFilmSession({ component, programme, command: (command, deltaMs) => obey.current(command, deltaMs) });
+      service.load(programme.id, programme.creditsPositionMs);
       latest.current.onPlayer?.(p);
       setPlayer(p);
       await p.play();
@@ -137,6 +160,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
     return () => {
       cancelled = true;
       service?.stop();
+      session?.end();
       playerRef.current = null;
       latest.current.onPlayer?.(null);
       // Leaving is a stop, wherever the programme had got to.
@@ -147,6 +171,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       latest.current.onSnapshot(undefined);
       void p.deinitialize();
     };
+    // The component is the app's own and does not change while it runs.
   }, [programme]);
 
   // Whether the OK press now under way paused or resumed the programme as it went down.
@@ -170,7 +195,11 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
   });
   React.useEffect(() => () => hold.current?.cancel(), []);
 
+  // The media keys pressed, for telling a press heard a second time by the media session from a voice (mediaSession.ts).
+  const echoes = React.useRef(keyEchoes()).current;
+
   useTVEventHandler((event) => {
+    if (event.eventKeyAction === undefined || event.eventKeyAction === 0) echoes.key(event.eventType, Date.now());
     hold.current?.onEvent(event);
     if (isOkKey(event.eventType) && event.eventKeyAction === 1) okToggled.current = false;
     const p = playerRef.current;
@@ -223,6 +252,35 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       void p.play();
     }
   }, [held]);
+
+  // A command from the platform's media controls (mediaControls.ts): decided by the rules her keys obey
+  // (mediaSession.ts), done to the same player in the same ways. Rebuilt on each render, so it reads what
+  // is on screen now.
+  const act = (command: MediaCommand, deltaMs: number | undefined): void => {
+    const p = playerRef.current;
+    if (!p) return;
+    const now = latest.current;
+    const outcome = mediaOutcome(
+      command,
+      { cardVisible: now.cardVisible, playReads: now.playReads, reading: now.reading, held: now.held, suspended: now.suspended },
+      { paused: p.paused, positionMs: p.currentTime * 1000, durationMs: programme.durationMs },
+      deltaMs,
+    );
+    if (outcome.reader) now.onReadCommand?.(outcome.reader);
+    if (outcome.film) {
+      moveFilm(p, outcome.film, () => {
+        resumeAfterCard.current = false;
+      });
+    }
+  };
+  // A moment's wait first: the same press may also be arriving as a key, which has already been obeyed.
+  obey.current = (command, deltaMs) => {
+    const at = Date.now();
+    setTimeout(() => {
+      if (echoes.echoes(command, at)) console.info('media_command_echo', command);
+      else act(command, deltaMs);
+    }, ECHO_WAIT_MS);
+  };
 
   // A film's title is its name, and is never translated.
   const say = words(props.language);

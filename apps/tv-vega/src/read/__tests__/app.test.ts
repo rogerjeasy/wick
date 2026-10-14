@@ -82,8 +82,11 @@ describe('ResidentApp.tsx — read to me', () => {
     expect(layer.indexOf('<ReadHint')).toBeGreaterThan(layer.indexOf('<CardRenderer'));
   });
 
-  it('never starts a reading by itself: only the key does', () => {
-    expect(app.match(/reader\.press\(/g)).toHaveLength(1);
+  it('never starts a reading by itself: only the key does — or the media session’s Play/Pause, which is that key heard another way', () => {
+    // The second is handleMediaRead, given only what watch/mediaSession.ts decides a command says to a reading:
+    // a toggle only for the Play/Pause command, by the key's own rule (mediaSession.test.ts).
+    expect(app.match(/reader\.press\(/g)).toHaveLength(2);
+    expect(app).toMatch(/const handleMediaRead = React\.useCallback\(\s*\(command: ReadCommand\) => \{/);
     expect(app).not.toMatch(/reader\.speech\((?!cardId, url\))/);
   });
 });

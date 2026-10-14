@@ -55,6 +55,17 @@ import {
   watchStatus,
   watchToAnnounce,
 } from './surface.js';
+import {
+  CAPTURE_WORKLET_NAME,
+  CAPTURE_WORKLET_SOURCE,
+  HEAR_CONTENT_TYPE,
+  HEAR_MAX_MS,
+  HOLD_MS,
+  VOICE_WORDS,
+  heardAnswer,
+  utterancePcm,
+  voiceAvailable,
+} from './voice.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -97,7 +108,7 @@ function setStatus(text, state = 'idle') {
 
 /** Everything that asks the server: the chips, the text field and its button. */
 function enableToolButtons(enabled) {
-  for (const el of document.querySelectorAll('.chip, #ask-input, #ask-send')) el.disabled = !enabled;
+  for (const el of document.querySelectorAll('.chip, #ask-input, #ask-send, #ask-voice')) el.disabled = !enabled;
   $('link-card').hidden = enabled;
   $('sign-out').hidden = !enabled;
 }
@@ -255,6 +266,7 @@ function signedOut(reason) {
   closeSeat();
   stopLookingAtLanguage();
   stopLookingAtPictures();
+  stopListening({ discard: true });
   $('light').hidden = true;
   // A link that ended by itself cannot tell the server; the browser still stops listening.
   void forgetThisBrowser({ tellServer: false });
@@ -2702,7 +2714,7 @@ function answerByRules(text) {
 
 /** The chips and the text field, off while a question is being answered. */
 function setAsking(enabled) {
-  for (const control of document.querySelectorAll('.chip, #ask-input, #ask-send')) control.disabled = !enabled;
+  for (const control of document.querySelectorAll('.chip, #ask-input, #ask-send, #ask-voice')) control.disabled = !enabled;
 }
 
 async function handleUtterance(text) {
@@ -2806,6 +2818,152 @@ $('ask').addEventListener('submit', (event) => {
   input.value = '';
   void handleUtterance(text);
 });
+
+// ---------------------------------------------------------------------------
+// Ask by voice. One short utterance from this browser's microphone, heard by
+// Amazon Transcribe through the Wick server (POST /api/hear), and then asked
+// exactly as a typed question is: the words go into the field and the form
+// is submitted. The microphone is asked for on the first press, never
+// before, and let go of the moment the utterance ends. Nothing is kept here
+// or there (voice.js, services/mcp-server/src/hear).
+// ---------------------------------------------------------------------------
+
+/** What the microphone is doing: null, or { state: 'starting' | 'listening' | 'hearing', stop }. */
+let listening = null;
+/** When a pointer pressed the button and started listening: a long press is push-to-talk. */
+let pressedAt = null;
+
+function voiceStatus(text) {
+  $('voice-status').textContent = text;
+}
+
+function showVoiceListening(on) {
+  $('ask-voice').setAttribute('aria-pressed', String(on));
+}
+
+/** Starts listening: the microphone, an AudioWorklet (or a ScriptProcessor where there is none), and ten seconds at most. */
+async function startListening() {
+  if (listening || answering || $('ask-voice').disabled) return;
+  const session = { state: 'starting', stop: async () => {} };
+  listening = session;
+  showVoiceListening(true);
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  } catch {
+    listening = null;
+    showVoiceListening(false);
+    voiceStatus(VOICE_WORDS.blocked);
+    return;
+  }
+  const release = () => stream.getTracks().forEach((track) => track.stop());
+  // Stopped (signed out, the page put away) while the browser was still asking for the microphone.
+  if (listening !== session) return release();
+
+  const Context = window.AudioContext ?? window.webkitAudioContext;
+  const context = new Context();
+  const source = context.createMediaStreamSource(stream);
+  const frames = [];
+  let node;
+  try {
+    const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET_SOURCE], { type: 'application/javascript' }));
+    try {
+      await context.audioWorklet.addModule(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    node = new AudioWorkletNode(context, CAPTURE_WORKLET_NAME, { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
+    node.port.onmessage = (event) => frames.push(event.data);
+  } catch {
+    // No AudioWorklet here: the older way, which still works everywhere that has a microphone.
+    node = context.createScriptProcessor(4096, 1, 1);
+    node.onaudioprocess = (event) => frames.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+  }
+  source.connect(node);
+  // Silence out: a node no sound leaves through is not run by every browser.
+  node.connect(context.destination);
+
+  const limit = setTimeout(() => void session.stop(), HEAR_MAX_MS);
+  session.stop = async ({ discard = false } = {}) => {
+    if (session.state !== 'listening') return;
+    session.state = 'hearing';
+    clearTimeout(limit);
+    // The utterance has ended: the microphone is let go of before anything else happens.
+    source.disconnect();
+    node.disconnect();
+    if (node.port) node.port.onmessage = null;
+    release();
+    const rate = context.sampleRate;
+    void context.close();
+    showVoiceListening(false);
+    if (discard) {
+      listening = null;
+      voiceStatus('');
+      return;
+    }
+    await hearAndAsk(utterancePcm(frames, rate));
+    if (listening === session) listening = null;
+  };
+  session.state = 'listening';
+  voiceStatus(VOICE_WORDS.listening);
+}
+
+function stopListening({ discard = false } = {}) {
+  if (!listening) return;
+  if (listening.state === 'starting') {
+    // The browser is still asking for the microphone: whatever it answers, nothing is heard.
+    listening = null;
+    showVoiceListening(false);
+    voiceStatus('');
+    return;
+  }
+  void listening.stop({ discard });
+}
+
+/** Sends the utterance to be heard, and asks what was heard through the form, as if it had been typed. */
+async function hearAndAsk(pcm) {
+  if (pcm.length === 0) return voiceStatus(VOICE_WORDS.missed);
+  voiceStatus(VOICE_WORDS.hearing);
+  $('ask-voice').disabled = true;
+  let answer;
+  try {
+    const res = await authorizedFetch('/api/hear', { method: 'POST', headers: { 'content-type': HEAR_CONTENT_TYPE }, body: pcm });
+    answer = heardAnswer(res.status, await res.json().catch(() => ({})));
+  } catch (err) {
+    answer = { say: err.message };
+  } finally {
+    if (me) $('ask-voice').disabled = answering;
+  }
+  if (answer.say !== undefined) return voiceStatus(answer.say);
+  voiceStatus('');
+  $('ask-input').value = answer.ask;
+  $('ask').requestSubmit();
+}
+
+if (voiceAvailable(navigator, window)) {
+  $('ask-voice').hidden = false;
+  $('voice-line').hidden = false;
+  // A pointer held down is push-to-talk; a short press, Space or Enter is a toggle (the click below).
+  $('ask-voice').addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || listening) return;
+    pressedAt = Date.now();
+    void startListening();
+  });
+  $('ask-voice').addEventListener('click', () => {
+    if (pressedAt !== null) {
+      const held = Date.now() - pressedAt;
+      pressedAt = null;
+      if (held >= HOLD_MS) stopListening();
+      return;
+    }
+    if (listening) stopListening();
+    else void startListening();
+  });
+  // A page put away stops listening, and what was said is not sent.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopListening({ discard: true });
+  });
+}
 
 $('speak-toggle').addEventListener('click', (event) => {
   speakAnswers = !speakAnswers;

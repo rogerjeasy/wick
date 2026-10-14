@@ -4,7 +4,7 @@ const { projectRoot, repoRoot, vegaApp, MODULES, FILES, UNAVAILABLE } = require(
 
 /**
  * The Fire OS app has no screens of its own. It bundles the Vega app's
- * source (apps/tv-vega/src) and swaps what adapters.config.js lists: three
+ * source (apps/tv-vega/src) and swaps what adapters.config.js lists: four
  * Amazon packages for adapters, and one file for an override.
  *
  * Three things make that work:

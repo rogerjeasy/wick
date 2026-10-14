@@ -22,7 +22,7 @@
  * this server does about it. The answer is hers, on her television.
  */
 import cors from 'cors';
-import express, { type Request, type RequestHandler, type Response } from 'express';
+import express, { type ErrorRequestHandler, type Request, type RequestHandler, type Response } from 'express';
 import { FAMILY_TV_KIND } from '@wick/contracts';
 import {
   CircleError,
@@ -181,11 +181,13 @@ export interface ApiOptions {
   readonly photos?: PhotoRoutes | undefined;
   /** A demo home's stand-in doorbell (accounts/demoDoorbell.ts). Absent, the route is not there. */
   readonly demoDoorbell?: DemoDoorbellDeps | undefined;
+  /** Ask by voice: one spoken question, turned into words (hear/routes.ts). */
+  readonly hear?: readonly (RequestHandler | ErrorRequestHandler)[] | undefined;
 }
 
 export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHandler, options: ApiOptions = {}): express.Router {
   const { store } = circle;
-  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone, push, withdrawCard, photos, demoDoorbell } = options;
+  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone, push, withdrawCard, photos, demoDoorbell, hear } = options;
   const router = express.Router();
   // Any origin: nothing here uses a cookie, and a token is only ever sent by
   // the page that holds it.
@@ -401,6 +403,12 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
       }
     }));
   }
+  // --- Ask by voice ------------------------------------------------------------
+  //
+  // Behind the same sign-in. One short utterance in, its words out; the page
+  // then asks them as if they had been typed. What is read, in which order,
+  // and what is never kept, is hear/routes.ts.
+  if (hear) router.post('/api/hear', ...hear);
 
   // --- The home's own Ring link -------------------------------------------
   //

@@ -54,6 +54,8 @@ import { createPushStore } from './accounts/push.js';
 import { createPhotoRoutes } from './photos/routes.js';
 import type { Moderation } from './photos/moderation.js';
 import type { PhotoObjects } from './photos/objects.js';
+import { createHearRoute } from './hear/routes.js';
+import type { Hear } from './hear/transcribe.js';
 import { registerGetDoorRequest } from './tools/get_door_request.js';
 import { registerGetLight } from './tools/get_light.js';
 import { recordLook, type SendHome } from './tools/lookIn.js';
@@ -182,6 +184,11 @@ export interface AppDeps {
    * Wick has none.
    */
   readonly ringDemoDoor?: ((event: DemoDoorEvent) => Promise<void>) | undefined;
+  /**
+   * Ask by voice (hear/transcribe.ts): one spoken question turned into words
+   * by Amazon Transcribe. Absent, `/api/hear` says this Wick cannot hear yet.
+   */
+  readonly hear?: Hear | undefined;
   readonly now?: () => number;
   readonly newId?: () => string;
 }
@@ -233,6 +240,8 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     }),
     // Somebody at a demo home's door, for the Door agent's own path (accounts/demoDoorbell.ts).
     demoDoorbell: { ddb, store: deps.store, ring: deps.ringDemoDoor, now: circle.now, newId: circle.newId },
+    // Ask by voice: the words are asked afterwards like typed ones, through the same gated paths.
+    hear: createHearRoute({ hear: deps.hear, store: deps.store, now: circle.now }),
   }));
 
   // The tool list is the same for everyone and for the life of the process: asked for once, on first need.

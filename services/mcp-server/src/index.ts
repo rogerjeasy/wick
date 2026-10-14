@@ -5,6 +5,7 @@ import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { RekognitionClient } from '@aws-sdk/client-rekognition';
 import { S3Client } from '@aws-sdk/client-s3';
+import { TranscribeStreamingClient } from '@aws-sdk/client-transcribe-streaming';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { DEMO_DOOR_DETAIL_TYPE, DEMO_DOOR_SOURCE, type DemoDoorEvent } from '@wick/contracts';
 import { sendHomeToDevices, sendPatchToDevice, sendToDevice, takeBackFromDevices } from '@wick/agent';
@@ -15,6 +16,7 @@ import { createBedrockConverse } from './assistant/bedrock.js';
 import { invokedRingLinks } from './accounts/ringLinks.js';
 import { createRekognitionModeration, type RekognitionSend } from './photos/moderation.js';
 import { createS3PhotoObjects, type S3Send } from './photos/objects.js';
+import { createTranscribeHearing, type TranscribeSend } from './hear/transcribe.js';
 
 // Every read-tool file (get_resident_shared_view.ts, get_today.ts,
 // did_visitor_come.ts, get_week_narrative.ts) defaults an unset TABLE_NAME to
@@ -80,6 +82,14 @@ const photos = PHOTOS_BUCKET
     })()
   : undefined;
 
+// Ask by voice (hear/transcribe.ts): Amazon Transcribe turns a family
+// member's spoken question into words. No setting of its own: the client
+// finds its region the way the DynamoDB client above does — the region App
+// Runner runs the service in, which is the stack's (infra/mcp.tf) — and the
+// instance role allows the one streaming call. Nothing it is sent is kept.
+const transcribe = new TranscribeStreamingClient({});
+const hear = createTranscribeHearing(((command, options) => transcribe.send(command, options)) as TranscribeSend);
+
 // A home's own Ring link (accounts/apiRouter.ts `/api/ring`). The function
 // named here has custody of the tokens; this server holds none and only says
 // who is asking, for which home. Unset, the family app is told the doorbell
@@ -144,6 +154,7 @@ const app = createApp(ISSUER_URL, {
   ...(assistant ? { assistant } : {}),
   ...(ringLinks ? { ringLinks } : {}),
   ...(photos ? { photos } : {}),
+  hear,
   ...(VIRTUAL_TELEVISION_URL ? { virtualTelevisionUrl: VIRTUAL_TELEVISION_URL } : {}),
 });
 

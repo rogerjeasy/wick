@@ -94,7 +94,7 @@ import { ReadHint } from './read/ReadHint.js';
 import { Reader, type ReadingState } from './read/reading.js';
 import { canRead, createSpeechPlayer } from './read/speechPlayer.js';
 import { lowerFilm, type HasVolume } from './watch/filmVolume.js';
-import { playIsTheCards, readCommand } from './watch/remoteKeys.js';
+import { playIsTheCards, readCommand, type ReadCommand } from './watch/remoteKeys.js';
 import { IdleScreen } from './mantel/IdleScreen.js';
 import { MantelScreen } from './mantel/MantelScreen.js';
 import { IDLE_OFF, blocksHome, idleOnBack, idleOnKey, lookAtIdle, type Idle } from './mantel/idle.js';
@@ -593,6 +593,19 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     }
   });
 
+  // The platform's media controls, over her film (watch/mediaSession.ts): what a command has to say to the
+  // reading is done as a key's is — the platform's Play/Pause reads a card as the key does, and carrying on
+  // with the film ends a reading.
+  const handleMediaRead = React.useCallback(
+    (command: ReadCommand) => {
+      lastActiveAt.current = Date.now();
+      const at = keysNow.current;
+      reader.press(command);
+      if (command === 'toggle' && at.card !== undefined) setAskedFor(at.card);
+    },
+    [reader],
+  );
+
   const askMantel = React.useCallback(() => {
     const at = Date.now();
     mantelAskedAt.current = at;
@@ -704,6 +717,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           cardVisible={card !== null}
           playReads={playReads}
           reading={reading}
+          onReadCommand={handleMediaRead}
           onPlayer={handleFilmPlayer}
           held={holdsFilm}
           suspended={liveFor !== null}

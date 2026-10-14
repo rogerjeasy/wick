@@ -242,6 +242,19 @@ From `docs/WICK.md` Part 5. The ones that most often get violated by accident:
   her consent. And nothing acts by being handed the focus: on a family
   television the wave is sent only after a D-pad move to it
   (`family/presses.ts`). A swallowed press does nothing at all.
+- **A command from the platform is her press, by another way.** On Vega her
+  film is a media session (`apps/tv-vega/src/watch/mediaControls.ts`):
+  "Alexa, pause" and the system's transport controls reach it, and each
+  obeys the rule the same key obeys (`watch/mediaSession.ts`). A pause is a
+  pause, so a waiting note comes on screen over it as over any pause. Play
+  names the film: over a note holding it, it carries on with the film and
+  never reads the card. Stop is a pause. One press heard twice — as the key
+  and as the session's command — counts once. The manifest offers the
+  platform only what is obeyed. **Never** hand the player to the platform
+  (`setMediaControlFocus`, which obeys around these rules), never let a
+  family member's seat obey a command (`media/noFilm.ts` refuses them all),
+  and never start a reading from anything but the Play/Pause that is her
+  key.
 - **When unsure, say so.** Never emit a confident guess. Silence beats a wrong description.
 - **No mood or sentiment inference is ever reported to anyone.**
 
@@ -447,6 +460,21 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   row, no count, nothing on the bus. **Never** start a reading without her
   press, read anything that is not on her screen, let a reading delay or
   replace a card, or record that she asked.
+- **What is heard is the family member's own question, and nothing is kept.**
+  Ask by voice (`packages/contracts/src/hear.ts`): a family member presses
+  the microphone in the family app and speaks one question of ten seconds
+  at most. The page sends that one utterance to the Wick server
+  (`POST /api/hear`, `services/mcp-server/src/hear`), Amazon Transcribe
+  turns it into words, and the words are asked exactly as if they had been
+  typed — through the same form, the same assistant and the same gated
+  tools (INV-9). The microphone is asked for on a press, never on load, and
+  let go of the moment the utterance ends. The recording is never stored,
+  never logged — not its bytes, not its length, not its words — and never
+  sent anywhere but Transcribe. The resident's television has no
+  microphone and is never listened to. **Never** keep, log or forward the
+  audio, never listen without a press, never use the browser's own
+  recogniser (it sends the sound elsewhere), and never put a microphone on
+  her side of the house.
 - **A neighbour is asked two things, and shown nothing.** A member whose
   role is `neighbour` (`packages/contracts/src/circle.ts`) joins by an
   invitation that says so and is allowed by the resident's own press like

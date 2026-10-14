@@ -104,6 +104,15 @@
  *     her mantelpiece; ?press=take_down takes everything off it again. The
  *     family app says the same thing after all three: that she has seen it.
  *
+ *   - Ask by voice: the family app's microphone button sends one utterance
+ *     through the server's real POST /api/hear, to a stand-in for Amazon
+ *     Transcribe's streaming API that reads the whole stream and says
+ *     whatever /dev/hear?say=… last told it to ("How has Mum been this
+ *     week?" to begin with; /dev/hear?say= with nothing says nothing was
+ *     understood). It prints how many seconds it was sent, and nothing of
+ *     the sound. With `WICK_DEV_HEAR=transcribe` (and AWS credentials) the
+ *     real Transcribe hears it instead.
+ *
  * The assistant's model is the one thing with no stand-in. With
  * `WICK_DEV_ASSISTANT=on` (and AWS credentials for Bedrock) the real one
  * answers; without it there is none, and the app answers by its rules.
@@ -136,6 +145,8 @@ import { MANTEL_SK_PREFIX, PHOTO_ACTIONS, PHOTO_SK_PREFIX } from '@wick/contract
 import { createS3PhotoObjects } from '../photos/objects.js';
 import type { ModerationVerdict } from '../photos/moderation.js';
 import { createMemoryObjects } from '../photos/__tests__/memoryObjects.js';
+import { TranscribeStreamingClient } from '@aws-sdk/client-transcribe-streaming';
+import { createTranscribeHearing, type TranscribeSend } from '../hear/transcribe.js';
 import { noteDoorSighting } from '../../../agent/src/agents/visit/note.js';
 import { buildDoorEventItem, buildPresenceItem } from '../../../agent/src/agents/door/presence.js';
 import { askAboutVisits } from '../../../agent/src/agents/visit/ask.js';
@@ -253,6 +264,20 @@ const nudgeBrowsers = (userIds: readonly string[], kind: PushKind = PUSH_KINDS.d
 /** The photos bucket, in memory, and the stand-in for the one look taken at a picture (GET /dev/photos?moderation=…). */
 const photoBucket = createMemoryObjects();
 let photoVerdict: ModerationVerdict = 'pass';
+/** What the stand-in for Transcribe says it heard (/dev/hear?say=). */
+let heardWords = 'How has Mum been this week?';
+const standInTranscribe: TranscribeSend = async (command) => {
+  let bytes = 0;
+  for await (const event of command.input.AudioStream!) bytes += event.AudioEvent?.AudioChunk?.length ?? 0;
+  console.log(`transcribe (stand-in): heard ${(bytes / 32_000).toFixed(1)} s of audio and says "${heardWords}"`);
+  const said = heardWords;
+  return {
+    TranscriptResultStream: (async function* () {
+      yield { TranscriptEvent: { Transcript: { Results: said ? [{ IsPartial: false, Alternatives: [{ Transcript: said }] }] : [] } } };
+    })(),
+  };
+};
+const realTranscribe = process.env.WICK_DEV_HEAR === 'transcribe' ? new TranscribeStreamingClient({ region: process.env.AWS_REGION ?? 'us-east-1' }) : undefined;
 
 /** Every home that has connected the stand-in television: where /dev/door rings. */
 const homesWithATelevision = new Set<string>();
@@ -301,6 +326,7 @@ const app = createApp(new URL(`http://127.0.0.1:${API_PORT}`), {
       return photoVerdict;
     },
   },
+  hear: createTranscribeHearing(realTranscribe ? ((command, options) => realTranscribe.send(command, options)) as TranscribeSend : standInTranscribe),
   ...(process.env.WICK_DEV_ASSISTANT === 'on'
     ? { assistant: { converse: createBedrockConverse(new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? 'us-east-1' }), process.env.WICK_ASSISTANT_MODEL_ID) } }
     : {}),
@@ -618,6 +644,11 @@ app.get('/dev/visit', async (req, res) => {
  * row at either press, and a row on her mantelpiece when she keeps it. The
  * server reads only the first, so the family app cannot tell which it was.
  */
+app.get('/dev/hear', (req, res) => {
+  if (typeof req.query.say === 'string') heardWords = req.query.say;
+  res.json({ say: heardWords, transcribe: realTranscribe ? 'real' : 'stand-in' });
+});
+
 app.get('/dev/photos', (req, res) => {
   const moderation = typeof req.query.moderation === 'string' ? req.query.moderation : undefined;
   if (moderation !== undefined) {
