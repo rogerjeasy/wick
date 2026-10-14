@@ -54,7 +54,7 @@ jobs:
         run: |
           common='^(package\.json|package-lock\.json|tsconfig\.base\.json|apps/tv-vega/package\.json|\.dockerignore|packages/|services/)'
           mcp="$common|^vitest\.config\.ts$"
-          agents="$common|^scripts/build-lambda\.mjs$"
+          agents="$common|^scripts/build-lambda\.mjs$|^docs/demo-door/"
           if [ "$GITHUB_EVENT_NAME" != push ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
             echo "a manual run, or no earlier commit to compare with: both images"
             echo "mcp=true" >> "$GITHUB_OUTPUT"
