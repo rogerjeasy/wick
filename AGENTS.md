@@ -426,6 +426,21 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   row, no count, nothing on the bus. **Never** start a reading without her
   press, read anything that is not on her screen, let a reading delay or
   replace a card, or record that she asked.
+- **What is heard is the family member's own question, and nothing is kept.**
+  Ask by voice (`packages/contracts/src/hear.ts`): a family member presses
+  the microphone in the family app and speaks one question of ten seconds
+  at most. The page sends that one utterance to the Wick server
+  (`POST /api/hear`, `services/mcp-server/src/hear`), Amazon Transcribe
+  turns it into words, and the words are asked exactly as if they had been
+  typed — through the same form, the same assistant and the same gated
+  tools (INV-9). The microphone is asked for on a press, never on load, and
+  let go of the moment the utterance ends. The recording is never stored,
+  never logged — not its bytes, not its length, not its words — and never
+  sent anywhere but Transcribe. The resident's television has no
+  microphone and is never listened to. **Never** keep, log or forward the
+  audio, never listen without a press, never use the browser's own
+  recogniser (it sends the sound elsewhere), and never put a microphone on
+  her side of the house.
 - **A neighbour is asked two things, and shown nothing.** A member whose
   role is `neighbour` (`packages/contracts/src/circle.ts`) joins by an
   invitation that says so and is allowed by the resident's own press like
