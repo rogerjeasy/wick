@@ -9,6 +9,9 @@ import {
   parseDescribeReply,
   NOBODY_AFTER_MOTION_LINE,
   NOBODY_AFTER_RING_LINE,
+  STAND_IN_DOOR_LINE,
+  STAND_IN_NOBODY_AFTER_MOTION_LINE,
+  STAND_IN_NOBODY_AFTER_RING_LINE,
   validateDescription,
   DESCRIPTION_MAX_WORDS,
   MIN_DESCRIPTION_CONFIDENCE,
@@ -316,5 +319,49 @@ describe('buildImagePatch', () => {
     expect(patch.cardId).toBe('card-1');
     expect(patch.imageRef).toContain('phoenix.devices.amazon.dev');
     expect(patch.description).toBeUndefined();
+  });
+});
+
+describe('a stand-in doorbell (a demo home: contracts demoDoor.ts)', () => {
+  const standIn = (over: { family?: readonly string[]; roster?: readonly RosterEntry[] } = {}) =>
+    buildPhaseOneCard({
+      event,
+      device,
+      hallwayChime: true,
+      householdId: 'hh-demo',
+      correlationId: 'corr-demo',
+      now: 1789455094000,
+      standIn: true,
+      ...over,
+    });
+
+  it('says on the card itself that it is the stand-in doorbell', () => {
+    expect(standIn().line).toBe(STAND_IN_DOOR_LINE);
+    expect(STAND_IN_DOOR_LINE).toBe("Someone's at the front door (stand-in doorbell).");
+  });
+
+  it('offers no Watch live — there is no camera to watch — and no chime, even where one is said to exist', () => {
+    const ids = standIn().actions.map((a) => a.id);
+    expect(ids).not.toContain('watch_live');
+    expect(ids).not.toContain('hallway_chime');
+    expect(ids).toEqual(['dismiss']);
+  });
+
+  it('still offers to ask the family to look', () => {
+    expect(standIn({ family: ['Sarah'] }).actions.map((a) => a.label)).toEqual(['Ask Sarah to look', 'Not now']);
+  });
+
+  it('corrects its headline as a stand-in too, when the picture shows nobody', () => {
+    const nobody = { description: 'An empty doorstep with a potted plant.', confidence: 0.9, personVisible: false };
+    expect(buildDescriptionPatch('card-1', nobody, 'motion_detected', { standIn: true })?.line).toBe(STAND_IN_NOBODY_AFTER_MOTION_LINE);
+    expect(buildDescriptionPatch('card-1', nobody, 'button_press', { standIn: true })?.line).toBe(STAND_IN_NOBODY_AFTER_RING_LINE);
+    expect(STAND_IN_NOBODY_AFTER_MOTION_LINE).toBe('Movement at the front door (stand-in doorbell).');
+    expect(STAND_IN_NOBODY_AFTER_RING_LINE).toBe('The stand-in doorbell rang.');
+  });
+
+  it('leaves a real doorbell’s card exactly as it was', () => {
+    const real = build(true);
+    expect(real.line).toBe(DOOR_LINE);
+    expect(real.actions.map((a) => a.id)).toEqual(['watch_live', 'hallway_chime', 'dismiss']);
   });
 });

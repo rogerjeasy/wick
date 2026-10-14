@@ -168,7 +168,10 @@ A doorbell's ring takes its household from the doorbell itself: the Door
 agent looks up which household holds that Ring device
 (`services/agent/src/store/ringDevices.ts`), and a device nobody holds reaches
 no television. The weekly Narrator writes for every household with a paired
-television (`services/agent/src/agents/narrator/everyHousehold.ts`).
+television (`services/agent/src/agents/narrator/everyHousehold.ts`). A demo
+home's stand-in ring carries the household the Wick server read from the
+ringer's token, and only that server's role may send one (Data rules, the
+stand-in doorbell).
 
 **Each household has its own Ring link.** Its tokens are one secret,
 `wick/ring/tokens/<householdId>`, and there is no Ring client without a
@@ -299,6 +302,24 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   row, week and household carries `simulated`, and the family app says so
   wherever it names the home. **Never** write simulated rows to a household a
   person set up, and never show a simulated week without saying it is one.
+- **A demo home's door has a stand-in doorbell, and only a demo home's.**
+  Someone trying Wick has no Ring doorbell, so a member of a demo home can
+  make one of a fixed list of visitors arrive (`POST /api/demo/doorbell`,
+  `packages/contracts/src/demoDoor.ts`): somebody she has allowed, not a
+  neighbour, a few times an hour. The household is the one in their token
+  (INV-8). The Wick server's role is the only one that may invoke the Door
+  agent with the stand-in's source (`wick.demo-door`, `infra/mcp.tf`); the
+  bus cannot carry one there, because the door's rule passes `wick.ring`
+  alone. The Door agent asks again that the household is a demo home, and
+  then runs its own path with Ring's parts stood in
+  (`services/agent/src/agents/door/demoDoor.ts`): it never builds a Ring
+  client or reads a Ring token. The card says *stand-in doorbell*, offers no
+  live view and no chime, and every row it writes carries `simulated`. The
+  pictures are made, not photographed (`docs/demo-door/NOTICE.md`), and the
+  sentence under each is the vision model's, never written in advance.
+  **Never** let anything else put that source in front of the Door agent,
+  ring a stand-in in a home a person set up, reach Ring from it, or write a
+  row of it without `simulated`.
 - **The light says one thing.** The light in the window
   (`packages/contracts/src/light.ts`) tells the family whether the
   resident's day has begun, and nothing else: `get_light` returns lit or not

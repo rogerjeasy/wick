@@ -46,5 +46,22 @@ describe('buildDoorEventItem', () => {
     expect(item.type).toEqual({ S: 'door' });
     expect(item.personId).toBeUndefined();
     expect(item.personName).toBeUndefined();
+    expect(item.simulated).toBeUndefined();
+  });
+});
+
+describe('a demo home’s stand-in doorbell writes rows marked simulated (AGENTS.md, Data rules)', () => {
+  it('marks the door event', () => {
+    expect(buildDoorEventItem('hh-demo', 1789455093305, 'evt-id-3', { simulated: true }).simulated).toEqual({ BOOL: true });
+  });
+
+  it('marks the presence', () => {
+    const item = buildPresenceItem('hh-demo', maria, 1789455093305, 'evt-id-4', { simulated: true });
+    expect(item.simulated).toEqual({ BOOL: true });
+    expect(item.type).toEqual({ S: 'presence' });
+  });
+
+  it('leaves a real home’s rows unmarked', () => {
+    expect(buildPresenceItem('hh-1', maria, 1789455093305, 'evt-id-5').simulated).toBeUndefined();
   });
 });

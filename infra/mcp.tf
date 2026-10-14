@@ -147,6 +147,21 @@ data "aws_iam_policy_document" "apprunner_instance" {
     resources = [aws_lambda_function.household_link.arn]
   }
 
+  # A demo home's stand-in doorbell (services/mcp-server/src/accounts/
+  # demoDoorbell.ts): one ring, handed to the Door agent's own function with
+  # source `wick.demo-door` (packages/contracts demoDoor.ts). This role is the
+  # only one given this: the function's other way in is the EventBridge rule
+  # in agent.tf, which passes `wick.ring` events and nothing else — so no
+  # other role, and nothing on the bus, can put a stand-in ring in front of
+  # the agent. The agent asks again that the household is a demo home, and
+  # never reaches Ring for it. The function's name is fixed in the server's
+  # code, so the service needs no new setting.
+  statement {
+    sid       = "RingADemoHomesStandInDoorbell"
+    actions   = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_function.agent_door_event.arn]
+  }
+
   statement {
     sid       = "PushNotesToTheDevice"
     actions   = ["execute-api:ManageConnections"]

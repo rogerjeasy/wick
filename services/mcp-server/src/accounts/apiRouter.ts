@@ -38,6 +38,7 @@ import {
   type CircleErrorCode,
 } from './circle.js';
 import { isGuest } from './demo.js';
+import { DemoDoorRefusal, ringDemoDoorbell, type DemoDoorbellDeps } from './demoDoorbell.js';
 import { LanguageRefusal, askForLanguage, readLanguage, takeBackLanguageQuestion, type LanguageDeps } from './language.js';
 import { grantOf } from './oauthProvider.js';
 import { parseSubscription, type PushStore } from './push.js';
@@ -178,13 +179,15 @@ export interface ApiOptions {
   readonly withdrawCard?: LanguageDeps['withdrawCard'] | undefined;
   /** The mantelpiece: a picture for her television, and how the sender's own stand (photos/routes.ts). */
   readonly photos?: PhotoRoutes | undefined;
+  /** A demo home's stand-in doorbell (accounts/demoDoorbell.ts). Absent, the route is not there. */
+  readonly demoDoorbell?: DemoDoorbellDeps | undefined;
   /** Ask by voice: one spoken question, turned into words (hear/routes.ts). */
   readonly hear?: readonly (RequestHandler | ErrorRequestHandler)[] | undefined;
 }
 
 export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHandler, options: ApiOptions = {}): express.Router {
   const { store } = circle;
-  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone, push, withdrawCard, photos, hear } = options;
+  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone, push, withdrawCard, photos, demoDoorbell, hear } = options;
   const router = express.Router();
   // Any origin: nothing here uses a cookie, and a token is only ever sent by
   // the page that holds it.
@@ -385,6 +388,21 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
     router.get('/api/photos', photos.list);
   }
 
+  // --- A demo home's stand-in doorbell ---------------------------------------
+  //
+  // Somebody made to arrive at a demo home's door, for the Door agent to take
+  // through its own path (accounts/demoDoorbell.ts). The body names a visitor
+  // and nothing else is read from it: the home is the token's (INV-8).
+  if (demoDoorbell) {
+    router.post('/api/demo/doorbell', withGrant(async (grant, req, res) => {
+      try {
+        res.json(await ringDemoDoorbell(demoDoorbell, grant, req.body, req.get('idempotency-key')));
+      } catch (err) {
+        if (!(err instanceof DemoDoorRefusal)) throw err;
+        res.status(err.status).json({ error: err.code, message: err.message });
+      }
+    }));
+  }
   // --- Ask by voice ------------------------------------------------------------
   //
   // Behind the same sign-in. One short utterance in, its words out; the page

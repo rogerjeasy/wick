@@ -60,6 +60,22 @@ export async function loadHouseholdLanguage(
 }
 
 /**
+ * Whether a household is a guest's demo home: set up by somebody, and marked
+ * `simulated` when it was (services/mcp-server accounts/store.ts
+ * createHousehold). Only a demo home has a stand-in doorbell
+ * (agents/door/demoDoor.ts); a household a person set up never does.
+ */
+export async function isDemoHome(ddb: Pick<DynamoDBClient, 'send'>, table: string, householdId: string): Promise<boolean> {
+  const res = await ddb.send(new GetItemCommand({
+    TableName: table,
+    Key: { pk: { S: `HH#${householdId}` }, sk: { S: 'META' } },
+    ProjectionExpression: 'createdBy, simulated',
+    ConsistentRead: true,
+  }));
+  return Boolean(res.Item?.createdBy?.S) && res.Item?.simulated?.BOOL === true;
+}
+
+/**
  * Mirrors services/policy/src/evaluate.ts's order exactly: table rule allows
  * it, OR it's an explicit opt-in that is not in NEVER_TO_FAMILY (the opt-in
  * can never widen past that hard cap); resident exclusions narrow last. The

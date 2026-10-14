@@ -27,7 +27,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { CardPatch, QueuedCard } from '@wick/contracts';
+import type { CardPatch, DemoDoorEvent, QueuedCard } from '@wick/contracts';
 import { createAuth } from './auth.js';
 import { createApiRouter, type ClaimTelevision, type RingLinks } from './accounts/apiRouter.js';
 import { createFamilyTelevisionRouter } from './accounts/familyTelevisionRouter.js';
@@ -179,6 +179,12 @@ export interface AppDeps {
    */
   readonly photos?: { readonly objects: PhotoObjects; readonly moderate: Moderation } | undefined;
   /**
+   * A demo home's stand-in doorbell (accounts/demoDoorbell.ts): hands one
+   * ring to the Door agent. Absent, a member of a demo home is told this
+   * Wick has none.
+   */
+  readonly ringDemoDoor?: ((event: DemoDoorEvent) => Promise<void>) | undefined;
+  /**
    * Ask by voice (hear/transcribe.ts): one spoken question turned into words
    * by Amazon Transcribe. Absent, `/api/hear` says this Wick cannot hear yet.
    */
@@ -232,6 +238,8 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
       newId: circle.newId,
       timeZone: HOUSEHOLD_TZ,
     }),
+    // Somebody at a demo home's door, for the Door agent's own path (accounts/demoDoorbell.ts).
+    demoDoorbell: { ddb, store: deps.store, ring: deps.ringDemoDoor, now: circle.now, newId: circle.newId },
     // Ask by voice: the words are asked afterwards like typed ones, through the same gated paths.
     hear: createHearRoute({ hear: deps.hear, store: deps.store, now: circle.now }),
   }));

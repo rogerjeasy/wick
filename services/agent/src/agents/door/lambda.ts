@@ -30,7 +30,7 @@
  * (services/edge-ring/lambda/household-link-service.mjs), and a device nobody
  * holds reaches nobody.
  */
-import type { CachedDevices, RingClient, RingDevice, RingHistoryEvent } from '@wick/ring';
+import type { CachedDevices, RingClient } from '@wick/ring';
 import {
   cachedDevices,
   hasHallwayChime,
@@ -39,19 +39,20 @@ import {
   playableChimes,
   ringClientsByHousehold,
 } from '@wick/ring';
-import type { QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
+import { DEMO_DOOR_SOURCE, type RosterEntry, type VisitorMatch } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { randomUUID } from 'node:crypto';
 import { DynamoDBClient, PutItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
-import { handleDoorEvent } from './handle.js';
-import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
-import { matchVisitor, stillWelcome } from './roster.js';
+import { stillWelcome } from './roster.js';
 import { cachedRoster } from './rosterCache.js';
 import { buildDoorEventItem, buildPresenceItem } from './presence.js';
 import { noteDoorSighting } from '../visit/note.js';
 import { visitStore, type VisitSend } from '../../store/visits.js';
-import { runDoorPhase2, type Phase2Outcome } from './phase2.js';
+import { runDoorPhase2 } from './phase2.js';
 import { describeViaRuntime } from './describeRemote.js';
+import { routeDoorEvent, type RouteDeps, type RouteResult } from './route.js';
+import { routeDemoDoorEvent, standInPictures, type StandInBase } from './demoDoor.js';
+import { isDemoHome } from '../../store/household.js';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
 import { createRhythmWriter } from '../../rhythm/writeClient.js';
@@ -59,164 +60,12 @@ import { devicesOfHousehold, ringDeviceOwners, type DdbSend } from '../../store/
 import { lookStore, type LookSend } from '../../store/looks.js';
 import { buildDoorActivityKey, buildPresenceKey } from '../../rhythm/records.js';
 
-export type RouteResult = 'sent' | 'skipped' | 'unknown_device' | 'unclaimed_device';
-
-export interface RouteDeps {
-  readonly householdId: string;
-  readonly findDevice: (deviceId: string) => Promise<RingDevice | undefined>;
-  /** M1. A playable Ring Chime exists — from the same cached list as findDevice, so no extra Ring call. */
-  readonly hasHallwayChime: () => Promise<boolean>;
-  /** M4. Most households have not curated one; an empty list is the common answer. */
-  readonly listRoster: () => Promise<readonly RosterEntry[]>;
-  /** The names of the people the resident has allowed into the family circle — who "Ask Sarah to look" can reach. */
-  readonly listFamily: () => Promise<readonly string[]>;
-  /** M5. Only called when the event actually matches the roster. */
-  readonly recordPresence: (match: VisitorMatch, at: number) => Promise<void>;
-  /** D3. Called for every door-worthy event, matched or not. */
-  readonly recordDoorEvent: (at: number) => Promise<void>;
-  /** S6. Every door-worthy event's occurrence, for the Rhythm baseline (§8.2's door_activity table). */
-  readonly recordDoorActivity: (
-    deviceId: string,
-    subType: string,
-    measureName: 'motion' | 'button_press',
-    at: number,
-  ) => Promise<void>;
-  /** S6. Written only on a roster match — an arrival occurrence for the Rhythm baseline (§8.2's presence table). */
-  readonly recordPresenceActivity: (personId: string, at: number) => Promise<void>;
-  /**
-   * The visit, witnessed (agents/visit/note.ts): every door-worthy sighting, with who it looked like or nobody —
-   * a regular visitor arriving opens a visit, and anybody seen later is taken as that visitor leaving.
-   */
-  readonly noteSighting: (match: VisitorMatch | undefined, at: number) => Promise<void>;
-  readonly sendToDevice: (card: QueuedCard, ringDeviceId: string) => Promise<void>;
-  readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<Phase2Outcome>;
-  readonly now: () => number;
-}
-
-/**
- * One EventBridge detail through the whole path.
- *
- * Order matters: the door-worthiness gate runs BEFORE any device lookup, so
- * an account-lifecycle event (subscription_activated and the like) never
- * costs a Ring API call — most events on the bus are not doorbell events.
- */
-export async function routeRingEvent(
-  detail: Record<string, unknown>,
-  deps: RouteDeps,
-): Promise<RouteResult> {
-  if (!isDoorWorthy(detail)) return 'skipped';
-
-  const correlationId = typeof detail.correlationId === 'string' ? detail.correlationId : '';
-  const event = toRingHistoryEvent(detail, correlationId);
-
-  const device = await deps.findDevice(event.deviceId);
-  if (!device) return 'unknown_device';
-
-  const roster = await deps.listRoster();
-  // A failed lookup costs the button, never the card.
-  const hallwayChime = await deps.hasHallwayChime().catch(() => false);
-  const family = await deps.listFamily().catch(() => []);
-
-  const queued = await handleDoorEvent(
-    { event, device, hallwayChime, householdId: deps.householdId, correlationId, now: deps.now(), roster, family },
-    { sendToDevice: deps.sendToDevice },
-  );
-
-  try {
-    await deps.recordDoorEvent(event.start);
-  } catch (err) {
-    console.error(JSON.stringify({
-      level: 'error', msg: 'record_door_event_failed', correlationId,
-      err: err instanceof Error ? err.message : String(err),
-    }));
-  }
-
-  try {
-    // Button presses carry no sub_type (parseEvent.ts) — 'button' is the
-    // fixed dimension value for the one door-worthy event type that isn't
-    // motion. A motion event always has one, since isDoorWorthy() already
-    // required sub_type === 'human' to get this far.
-    const subType = event.detections[0] ?? 'button';
-    const measureName = event.eventType === 'button_press' ? 'button_press' : 'motion';
-    await deps.recordDoorActivity(event.deviceId, subType, measureName, event.start);
-  } catch (err) {
-    console.error(JSON.stringify({
-      level: 'error', msg: 'record_door_activity_failed', correlationId,
-      err: err instanceof Error ? err.message : String(err),
-    }));
-  }
-
-  const match = matchVisitor(roster, event.start);
-  if (match) {
-    try {
-      await deps.recordPresence(match, event.start);
-    } catch (err) {
-      console.error(JSON.stringify({
-        level: 'error', msg: 'record_presence_failed', correlationId,
-        err: err instanceof Error ? err.message : String(err),
-      }));
-    }
-
-    try {
-      await deps.recordPresenceActivity(match.personId, event.start);
-    } catch (err) {
-      console.error(JSON.stringify({
-        level: 'error', msg: 'record_presence_activity_failed', correlationId,
-        err: err instanceof Error ? err.message : String(err),
-      }));
-    }
-  }
-
-  try {
-    await deps.noteSighting(match ?? undefined, event.start);
-  } catch (err) {
-    console.error(JSON.stringify({
-      level: 'error', msg: 'visit_note_failed', correlationId,
-      err: err instanceof Error ? err.message : String(err),
-    }));
-  }
-
-  try {
-    const outcome = await deps.runPhase2(queued.id, event);
-    console.log(JSON.stringify({ level: 'info', msg: 'phase2_outcome', correlationId, ...outcome }));
-  } catch (err) {
-    console.error(JSON.stringify({
-      level: 'error', msg: 'phase2_failed', correlationId,
-      err: err instanceof Error ? err.message : String(err),
-    }));
-  }
-
-  return 'sent';
-}
-
-export interface HouseholdRouting {
-  /** The household that holds this Ring device (store/ringDevices.ts). */
-  readonly householdOf: (ringDeviceId: string) => Promise<string | undefined>;
-  readonly depsFor: (householdId: string) => RouteDeps;
-}
-
-/**
- * Whose doorbell rang, then the whole path for that household.
- *
- * A ring carries a Ring device id and nothing about a household (INV-8: no
- * household from an environment variable). A doorbell no household holds
- * reaches no television: showing one home a picture of another home's door
- * is the failure this refuses, so there is no default household to fall
- * back to.
- */
-export async function routeDoorEvent(detail: Record<string, unknown>, routing: HouseholdRouting): Promise<RouteResult> {
-  // Before the lookup, for the same reason routeRingEvent gates before its
-  // own: most events on the bus are not doorbell events.
-  if (!isDoorWorthy(detail)) return 'skipped';
-
-  const { deviceId } = toRingHistoryEvent(detail, '');
-  const householdId = await routing.householdOf(deviceId);
-  if (!householdId) return 'unclaimed_device';
-
-  return routeRingEvent(detail, routing.depsFor(householdId));
-}
+// The path itself lives in route.ts; it is exported from here as it always was.
+export { routeDoorEvent, routeRingEvent, type HouseholdRouting, type RouteDeps, type RouteResult } from './route.js';
 
 interface EventBridgeEnvelope {
+  /** `wick.ring` from the bus; `wick.demo-door` from the Wick server's own invoke (demoDoor.ts). */
+  readonly source?: string;
   readonly detail: Record<string, unknown>;
 }
 
@@ -298,7 +147,52 @@ async function recordPresenceActivity(householdId: string, personId: string, at:
   await rhythmWriter.increment(key, at);
 }
 
+/**
+ * A Ring doorbell, or a demo home's stand-in (demoDoor.ts). The stand-in's
+ * source is the only thing that takes the other path, and nothing but the
+ * Wick server's role can invoke this function with it (infra/agent.tf): the
+ * EventBridge rule that also invokes it passes `wick.ring` events and no
+ * others. Whatever a detail says, it goes where its source sends it.
+ */
+export async function dispatchDoorEvent<R>(
+  evt: { readonly source?: unknown; readonly detail: Record<string, unknown> },
+  routes: { readonly ring: (detail: Record<string, unknown>) => Promise<R>; readonly demo: (detail: Record<string, unknown>) => Promise<R> },
+): Promise<R> {
+  return evt.source === DEMO_DOOR_SOURCE ? routes.demo(evt.detail) : routes.ring(evt.detail);
+}
+
+/** The stand-in pictures, copied beside this bundle by scripts/build-lambda.mjs. */
+const STAND_IN_PICTURES = new URL('./demo-door/', import.meta.url);
+
+/** The stand-in doorbell's composition: the table, the television and the agent plane, and no Ring at all. */
+function standInBase(): StandInBase {
+  const agents = (runtime ??= agentCoreTarget());
+  return {
+    put: async (item) => void (await ddb.send(new PutItemCommand({ TableName: TABLE, Item: item }))),
+    rhythm: createRhythmWriter(ddb, TABLE, { simulated: true }),
+    visits,
+    listRoster: fetchRoster,
+    listFamily: fetchFamily,
+    // No Ring device beside the card: there is nothing for Watch live to open.
+    sendToDevice: (card) => realSendToDevice(card, DEFAULT_POLICY),
+    sendPatch: realSendPatchToDevice,
+    describe: (householdId) => describeViaRuntime((kind, hh, payload) => invokeRuntime(agents, kind, hh, payload), householdId),
+    pictures: standInPictures(STAND_IN_PICTURES),
+    newId: randomUUID,
+    now: Date.now,
+  };
+}
+
 export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
+  const result = await dispatchDoorEvent(evt, {
+    ring: routeRing,
+    demo: (detail) => routeDemoDoorEvent(detail, { isDemoHome: (householdId) => isDemoHome(ddb, TABLE, householdId), base: standInBase() }),
+  });
+  const quiet = result === 'sent' || result === 'skipped';
+  console.log(JSON.stringify({ level: quiet ? 'info' : 'warn', msg: 'door_event_routed', source: evt.source === DEMO_DOOR_SOURCE ? DEMO_DOOR_SOURCE : 'wick.ring', result }));
+};
+
+async function routeRing(detail: Record<string, unknown>): Promise<RouteResult> {
   const agents = (runtime ??= agentCoreTarget());
 
   const depsFor = (householdId: string): RouteDeps => {
@@ -336,7 +230,5 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
     };
   };
 
-  const result = await routeDoorEvent(evt.detail, { householdOf: ringDevices.householdOf, depsFor });
-
-  console.log(JSON.stringify({ level: result === 'unclaimed_device' ? 'warn' : 'info', msg: 'door_event_routed', result }));
-};
+  return routeDoorEvent(detail, { householdOf: ringDevices.householdOf, depsFor });
+}

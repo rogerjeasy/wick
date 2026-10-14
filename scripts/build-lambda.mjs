@@ -21,6 +21,7 @@
  */
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
+import { copyFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -31,6 +32,10 @@ const TARGETS = [
     entry: 'services/agent/src/agents/door/lambda.ts',
     outfile: 'services/agent/.build/door-event/index.mjs',
     bundleAll: true,
+    // A demo home's stand-in doorbell (agents/door/demoDoor.ts) reads its
+    // pictures from beside the bundle, for the vision step. The same files
+    // GitHub Pages publishes from docs/ for the television to load.
+    copy: [{ from: 'docs/demo-door', to: 'services/agent/.build/door-event/demo-door', match: /\.jpg$/ }],
   },
   {
     // M1: EventBridge card.action -> AgentCore door-action graph.
@@ -83,5 +88,12 @@ for (const target of TARGETS) {
       : {},
     logLevel: 'info',
   });
+  for (const { from, to, match } of target.copy ?? []) {
+    const files = (await readdir(path.join(root, from))).filter((name) => match.test(name));
+    if (files.length === 0) throw new Error(`${target.name}: nothing to copy from ${from}`);
+    await mkdir(path.join(root, to), { recursive: true });
+    for (const name of files) await copyFile(path.join(root, from, name), path.join(root, to, name));
+    console.log(`copied ${files.length} file(s) ${from} -> ${to}`);
+  }
   console.log(`built ${target.name} -> ${target.outfile}`);
 }
