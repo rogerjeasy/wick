@@ -2,327 +2,34 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- viewport-fit=cover: the page draws to the screen's edges and keeps its own clear of the notch (styles.css, safe-area insets);
+     interactive-widget: on Android the keyboard shrinks the page, so the question field stays above it. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 <title>Wick — family</title>
-<link rel="icon" href="data:," />
-<style>
-  /*
-   * Tokens from Amazon's Alexa+ add-on design guide (Visual Foundations):
-   * card and button colours, the spacing scale, the corner radii and the type
-   * scale. The guide sets type on a 768x480 base canvas and scales it 1.6x
-   * for far-field reading; --scale does the same here, and drops to 1 on a
-   * phone, which is held in the hand.
-   */
-  :root {
-    --scale: 1.5;
-    --ground: #0b0e13;
-    --stage: #0f131a;
-    --card: #14181e;            /* default-normal, dark */
-    --card-inner: #1b2028;      /* nested-inner-normal, dark */
-    --button: #2d415e;          /* secondary blue 270 */
-    --button-quiet: #232f40;    /* secondary blue 190 */
-    --ink: #f2f4f7;
-    --ink-dim: #b4bcc8;
-    --line: #2a313c;
-    --focus: #ffffff;
-    --wick: #e8b75d;            /* Wick's one brand colour: final actions only */
-    --wick-ink: #1a1408;
-
-    --s-2xs: 6px; --s-xs: 8px; --s-s: 12px; --s-m: 16px; --s-l: 20px; --s-xl: 24px;
-    --r-s: 8px; --r-m: 12px; --r-l: 16px; --r-pill: 9999px;
-
-    --t-display: calc(24px * var(--scale));   /* textStyleDisplay5 */
-    --t-headline: calc(18px * var(--scale));  /* textStyleHeadline2 */
-    --t-body: calc(16px * var(--scale));      /* textStyleBody1 */
-    --t-small: calc(14px * var(--scale));     /* textStyleBody2 */
-  }
-  @media (max-width: 760px) {
-    :root { --scale: 1.1; }
-    /* A phone has no room for two rows of chips or a long attribution. */
-    .chips { flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; }
-    .bar { padding: var(--s-s) var(--s-m) !important; gap: var(--s-s) !important; }
-    .bar .who small { display: none; }
-    .log { padding: var(--s-m) !important; }
-    .dock { padding: var(--s-s) var(--s-m) var(--s-m) !important; }
-    .turn-assistant { max-width: 100% !important; }
-  }
-
-  * { box-sizing: border-box; }
-  [hidden] { display: none !important; }
-  html, body { height: 100%; overflow: hidden; }
-  body {
-    margin: 0;
-    background: var(--ground);
-    color: var(--ink);
-    font-family: "Amazon Ember", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
-    font-size: var(--t-body);
-    line-height: 1.4;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  button, input, textarea { font: inherit; color: inherit; }
-  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-
-  /* One honest line, outside the surface: what this is and is not. */
-  .disclosure {
-    margin: 0;
-    width: 100%;
-    max-width: 1180px;
-    padding: var(--s-s) var(--s-m);
-    color: var(--ink-dim);
-    font-size: 14px;
-    line-height: 1.45;
-  }
-  .disclosure strong { color: var(--ink); font-weight: 600; }
-
-  .surface {
-    width: 100%;
-    max-width: 1180px;
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    background: var(--stage);
-    border: 1px solid var(--line);
-    border-radius: var(--r-l) var(--r-l) 0 0;
-    overflow: hidden;
-  }
-
-  .bar {
-    display: flex;
-    align-items: center;
-    gap: var(--s-m);
-    padding: var(--s-m) var(--s-xl);
-    border-bottom: 1px solid var(--line);
-    font-size: var(--t-small);
-  }
-  .bar .who { display: flex; align-items: center; gap: var(--s-s); font-weight: 600; }
-  .bar .who small { color: var(--ink-dim); font-weight: 400; font-size: inherit; }
-  .bar .spacer { flex: 1; }
-  .status { color: var(--ink-dim); }
-  .status[data-state="connected"]::before { content: "● "; color: #7fd1a0; }
-
-  .flame { width: 0.8em; height: 1.1em; flex: none; }
-
-  /* The light in the window: lit, or not. Not lit is quiet, never a warning. */
-  .light { display: inline-flex; align-items: center; gap: var(--s-xs); color: var(--ink-dim); }
-  .light .flame, .window .flame { filter: grayscale(1); opacity: 0.35; }
-  .light.lit { color: var(--ink); }
-  .light.lit .flame, .window.lit .flame { filter: none; opacity: 1; }
-  .light-card { text-align: center; }
-  .light-card .window { margin: var(--s-m) auto var(--s-s); width: 4.5rem; height: 6rem; display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--r-m, 12px) var(--r-m, 12px) 4px 4px; }
-  .light-card .window.lit { box-shadow: 0 0 2.5rem rgba(232, 183, 93, 0.35); border-color: rgba(232, 183, 93, 0.5); }
-  .light-card .window .flame { width: 1.8rem; height: 2.5rem; }
-  .light-card .light-note { margin: 0 0 var(--s-m); color: var(--ink-dim); }
-
-  .toggle {
-    display: inline-flex; align-items: center; gap: var(--s-xs);
-    background: none; border: 1px solid var(--line); border-radius: var(--r-pill);
-    padding: var(--s-2xs) var(--s-m); color: var(--ink-dim); cursor: pointer;
-  }
-  .toggle[aria-pressed="true"] { color: var(--ink); border-color: var(--ink-dim); }
-
-  .log {
-    position: relative;
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: var(--s-xl);
-    display: flex;
-    flex-direction: column;
-    gap: var(--s-xl);
-    scroll-behavior: smooth;
-  }
-  /* Room under the last turn, so its question can sit at the top. */
-  .log::after { content: ""; flex: none; height: 40vh; }
-  @media (prefers-reduced-motion: reduce) { .log { scroll-behavior: auto; } }
-
-  .turn-customer {
-    align-self: flex-end;
-    max-width: 80%;
-    background: var(--button-quiet);
-    border-radius: var(--r-l) var(--r-l) var(--r-s) var(--r-l);
-    padding: var(--s-s) var(--s-l);
-    color: var(--ink);
-  }
-
-  .turn-assistant { display: flex; flex-direction: column; gap: var(--s-m); max-width: 92%; }
-  .say { font-size: var(--t-display); line-height: 1.3; margin: 0; text-wrap: pretty; }
-  .say[data-tone="private"], .say[data-tone="waiting"] { color: var(--ink); }
-  .tone {
-    align-self: flex-start;
-    font-size: var(--t-small);
-    color: var(--ink-dim);
-    border: 1px solid var(--line);
-    border-radius: var(--r-pill);
-    padding: 2px var(--s-m);
-  }
-
-  .thinking { display: inline-flex; gap: 6px; padding: var(--s-xs) 0; }
-  .thinking i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-dim); animation: pulse 1.2s infinite ease-in-out; }
-  .thinking i:nth-child(2) { animation-delay: 0.15s; }
-  .thinking i:nth-child(3) { animation-delay: 0.3s; }
-  @keyframes pulse { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .thinking i { animation: none; opacity: 0.7; } }
-
-  /* Card: one title, glanceable rows, one clear action. */
-  .card {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: var(--r-l);
-    padding: var(--s-l) var(--s-xl);
-    display: flex;
-    flex-direction: column;
-    gap: var(--s-m);
-  }
-  .card-head { display: flex; align-items: baseline; gap: var(--s-m); }
-  .card-title { font-size: var(--t-headline); font-weight: 600; margin: 0; }
-  .card-meta { color: var(--ink-dim); font-size: var(--t-small); }
-  /* The week measured: this week beside the one before and a usual one. */
-  .facts { margin: 0 0 var(--s-s); display: grid; grid-template-columns: max-content 1fr; gap: var(--s-2xs) var(--s-m); }
-  .facts dt { font-weight: 600; }
-  .facts dd { margin: 0; color: var(--ink-dim); font-size: var(--t-small); align-self: center; }
-  /* What the assistant did to answer: the tools it called, in plain words. */
-  .trace { margin: var(--s-xs) 0 0; color: var(--ink-dim); font-size: var(--t-small); }
-  .progress { margin-left: var(--s-s); color: var(--ink-dim); font-size: var(--t-small); }
-  .rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-xs); }
-  .row {
-    background: var(--card-inner);
-    border-radius: var(--r-m);
-    padding: var(--s-s) var(--s-m);
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: var(--s-m);
-  }
-  .row .secondary { color: var(--ink-dim); font-size: var(--t-small); white-space: nowrap; flex: none; }
-  .row.stacked { flex-direction: column; align-items: stretch; gap: var(--s-2xs); }
-  .row.stacked .secondary { white-space: normal; }
-  .reply { font-weight: 600; }
-  .reply.none { font-weight: 400; color: var(--ink-dim); }
-  .rows[data-collapsed="true"] > li:nth-child(n + 5) { display: none; }
-  /* The language her television speaks now, among the ones that can be asked for. */
-  .row[aria-current="true"] .primary { font-weight: 600; }
-  /* A picture for her television, as it will be sent: whole, and no taller than leaves the button on screen. */
-  .picture-preview { width: 100%; max-height: 40vh; object-fit: contain; border-radius: var(--r-m); background: var(--card-inner); }
-  .picture-preview[hidden] { display: none; }
-  .card.picture .row .secondary { white-space: normal; flex: 1; text-align: right; }
-  /* A language's two names stay together ("Spanish — español"); on a phone it is the line beside them that wraps. */
-  .card.language .row .primary { white-space: nowrap; }
-  .card.language .row .secondary { white-space: normal; flex: 1; text-align: right; }
-  .fields { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: var(--s-xs) var(--s-m); }
-  .fields dt { color: var(--ink-dim); font-size: var(--t-small); }
-  .fields dd { margin: 0; }
-  .card-foot { display: flex; align-items: center; gap: var(--s-m); color: var(--ink-dim); font-size: var(--t-small); }
-  .card-foot .note { flex: 1; }
-  /* A question from the front door: the picture first, then each answer as its own full-width button. */
-  .door-picture { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--r-m); background: var(--card-inner); }
-  .door-description { margin: 0; }
-  .door-answers { display: flex; flex-direction: column; gap: var(--s-xs); }
-  .door-answers .btn { text-align: left; }
-  /* Under a request to ring: answering is not ringing. Quiet, like a footnote. */
-  .reach-note { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
-  /* Under the visits: how many came earlier, and what the times are. Quiet, like a footnote. */
-  .visits-note { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
-  /* A film watched together: the picture, one line about the television, and no controls — the remote is theirs. */
-  .watch-screen { width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r-m); background: #000; overflow: hidden; }
-  .watch-screen[hidden] { display: none; }
-  .watch-screen video { width: 100%; height: 100%; display: block; object-fit: contain; }
-  .watch-status { margin: 0; font-weight: 600; }
-  .watch-question { display: flex; flex-direction: column; gap: var(--s-xs); }
-  .watch-question[hidden] { display: none; }
-  .watch-question p { margin: 0; }
-  .watch-attribution { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
-  .watch-attribution:empty { display: none; }
-  .card > .actions:empty { display: none; }
-  .by { display: inline-flex; align-items: center; gap: var(--s-2xs); white-space: nowrap; }
-  .empty { color: var(--ink-dim); margin: 0; }
-
-  .btn {
-    border: 2px solid transparent;
-    border-radius: var(--r-m);
-    padding: var(--s-s) var(--s-xl);
-    background: var(--button);
-    cursor: pointer;
-    font-size: var(--t-small);
-    font-weight: 600;
-  }
-  .btn.quiet { background: var(--button-quiet); font-weight: 400; }
-  /* The brand colour, where the guide allows it: the action that completes the task. */
-  .btn.final { background: var(--wick); color: var(--wick-ink); }
-  /* One of two answers ("Whose television is it?"): the one chosen is outlined, the other stays quiet. */
-  .btn.choice[aria-pressed="true"] { background: var(--button); border-color: var(--ink-dim); font-weight: 600; }
-  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-  .btn.link { background: none; padding: var(--s-2xs) 0; color: var(--ink-dim); text-decoration: underline; align-self: flex-start; }
-
-  .form { display: flex; flex-direction: column; gap: var(--s-s); }
-  .form label { display: flex; flex-direction: column; gap: var(--s-2xs); color: var(--ink-dim); font-size: var(--t-small); }
-  .form input, .form textarea, .form select, .ask input, details input, input.linkbox {
-    background: var(--card-inner);
-    border: 1px solid var(--line);
-    border-radius: var(--r-m);
-    padding: var(--s-s) var(--s-m);
-    color: var(--ink);
-    font-size: var(--t-body);
-    width: 100%;
-  }
-  .form textarea { resize: vertical; min-height: 4.5em; }
-  /* Wraps: the circle card has four, and a phone has no room for them in a row. */
-  .form .actions, .card > .actions { display: flex; flex-wrap: wrap; gap: var(--s-s); align-items: center; }
-  .counter { color: var(--ink-dim); font-size: var(--t-small); margin-left: auto; }
-  /* The six digits on the television: large, spaced, impossible to misread. */
-  .form input.code { font-size: var(--t-display); letter-spacing: 0.18em; max-width: 9em; }
-  input.linkbox { font-size: var(--t-small); }
-  .problem { color: #f0b8a8; font-size: var(--t-small); margin: 0; min-height: 1.2em; }
-  .row .btn.link { align-self: center; flex: none; }
-  .card a { color: var(--wick); }
-
-  details { color: var(--ink-dim); font-size: var(--t-small); }
-  /* The add-on listing: its icon beside the name, and what it says about itself. */
-  .listing-icon { width: 56px; height: 56px; border-radius: var(--r-m); align-self: center; flex: none; }
-  .listing { display: flex; flex-direction: column; gap: var(--s-s); }
-  .listing p { margin: 0; }
-  .listing a { color: var(--ink); }
-  .listing details p, .listing details ul { margin: var(--s-xs) 0 0; }
-  .listing details ul { padding-left: 1.2em; }
-  details summary { cursor: pointer; padding: var(--s-2xs) 0; }
-  details label { display: flex; flex-direction: column; gap: var(--s-2xs); margin-top: var(--s-xs); }
-
-  .dock { border-top: 1px solid var(--line); padding: var(--s-m) var(--s-xl) var(--s-l); display: flex; flex-direction: column; gap: var(--s-s); }
-  .chips { display: flex; flex-wrap: wrap; gap: var(--s-xs); }
-  .chip {
-    flex: none;
-    border: 1px solid var(--line);
-    background: var(--card);
-    border-radius: var(--r-pill);
-    padding: var(--s-xs) var(--s-l);
-    cursor: pointer;
-    font-size: var(--t-small);
-    white-space: nowrap;
-  }
-  .chip:hover:not(:disabled) { border-color: var(--ink-dim); }
-  .chip:disabled { opacity: 0.45; cursor: not-allowed; }
-  .ask { display: flex; gap: var(--s-s); }
-  .ask input { flex: 1; }
-  /* Ask by voice: a quiet round button beside the field. Listening, it takes Wick's colour — never red. */
-  .ask .mic { flex: none; display: inline-grid; place-items: center; padding: var(--s-s); border-radius: var(--r-pill); min-width: 3em; }
-  .ask .mic svg { width: 1.1em; height: 1.1em; }
-  .ask .mic[aria-pressed="true"] { background: var(--wick); color: var(--wick-ink); }
-  .voice-line { margin: 0; display: flex; flex-wrap: wrap; gap: var(--s-2xs) var(--s-m); color: var(--ink-dim); font-size: var(--t-small); }
-  .voice-line .voice-status { color: var(--ink); font-weight: 600; }
-  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-</style>
+<meta name="description" content="The Wick family app: ask about the house, send a note or a picture to her television." />
+<meta name="theme-color" content="#0b0e13" />
+<!-- Added to a telephone's home screen it is an app of its own — and on an iPhone, only then can it be sent a notification. -->
+<link rel="manifest" href="./manifest.webmanifest" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Wick" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+<link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <p class="disclosure">
-    <strong>The Wick family app, with a simulated Alexa+ conversation.</strong> Amazon's
+  <!-- Open on a wide screen (main.js), one line on a telephone until it is opened. -->
+  <details id="disclosure" class="disclosure">
+    <summary><strong>The Wick family app, with a simulated Alexa+ conversation.</strong></summary>
+    Amazon's
     Alexa+ add-on tools are open to select partners only, so this page stands in for the
     assistant, as the hackathon permits. Nothing on it is canned: you sign in to a real
     account, a model chooses which of Wick's tools to call, and this page calls them on
     the real Wick MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1). Every fact it
     says comes from a tool's answer.
-  </p>
+  </details>
 
   <main class="surface">
     <header class="bar">
@@ -333,7 +40,9 @@
       <span class="spacer"></span>
       <span id="light" class="light" role="img" hidden></span>
       <span id="auth-status" class="status" role="status">Not connected</span>
-      <button id="speak-toggle" class="toggle" type="button" aria-pressed="false">Speak answers</button>
+      <button id="speak-toggle" class="toggle" type="button" aria-pressed="false" aria-label="Speak answers">Speak<span class="wide-only"> answers</span></button>
+      <!-- Your own account: download what Wick holds, or delete it (account.js). -->
+      <button id="account" class="toggle" type="button" hidden>Account</button>
       <button id="sign-out" class="toggle" type="button" hidden>Sign out</button>
     </header>
 

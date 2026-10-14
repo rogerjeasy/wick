@@ -6,11 +6,14 @@ Reproducible on purpose: committing a generator beats committing loose binaries
 nobody can regenerate. Colours are the ones defined in
 packages/vega-calm-ui/src/tokens.ts — one palette, used everywhere.
 
-    python3 scripts/make-brand-assets.py
+    python3 scripts/make-brand-assets.py              # everything
+    python3 scripts/make-brand-assets.py --web-app    # the family app's icons only
 
 Outputs to docs/icons/ and docs/carousel/, which GitHub Pages serves at the exact
 URLs referenced in addon-package/addon.json, and the Fire OS app's launcher
-icons and television banner under apps/tv-fireos/android/app/src/main/res/.
+icons and television banner under apps/tv-fireos/android/app/src/main/res/,
+and the family app's home-screen icons under apps/sim-alexa/icons/ (its web
+app manifest, and the icon an iPhone shows for it).
 
 These are honest, on-brand marks, not finished design work. Replace them with
 designed versions when you have them; the filenames and sizes must not change.
@@ -19,6 +22,7 @@ from __future__ import annotations
 
 import math
 import pathlib
+import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -187,7 +191,41 @@ def make_round_icon(px: int) -> Image.Image:
     return out.resize((px, px), Image.LANCZOS)
 
 
+# The family app as an app on a telephone (apps/sim-alexa/manifest.webmanifest).
+# On the app's own dark ground, opaque: iOS fills a transparent icon with black.
+WEB_APP_ICONS = ROOT / "apps" / "sim-alexa" / "icons"
+WEB_APP_ICON_PX = {"icon-192.png": 192, "icon-512.png": 512, "apple-touch-icon.png": 180, "favicon-32.png": 32}
+
+
+def make_maskable_icon(px: int, ground=DARK_THEME_GROUND) -> Image.Image:
+    """
+    A launcher may cut the icon to any shape inside its middle 80% (the
+    maskable "safe zone"), so the mark is drawn smaller, and the ground runs
+    to every edge.
+    """
+    s = px * SS
+    cx, cy = s / 2, s / 2
+    img = glow(s, cx, cy * 1.04, s * 0.32, strength=0.30, ground=ground)
+    d = ImageDraw.Draw(img)
+    d.polygon(flame_points(cx, cy * 1.00, s * 0.50, s * 0.32), fill=ACCENT)
+    core = tuple(int(ACCENT[c] + (INK[c] - ACCENT[c]) * 0.55) for c in range(3))
+    d.polygon(flame_points(cx, cy * 1.14, s * 0.23, s * 0.14), fill=core)
+    return img.resize((px, px), Image.LANCZOS)
+
+
+def make_web_app_icons() -> None:
+    WEB_APP_ICONS.mkdir(parents=True, exist_ok=True)
+    for name, px in WEB_APP_ICON_PX.items():
+        make_icon(px, DARK_THEME_GROUND).save(WEB_APP_ICONS / name, "PNG", optimize=True)
+        print(f"  {(WEB_APP_ICONS / name).relative_to(ROOT)}  {px}x{px}")
+    make_maskable_icon(512).save(WEB_APP_ICONS / "maskable-512.png", "PNG", optimize=True)
+    print(f"  {(WEB_APP_ICONS / 'maskable-512.png').relative_to(ROOT)}  512x512 (maskable)")
+
+
 def main() -> None:
+    if "--web-app" in sys.argv[1:]:
+        make_web_app_icons()
+        return
     icons = ROOT / "docs" / "icons"
     carousel = ROOT / "docs" / "carousel"
     icons.mkdir(parents=True, exist_ok=True)
@@ -215,6 +253,8 @@ def main() -> None:
     banner.mkdir(parents=True, exist_ok=True)
     make_tv_banner().save(banner / "tv_banner.png", "PNG", optimize=True)
     print(f"  {(banner / 'tv_banner.png').relative_to(ROOT)}  {ANDROID_BANNER[0]}x{ANDROID_BANNER[1]}")
+
+    make_web_app_icons()
 
 
 if __name__ == "__main__":

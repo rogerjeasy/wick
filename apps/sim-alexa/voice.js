@@ -142,17 +142,11 @@ export function heardAnswer(status, body) {
 
 /**
  * The AudioWorklet that hands the page the microphone's samples, a frame at
- * a time. Loaded from a Blob, so the page publishes no extra file for it;
- * where AudioWorklet is missing, main.js falls back to a ScriptProcessor.
+ * a time: ./capture-worklet.js, published beside the page. A file of the
+ * page's own rather than a Blob, because the page's Content-Security-Policy
+ * runs scripts from its own origin and from no `blob:` address
+ * (infra/csp/family-app.csp). Where AudioWorklet is missing, main.js falls
+ * back to a ScriptProcessor.
  */
 export const CAPTURE_WORKLET_NAME = 'wick-capture';
-export const CAPTURE_WORKLET_SOURCE = `
-class WickCapture extends AudioWorkletProcessor {
-  process(inputs) {
-    const channel = inputs[0] && inputs[0][0];
-    if (channel && channel.length) this.port.postMessage(channel.slice(0));
-    return true;
-  }
-}
-registerProcessor('${CAPTURE_WORKLET_NAME}', WickCapture);
-`;
+export const CAPTURE_WORKLET_URL = './capture-worklet.js';

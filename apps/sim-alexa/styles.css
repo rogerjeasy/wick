@@ -1,0 +1,373 @@
+/*
+ * Tokens from Amazon's Alexa+ add-on design guide (Visual Foundations):
+ * card and button colours, the spacing scale, the corner radii and the type
+ * scale. The guide sets type on a 768x480 base canvas and scales it 1.6x
+ * for far-field reading; --scale does the same here, and drops to 1 on a
+ * phone, which is held in the hand.
+ */
+:root {
+  --scale: 1.5;
+  --ground: #0b0e13;
+  --stage: #0f131a;
+  --card: #14181e;            /* default-normal, dark */
+  --card-inner: #1b2028;      /* nested-inner-normal, dark */
+  --button: #2d415e;          /* secondary blue 270 */
+  --button-quiet: #232f40;    /* secondary blue 190 */
+  --ink: #f2f4f7;
+  --ink-dim: #b4bcc8;
+  --line: #2a313c;
+  --focus: #ffffff;
+  --wick: #e8b75d;            /* Wick's one brand colour: final actions only */
+  --wick-ink: #1a1408;
+
+  --s-2xs: 6px; --s-xs: 8px; --s-s: 12px; --s-m: 16px; --s-l: 20px; --s-xl: 24px;
+  --r-s: 8px; --r-m: 12px; --r-l: 16px; --r-pill: 9999px;
+
+  --t-display: calc(24px * var(--scale));   /* textStyleDisplay5 */
+  --t-headline: calc(18px * var(--scale));  /* textStyleHeadline2 */
+  --t-body: calc(16px * var(--scale));      /* textStyleBody1 */
+  --t-small: calc(14px * var(--scale));     /* textStyleBody2 */
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+/*
+ * The page is exactly as tall as what can be seen of it, and only the
+ * conversation scrolls. --app-height is the visual viewport's height, set by
+ * main.js: on a telephone it shrinks when the keyboard opens, so the question
+ * field stays above the keyboard instead of under it.
+ */
+html { height: 100%; }
+body { height: 100%; overflow: hidden; }
+@supports (height: 100dvh) {
+  body { height: var(--app-height, 100dvh); }
+}
+body {
+  margin: 0;
+  /* Clear of the notch and the rounded corners, when the page is drawn to the screen's edges (viewport-fit=cover). */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "Amazon Ember", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  font-size: var(--t-body);
+  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+button, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* One honest line, outside the surface: what this is and is not. */
+.disclosure {
+  margin: 0;
+  width: 100%;
+  max-width: 1180px;
+  padding: var(--s-s) var(--s-m);
+  color: var(--ink-dim);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.disclosure strong { color: var(--ink); font-weight: 600; }
+.disclosure summary { cursor: pointer; }
+.disclosure[open] summary { display: inline; }
+.disclosure[open] summary::marker, .disclosure[open] summary::-webkit-details-marker { content: ""; display: none; }
+
+.surface {
+  width: 100%;
+  max-width: 1180px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--stage);
+  border: 1px solid var(--line);
+  border-radius: var(--r-l) var(--r-l) 0 0;
+  overflow: hidden;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-m);
+  padding: var(--s-m) var(--s-xl);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--t-small);
+}
+.bar .who { display: flex; align-items: center; gap: var(--s-s); font-weight: 600; white-space: nowrap; }
+.bar .who small { color: var(--ink-dim); font-weight: 400; font-size: inherit; }
+.bar .spacer { flex: 1; }
+.status { color: var(--ink-dim); }
+.status[data-state="connected"]::before { content: "● "; color: #7fd1a0; }
+
+.flame { width: 0.8em; height: 1.1em; flex: none; }
+
+/* The light in the window: lit, or not. Not lit is quiet, never a warning. */
+.light { display: inline-flex; align-items: center; gap: var(--s-xs); color: var(--ink-dim); }
+.light .flame, .window .flame { filter: grayscale(1); opacity: 0.35; }
+.light.lit { color: var(--ink); }
+.light.lit .flame, .window.lit .flame { filter: none; opacity: 1; }
+.light-card { text-align: center; }
+.light-card .window { margin: var(--s-m) auto var(--s-s); width: 4.5rem; height: 6rem; display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--r-m, 12px) var(--r-m, 12px) 4px 4px; }
+.light-card .window.lit { box-shadow: 0 0 2.5rem rgba(232, 183, 93, 0.35); border-color: rgba(232, 183, 93, 0.5); }
+.light-card .window .flame { width: 1.8rem; height: 2.5rem; }
+.light-card .light-note { margin: 0 0 var(--s-m); color: var(--ink-dim); }
+
+.toggle {
+  display: inline-flex; align-items: center; gap: var(--s-xs);
+  background: none; border: 1px solid var(--line); border-radius: var(--r-pill);
+  padding: var(--s-2xs) var(--s-m); color: var(--ink-dim); cursor: pointer;
+}
+.toggle[aria-pressed="true"] { color: var(--ink); border-color: var(--ink-dim); }
+/* A button's words stay on one line; who is signed in gives way first, ending in an ellipsis. */
+.bar .toggle { white-space: nowrap; flex: none; }
+.bar .status { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.log {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-xl);
+  scroll-behavior: smooth;
+}
+/* Room under the last turn, so its question can sit at the top. */
+.log::after { content: ""; flex: none; height: 40vh; height: 40dvh; }
+@media (prefers-reduced-motion: reduce) { .log { scroll-behavior: auto; } }
+
+.turn-customer {
+  align-self: flex-end;
+  max-width: 80%;
+  background: var(--button-quiet);
+  border-radius: var(--r-l) var(--r-l) var(--r-s) var(--r-l);
+  padding: var(--s-s) var(--s-l);
+  color: var(--ink);
+}
+
+.turn-assistant { display: flex; flex-direction: column; gap: var(--s-m); max-width: 92%; }
+.say { font-size: var(--t-display); line-height: 1.3; margin: 0; text-wrap: pretty; }
+.say[data-tone="private"], .say[data-tone="waiting"] { color: var(--ink); }
+.tone {
+  align-self: flex-start;
+  font-size: var(--t-small);
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 2px var(--s-m);
+}
+
+.thinking { display: inline-flex; gap: 6px; padding: var(--s-xs) 0; }
+.thinking i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-dim); animation: pulse 1.2s infinite ease-in-out; }
+.thinking i:nth-child(2) { animation-delay: 0.15s; }
+.thinking i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes pulse { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .thinking i { animation: none; opacity: 0.7; } }
+
+/* Card: one title, glanceable rows, one clear action. */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-l);
+  padding: var(--s-l) var(--s-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-m);
+}
+.card-head { display: flex; align-items: baseline; gap: var(--s-m); }
+.card-title { font-size: var(--t-headline); font-weight: 600; margin: 0; }
+.card-meta { color: var(--ink-dim); font-size: var(--t-small); }
+/* The week measured: this week beside the one before and a usual one. */
+.facts { margin: 0 0 var(--s-s); display: grid; grid-template-columns: max-content 1fr; gap: var(--s-2xs) var(--s-m); }
+.facts dt { font-weight: 600; }
+.facts dd { margin: 0; color: var(--ink-dim); font-size: var(--t-small); align-self: center; }
+/* What the assistant did to answer: the tools it called, in plain words. */
+.trace { margin: var(--s-xs) 0 0; color: var(--ink-dim); font-size: var(--t-small); }
+.progress { margin-left: var(--s-s); color: var(--ink-dim); font-size: var(--t-small); }
+.rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-xs); }
+.row {
+  background: var(--card-inner);
+  border-radius: var(--r-m);
+  padding: var(--s-s) var(--s-m);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-m);
+}
+.row .secondary { color: var(--ink-dim); font-size: var(--t-small); white-space: nowrap; flex: none; }
+.row.stacked { flex-direction: column; align-items: stretch; gap: var(--s-2xs); }
+.row.stacked .secondary { white-space: normal; }
+.reply { font-weight: 600; }
+.reply.none { font-weight: 400; color: var(--ink-dim); }
+.rows[data-collapsed="true"] > li:nth-child(n + 5) { display: none; }
+/* The language her television speaks now, among the ones that can be asked for. */
+.row[aria-current="true"] .primary { font-weight: 600; }
+/* A picture for her television, as it will be sent: whole, and no taller than leaves the button on screen. */
+.picture-preview { width: 100%; max-height: 40vh; object-fit: contain; border-radius: var(--r-m); background: var(--card-inner); }
+.picture-preview[hidden] { display: none; }
+.card.picture .row .secondary { white-space: normal; flex: 1; text-align: right; }
+/* A language's two names stay together ("Spanish — español"); on a phone it is the line beside them that wraps. */
+.card.language .row .primary { white-space: nowrap; }
+.card.language .row .secondary { white-space: normal; flex: 1; text-align: right; }
+.fields { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: var(--s-xs) var(--s-m); }
+.fields dt { color: var(--ink-dim); font-size: var(--t-small); }
+.fields dd { margin: 0; }
+.card-foot { display: flex; align-items: center; gap: var(--s-m); color: var(--ink-dim); font-size: var(--t-small); }
+.card-foot .note { flex: 1; }
+/* A question from the front door: the picture first, then each answer as its own full-width button. */
+.door-picture { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--r-m); background: var(--card-inner); }
+.door-description { margin: 0; }
+.door-answers { display: flex; flex-direction: column; gap: var(--s-xs); }
+.door-answers .btn { text-align: left; }
+/* Under a request to ring: answering is not ringing. Quiet, like a footnote. */
+.reach-note { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
+/* Under the visits: how many came earlier, and what the times are. Quiet, like a footnote. */
+.visits-note { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
+/* A film watched together: the picture, one line about the television, and no controls — the remote is theirs. */
+.watch-screen { width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r-m); background: #000; overflow: hidden; }
+.watch-screen[hidden] { display: none; }
+.watch-screen video { width: 100%; height: 100%; display: block; object-fit: contain; }
+.watch-status { margin: 0; font-weight: 600; }
+.watch-question { display: flex; flex-direction: column; gap: var(--s-xs); }
+.watch-question[hidden] { display: none; }
+.watch-question p { margin: 0; }
+.watch-attribution { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
+.watch-attribution:empty { display: none; }
+.card > .actions:empty { display: none; }
+.by { display: inline-flex; align-items: center; gap: var(--s-2xs); white-space: nowrap; }
+.empty { color: var(--ink-dim); margin: 0; }
+
+.btn {
+  border: 2px solid transparent;
+  border-radius: var(--r-m);
+  padding: var(--s-s) var(--s-xl);
+  background: var(--button);
+  cursor: pointer;
+  font-size: var(--t-small);
+  font-weight: 600;
+}
+.btn.quiet { background: var(--button-quiet); font-weight: 400; }
+/* The brand colour, where the guide allows it: the action that completes the task. */
+.btn.final { background: var(--wick); color: var(--wick-ink); }
+/* One of two answers ("Whose television is it?"): the one chosen is outlined, the other stays quiet. */
+.btn.choice[aria-pressed="true"] { background: var(--button); border-color: var(--ink-dim); font-weight: 600; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.link { background: none; padding: var(--s-2xs) 0; color: var(--ink-dim); text-decoration: underline; align-self: flex-start; }
+
+.form { display: flex; flex-direction: column; gap: var(--s-s); }
+.form label { display: flex; flex-direction: column; gap: var(--s-2xs); color: var(--ink-dim); font-size: var(--t-small); }
+.form input, .form textarea, .form select, .ask input, details input, input.linkbox {
+  background: var(--card-inner);
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  padding: var(--s-s) var(--s-m);
+  color: var(--ink);
+  font-size: var(--t-body);
+  width: 100%;
+}
+.form textarea { resize: vertical; min-height: 4.5em; }
+/* Wraps: the circle card has four, and a phone has no room for them in a row. */
+.form .actions, .card > .actions { display: flex; flex-wrap: wrap; gap: var(--s-s); align-items: center; }
+.counter { color: var(--ink-dim); font-size: var(--t-small); margin-left: auto; }
+/* The six digits on the television: large, spaced, impossible to misread. */
+.form input.code { font-size: var(--t-display); letter-spacing: 0.18em; max-width: 9em; }
+input.linkbox { font-size: var(--t-small); }
+.problem { color: #f0b8a8; font-size: var(--t-small); margin: 0; min-height: 1.2em; }
+.row .btn.link { align-self: center; flex: none; }
+.card a { color: var(--wick); }
+
+details { color: var(--ink-dim); font-size: var(--t-small); }
+/* The add-on listing: its icon beside the name, and what it says about itself. */
+.listing-icon { width: 56px; height: 56px; border-radius: var(--r-m); align-self: center; flex: none; }
+.listing { display: flex; flex-direction: column; gap: var(--s-s); }
+.listing p { margin: 0; }
+.listing a { color: var(--ink); }
+.listing details p, .listing details ul { margin: var(--s-xs) 0 0; }
+.listing details ul { padding-left: 1.2em; }
+details summary { cursor: pointer; padding: var(--s-2xs) 0; }
+details label { display: flex; flex-direction: column; gap: var(--s-2xs); margin-top: var(--s-xs); }
+
+.dock { border-top: 1px solid var(--line); padding: var(--s-m) var(--s-xl) calc(var(--s-l) + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: var(--s-s); }
+.chips { display: flex; flex-wrap: wrap; gap: var(--s-xs); }
+.chip {
+  flex: none;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: var(--r-pill);
+  padding: var(--s-xs) var(--s-l);
+  cursor: pointer;
+  font-size: var(--t-small);
+  white-space: nowrap;
+}
+.chip:hover:not(:disabled) { border-color: var(--ink-dim); }
+.chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.ask { display: flex; gap: var(--s-s); }
+.ask input { flex: 1; }
+/* Ask by voice: a quiet round button beside the field. Listening, it takes Wick's colour — never red. */
+.ask .mic { flex: none; display: inline-grid; place-items: center; padding: var(--s-s); border-radius: var(--r-pill); min-width: 3em; }
+.ask .mic svg { width: 1.1em; height: 1.1em; }
+.ask .mic[aria-pressed="true"] { background: var(--wick); color: var(--wick-ink); }
+.voice-line { margin: 0; display: flex; flex-wrap: wrap; gap: var(--s-2xs) var(--s-m); color: var(--ink-dim); font-size: var(--t-small); }
+.voice-line .voice-status { color: var(--ink); font-weight: 600; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/*
+ * A telephone, held in the hand: 360 to 430 pixels wide. Last in the file, so
+ * it wins over the rules above without !important.
+ */
+@media (max-width: 760px) {
+  :root { --scale: 1.1; }
+  .disclosure { padding: var(--s-xs) var(--s-m); font-size: 13px; }
+  /* Edge to edge: a border and rounded corners only take width a telephone does not have. */
+  .surface { border-left: 0; border-right: 0; border-radius: 0; }
+  /* The header wraps: the name and the buttons on one line, who is signed in and where on the next. */
+  .bar { flex-wrap: wrap; padding: var(--s-xs) var(--s-m); gap: var(--s-xs) var(--s-s); }
+  .bar .who small { display: none; }
+  /* A break before the second line, which holds who is signed in and where, and her light beside it. */
+  .bar::after { content: ""; order: 9; flex-basis: 100%; }
+  .bar .status { order: 10; flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .light { order: 11; flex: none; }
+  .toggle { padding: 4px 10px; min-height: 36px; font-size: 13px; }
+  .bar .who { gap: var(--s-xs); }
+  /* "Speak", not "Speak answers": the three buttons and the name then share one line, even at 360 pixels. */
+  .wide-only { display: none; }
+  /* One row of chips, swiped sideways, reaching the screen's edges. */
+  .chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+    margin: 0 calc(-1 * var(--s-m));
+    padding: 0 var(--s-m);
+  }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { scroll-snap-align: start; min-height: 40px; }
+  .log { padding: var(--s-m); gap: var(--s-l); }
+  .dock { padding: var(--s-s) var(--s-m) calc(var(--s-s) + env(safe-area-inset-bottom)); }
+  .say { font-size: calc(21px * var(--scale)); overflow-wrap: anywhere; }
+  .turn-assistant { max-width: 100%; }
+  .turn-customer { max-width: 88%; overflow-wrap: anywhere; }
+  .card { padding: var(--s-m); }
+  .card-head { flex-wrap: wrap; gap: var(--s-2xs) var(--s-s); }
+  /* A row's two halves stack when they do not fit side by side, rather than run off the screen. */
+  .row { flex-wrap: wrap; }
+  .row .secondary { white-space: normal; }
+  .facts, .fields { grid-template-columns: 1fr; }
+  .facts dd, .fields dd { margin-bottom: var(--s-xs); }
+  .btn { padding: var(--s-s) var(--s-l); }
+  .form .actions .btn, .card > .actions .btn { flex: 1 1 auto; }
+}
+
+/*
+ * A laptop's screen is wide but not tall: four or five rows of chips would
+ * leave the conversation a strip. There they are one row, scrolled sideways.
+ */
+@media (min-width: 761px) and (max-height: 900px) {
+  .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: var(--s-2xs); }
+}
+
+/* A telephone with its keyboard open: what can be seen is the conversation and the field, and nothing else. */
+@media (max-width: 760px) and (max-height: 520px) {
+  .disclosure, #voice-note { display: none; }
+}
