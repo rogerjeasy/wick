@@ -564,11 +564,14 @@
  * nothing scrolls.
  */
 
-/* The picture from the door: two fifths of the screen at most, whole, above the words. */
+/* The picture from the door: two fifths of the screen at most, whole, above the words.
+   A picture gives way with the words at each smaller size — but only so far. Under each share of the screen
+   there is a floor in the card's own measure, below which a picture is too small to see (in a window 420 wide
+   one was 76 by 57): past it the picture stays as it is, the card no longer fits, and the screen grows. */
 .tv-card .tv-still {
   display: block;
   max-width: 100%;
-  max-height: calc(var(--tv-height, 22.5rem) * 0.4);
+  max-height: max(5em, calc(var(--tv-height, 22.5rem) * 0.4));
   border-radius: var(--radius-md);
   margin-bottom: 0.75em;
 }
@@ -598,16 +601,16 @@
 }
 
 .tv-card.fit-snug .tv-still {
-  max-height: calc(var(--tv-height, 22.5rem) * 0.3);
+  max-height: max(5em, calc(var(--tv-height, 22.5rem) * 0.3));
   margin-bottom: 0.5em;
 }
 
 .tv-card.fit-snug .tv-photo img {
-  max-height: min(16em, calc(var(--tv-height, 22.5rem) * 0.45));
+  max-height: min(16em, max(7em, calc(var(--tv-height, 22.5rem) * 0.45)));
 }
 
 .tv-mantel.fit-snug .tv-photo img {
-  max-height: min(22em, calc(var(--tv-height, 22.5rem) * 0.55));
+  max-height: min(22em, max(9em, calc(var(--tv-height, 22.5rem) * 0.55)));
 }
 
 /* The smallest: the smallest words a family member's own television uses (.tv-family.has-card .family-head),
@@ -637,7 +640,7 @@
 }
 
 .tv-card.fit-small .tv-still {
-  max-height: calc(var(--tv-height, 22.5rem) * 0.22);
+  max-height: max(5em, calc(var(--tv-height, 22.5rem) * 0.22));
   margin-bottom: 0.4em;
 }
 
@@ -646,11 +649,11 @@
 }
 
 .tv-card.fit-small .tv-photo img {
-  max-height: min(16em, calc(var(--tv-height, 22.5rem) * 0.3));
+  max-height: min(16em, max(7em, calc(var(--tv-height, 22.5rem) * 0.3)));
 }
 
 .tv-mantel.fit-small .tv-photo img {
-  max-height: min(22em, calc(var(--tv-height, 22.5rem) * 0.4));
+  max-height: min(22em, max(9em, calc(var(--tv-height, 22.5rem) * 0.4)));
 }
 
 /* And when the smallest size is not enough, the screen grows taller than sixteen by nine for as long as that card

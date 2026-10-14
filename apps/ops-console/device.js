@@ -190,6 +190,62 @@ function fitScreen() {
   if (remedy.grown) tvScreen.classList.add('grown');
 }
 
+/*
+ * A picture has no size until the browser has read the start of its file,
+ * and from that moment it is laid out at that size — before it has wholly
+ * come, which is when it can be fitted. Seen live, 2026-10-14: her
+ * mantelpiece opened with its picture at full size and its buttons off the
+ * screen for a third of a second, then snapped to fit.
+ *
+ * So a picture takes no room at all until it has come (`display: none`),
+ * and in the moment it has it is put on the screen and fitted, before the
+ * browser draws either: nothing is ever cut off in between. And one that
+ * has come is kept, by what it is a picture of, for as long as it may be
+ * wanted again — its card drawn again in another language or with a line
+ * added, a step back along her mantelpiece — so drawing something again
+ * never takes its picture away and brings it back. Kept in this page's
+ * memory only, a handful at most, and let go with the television.
+ */
+const MAX_LOADED_PICTURES = 16;
+/** The pictures that have come, by what each is a picture of; the one wanted most lately is last. */
+const loadedPictures = new Map();
+
+/**
+ * The <img> for a picture, and whether it has come already.
+ *
+ * @param {string} key  what it is a picture of: the same picture under a new address is the same picture
+ * @param {{ onCome?: () => void, onFailed?: () => void }} then  told once, when a picture not yet here comes or fails
+ */
+function pictureOf(key, src, className, alt, then = {}) {
+  const had = loadedPictures.get(key);
+  if (had) {
+    loadedPictures.delete(key);
+    loadedPictures.set(key, had);
+    had.className = className;
+    had.alt = alt;
+    had.onclick = null;
+    return { img: had, come: true };
+  }
+  const img = el('img', className);
+  img.alt = alt;
+  img.style.display = 'none';
+  img.onload = () => {
+    img.style.display = '';
+    loadedPictures.set(key, img);
+    while (loadedPictures.size > MAX_LOADED_PICTURES) loadedPictures.delete(loadedPictures.keys().next().value);
+    if (then.onCome) then.onCome();
+    fitScreen();
+  };
+  img.onerror = () => {
+    loadedPictures.delete(key);
+    img.remove();
+    if (then.onFailed) then.onFailed();
+    fitScreen();
+  };
+  img.src = src;
+  return { img, come: false };
+}
+
 window.addEventListener('resize', fitScreen);
 // And what the page says before anything has been sent to it.
 fitScreen();
@@ -357,6 +413,8 @@ function connectWebSocket(jwt, deviceId) {
     // A new connection learns the home's language afresh, with the cards it is sent.
     languageKnown = false;
     send({ t: 'reconcile' });
+    // And from now on it asks whether it is still connected: nothing else would tell it.
+    watchStanding(deviceId);
   };
 
   ws.onmessage = (event) => {
@@ -379,6 +437,8 @@ function connectWebSocket(jwt, deviceId) {
     disconnectBtn.disabled = true;
     pairBtn.disabled = false;
     setTelemetryEnabled(false);
+    // A channel that was open and is not: a lost network, or a television taken out of its home. It asks which.
+    if (opened) askStandingSoon();
   };
 
   ws.onerror = () => {
@@ -394,10 +454,147 @@ function send(deviceEvent) {
 
 function disconnect() {
   // Asked for by hand: this tab stops being that television, and a reload does not bring it back.
+  stopStanding();
   forgetTelevision();
+  loadedPictures.clear();
   if (family) leaveFamilyView('connection closed');
   if (ws) ws.close();
 }
+
+/* --- Still connected? --------------------------------------------------- */
+
+/*
+ * Nothing tells a television it has been disconnected. The organiser takes
+ * it out of the home from the family app; the edge refuses it everything
+ * from then on — but this page's channel stays open and silent, and a
+ * refusal looks exactly like a quiet evening. Seen live, 2026-10-14: the tab
+ * went on saying "connected" for as long as anyone watched, a press went
+ * nowhere, and only a reload showed it.
+ *
+ * So it asks, as the television's own apps do (apps/tv-vega/src/pairing/
+ * standing.ts, which is the tested one — keep the two in step): `POST
+ * /pair/refresh` with its id. The resident's television is answered by its
+ * id alone (AGENTS.md INV-1, the accepted exception), which is as well: the
+ * pairing API lets a page on another origin send a content type and no
+ * other header (infra/edge.tf), so this page could show no token if one
+ * were asked for. Three answers are definite — 404 no home holds this
+ * television, 403 revoked, 401 — and on any of them the page stops being
+ * that television: the screen says so, the tab forgets it, and nothing is
+ * left running. A token handed back means it is connected, and is taken for
+ * no more than that: the one this page was paired with lasts thirty days,
+ * far longer than a tab. EVERYTHING ELSE — asked too soon, the service in
+ * trouble, no answer in ten seconds, no network — is nothing known, and
+ * changes nothing.
+ *
+ * When: once a minute while the tab is in front; at once when it comes back
+ * to the front, or when the channel closes. Never within half a minute of
+ * the last time (the pairing service counts) — an asking that would be is
+ * put off to the end of that half minute — and never two at once.
+ *
+ * A family member's own television does not ask this: the Wick server tells
+ * it, every time it looks at its home (enterFamilyView).
+ */
+const STANDING_EVERY_MS = 60_000;
+const STANDING_MIN_GAP_MS = 30_000;
+const STANDING_ASK_LIMIT_MS = 10_000;
+
+/** The watch kept for the resident's television this page is: `{ deviceId, lastAskedAt, asking, every, soon }`, or null. */
+let standing = null;
+
+/** What the pairing service's answer says of this television (standing.ts standingOf, PairingFlow #saysNotConnected). */
+function standingOf(status) {
+  if (status === 401 || status === 403 || status === 404) return 'not_connected';
+  return status >= 200 && status < 300 ? 'connected' : 'unknown';
+}
+
+function watchStanding(deviceId) {
+  stopStanding();
+  // Just paired, or just let back in by its token: it has only now been answered for.
+  standing = { deviceId, lastAskedAt: Date.now(), asking: false, every: setInterval(askStandingSoon, STANDING_EVERY_MS), soon: null };
+}
+
+function stopStanding() {
+  if (!standing) return;
+  clearInterval(standing.every);
+  clearTimeout(standing.soon);
+  standing = null;
+}
+
+/**
+ * Asked at once — or, if it was asked only just now, as soon as it may be
+ * asked again: the minute coming round, the tab coming back to the front,
+ * and the channel closing all come here, so none of them is put off to the
+ * next minute for having come too soon after another.
+ */
+function askStandingSoon() {
+  const mine = standing;
+  if (!mine) return;
+  const wait = mine.lastAskedAt + STANDING_MIN_GAP_MS - Date.now();
+  if (wait <= 0) return void askStanding();
+  clearTimeout(mine.soon);
+  mine.soon = setTimeout(() => void askStanding(), wait);
+}
+
+async function askStanding() {
+  const mine = standing;
+  if (!mine || mine.asking || document.hidden || Date.now() - mine.lastAskedAt < STANDING_MIN_GAP_MS) return;
+  mine.asking = true;
+  mine.lastAskedAt = Date.now();
+  const givenUp = new AbortController();
+  const limit = setTimeout(() => givenUp.abort(), STANDING_ASK_LIMIT_MS);
+  let said = 'unknown';
+  try {
+    const res = await fetch(`${PAIRING_API_URL}/pair/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: mine.deviceId }),
+      signal: givenUp.signal,
+    });
+    // One given up is not listened to, whatever arrives afterwards.
+    if (!givenUp.signal.aborted) said = standingOf(res.status);
+  } catch {
+    // No network, or given up: nothing known.
+  } finally {
+    clearTimeout(limit);
+    mine.asking = false;
+  }
+  if (standing === mine && said === 'not_connected') televisionGone();
+}
+
+/** The pairing service says this television is no longer in a home: the page stops being it, and says so. */
+function televisionGone() {
+  stopStanding();
+  forgetTelevision();
+  const channel = ws;
+  ws = null;
+  if (channel) {
+    // Closed here, and said here: its own closing has nothing more to say.
+    channel.onclose = null;
+    channel.onmessage = null;
+    channel.onerror = null;
+    channel.close();
+  }
+  stopRead();
+  keptCards = [];
+  currentQueuedCard = null;
+  mantelView = null;
+  mantel = null;
+  home = {};
+  languageKnown = false;
+  loadedPictures.clear();
+  stopFilm();
+  setConnBadge('disconnected');
+  connDetail.textContent = 'this television was disconnected from its home';
+  disconnectBtn.disabled = true;
+  pairBtn.disabled = false;
+  setTelemetryEnabled(false);
+  renderNoLongerConnected();
+}
+
+// Back in front after being behind another tab: asked at once, if it may be.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) askStandingSoon();
+});
 
 /* --- Incoming messages -------------------------------------------------- */
 
@@ -825,7 +1022,7 @@ function readMantelItems(value) {
  * address to fetch it from, and when the address stops answering — one
  * lives an hour. The picture is only ever put in an <img>.
  */
-function tvPicture(url, fromName, onFailed) {
+function tvPicture(photoId, url, fromName, onFailed) {
   const box = el('div', 'tv-photo');
   const unavailable = () => box.appendChild(el('div', 'body-text', tvSay('photoUnavailable')));
   const src = httpsUrl(url);
@@ -833,17 +1030,13 @@ function tvPicture(url, fromName, onFailed) {
     unavailable();
     return box;
   }
-  const img = el('img');
-  img.src = src;
-  img.alt = tvSay('photoPicture', { name: fromName });
-  // A picture has no height until it has come, and the calm line in its place has another: measured again.
-  img.onload = fitScreen;
-  img.onerror = () => {
-    img.remove();
-    unavailable();
-    fitScreen();
-    if (onFailed) onFailed();
-  };
+  // No room until it has come, and the same picture if it has come already (pictureOf) — whatever its address now is.
+  const { img } = pictureOf(`photo|${photoId}`, src, '', tvSay('photoPicture', { name: fromName }), {
+    onFailed: () => {
+      unavailable();
+      if (onFailed) onFailed();
+    },
+  });
   box.appendChild(img);
   box.picture = img;
   return box;
@@ -899,7 +1092,7 @@ function renderMantel() {
     wrapper.appendChild(el('div', 'headline', MANTEL_WAITING));
     actions.appendChild(mantelButton(tvSay('filmBack'), false, closeMantel));
   } else {
-    const box = tvPicture(item.url, item.fromName, () => {
+    const box = tvPicture(item.photoId, item.url, item.fromName, () => {
       // Once for each answer: if the new addresses fail too, asking for ever would not help.
       if (mantelView && mantelView.askedAgainFor !== mantel.answer) {
         mantelView = { ...mantelView, askedAgainFor: mantel.answer };
@@ -908,11 +1101,12 @@ function renderMantel() {
     });
     // A click on the picture is OK on the television: it opens the choice, and takes nothing down.
     if (box.picture) {
-      box.picture.addEventListener('click', () => {
+      // Set, not added: the picture may be one that has been on the screen before.
+      box.picture.onclick = () => {
         if (!mantelView || mantelView.choosing) return;
         mantelView = { ...mantelView, choosing: true };
         renderMantel();
-      });
+      };
     }
     wrapper.appendChild(box);
     wrapper.appendChild(
@@ -987,14 +1181,8 @@ function renderCard(queuedCard) {
     wrapper.appendChild(el('div', 'headline', card.line));
     if (card.imageRef) {
       // How tall it may be is the stylesheet's (.tv-still): a share of the screen, less at each smaller size.
-      const img = el('img', 'tv-still');
-      img.src = card.imageRef;
-      img.alt = tvSay('doorPicture');
-      img.onload = fitScreen;
-      img.onerror = () => {
-        img.remove();
-        fitScreen();
-      };
+      // And it takes no room until it has come; a patch to this card keeps the picture it has (pictureOf).
+      const { img } = pictureOf(`still|${card.id}|${card.imageRef}`, card.imageRef, 'tv-still', tvSay('doorPicture'));
       wrapper.insertBefore(img, wrapper.firstChild);
     }
     if (card.description) wrapper.appendChild(el('div', 'body-text', card.description));
@@ -1045,7 +1233,7 @@ function renderCard(queuedCard) {
     // buttons and — when "Keep it" found her mantelpiece full — the notice; the picture carries no words of theirs.
     wrapper.appendChild(el('div', 'kicker', tvSay('photo')));
     wrapper.appendChild(el('div', 'headline', card.headline));
-    wrapper.appendChild(tvPicture(card.photoUrl, card.fromName));
+    wrapper.appendChild(tvPicture(card.photoId ?? card.id, card.photoUrl, card.fromName));
     if (card.notice) wrapper.appendChild(el('div', 'body-text notice', card.notice));
   } else if (card.type === 'LANGUAGE') {
     // The television speaks her language: the organiser has asked for another, and it is put to her in both at
@@ -1571,6 +1759,8 @@ function familyPageLine(index, count) {
 const cardSignature = (card) => JSON.stringify([card.headline, card.detail, card.pictureUrl, card.pages, card.actions]);
 
 function enterFamilyView(jwt, deviceId, { restored = false } = {}) {
+  // This television is told it is no longer connected by the Wick server, each time it looks: the other question is not asked.
+  stopStanding();
   family = {
     jwt,
     deviceId,
@@ -1716,7 +1906,7 @@ function familyRefused(reply) {
     connDetail.textContent = 'no longer connected';
     disconnectBtn.disabled = true;
     pairBtn.disabled = false;
-    renderFamilyNoLongerConnected();
+    renderNoLongerConnected();
     return true;
   }
   if (reply.status === 403) {
@@ -2051,16 +2241,11 @@ function renderFamily() {
     const shown = el('div', 'family-card');
     if (card.pictureUrl) {
       // Beside the words, so the answers stay on the screen with it.
-      const img = el('img', 'family-picture');
-      img.alt = 'The picture from the door';
-      img.onload = fitScreen;
-      img.onerror = () => {
-        img.remove();
-        shown.classList.remove('with-picture');
-        fitScreen();
-      };
-      img.src = card.pictureUrl;
-      shown.classList.add('with-picture');
+      // The words make room for it only once it has come: until then it takes none, and nothing is laid out twice.
+      const { img, come } = pictureOf(`family|${card.id}`, card.pictureUrl, 'family-picture', 'The picture from the door', {
+        onCome: () => shown.classList.add('with-picture'),
+      });
+      if (come) shown.classList.add('with-picture');
       shown.appendChild(img);
     }
     const panel = el('div', 'family-words');
@@ -2107,7 +2292,8 @@ function renderFamilySentence(sentence) {
   show(wrapper);
 }
 
-function renderFamilyNoLongerConnected() {
+/** One sentence and the way back: for a family member's own television the Wick server no longer knows, and for the resident's the pairing service no longer does. */
+function renderNoLongerConnected() {
   const wrapper = el('div', 'tv-card tv-family');
   wrapper.appendChild(el('div', 'headline', 'This television is no longer connected.'));
   const actions = el('div', 'actions');
