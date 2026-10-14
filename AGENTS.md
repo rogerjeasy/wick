@@ -527,7 +527,10 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   they choose it: its Ring link first (and nothing at all if that cannot be
   ended), then its televisions, its pictures and every `HH#` row. The export
   holds no code, token or browser address, and a reply or a picture's "seen"
-  only while the resident allows the person. **Never** leave a household
+  only while the resident allows the person. A note is theirs by the
+  writer's id on its row (`sentBy`), never by the name on it — two people in
+  a circle can share a name — and a note with no writer on record is in
+  nobody's export. **Never** leave a household
   without its organiser, delete one without that choice, or count what she
   kept on the way.
 - **Never commit real household data.** No captures, no HAR files, no Ring
