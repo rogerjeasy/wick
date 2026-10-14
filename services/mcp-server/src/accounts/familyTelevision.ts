@@ -60,6 +60,10 @@
  * Asking for the seat or for what waits is not: neither reads anything of
  * her day, and neither writes anything at all.
  *
+ * INV-4: every answer, on every route, is read by the Guardian before it
+ * is sent (guardian.ts `guardTelevision`). The door's sentence is the same
+ * one get_door_request hands out, already through the gate there.
+ *
  * No model is called, and nothing is logged that came out of a token.
  */
 import { createPublicKey, createVerify, type KeyObject } from 'node:crypto';
@@ -104,6 +108,7 @@ import { recordLook, type SendHome } from '../tools/lookIn.js';
 import type { AnswerOutcome } from '../tools/result.js';
 import type { HouseholdPolicy } from '@wick/policy';
 import { checkAccess } from './circle.js';
+import { guardTelevision } from '../guardian.js';
 import type { AccountStore } from './store.js';
 import { action, type TvCaller } from './familyTvTypes.js';
 import { watchCard, watchSeat } from './familyTvWatch.js';
@@ -618,7 +623,8 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
     }
   }
 
-  return {
+  // INV-4: every answer a family television is given is read by the Guardian first (guardian.ts).
+  return guardTelevision<FamilyTelevisionEndpoints>({
     async home(authorization) {
       const who = await authenticate(authorization);
       if ('status' in who) return who;
@@ -643,5 +649,5 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
       if (isOnScreen(who)) return { status: 200, body: { waiting: [] } };
       return { status: 200, body: await waitingFor(who) };
     },
-  };
+  });
 }

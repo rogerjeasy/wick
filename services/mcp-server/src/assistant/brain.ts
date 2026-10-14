@@ -28,6 +28,7 @@
  * tested without one. bedrock.ts is the real one.
  */
 import { currentIsoWeek } from '@wick/contracts';
+import { familyText } from '../guardian.js';
 
 export interface ToolSpec {
   readonly name: string;
@@ -347,11 +348,18 @@ const numbersIn = (text: string): string[] => text.match(/\d+/g) ?? [];
  * and every number in it can be found in what the tools returned, what the
  * customer said, or today's date. The same rule the Narrator's prose is
  * held to (services/agent/src/agents/narrator/weekFacts.ts checkNarrative).
+ *
+ * And it passes the Guardian (INV-4). The tools' answers have already been
+ * through it (guardian.ts), but a model can add words of its own, or say
+ * back a question about her health as if it were an answer. A reply the
+ * gate cannot clear is asked for once more, and then the app says the
+ * tools' own sentences instead — the way any unfit reply ends.
  */
 export function checkReply(text: string, turns: readonly Turn[], now: Date, timeZone: string): ReplyCheck {
   const reply = text.trim();
   if (!reply) return { ok: false, detail: 'empty' };
   if (reply.length > MAX_REPLY_CHARS) return { ok: false, detail: 'too long' };
+  if (!familyText(reply, 'assistant.reply')) return { ok: false, detail: 'protected' };
 
   const evidence = new Set(numbersIn(today(now, timeZone)));
   for (const turn of turns) {
@@ -365,6 +373,9 @@ export function checkReply(text: string, turns: readonly Turn[], now: Date, time
 function retryReason(check: Extract<ReplyCheck, { ok: false }>): string {
   if (check.detail === 'empty') return 'You said nothing. Answer in one or two short sentences, from the tool results.';
   if (check.detail === 'too long') return 'That was too long to say aloud. Answer in one or two short sentences.';
+  if (check.detail === 'protected') {
+    return 'Wick never tells the family anything about health, money, relationships or where someone is, and that reply did. Answer again from the tool results without it, or say you cannot help with that.';
+  }
   return `Your reply used "${check.detail}", which is not in the tool results. Say it again using only numbers, dates and times that the results give.`;
 }
 

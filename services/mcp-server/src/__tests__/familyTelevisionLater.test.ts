@@ -225,7 +225,7 @@ describe('a wave, there and back', () => {
 
     const { loadNoteReplies } = await import('../tools/get_replies.js');
 
-    expect(await loadNoteReplies(table.ddb, sarah.householdId, Date.now())).toEqual([]);
+    expect(await loadNoteReplies(table.ddb, sarah.householdId, sarah.userId, Date.now())).toEqual([]);
   });
 });
 

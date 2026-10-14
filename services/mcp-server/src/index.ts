@@ -134,7 +134,7 @@ const cognito = new CognitoIdentityProviderClient(
 const app = createApp(ISSUER_URL, {
   store: createDynamoAccountStore(((command) => ddb.send(command as never)) as DdbSend, TABLE_NAME),
   identity: createCognitoIdentity(((command) => cognito.send(command as never)) as CognitoSend, COGNITO_CLIENT_ID),
-  sendCard: (card) => sendToDevice(card, DEFAULT_POLICY),
+  sendCard: (card, serverOnly) => sendToDevice(card, DEFAULT_POLICY, serverOnly),
   sendPatch: sendPatchToDevice,
   withdrawCard: (householdId, cardId) => takeBackFromDevices(cardId, householdId),
   sendHome: sendHomeToDevices,

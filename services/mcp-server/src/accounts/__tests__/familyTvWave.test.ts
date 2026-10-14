@@ -340,7 +340,7 @@ describe('a wave she put away', () => {
     const { putAway } = await pair();
 
     expect(cardRow(putAway.table, putAway.cards[0]!.id)).toMatchObject({ replyText: { S: 'Not now' } });
-    expect(await loadNoteReplies(putAway.table.ddb, 'hh-1', NOW + HOUR)).toEqual([]);
+    expect(await loadNoteReplies(putAway.table.ddb, 'hh-1', 'u_sarah', NOW + HOUR)).toEqual([]);
   });
 
   it.each([
@@ -384,13 +384,14 @@ describe('a wave is not a note', () => {
     w.table.put({
       pk: { S: 'HH#hh-1' },
       sk: { S: 'CARD#note-1' },
+      sentBy: { S: 'u_sarah' },
       data: { S: JSON.stringify({ id: 'note-1', queuedAt: NOW - HOUR, card: { type: 'MESSAGE', fromName: 'Sarah Hughes', transcript: 'Lunch on Sunday?', suggestedReplies: ['Yes, please do.', 'Another day would be better.', 'Not right now.'] } }) },
     });
 
     const sent = await wave(w);
-    const unanswered = await loadNoteReplies(w.table.ddb, 'hh-1', NOW + MIN);
+    const unanswered = await loadNoteReplies(w.table.ddb, 'hh-1', 'u_sarah', NOW + MIN);
     await herPress(w, sent, 0, NOW + MIN);
-    const answered = await loadNoteReplies(w.table.ddb, 'hh-1', NOW + 2 * MIN);
+    const answered = await loadNoteReplies(w.table.ddb, 'hh-1', 'u_sarah', NOW + 2 * MIN);
 
     const onlyTheNote = [{ from: 'Sarah Hughes', message: 'Lunch on Sunday?', sentAt: NOW - HOUR, reply: null }];
     expect(unanswered).toEqual(onlyTheNote);

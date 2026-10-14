@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { parsePattern } from '@wick/agent';
-import { collidesWith, personIdFor, regularPattern, registerAddRegularVisitor, visitorName } from '../add_regular_visitor.js';
+import { VISITOR_NAME_NOT_SHARED_TEXT, collidesWith, personIdFor, regularPattern, registerAddRegularVisitor, visitorName } from '../add_regular_visitor.js';
 import { allowedContext } from './toolContext.js';
 
 /** A Wednesday in October: London is an hour ahead of UTC. */
@@ -187,6 +187,15 @@ describe('add_regular_visitor', () => {
     const { ddb, transactions } = table([], { policy: { ...DEFAULT_POLICY, residentExclusions: ['PRESENCE' as const] } });
 
     expect(await call(ddb, MARIA)).toBe("That's something the resident is keeping to themselves. I'm not able to share it.");
+    expect(transactions).toEqual([]);
+  });
+
+  it('refuses, and writes nothing, a name the Guardian cannot clear: a clinical role is a fact about her health', async () => {
+    const { ddb, transactions } = table();
+
+    for (const name of ['Dr Patel GP', 'Nurse Joy', 'The physio']) {
+      expect(await call(ddb, { ...MARIA, name })).toBe(VISITOR_NAME_NOT_SHARED_TEXT);
+    }
     expect(transactions).toEqual([]);
   });
 

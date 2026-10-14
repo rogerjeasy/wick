@@ -30,6 +30,12 @@
  *     what the family is told.
  *
  * The family app shows the replies with the note before it is sent.
+ *
+ * Who wrote the note is kept on its row (`sentBy`), never on the card the
+ * television is sent: a note's words are read back to the person who wrote
+ * them, and to nobody else in the family (get_replies.ts). The same words
+ * are handed back here, to the same person, as theirs (guardian.ts
+ * `theirOwnWords`).
  */
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -38,6 +44,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { WRITES, data } from './result.js';
+import { theirOwnWords } from '../guardian.js';
 
 /** The way out that is always offered. */
 export const DECLINE_REPLY = 'Not right now.';
@@ -110,10 +117,17 @@ export function buildMessageCard(input: BuildMessageCardInput): QueuedCard {
   };
 }
 
+/**
+ * How a card reaches the resident's television: egress.ts's sendToDevice,
+ * handed in (server.ts AppDeps). `sentBy` is who wrote a note, kept beside
+ * the card and never in it.
+ */
+export type SendCard = (card: QueuedCard, serverOnly?: { readonly sentBy?: string }) => Promise<void>;
+
 export function registerSendNoteToTv(
   mcpServer: McpServer,
   ctx: ToolContext,
-  sendCard: (card: QueuedCard) => Promise<void>,
+  sendCard: SendCard,
 ): void {
   mcpServer.registerTool(
     'send_note_to_tv',
@@ -144,9 +158,9 @@ export function registerSendNoteToTv(
         replies,
         now: Date.now(),
       });
-      await sendCard(card);
+      await sendCard(card, { sentBy: ctx.userId });
       const offered = card.card.type === 'MESSAGE' ? card.card.suggestedReplies : [];
-      return data({ sent: true, cardId: card.id, fromName, message, replies: offered });
+      return theirOwnWords(data({ sent: true, cardId: card.id, fromName, message, replies: offered }), [message]);
     })),
   );
 }

@@ -23,7 +23,8 @@ const TABLE = process.env.TABLE_NAME ?? 'wick';
  * silent (§6.4: silence is indistinguishable from "nothing happened", which
  * is a lie). Mirrors services/policy/src/evaluate.ts's `defaultRefusal`
  * FAMILY-audience phrasing exactly, for the tools in this directory that
- * withhold data directly rather than going through the Guardian's `evaluate`.
+ * refuse a whole class the resident keeps — `isSharedWithFamily`, which asks
+ * `evaluate`. (What the content gate holds back is never said: guardian.ts.)
  */
 export const FAMILY_REFUSAL_TEXT = "That's something the resident is keeping to themselves. I'm not able to share it.";
 
@@ -35,7 +36,7 @@ export const FAMILY_REFUSAL_TEXT = "That's something the resident is keeping to 
 export const loadHouseholdPolicy = (ddb: DynamoDBClient, householdId: string): Promise<HouseholdPolicy> =>
   loadPolicyFrom(ddb, TABLE, householdId);
 
-/** The single source of truth for "is this FactClass visible to FAMILY" (services/agent store/household.ts). */
+/** The single source of truth for "is this FactClass visible to FAMILY": the Guardian's `evaluate` (services/agent store/household.ts). */
 export { isSharedWithFamily };
 
 /**
