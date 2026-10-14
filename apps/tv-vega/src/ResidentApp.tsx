@@ -84,6 +84,7 @@ import { homeBehind } from './home/behind.js';
 import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, waitingLine } from './home/waiting.js';
 import { asking } from './home/asked.js';
+import { okHeld } from './press/held.js';
 import { pressSettle } from './press/settle.js';
 import { standingWatch } from './pairing/standing.js';
 import type { RenewResult } from './pairing/PairingFlow.js';
@@ -250,12 +251,21 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   screenNow.current = { watching: watching !== null, mantelOpen, liveOpen: liveFor !== null, onScreen };
   /** The channel while it is held, for the one thing the app asks on it by itself: its cards again (below). */
   const cardChannel = React.useRef<RunningCardChannel | null>(null);
+  /**
+   * What the app hears of OK, whatever is on screen: since when it has been
+   * down (press/held.ts). A key that went down in a film, or on a card, and
+   * is still down when the home screen comes back presses nothing there
+   * when it is let go.
+   */
+  const okKey = React.useMemo(() => okHeld(), []);
   // Back on screen: whatever card is there, she is looking at it afresh, and its first second starts again.
+  // Behind another app: a key that was down comes up where Wick cannot hear it.
   const wasOnScreen = React.useRef(onScreen);
   React.useEffect(() => {
     if (onScreen && !wasOnScreen.current) settle.returned(Date.now());
+    if (!onScreen) okKey.forget();
     wasOnScreen.current = onScreen;
-  }, [onScreen, settle]);
+  }, [onScreen, settle, okKey]);
   // A television the family has disconnected must not go on looking like
   // hers. Nothing tells it: the edge only refuses it. So while it is on
   // screen it asks the pairing service, now and then and whenever its
@@ -566,6 +576,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   useTVEventHandler((event) => {
     const now = Date.now();
     lastActiveAt.current = now;
+    okKey.seen(event, now);
     const at = keysNow.current;
     const command = readCommand(event, at);
     // A key the idle screen takes — the one that ends it, and any other until that one is up — does nothing
@@ -705,6 +716,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
         <HomeScreen
           drawn={behind.rows}
           inFront={onScreen}
+          okDownSince={okKey.since}
           language={language}
           programmes={CATALOG}
           onChoose={handleChoose}
