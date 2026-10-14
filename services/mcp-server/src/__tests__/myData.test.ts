@@ -90,9 +90,13 @@ async function sarahAndTom(w: World): Promise<{ sarah: Linked; tom: Linked }> {
   return { sarah, tom };
 }
 
-/** A note on her television, as send_note_to_tv queues it, answered as note-reply.mjs records it. */
-function putNote(table: MemoryTable, householdId: string, fromName: string, message: string, reply?: string): void {
-  const id = `note-${fromName}-${message.length}`;
+/**
+ * A note on her television, as send_note_to_tv queues it — with `sentBy`, the
+ * writer's id that egress.ts keeps on the row (PR #69), or without it, as a
+ * note sent before that was kept — answered as note-reply.mjs records it.
+ */
+function putNote(table: MemoryTable, householdId: string, fromName: string, message: string, reply?: string, sentBy?: string): void {
+  const id = `note-${fromName}-${message.length}-${sentBy ?? 'nobody'}`;
   const queued = {
     id,
     urgency: 'DEFERRED',
@@ -105,6 +109,7 @@ function putNote(table: MemoryTable, householdId: string, fromName: string, mess
     sk: { S: `CARD#${id}` },
     data: { S: JSON.stringify(queued) },
     ...(reply ? { replyText: { S: reply }, repliedAt: { N: '1790000100000' } } : {}),
+    ...(sentBy ? { sentBy: { S: sentBy } } : {}),
   });
 }
 
@@ -190,8 +195,8 @@ describe('the export', () => {
     const w = await world();
     const { sarah, tom } = await sarahAndTom(w);
     await invite(w.h, sarah);
-    putNote(w.table, tom.householdId, 'Tom', 'Shall I come on Saturday?', 'Yes, please do.');
-    putNote(w.table, tom.householdId, 'Sarah', 'Not Tom’s note');
+    putNote(w.table, tom.householdId, 'Tom', 'Shall I come on Saturday?', 'Yes, please do.', tom.userId);
+    putNote(w.table, tom.householdId, 'Sarah', 'Not Tom’s note', undefined, sarah.userId);
     putPicture(w.table, tom.householdId, 'p-tom', tom.userId, true);
     putPicture(w.table, tom.householdId, 'p-sarah', sarah.userId, false);
     const endpoint = 'https://fcm.googleapis.com/fcm/send/secret-capability';
@@ -232,10 +237,47 @@ describe('the export', () => {
     expect(Object.keys(hers.invitationsSent[0])).not.toContain('code');
   });
 
+  it('gives each of two members with the same name only the notes they wrote, and a note with no writer on record to nobody', async () => {
+    const w = await world();
+    const { sarah, tom } = await sarahAndTom(w);
+    // A second "Tom" in the same circle: the name on a note says nothing about whose it is.
+    const otherTom = await linkInvited(w.h, { name: 'Tom', email: 'tom.two@example.com', password: 'another passphrase' }, await invite(w.h, sarah));
+    await residentAllows(w.h, otherTom.householdId, otherTom.userId);
+    putNote(w.table, tom.householdId, 'Tom', 'From the first Tom', 'Yes, please do.', tom.userId);
+    putNote(w.table, tom.householdId, 'Tom', 'From the second Tom, longer', 'Another day would be better.', otherTom.userId);
+    putNote(w.table, tom.householdId, 'Tom', 'Sent before writers were kept', 'Thank you!');
+
+    const exportOf = async (who: Linked) => JSON.parse(await (await call(w.h, who, '/api/account/export')).text()) as { notesSent: { message: string; reply?: { text: string } }[]; about: string };
+    const first = await exportOf(tom);
+    const second = await exportOf(otherTom);
+    expect(first.notesSent.map((n) => [n.message, n.reply?.text])).toEqual([['From the first Tom', 'Yes, please do.']]);
+    expect(second.notesSent.map((n) => [n.message, n.reply?.text])).toEqual([['From the second Tom, longer', 'Another day would be better.']]);
+    // The note with no writer on record is in nobody's file — not Sarah's either — and the file says why.
+    for (const file of [first, second, await exportOf(sarah)]) {
+      expect(JSON.stringify(file)).not.toContain('Sent before writers were kept');
+      expect(file.about).toContain('cannot be told for certain whose it is');
+    }
+  });
+
+  it('leaves out the resident’s replies and a picture’s seen for somebody still waiting for her', async () => {
+    const w = await world();
+    const sarah = await linkNewOrganiser(w.h);
+    await residentAllows(w.h, sarah.householdId, sarah.userId);
+    const tom = await linkInvited(w.h, TOM, await invite(w.h, sarah));
+    // Tom is pending: whatever is on the rows, nothing she said is his yet.
+    putNote(w.table, tom.householdId, 'Tom', 'Hello', 'Yes, please do.', tom.userId);
+    putPicture(w.table, tom.householdId, 'p-tom', tom.userId, true);
+
+    const file = JSON.parse(await (await call(w.h, tom, '/api/account/export')).text());
+    expect(file.circles[0].status).toBe('pending');
+    expect(file.notesSent[0]).not.toHaveProperty('reply');
+    expect(file.picturesSent[0]).not.toHaveProperty('seen');
+  });
+
   it('leaves out what the resident said back while she does not allow the person', async () => {
     const w = await world();
     const { tom } = await sarahAndTom(w);
-    putNote(w.table, tom.householdId, 'Tom', 'Shall I come?', 'Yes, please do.');
+    putNote(w.table, tom.householdId, 'Tom', 'Shall I come?', 'Yes, please do.', tom.userId);
     putPicture(w.table, tom.householdId, 'p-tom', tom.userId, true);
     await w.h.store.setMemberStatus(tom.householdId, tom.userId, 'removed', Date.now());
 
@@ -251,6 +293,8 @@ describe('deleting an account', () => {
     const w = await world();
     const { sarah, tom } = await sarahAndTom(w);
     w.h.store.addFamilyTelevision(tom.householdId, { deviceId: 'toms-tv', userId: tom.userId });
+    putNote(w.table, tom.householdId, 'Tom', 'A note of Tom’s', undefined, tom.userId);
+    putNote(w.table, tom.householdId, 'Sarah', 'A note of Sarah’s, longer', undefined, sarah.userId);
     w.table.put({ pk: { S: 'CONFIG#push' }, sk: { S: 'VAPID' }, publicKey: { S: 'BPublicKey' } });
     await call(w.h, tom, '/api/push', {
       method: 'POST',
@@ -279,6 +323,12 @@ describe('deleting an account', () => {
     expect(w.h.store.forgottenVisits).toContainEqual({ householdId: tom.householdId, userId: tom.userId });
     // No browser of his is kept to be nudged.
     expect(w.table.rows(`USER#${tom.userId}`)).toEqual([]);
+    // His note stays the home's, with no writer on record; Sarah's keeps hers.
+    const notes = w.table.rows(`HH#${tom.householdId}`).filter((row) => row.sk?.S?.startsWith('CARD#note-'));
+    const writerOf = (start: string) => notes.find((row) => row.data?.S?.includes(start))?.sentBy?.S;
+    expect(notes).toHaveLength(2);
+    expect(writerOf('A note of Tom’s')).toBeUndefined();
+    expect(writerOf('A note of Sarah’s')).toBe(sarah.userId);
     // His tokens end with it, and so does his sign-in at Cognito.
     expect((await call(w.h, tom, '/api/me')).status).toBe(401);
     await expect(w.h.deps.identity.signIn({ email: TOM.email, password: TOM.password })).rejects.toMatchObject({ code: 'wrong_credentials' });
@@ -292,7 +342,7 @@ describe('deleting an account', () => {
     const w = await world();
     const { sarah, tom } = await sarahAndTom(w);
     w.h.store.addTelevision(sarah.householdId, { deviceId: 'her-tv', connected: true });
-    putNote(w.table, sarah.householdId, 'Tom', 'Hello');
+    putNote(w.table, sarah.householdId, 'Tom', 'Hello', undefined, tom.userId);
     putPicture(w.table, sarah.householdId, 'p-1', tom.userId, false);
     w.table.put({ pk: { S: `HH#${sarah.householdId}` }, sk: { S: 'MANTEL#p-1' } });
 

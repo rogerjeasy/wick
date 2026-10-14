@@ -19,7 +19,10 @@
  *     store.ts `listOwnedRecords`), and the token the request came with;
  *   - in each home they were in: their place in its circle (the row, not a
  *     `removed` status — the row is their name), the visits they announced,
- *     and any television they connected as their own.
+ *     any television they connected as their own, and their id on the notes
+ *     they wrote (`sentBy`, which egress.ts keeps on a note's row and never
+ *     sends to the television): the note stays the home's, written by nobody
+ *     on record, and is read to nobody as theirs (tools/get_replies.ts).
  *
  * And the one rule a real product has to decide: **a home is never left
  * without the person who set it up.** Deleting the account of a home's
@@ -44,7 +47,7 @@
  * token: the `DELETING` record says the password was checked and the
  * Cognito user is already gone, so the rest is finished without it.
  */
-import { DeleteItemCommand, QueryCommand, type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DeleteItemCommand, QueryCommand, UpdateItemCommand, type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { QueuedCard } from '@wick/contracts';
 import type { PhotoObjects } from '../photos/objects.js';
 import { listPhotos } from '../photos/rows.js';
@@ -232,7 +235,7 @@ export async function deleteAccount(deps: MyDataDeps, asker: Asker, request: Del
       await closeHome(deps, householdId);
       continue;
     }
-    await leaveHome(store, householdId, userId);
+    await leaveHome(deps, householdId, userId);
   }
 
   for (const record of await store.listOwnedRecords(userId)) await store.deleteRecord(record.kind, record.id);
@@ -243,8 +246,21 @@ export async function deleteAccount(deps: MyDataDeps, asker: Asker, request: Del
   await store.deleteRecord('DELETING', userId);
 }
 
-/** Their place in a home somebody else set up: their row, the visits they announced, and a television of their own. */
-async function leaveHome(store: AccountStore, householdId: string, userId: string): Promise<void> {
+/** Their place in a home somebody else set up: their row, the visits they announced, a television of their own, and their id on their notes. */
+async function leaveHome(deps: MyDataDeps, householdId: string, userId: string): Promise<void> {
+  const { store, ddb } = deps;
+  for (const { item } of await notesIn(ddb, householdId, userId)) {
+    // Only while it is still theirs: the condition is the row's, so nothing else's writer is ever taken off.
+    await ddb.send(new UpdateItemCommand({
+      TableName: TABLE,
+      Key: { pk: item.pk!, sk: item.sk! },
+      UpdateExpression: 'REMOVE sentBy',
+      ConditionExpression: 'sentBy = :me',
+      ExpressionAttributeValues: { ':me': { S: userId } },
+    })).catch((err: unknown) => {
+      if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
+    });
+  }
   await store.forgetAnnouncedVisits(householdId, userId);
   for (const tv of await store.listFamilyTelevisions(householdId)) {
     if (tv.userId === userId) await store.removeFamilyTelevision(householdId, tv.deviceId, userId);
@@ -333,8 +349,15 @@ function pushServiceOf(endpoint: string): string {
   }
 }
 
-/** The notes in a home that carry this person's name in its circle — the only name a note is sent under. */
-async function notesIn(ddb: DynamoDBClient, householdId: string, name: string): Promise<{ queued: QueuedCard; item: Item }[]> {
+/**
+ * The notes in a home this person wrote: the rows whose `sentBy` is their id,
+ * kept there by egress.ts when the note was sent. Never by the name on the
+ * card — two people in one circle can share a name (every demo guest is
+ * "Guest"), and each would be handed the other's notes and her replies to
+ * them. A note sent before `sentBy` was kept has no writer on record, and is
+ * in nobody's export.
+ */
+async function notesIn(ddb: DynamoDBClient, householdId: string, userId: string): Promise<{ queued: QueuedCard; item: Item }[]> {
   const found: { queued: QueuedCard; item: Item }[] = [];
   let startKey: Item | undefined;
   do {
@@ -349,7 +372,7 @@ async function notesIn(ddb: DynamoDBClient, householdId: string, name: string): 
       if (!raw) continue;
       const queued = JSON.parse(raw) as QueuedCard;
       // A wave is a press on a remote, not a note anybody wrote (familyTvWave.ts).
-      if (queued.card.type !== 'MESSAGE' || isWaveCardId(queued.id) || queued.card.fromName !== name) continue;
+      if (queued.card.type !== 'MESSAGE' || isWaveCardId(queued.id) || item.sentBy?.S !== userId) continue;
       found.push({ queued, item });
     }
     startKey = page.LastEvaluatedKey;
@@ -388,7 +411,7 @@ export async function exportMyData(deps: MyDataDeps, userId: string): Promise<My
       askedAt: iso(membership.requestedAt),
       ...(membership.decidedAt === undefined ? {} : { answeredAt: iso(membership.decidedAt) }),
     });
-    for (const { queued, item } of await notesIn(ddb, householdId, membership.name)) {
+    for (const { queued, item } of await notesIn(ddb, householdId, userId)) {
       const card = queued.card.type === 'MESSAGE' ? queued.card : undefined;
       const replyText = item.replyText?.S;
       const repliedAt = item.repliedAt?.N;
@@ -445,7 +468,8 @@ export async function exportMyData(deps: MyDataDeps, userId: string): Promise<My
     exportedAt: iso(deps.now()),
     about:
       'Everything Wick holds about you. Your password is not here: Amazon Cognito keeps it, and Wick never stored it. ' +
-      'Codes, tokens and the addresses of your browsers are left out: each is a way in, not something about you.',
+      'Codes, tokens and the addresses of your browsers are left out: each is a way in, not something about you. ' +
+      'A note sent before Wick kept who wrote each note is not here, because it cannot be told for certain whose it is.',
     account: {
       name: user.name,
       email: user.email || null,
