@@ -35,6 +35,12 @@
  * the hold. It counts from the same moment the focus memory counts from —
  * one notion of "the home has just come back".
  *
+ * And a press must begin here (press/held.ts). The key coming up is given
+ * to whatever has the focus, so OK held down in a film, across Back, and
+ * let go on this screen started the film under it. An item that was not
+ * told the key went down on it does nothing when the key comes up,
+ * however late.
+ *
  * And while a card is on screen nothing of this screen is partly visible
  * (home/behind.ts): its rows are left out whole and the card is alone on
  * the ground colour. A card's top edge can fall anywhere, and it used to
@@ -46,7 +52,7 @@ import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-
 import type { HouseholdLanguage } from '@wick/contracts';
 import { fontSize, safe } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
-import { pressActs } from '../press/settle.js';
+import { pressBegins, pressEnds } from '../press/held.js';
 import { HOLD_MS } from '../watch/hold.js';
 import { HOME_FOCUS_START, focusOnReturn, focusReported, reachChanged, type HomeFocus } from './focusMemory.js';
 import { programmeLine, words } from '../words/words.js';
@@ -64,6 +70,12 @@ export interface HomeScreenProps {
    * home has come back within the remote's reach like after anything else.
    */
   readonly inFront: boolean;
+  /**
+   * Since when OK has been down, as the app heard it (press/held.ts) —
+   * whatever was on screen at the time. A key down since before this
+   * screen came back is waiting to come up, and presses nothing here.
+   */
+  readonly okDownSince?: (() => number | null) | undefined;
   /**
    * The language she chose (packages/contracts language.ts). This screen's
    * own words are said in it (words/words.ts); `waiting`, `light` and
@@ -110,7 +122,7 @@ export interface HomeScreenProps {
   readonly onKeyUp?: (() => void) | undefined;
 }
 
-export function HomeScreen({ drawn, inFront, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
   const say = words(language);
   // One quiet row under the films, and a card waiting to be opened comes first.
   const quiet = waiting ? undefined : lookedIn;
@@ -127,12 +139,32 @@ export function HomeScreen({ drawn, inFront, language, programmes, onChoose, car
   const reportFocus = (item: string): void => {
     focus.current = focusReported(focus.current, item, Date.now());
   };
-  // A press on anything here, seen now. In the home's first second back within reach it does nothing at all —
-  // nothing is started, opened or sent, and the second is not made longer by it (press/settle.ts).
+  // OK goes down on something here: a press begins — unless the home is out of reach, or the key was already
+  // down when it came back (press/held.ts). Kept with the screen, so a film takes it away with it.
+  const began = React.useRef<number | null>(null);
+  const keyCameUp = React.useRef(false);
+  const pressIn = (): void => {
+    keyCameUp.current = false;
+    began.current = pressBegins({ reachableSince: focus.current.reachableSince, now: Date.now(), okDownSince: okDownSince?.() ?? null });
+  };
+  // OK comes up on it, seen now. It is acted on only if the press began here, and not in the home's first second
+  // back within reach (press/settle.ts). Otherwise it does nothing at all — nothing is started, opened or sent,
+  // and the second is not made longer by it.
+  // (A press with no key coming up — the platform's click, a screen reader's way of pressing — has no beginning
+  // to ask for, and is judged by that second alone. The platform says "the key came up" and then, at once,
+  // "pressed": `pressOut` notes the first, and the app is told of it as it always was.)
+  const pressOut = (): void => {
+    keyCameUp.current = true;
+    onKeyUp?.();
+  };
   const press =
     (act: (() => void) | undefined) =>
     (): void => {
-      if (pressActs(focus.current.reachableSince, Date.now())) act?.();
+      const byKey = keyCameUp.current;
+      keyCameUp.current = false;
+      const acts = pressEnds({ keyCameUp: byKey, reachableSince: focus.current.reachableSince, beganAt: began.current, now: Date.now() });
+      began.current = null;
+      if (acts) act?.();
     };
   const here = [...programmes.map((programme) => `programme:${programme.id}`), ...(light ? ['light'] : []), ...(waiting ? ['waiting'] : []), ...(mantel ? ['mantel'] : [])];
   const preferred = focusOnReturn(focus.current, here, start);
@@ -150,9 +182,10 @@ export function HomeScreen({ drawn, inFront, language, programmes, onChoose, car
         {light ? (
           <Pressable
             onPress={press(onOpenLight)}
+            onPressIn={pressIn}
             onLongPress={onHold}
             delayLongPress={HOLD_MS}
-            onPressOut={onKeyUp}
+            onPressOut={pressOut}
             onFocus={() => reportFocus('light')}
             focusable={!cardVisible}
             hasTVPreferredFocus={!cardVisible && preferred === 'light'}
@@ -172,9 +205,10 @@ export function HomeScreen({ drawn, inFront, language, programmes, onChoose, car
           <Pressable
             key={programme.id}
             onPress={press(() => onChoose(programme))}
+            onPressIn={pressIn}
             onLongPress={onHold}
             delayLongPress={HOLD_MS}
-            onPressOut={onKeyUp}
+            onPressOut={pressOut}
             onFocus={() => reportFocus(`programme:${programme.id}`)}
             focusable={!cardVisible}
             hasTVPreferredFocus={!cardVisible && preferred === `programme:${programme.id}`}
@@ -201,9 +235,10 @@ export function HomeScreen({ drawn, inFront, language, programmes, onChoose, car
           {waiting ? (
             <Pressable
               onPress={press(onOpenWaiting)}
+              onPressIn={pressIn}
               onLongPress={onHold}
               delayLongPress={HOLD_MS}
-              onPressOut={onKeyUp}
+              onPressOut={pressOut}
               onFocus={() => reportFocus('waiting')}
               focusable={!cardVisible}
               hasTVPreferredFocus={!cardVisible && preferred === 'waiting'}
@@ -233,9 +268,10 @@ export function HomeScreen({ drawn, inFront, language, programmes, onChoose, car
           {mantel ? (
             <Pressable
               onPress={press(onOpenMantel)}
+              onPressIn={pressIn}
               onLongPress={onHold}
               delayLongPress={HOLD_MS}
-              onPressOut={onKeyUp}
+              onPressOut={pressOut}
               onFocus={() => reportFocus('mantel')}
               focusable={!cardVisible}
               hasTVPreferredFocus={!cardVisible && preferred === 'mantel'}

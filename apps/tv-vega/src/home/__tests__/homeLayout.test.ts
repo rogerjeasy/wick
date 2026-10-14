@@ -125,7 +125,7 @@ describe('HomeScreen.tsx — the pill, as drawn', () => {
     for (const pressable of pressables) {
       expect(pressable).toMatch(/onLongPress=\{onHold\}/);
       expect(pressable).toMatch(/delayLongPress=\{HOLD_MS\}/);
-      expect(pressable).toMatch(/onPressOut=\{onKeyUp\}/);
+      expect(pressable).toMatch(/onPressOut=\{pressOut\}/);
       expect(pressable).toMatch(/focusable=\{!cardVisible\}/);
     }
   });

@@ -179,16 +179,27 @@ export function routeUtterance(text, now = Date.now()) {
     !NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said))
   ) return { kind: 'language' };
 
-  // A picture for her television — sending one, or asking after one sent — is
-  // the app's own business too: a picture is a file, and no tool can be handed
-  // one. A note that mentions a picture is still a note, the picture from the
-  // door is the door's, and a film is a film.
+  // A picture for her television. A note that mentions a picture is still a
+  // note, the picture from the door is the door's, and a film is a film.
   if (
     /\b(pictures?|photos?|photographs?)\b/.test(t) &&
     !aboutAFilm &&
     !/\bdoor\b|\bnote\b|\bmessage\b/.test(t) &&
     !NOTE_WITH_MESSAGE.some((pattern) => pattern.test(said))
-  ) return { kind: 'picture' };
+  ) {
+    // Asking after one already sent — has she seen it, did it arrive, what did
+    // she think — is a question, and the answer is the server's: get_pictures,
+    // which the assistant is told to call for it and which says only whether
+    // a picture has been seen. A question, said of something that has
+    // happened to a picture; "can I send her a picture?" is neither.
+    const isAQuestion = /^(?:has|have|had|did|does|do|is|are|was|were|what|when|which|any)\b/.test(t) || /\?\s*$/.test(t);
+    const ofOneSent =
+      /\b(?:seen|saw|see|looked|look at|got|get|gotten|received?|arrived?|reach(?:ed)?|kept|keep|keeping|like[ds]?|think|thought|sent|waiting|happened)\b/.test(t) ||
+      /^(?:did|has|have|had)\b.*\bsend\b/.test(t);
+    if (isAQuestion && ofOneSent) return tool('get_pictures');
+    // Wanting to send one is the app's own business: a picture is a file, and no tool can be handed one.
+    return { kind: 'picture' };
+  }
 
   // "Ask Sarah to look": the resident's question about who is at the door.
   // Narrow on purpose — "did anyone come to the door today" is the day's list.
@@ -2034,6 +2045,29 @@ export function newPhotoKey(random) {
 const PHOTO_REFUSALS_THAT_STAND = new Set([
   'not_sendable', 'too_many_today', 'too_many_tries', 'too_large', 'not_a_jpeg', 'not_allowed_yet', 'not_for_a_neighbour', 'no_television', 'photos_unavailable',
 ]);
+
+/**
+ * Where the conversation should be scrolled to so that a stretch of it is
+ * in sight, moving it as little as that takes: not at all when it is in
+ * sight already; its end up to the foot when it runs below; its start down
+ * to the head when it is above — or when it is taller than the view, since
+ * what is read first comes first. A picture just sent is shown this way:
+ * the sentence that says so, and the list that says how it stands.
+ *
+ * @param {{scrollTop: number, viewHeight: number}} view  where the conversation is now, and how much of it shows
+ * @param {{top: number, bottom: number}} stretch         within the conversation's own length
+ * @param {number} air                                    left clear above or below it
+ */
+export function scrollTopToShow(view, stretch, air = 12) {
+  const { scrollTop, viewHeight } = view;
+  const { top, bottom } = stretch;
+  if (![scrollTop, viewHeight, top, bottom].every(Number.isFinite) || viewHeight <= 0) return scrollTop;
+  if (top >= scrollTop && bottom <= scrollTop + viewHeight) return scrollTop;
+  const tooTall = bottom - top > viewHeight;
+  if (top < scrollTop || tooTall) return Math.max(0, top - air);
+  // Its end at the foot, with air under it where there is room for air — never so far that its start is lost.
+  return Math.max(0, Math.min(top, bottom + air - viewHeight));
+}
 
 /**
  * What pressing send again can do, after the server's answer `code` (none

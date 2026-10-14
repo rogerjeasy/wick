@@ -27,6 +27,7 @@ import { MAX_CARD_ACTIONS, type Card } from '../../../packages/contracts/src/car
 import { LANGUAGES, LANGUAGE_ACTIONS, LANGUAGE_NAMES, languageCardId, languageQuestion } from '../../../packages/contracts/src/language.js';
 import { MAX_MANTEL, MANTEL_FULL_NOTICE, PHOTO_ACTIONS, photoCardId, photoCardWords, readMantelItems } from '../../../packages/contracts/src/mantel.js';
 import { WORDS } from '../../tv-vega/src/words/words.js';
+import { STANDING_EVERY_MS, STANDING_MIN_GAP_MS } from '../../tv-vega/src/pairing/standing.js';
 import { replyActions } from '../../tv-vega/src/cards/messageActions.js';
 import { removesCard } from '../../tv-vega/src/cards/cardActions.js';
 
@@ -504,8 +505,49 @@ const marksOf = (node: Node): Node[] => [...(node.tagName === 'span' && String(n
 const imagesOf = (node: Node): Node[] => [...(node.tagName === 'img' ? [node] : []), ...node.children.flatMap(imagesOf)];
 const paragraphsOf = (node: Node): Node[] => [...(String(node.className).split(' ').includes('body-text') ? [node] : []), ...node.children.flatMap(paragraphsOf)];
 
-function television() {
+/**
+ * @param opts.watched     the clock, the timers, what the tab remembers and every request are the test's: nothing
+ *                         happens until the test says time has passed, and nothing is answered until it answers
+ * @param opts.remembered  what the tab's sessionStorage holds when the page loads
+ */
+function television(opts: { watched?: boolean; remembered?: Record<string, string> } = {}) {
   const { document, keys, places, screen } = page();
+  const clock = { now: 1_800_000_000_000 };
+  const timers: Array<{ fn: () => void; due: number; every: number | null; cleared: boolean }> = [];
+  const asked: Array<{ url: string; method: string; headers: Record<string, string>; body: unknown; answer: (status: number, body?: unknown) => void; fail: () => void; aborted: () => boolean }> = [];
+  const tab = new Map<string, string>(Object.entries(opts.remembered ?? {}));
+  const stop = (id: number) => {
+    if (timers[id]) timers[id].cleared = true;
+  };
+  const watched = opts.watched
+    ? {
+        Date: class extends Date {
+          static override now() {
+            return clock.now;
+          }
+        },
+        setTimeout: (fn: () => void, ms: number) => timers.push({ fn, due: clock.now + ms, every: null, cleared: false }) - 1,
+        clearTimeout: stop,
+        setInterval: (fn: () => void, ms: number) => timers.push({ fn, due: clock.now + ms, every: ms, cleared: false }) - 1,
+        clearInterval: stop,
+        AbortController,
+        sessionStorage: { getItem: (key: string) => tab.get(key) ?? null, setItem: (key: string, value: string) => void tab.set(key, value), removeItem: (key: string) => void tab.delete(key) },
+        // As a browser's: no answer until one is given, and a rejection the moment the request is given up.
+        fetch: (url: string, init: { method?: string; signal?: AbortSignal; headers?: Record<string, string>; body?: string } = {}) =>
+          new Promise((resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })));
+            asked.push({
+              url,
+              method: init.method ?? 'GET',
+              headers: init.headers ?? {},
+              body: init.body === undefined ? undefined : JSON.parse(init.body),
+              answer: (status, body) => resolve({ status, ok: status >= 200 && status < 300, json: async () => body }),
+              fail: () => reject(new TypeError('Failed to fetch')),
+              aborted: () => init.signal?.aborted === true,
+            });
+          }),
+      }
+    : {};
   /** The sounds the page has made: where each is fetched from, and what was done with it. */
   const sounds: Array<{ src: string; played: number; paused: number; onplaying?: () => void; onended?: () => void; onerror?: () => void }> = [];
   class FakeAudio {
@@ -525,7 +567,7 @@ function television() {
       this.paused += 1;
     }
   }
-  const sockets: Array<{ sent: Array<Record<string, unknown>>; onopen?: () => void; onmessage?: (event: { data: string }) => void; readyState: number }> = [];
+  const sockets: Array<{ sent: Array<Record<string, unknown>>; onopen?: () => void; onmessage?: ((event: { data: string }) => void) | null; onclose?: (() => void) | null; readyState: number; closed: number }> = [];
   class FakeWebSocket {
     static OPEN = 1;
     readyState = 1;
@@ -536,7 +578,11 @@ function television() {
     send(data: string) {
       this.sent.push(JSON.parse(data) as Record<string, unknown>);
     }
-    close() {}
+    closed = 0;
+    onclose?: () => void;
+    close() {
+      this.closed += 1;
+    }
   }
   /** What the page listens for on the window: its size changing. */
   const windowListeners: Record<string, Array<() => void>> = {};
@@ -547,12 +593,12 @@ function television() {
   };
   // Nothing is styled here: a card has no padding of its own unless a test says where things are.
   const getComputedStyle = () => ({});
-  const context = vm.createContext({ document, window, getComputedStyle, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, fetch: () => Promise.reject(new Error('a test asks nobody')) });
+  const context = vm.createContext({ document, window, getComputedStyle, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, fetch: () => Promise.reject(new Error('a test asks nobody')), ...watched });
   vm.runInContext(readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8'), context, { filename: 'device.js' });
 
-  // Paired as the resident's television, and connected.
-  (context.connectWebSocket as (jwt: string, deviceId: string) => void)('a.b.c', 'ops-console-test');
-  const socket = sockets[0]!;
+  // Paired as the resident's television, and connected — or the television the tab remembered being, restored by the page itself.
+  if (sockets.length === 0) (context.connectWebSocket as (jwt: string, deviceId: string) => void)('a.b.c', 'ops-console-test');
+  const socket = sockets.at(-1)!;
   socket.onopen!();
 
   const receive = (message: unknown): void => socket.onmessage!({ data: JSON.stringify(message) });
@@ -574,6 +620,36 @@ function television() {
     /** The pictures on the screen: where each is fetched from, and what it is called. */
     pictures: () => imagesOf(screen()).map((img) => ({ src: img.src, alt: img.alt })),
     /** A picture's address stops answering. */
+    /** Requests the page has made (only when the television is `watched`), oldest first. */
+    asked,
+    /** What the tab's sessionStorage holds. */
+    tab,
+    socket,
+    /** Time passes: every timer due by then goes off, in order. */
+    advance: (ms: number) => {
+      const until = clock.now + ms;
+      for (;;) {
+        const next = timers.filter((timer) => !timer.cleared && timer.due <= until).sort((a, b) => a.due - b.due)[0];
+        if (!next) break;
+        clock.now = Math.max(clock.now, next.due);
+        if (next.every === null) next.cleared = true;
+        else next.due += next.every;
+        next.fn();
+      }
+      clock.now = until;
+    },
+    /** Lets everything that can happen without a timer or an answer happen. */
+    settle: () => new Promise<void>((resolve) => setImmediate(resolve)),
+    /** The tab goes behind another, or comes back. */
+    hide: (hidden: boolean) => {
+      document.hidden = hidden;
+      for (const listener of keys.visibilitychange ?? []) listener({});
+    },
+    badge: () => document.getElementById('conn-badge').textContent,
+    detail: () => document.getElementById('conn-detail').textContent,
+    control_: (id: string) => document.getElementById(id),
+    /** The pictures on the screen themselves: which element each is, and whether it is laid out yet. */
+    pictureNodes: () => imagesOf(screen()),
     /** A picture arrives: it has a height now. */
     loadPicture: () => {
       for (const img of imagesOf(screen())) (img.onload as (() => void) | undefined)?.();
@@ -593,6 +669,7 @@ function television() {
     pressPicture: () => {
       const img = imagesOf(screen())[0];
       if (!img) throw new Error('no picture on the screen');
+      (img.onclick as (() => void) | undefined)?.();
       for (const listener of img.listeners.click ?? []) listener();
     },
     /** Says where things are on the page: the screen itself, and each thing drawn on it. */
@@ -1676,6 +1753,25 @@ describe('the browser television — nothing on the screen is ever cut off', () 
       expect(css).toMatch(/min-height:\s*var\(--tv-height/);
     });
 
+    /*
+     * Seen live, 2026-10-14: in a window 420 wide the picture on a picture's card was 76 by 57 — whole, and too small
+     * to see. A picture gives way with the words, but only so far: below that the screen grows instead.
+     */
+    it('lets a picture give way with the words, but never below a size it can still be seen at: then the screen grows', () => {
+      const height = (selector: string): string => {
+        const rule = css.slice(css.indexOf(`\n${selector} {`));
+        return /max-height:\s*([^;]+);/.exec(rule.slice(0, rule.indexOf('}')))?.[1] ?? '';
+      };
+      // A share of the screen, and a floor in the card's own measure under it.
+      expect(height('.tv-card .tv-still')).toMatch(/^max\(5em, calc\(var\(--tv-height, 22\.5rem\) \* 0\.4\)\)$/);
+      expect(height('.tv-card.fit-snug .tv-still')).toMatch(/^max\(5em, .*\* 0\.3\)\)$/);
+      expect(height('.tv-card.fit-small .tv-still')).toMatch(/^max\(5em, .*\* 0\.22\)\)$/);
+      expect(height('.tv-card.fit-snug .tv-photo img')).toMatch(/^min\(16em, max\(7em, .*\* 0\.45\)\)\)$/);
+      expect(height('.tv-card.fit-small .tv-photo img')).toMatch(/^min\(16em, max\(7em, .*\* 0\.3\)\)\)$/);
+      expect(height('.tv-mantel.fit-snug .tv-photo img')).toMatch(/^min\(22em, max\(9em, .*\* 0\.55\)\)\)$/);
+      expect(height('.tv-mantel.fit-small .tv-photo img')).toMatch(/^min\(22em, max\(9em, .*\* 0\.4\)\)\)$/);
+    });
+
     it('never hides a button behind a line that will not break: a button’s words wrap before they leave the screen', () => {
       const pill = css.slice(css.indexOf('\n.tv-card .actions .pill {'));
       expect(pill.slice(0, pill.indexOf('}'))).not.toMatch(/white-space:\s*nowrap/);
@@ -2469,6 +2565,436 @@ describe('the cards this television has been sent and not finished', () => {
 
     expect(shown(kept)).toBe('note-1');
     expect(shown([queued('door-9', { expiresAt: NOW - 1 }, 'DOOR')])).toBeUndefined();
+  });
+});
+
+/*
+ * Nothing tells a television it has been disconnected: the organiser takes it out of the home from the family
+ * app, the edge refuses it everything from then on, and to the television that looks like a quiet evening. Seen
+ * live on 2026-10-14: the tab went on saying "connected" for as long as anyone watched, and a press went
+ * nowhere. The television's own apps ask the pairing service whether they are still connected
+ * (apps/tv-vega/src/pairing/standing.ts); this page asks the same question the same way — POST /pair/refresh with
+ * its id, which the resident's television may ask with nothing but its id — and takes only a definite answer for
+ * one.
+ */
+describe('the browser television — learning that it has been disconnected', () => {
+  const REMEMBERED = { wick_virtual_television: JSON.stringify({ kind: 'resident', jwt: 'a.b.c', deviceId: 'ops-console-7' }) };
+  const standingAsks = (tv: ReturnType<typeof television>) => tv.asked.filter((ask) => ask.url.endsWith('/pair/refresh'));
+  const connected = () => television({ watched: true, remembered: REMEMBERED });
+  const GONE = ['This television is no longer connected.', 'Pair again'];
+
+  it('reads the pairing service’s answer as the television’s own apps do: three answers are definite, a token is a yes, anything else is nothing known', () => {
+    expect([401, 403, 404].map((status) => device.standingOf!(status))).toEqual(['not_connected', 'not_connected', 'not_connected']);
+    expect([200, 201].map((status) => device.standingOf!(status))).toEqual(['connected', 'connected']);
+    expect([0, 301, 400, 408, 429, 500, 502, 503].map((status) => device.standingOf!(status))).toEqual(Array(8).fill('unknown'));
+  });
+
+  it('asks as often as the television’s own apps, and never sooner after the last time than they do', () => {
+    expect(device.constant('STANDING_EVERY_MS')).toBe(STANDING_EVERY_MS);
+    expect(device.constant('STANDING_MIN_GAP_MS')).toBe(STANDING_MIN_GAP_MS);
+  });
+
+  it('asks once a minute while it is connected: its id, and nothing a browser on another origin may not send', async () => {
+    const tv = connected();
+    expect(tv.badge()).toBe('connected');
+
+    tv.advance(59_000);
+    expect(standingAsks(tv)).toHaveLength(0);
+    tv.advance(1_000);
+    expect(standingAsks(tv)).toHaveLength(1);
+
+    const ask = standingAsks(tv)[0]!;
+    expect(ask.method).toBe('POST');
+    expect(ask.body).toEqual({ deviceId: 'ops-console-7' });
+    // The pairing API lets a page send a content type and nothing else (infra/edge.tf): an Authorization header would
+    // be refused before the question was put. The resident's television is answered by its id alone.
+    expect(Object.keys(ask.headers).map((name) => name.toLowerCase())).toEqual(['content-type']);
+
+    ask.answer(200, { token: { jwt: 'fresh.token', deviceId: 'ops-console-7', householdId: 'hh-1', expiresAt: 1 } });
+    await tv.settle();
+    tv.advance(60_000);
+    expect(standingAsks(tv)).toHaveLength(2);
+  });
+
+  for (const status of [404, 403, 401]) {
+    it(`is told it is no longer connected (${status}): the screen says so, the tab forgets the television, and nothing is left running`, async () => {
+      const tv = connected();
+      tv.home({ light: 'on', mantel: 2 });
+      tv.card(NOTE('See you on Sunday.'));
+      tv.advance(60_000);
+
+      standingAsks(tv)[0]!.answer(status, undefined);
+      await tv.settle();
+
+      expect(tv.says()).toEqual(GONE);
+      expect(tv.badge()).toBe('disconnected');
+      expect(tv.detail()).toBe('this television was disconnected from its home');
+      // Forgotten: a reload starts as the page first loads, and never as that television again.
+      expect(tv.tab.has('wick_virtual_television')).toBe(false);
+      expect(tv.socket.closed).toBe(1);
+      expect(tv.control_('pair-btn').disabled).toBe(false);
+      expect(tv.control_('disconnect-btn').disabled).toBe(true);
+      // Nothing of the home is kept, and nothing more is asked.
+      expect(tv.evaluate('[keptCards.length, currentQueuedCard, mantelView, Object.keys(home).length]')).toEqual([0, null, null, 0]);
+      tv.advance(10 * 60_000);
+      expect(standingAsks(tv)).toHaveLength(1);
+    });
+  }
+
+  it('takes “connected” for no more than that: the token it holds stays the one it holds', async () => {
+    const tv = connected();
+    tv.card(NOTE('See you on Sunday.'));
+    tv.advance(60_000);
+
+    standingAsks(tv)[0]!.answer(200, { token: { jwt: 'fresh.token', deviceId: 'ops-console-7', householdId: 'hh-1', expiresAt: 1 } });
+    await tv.settle();
+
+    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.badge()).toBe('connected');
+    expect(JSON.parse(tv.tab.get('wick_virtual_television')!)).toEqual({ kind: 'resident', jwt: 'a.b.c', deviceId: 'ops-console-7' });
+    expect(tv.socket.closed).toBe(0);
+  });
+
+  it('changes nothing for an answer that is not definite — asked too soon, the service in trouble, no network — and asks again', async () => {
+    const tv = connected();
+    tv.card(NOTE('See you on Sunday.'));
+    let asks = 0;
+    for (const answer of [(ask: (typeof tv.asked)[number]) => ask.answer(429), (ask: (typeof tv.asked)[number]) => ask.answer(500), (ask: (typeof tv.asked)[number]) => ask.answer(503), (ask: (typeof tv.asked)[number]) => ask.fail()]) {
+      tv.advance(60_000);
+      asks += 1;
+      expect(standingAsks(tv)).toHaveLength(asks);
+      answer(standingAsks(tv).at(-1)!);
+      await tv.settle();
+      expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+      expect(tv.badge()).toBe('connected');
+      expect(tv.tab.has('wick_virtual_television')).toBe(true);
+    }
+  });
+
+  it('gives a question up after ten seconds with no answer, and that changes nothing either', async () => {
+    const tv = connected();
+    tv.advance(60_000);
+    const ask = standingAsks(tv)[0]!;
+
+    tv.advance(9_999);
+    expect(ask.aborted()).toBe(false);
+    tv.advance(1);
+    await tv.settle();
+
+    expect(ask.aborted()).toBe(true);
+    expect(tv.badge()).toBe('connected');
+    expect(tv.tab.has('wick_virtual_television')).toBe(true);
+    // And an answer that comes after it was given up is not listened to.
+    ask.answer(404);
+    await tv.settle();
+    expect(tv.badge()).toBe('connected');
+    tv.advance(50_000);
+    expect(standingAsks(tv)).toHaveLength(2);
+  });
+
+  it('never asks twice at once', () => {
+    const tv = connected();
+    tv.advance(60_000);
+    tv.hide(true);
+    tv.hide(false);
+    tv.socket.onclose!();
+
+    expect(standingAsks(tv)).toHaveLength(1);
+  });
+
+  it('does not ask while its tab is behind another, and asks when it comes back — but never within half a minute of the last time', async () => {
+    const tv = connected();
+    tv.hide(true);
+    tv.advance(5 * 60_000);
+    expect(standingAsks(tv)).toHaveLength(0);
+
+    tv.hide(false);
+    expect(standingAsks(tv)).toHaveLength(1);
+    standingAsks(tv)[0]!.answer(200, { token: { jwt: 'x' } });
+    await tv.settle();
+
+    // Away and back again ten seconds later: it has only just been answered for.
+    tv.advance(10_000);
+    tv.hide(true);
+    tv.hide(false);
+    expect(standingAsks(tv)).toHaveLength(1);
+  });
+
+  it('asks at once when its channel closes: that is what a disconnection looks like from here, as well as a lost network', async () => {
+    const tv = connected();
+    tv.card(NOTE('See you on Sunday.'));
+    tv.advance(45_000);
+
+    tv.socket.onclose!();
+    expect(tv.badge()).toBe('disconnected');
+    expect(tv.detail()).toBe('connection closed');
+    expect(standingAsks(tv)).toHaveLength(1);
+
+    standingAsks(tv)[0]!.answer(404);
+    await tv.settle();
+    expect(tv.says()).toEqual(GONE);
+    expect(tv.detail()).toBe('this television was disconnected from its home');
+    expect(tv.tab.has('wick_virtual_television')).toBe(false);
+  });
+
+  it('and when the channel closes within half a minute of the last asking, asks as soon as the half minute is up', async () => {
+    const tv = connected();
+    tv.advance(60_000);
+    standingAsks(tv)[0]!.answer(200, { token: { jwt: 'x' } });
+    await tv.settle();
+
+    tv.advance(5_000);
+    tv.socket.onclose!();
+    expect(standingAsks(tv)).toHaveLength(1);
+    tv.advance(24_999);
+    expect(standingAsks(tv)).toHaveLength(1);
+    tv.advance(1);
+    expect(standingAsks(tv)).toHaveLength(2);
+  });
+
+  it('puts a routine asking that falls within that half minute off to its end, not to the next minute', async () => {
+    const tv = connected();
+    tv.advance(45_000);
+    tv.socket.onclose!();
+    standingAsks(tv)[0]!.answer(429);
+    await tv.settle();
+
+    // The minute comes round fifteen seconds after that asking: too soon.
+    tv.advance(15_000);
+    expect(standingAsks(tv)).toHaveLength(1);
+    // Half a minute after it, it asks — and is told.
+    tv.advance(15_000);
+    expect(standingAsks(tv)).toHaveLength(2);
+    standingAsks(tv)[1]!.answer(404);
+    await tv.settle();
+    expect(tv.says()).toEqual(GONE);
+  });
+
+  it('a channel that closed for a network that was only lost leaves the television remembered: a reload brings it back', async () => {
+    const tv = connected();
+    tv.advance(45_000);
+    tv.socket.onclose!();
+
+    standingAsks(tv)[0]!.answer(200, { token: { jwt: 'x' } });
+    await tv.settle();
+
+    expect(tv.detail()).toBe('connection closed');
+    expect(tv.tab.has('wick_virtual_television')).toBe(true);
+    expect(tv.says()).not.toEqual(GONE);
+  });
+
+  it('takes a film off the screen with everything else, and says nothing of where it had got to', async () => {
+    const tv = connected();
+    tv.home({ light: 'on' });
+    tv.card(queuedCard({ id: 'watch-s1', type: 'WATCH', sessionId: 's1', headline: 'Sintel is ready.', withName: 'Sarah', programmeId: 'sintel', followedUntil: Date.now() + 3_600_000, actions: [{ id: 'start', label: 'Start the film', kind: 'primary' }] }));
+    tv.press('Start the film');
+    const sent = tv.sent().length;
+    tv.advance(60_000);
+    const before = tv.sent().length;
+
+    standingAsks(tv)[0]!.answer(404);
+    await tv.settle();
+
+    expect(tv.says()).toEqual(GONE);
+    expect(tv.evaluate('film')).toBeNull();
+    expect(tv.sent().length).toBe(before);
+    expect(before).toBeGreaterThanOrEqual(sent);
+  });
+
+  it('offers to pair again, and that starts a pairing', async () => {
+    const tv = connected();
+    tv.advance(60_000);
+    standingAsks(tv)[0]!.answer(404);
+    await tv.settle();
+
+    tv.press('Pair again');
+
+    expect(tv.asked.at(-1)!.url.endsWith('/pair/start')).toBe(true);
+    expect(tv.badge()).toBe('connecting');
+  });
+
+  it('stops asking when the television is let go by hand', () => {
+    const tv = connected();
+
+    tv.evaluate('disconnect()');
+    tv.advance(10 * 60_000);
+
+    expect(standingAsks(tv)).toHaveLength(0);
+    expect(tv.tab.has('wick_virtual_television')).toBe(false);
+  });
+
+  it('never asks this for a family member’s own television: that one is told by the Wick server, every time it looks', async () => {
+    const tv = television({ watched: true });
+
+    tv.evaluate('enterFamilyView("f.g.h", "ops-console-9")');
+    await tv.settle();
+    tv.advance(10 * 60_000);
+
+    expect(standingAsks(tv)).toHaveLength(0);
+    expect(tv.asked.some((ask) => ask.url.includes('/tv/home'))).toBe(true);
+  });
+
+  it('says on the page that this is how it finds out', () => {
+    const html = readFileSync(fileURLToPath(new URL('../device.html', import.meta.url)), 'utf8');
+
+    expect(html).toContain('Disconnected from the family app, it says so here within about a minute');
+  });
+});
+
+/*
+ * A picture has no size until the browser has read the start of its file, and from that moment it is laid out at
+ * that size — before it has wholly come, which is when this page measured and fitted it. Seen live, 2026-10-14:
+ * her mantelpiece opened with its picture at full size and its buttons 227 px off the screen for a third of a
+ * second, then snapped to fit. So a picture takes no room at all until it has come: it is put on the screen and
+ * fitted in the same moment, and nothing is ever cut off in between. And a picture that has come is kept for as
+ * long as it is wanted again — the same card drawn again, a step back on her mantelpiece — so drawing something
+ * again never takes its picture away and brings it back.
+ */
+describe('the browser television — a picture is never laid out unfitted', () => {
+  const laidOut = (tv: ReturnType<typeof television>) => tv.pictureNodes().map((img) => (img.style as Record<string, unknown>).display !== 'none');
+  const opened = (items: unknown[]) => {
+    const tv = television();
+    tv.home({ light: 'on', mantel: items.length });
+    tv.press('Mantelpiece');
+    tv.control({ t: 'mantel', items });
+    return tv;
+  };
+
+  it('takes no room until it has come, and is fitted in the moment it is put on the screen', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    let measured = 0;
+    tv.laidOut(() => ((measured += 1), { top: 0, bottom: 0 }));
+
+    tv.card(PHOTO());
+    expect(tv.pictures()).toEqual([{ src: PICTURE, alt: 'A picture from Sarah' }]);
+    expect(laidOut(tv)).toEqual([false]);
+
+    const before = measured;
+    tv.loadPicture();
+    expect(laidOut(tv)).toEqual([true]);
+    expect(measured).toBeGreaterThan(before);
+  });
+
+  it('does the same on her mantelpiece, for the door’s picture, and for each picture she steps to', () => {
+    const tv = opened([kept('p1'), kept('p2', 'Tom')]);
+    expect(laidOut(tv)).toEqual([false]);
+    tv.loadPicture();
+    expect(laidOut(tv)).toEqual([true]);
+
+    tv.press('Next');
+    expect(tv.pictures()[0]!.src).toBe('https://pictures.example/p2.jpg');
+    expect(laidOut(tv)).toEqual([false]);
+    tv.loadPicture();
+    expect(laidOut(tv)).toEqual([true]);
+
+    const door = television();
+    door.home({});
+    door.card(queuedCard({ id: 'door-1', type: 'DOOR', line: 'Someone is at the front door.', imageRef: 'https://ring.example/still.jpg' }, 'DOOR'));
+    expect(laidOut(door)).toEqual([false]);
+    door.loadPicture();
+    expect(laidOut(door)).toEqual([true]);
+  });
+
+  it('keeps a picture that has come when its card is drawn again: the same picture, never taken away and brought back', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(PHOTO());
+    tv.loadPicture();
+    const [first] = tv.pictureNodes();
+
+    // Her language changes: its name follows, and it is the same picture, still there.
+    tv.home({ light: 'on', language: 'es' });
+    expect(tv.pictureNodes()).toEqual([first]);
+    expect(tv.pictures()).toEqual([{ src: PICTURE, alt: 'Una foto de Sarah' }]);
+    expect(laidOut(tv)).toEqual([true]);
+
+    // "Keep it" on a full mantelpiece: the card comes back with a line and a new address for the same picture.
+    tv.press('Keep it');
+    tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE, photoUrl: `${PICTURE}&again=1` }));
+    expect(tv.says()).toContain(MANTEL_FULL_NOTICE);
+    expect(tv.pictureNodes()).toEqual([first]);
+    expect(tv.pictures()[0]!.src).toBe(PICTURE);
+    expect(laidOut(tv)).toEqual([true]);
+  });
+
+  it('keeps her mantelpiece’s pictures as she moves along it: one she has seen is there at once when she steps back', () => {
+    const tv = opened([kept('p1'), kept('p2', 'Tom')]);
+    tv.loadPicture();
+    const [one] = tv.pictureNodes();
+
+    // Drawn again for a home message that changes nothing she can see: the same picture.
+    tv.home({ light: 'out', mantel: 2 });
+    expect(tv.pictureNodes()).toEqual([one]);
+
+    tv.press('Next');
+    tv.loadPicture();
+    const [two] = tv.pictureNodes();
+    expect(two).not.toBe(one);
+
+    tv.press('Previous');
+    expect(tv.pictureNodes()).toEqual([one]);
+    expect(laidOut(tv)).toEqual([true]);
+    tv.press('Next');
+    expect(tv.pictureNodes()).toEqual([two]);
+    expect(laidOut(tv)).toEqual([true]);
+  });
+
+  it('opens the choice with one click however often the picture has been drawn again', () => {
+    const tv = opened([kept('p1'), kept('p2', 'Tom')]);
+    tv.loadPicture();
+    tv.home({ light: 'out', mantel: 2 });
+    tv.home({ light: 'on', mantel: 2 });
+
+    tv.pressPicture();
+    expect(tv.buttons()).toEqual(['Leave it', 'Take it down']);
+    tv.press('Leave it');
+    expect(tv.buttons()).toEqual(['Previous', 'Next', 'Back']);
+    expect(tv.sent().filter((event) => event.t === 'mantel_take_down')).toEqual([]);
+  });
+
+  it('keeps the door’s picture through a patch, and fetches another when the card names another', () => {
+    const tv = television();
+    tv.home({});
+    tv.card(queuedCard({ id: 'door-1', type: 'DOOR', line: 'Someone is at the front door.', imageRef: 'https://ring.example/still.jpg' }, 'DOOR'));
+    tv.loadPicture();
+    const [still] = tv.pictureNodes();
+
+    tv.control({ t: 'patch', patch: { cardId: 'door-1', description: 'A man in a yellow jacket.' } });
+    expect(tv.pictureNodes()).toEqual([still]);
+    expect(laidOut(tv)).toEqual([true]);
+
+    tv.control({ t: 'patch', patch: { cardId: 'door-1', imageRef: 'https://ring.example/still-2.jpg' } });
+    expect(tv.pictureNodes()[0]).not.toBe(still);
+    expect(tv.pictures()[0]!.src).toBe('https://ring.example/still-2.jpg');
+    expect(laidOut(tv)).toEqual([false]);
+  });
+
+  it('does not keep a picture whose address stopped answering: drawn again, it is asked for again', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    tv.card(PHOTO());
+    const [first] = tv.pictureNodes();
+    tv.failPicture();
+    expect(tv.pictureNodes()).toEqual([]);
+
+    tv.card(PHOTO({ photoUrl: `${PICTURE}&again=1` }));
+    expect(tv.pictureNodes()[0]).not.toBe(first);
+    expect(tv.pictures()[0]!.src).toBe(`${PICTURE}&again=1`);
+  });
+
+  it('keeps no more pictures than a mantelpiece and a card hold, and none once the television is let go', () => {
+    const tv = television();
+    tv.home({ light: 'on' });
+    for (let i = 0; i < 40; i += 1) {
+      tv.card(PHOTO({ id: photoCardId(`q${i}`), photoId: `q${i}` }));
+      tv.loadPicture();
+    }
+    expect(tv.evaluate('loadedPictures.size')).toBe(tv.evaluate('MAX_LOADED_PICTURES'));
+    expect(tv.evaluate('MAX_LOADED_PICTURES')).toBeGreaterThanOrEqual(MAX_MANTEL + 1);
+
+    tv.evaluate('disconnect()');
+    expect(tv.evaluate('loadedPictures.size')).toBe(0);
   });
 });
 

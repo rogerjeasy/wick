@@ -25,6 +25,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { IDLE_OFF, idleOnKey, type Idle } from '../../mantel/idle.js';
+import { pressBegins, pressEnds } from '../../press/held.js';
 import { PRESS_SETTLE_MS, pressActs, pressSettle } from '../../press/settle.js';
 import { HOLD_MS } from '../../watch/hold.js';
 import { homeBehind } from '../behind.js';
@@ -60,15 +61,17 @@ function television(at: number = T) {
       focus = reachChanged(focus, behind.rows && behind.reach && tv.onScreen, now);
       return tv;
     },
-    /** OK pressed and let go on whatever item has the focus — seen by the item when the key comes up. */
+    /** OK pressed and let go on whatever item has the focus — begun when the key goes down, seen when it comes up. */
     ok(item: string, seenAt: number, heldFor = 80): boolean {
+      // HomeScreen `pressIn`: the press begins on the item, if the home is within reach (press/held.ts).
+      const beganAt = pressBegins({ reachableSince: focus.reachableSince, now: seenAt - heldFor, okDownSince: null });
       // The platform's own long press: OK held for two seconds is the hold, and then it is not a press.
       if (heldFor >= HOLD_MS) {
         tv.holds += 1;
         return false;
       }
-      // HomeScreen `press`: the one rule.
-      if (!pressActs(focus.reachableSince, seenAt)) return false;
+      // HomeScreen `press`: it began here, and the home's first second is over.
+      if (!pressEnds({ keyCameUp: true, reachableSince: focus.reachableSince, beganAt, now: seenAt })) return false;
       if (item.startsWith('programme:')) tv.started.push(item);
       else tv.opened.push(item);
       return true;
@@ -283,9 +286,12 @@ describe('HomeScreen.tsx — every press goes through the rule', () => {
   const code = screen.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
   it('asks the one rule, from the moment the home came within reach — the same moment its memory of the focus counts from', () => {
-    expect(code).toMatch(/const press =[\s\S]{0,160}pressActs\(focus\.current\.reachableSince, Date\.now\(\)\)/);
-    expect(code).toMatch(/import \{ pressActs \} from '\.\.\/press\/settle\.js';/);
+    // Through press/held.ts, whose timing is `pressActs` and nothing else (press/__tests__/held.test.ts).
+    expect(code).toMatch(/const press =[\s\S]{0,300}pressEnds\(\{ keyCameUp: byKey, reachableSince: focus\.current\.reachableSince, beganAt: began\.current, now: Date\.now\(\) \}\)/);
     expect(code).not.toMatch(/PRESS_SETTLE_MS|setTimeout|1_?000/);
+    const held = readFileSync(fileURLToPath(new URL('../../press/held.ts', import.meta.url)), 'utf8');
+    expect(held).toMatch(/return pressActs\(at\.reachableSince, at\.now\);/);
+    expect(held).not.toMatch(/PRESS_SETTLE_MS|setTimeout|\d_?000/);
   });
 
   it('gives a film, the light’s pill, the waiting row and the mantelpiece’s pill no other way to be pressed', () => {
@@ -297,7 +303,9 @@ describe('HomeScreen.tsx — every press goes through the rule', () => {
 
   it('leaves the hold, and the key coming up, exactly as they were: neither is a press', () => {
     expect(code.match(/onLongPress=\{onHold\}/g)).toHaveLength(4);
-    expect(code.match(/onPressOut=\{onKeyUp\}/g)).toHaveLength(4);
+    // The key coming up is still told to the app, every time, through the screen's own note of it.
+    expect(code.match(/onPressOut=\{pressOut\}/g)).toHaveLength(4);
+    expect(code).toMatch(/keyCameUp\.current = true;\s*onKeyUp\?\.\(\);/);
     expect(code.match(/delayLongPress=\{HOLD_MS\}/g)).toHaveLength(4);
   });
 
