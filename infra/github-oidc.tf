@@ -162,6 +162,67 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["*"] # rule and authorizer ARNs exist only once created; DescribeEndpoint has none
   }
 
+  # What pages someone, and where a failed event goes (infra/alarms.tf): one
+  # SNS topic, one SQS queue, the alarms. Each is named wick-*, so each
+  # grant is held to that name. The management verbs only — NOT sns:Publish,
+  # sqs:SendMessage/ReceiveMessage/DeleteMessage or cloudwatch:SetAlarmState:
+  # a deploy shapes these and never reads a household's dead letters, sends
+  # a page, or silences one.
+  statement {
+    sid = "ManageTheAlarmTopicNeverItsMessages"
+    actions = [
+      "sns:CreateTopic",
+      "sns:DeleteTopic",
+      "sns:GetTopicAttributes",
+      "sns:SetTopicAttributes",
+      "sns:ListSubscriptionsByTopic",
+      "sns:Subscribe",
+      "sns:Unsubscribe",
+      "sns:GetSubscriptionAttributes",
+      "sns:SetSubscriptionAttributes",
+      "sns:ListTagsForResource",
+      "sns:TagResource",
+      "sns:UntagResource",
+    ]
+    # A subscription's ARN is its topic's plus ":<id>", so this covers both.
+    resources = ["arn:aws:sns:${local.region}:${local.account_id}:wick-*"]
+  }
+
+  statement {
+    sid = "ManageTheDeadLetterQueueNeverItsMessages"
+    actions = [
+      "sqs:CreateQueue",
+      "sqs:DeleteQueue",
+      "sqs:GetQueueAttributes",
+      "sqs:SetQueueAttributes",
+      "sqs:GetQueueUrl",
+      "sqs:ListQueueTags",
+      "sqs:TagQueue",
+      "sqs:UntagQueue",
+    ]
+    resources = ["arn:aws:sqs:${local.region}:${local.account_id}:wick-*"]
+  }
+
+  statement {
+    sid = "ManageTheAlarmsNeverTheirState"
+    actions = [
+      "cloudwatch:PutMetricAlarm",
+      "cloudwatch:DeleteAlarms",
+      "cloudwatch:ListTagsForResource",
+      "cloudwatch:TagResource",
+      "cloudwatch:UntagResource",
+    ]
+    resources = ["arn:aws:cloudwatch:${local.region}:${local.account_id}:alarm:wick-*"]
+  }
+
+  # Read-only, and listed apart: Terraform reads alarms back by name, and a
+  # read of an alarm's definition is harmless wherever it is allowed.
+  statement {
+    sid       = "ReadAlarms"
+    actions   = ["cloudwatch:DescribeAlarms"]
+    resources = ["*"]
+  }
+
   # Family accounts (infra/accounts.tf): the user pool and its app client.
   # Without a grant the first deploy after accounts landed failed on
   # CreateUserPool with AccessDenied — after it had already updated the

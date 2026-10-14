@@ -48,6 +48,11 @@ resource "aws_dynamodb_table" "wick" {
     enabled = true
   }
 
+  # prevent_destroy only stops this Terraform. Deletion protection stops
+  # everyone else too: the console, the CLI, another tool's state. Turning
+  # it off is a deliberate, separate change.
+  deletion_protection_enabled = true
+
   lifecycle {
     prevent_destroy = true
   }

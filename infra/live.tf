@@ -198,8 +198,24 @@ resource "aws_lambda_function" "live_bridge" {
 }
 
 # A live view is for someone at the door now: never retry it a minute later.
+# One that failed is left in the dead-letter queue (alarms.tf) to be read,
+# not replayed.
+resource "aws_iam_role_policy" "live_bridge_dead_letters" {
+  name   = "${local.prefix}-live-bridge-dead-letters"
+  role   = aws_iam_role.live_bridge.id
+  policy = data.aws_iam_policy_document.send_dead_letters.json
+}
+
 resource "aws_lambda_function_event_invoke_config" "live_bridge" {
   function_name                = aws_lambda_function.live_bridge.function_name
   maximum_retry_attempts       = 0
   maximum_event_age_in_seconds = 60
+
+  destination_config {
+    on_failure {
+      destination = aws_sqs_queue.dead_letters.arn
+    }
+  }
+
+  depends_on = [aws_iam_role_policy.live_bridge_dead_letters]
 }
