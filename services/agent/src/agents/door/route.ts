@@ -81,7 +81,9 @@ export async function routeRingEvent(
   // someone is at the door. Phase 1 makes no Ring call by design (index.ts);
   // waiting on one here used to throw instead, and the card never came. A
   // device Ring says is not on the link at all is a different answer, and
-  // still reaches nobody.
+  // still reaches nobody. The authorization is the RINGDEV# claim row, read
+  // in routeDoorEvent before this and released when a link is disconnected;
+  // Ring's device list here is only a check that Ring is answering.
   let device: RingDevice | undefined;
   let ringUnanswered = false;
   try {
