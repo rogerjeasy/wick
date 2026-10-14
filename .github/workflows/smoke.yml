@@ -1,0 +1,71 @@
+name: smoke
+
+# Is the deployed stack up, and does it behave? scripts/smoke-live.ts, from
+# the outside, as a visitor would: the two sites, the status page, the Wick
+# server's sign-in, and a fresh demo guest's conversation, data, sign-out and
+# deletion. After every deploy to main, every night, and on demand.
+on:
+  workflow_run:
+    workflows: [deploy-agent, deploy-edge]
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+# No AWS: the smoke test needs no credentials, so it is given none. `actions:
+# read` is for waiting on the other deploys below.
+permissions:
+  contents: read
+  actions: read
+
+# Two deploys finishing together ask once more, not twice at once: each run
+# makes a demo guest, and the server makes at most 60 an hour.
+concurrency:
+  group: smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    # Only after a deploy that succeeded; a failed deploy has failed already.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # A push to main can start both deploys. The checkout decides which
+      # checks are required (scripts/smoke/checks.ts FEATURE_MARKERS), so it
+      # must not run ahead of what is deployed: wait until neither deploy
+      # has a run still queued or going on main.
+      - name: wait for the deploys still running on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for _ in $(seq 1 80); do
+            busy=0
+            for workflow in deploy-agent.yml deploy-edge.yml; do
+              n=$(gh run list --workflow "$workflow" --branch main --limit 10 --json status \
+                --jq '[.[] | select(.status != "completed")] | length')
+              busy=$((busy + n))
+            done
+            if [ "$busy" -eq 0 ]; then exit 0; fi
+            echo "$busy deploy run(s) still going on main; asking again in 30 s"
+            sleep 30
+          done
+          echo "::error::deploys still running on main after 40 minutes"
+          exit 1
+
+      # main as it is now, which, with no deploy left running, is what is
+      # deployed.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run smoke:live

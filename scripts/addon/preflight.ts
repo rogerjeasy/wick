@@ -82,7 +82,7 @@ export async function checkLegalPages(manifest: unknown, fetch: Fetch): Promise<
 }
 
 /** One JSON-RPC message over Streamable HTTP. The reply may be JSON or one SSE event. */
-async function rpc(endpoint: string, token: string | undefined, message: object, fetch: Fetch): Promise<{ status: number; headers: Headers; body?: Record<string, unknown> }> {
+export async function rpc(endpoint: string, token: string | undefined, message: object, fetch: Fetch): Promise<{ status: number; headers: Headers; body?: Record<string, unknown> }> {
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -147,7 +147,7 @@ interface ToolListing {
   readonly inputSchema?: { readonly required?: readonly string[] };
 }
 
-const median = (values: number[]): number => {
+export const median = (values: number[]): number => {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
 };

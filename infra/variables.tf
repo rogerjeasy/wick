@@ -82,10 +82,17 @@ variable "mcp_issuer_url" {
 }
 
 variable "agent_image_tag" {
-  # No default: a missing pin must fail the plan, not quietly roll the live
-  # bridge back to whatever `latest` was last pushed as.
-  description = "Tag of the wick-agents and wick-live-bridge images in ECR, pinned in images.auto.tfvars. scripts/push-agent-image.sh pushes the git SHA and rewrites that file."
+  # Null: the tag is read from /wick/images/agents (images.tf), which CI
+  # writes after each push. Set it only to override that from a laptop.
+  description = "Emergency override of the wick-agents and wick-live-bridge image tag. Unset, the tag in SSM parameter /wick/images/agents is deployed."
   type        = string
+  default     = null
+}
+
+variable "mcp_image_tag" {
+  description = "Emergency override of the wick-mcp-server image tag. Unset, the tag in SSM parameter /wick/images/mcp-server is deployed."
+  type        = string
+  default     = null
 }
 
 variable "chime_slot_event" {

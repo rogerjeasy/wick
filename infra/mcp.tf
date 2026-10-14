@@ -217,12 +217,18 @@ resource "aws_apprunner_service" "mcp_server" {
       access_role_arn = aws_iam_role.apprunner_ecr_access.arn
     }
 
-    # auto_deployments_enabled defaults to true, which would redeploy on
-    # every ECR push to :latest with no review step. A hackathon-paced
-    # rebuild-and-push cycle wants that; flip to false if this needs to
-    # stabilize later.
+    # The image is the exact tag in /wick/images/mcp-server (images.tf),
+    # which deploy-agent.yml writes after pushing the commit's image. A
+    # changed tag is a changed image identifier, so this apply's
+    # UpdateService is the deployment, and nothing else deploys: automatic
+    # deployments are off for a pinned tag, so a stray push to a tag cannot
+    # replace the running server. Only while the parameter still says
+    # `latest` (a stack never deployed by CI) does App Runner follow pushes
+    # to :latest by itself, as it did before.
+    auto_deployments_enabled = local.mcp_server_image_tag == "latest"
+
     image_repository {
-      image_identifier      = "${aws_ecr_repository.mcp_server.repository_url}:latest"
+      image_identifier      = "${aws_ecr_repository.mcp_server.repository_url}:${local.mcp_server_image_tag}"
       image_repository_type = "ECR"
 
       image_configuration {

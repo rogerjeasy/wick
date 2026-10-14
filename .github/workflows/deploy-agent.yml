@@ -1,29 +1,157 @@
 name: deploy-agent
 
+# Every path an image is built from: the COPY lines of
+# services/mcp-server/Dockerfile, services/agent/Dockerfile and
+# services/agent/bridge.Dockerfile, and the .dockerignore that trims them.
+# services/** also holds the Lambda sources this apply deploys.
 on:
   push:
     branches: [main]
-    paths: ['services/agent/**', 'services/policy/**', 'services/mcp-server/**']
+    paths:
+      - 'services/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.base.json'
+      - 'vitest.config.ts'
+      - 'scripts/build-lambda.mjs'
+      - 'apps/tv-vega/package.json'
+      - '.dockerignore'
+      - '.github/workflows/deploy-agent.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
-
-# Same group as deploy-edge: both apply the one shared infra/ Terraform
-# root against the one S3 state, and a push can touch both workflows' path
-# filters at once (e.g. infra/agent.tf + services/agent/**). Two different
-# groups let them race for the state lock — see the incident this comment
-# was added for.
-concurrency:
-  group: terraform-infra
-  cancel-in-progress: false
 
 jobs:
-  deploy:
+  # Tests-then-deploy ordering: never build an image whose Guardian is red.
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:property
+      - run: npm run verify
+
+  # Which images this push changes, by the same paths as each Dockerfile's
+  # COPY lines. A manual run builds both.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      mcp: ${{ steps.which.outputs.mcp }}
+      agents: ${{ steps.which.outputs.agents }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: which
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          common='^(package\.json|package-lock\.json|tsconfig\.base\.json|apps/tv-vega/package\.json|\.dockerignore|packages/|services/)'
+          mcp="$common|^vitest\.config\.ts$"
+          agents="$common|^scripts/build-lambda\.mjs$"
+          if [ "$GITHUB_EVENT_NAME" != push ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "a manual run, or no earlier commit to compare with: both images"
+            echo "mcp=true" >> "$GITHUB_OUTPUT"
+            echo "agents=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+          if grep -qE "$mcp" <<< "$changed"; then echo "mcp=true" >> "$GITHUB_OUTPUT"; else echo "mcp=false" >> "$GITHUB_OUTPUT"; fi
+          if grep -qE "$agents" <<< "$changed"; then echo "agents=true" >> "$GITHUB_OUTPUT"; else echo "agents=false" >> "$GITHUB_OUTPUT"; fi
+          cat "$GITHUB_OUTPUT"
+
+  # The Wick server, for App Runner, which runs linux/amd64. Pushed under the
+  # commit's short SHA only: nothing deploys it until the deploy job below
+  # pins that tag. Building is outside the Terraform lock on purpose: an
+  # image under a new tag changes nothing that is running.
+  mcp-image:
+    needs: [verify, changes]
+    if: github.ref == 'refs/heads/main' && needs.changes.outputs.mcp == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: build and push wick-mcp-server
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          tag="${GITHUB_SHA::7}"
+          if aws ecr describe-images --repository-name wick-mcp-server --image-ids imageTag="$tag" >/dev/null 2>&1; then
+            echo "wick-mcp-server:$tag is already pushed"; exit 0
+          fi
+          # One platform, no attestations: a single image manifest, which is
+          # what App Runner pulls.
+          docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+            -f services/mcp-server/Dockerfile -t "$REGISTRY/wick-mcp-server:$tag" --push .
+
+  # The AgentCore runtime and the live bridge: arm64, built natively on an
+  # arm64 runner (free for a public repository), no emulation.
+  agent-images:
+    needs: [verify, changes]
+    if: github.ref == 'refs/heads/main' && needs.changes.outputs.agents == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: build and push wick-agents and wick-live-bridge
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          tag="${GITHUB_SHA::7}"
+          for pair in "services/agent/Dockerfile wick-agents" "services/agent/bridge.Dockerfile wick-live-bridge"; do
+            set -- $pair
+            if aws ecr describe-images --repository-name "$2" --image-ids imageTag="$tag" >/dev/null 2>&1; then
+              echo "$2:$tag is already pushed"; continue
+            fi
+            # A single image manifest: Lambda takes no attestation index.
+            docker buildx build --platform linux/arm64 --provenance=false --sbom=false \
+              -f "$1" -t "$REGISTRY/$2:$tag" --push .
+          done
+
+  # Pin, then apply, inside the lock every apply of infra/ takes (the same
+  # group as deploy-edge): both apply the one shared Terraform root against
+  # the one S3 state, and two groups let them race for the state lock — see
+  # the incident this comment was added for.
+  deploy:
+    needs: [verify, changes, mcp-image, agent-images]
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != ''
+      && needs.verify.result == 'success' && needs.changes.result == 'success'
+      && needs.mcp-image.result != 'failure' && needs.agent-images.result != 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: terraform-infra
+      cancel-in-progress: false
+    steps:
+      # Full history: a pin is moved only forward along main (below).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -32,61 +160,52 @@ jobs:
 
       - run: npm ci
 
-      # Tests-then-deploy ordering: never ship an agent whose Guardian is red.
-      # These run on every agent change whether or not there is anything to
-      # deploy yet, because that is where the value is today.
-      - run: npm run test:property
-      - run: npm run verify
-
-      # Self-correcting rather than a TODO someone has to remember: the deploy
-      # switches itself on the moment a real artefact lands, and until then the
-      # job is honestly green instead of decoratively red.
-      - name: is there anything to deploy?
-        id: target
-        run: |
-          # find, not a glob: an unmatched glob behaves differently across
-          # shells and would decide this by accident.
-          if [ -f services/agent/Dockerfile ] \
-             || [ -n "$(find infra -maxdepth 1 -name 'agent*.tf' -print -quit)" ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: no deploy target yet
-        if: steps.target.outputs.ready != 'true'
-        run: |
-          echo "::notice title=Agent not deployed::Guardian property tests and verify passed. \
-          The agent has no deployable artefact yet (S5) — add services/agent/Dockerfile or \
-          infra/agent*.tf and this job starts deploying on its own."
-          {
-            echo "### Agent: tested, not deployed"
-            echo
-            echo "The Guardian property tests (10k cases) and \`npm run verify\` passed."
-            echo "There is no deployable artefact yet, so nothing was shipped."
-            echo
-            echo "This step activates automatically once either exists:"
-            echo "- \`services/agent/Dockerfile\`"
-            echo "- \`infra/agent*.tf\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - uses: aws-actions/configure-aws-credentials@v4
-        if: steps.target.outputs.ready == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
       - uses: hashicorp/setup-terraform@v3
-        if: steps.target.outputs.ready == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
         with:
           terraform_version: 1.16.2
+          # The wrapper prints and captures every command's output; the
+          # App Runner step reads `terraform output -raw` plainly.
+          terraform_wrapper: false
 
       # infra/agent.tf zips services/agent/.build/door-event — gitignored,
       # esbuild output, never committed — so it has to be built fresh in
       # every run or archive_file has nothing to zip.
       - name: build the agent lambda bundle
-        if: steps.target.outputs.ready == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
         run: npm run build:lambda
+
+      # The images this run pushed become the ones every apply deploys
+      # (infra/images.tf). Only forward: a slower run of an older commit
+      # never moves a pin back past a newer one. Terraform makes the
+      # parameters; a stack that has not been applied since images.tf landed
+      # stops here rather than make them behind Terraform's back.
+      - name: pin the images this run pushed
+        env:
+          MCP: ${{ needs.mcp-image.result == 'success' }}
+          AGENTS: ${{ needs.agent-images.result == 'success' }}
+        run: |
+          tag="${GITHUB_SHA::7}"
+          pin() {
+            local name="$1" current
+            if ! current=$(aws ssm get-parameter --name "$name" --query Parameter.Value --output text 2>/dev/null); then
+              echo "::error::$name does not exist. Terraform makes it (infra/images.tf): apply from a laptop first."
+              return 1
+            fi
+            if [ "$current" = "$tag" ]; then
+              echo "$name is already $tag"
+            elif git cat-file -e "${current}^{commit}" 2>/dev/null && git merge-base --is-ancestor "$GITHUB_SHA" "$current"; then
+              echo "$name holds $current, newer than this commit: kept"
+            else
+              aws ssm put-parameter --name "$name" --value "$tag" --overwrite >/dev/null
+              echo "$name: $current -> $tag"
+            fi
+          }
+          if [ "$MCP" = true ]; then pin /wick/images/mcp-server; fi
+          if [ "$AGENTS" = true ]; then pin /wick/images/agents; fi
 
       # The agent reads its Ring token from Secrets Manager at runtime via
       # ringClientsByHousehold(). There is no .env in a deployed runtime,
@@ -95,8 +214,21 @@ jobs:
       # REMEMBER: Alexa+ refreshes tool information only on deploy. Run
       # `alexa-ai deploy` after any MCP tool change, or Alexa+ keeps calling the
       # old surface.
-      - name: deploy the agent
-        if: steps.target.outputs.ready == 'true' && vars.AWS_DEPLOY_ROLE_ARN != ''
+      - name: deploy
+        id: apply
         run: |
+          echo "since=$(( $(date +%s) - 30 ))" >> "$GITHUB_OUTPUT"
           terraform -chdir=infra init -input=false
           terraform -chdir=infra apply -input=false -auto-approve
+
+      # Terraform's UpdateService returns once the service is RUNNING, and a
+      # deployment App Runner rolled back ends RUNNING too, on the old image.
+      # So the job waits on App Runner's own operations, and fails unless the
+      # pinned image is the one running.
+      - name: wait for the Wick server's deployment
+        env:
+          SINCE: ${{ steps.apply.outputs.since }}
+        run: |
+          export SERVICE_ARN="$(terraform -chdir=infra output -raw mcp_service_arn)"
+          export EXPECTED_TAG="$(aws ssm get-parameter --name /wick/images/mcp-server --query Parameter.Value --output text)"
+          npm run deploy:wait-app-runner

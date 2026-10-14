@@ -16,7 +16,22 @@ const REDIRECT_URI = 'http://127.0.0.1:9/addon-check';
 
 const base64Url = (bytes: Buffer): string => bytes.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+/** What a guest's sign-in leaves a client holding: both tokens, and how to use them. */
+export interface DemoSession {
+  readonly accessToken: string;
+  readonly refreshToken: string | undefined;
+  readonly clientId: string;
+  /** The one address the client registered. */
+  readonly redirectUri: string;
+  readonly tokenEndpoint: string;
+  readonly revocationEndpoint: string | undefined;
+}
+
 export async function demoToken(serverUrl: string, fetch: Fetch): Promise<string> {
+  return (await demoSession(serverUrl, fetch)).accessToken;
+}
+
+export async function demoSession(serverUrl: string, fetch: Fetch, clientName = 'the Wick add-on check'): Promise<DemoSession> {
   const metadata = (await (await fetch(`${serverUrl}/.well-known/oauth-authorization-server`)).json()) as Record<string, string>;
 
   const registered = await fetch(String(metadata.registration_endpoint), {
@@ -24,10 +39,10 @@ export async function demoToken(serverUrl: string, fetch: Fetch): Promise<string
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       redirect_uris: [REDIRECT_URI],
-      grant_types: ['authorization_code'],
+      grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
-      client_name: 'the Wick add-on check',
+      client_name: clientName,
     }),
   });
   if (!registered.ok) throw new Error(`client registration answered ${registered.status}`);
@@ -64,5 +79,13 @@ export async function demoToken(serverUrl: string, fetch: Fetch): Promise<string
     body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: REDIRECT_URI, client_id: client.client_id, code_verifier: verifier }),
   });
   if (!exchanged.ok) throw new Error(`token exchange answered ${exchanged.status}`);
-  return ((await exchanged.json()) as { access_token: string }).access_token;
+  const tokens = (await exchanged.json()) as { access_token: string; refresh_token?: string };
+  return {
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    clientId: client.client_id,
+    redirectUri: REDIRECT_URI,
+    tokenEndpoint: String(metadata.token_endpoint),
+    revocationEndpoint: metadata.revocation_endpoint,
+  };
 }

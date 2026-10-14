@@ -117,6 +117,33 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["*"]
   }
 
+  # Which image each service runs (infra/images.tf): deploy-agent.yml writes
+  # the tag it just pushed, and every apply reads it and keeps the two
+  # parameters themselves. Held to /wick/images/*, so a deploy can neither
+  # read nor write any other parameter in the account. Both are plain
+  # Strings, so no KMS grant.
+  statement {
+    sid = "PinTheImageTags"
+    actions = [
+      "ssm:GetParameter",
+      "ssm:PutParameter",
+      "ssm:DeleteParameter",
+      "ssm:AddTagsToResource",
+      "ssm:RemoveTagsFromResource",
+      "ssm:ListTagsForResource",
+    ]
+    resources = ["arn:aws:ssm:${local.region}:${local.account_id}:parameter/${local.prefix}/images/*"]
+  }
+
+  # Terraform reads a parameter's type and description back with
+  # DescribeParameters, which AWS does not let a policy scope to a
+  # parameter: it names parameters and never returns a value.
+  statement {
+    sid       = "DescribeParameters"
+    actions   = ["ssm:DescribeParameters"]
+    resources = ["*"]
+  }
+
   # Hold for Sarah (infra/reach.tf): the one group its three-minute timers
   # live in. NOT scheduler:* — the timers themselves are set by the
   # card-action function at a press, never by a deploy, and a deploy has no

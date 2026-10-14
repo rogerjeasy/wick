@@ -174,7 +174,7 @@ resource "aws_lambda_function" "live_bridge" {
   function_name = "${local.prefix}-live-bridge"
   role          = aws_iam_role.live_bridge.arn
   package_type  = "Image"
-  image_uri     = "${aws_ecr_repository.live_bridge.repository_url}:${var.agent_image_tag}"
+  image_uri     = "${aws_ecr_repository.live_bridge.repository_url}:${local.agent_image_tag}"
   architectures = ["arm64"]
 
   # Ring's 60s ceiling, plus WHEP setup and cleanup.
