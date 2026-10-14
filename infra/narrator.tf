@@ -16,7 +16,7 @@
 
 locals {
   # Claude Sonnet 4.5. Sonnet 5 is listed for this account but refuses
-  # every call as "not available for this account" (FRICTION.md FL-020).
+  # every call as "not available for this account" (commit 04b55bd).
   # One source for both the Lambda's WICK_NARRATIVE_MODEL and its IAM grant.
   narrative_model         = "anthropic.claude-sonnet-4-5-20250929-v1:0"
   narrative_model_profile = "us.${local.narrative_model}"
