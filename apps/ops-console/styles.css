@@ -500,3 +500,10 @@ section {
     align-items: flex-start;
   }
 }
+
+/* What the pages once said in style attributes, which their Content-Security-Policy no longer runs (infra/csp/ops-console.csp). */
+.btn-row.spread { justify-content: space-between; }
+.below { margin-bottom: var(--space-3); }
+.flush { margin: 0; }
+.mono.small { font-size: 0.85em; }
+.badge.beside { margin-right: 0.5em; }
