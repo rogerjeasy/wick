@@ -106,6 +106,17 @@ describe('the door card (agents/door/index.ts)', () => {
     expect(patchIn('es', afterRing, { description: 'Tres coches en un aparcamiento.' }).description).toBe('Tres coches en un aparcamiento.');
   });
 
+  it('from a demo home’s stand-in doorbell, says so in her language too, with nothing that needs a real doorbell', () => {
+    const standIn = buildPhaseOneCard({ event, device, hallwayChime: true, householdId: 'hh-demo', correlationId: 'corr-1', now: NOW, family: ['Sarah'], standIn: true });
+    const card = coverage.spanish(standIn);
+    expect(card.line).toBe('Hay alguien en la puerta de entrada (timbre simulado).');
+    expect(labels(card)).toEqual(['Pedir a Sarah que mire', 'Ahora no']);
+
+    const nobody = { description: 'An empty doorstep.', confidence: 0.9, personVisible: false };
+    expect(coverage.spanishPatch(buildDescriptionPatch('door-abc', nobody, 'motion_detected', { standIn: true })!).line).toBe('Movimiento en la puerta de entrada (timbre simulado).');
+    expect(coverage.spanishPatch(buildDescriptionPatch('door-abc', nobody, 'button_press', { standIn: true })!).line).toBe('Ha sonado el timbre simulado.');
+  });
+
   it('a description alone, or the picture, carries no word of Wick’s and is left exactly as it is', () => {
     const described = buildDescriptionPatch('door-abc', { description: 'A man in a yellow jacket holding a clipboard.', confidence: 0.9, personVisible: true })!;
     expect(patchIn('es', described)).toEqual(described);

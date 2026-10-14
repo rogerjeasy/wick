@@ -42,6 +42,16 @@ export const DOOR_LINE = "Someone's at the front door.";
 export const NOBODY_AFTER_MOTION_LINE = 'Movement at the front door.';
 export const NOBODY_AFTER_RING_LINE = 'The doorbell rang.';
 
+/**
+ * The same three sentences from the stand-in doorbell of a demo home
+ * (packages/contracts demoDoor.ts). The card says what it is where the
+ * door is named: a demo home has no Ring doorbell, and nobody is to take a
+ * stand-in for a real front door.
+ */
+export const STAND_IN_DOOR_LINE = "Someone's at the front door (stand-in doorbell).";
+export const STAND_IN_NOBODY_AFTER_MOTION_LINE = 'Movement at the front door (stand-in doorbell).';
+export const STAND_IN_NOBODY_AFTER_RING_LINE = 'The stand-in doorbell rang.';
+
 export const DESCRIPTION_MAX_WORDS = 14;
 
 /** Below this, say nothing at all rather than guess. Principle 11. */
@@ -75,6 +85,12 @@ export interface DoorCardInput {
    * or empty: nobody to ask.
    */
   readonly family?: readonly string[];
+  /**
+   * A demo home's stand-in doorbell (agents/door/demoDoor.ts): the card says
+   * so, and offers nothing that needs a real doorbell — no live view (there
+   * is no camera) and no chime.
+   */
+  readonly standIn?: boolean;
 }
 
 /** The longest first name that still fits a button in 32pt type beside two others. */
@@ -109,12 +125,13 @@ export function familyToAsk(family: readonly string[] | undefined): string | und
  * Never both. Three, never four (Principle 6), and when a stranger is at the
  * door someone who can look matters more than a sound in the hall.
  */
-function actionsFor(hallwayChime: boolean, ask: string | undefined): readonly CardAction[] {
-  const actions: CardAction[] = [{ id: DOOR_ACTIONS.watchLive, label: 'Watch live', kind: 'primary' }];
+function actionsFor(hallwayChime: boolean, ask: string | undefined, standIn = false): readonly CardAction[] {
+  // A stand-in doorbell has no camera to watch and no chime to ring: a button that cannot work is worse than none (D6).
+  const actions: CardAction[] = standIn ? [] : [{ id: DOOR_ACTIONS.watchLive, label: 'Watch live', kind: 'primary' }];
 
   if (ask) {
     actions.push({ id: DOOR_ACTIONS.askFamily, label: `Ask ${ask} to look`, kind: 'secondary' });
-  } else if (hallwayChime) {
+  } else if (hallwayChime && !standIn) {
     actions.push({ id: DOOR_ACTIONS.hallwayChime, label: 'Ring the hallway chime', kind: 'secondary' });
   }
 
@@ -145,7 +162,7 @@ function cardIdFor(eventId: string): string {
  * (INV-6: idempotent and correlated).
  */
 export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
-  const { event, hallwayChime, householdId, correlationId, now, roster, family } = input;
+  const { event, hallwayChime, householdId, correlationId, now, roster, family, standIn = false } = input;
   const match = roster ? matchVisitor(roster, event.start) : undefined;
 
   return {
@@ -154,8 +171,8 @@ export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
     householdId,
     correlationId,
     createdAt: now,
-    line: DOOR_LINE,
-    actions: actionsFor(hallwayChime, match ? undefined : familyToAsk(family)),
+    line: standIn ? STAND_IN_DOOR_LINE : DOOR_LINE,
+    actions: actionsFor(hallwayChime, match ? undefined : familyToAsk(family), standIn),
     ...(match ? { match } : {}),
   };
 }
@@ -216,6 +233,7 @@ export function buildDescriptionPatch(
   cardId: string,
   candidate: DescriptionCandidate,
   eventType?: string,
+  options: { readonly standIn?: boolean } = {},
 ): CardPatch | null {
   if (candidate.confidence < MIN_DESCRIPTION_CONFIDENCE) return null;
   if (!validateDescription(candidate.description)) return null;
@@ -224,7 +242,10 @@ export function buildDescriptionPatch(
   // Only a definite "nobody" corrects the headline. Unknown leaves Phase 1's
   // line standing — a correction is a claim too.
   if (candidate.personVisible !== false) return { cardId, description };
-  const line = eventType === 'button_press' ? NOBODY_AFTER_RING_LINE : NOBODY_AFTER_MOTION_LINE;
+  const pressed = eventType === 'button_press';
+  const line = options.standIn
+    ? (pressed ? STAND_IN_NOBODY_AFTER_RING_LINE : STAND_IN_NOBODY_AFTER_MOTION_LINE)
+    : (pressed ? NOBODY_AFTER_RING_LINE : NOBODY_AFTER_MOTION_LINE);
   return { cardId, description, line };
 }
 

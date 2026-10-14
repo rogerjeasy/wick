@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { RingDevice, RingHistoryEvent } from '@wick/ring';
 import type { QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
-import { routeDoorEvent, routeRingEvent, type RouteDeps } from '../lambda.js';
+import { dispatchDoorEvent, routeDoorEvent, routeRingEvent, type RouteDeps } from '../lambda.js';
 
 const device: RingDevice = {
   id: 'ava1.ring.device.ABNJQ',
@@ -359,5 +359,24 @@ describe('routeDoorEvent', () => {
 
     expect(result).toBe('skipped');
     expect(householdOf).not.toHaveBeenCalled();
+  });
+});
+
+describe('dispatchDoorEvent — a Ring doorbell or a demo home’s stand-in', () => {
+  const routes = () => ({ ring: vi.fn(async () => 'sent' as const), demo: vi.fn(async () => 'sent' as const) });
+
+  it('takes the stand-in’s path only for the stand-in’s own source', async () => {
+    const r = routes();
+    await dispatchDoorEvent({ source: 'wick.demo-door', detail: { householdId: 'hh-demo' } }, r);
+    expect(r.demo).toHaveBeenCalledWith({ householdId: 'hh-demo' });
+    expect(r.ring).not.toHaveBeenCalled();
+  });
+
+  it('takes everything else down the Ring path, whatever its detail says', async () => {
+    const r = routes();
+    await dispatchDoorEvent({ source: 'wick.ring', detail: { householdId: 'hh-demo', visitor: 'carer' } }, r);
+    await dispatchDoorEvent({ detail }, r);
+    expect(r.ring).toHaveBeenCalledTimes(2);
+    expect(r.demo).not.toHaveBeenCalled();
   });
 });

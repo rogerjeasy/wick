@@ -115,6 +115,19 @@ describe('runDoorPhase2', () => {
     expect(sendPatch).toHaveBeenCalledWith(expect.objectContaining({ line: 'The doorbell rang.' }));
   });
 
+  it('corrects a stand-in doorbell’s headline in the stand-in’s own words', async () => {
+    const sendPatch = vi.fn(async (_p: CardPatch) => {});
+    const nobody: DescribeResult = {
+      candidate: { description: 'An empty doorstep with a potted plant.', confidence: 0.9, personVisible: false },
+      reason: 'ok',
+      elapsedMs: 800,
+    };
+
+    await runDoorPhase2('card-1', { fetchImage: async () => ({ image, bytes }), describe: async () => nobody, sendPatch }, 'motion_detected', { standIn: true });
+
+    expect(sendPatch).toHaveBeenCalledWith(expect.objectContaining({ line: 'Movement at the front door (stand-in doorbell).' }));
+  });
+
   describe('reports what happened, so a Phase 2 that stops early is never silent', () => {
     it('names Ring\'s own reason when there is no recorded frame for the event', async () => {
       // Observed live: a webhook whose occurred_at has no recording behind it.

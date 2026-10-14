@@ -128,6 +128,10 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
     s("Someone's at the front door.", 'Hay alguien en la puerta de entrada.'),
     s('Movement at the front door.', 'Movimiento en la puerta de entrada.'),
     s('The doorbell rang.', 'Ha sonado el timbre.'),
+    // A demo home's stand-in doorbell (contracts demoDoor.ts): the card says what it is, in her language as well.
+    s("Someone's at the front door (stand-in doorbell).", 'Hay alguien en la puerta de entrada (timbre simulado).'),
+    s('Movement at the front door (stand-in doorbell).', 'Movimiento en la puerta de entrada (timbre simulado).'),
+    s('The stand-in doorbell rang.', 'Ha sonado el timbre simulado.'),
     b('Watch live', 'Ver en vivo'),
     // The press is the consent: the picture goes to the people she allows, for this one card (askFamily.ts).
     b('Ask {first} to look', 'Pedir a {first} que mire'),

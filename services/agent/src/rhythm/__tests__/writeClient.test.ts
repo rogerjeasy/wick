@@ -36,6 +36,18 @@ describe('createRhythmWriter', () => {
     });
   });
 
+  it('marks a demo home’s count simulated, as every row of a demo home is (AGENTS.md, Data rules)', async () => {
+    const client = fakeClient();
+    const writer = createRhythmWriter(client, 'wick', { simulated: true });
+    const key = buildDoorActivityKey({ householdId: 'hh-demo', deviceId: 'stand-in', subType: 'button', measureName: 'button_press', at: 1789455093305 });
+
+    await writer.increment(key, 1789455093305);
+
+    const command = client.send.mock.calls[0]![0]!;
+    expect(command.input.UpdateExpression).toBe('ADD #count :incr SET lastSeenAt = :now, simulated = :simulated');
+    expect(command.input.ExpressionAttributeValues).toEqual({ ':incr': { N: '1' }, ':now': { N: '1789455093305' }, ':simulated': { BOOL: true } });
+  });
+
   it('rejects when the underlying client rejects — a caller decides whether to swallow it', async () => {
     const client = { send: vi.fn(async () => { throw new Error('ddb_down'); }) };
     const writer = createRhythmWriter(client, 'wick');
