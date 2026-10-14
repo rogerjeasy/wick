@@ -89,7 +89,11 @@ where their secret comes from:
 A television that loses its secret — storage cleared, the app reinstalled —
 is refused its next refresh, forgets its token and shows the pairing screen
 with a code: it is set up again as a new television, and the organiser
-disconnects the old one from the family app. A television paired before
+disconnects the old one from the family app. A secret handed over by the
+server that the television cannot write down and read back does not finish
+the pairing: the token is let go and a new code is shown, and the server
+makes a new secret for it — the one it made was handed over once, and is
+gone. A television paired before
 secrets that can make one enrols it with its first refresh that also shows a
 token earned by pairing, not run out; a Vega television is given one at its
 next pairing. Every token says how it was earned (`proof`: `pairing`, `secret` or
