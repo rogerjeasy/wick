@@ -62,6 +62,8 @@ export interface AccountRouterDeps {
   readonly issuerUrl: URL;
   /** Whether a visitor may become an anonymous guest in one click (demo.ts). Off unless set. */
   readonly demoAccounts?: boolean | undefined;
+  /** How many guests an hour (demo.ts DEMO_ACCOUNTS_PER_HOUR unless set). */
+  readonly demoAccountsPerHour?: number | undefined;
   /** Writes a new demo home its simulated history (demoHome.ts). Never called for any other home. */
   readonly seedDemoHome?: ((householdId: string) => Promise<void>) | undefined;
 }
@@ -84,7 +86,7 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
   const { store, now } = circle;
   const secure = deps.issuerUrl.protocol === 'https:';
   const demo = deps.demoAccounts === true;
-  const demoLimiter = createDemoLimiter(now);
+  const demoLimiter = createDemoLimiter(now, deps.demoAccountsPerHour);
   const router = express.Router();
   router.use('/account', express.urlencoded({ extended: false }));
 

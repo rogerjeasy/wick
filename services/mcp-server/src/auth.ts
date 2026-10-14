@@ -41,6 +41,7 @@ export function createAuth(
   identity: IdentityProvider,
   options: {
     readonly demoAccounts?: boolean | undefined;
+    readonly demoAccountsPerHour?: number | undefined;
     readonly seedDemoHome?: ((householdId: string) => Promise<void>) | undefined;
   } = {},
 ): Auth {
@@ -55,7 +56,7 @@ export function createAuth(
       resourceName: 'Wick',
     }),
   );
-  router.use(createAccountRouter({ circle, identity, oauth, issuerUrl, demoAccounts: options.demoAccounts, seedDemoHome: options.seedDemoHome }));
+  router.use(createAccountRouter({ circle, identity, oauth, issuerUrl, demoAccounts: options.demoAccounts, demoAccountsPerHour: options.demoAccountsPerHour, seedDemoHome: options.seedDemoHome }));
 
   /**
    * §7.3 requires 401 with NO WWW-Authenticate header when unauthenticated.

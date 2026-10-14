@@ -168,6 +168,8 @@ export interface AppDeps {
   readonly ringLinks?: RingLinks;
   /** Let a visitor become an anonymous guest in one click (accounts/demo.ts). Off unless set. */
   readonly demoAccounts?: boolean;
+  /** How many guests the demo may make in an hour (accounts/demo.ts DEMO_ACCOUNTS_PER_HOUR unless set). */
+  readonly demoAccountsPerHour?: number;
   /** The model behind the family app's conversation (assistant/brain.ts). Without one the app answers by its rules. */
   readonly assistant?: AssistantDeps;
   /** A television in a browser tab, for someone with no Fire TV to hand (apps/ops-console/device.html). */
@@ -203,6 +205,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   };
   const { router: authRouter, requireAuth } = createAuth(issuerUrl, circle, deps.identity, {
     demoAccounts: deps.demoAccounts,
+    demoAccountsPerHour: deps.demoAccountsPerHour,
     // A guest's home starts with six weeks to ask about, marked simulated (accounts/demoHome.ts).
     seedDemoHome: (householdId) =>
       seedDemoHome((item) => ddb.send(new PutItemCommand({ TableName: TABLE, Item: item })), householdId, circle.now(), HOUSEHOLD_TZ),
