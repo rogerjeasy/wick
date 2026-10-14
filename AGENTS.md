@@ -239,6 +239,19 @@ From `docs/WICK.md` Part 5. The ones that most often get violated by accident:
   her consent. And nothing acts by being handed the focus: on a family
   television the wave is sent only after a D-pad move to it
   (`family/presses.ts`). A swallowed press does nothing at all.
+- **A command from the platform is her press, by another way.** On Vega her
+  film is a media session (`apps/tv-vega/src/watch/mediaControls.ts`):
+  "Alexa, pause" and the system's transport controls reach it, and each
+  obeys the rule the same key obeys (`watch/mediaSession.ts`). A pause is a
+  pause, so a waiting note comes on screen over it as over any pause. Play
+  names the film: over a note holding it, it carries on with the film and
+  never reads the card. Stop is a pause. One press heard twice — as the key
+  and as the session's command — counts once. The manifest offers the
+  platform only what is obeyed. **Never** hand the player to the platform
+  (`setMediaControlFocus`, which obeys around these rules), never let a
+  family member's seat obey a command (`media/noFilm.ts` refuses them all),
+  and never start a reading from anything but the Play/Pause that is her
+  key.
 - **When unsure, say so.** Never emit a confident guess. Silence beats a wrong description.
 - **No mood or sentiment inference is ever reported to anyone.**
 
