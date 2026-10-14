@@ -171,6 +171,21 @@ data "aws_iam_policy_document" "apprunner_instance" {
     actions   = ["translate:TranslateText"]
     resources = ["*"]
   }
+
+  # Ask by voice (services/mcp-server/src/hear): a family member's spoken
+  # question, sent by the family app as one short utterance, is streamed to
+  # Amazon Transcribe and comes back as words. Transcribe does not support
+  # resource-level permissions for StartStreamTranscription: the Service
+  # Authorization Reference lists no resource type for it
+  # (docs.aws.amazon.com/service-authorization/latest/reference/list_amazontranscribe.html,
+  # read 2026-10-14), so the resource is "*", and this one action is all that
+  # is allowed. Nothing is stored by it: a streaming transcription makes no
+  # job and keeps no recording.
+  statement {
+    sid       = "HearAFamilyMembersSpokenQuestion"
+    actions   = ["transcribe:StartStreamTranscription"]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "apprunner_instance" {
