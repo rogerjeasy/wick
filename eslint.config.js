@@ -1,4 +1,5 @@
 import tseslint from 'typescript-eslint';
+import calm from './packages/vega-calm-ui/eslint/index.js';
 
 /**
  * INV-2 is enforced here, not by convention.
@@ -75,6 +76,15 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
     },
+  },
+
+  // The calm floor on everything the resident's television draws: no type
+  // under 32, no red, no fourth button, no card that dismisses itself
+  // (AGENTS.md, product rules). The same rules vega-calm-ui publishes.
+  {
+    ...calm.configs.recommended,
+    files: ['apps/tv-vega/src/**/*.ts', 'apps/tv-vega/src/**/*.tsx', 'packages/vega-calm-ui/src/**/*.ts', 'packages/vega-calm-ui/src/**/*.tsx'],
+    ignores: ['**/__tests__/**'],
   },
 
   // Metro and Babel load their own config as plain CommonJS by convention —

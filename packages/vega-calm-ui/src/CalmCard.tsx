@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
     lineHeight: fontSize('body') * layout.lineHeight.body,
   },
   // Wraps rather than running off the edge: three 32pt reply labels are
-  // wider than a 960dp screen (observed on the VVD — the third was cut off).
+  // wider than a 960dp screen (observed on the Vega Virtual Device — the third was cut off).
   actions: {
     flexDirection: 'row',
     flexWrap: 'wrap',

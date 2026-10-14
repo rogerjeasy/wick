@@ -11,9 +11,13 @@
  * fades its content in, and with `mediaSize` so is the media box — the
  * picture lands in space that was already there. The headline and the
  * buttons never move.
+ *
+ * The fade is the package's one animation: 200ms, opacity only.
+ * When the platform says the viewer wants reduced motion, there is no fade.
  */
 import * as React from 'react';
 import { Animated, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
+import { useReduceMotionEnabled } from './accessibility.js';
 import { CalmCard, type CalmCardProps } from './CalmCard.js';
 import { fontSize, safe } from './constraints.js';
 import { motion } from './tokens.js';
@@ -39,15 +43,21 @@ const RESERVED_DETAIL_HEIGHT = fontSize('body') * 1.4 * 2;
 export function TwoPhaseCard(props: TwoPhaseCardProps): React.JSX.Element {
   const { detail, media, mediaSize, children, ...rest } = props;
   const opacity = React.useRef(new Animated.Value(detail ? 1 : 0)).current;
+  const reduceMotion = useReduceMotionEnabled();
 
   React.useEffect(() => {
     if (!detail) return;
+    // A viewer who asked for less motion gets the words at once.
+    if (reduceMotion) {
+      opacity.setValue(1);
+      return;
+    }
     Animated.timing(opacity, {
       toValue: 1,
       duration: motion.durationMs,
       useNativeDriver: true,
     }).start();
-  }, [detail, opacity]);
+  }, [detail, opacity, reduceMotion]);
 
   return (
     <CalmCard

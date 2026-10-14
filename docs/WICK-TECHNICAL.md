@@ -156,7 +156,6 @@ wick/
 │   │       ├── personalization/ # ContentPersonalization handlers (REAL, not mocks)
 │   │       ├── transport/       # device channel client
 │   │       ├── pairing/         # 6-digit device pairing
-│   │       ├── a11y/            # focus + screen-reader hints
 │   │       └── headless/        # service/task implementations
 │   │
 │   ├── tv-fireos/               # Fire OS companion (build LAST)
@@ -922,7 +921,7 @@ Vega app builds via the Vega CLI ✅ V in a separate job; artefact the `.vpkg`.
 
 ### 13.4 The Open Source extraction
 
-`packages/vega-calm-ui` — MIT. A genuinely reusable accessible-TV component set: large-type high-contrast single-action cards, safe-area-aware positioning, no-startle animation curves, a two-phase card primitive, and an ESLint rule set for `@amazon-devices/eslint-plugin-kepler` ✅ V that flags focus-order mistakes and auto-dismissing surfaces.
+`packages/vega-calm-ui` — MIT. A genuinely reusable accessible-TV component set: large-type high-contrast cards of at most three actions that throw at render below the floor, a two-phase card primitive that reserves its space, screen-reader and reduced-motion hooks on Vega's `AccessibilityInfo`, and four ESLint rules (`min-font-size`, `no-alarm-colour`, `max-actions`, `no-auto-dismiss`). A focus-order rule was planned and dropped: Vega's focus engine decides focus at run time. The canonical repository is `github.com/rogerjeasy/vega-calm-ui` (npm `vega-calm-ui`); this folder is Wick's workspace copy of it, and Wick's own ESLint config runs the rules over `apps/tv-vega/src`.
 
 Publish it, then open a PR against `AmazonAppDev/react-native-multi-tv-app-sample` adding an accessibility preset theme. **PRs do not need to be merged.** Capture: contribution URL, repo URL, GitHub username, and the what/how/why.
 

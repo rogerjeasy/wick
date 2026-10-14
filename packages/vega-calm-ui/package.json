@@ -1,7 +1,7 @@
 {
   "name": "@wick/vega-calm-ui",
   "version": "0.1.0",
-  "description": "Accessible, low-arousal 10-foot components for Vega OS / Fire TV.",
+  "description": "Accessible, low-arousal 10-foot components for Vega OS / Fire TV. Wick's workspace copy of vega-calm-ui (https://github.com/rogerjeasy/vega-calm-ui).",
   "license": "MIT",
   "author": "Roger Bavibidila",
   "type": "module",
@@ -14,9 +14,10 @@
     "react-native",
     "tv"
   ],
+  "homepage": "https://github.com/rogerjeasy/vega-calm-ui#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rogerjeasy/vega-calm-ui"
+    "url": "git+https://github.com/rogerjeasy/vega-calm-ui.git"
   },
   "dependencies": {
     "@amazon-devices/react-native-kepler": "^4.0.1",
