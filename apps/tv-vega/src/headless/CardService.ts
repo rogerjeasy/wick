@@ -147,7 +147,9 @@ export async function onStartCardService(): Promise<void> {
       };
       const standing = standingWatch({
         held: { token, ...(token.jwt !== before?.jwt ? { since: Date.now() } : {}) },
-        ask: (inUse) => pairing.renew(deviceId, inUse.jwt, { remember: false }),
+        // Asked by the id the token in use names, never only by the one read when this process began: the app may since have
+        // been paired again as a new television (deviceId.ts), and the old id's row is gone.
+        ask: (inUse) => pairing.renew(inUse.deviceId, inUse.jwt, { remember: false }),
         onGone: () => {
           held.stop();
           if (running === held) running = undefined;

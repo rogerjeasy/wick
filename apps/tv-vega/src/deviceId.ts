@@ -106,8 +106,13 @@ export interface TelevisionIdentity {
   proofFor(deviceId: string): Promise<string | undefined>;
   /** Who to ask for a code as: this television, or — once it has been paired — a new one in its place. */
   forPairing(deviceId: string): Promise<PairingIdentity>;
-  /** The code was entered for this id: it is this television's identity from now on, with the secret the pairing service handed over, if it did. */
-  paired(deviceId: string, proof?: string): Promise<void>;
+  /**
+   * The code was entered for this id: it is this television's identity from
+   * now on, with the secret the pairing service handed over, if it did. True
+   * once that is written down and read back — and, where the identity was
+   * waiting for a secret, with the secret.
+   */
+  paired(deviceId: string, proof?: string): Promise<boolean>;
 }
 
 const ENCODING = 'utf8';
@@ -145,12 +150,27 @@ function parse(raw: string | null | undefined): Kept | undefined {
   }
 }
 
-async function readKept(fs: FileSystemLike): Promise<Kept | undefined> {
-  try {
-    if (!(await fs.exists(IDENTITY_PATH))) return undefined;
-    return parse(await fs.readFileAsString(IDENTITY_PATH, ENCODING));
-  } catch {
-    return undefined;
+/**
+ * The kept identity; undefined where there is none. A file that is there
+ * but cannot be read whole — caught half-written by the app, from the card
+ * service's process — is read again a few times before it counts as none:
+ * read as none, the service would ask as the id kept before secrets, which
+ * after a new pairing is a television that no longer exists.
+ */
+async function readKept(fs: FileSystemLike, wait: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))): Promise<Kept | undefined> {
+  for (let attempt = 0; ; attempt += 1) {
+    let raw: string;
+    try {
+      if (!(await fs.exists(IDENTITY_PATH))) return undefined;
+      raw = await fs.readFileAsString(IDENTITY_PATH, ENCODING);
+    } catch {
+      // Storage that throws keeps nothing, now or in a moment.
+      return undefined;
+    }
+    const kept = parse(raw);
+    // Only something written, and not yet whole, is worth reading again.
+    if (kept || !raw || attempt >= 3) return kept;
+    await wait(50);
   }
 }
 
@@ -218,7 +238,16 @@ export function televisionIdentity(fs: FileSystemLike, options: IdentityOptions 
    */
   const make = async (): Promise<Kept | Unkept> => {
     const kept = await readKept(fs);
-    if (kept) return kept;
+    if (kept) {
+      // A pairing that finished — its token written — but whose identity was not taken on (the app stopped between the
+      // two): taken on now, where the secret is here to take on. Without a secret there is nothing to prove with; the
+      // television is refused at its next refresh and paired again.
+      if (writes && kept.next?.proof !== undefined && (await tokenNames(fs, kept.next.deviceId))) {
+        const promoted: Kept = { deviceId: kept.next.deviceId, proof: kept.next.proof, paired: true };
+        if (await writeKept(fs, promoted)) return promoted;
+      }
+      return kept;
+    }
     const deviceId = await legacyDeviceId(fs, options.generateId);
     if (!writes || deviceId === SIMULATOR_DEVICE_ID) return { deviceId };
     // No cryptographic generator, no secret made here — never a guessable one. The pairing service makes it at the next pairing (`keeps`).
@@ -274,13 +303,14 @@ export function televisionIdentity(fs: FileSystemLike, options: IdentityOptions 
 
     async paired(deviceId, handedOver) {
       const who = await current();
-      if (!writes || !isKept(who)) return;
+      if (!writes || !isKept(who)) return false;
       const target = who.next?.deviceId === deviceId ? who.next : who.deviceId === deviceId ? who : undefined;
-      if (!target) return;
+      if (!target) return false;
       // Its own secret if it made one; otherwise the one the pairing service made for it.
       const proof = target.proof ?? (typeof handedOver === 'string' && PROOF_SHAPE.test(handedOver) ? handedOver : undefined);
-      if (target === who && who.paired && who.proof === proof) return;
-      await change({ deviceId, ...(proof === undefined ? {} : { proof }), paired: true });
+      if (target === who && who.paired && who.proof === proof) return true;
+      // `change` writes, reads back, and only then makes it the identity every later question sees.
+      return change({ deviceId, ...(proof === undefined ? {} : { proof }), paired: true });
     },
   };
 }

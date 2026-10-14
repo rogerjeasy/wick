@@ -891,10 +891,10 @@ describe('PairingFlow', () => {
 // identity it says — a new one, once the television has been paired.
 describe('PairingFlow — the television’s secret', () => {
   const SECRET = 's'.repeat(64);
-  const identity = (over: Partial<{ proofFor: (id: string) => Promise<string | undefined>; forPairing: (id: string) => Promise<{ deviceId: string; proof?: string; keeps?: true; replaces?: { deviceId: string; proof: string } }>; paired: (id: string, proof?: string) => Promise<void> }> = {}) => ({
+  const identity = (over: Partial<{ proofFor: (id: string) => Promise<string | undefined>; forPairing: (id: string) => Promise<{ deviceId: string; proof?: string; keeps?: true; replaces?: { deviceId: string; proof: string } }>; paired: (id: string, proof?: string) => Promise<boolean> }> = {}) => ({
     proofFor: vi.fn(async (id: string) => (id === 'd1' ? SECRET : undefined)),
     forPairing: vi.fn(async () => ({ deviceId: 'd2', proof: SECRET, replaces: { deviceId: 'd1', proof: 'o'.repeat(64) } })),
-    paired: vi.fn(async () => undefined),
+    paired: vi.fn(async () => true),
     ...over,
   });
   const recording = (answer: () => Response) => {
@@ -986,6 +986,45 @@ describe('PairingFlow — the television’s secret', () => {
         }),
       }),
     );
+
+    expect(await flow.pollUntilBound('123456')).toEqual(TOKEN);
+  });
+});
+
+// A secret the pairing service made is handed over once. If this television
+// cannot write it down, its row would ask for a secret nobody has: the
+// pairing is not finished, and a new code is shown.
+describe('PairingFlow — a handed-over secret that cannot be kept', () => {
+  const SERVERS = 'v'.repeat(64);
+  const bound = () => vi.fn(async () => new Response(JSON.stringify({ status: 'bound', token: TOKEN, proof: SERVERS }), { status: 200 })) as unknown as typeof fetch;
+
+  it('lets the token go and fails the pairing, so the screen shows a new code', async () => {
+    const fs = fakeFs();
+    const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 }, fs, bound(), {
+      proofFor: async () => undefined,
+      paired: async () => false,
+    });
+
+    await expect(flow.pollUntilBound('123456')).rejects.toThrow('pairing_secret_not_kept');
+    expect(await flow.rememberedToken()).toBeNull();
+  });
+
+  it('treats an identity that throws as not kept, too', async () => {
+    const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 }, fakeFs(), bound(), {
+      proofFor: async () => undefined,
+      paired: async () => {
+        throw new Error('[com.amazon.kepler.io.IoError]: ');
+      },
+    });
+
+    await expect(flow.pollUntilBound('123456')).rejects.toThrow('pairing_secret_not_kept');
+  });
+
+  it('finishes the pairing once the secret is written down and read back', async () => {
+    const flow = new PairingFlow({ pairingApiUrl: 'https://pair.example', pollIntervalMs: 1 }, fakeFs(), bound(), {
+      proofFor: async () => undefined,
+      paired: async () => true,
+    });
 
     expect(await flow.pollUntilBound('123456')).toEqual(TOKEN);
   });

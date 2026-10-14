@@ -121,6 +121,14 @@ const DEFAULT_POLL_TIMEOUT_MS = 15 * 60 * 1000; // matches the pairing nonce's 1
 const DEFAULT_REFRESH_RETRY_MS = 32_000;
 const REFRESH_RETRIES = 3;
 
+/** The pairing service handed over a secret this television could not write down. */
+class SecretNotKept extends Error {
+  constructor() {
+    super('pairing_secret_not_kept');
+    this.name = 'SecretNotKept';
+  }
+}
+
 /** The code on screen is no longer one the pairing service knows. */
 class CodeExpired extends Error {
   constructor() {
@@ -508,11 +516,20 @@ export class PairingFlow {
         // server-confirmed claim. See FRICTION.md.
         await this.#keep(body.token);
         // The identity the code was asked for with is this television's from now on (deviceId.ts), with the secret the
-        // pairing service made for it if it asked for one — kept there, never in the token's file. Best-effort, like the token.
+        // pairing service made for it if it asked for one — kept there, never in the token's file.
+        let kept = false;
         try {
-          await this.#identity?.paired?.(body.token.deviceId, body.proof);
+          kept = (await this.#identity?.paired?.(body.token.deviceId, body.proof)) === true;
         } catch (err) {
           console.error('pairing_identity_not_kept', err);
+        }
+        // A secret the pairing service made, and this television could not write down, would lock it out at its next
+        // refresh: its row now asks for a secret nobody has. So the pairing is not finished here — the token is let
+        // go and a new code is shown, under the same identity, and the server makes a new secret for it (the one it
+        // made is handed over once, and is gone). Otherwise the token in hand is what counts, as it always was.
+        if (body.proof !== undefined && !kept) {
+          await this.clearToken();
+          throw new SecretNotKept();
         }
         return body.token;
       }

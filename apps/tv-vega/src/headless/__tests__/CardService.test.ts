@@ -433,6 +433,26 @@ describe('CardService', () => {
       expect(JSON.parse(await fs.readFileAsString(TOKEN_FILE, 'utf8'))).toEqual(stored);
     });
 
+    // A television paired again is a new one (deviceId.ts): the id this process read when it began may be the old,
+    // removed one. It asks by the id its token names, with that id's secret.
+    it('asks by the id the token in use names, with that television’s secret — not by the id read when it began', async () => {
+      vi.useFakeTimers();
+      const fs = await withToken();
+      // The identity still names the old television; the token in use is the new one's (its pairing finished, its identity not yet taken on).
+      await fs.writeStringToFile('/data/wick-identity.json', JSON.stringify({ deviceId: 'wick-old', proof: 'o'.repeat(64), paired: true, next: { deviceId: 'd1', proof: 'p'.repeat(64) } }), 'utf8');
+      const bodies: unknown[] = [];
+      const fetchImpl = (async (_url: string, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response('device_denylisted', { status: 403 });
+      }) as unknown as typeof fetch;
+      __setCardServiceTestDeps({ fs, config: CONFIG, createChannel: refused(), fetchImpl });
+
+      await onStartCardService();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(bodies).toEqual([{ deviceId: 'd1', proof: 'p'.repeat(64) }]);
+    });
+
     it('goes on trying when the pairing service cannot say: no network, the service in trouble, asked too soon', async () => {
       for (const answer of [() => new Response('oops', { status: 503 }), () => new Response('refresh_rate_limited', { status: 429 }), () => Promise.reject(new TypeError('Network request failed'))]) {
         vi.useFakeTimers();

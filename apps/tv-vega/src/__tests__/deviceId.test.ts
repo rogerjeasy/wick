@@ -283,3 +283,90 @@ describe('televisionIdentity — no cryptographic generator', () => {
     expect(await app.forPairing(id)).toEqual({ deviceId: 'wick-two', keeps: true, replaces: { deviceId: 'wick-one', proof: '1'.repeat(64) } });
   });
 });
+
+// What the app and the card service see once the identity has changed.
+describe('televisionIdentity — never a stale identity', () => {
+  const HANDED = 'h'.repeat(64);
+
+  it('(1) every later question sees the new id and the handed-over secret at once, in this process and the card service’s', async () => {
+    const fs = workingFs();
+    const ids = ['wick-one', 'wick-two'];
+    const app = televisionIdentity(fs, { writes: true, generateId: () => ids.shift()!, generateProof: () => undefined });
+    await app.paired(await app.deviceId(), 'f'.repeat(64));
+    expect((await app.forPairing('wick-one')).deviceId).toBe('wick-two');
+
+    expect(await app.paired('wick-two', HANDED)).toBe(true);
+
+    expect(await app.deviceId()).toBe('wick-two');
+    expect(await app.proofFor('wick-two')).toBe(HANDED);
+    expect(await app.proofFor('wick-one')).toBeUndefined();
+    expect(await app.forPairing('wick-two')).toMatchObject({ deviceId: expect.not.stringMatching(/^wick-(one|two)$/) as unknown as string, replaces: { deviceId: 'wick-two', proof: HANDED } });
+    const service = televisionIdentity(fs);
+    expect(await service.deviceId()).toBe('wick-two');
+    expect(await service.proofFor('wick-two')).toBe(HANDED);
+  });
+
+  it('(2) the card service reads a file caught half-written again, rather than taking the id kept before secrets', async () => {
+    const fs = workingFs();
+    const app = televisionIdentity(fs, { writes: true, generateId: () => 'wick-one', generateProof: () => '1'.repeat(64) });
+    await app.deviceId();
+    const whole = await fs.readFileAsString('/data/wick-identity.json', 'utf8');
+    let reads = 0;
+    const read = fs.readFileAsString.bind(fs);
+    fs.readFileAsString = async (path, encoding) => {
+      if (path.endsWith('wick-identity.json') && (reads += 1) === 1) return whole.slice(0, 10);
+      return read(path, encoding);
+    };
+
+    expect(await televisionIdentity(fs).proofFor('wick-one')).toBe('1'.repeat(64));
+    expect(reads).toBeGreaterThan(1);
+  });
+
+  it('(3) says when a handed-over secret could not be written down — and keeps nothing it could not read back', async () => {
+    const fs = workingFs();
+    const app = televisionIdentity(fs, { writes: true, generateId: () => 'wick-one', generateProof: () => undefined });
+    await app.deviceId();
+    fs.writeStringToFile = async () => {
+      throw new Error('[com.amazon.kepler.io.IoError]: ');
+    };
+
+    expect(await app.paired('wick-one', HANDED)).toBe(false);
+    expect(await app.proofFor('wick-one')).toBeUndefined();
+    // Asked for a code again, it asks under the same identity, for a new secret.
+    expect(await app.forPairing('wick-one')).toEqual({ deviceId: 'wick-one', keeps: true });
+  });
+
+  it('(3) takes on a pairing whose token was written but whose identity was not, at the next launch, where its secret is here', async () => {
+    const fs = workingFs();
+    const ids = ['wick-one', 'wick-two'];
+    const proofs = ['1'.repeat(64), '2'.repeat(64)];
+    const app = televisionIdentity(fs, { writes: true, generateId: () => ids.shift()!, generateProof: () => proofs.shift() });
+    await app.paired(await app.deviceId());
+    await app.forPairing('wick-one');
+    // The app stopped after the new token was written, before `paired`.
+    await fs.writeStringToFile('/data/wick-token.json', JSON.stringify({ jwt: 'j', deviceId: 'wick-two', householdId: 'h', expiresAt: 1 }), 'utf8');
+
+    const nextLaunch = televisionIdentity(fs, { writes: true });
+    expect(await nextLaunch.deviceId()).toBe('wick-two');
+    expect(await nextLaunch.proofFor('wick-two')).toBe('2'.repeat(64));
+  });
+
+  it('(4) a pairing begun and never finished changes nothing: no secret moves, nothing is enrolled or replaced by it', async () => {
+    const fs = workingFs();
+    const ids = ['wick-one', 'wick-two'];
+    const proofs = ['1'.repeat(64), '2'.repeat(64)];
+    const app = televisionIdentity(fs, { writes: true, generateId: () => ids.shift()!, generateProof: () => proofs.shift() });
+    await app.paired(await app.deviceId());
+    const begun = await app.forPairing('wick-one');
+
+    // A token for the old id still comes and goes: the pairing begun is not taken on by it.
+    expect(await app.paired('wick-one')).toBe(true);
+    // An id it never asked under is nobody's.
+    expect(await app.paired('wick-nobody', HANDED)).toBe(false);
+    expect(await app.deviceId()).toBe('wick-one');
+    expect(await app.proofFor('wick-one')).toBe('1'.repeat(64));
+    // The same new television for the next code, still naming the old one by the old one's own secret.
+    expect(await televisionIdentity(fs, { writes: true }).forPairing('wick-one')).toEqual(begun);
+    expect(begun).toEqual({ deviceId: 'wick-two', proof: '2'.repeat(64), replaces: { deviceId: 'wick-one', proof: '1'.repeat(64) } });
+  });
+});
