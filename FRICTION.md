@@ -155,6 +155,95 @@ leads, not entries — an entry requires that you actually hit it.
 
 ---
 
+## FL-030 — Vega Media Controls: once a session is registered the remote's Play/Pause reaches the app twice, the simulator has no way to send a media command, and two ordinary state shapes fail with errors that name neither field
+
+**Tool / API:**      Vega OS 1.2 / `@amazon-devices/kepler-media-controls` 1.0.25
+                     (`MediaControlServerComponentAsync`, `setHandlerForComponent`,
+                     `updateMediaSessionStates`), `@amazon-devices/react-native-w3cmedia` 2.3.2,
+                     `@amazon-devices/react-native-kepler` 4.0.1, Vega Virtual Device, SDK 0.24.12044
+
+**Task attempted:**  Make Wick's own film a media session, so "Alexa, pause" and the system's
+                     transport controls pause and resume it — and so a pause made that way is a
+                     natural break, exactly like a pause by the key. The manifest had declared
+                     `IMediaPlaybackServer` since the start, with nothing behind it.
+
+**Steps taken:**     1. Read the Media Controls guides (get started; "media player media
+                        control"). They show two ways: hand the player to the platform with
+                        `VideoPlayer.setMediaControlFocus(componentInstance, handler?)`, or
+                        register a handler with the server yourself. Read w3cmedia's own
+                        source to choose: handed over, the player answers play, pause and seek
+                        by itself and publishes a stock state — media id `com.foo.bar`, eight
+                        speeds from -3 to 3, ratings, and an "X-ray" control. Registered the
+                        handler directly instead (`watch/mediaControls.ts`), so every command
+                        passes through the same rules as the remote's keys.
+                     2. Got the component with `useComponentInstance()`, as the guide shows.
+                        The device log: "useComponentInstance is deprecated. Update to use
+                        getComponentInstance from KeplerAppStateManager instead." Switched to
+                        `useKeplerAppStateManager().getComponentInstance()`.
+                     3. Published a state with `mediaInfo.startTime: {seconds: 0, nanoseconds: 0}`
+                        (the film starts at zero). Every update failed:
+                        `[com.amazon.apmf.ForeignRuntimeError]: time instant cannot be
+                        represented in epoch-us`, and every `handleGetSessionState` answer
+                        became `transactionError`. Nothing says which field: `startTime` is a
+                        wall-clock instant, not a position (w3cmedia's own default is
+                        946684870 s). Leaving it out fixed it.
+                     4. On leaving the film, said "no session" with
+                        `updateMediaSessionStates([])`: `InvalidArgumentError: Array of
+                        MediaSessionState is empty`. "No film" has to be a state:
+                        `NOT_PLAYING`, no actions.
+                     5. Pressed Play/Pause on the simulator (`inputd-cli button_press
+                        KEY_PLAYPAUSE`) with the session registered. The app got the key
+                        (`useTVEventHandler`, "play") at .104 s and then, from inputd's
+                        `MediaController`, the session's `handleTogglePlayPause` at .163 s.
+                        Acting on both paused the film and played it again at once: the
+                        button did nothing. The guides never say a key is delivered both ways.
+                     6. Looked for a way to send a media command, or a voice utterance, to the
+                        simulator. `vega` has no media-controls command; the device has
+                        `inputd-cli`, `vlcm`, `vmsgr`, and `alexa` (a script that fakes the
+                        far-field button to "open ASR", with nothing to listen to). No
+                        media-controls test tool is in the SDK or on the device. Built a
+                        throwaway client package that finds Wick's endpoint with
+                        `MediaControlComponentAsync.makeMediaControlEndpointLocator()` and calls
+                        `pause()`: its service started (lifecycle log), but its JavaScript wrote
+                        nothing at all to the device log, so whether the call was made could
+                        not be told. Removed it.
+                     7. What does reach the session on the simulator: `KEY_STOP`. The app does
+                        not act on that key; the platform turns it into the session's
+                        `handleStop`, which Wick obeys as a pause. Seen: "media_command stop",
+                        the player paused, and five seconds later the break engine said
+                        `AT_BREAK`. With no film on screen the same key is refused and nothing
+                        moves.
+
+**Expected:**        The guide to say which commands a remote key also produces as a key event,
+                     so an app that listens to both does not act twice; a way in the SDK (a
+                     `vega device` command, or a test client) to send Play, Pause and the rest
+                     to an app's session the way Alexa does; and errors that name the field.
+
+**Actual:**          A press arrives twice, about 60 ms apart; there is no way to send a voice
+                     or media-session command to the simulator, so "Alexa, pause" itself cannot
+                     be tried without a Fire TV; and two ordinary shapes (a zero start time, an
+                     empty list) fail with messages that name neither.
+
+**Severity:**        Important
+
+**Workaround:**      A command that matches a media key pressed within 600 ms of it is dropped,
+                     after waiting 300 ms in case it is the one that arrives first
+                     (`watch/mediaSession.ts` `keyEchoes`). `startTime` is left out, and "no
+                     film" is a `NOT_PLAYING` state. The session was exercised on the simulator
+                     through `KEY_STOP`; the voice path itself is the same handler, unexercised.
+
+**Suggestion:**      1. Document, per key, whether the remote's media keys reach the app as key
+                        events, as session commands, or both — and add a flag to say "this app
+                        handles its own media keys".
+                     2. Ship a media-controls test client: `vega device media-control
+                        <appId> play|pause|toggle|seek …`, or a sample app that does it.
+                     3. Name the field in conversion errors ("mediaInfo.startTime: time
+                        instant …"), and accept an empty list as "no session", or say in the
+                        API reference that it is refused.
+                     4. Update the guide's `useComponentInstance()` to the non-deprecated call.
+
+---
+
 ## FL-029 — A Vega app can start its own service, but cannot hand it anything: no launch data, no shared storage, no second message
 
 **Tool / API:**      Vega OS SDK 0.24.12044 / `@amazon-devices/headless-task-manager` 1.2.8
