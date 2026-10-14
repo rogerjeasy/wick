@@ -20,6 +20,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import { verifyJwt } from './jwt.mjs';
 import { setExpression, slotForRole } from './connection-slot.mjs';
 import { deviceBindingKey, isResidentsToken, isServed } from './device-standing.mjs';
+import { isUnproven, refusesUnproven } from './proof.mjs';
 
 const ddb = new DynamoDBClient({});
 const sm = new SecretsManagerClient({});
@@ -59,6 +60,10 @@ export const handler = async (event) => {
   if (!isServed(device.Item)) {
     return { statusCode: 403, body: 'revoked' };
   }
+  // A token minted from the id alone, for a television that has since
+  // enrolled a secret, is not this television's any more (proof.mjs).
+  const unproven = isUnproven(claims);
+  if (refusesUnproven(device.Item, unproven)) return { statusCode: 403, body: 'proof_required' };
 
   const connectionId = event.requestContext.connectionId;
   // The app on screen, or its card service behind another app (connection-slot.mjs).
@@ -98,6 +103,8 @@ export const handler = async (event) => {
       deviceId: { S: deviceId },
       householdId: { S: householdId },
       role: { S: slot.role },
+      // So every message on this connection is refused once the television enrols a secret (route.mjs).
+      ...(unproven ? { unproven: { BOOL: true } } : {}),
       ttl: { N: String(Math.floor(Date.now() / 1000) + 86400) }, // stale-connection backstop
     },
   }));

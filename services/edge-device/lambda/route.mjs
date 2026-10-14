@@ -59,6 +59,8 @@ export const handler = async (event) => {
   return handleDeviceEvent({
     householdId: lookup.Item.householdId.S,
     deviceId: lookup.Item.deviceId.S,
+    // Opened with a token minted without proof (connect.mjs): refused once the television keeps a secret.
+    unproven: lookup.Item.unproven?.BOOL === true,
     deviceEvent,
     ...webSocketSender(event, connectionId),
   });

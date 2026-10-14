@@ -117,6 +117,7 @@ import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge
 import { randomUUID } from 'node:crypto';
 import { finishedAmong, finishedSince, isReplayable, markCardActed, markCardShown, replayedCard, retiresCard } from './card-acted.mjs';
 import { deviceBindingKey, isServed } from './device-standing.mjs';
+import { refusesUnproven } from './proof.mjs';
 import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
 import { announcesRetirement, buildCardActionEntry, buildCardRetiredEntry, shouldPublish } from './card-action-event.mjs';
 import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
@@ -239,13 +240,15 @@ async function markNarrativeSeen(householdId, isoWeek, seenAt) {
  * @param {(input: object, signal: AbortSignal) => Promise<Uint8Array>} [input.synthesize]
  *   the voice a card is read in (speech.mjs); Amazon Polly unless one is handed in
  */
-export async function handleDeviceEvent({ householdId, deviceId, deviceEvent, sendCard: sendCardAsWritten, sendControl: sendControlAsWritten, synthesize = pollySynthesize }) {
+export async function handleDeviceEvent({ householdId, deviceId, unproven = false, deviceEvent, sendCard: sendCardAsWritten, sendControl: sendControlAsWritten, synthesize = pollySynthesize }) {
   const device = await ddb.send(new GetItemCommand({
     TableName: TABLE,
     Key: deviceBindingKey(householdId, deviceId),
     ConsistentRead: true,
   }));
   if (!isServed(device.Item)) return { statusCode: 403, body: 'revoked' };
+  // A connection opened on a token minted without proof, for a television that has since enrolled a secret (proof.mjs).
+  if (refusesUnproven(device.Item, unproven)) return { statusCode: 403, body: 'proof_required' };
 
   // Everything sent below goes out in the household's language (language.mjs):
   // wrapped here, once, so every send site is covered without knowing it.
