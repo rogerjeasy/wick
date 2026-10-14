@@ -11,6 +11,18 @@
 export const TOKEN_URL = 'https://oauth.ring.com/oauth/token';
 export const API_BASE = 'https://api.amazonvision.com';
 
+/**
+ * How long one call to Ring may take, answer and body together. Each of these
+ * runs inside a Lambda of 15 or 20 seconds (infra/edge.tf), some two or three
+ * calls in a row; without a bound, a Ring that accepts the connection and
+ * never answers holds the function until Lambda kills it, and a household's
+ * link or refresh fails with nothing but "Task timed out" in the log.
+ */
+export const RING_HTTP_TIMEOUT_MS = 5000;
+
+/** A deadline for one call. Rejects, as fetch does, with a TimeoutError. */
+export const ringDeadline = (timeoutMs = RING_HTTP_TIMEOUT_MS) => AbortSignal.timeout(timeoutMs);
+
 class RingError extends Error {
   constructor(message, { status, detail } = {}) {
     super(message);
@@ -25,9 +37,10 @@ async function readError(res) {
 }
 
 /** Exchange an authorization code, with its PKCE verifier, for an account's tokens. */
-export async function exchangeAuthorizationCode({ code, codeVerifier, clientId, clientSecret, redirectUri, fetchImpl = fetch }) {
+export async function exchangeAuthorizationCode({ code, codeVerifier, clientId, clientSecret, redirectUri, fetchImpl = fetch, timeoutMs = RING_HTTP_TIMEOUT_MS }) {
   const res = await fetchImpl(TOKEN_URL, {
     method: 'POST',
+    signal: ringDeadline(timeoutMs),
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'authorization_code',
@@ -46,9 +59,10 @@ export async function exchangeAuthorizationCode({ code, codeVerifier, clientId, 
 }
 
 /** Exchange a refresh token for a new access token. */
-export async function refreshTokens({ refreshToken, clientId, clientSecret, fetchImpl = fetch }) {
+export async function refreshTokens({ refreshToken, clientId, clientSecret, fetchImpl = fetch, timeoutMs = RING_HTTP_TIMEOUT_MS }) {
   const res = await fetchImpl(TOKEN_URL, {
     method: 'POST',
+    signal: ringDeadline(timeoutMs),
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'refresh_token',
@@ -73,9 +87,10 @@ export async function refreshTokens({ refreshToken, clientId, clientSecret, fetc
  * flatter shapes are kept as fallbacks only because nothing documents that the
  * envelope is guaranteed.
  */
-export async function fetchAccountIdentifier({ accessToken, fetchImpl = fetch }) {
+export async function fetchAccountIdentifier({ accessToken, fetchImpl = fetch, timeoutMs = RING_HTTP_TIMEOUT_MS }) {
   const res = await fetchImpl(`${API_BASE}/v1/users/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: ringDeadline(timeoutMs),
   });
 
   if (!res.ok) {
@@ -95,9 +110,10 @@ export async function fetchAccountIdentifier({ accessToken, fetchImpl = fetch })
  * Mark the integration completed. Until this returns, device consents and
  * webhooks stay dormant no matter how valid the access token is.
  */
-export async function completeAppIntegration({ accessToken, accountIdentifier, fetchImpl = fetch }) {
+export async function completeAppIntegration({ accessToken, accountIdentifier, fetchImpl = fetch, timeoutMs = RING_HTTP_TIMEOUT_MS }) {
   const res = await fetchImpl(`${API_BASE}/v1/accounts/me/app-integrations`, {
     method: 'PATCH',
+    signal: ringDeadline(timeoutMs),
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
@@ -121,9 +137,10 @@ export async function completeAppIntegration({ accessToken, accountIdentifier, f
  * The devices this token can see: ids and names, nothing more. A token Ring
  * refuses throws — which is how a pasted token is checked before it is kept.
  */
-export async function listDevices({ accessToken, fetchImpl = fetch }) {
+export async function listDevices({ accessToken, fetchImpl = fetch, timeoutMs = RING_HTTP_TIMEOUT_MS }) {
   const res = await fetchImpl(`${API_BASE}/v1/devices`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: ringDeadline(timeoutMs),
   });
 
   if (!res.ok) {

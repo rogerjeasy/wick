@@ -3,6 +3,9 @@ import {
   refreshTokens,
   fetchAccountIdentifier,
   completeAppIntegration,
+  exchangeAuthorizationCode,
+  listDevices,
+  RING_HTTP_TIMEOUT_MS,
   // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 } from '../ring-api.mjs';
 
@@ -131,5 +134,28 @@ describe('completeAppIntegration', () => {
 
     await expect(completeAppIntegration({ accessToken: 't', accountIdentifier: 'a', fetchImpl: impl }))
       .rejects.toMatchObject({ message: 'complete_integration_failed', status: 403 });
+  });
+});
+
+describe('a Ring that never answers', () => {
+  /** A fetch that hangs, as a stalled connection does, until its signal ends it. */
+  const hanging = async (_url: string, init: RequestInit = {}) =>
+    new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+    });
+
+  it('gives every call up at its deadline, so a link or a refresh fails in words instead of a Lambda timeout', async () => {
+    const calls = [
+      () => refreshTokens({ refreshToken: 'r', clientId: 'c', clientSecret: 's', fetchImpl: hanging, timeoutMs: 20 }),
+      () => exchangeAuthorizationCode({ code: 'x', codeVerifier: 'v', clientId: 'c', clientSecret: 's', redirectUri: 'https://r', fetchImpl: hanging, timeoutMs: 20 }),
+      () => fetchAccountIdentifier({ accessToken: 't', fetchImpl: hanging, timeoutMs: 20 }),
+      () => completeAppIntegration({ accessToken: 't', accountIdentifier: 'a', fetchImpl: hanging, timeoutMs: 20 }),
+      () => listDevices({ accessToken: 't', fetchImpl: hanging, timeoutMs: 20 }),
+    ];
+    for (const call of calls) await expect(call()).rejects.toMatchObject({ name: 'TimeoutError' });
+  });
+
+  it('has a default deadline well inside the 15-second Lambdas that make two or three calls in a row', () => {
+    expect(RING_HTTP_TIMEOUT_MS).toBeLessThanOrEqual(5000);
   });
 });
