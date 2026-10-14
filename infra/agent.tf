@@ -9,6 +9,13 @@
 #        (2b, the sentence: the Strands describe graph in the household's
 #         AgentCore session — agentcore.tf, describeRemote.ts)
 #
+# One other way in: a demo home's stand-in doorbell. The Wick server's role
+# (mcp.tf, RingADemoHomesStandInDoorbell) invokes this function directly with
+# source `wick.demo-door`, and no other role may; the rule below passes
+# `wick.ring` and nothing else, so the bus cannot carry a stand-in ring here.
+# That path reaches no Ring (agents/door/demoDoor.ts). Its pictures are
+# copied beside the bundle by `npm run build:lambda`.
+#
 # Unlike edge-ring/edge-device's hand-written .mjs Lambdas, this one needs
 # @wick/agent, @wick/ring, @wick/policy and @wick/contracts at runtime, so it
 # ships as an esbuild bundle (`npm run build:lambda`) rather than a raw
