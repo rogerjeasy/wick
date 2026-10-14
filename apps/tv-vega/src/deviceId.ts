@@ -18,15 +18,17 @@
  *
  * THE SECRET is what makes the id worth nothing on its own (AGENTS.md
  * INV-1). An id is not hidden: it was shown to family members, and it was
- * logged. So a television that can keep a file makes a long random secret
- * (random.ts), keeps it beside its id, and sends it to the pairing service
+ * logged. So a television that can keep a file, and has a cryptographic
+ * generator (random.ts: Fire OS does, Vega does not), makes a long random
+ * secret, keeps it beside its id, and sends it to the pairing service
  * with every refresh. The service keeps only its hash, and from then on
  * mints a token for this id only to whoever shows the secret (edge-device
  * proof.mjs). The secret is sent when the television is paired
  * (`forPairing`), or — for a television paired before secrets — with its
  * first refresh that also shows a token it was paired with, which enrols it.
- * A television whose storage cannot keep the secret never makes one: the
- * Vega Virtual Device is answered from its id alone, the accepted exception.
+ * A television whose storage cannot keep the secret, or that has no
+ * cryptographic generator, never makes one: it is answered from its id
+ * alone, the accepted exception (the Vega Virtual Device, and Vega now).
  *
  * A NEW ID AT EVERY NEW PAIRING. A television that has been paired and is
  * paired again — disconnected, signed out, or its token refused — is a new
@@ -47,7 +49,7 @@
 import type { FileSystemLike } from './headless/QueueStore.js';
 import { DEVICE_ID_PATH, loadOrCreateDeviceId, randomDeviceId } from './headless/OnInstallTask.js';
 import { TOKEN_PATH } from './pairing/PairingFlow.js';
-import { randomHex } from './random.js';
+import { secureHex } from './random.js';
 
 /** The id of any television whose storage cannot keep one. */
 export const SIMULATOR_DEVICE_ID = 'wick-tv';
@@ -91,8 +93,22 @@ const ENCODING = 'utf8';
 const SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
 const PROOF_SHAPE = /^[A-Za-z0-9_-]{32,128}$/;
 
-/** A new secret: 32 random bytes as hex (edge-device proof.mjs takes 32 to 128 such characters). */
-const newProof = (): string => randomHex(32);
+/**
+ * A new secret: 32 bytes from the platform's cryptographic generator, as hex
+ * (edge-device proof.mjs takes 32 to 128 such characters) — or undefined
+ * where the runtime has no such generator (random.ts: Vega). Then no secret
+ * is made at all, and the television is answered from its id alone, as one
+ * that keeps nothing is. Said once, in the log, without the id.
+ */
+let saidNoGenerator = false;
+const newProof = (): string | undefined => {
+  const proof = secureHex(32);
+  if (proof === undefined && !saidNoGenerator) {
+    saidNoGenerator = true;
+    console.warn('device_secret_not_made: no cryptographic generator on this runtime');
+  }
+  return proof;
+};
 
 function parse(raw: string | null | undefined): Kept | undefined {
   if (!raw) return undefined;
@@ -161,7 +177,8 @@ export interface IdentityOptions {
   /** True for the app, the one process that makes and changes the identity. The card service only reads it. */
   readonly writes?: boolean;
   readonly generateId?: () => string;
-  readonly generateProof?: () => string;
+  /** A new secret, or undefined where none can be made safely (the default, `newProof`). */
+  readonly generateProof?: () => string | undefined;
 }
 
 export function televisionIdentity(fs: FileSystemLike, options: IdentityOptions = {}): TelevisionIdentity {
@@ -182,7 +199,10 @@ export function televisionIdentity(fs: FileSystemLike, options: IdentityOptions 
     if (kept) return kept;
     const deviceId = await legacyDeviceId(fs, options.generateId);
     if (!writes || deviceId === SIMULATOR_DEVICE_ID) return { deviceId };
-    const made: Kept = { deviceId, proof: generateProof(), paired: await tokenNames(fs, deviceId) };
+    // No cryptographic generator, no secret: the documented exception, never a guessable secret.
+    const proof = generateProof();
+    if (proof === undefined) return { deviceId };
+    const made: Kept = { deviceId, proof, paired: await tokenNames(fs, deviceId) };
     return (await writeKept(fs, made)) ? made : { deviceId };
   };
 
@@ -218,7 +238,9 @@ export function televisionIdentity(fs: FileSystemLike, options: IdentityOptions 
       if (!writes || !keeps(who)) return { deviceId: who.deviceId };
       if (!who.paired) return { deviceId: who.deviceId, proof: who.proof };
       // A new television in place of the one that was paired — the same new one for every code until one is entered.
-      const next = who.next ?? { deviceId: generateId(), proof: generateProof() };
+      const nextProof = who.next ? who.next.proof : generateProof();
+      if (nextProof === undefined) return { deviceId: who.deviceId, proof: who.proof };
+      const next = who.next ?? { deviceId: generateId(), proof: nextProof };
       if (!who.next && !(await change({ ...who, next }))) return { deviceId: who.deviceId, proof: who.proof };
       return { deviceId: next.deviceId, proof: next.proof, replaces: { deviceId: who.deviceId, proof: who.proof } };
     },

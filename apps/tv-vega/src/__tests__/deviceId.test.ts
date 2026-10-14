@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { resolveDeviceId, SIMULATOR_DEVICE_ID, televisionIdentity } from '../deviceId.js';
 import type { FileSystemLike } from '../headless/QueueStore.js';
 
@@ -195,5 +195,46 @@ describe('televisionIdentity — the secret, and a new id at every new pairing',
 
     expect(id).toMatch(/^wick-[0-9a-f]{32}$/);
     expect(await app.proofFor(id)).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+// Vega has no cryptographic generator (random.ts). There the television makes no secret: it is the documented exception, not a guessable proof.
+describe('televisionIdentity — no cryptographic generator', () => {
+  it('makes no secret and writes no identity: the television is answered from its id alone, and never rotates', async () => {
+    const fs = workingFs();
+    const app = televisionIdentity(fs, { writes: true, generateId: () => 'wick-one', generateProof: () => undefined });
+
+    expect(await app.deviceId()).toBe('wick-one');
+    expect(await app.proofFor('wick-one')).toBeUndefined();
+    expect(await app.forPairing('wick-one')).toEqual({ deviceId: 'wick-one' });
+    await app.paired('wick-one');
+    expect(await app.forPairing('wick-one')).toEqual({ deviceId: 'wick-one' });
+    expect(await fs.exists('/data/wick-identity.json')).toBe(false);
+  });
+
+  it('by default, on a runtime without crypto.getRandomValues, and says so once', async () => {
+    const had = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true });
+      const app = televisionIdentity(workingFs(), { writes: true, generateId: () => 'wick-one' });
+      expect(await app.proofFor(await app.deviceId())).toBeUndefined();
+      await televisionIdentity(workingFs(), { writes: true }).deviceId();
+      expect(warn.mock.calls.filter(([line]) => String(line).startsWith('device_secret_not_made'))).toHaveLength(1);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('wick-one');
+    } finally {
+      if (had) Object.defineProperty(globalThis, 'crypto', had);
+      warn.mockRestore();
+    }
+  });
+
+  it('does not become a new television when a new secret cannot be made, and keeps proving with the one it has', async () => {
+    let generator = true;
+    const app = televisionIdentity(workingFs(), { writes: true, generateId: () => 'wick-two', generateProof: () => (generator ? '1'.repeat(64) : undefined) });
+    const id = await app.deviceId();
+    await app.paired(id);
+    generator = false;
+
+    expect(await app.forPairing(id)).toEqual({ deviceId: id, proof: '1'.repeat(64) });
   });
 });
