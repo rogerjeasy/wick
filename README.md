@@ -212,16 +212,19 @@ HMAC-SHA256 verified with constant-time comparison and idempotency on
 `request_id`.
 
 A television's id is not a secret, so it is not what a token is minted for. A
-television that can keep a file — Fire OS, the browser television, a Fire TV
-whose storage works — makes a random secret when it is paired; the server keeps
+television that can keep a file and has a cryptographic generator — Fire OS
+(Android's `SecureRandom`) and the browser television (Web Crypto) — makes a
+random secret when it is paired; the server keeps
 only its hash, and refreshes that television's token only for that secret. A
 television paired again gets a new id and secret, and its old row is removed.
 The family app never receives a device id (it names a television by a random
 reference), and no log carries one.
 
-What is still open, said plainly: the Vega Virtual Device keeps nothing on disk
-(FRICTION.md FL-013), so its row has no secret, its id is the constant
-`wick-tv`, and anyone can mint a one-hour token for the home it is paired to —
+What is still open, said plainly: Vega gives an app's JavaScript no
+cryptographic generator, so no Vega television makes a secret — and a secret is
+never made from `Math.random`. The Vega Virtual Device also keeps nothing on
+disk (FRICTION.md FL-013), its id is the constant `wick-tv`, and anyone can
+mint a one-hour token for the home it is paired to —
 read that home's cards, and press its consent buttons. That is why the
 simulator is only ever paired to a demo home. Televisions paired before
 2026-10-14 are under the same exception until their updated app enrols a
