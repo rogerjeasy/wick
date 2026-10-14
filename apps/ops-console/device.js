@@ -272,18 +272,34 @@ function setTelemetryEnabled(enabled) {
 
 /* --- Pairing -------------------------------------------------------- */
 
+/**
+ * Random hex, from the browser's cryptographic generator. (A page with none
+ * — only ever a test's — falls back to Math.random.)
+ */
+function randomHex(bytes) {
+  const out = new Uint8Array(bytes);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') crypto.getRandomValues(out);
+  else for (let i = 0; i < bytes; i += 1) out[i] = Math.floor(Math.random() * 256);
+  return Array.from(out, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function pairAndConnect() {
   pairBtn.disabled = true;
   setConnBadge('connecting');
   connDetail.textContent = 'requesting a pairing code…';
 
   try {
-    const deviceId = `ops-console-${Date.now()}`;
+    // A new television each time: an id nobody can guess, and a secret only
+    // this tab holds. The pairing service keeps the secret's hash and from
+    // then on answers for this id only to whoever shows the secret (AGENTS.md
+    // INV-1, edge-device proof.mjs) — the id alone is worth nothing.
+    const deviceId = `ops-console-${randomHex(16)}`;
+    const proof = randomHex(32);
 
     const startRes = await fetch(`${PAIRING_API_URL}/pair/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId }),
+      body: JSON.stringify({ deviceId, proof }),
     });
     if (!startRes.ok) throw new Error(`pair/start: HTTP ${startRes.status}`);
     const { code, url } = await startRes.json();
@@ -308,9 +324,9 @@ async function pairAndConnect() {
 
     // Connected as a family member's own: never the device channel, which is the resident's.
     const mine = token.kind === FAMILY_KIND;
-    rememberTelevision({ kind: mine ? FAMILY_KIND : RESIDENT_KIND, jwt: token.jwt, deviceId });
+    rememberTelevision({ kind: mine ? FAMILY_KIND : RESIDENT_KIND, jwt: token.jwt, deviceId, proof });
     if (mine) enterFamilyView(token.jwt, deviceId);
-    else connectWebSocket(token.jwt, deviceId);
+    else connectWebSocket(token.jwt, deviceId, proof);
   } catch (err) {
     setConnBadge('disconnected');
     connDetail.textContent = err instanceof Error ? err.message : String(err);
@@ -347,7 +363,7 @@ function tabStorage() {
   }
 }
 
-/** @param {{kind: 'family' | 'resident', jwt: string, deviceId: string}} television */
+/** @param {{kind: 'family' | 'resident', jwt: string, deviceId: string, proof?: string}} television */
 function rememberTelevision(television) {
   try {
     tabStorage()?.setItem(TELEVISION_KEY, JSON.stringify(television));
@@ -361,7 +377,7 @@ function rememberedTelevision() {
   try {
     const television = JSON.parse(tabStorage()?.getItem(TELEVISION_KEY) ?? 'null');
     const known = television && (television.kind === FAMILY_KIND || television.kind === RESIDENT_KIND);
-    return known && isText(television.jwt) && isText(television.deviceId) ? television : null;
+    return known && isText(television.jwt) && isText(television.deviceId) && (television.proof === undefined || isText(television.proof)) ? television : null;
   } catch {
     return null;
   }
@@ -392,12 +408,12 @@ function restoreTelevision() {
   if (television.kind === FAMILY_KIND) return enterFamilyView(television.jwt, television.deviceId, { restored: true });
   setConnBadge('connecting');
   connDetail.textContent = 'connecting again…';
-  connectWebSocket(television.jwt, television.deviceId);
+  connectWebSocket(television.jwt, television.deviceId, television.proof);
 }
 
 /* --- WebSocket -------------------------------------------------------- */
 
-function connectWebSocket(jwt, deviceId) {
+function connectWebSocket(jwt, deviceId, proof) {
   // A new connection is told afresh what it is owed (`reconcile`): nothing is carried over from the last.
   keptCards = [];
   currentQueuedCard = null;
@@ -407,14 +423,15 @@ function connectWebSocket(jwt, deviceId) {
   ws.onopen = () => {
     opened = true;
     setConnBadge('connected');
-    connDetail.textContent = `paired as ${deviceId}`;
+    // Never the id on screen: it is how a refresh is asked for, and a screenshot travels (AGENTS.md INV-1).
+    connDetail.textContent = 'paired';
     disconnectBtn.disabled = false;
     setTelemetryEnabled(true);
     // A new connection learns the home's language afresh, with the cards it is sent.
     languageKnown = false;
     send({ t: 'reconcile' });
     // And from now on it asks whether it is still connected: nothing else would tell it.
-    watchStanding(deviceId);
+    watchStanding(deviceId, proof);
   };
 
   ws.onmessage = (event) => {
@@ -473,11 +490,12 @@ function disconnect() {
  *
  * So it asks, as the television's own apps do (apps/tv-vega/src/pairing/
  * standing.ts, which is the tested one — keep the two in step): `POST
- * /pair/refresh` with its id. The resident's television is answered by its
- * id alone (AGENTS.md INV-1, the accepted exception), which is as well: the
- * pairing API lets a page on another origin send a content type and no
- * other header (infra/edge.tf), so this page could show no token if one
- * were asked for. Three answers are definite — 404 no home holds this
+ * /pair/refresh` with its id and the secret it was paired with, both in
+ * the body (AGENTS.md INV-1, edge-device proof.mjs): the pairing API lets a
+ * page on another origin send a content type and no other header
+ * (infra/edge.tf), so this page could show no token if one were asked for.
+ * A tab restored from before secrets has none, and is answered by its id
+ * alone, as before. Three answers are definite — 404 no home holds this
  * television, 403 revoked, 401 — and on any of them the page stops being
  * that television: the screen says so, the tab forgets it, and nothing is
  * left running. A token handed back means it is connected, and is taken for
@@ -498,7 +516,7 @@ const STANDING_EVERY_MS = 60_000;
 const STANDING_MIN_GAP_MS = 30_000;
 const STANDING_ASK_LIMIT_MS = 10_000;
 
-/** The watch kept for the resident's television this page is: `{ deviceId, lastAskedAt, asking, every, soon }`, or null. */
+/** The watch kept for the resident's television this page is: `{ deviceId, proof, lastAskedAt, asking, every, soon }`, or null. */
 let standing = null;
 
 /** What the pairing service's answer says of this television (standing.ts standingOf, PairingFlow #saysNotConnected). */
@@ -507,10 +525,10 @@ function standingOf(status) {
   return status >= 200 && status < 300 ? 'connected' : 'unknown';
 }
 
-function watchStanding(deviceId) {
+function watchStanding(deviceId, proof) {
   stopStanding();
   // Just paired, or just let back in by its token: it has only now been answered for.
-  standing = { deviceId, lastAskedAt: Date.now(), asking: false, every: setInterval(askStandingSoon, STANDING_EVERY_MS), soon: null };
+  standing = { deviceId, proof, lastAskedAt: Date.now(), asking: false, every: setInterval(askStandingSoon, STANDING_EVERY_MS), soon: null };
 }
 
 function stopStanding() {
@@ -547,7 +565,8 @@ async function askStanding() {
     const res = await fetch(`${PAIRING_API_URL}/pair/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId: mine.deviceId }),
+      // Its secret goes in the body: a header would be refused (infra/edge.tf), and the service answers for this id to nobody without it.
+      body: JSON.stringify({ deviceId: mine.deviceId, ...(mine.proof ? { proof: mine.proof } : {}) }),
       signal: givenUp.signal,
     });
     // One given up is not listened to, whatever arrives afterwards.
@@ -1791,7 +1810,7 @@ function enterFamilyView(jwt, deviceId, { restored = false } = {}) {
     seat: null,
   };
   setConnBadge('connected');
-  connDetail.textContent = `paired as ${deviceId} — a family member’s own television`;
+  connDetail.textContent = 'paired — a family member’s own television';
   disconnectBtn.disabled = false;
   // The telemetry buttons send device events. This television sends none: they stay off.
   setTelemetryEnabled(false);

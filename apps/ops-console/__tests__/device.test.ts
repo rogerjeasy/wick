@@ -2801,6 +2801,30 @@ describe('the browser television — learning that it has been disconnected', ()
     expect(before).toBeGreaterThanOrEqual(sent);
   });
 
+  // INV-1: the id alone is worth nothing to the pairing service once the television has a secret.
+  it('asks with the secret it was paired with, in the body, when it has one', async () => {
+    const secret = 'f'.repeat(64);
+    const tv = television({ watched: true, remembered: { wick_virtual_television: JSON.stringify({ kind: 'resident', jwt: 'a.b.c', deviceId: 'ops-console-7', proof: secret }) } });
+    tv.advance(60_000);
+
+    const ask = standingAsks(tv)[0]!;
+    expect(ask.body).toEqual({ deviceId: 'ops-console-7', proof: secret });
+    expect(Object.keys(ask.headers).map((name) => name.toLowerCase())).toEqual(['content-type']);
+  });
+
+  it('pairs as a television nobody can guess the id of, with a secret of its own, and never shows the id', async () => {
+    const tv = connected();
+    tv.advance(60_000);
+    standingAsks(tv)[0]!.answer(404);
+    await tv.settle();
+
+    tv.press('Pair again');
+
+    const start = tv.asked.at(-1)!;
+    expect(start.body).toMatchObject({ deviceId: expect.stringMatching(/^ops-console-[0-9a-f]{32}$/), proof: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(tv.detail()).not.toContain('ops-console');
+  });
+
   it('offers to pair again, and that starts a pairing', async () => {
     const tv = connected();
     tv.advance(60_000);
