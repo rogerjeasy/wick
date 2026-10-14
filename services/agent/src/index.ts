@@ -9,7 +9,7 @@
  * and it is also the demo.
  */
 export { sendHomeToDevices, sendPatchToDevice, sendToDevice, takeBackFromDevices } from './egress.js';
-export { privateNarrative, summariseWeek } from './agents/narrator/weekFacts.js';
+export { fallbackNarrative, privateNarrative, summariseWeek } from './agents/narrator/weekFacts.js';
 export { visibleDeltas } from './agents/narrator/comparisons.js';
 export { isoWeekRange } from './agents/narrator/isoWeek.js';
 export { factsWeekNarrative } from './agents/narrator/index.js';

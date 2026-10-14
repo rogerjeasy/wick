@@ -207,6 +207,12 @@ describe('cardItem — the CARD# queue item', () => {
     expect(item.ringDeviceId).toEqual({ S: 'ava1.ring.device.ABNJQ' });
     expect(item.data!.S).not.toContain('ava1.ring.device.ABNJQ');
   });
+
+  it('keeps who wrote a note beside the card, outside the data the device is sent', () => {
+    const item = cardItem(queued, { sentBy: 'u_sarah' });
+    expect(item.sentBy).toEqual({ S: 'u_sarah' });
+    expect(item.data!.S).not.toContain('u_sarah');
+  });
 });
 
 describe('cardTakenBack — a card its sender took back', () => {

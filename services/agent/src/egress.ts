@@ -2,19 +2,20 @@
  * THE SINGLE EGRESS MODULE.  INV-2.
  *
  * This is the only module in the repository permitted to import a transport
- * client. Every other module calls sendToFamily() / sendToDevice(). An ESLint
- * no-restricted-imports rule enforces it — a rule you can run beats a convention
- * you can only remember.
+ * client. Every other module calls sendToDevice() and its siblings here. An
+ * ESLint no-restricted-imports rule enforces it — a rule you can run beats a
+ * convention you can only remember.
  *
- * Why it matters beyond tidiness: prompt injection is a live threat here. A
- * visitor's clothing or signage lands inside a vision prompt, and a note from
- * the family is free text. Because the Guardian runs HERE — deterministically, after
- * generation, on typed classes — a model that gets talked into emitting a health
- * fact still cannot get it past the gate.
+ * Nothing here sends a string to the family. The family reads; it is never
+ * sent words: what a family member is told comes from the Wick server's
+ * tools and their own television's routes, and every string of it passes
+ * the Guardian's content gate there (services/mcp-server src/guardian.ts).
+ * The one thing that reaches a family member's browser from here is a
+ * nudge, which carries a kind and no words (`nudgeFamily`).
  *
  * See docs/WICK-TECHNICAL.md §6.3, §10.2.
  */
-import { evaluate, type Audience, type HouseholdPolicy } from '@wick/policy';
+import type { HouseholdPolicy } from '@wick/policy';
 import {
   DEFAULT_LANGUAGE,
   DOOR_CARD_TTL_MS,
@@ -30,7 +31,6 @@ import {
   type Card,
   type CardPatch,
   type DeviceWireMessage,
-  type FactClass,
   type FreeField,
   type FreeText,
   type HomeState,
@@ -53,70 +53,6 @@ import { loadHouseholdLanguage } from './store/household.js';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
-
-export interface EgressItem {
-  readonly class: FactClass;
-  readonly content: string;
-  readonly sourceIds: readonly string[];
-  readonly correlationId: string;
-}
-
-export type EgressResult =
-  | { readonly sent: true; readonly content: string }
-  | { readonly sent: false; readonly reason: string };
-
-/**
- * The only path to a family surface.
- *
- * A Guardian that throws must fail CLOSED — refuse, alarm, and never fall
- * through to sending. See §11.
- *
- * decision.transform names what evaluate() decided the content needs
- * ('summarise' or 'redact_specifics') but there is no implementation of
- * either transform yet — no product decision exists on what "summarise a
- * RHYTHM fact" concretely does to a string. Sending item.content through
- * untransformed in that case would silently defeat the exact policy that
- * required it: an audience gets the raw content the household's table
- * marked as needing narrowing first. So this refuses instead — fail
- * closed, same as an evaluate() throw — until a real transform exists.
- * Every class the default policy marks `allow` with no transform (most of
- * DOOR_EVENT/PRESENCE) is unaffected and sends today.
- */
-export async function sendToFamily(
-  item: EgressItem,
-  audience: Extract<Audience, 'FAMILY' | 'AGENCY'>,
-  policy: HouseholdPolicy,
-): Promise<EgressResult> {
-  let decision;
-  try {
-    decision = evaluate(item, audience, policy);
-  } catch {
-    // Fail closed. Emit guardian.error; the alarm is wired in infra/.
-    return { sent: false, reason: 'Unable to share that right now.' };
-  }
-
-  const logDecision = (allow: boolean, reason: string): void => {
-    // §11: class, audience, allow, transform, reason — never item.content.
-    console.log(JSON.stringify({
-      level: 'info', msg: 'guardian_decision',
-      class: item.class, audience, allow, transform: decision.transform, reason,
-    }));
-  };
-
-  if (!decision.allow) {
-    logDecision(false, decision.reason);
-    return { sent: false, reason: decision.reason };
-  }
-
-  if (decision.transform) {
-    const reason = `transform "${decision.transform}" is not yet implemented`;
-    logDecision(false, reason);
-    return { sent: false, reason: 'Unable to share that right now.' };
-  }
-
-  logDecision(true, decision.reason);
-  return { sent: true, content: item.content };
-}
 
 /** A television on the API Gateway WebSocket. */
 interface WebSocketConnection {
@@ -306,13 +242,17 @@ async function pushOverWebSocket(
 }
 
 /**
- * Attributes that live on the CARD# item for the agent plane's own use and
- * are never part of the card the device receives. Today: which Ring camera
- * the card came from, so Watch live (M2) can open that camera's stream
- * without the television ever holding a Ring identifier.
+ * Attributes that live on the CARD# item for the server's own use and are
+ * never part of the card the device receives. Which Ring camera the card
+ * came from, so Watch live (M2) can open that camera's stream without the
+ * television ever holding a Ring identifier. And who wrote a note, so its
+ * words are read back to the person who wrote them and to nobody else in
+ * the family (services/mcp-server get_replies.ts).
  */
 export interface ServerOnly {
   readonly ringDeviceId?: string;
+  /** The userId of the family member who wrote a note. */
+  readonly sentBy?: string;
 }
 
 /**
@@ -344,6 +284,7 @@ export function cardItem(
     item.ttl = { N: String(Math.floor(card.expiresAt / 1000)) };
   }
   if (serverOnly.ringDeviceId) item.ringDeviceId = { S: serverOnly.ringDeviceId };
+  if (serverOnly.sentBy) item.sentBy = { S: serverOnly.sentBy };
   if (translated && Object.keys(translated.free).length > 0) item[translationAttribute(translated.language)] = { S: JSON.stringify(translated.free) };
   return item;
 }
