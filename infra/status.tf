@@ -24,10 +24,22 @@ data "aws_iam_policy_document" "status" {
     resources = [aws_dynamodb_table.wick.arn]
   }
 
+  # That the operator household's Ring secret exists and when it last
+  # changed — never its value. This function answers a public,
+  # unauthenticated route; it used to hold GetSecretValue on the household's
+  # Ring tokens to work out an expiry. The expiry is on the household's RING
+  # row now (Query, above), and DescribeSecret covers a token stored from a
+  # laptop, which writes no row.
   statement {
-    sid       = "ReadRingLinkDerivedFieldsOnly"
-    actions   = ["secretsmanager:GetSecretValue"]
+    sid       = "SeeThatTheRingLinkExistsNeverItsValue"
+    actions   = ["secretsmanager:DescribeSecret"]
     resources = [local.ring_operator_token_secret_arn]
+  }
+
+  statement {
+    sid       = "CountTheDeadLetters"
+    actions   = ["sqs:GetQueueAttributes"]
+    resources = [aws_sqs_queue.dead_letters.arn]
   }
 
   statement {
@@ -64,9 +76,9 @@ resource "aws_lambda_function" "status" {
   filename         = data.archive_file.edge_ring.output_path
   source_code_hash = data.archive_file.edge_ring.output_base64sha256
 
-  # Six outbound HTTPS checks run in parallel (Promise.all), each with its
-  # own 5s internal timeout — 15s covers the worst case (all six timing out
-  # serially would still fit) plus the AWS API calls alongside them.
+  # Seven outbound HTTPS checks run in parallel (Promise.all), each with its
+  # own 5s internal timeout — 15s covers the worst case plus the AWS API
+  # calls alongside them.
   timeout     = 15
   memory_size = 256
 
@@ -80,9 +92,12 @@ resource "aws_lambda_function" "status" {
       MCP_SERVER_URL           = "https://${aws_apprunner_service.mcp_server.service_url}"
       SIM_ALEXA_URL            = "https://${aws_cloudfront_distribution.sim_alexa.domain_name}"
       RING_AUTHORIZE_URL       = "${aws_apigatewayv2_api.edge.api_endpoint}/ring/authorize"
-      RING_WEBHOOK_URL         = "${aws_apigatewayv2_api.edge.api_endpoint}/ring/webhook"
-      PAIRING_API_URL          = aws_apigatewayv2_api.edge.api_endpoint
-      WEBSOCKET_HTTPS_URL      = replace(aws_apigatewayv2_stage.transport.invoke_url, "wss://", "https://")
+      # What /ring/authorize should answer: 404 in the edge's words when off.
+      RING_OPERATOR_LINK  = var.ring_operator_link ? "true" : "false"
+      DOOR_DLQ_URL        = aws_sqs_queue.dead_letters.url
+      RING_WEBHOOK_URL    = "${aws_apigatewayv2_api.edge.api_endpoint}/ring/webhook"
+      PAIRING_API_URL     = aws_apigatewayv2_api.edge.api_endpoint
+      WEBSOCKET_HTTPS_URL = replace(aws_apigatewayv2_stage.transport.invoke_url, "wss://", "https://")
     }
   }
 

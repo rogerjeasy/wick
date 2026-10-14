@@ -139,3 +139,13 @@ output "programmes_bucket" {
   description = "Where scripts/publish-programmes.sh uploads the transcoded films."
   value       = aws_s3_bucket.programmes.bucket
 }
+
+output "alarm_topic_arn" {
+  description = "Every alarm in infra/alarms.tf notifies this topic. Subscribe an address with var.alarm_email."
+  value       = aws_sns_topic.alarms.arn
+}
+
+output "dead_letter_queue_url" {
+  description = "Door events and presses that failed every try. Read with: aws sqs receive-message --queue-url <this> --max-number-of-messages 10"
+  value       = aws_sqs_queue.dead_letters.url
+}

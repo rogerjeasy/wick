@@ -102,6 +102,13 @@ resource "aws_iam_role_policy" "agent_door_event" {
   policy = data.aws_iam_policy_document.agent_door_event.json
 }
 
+# A door event that fails every try is left in the dead-letter queue (alarms.tf).
+resource "aws_iam_role_policy" "agent_door_event_dead_letters" {
+  name   = "${local.prefix}-agent-door-event-dead-letters"
+  role   = aws_iam_role.agent_door_event.id
+  policy = data.aws_iam_policy_document.send_dead_letters.json
+}
+
 resource "aws_cloudwatch_log_group" "agent_door_event" {
   name              = "/aws/lambda/${local.prefix}-agent-door-event"
   retention_in_days = 14
@@ -126,7 +133,13 @@ resource "aws_lambda_function" "agent_door_event" {
   # DESCRIBE_TIMEOUT_MS (2.5s). None of this is Ring's 5s webhook budget —
   # webhook.mjs already spent that getting the event onto the bus.
   # Plus a possibly cold AgentCore session for 2b.
-  timeout     = 30
+  #
+  # Each of those is now bounded, and the bounds add up to 27 s (door/
+  # lambda.ts): a Ring call 5 s (connectors/ring client.ts), the frame and its
+  # retries 14 s together, the sentence 8 s. 40 leaves room for the table, the
+  # push and a cold start, so the function ends by its own deadlines and
+  # never by Lambda's.
+  timeout     = 40
   memory_size = 256
 
   environment {
@@ -156,10 +169,52 @@ resource "aws_cloudwatch_event_rule" "ring_door_events" {
   })
 }
 
+# Two kinds of retry, both bounded, and both ending in the dead-letter queue
+# (alarms.tf), which pages:
+#
+#   EventBridge -> Lambda  EventBridge retries only when it cannot hand the
+#     event over at all (Lambda's own service refusing it). Left to its
+#     defaults that is 185 tries over 24 hours, invisibly. Here: two more
+#     tries within five minutes, then the event goes to the queue.
+#   Lambda itself          Once Lambda has the event, a failure of the
+#     function (an exception, a timeout) is retried by Lambda, and a throttle
+#     is held and retried, up to the event's age. Left to its defaults that
+#     is two retries and up to six hours. Here: one retry (about a minute
+#     later), and nothing older than five minutes is run at all — the door
+#     card's own lifetime (contracts DOOR_CARD_TTL_MS): the visitor has gone.
+#     Then the invocation record goes to the queue.
+#
+# A retry is safe: the card's id comes from Ring's event id, and egress.ts
+# writes a door card once — a second Phase 1 never puts the bare card back
+# over a picture, a sentence or her answer.
 resource "aws_cloudwatch_event_target" "ring_door_events" {
   rule           = aws_cloudwatch_event_rule.ring_door_events.name
   event_bus_name = aws_cloudwatch_event_bus.wick.name
   arn            = aws_lambda_function.agent_door_event.arn
+
+  retry_policy {
+    maximum_retry_attempts       = 2
+    maximum_event_age_in_seconds = 300
+  }
+
+  dead_letter_config {
+    arn = aws_sqs_queue.dead_letters.arn
+  }
+}
+
+resource "aws_lambda_function_event_invoke_config" "agent_door_event" {
+  function_name                = aws_lambda_function.agent_door_event.function_name
+  maximum_retry_attempts       = 1
+  maximum_event_age_in_seconds = 300
+
+  destination_config {
+    on_failure {
+      destination = aws_sqs_queue.dead_letters.arn
+    }
+  }
+
+  # Lambda checks the function's role may send there when this is set.
+  depends_on = [aws_iam_role_policy.agent_door_event_dead_letters]
 }
 
 resource "aws_lambda_permission" "ring_door_events" {

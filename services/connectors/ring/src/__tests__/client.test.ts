@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RingClient, RingApiError } from '../client.js';
+import { RING_REQUEST_TIMEOUT_MS, RingClient, RingApiError } from '../client.js';
 import { listDevices } from '../devices.js';
 import { latestEvent, listEvents } from '../history.js';
 import { imageAt, selectorForEvent, fetchImageBytes, imageForEvent } from '../media.js';
@@ -239,5 +239,50 @@ describe('imageForEvent', () => {
     const client = new RingClient({ getToken: () => 't', fetchImpl });
     await expect(imageForEvent(client, 'dev', event, noSleep)).rejects.toMatchObject({ status: 401 });
     expect(bodyFetches).toBe(0);
+  });
+});
+
+describe('a Ring that never answers', () => {
+  /** A fetch that hangs, as a stalled connection does, until its signal ends it. */
+  function hanging() {
+    const signals: AbortSignal[] = [];
+    const fetchImpl = ((_url: string, init: RequestInit = {}) => {
+      signals.push(init.signal!);
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+      });
+    }) as unknown as typeof fetch;
+    return { fetchImpl, signals };
+  }
+
+  it('gives a call up at its deadline instead of holding the Lambda until its own timeout', async () => {
+    const h = hanging();
+    const client = new RingClient({ getToken: () => 't', fetchImpl: h.fetchImpl, timeoutMs: 20 });
+
+    await expect(client.get('/v1/devices')).rejects.toMatchObject({ name: 'TimeoutError' });
+    expect(h.signals[0]!.aborted).toBe(true);
+  });
+
+  it('holds the presigned download to the same deadline as the API calls', async () => {
+    const h = hanging();
+    const client = new RingClient({ getToken: () => 't', fetchImpl: h.fetchImpl, timeoutMs: 20 });
+
+    await expect(fetchImageBytes({ url: 'https://media/x' } as never, client.fetchImpl)).rejects.toMatchObject({ name: 'TimeoutError' });
+  });
+
+  it('still lets a caller end a call sooner with a signal of its own', async () => {
+    const h = hanging();
+    const client = new RingClient({ getToken: () => 't', fetchImpl: h.fetchImpl, timeoutMs: 60_000 });
+    const mine = new AbortController();
+
+    const call = client.fetchImpl('https://media/x', { signal: mine.signal });
+    mine.abort(new Error('caller_gave_up'));
+
+    await expect(call).rejects.toThrow('caller_gave_up');
+  });
+
+  it('puts a deadline on every call by default, well inside the 30-second Lambdas that call Ring', () => {
+    expect(RING_REQUEST_TIMEOUT_MS).toBeGreaterThanOrEqual(3_000);
+    expect(RING_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(10_000);
   });
 });

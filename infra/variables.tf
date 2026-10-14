@@ -93,3 +93,25 @@ variable "chime_slot_event" {
   type        = string
   default     = "ring-appstore-event-1"
 }
+
+variable "alarm_email" {
+  description = "An address to email when an alarm fires (infra/alarms.tf). Null, the default, subscribes nobody: the alarms still change state and the topic still receives them, and a subscription can be added later. AWS emails a confirmation first. Set it in a git-ignored *.auto.tfvars or with TF_VAR_alarm_email, never in this repository: it is a person's address."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.alarm_email == null || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alarm_email))
+    error_message = "alarm_email must be an email address, or null for no subscription."
+  }
+}
+
+variable "ring_webhook_reserved_concurrency" {
+  description = "Concurrency kept for the Ring webhook alone, so a busy agent plane can never starve Ring's five-second acknowledgement. Null, the default, reserves none: this account's whole Lambda quota is 10, and AWS refuses any reservation that leaves fewer than 10 unreserved. Set it (20 was the intent) once the quota has been raised."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.ring_webhook_reserved_concurrency == null || try(var.ring_webhook_reserved_concurrency >= 1, false)
+    error_message = "ring_webhook_reserved_concurrency must be null or at least 1. Zero would refuse every webhook."
+  }
+}

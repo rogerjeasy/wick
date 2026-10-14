@@ -108,6 +108,40 @@ describe('routeRingEvent', () => {
     expect(deps.runPhase2).not.toHaveBeenCalled();
   });
 
+  it('still tells her someone is at the door when Ring does not answer the device list, offering nothing that needs Ring', async () => {
+    const deps = baseDeps({
+      findDevice: vi.fn(async () => { throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }); }),
+      hasHallwayChime: vi.fn(async () => true),
+    });
+
+    expect(await routeRingEvent(detail, deps)).toBe('sent');
+
+    expect(deps.sendToDevice).toHaveBeenCalledTimes(1);
+    const [sent, ringDeviceId] = vi.mocked(deps.sendToDevice).mock.calls[0]!;
+    expect(sent.card.type).toBe('DOOR');
+    expect(sent.card.householdId).toBe('hh-1');
+    // Live view and the chime both need Ring: a button that would fail when pressed is left off (D6).
+    expect(sent.card.actions.map((a) => a.id)).toEqual(['dismiss']);
+    // The doorbell is the one the ring named, kept beside the card for when Ring is back.
+    expect(ringDeviceId).toBe(device.id);
+    // The chime question is Ring's too, and is not asked of a Ring that is not answering.
+    expect(deps.hasHallwayChime).not.toHaveBeenCalled();
+    // The picture is still tried: Ring may be back by then, and Phase 2 already stands a failure.
+    expect(deps.runPhase2).toHaveBeenCalledTimes(1);
+  });
+
+  it('still offers to ask the family when Ring does not answer — that button needs no Ring', async () => {
+    const deps = baseDeps({
+      findDevice: vi.fn(async () => { throw new Error('ring_api_503'); }),
+      listFamily: vi.fn(async () => ['Sarah']),
+    });
+
+    await routeRingEvent(detail, deps);
+
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0];
+    expect(sent.card.actions.map((a) => a.id)).toEqual(['ask_family', 'dismiss']);
+  });
+
   it('propagates a malformed payload rather than sending a broken card', async () => {
     const deps = baseDeps();
 
@@ -359,6 +393,61 @@ describe('routeDoorEvent', () => {
 
     expect(result).toBe('skipped');
     expect(householdOf).not.toHaveBeenCalled();
+  });
+});
+
+describe('routeDoorEvent — the claim row authorizes, Ring\'s device list only says Ring is answering', () => {
+  const ringDown = () => vi.fn(async (_deviceId: string): Promise<RingDevice | undefined> => {
+    throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+  });
+
+  it('sends nothing for a doorbell no household has claimed, even when Ring is not answering', async () => {
+    const findDevice = ringDown();
+    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+    const runPhase2 = vi.fn(async () => ({ image: 'patched' as const, description: 'patched' as const, reason: 'ok' }));
+    const depsFor = vi.fn((householdId: string) => baseDeps({ householdId, findDevice, sendToDevice, runPhase2 }));
+
+    const result = await routeDoorEvent(detail, { householdOf: async () => undefined, depsFor });
+
+    expect(result).toBe('unclaimed_device');
+    expect(depsFor).not.toHaveBeenCalled();
+    expect(findDevice).not.toHaveBeenCalled();
+    expect(sendToDevice).not.toHaveBeenCalled();
+    expect(runPhase2).not.toHaveBeenCalled();
+  });
+
+  it('sends a claimed doorbell\'s card to its own household when Ring is not answering: no chime, no Watch live, and the picture tried only by Phase 2, once', async () => {
+    const findDevice = ringDown();
+    const hasHallwayChime = vi.fn(async () => true);
+    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+    const runPhase2 = vi.fn(async (_cardId: string, _event: RingHistoryEvent) => ({ image: 'unavailable' as const, description: 'skipped' as const, reason: 'frame_deadline' }));
+    const depsFor = vi.fn((householdId: string) => baseDeps({ householdId, findDevice, hasHallwayChime, sendToDevice, runPhase2 }));
+
+    const result = await routeDoorEvent(detail, { householdOf: async () => 'hh-b', depsFor });
+
+    expect(result).toBe('sent');
+    expect(depsFor.mock.calls).toEqual([['hh-b']]);
+    expect(findDevice).toHaveBeenCalledTimes(1);
+    expect(hasHallwayChime).not.toHaveBeenCalled();
+    expect(sendToDevice).toHaveBeenCalledTimes(1);
+    const sent = sendToDevice.mock.calls[0]![0];
+    expect(sent.card.householdId).toBe('hh-b');
+    expect(sent.card.actions.map((a) => a.id)).toEqual(['dismiss']);
+    // The only Ring work after the card is Phase 2's own, under its frame deadline (phase2.ts withinDeadline).
+    expect(runPhase2).toHaveBeenCalledTimes(1);
+    expect(runPhase2.mock.calls[0]![0]).toBe(sent.id);
+  });
+
+  it('still reaches nobody when Ring answers that the doorbell is not on this household\'s link', async () => {
+    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+    const runPhase2 = vi.fn(async () => ({ image: 'patched' as const, description: 'patched' as const, reason: 'ok' }));
+    const depsFor = vi.fn((householdId: string) => baseDeps({ householdId, findDevice: vi.fn(async () => undefined), sendToDevice, runPhase2 }));
+
+    const result = await routeDoorEvent(detail, { householdOf: async () => 'hh-b', depsFor });
+
+    expect(result).toBe('unknown_device');
+    expect(sendToDevice).not.toHaveBeenCalled();
+    expect(runPhase2).not.toHaveBeenCalled();
   });
 });
 

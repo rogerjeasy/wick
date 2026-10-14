@@ -5,7 +5,7 @@ import { isoWeekRange } from '@wick/agent';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { DEMO_ACCOUNTS_PER_HOUR } from '../accounts/demo.js';
+import { createDemoLimiter, DEMO_ACCOUNTS_PER_HOUR } from '../accounts/demo.js';
 import {
   approve,
   beginAuthorize,
@@ -305,21 +305,45 @@ describe('the demo is a switch, off unless the deployment turns it on', () => {
 });
 
 describe('the demo cannot be used to fill the table', () => {
+  // The limit is held through the whole server — the click, the refusal in
+  // words, the next hour — at a limit of three, so the test makes four
+  // guests rather than sixty-two. Each guest is a full sign-in and a demo
+  // home's six weeks of history: sixty-two of them took two seconds alone
+  // and passed five under the full suite's load. That the deployed limit is
+  // sixty, and that the limiter counts to it exactly, is the limiter's own
+  // test, below, on a clock of its own.
   it('stops making guests past the hourly limit, says so in words, and starts again the next hour', async () => {
+    const limit = 3;
     let clock = 1_790_000_000_000;
     // One clock for the server and its store, so a pending sign-in does not look expired.
-    const h = await server({ demoAccounts: true, now: () => clock, store: createMemoryStore(() => clock) });
+    const h = await server({ demoAccounts: true, demoAccountsPerHour: limit, now: () => clock, store: createMemoryStore(() => clock) });
     // One registered app for every visitor, as in life: registration has its own, stricter limit.
     const client = await registerClient(h.base);
     const click = () => clickDemo(h, new Browser(h.base), client);
-    for (let i = 0; i < DEMO_ACCOUNTS_PER_HOUR; i++) expect((await click()).res.status).toBe(302);
+    for (let i = 0; i < limit; i++) expect((await click()).res.status).toBe(302);
 
     const refused = (await click()).res;
     expect(refused.status).toBe(429);
     expect(await refused.text()).toContain('The demo is busy');
-    expect(h.cards).toHaveLength(DEMO_ACCOUNTS_PER_HOUR);
+    expect(h.cards).toHaveLength(limit);
 
     clock += 60 * 60 * 1000 + 1;
     expect((await click()).res.status).toBe(302);
+  });
+
+  it('is sixty an hour on a deployment that does not say otherwise, counted exactly, in a fixed one-hour window', () => {
+    let clock = 1_790_000_000_000;
+    const limiter = createDemoLimiter(() => clock);
+
+    for (let i = 0; i < DEMO_ACCOUNTS_PER_HOUR; i++) expect(limiter.take()).toBe(true);
+    expect(DEMO_ACCOUNTS_PER_HOUR).toBe(60);
+    expect(limiter.take()).toBe(false);
+
+    // Still the same hour, a moment before it ends.
+    clock += 60 * 60 * 1000 - 1;
+    expect(limiter.take()).toBe(false);
+
+    clock += 1;
+    expect(limiter.take()).toBe(true);
   });
 });

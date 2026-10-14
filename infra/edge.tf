@@ -277,11 +277,13 @@ resource "aws_lambda_function" "webhook" {
   timeout     = 5
   memory_size = 256
 
-  # Reserved concurrency deliberately unset. The intent was to stop a downstream
-  # problem starving the ACK path, but this account's total Lambda concurrency
-  # quota is 10 (new-account default; mature accounts get 1000), so any
-  # reservation drops unreserved below the service minimum. Set
-  # reserved_concurrent_executions = 20 once the quota is raised.
+  # Reserved so a downstream problem can never starve the ACK path — but only
+  # once the account can afford it. Its total Lambda concurrency quota is 10
+  # (new-account default; mature accounts get 1000), and any reservation
+  # would drop unreserved below the service minimum of 10. Null (the
+  # default) reserves nothing; set var.ring_webhook_reserved_concurrency
+  # (20 was the intent) once the quota is raised.
+  reserved_concurrent_executions = var.ring_webhook_reserved_concurrency
 
   environment {
     variables = {

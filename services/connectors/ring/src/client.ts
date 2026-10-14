@@ -12,6 +12,31 @@ export const RING_API_BASE = 'https://api.amazonvision.com';
 
 export type TokenProvider = () => Promise<string> | string;
 
+/**
+ * How long one call to Ring may take, response and body together, before it
+ * is given up. Ring answers a device list in well under a second and a
+ * frame's presigned download in about two (FL-005). Without a bound, a Ring
+ * that accepts the connection and never answers holds the calling Lambda
+ * until its own timeout, and the door Lambda's is 30 seconds: the picture
+ * and the sentence are lost with it, and the failure says only "timed out".
+ * Five seconds is past every call measured and well inside every Lambda that
+ * makes one (agent.tf, card-action.tf, live.tf).
+ */
+export const RING_REQUEST_TIMEOUT_MS = 5_000;
+
+/**
+ * `fetchImpl` with a deadline on every call. A caller's own signal still
+ * counts: whichever ends first ends the call. An aborted call rejects, as
+ * fetch does, with the signal's reason (a `TimeoutError` for the deadline).
+ */
+export function withDeadline(fetchImpl: typeof fetch, timeoutMs: number): typeof fetch {
+  return ((input: Parameters<typeof fetch>[0], init: RequestInit = {}) => {
+    const deadline = AbortSignal.timeout(timeoutMs);
+    const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
+    return fetchImpl(input, { ...init, signal });
+  }) as typeof fetch;
+}
+
 export class RingApiError extends Error {
   readonly status: number;
   readonly code: string | null;
@@ -44,6 +69,8 @@ export interface RingClientOptions {
   readonly getToken: TokenProvider;
   readonly baseUrl?: string;
   readonly fetchImpl?: typeof fetch;
+  /** Every call's deadline (RING_REQUEST_TIMEOUT_MS unless given). */
+  readonly timeoutMs?: number;
 }
 
 export class RingClient {
@@ -54,7 +81,9 @@ export class RingClient {
   constructor(options: RingClientOptions) {
     this.#getToken = options.getToken;
     this.#base = options.baseUrl ?? RING_API_BASE;
-    this.#fetch = options.fetchImpl ?? fetch;
+    // The presigned download goes through this same function (fetchImpl,
+    // below), so it is held to the same deadline as every API call.
+    this.#fetch = withDeadline(options.fetchImpl ?? fetch, options.timeoutMs ?? RING_REQUEST_TIMEOUT_MS);
   }
 
   /**

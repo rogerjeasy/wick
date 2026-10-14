@@ -16,6 +16,11 @@ import type { Phase2Outcome } from './phase2.js';
 
 export type RouteResult = 'sent' | 'skipped' | 'unknown_device' | 'unclaimed_device';
 
+/** The doorbell as far as the card needs it — its id — when Ring could not be asked for the rest. */
+function doorbellRingDidNotDescribe(id: string): RingDevice {
+  return { id, name: '', online: true, capabilities: { motion: false, image: false, chime: false } };
+}
+
 export interface RouteDeps {
   readonly householdId: string;
   readonly findDevice: (deviceId: string) => Promise<RingDevice | undefined>;
@@ -69,16 +74,41 @@ export async function routeRingEvent(
   const correlationId = typeof detail.correlationId === 'string' ? detail.correlationId : '';
   const event = toRingHistoryEvent(detail, correlationId);
 
-  const device = await deps.findDevice(event.deviceId);
+  // Ring's device list confirms the household's own link can still see this
+  // doorbell. When Ring does not answer it (slow, down, or a token that has
+  // run out), the doorbell is still this household's — routeDoorEvent found
+  // its RINGDEV# row, which Ring is not asked for — so she is still told
+  // someone is at the door. Phase 1 makes no Ring call by design (index.ts);
+  // waiting on one here used to throw instead, and the card never came. A
+  // device Ring says is not on the link at all is a different answer, and
+  // still reaches nobody. The authorization is the RINGDEV# claim row, read
+  // in routeDoorEvent before this and released when a link is disconnected;
+  // Ring's device list here is only a check that Ring is answering.
+  let device: RingDevice | undefined;
+  let ringUnanswered = false;
+  try {
+    device = await deps.findDevice(event.deviceId);
+  } catch (err) {
+    ringUnanswered = true;
+    device = doorbellRingDidNotDescribe(event.deviceId);
+    console.warn(JSON.stringify({
+      level: 'warn', msg: 'ring_device_list_failed', correlationId,
+      err: err instanceof Error ? err.name || err.message : String(err),
+    }));
+  }
   if (!device) return 'unknown_device';
 
   const roster = await deps.listRoster();
   // A failed lookup costs the button, never the card.
-  const hallwayChime = await deps.hasHallwayChime().catch(() => false);
+  const hallwayChime = ringUnanswered ? false : await deps.hasHallwayChime().catch(() => false);
   const family = await deps.listFamily().catch(() => []);
 
   const queued = await handleDoorEvent(
-    { event, device, hallwayChime, householdId: deps.householdId, correlationId, now: deps.now(), roster, family, ...(deps.standIn ? { standIn: true } : {}) },
+    {
+      event, device, hallwayChime, householdId: deps.householdId, correlationId, now: deps.now(), roster, family,
+      ...(deps.standIn ? { standIn: true } : {}),
+      ...(ringUnanswered ? { ringUnanswered: true } : {}),
+    },
     { sendToDevice: deps.sendToDevice },
   );
 

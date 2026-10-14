@@ -34,13 +34,38 @@ export interface RuntimeReply {
   readonly response?: { transformToString(): Promise<string> } | undefined;
 }
 
-export type RuntimeSend = (input: InvokeAgentRuntimeCommandInput & { payload: Uint8Array }) => Promise<RuntimeReply>;
+export type RuntimeSend = (
+  input: InvokeAgentRuntimeCommandInput & { payload: Uint8Array },
+  options?: { readonly abortSignal?: AbortSignal },
+) => Promise<RuntimeReply>;
+
+/**
+ * How long one call to the agent plane may take, answer and body together,
+ * unless the target says otherwise. A cold session takes a few seconds and a
+ * graph's own ceiling is 12 (graphs/doorAction.ts); twenty is past both and
+ * inside the 25-second live Lambda and the 30-second card-action one
+ * (infra/live.tf, card-action.tf). Without it, a runtime that never answers
+ * holds the Lambda until Lambda kills it, and the log says only "timed out".
+ */
+export const RUNTIME_TIMEOUT_MS = 20_000;
 
 export interface RuntimeTarget {
   readonly send: RuntimeSend;
   readonly runtimeArn: string;
   /** The deployed runtime version (infra: agent_runtime_version). */
   readonly version?: string;
+  /** This caller's deadline for one call (RUNTIME_TIMEOUT_MS unless given). Must sit below the calling Lambda's timeout. */
+  readonly timeoutMs?: number;
+}
+
+/** Rejects with `agentcore_timeout` the moment `signal` is aborted, whatever `work` is doing. */
+function beforeDeadline<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const giveUp = () => reject(new Error('agentcore_timeout'));
+    if (signal.aborted) return giveUp();
+    signal.addEventListener('abort', giveUp, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', giveUp));
+  });
 }
 
 export async function invokeRuntime(
@@ -49,31 +74,42 @@ export async function invokeRuntime(
   householdId: string,
   payload: Record<string, unknown>,
 ): Promise<unknown> {
-  const out = await target.send({
-    agentRuntimeArn: target.runtimeArn,
-    runtimeSessionId: householdSessionId(householdId, target.version),
-    contentType: 'application/json',
-    accept: 'application/json',
-    payload: new TextEncoder().encode(JSON.stringify({ kind, householdId, ...payload })),
-  });
+  // One deadline for the call and the reading of its answer: the SDK's
+  // abortSignal ends the request, and the race ends the wait even where a
+  // streamed body would not notice the signal.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), target.timeoutMs ?? RUNTIME_TIMEOUT_MS);
+  try {
+    const out = await beforeDeadline(target.send({
+      agentRuntimeArn: target.runtimeArn,
+      runtimeSessionId: householdSessionId(householdId, target.version),
+      contentType: 'application/json',
+      accept: 'application/json',
+      payload: new TextEncoder().encode(JSON.stringify({ kind, householdId, ...payload })),
+    }, { abortSignal: controller.signal }), controller.signal);
 
-  const status = out.statusCode ?? 200;
-  if (status < 200 || status >= 300) throw new Error(`agentcore_${status}`);
+    const status = out.statusCode ?? 200;
+    if (status < 200 || status >= 300) throw new Error(`agentcore_${status}`);
 
-  const text = (await out.response?.transformToString()) ?? '';
-  return text ? JSON.parse(text) : {};
+    const text = (await beforeDeadline(out.response?.transformToString() ?? Promise.resolve(''), controller.signal)) ?? '';
+    return text ? JSON.parse(text) : {};
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** The real target, for a Lambda shim. AGENT_RUNTIME_ARN and _VERSION come from infra/agentcore.tf. */
 export function agentCoreTarget(
   runtimeArn = process.env.AGENT_RUNTIME_ARN ?? '',
   version = process.env.AGENT_RUNTIME_VERSION ?? '',
+  timeoutMs?: number,
 ): RuntimeTarget {
   if (!runtimeArn) throw new Error('AGENT_RUNTIME_ARN not set');
   const client = new BedrockAgentCoreClient({});
   return {
     runtimeArn,
     ...(version ? { version } : {}),
-    send: (input) => client.send(new InvokeAgentRuntimeCommand(input)),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    send: (input, options) => client.send(new InvokeAgentRuntimeCommand(input), options),
   };
 }

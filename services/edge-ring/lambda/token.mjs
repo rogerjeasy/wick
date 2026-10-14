@@ -8,7 +8,7 @@
  * television holds a device-bound JWT and nothing else.
  */
 import { readCredentials, readTokens, finishLink } from './ring-token.mjs';
-import { TOKEN_URL } from './ring-api.mjs';
+import { TOKEN_URL, ringDeadline } from './ring-api.mjs';
 import { linkService } from './household-link.mjs';
 
 /**
@@ -50,6 +50,7 @@ export const handler = async (event) => {
 
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
+    signal: ringDeadline(),
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'authorization_code',

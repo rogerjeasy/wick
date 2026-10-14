@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { CardPatch } from '@wick/contracts';
 import { RingApiError, type RingImage } from '@wick/ring';
-import { runDoorPhase2 } from '../phase2.js';
+import { runDoorPhase2, withinDeadline } from '../phase2.js';
 import type { DescribeResult } from '../describe.js';
 
 const image: RingImage = {
@@ -177,5 +177,29 @@ describe('runDoorPhase2', () => {
 
       expect(outcome).toMatchObject({ image: 'patched', description: 'rejected' });
     });
+  });
+});
+
+describe('withinDeadline — the frame, all its retries together, ends in time', () => {
+  it('fails with its reason once the deadline passes, so Phase 1 stands and the Lambda still ends in time', async () => {
+    const sendPatch = vi.fn(async (_p: CardPatch) => {});
+    const describeFn = vi.fn(async () => okDescribe);
+    const neverArrives = withinDeadline(() => new Promise<{ image: RingImage; bytes: Uint8Array }>(() => {}), 20, 'frame_deadline');
+
+    const outcome = await runDoorPhase2('card-1', { fetchImage: neverArrives, describe: describeFn, sendPatch });
+
+    expect(outcome).toEqual({ image: 'unavailable', description: 'skipped', reason: 'frame_deadline' });
+    expect(sendPatch).not.toHaveBeenCalled();
+    expect(describeFn).not.toHaveBeenCalled();
+  });
+
+  it('hands back a frame that arrives in time, untouched', async () => {
+    const inTime = withinDeadline(async () => ({ image, bytes }), 1_000, 'frame_deadline');
+    await expect(inTime()).resolves.toEqual({ image, bytes });
+  });
+
+  it('passes on the frame\'s own failure rather than waiting for the deadline', async () => {
+    const fails = withinDeadline(async () => { throw new RingApiError(416, 'MEDIA_NOT_FOUND', null); }, 60_000, 'frame_deadline');
+    await expect(fails()).rejects.toMatchObject({ code: 'MEDIA_NOT_FOUND' });
   });
 });

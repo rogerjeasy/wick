@@ -88,6 +88,28 @@ resource "aws_iam_role_policy" "agent_card_action_ask_family" {
   policy = data.aws_iam_policy_document.agent_card_action_ask_family.json
 }
 
+# A press that fails every try is left in the dead-letter queue (alarms.tf),
+# which pages. Lambda's own retries are left as they were (two, over up to
+# six hours): Hold for Sarah's timer reaches this function the same way, and
+# a step of it that failed once must still be taken.
+resource "aws_iam_role_policy" "agent_card_action_dead_letters" {
+  name   = "${local.prefix}-agent-card-action-dead-letters"
+  role   = aws_iam_role.agent_card_action.id
+  policy = data.aws_iam_policy_document.send_dead_letters.json
+}
+
+resource "aws_lambda_function_event_invoke_config" "agent_card_action" {
+  function_name = aws_lambda_function.agent_card_action.function_name
+
+  destination_config {
+    on_failure {
+      destination = aws_sqs_queue.dead_letters.arn
+    }
+  }
+
+  depends_on = [aws_iam_role_policy.agent_card_action_dead_letters]
+}
+
 resource "aws_cloudwatch_log_group" "agent_card_action" {
   name              = "/aws/lambda/${local.prefix}-agent-card-action"
   retention_in_days = 14
