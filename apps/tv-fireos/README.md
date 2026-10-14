@@ -82,24 +82,27 @@ Two things Android does differently from Vega, both handled in the adapters
 and written up in `FRICTION.md` FL-025: a key press reaches only what holds
 focus, and play/pause arrives as the key coming up.
 
-Not yet run on the emulator: a television connected as a family member's own.
-It typechecks here and its decisions are tested, and that is all. Such a
+A television connected as a family member's own was run on the emulator on
+2026-10-13, against the deployed back end, in a throwaway home: pairing as
+*Mine*, its home screen, a request to ring and a hello and their answers, the
+week's reader, the wave and the seat beside the resident's film
+(screenshots from those checks are not in the repository). Such a
 television is given a fresh token only when it shows the one it held, so it
 stays connected across relaunches only where that token is kept — here, in the
 app's own storage (`src/adapters/fileSystem.ts`). The Vega simulator keeps
 nothing, and a family member's television there is paired again each time.
-The same goes for its later screens — something to read, the wave, and the
-seat beside the resident's film, which plays through `src/adapters/w3cmedia.tsx`
-and follows her player (`apps/tv-vega/src/family/seat.ts`): typechecked and
-tested as decisions, not yet seen on the emulator.
+The seat plays through `src/adapters/w3cmedia.tsx` and follows her player
+(`apps/tv-vega/src/family/seat.ts`); how good its picture is could not be
+judged on the emulator, whose link was slower than the film.
 
 The television speaks her language (`packages/contracts/src/language.ts`):
 the resident's app says its own words in the household's language, which it
 learns from the home message, and the language is kept in the same storage as
 the token so a relaunch here does not begin in English (the Vega simulator
-keeps nothing, and is English for the moment before the home message). It
-typechecks here and its decisions are tested; it has not yet been seen on the
-emulator.
+keeps nothing, and is English for the moment before the home message). On
+2026-10-13 it was run on the emulator as the resident's television: the
+language card waited for a break during a film, and after her yes the home
+screen and every card were Spanish.
 
 The mantelpiece (`packages/contracts/src/mantel.ts`) — the picture card, the
 screen that shows what she has kept, and her pictures filling a home screen
@@ -109,8 +112,10 @@ it were written with Android in mind and are tested as decisions only
 (`src/__tests__/idle.test.ts`, on keys as `remoteEvents.ts` says them): a
 screen that is all picture keeps one focused view, because Android gives a key
 to nothing when nothing is focused; and the key that ends the idle screen is
-taken whole, whether it arrives as down-then-up, up only, or `longSelect`. None
-of it has been seen on the emulator yet.
+taken whole, whether it arrives as down-then-up, up only, or `longSelect`. On
+2026-10-14 it was run on the emulator against the deployed back end: the
+picture's card over a film and on the home screen, *Keep it*, the mantelpiece,
+*Take it down*, *Thank you*, and the idle screen.
 
 "Read to me" (`packages/contracts/src/speech.ts`) is the one place where
 Fire OS needed something of its own. On Vega a card is read aloud by an
@@ -121,9 +126,11 @@ is on the screen. So `src/adapters/audioPlayer.ts` is that object, and
 unchanged. The view sets react-native-video's `disableFocus`, so the reading
 does not ask Android for the sound and the film under the door's card keeps
 playing. The object's logic is tested, and the shared reader is run through
-it (`src/__tests__/audioPlayer.test.ts`); **nothing of it has been heard**: it
-has not run on the emulator or a device, and whether a second ExoPlayer mixes
-with the film's as intended is unverified.
+it (`src/__tests__/audioPlayer.test.ts`). On the emulator, on 2026-10-14, Play
+was pressed over a note holding a film, and the note and the held film stayed
+as they were. That is all that was seen: whether the reading was fetched and
+played there was not confirmed, **nothing of it has been heard**, and whether a
+second ExoPlayer mixes with the film's as intended is unverified.
 
 ## Not a workspace
 
