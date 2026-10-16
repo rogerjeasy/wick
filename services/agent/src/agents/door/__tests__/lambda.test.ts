@@ -78,6 +78,13 @@ describe('routeRingEvent — the door says it rang (door.rang)', () => {
     error.mockRestore();
   });
 
+  it('does not say it rang for a person seen at the door who did not press the bell: an errand waits for a ring, not a passer-by', async () => {
+    const deps = baseDeps({ announceRing: vi.fn(async () => {}) });
+    expect(await routeRingEvent({ ...detail, event_type: 'motion_detected', sub_type: 'human' }, deps)).toBe('sent');
+    expect(deps.sendToDevice).toHaveBeenCalledTimes(1);
+    expect(deps.announceRing).not.toHaveBeenCalled();
+  });
+
   it('does not say it rang for an event that is not a ring', async () => {
     const deps = baseDeps({ announceRing: vi.fn(async () => {}) });
     await routeRingEvent({ ...detail, event_type: 'subscription_activated' }, deps);

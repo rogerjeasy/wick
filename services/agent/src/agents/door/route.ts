@@ -118,7 +118,11 @@ export async function routeRingEvent(
     { sendToDevice: deps.sendToDevice },
   );
 
-  if (deps.announceRing) {
+  // Only a press of the bell is a ring. A person seen at the door who did not
+  // ring (motion, sub_type human) gets her card, but an errand waiting for its
+  // visitor must not be told "someone rang", nor spend its one wake-up on a
+  // passer-by before the visitor's real ring.
+  if (deps.announceRing && event.eventType === 'button_press') {
     // After the card is on its way, and never at its cost: an errand that misses a ring says nobody came.
     const looksLike = queued.card.type === 'DOOR' ? queued.card.match?.personId : undefined;
     try {
