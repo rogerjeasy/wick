@@ -1,0 +1,679 @@
+/*
+ * Her television, in a browser (tv.html) — drawn as the Vega app draws it.
+ *
+ * The screen is the Vega app's logical screen, 960 by 540 dp, scaled to the
+ * window and letterboxed on black: one dp is a 960th of the screen's width
+ * (--dp), so every size here is the Vega app's own number, from
+ * packages/vega-calm-ui/src/tokens.ts and the screens that use them
+ * (home/HomeScreen.tsx, CalmCard.tsx, watch/WatchScreen.tsx). The floor is
+ * the television's: no type under 32, 7:1 contrast at the least, focus a
+ * ring and never a colour alone, no red, no badge, nothing that moves by
+ * itself (__tests__/tv.test.ts holds this file to it).
+ *
+ * "Easier to see" (tv.js) adds two modes on the screen itself: .larger-text
+ * sets every size of type 1.25 times larger (--type), and .higher-contrast
+ * is black and white with a ring twice as thick — 21:1 everywhere.
+ */
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #000000;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Amazon Ember', 'Helvetica Neue', Roboto, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Sixteen by nine, as large as the window allows. Its width is what a dp is measured from. */
+.stage {
+  position: relative;
+  width: min(100vw, calc(100vh * 16 / 9));
+  container-type: inline-size;
+}
+
+.tv-screen {
+  /* packages/vega-calm-ui tokens.ts palette */
+  --ink: #f4f1ea;
+  --ink-dim: #c8c2b6;
+  --ground: #12100e;
+  --raised: #1e1b17;
+  --accent: #e8b75d;
+  --on-accent: #12100e;
+  --focus: #ffffff;
+  /* A surface's edge: none, on the ordinary palette. */
+  --edge: #1e1b17;
+  --dp: calc(100cqw / 960);
+  --type: 1;
+  --ring: calc(4 * var(--dp));
+  /* tokens.ts type: body 32, headline 48, display 64 — and never less. */
+  --body: calc(32 * var(--dp) * var(--type));
+  --headline: calc(48 * var(--dp) * var(--type));
+  --display: calc(64 * var(--dp) * var(--type));
+
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--ground);
+  color: var(--ink);
+  font-size: var(--body);
+  line-height: 1.4;
+}
+
+/* Easier to see: every size of type a quarter larger. */
+.tv-screen.larger-text {
+  --type: 1.25;
+}
+
+/* Easier to see: black and white, and a ring twice as thick. */
+.tv-screen.higher-contrast {
+  --ink: #ffffff;
+  --ink-dim: #ffffff;
+  --ground: #000000;
+  --raised: #000000;
+  --accent: #ffffff;
+  --on-accent: #000000;
+  --focus: #ffffff;
+  --edge: #ffffff;
+  --ring: calc(8 * var(--dp));
+}
+
+/* A button starts as nothing at all: what it looks like is its class's (no specificity, so any class wins). */
+:where(.tv-screen button) {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: inherit;
+}
+
+/* Focus is a ring, never a colour change alone (CalmCard.tsx). It appears at once. */
+.tv-screen button:focus,
+.tv-screen [data-focusable]:focus {
+  outline: var(--ring) solid var(--focus);
+  outline-offset: calc(3 * var(--dp));
+}
+
+/* --- The home screen (home/HomeScreen.tsx) --------------------------------- */
+
+.tv-home {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: calc(32 * var(--dp)) calc(48 * var(--dp));
+  display: flex;
+  flex-direction: column;
+  gap: calc(24 * var(--dp));
+  background: var(--ground);
+}
+
+.home-top {
+  display: flex;
+  align-items: center;
+  gap: calc(24 * var(--dp));
+}
+
+.home-question {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--headline);
+  line-height: 1.25;
+  color: var(--ink);
+}
+
+.home-pill {
+  flex: none;
+  box-sizing: border-box;
+  border-radius: calc(16 * var(--dp));
+  border: calc(2 * var(--dp)) solid var(--edge);
+  background: var(--raised);
+  padding: calc(2 * var(--dp)) calc(16 * var(--dp));
+  color: var(--ink-dim);
+  font-size: var(--body);
+  white-space: nowrap;
+}
+
+/* The films: three, side by side. Their pictures take what height the words leave, so the screen never overflows. */
+.home-row {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: calc(24 * var(--dp));
+}
+
+.home-tile {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: calc(16 * var(--dp));
+  border: calc(2 * var(--dp)) solid var(--edge);
+  background: var(--raised);
+  overflow: hidden;
+}
+
+.home-poster {
+  display: block;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  object-fit: cover;
+}
+
+.home-caption {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--dp));
+  padding: calc(16 * var(--dp));
+}
+
+.home-title,
+.home-line {
+  font-size: var(--body);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-title {
+  color: var(--ink);
+}
+
+.home-line {
+  color: var(--ink-dim);
+}
+
+/* The quiet row under the films: one thing on the left, and at its right-hand end the pills. */
+.home-quiet {
+  display: flex;
+  align-items: center;
+  gap: calc(24 * var(--dp));
+}
+
+.home-said {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-dim);
+  font-size: var(--body);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-waiting {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(24 * var(--dp));
+  box-sizing: border-box;
+  border-radius: calc(16 * var(--dp));
+  border: calc(2 * var(--dp)) solid var(--edge);
+  background: var(--raised);
+  padding: calc(6 * var(--dp)) calc(20 * var(--dp));
+}
+
+.home-waiting-line {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-dim);
+  font-size: var(--body);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-open {
+  color: var(--ink);
+  font-size: var(--body);
+}
+
+/* --- A card (CalmCard.tsx): over the film, at the bottom, never instead of it ---- */
+
+.tv-card {
+  position: absolute;
+  left: calc(48 * var(--dp));
+  right: calc(48 * var(--dp));
+  bottom: calc(32 * var(--dp));
+  box-sizing: border-box;
+  max-height: calc(476 * var(--dp));
+  padding: calc(32 * var(--dp));
+  border-radius: calc(16 * var(--dp));
+  border: calc(2 * var(--dp)) solid var(--edge);
+  background: var(--raised);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: calc(12 * var(--dp));
+}
+
+.tv-card .kicker {
+  color: var(--ink-dim);
+  font-size: var(--body);
+  line-height: 1.4;
+}
+
+.tv-card .headline {
+  color: var(--ink);
+  font-size: var(--headline);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.tv-card .body-text {
+  color: var(--ink-dim);
+  font-size: var(--body);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* What a press led to: the same size, set apart. Never a colour that alarms. */
+.tv-card .body-text.notice {
+  color: var(--ink);
+}
+
+.tv-card .body-text.next-language {
+  margin-top: calc(12 * var(--dp));
+}
+
+.tv-card .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(16 * var(--dp));
+  margin-top: calc(8 * var(--dp));
+}
+
+.tv-card .actions .pill {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: calc(20 * var(--dp)) calc(32 * var(--dp));
+  border-radius: calc(12 * var(--dp));
+  border: calc(2 * var(--dp)) solid var(--edge);
+  background: var(--ground);
+  color: var(--ink);
+  font-size: var(--body);
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* The first button is amber, and its words are the dark of the ground (constraints.ts actionColours). */
+.tv-card .actions .pill.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* The mark of the Play key (read/ReadHint.tsx): in the card's corner, not one of its buttons. */
+.tv-read {
+  position: absolute;
+  top: calc(20 * var(--dp));
+  right: calc(28 * var(--dp));
+  color: var(--ink-dim);
+  font-size: var(--body);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tv-read::before {
+  content: '\25B6';
+}
+
+/* The door (DoorCard.tsx): the picture beside the words, never above the headline. */
+.tv-card.urgency-door {
+  display: grid;
+  grid-template-columns: minmax(0, 38%) minmax(0, 1fr);
+  column-gap: calc(24 * var(--dp));
+  row-gap: calc(8 * var(--dp));
+  align-content: start;
+}
+
+.tv-card.urgency-door > :not(.tv-still):not(.actions):not(.tv-read) {
+  grid-column: 2;
+}
+
+.tv-card.urgency-door > .tv-still {
+  grid-column: 1;
+  grid-row: 1 / span 4;
+  width: 100%;
+  max-height: calc(220 * var(--dp));
+  object-fit: contain;
+  border-radius: calc(8 * var(--dp));
+}
+
+.tv-card.urgency-door > .actions {
+  grid-column: 1 / -1;
+}
+
+/* A picture from the family: whole, never cropped. */
+.tv-photo {
+  display: flex;
+  justify-content: center;
+}
+
+.tv-photo img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(200 * var(--dp));
+  object-fit: contain;
+  border-radius: calc(8 * var(--dp));
+}
+
+/* --- Screens that are the whole screen --------------------------------------- */
+
+.tv-card.tv-pairing,
+.tv-card.tv-getting-code,
+.tv-card.tv-mantel,
+.tv-card.tv-family {
+  inset: 0;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  background: var(--ground);
+  padding: calc(32 * var(--dp)) calc(48 * var(--dp));
+  justify-content: center;
+}
+
+/* The pairing screen (PairingScreen.tsx): the code, large, and one sentence on where to enter it — from the top, so
+   the legend of the keys along the foot of the screen covers none of it. */
+.tv-card.tv-pairing,
+.tv-card.tv-getting-code {
+  justify-content: flex-start;
+  padding-top: calc(56 * var(--dp));
+}
+
+.tv-pairing .headline {
+  font-size: var(--display);
+  color: var(--accent);
+  letter-spacing: calc(8 * var(--dp));
+}
+
+.tv-pairing a.body-text {
+  color: var(--ink-dim);
+  font-size: var(--body);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.tv-mantel .tv-photo img {
+  max-height: calc(300 * var(--dp));
+}
+
+.tv-mantel .tv-photo img:focus {
+  outline: var(--ring) solid var(--focus);
+  outline-offset: calc(3 * var(--dp));
+}
+
+/* --- The film (WatchScreen.tsx) ---------------------------------------------- */
+
+.tv-film {
+  position: absolute;
+  inset: 0;
+  background: #000000;
+}
+
+.tv-film video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Back is Backspace or Esc here, and who is watching with her is said in the notice, as on Vega. */
+.tv-film .tv-film-back,
+.tv-film .tv-film-with {
+  display: none;
+}
+
+.film-notice {
+  position: absolute;
+  left: calc(48 * var(--dp));
+  bottom: calc(32 * var(--dp));
+  max-width: calc(864 * var(--dp));
+  box-sizing: border-box;
+  padding: calc(16 * var(--dp)) calc(24 * var(--dp));
+  border-radius: calc(16 * var(--dp));
+  border: calc(2 * var(--dp)) solid var(--edge);
+  background: var(--raised);
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--dp));
+}
+
+.film-line {
+  color: var(--ink);
+  font-size: var(--body);
+}
+
+.film-attribution {
+  color: var(--ink-dim);
+  font-size: var(--body);
+}
+
+/* --- A family member's own television (tv-core.js) --------------------------- */
+
+.tv-family .family-head .headline {
+  font-size: var(--headline);
+}
+
+.tv-family .family-light {
+  color: var(--ink);
+}
+
+.tv-family .family-demo,
+.tv-family .family-quiet,
+.tv-family .family-wave-line {
+  color: var(--ink-dim);
+  font-size: var(--body);
+}
+
+.tv-family .family-card.with-picture {
+  display: grid;
+  grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
+  gap: calc(24 * var(--dp));
+}
+
+.tv-family .family-picture {
+  width: 100%;
+  border-radius: calc(8 * var(--dp));
+}
+
+.tv-reader .reader-title,
+.tv-reader .reader-count {
+  color: var(--ink-dim);
+  font-size: var(--body);
+}
+
+.tv-reader .reader-page {
+  color: var(--ink);
+  font-size: var(--body);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.tv-seat .seat-film[hidden] {
+  display: none !important;
+}
+
+.tv-seat.is-following {
+  padding: 0;
+}
+
+.tv-seat.is-following .seat-words {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tv-seat.is-following .seat-caption,
+.tv-seat.is-following .seat-foot,
+.tv-seat.is-following .seat-back,
+.tv-seat.is-following .seat-sound {
+  position: absolute;
+  padding: calc(8 * var(--dp)) calc(16 * var(--dp));
+  border-radius: calc(12 * var(--dp));
+  background: var(--raised);
+  color: var(--ink);
+  font-size: var(--body);
+  pointer-events: auto;
+}
+
+.tv-seat.is-following .seat-caption {
+  top: calc(32 * var(--dp));
+  right: calc(48 * var(--dp));
+}
+
+.tv-seat.is-following .seat-foot {
+  left: calc(48 * var(--dp));
+  bottom: calc(32 * var(--dp));
+}
+
+.tv-seat.is-following .seat-back {
+  top: calc(32 * var(--dp));
+  left: calc(48 * var(--dp));
+}
+
+.tv-seat.is-following .seat-sound {
+  right: calc(48 * var(--dp));
+  bottom: calc(32 * var(--dp));
+}
+
+/* --- Nothing on the screen is cut off (tv-core.js fitScreen) ------------------ */
+
+/* A size smaller: CalmCard's compact — less card around the words, never smaller words than the floor. */
+.tv-card.fit-snug,
+.tv-card.fit-small {
+  padding: calc(24 * var(--dp));
+  gap: calc(4 * var(--dp));
+}
+
+/* The door's picture keeps its distance from the words at every size. */
+.tv-card.urgency-door.fit-snug,
+.tv-card.urgency-door.fit-small {
+  column-gap: calc(24 * var(--dp));
+}
+
+.tv-card.fit-snug .headline,
+.tv-card.fit-small .headline {
+  font-size: var(--body);
+  line-height: 1.4;
+  font-weight: 700;
+}
+
+.tv-card.fit-snug .actions,
+.tv-card.fit-small .actions {
+  gap: calc(12 * var(--dp));
+}
+
+.tv-card.fit-small .actions .pill {
+  padding: calc(12 * var(--dp)) calc(24 * var(--dp));
+}
+
+.tv-card.fit-small .tv-still,
+.tv-card.fit-small .tv-photo img {
+  max-height: calc(140 * var(--dp));
+}
+
+/* And when even that is not enough, the screen grows taller than sixteen by nine for as long as that card is on it,
+   and the page scrolls: better than a button nobody can reach. A television cannot; a page can. */
+.tv-screen.grown {
+  aspect-ratio: auto;
+  min-height: calc(100cqw * 9 / 16);
+  overflow: visible;
+}
+
+.tv-screen.grown > .tv-card {
+  position: relative;
+  inset: auto;
+  max-height: none;
+  margin: calc(32 * var(--dp)) calc(48 * var(--dp));
+}
+
+/* --- The keys (tv.html) ------------------------------------------------------ */
+
+/* For whoever is trying this page, not part of her television: a remote has no legend. A strip along the top of the
+   screen, clear of a card's buttons, which are at the foot — and along the foot on the pairing screen, whose words
+   start at the top. Put away by hand only. */
+.tv-keys {
+  position: absolute;
+  left: calc(16 * 100cqw / 960);
+  right: calc(16 * 100cqw / 960);
+  top: calc(12 * 100cqw / 960);
+  z-index: 2;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 1.2em;
+  padding: 0.6em 1em;
+  border-radius: calc(12 * 100cqw / 960);
+  border: 1px solid #c8c2b6;
+  background: #1e1b17;
+  color: #f4f1ea;
+  font-family: 'Amazon Ember', 'Helvetica Neue', Roboto, 'Segoe UI', system-ui, sans-serif;
+  font-size: max(11px, calc(13.5 * 100cqw / 960));
+  line-height: 1.3;
+}
+
+.tv-keys.at-foot {
+  top: auto;
+  bottom: calc(12 * 100cqw / 960);
+}
+
+.tv-keys-title {
+  margin: 0;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tv-keys dl {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, auto auto);
+  justify-content: space-between;
+  gap: 0.25em 0.7em;
+  margin: 0;
+}
+
+.tv-keys dt {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tv-keys dd {
+  margin: 0;
+  color: #c8c2b6;
+  white-space: nowrap;
+}
+
+.tv-keys-close {
+  flex: none;
+  font: inherit;
+  padding: 0.4em 1em;
+  border-radius: 0.5em;
+  border: 0;
+  background: #e8b75d;
+  color: #12100e;
+  cursor: pointer;
+}
+
+.tv-keys-close:focus {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+}

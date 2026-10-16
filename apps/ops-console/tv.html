@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="referrer" content="no-referrer" />
+<meta name="color-scheme" content="dark" />
+<title>Wick — her television</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%95%AF%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="tv.css" />
+</head>
+<body>
+
+<!--
+  The resident's television, and nothing else: a sixteen-by-nine screen on black, drawn as the Vega app draws it.
+  The keyboard is the remote (tv.js). The engineers' console, with its telemetry and raw messages, is device.html.
+-->
+<main class="stage" id="stage">
+  <div id="tv-screen" class="tv-screen" aria-live="polite"></div>
+
+  <aside id="tv-keys" class="tv-keys" aria-label="The keyboard is the remote" hidden>
+    <p class="tv-keys-title">Remote keys</p>
+    <dl>
+      <dt>← ↑ → ↓</dt><dd>Move</dd>
+      <dt>Enter</dt><dd>OK</dd>
+      <dt>Hold Enter 2 s</dt><dd>Ask someone to ring her</dd>
+      <dt>Backspace or Esc</dt><dd>Back</dd>
+      <dt>Space or P</dt><dd>Play / Pause; reads a card aloud</dd>
+      <dt>?</dt><dd>Show or hide this</dd>
+    </dl>
+    <button type="button" id="tv-keys-close" class="tv-keys-close">Got it</button>
+  </aside>
+</main>
+
+<script src="tv-engine.generated.js"></script>
+<script src="tv-core.js"></script>
+<script src="tv.js"></script>
+</body>
+</html>

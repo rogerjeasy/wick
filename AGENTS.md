@@ -72,7 +72,7 @@ where their secret comes from:
 - **Fire OS** — made on the television, from Android's `SecureRandom`
   (`react-native-get-random-values`, loaded first by
   `apps/tv-fireos/index.js`), and sent when it asks for a code.
-- **The browser television** (`apps/ops-console/device.js`) — made in the
+- **The browser television** (`apps/ops-console/tv-core.js`, loaded by `device.html` and `tv.html`) — made in the
   tab from Web Crypto, and sent the same way.
 - **A Vega television whose disk keeps a file** — React Native for Vega gives
   the JavaScript runtime no cryptographic generator, so the television says
