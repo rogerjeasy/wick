@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Snapshot, SnapshotLocation, SnapshotStorage } from '@strands-agents/sdk';
-import { inMemorySnapshotStorage, sessionStorageFor } from '../sessions.js';
+import type { BedrockAgentCoreClient } from '@aws-sdk/client-bedrock-agentcore';
+import { agentCoreSessions, inMemorySnapshotStorage, sessionStorageFor } from '../sessions.js';
+import { ASSISTANT_AGENT_ID } from '../identity.js';
 
 const at = (sessionId: string, scopeId = 'wick-assistant'): SnapshotLocation => ({ sessionId, scope: 'agent', scopeId });
 const snapshot = (said: string): Snapshot => ({
@@ -101,5 +103,43 @@ describe('sessionStorageFor — where a conversation is kept between questions',
 
     expect(a.snapshot).toBe(b.snapshot);
     expect(a.snapshot).not.toBe(durable);
+  });
+});
+
+describe('agentCoreSessions — the AgentCore Memory session storage the runtime hands in', () => {
+  /** A client that records each command and answers a ListEvents with nothing. */
+  function recordingClient() {
+    const sent: { name: string; input: Record<string, unknown> }[] = [];
+    const client = {
+      send: async (command: { constructor: { name: string }; input: Record<string, unknown> }) => {
+        sent.push({ name: command.constructor.name, input: command.input });
+        if (command.constructor.name === 'CreateEventCommand') return { event: { eventId: `e${sent.length}`, eventTimestamp: new Date() } };
+        return { events: [] };
+      },
+    } as unknown as BedrockAgentCoreClient;
+    return { client, sent };
+  }
+
+  it('keeps every conversation in the deployment’s memory, under the agent’s own actor — never a member’s', async () => {
+    const { client, sent } = recordingClient();
+    const storage = sessionStorageFor({ AGENTCORE_MEMORY_ID: 'wick_assistant-abcdefghij' }, agentCoreSessions({ client }));
+
+    await storage.snapshot.saveSnapshot({ location: at('assistant-0123456789abcdef0123456789abcdef'), snapshotId: 'latest', isLatest: true, snapshot: snapshot('hello') });
+
+    const created = sent.filter((c) => c.name === 'CreateEventCommand');
+    expect(created.length).toBeGreaterThan(0);
+    for (const c of created) {
+      expect(c.input.memoryId).toBe('wick_assistant-abcdefghij');
+      expect(c.input.actorId).toBe(ASSISTANT_AGENT_ID);
+      expect(c.input.sessionId).toBe('assistant-0123456789abcdef0123456789abcdef');
+    }
+  });
+
+  it('reads back through AgentCore Memory, not this process', async () => {
+    const { client, sent } = recordingClient();
+    const storage = sessionStorageFor({ AGENTCORE_MEMORY_ID: 'wick_assistant-abcdefghij' }, agentCoreSessions({ client }));
+
+    expect(await storage.snapshot.loadSnapshot({ location: at('assistant-0123456789abcdef0123456789abcdef') })).toBeNull();
+    expect(sent.some((c) => c.name === 'ListEventsCommand' && c.input.actorId === ASSISTANT_AGENT_ID)).toBe(true);
   });
 });

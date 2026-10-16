@@ -10,10 +10,10 @@
  * Durable storage is AgentCore Memory, through the session storage written
  * for Strands TypeScript as an open-source contribution
  * (`AgentCoreMemorySnapshotStorage`, vendored as
- * packages/strands-agentcore-session). This module does not import it: the
- * runtime's entrypoint hands its factory in (`sessionStorageFor`'s second
- * argument), so the agent is written, and tested, against Strands' own
- * `SnapshotStorage` interface and nothing else.
+ * packages/strands-agentcore-session). `agentCoreSessions` below makes its
+ * factory, and the runtime's entrypoint hands that in (`sessionStorageFor`'s
+ * second argument); the agent itself is written, and tested, against
+ * Strands' own `SnapshotStorage` interface and nothing else.
  *
  * Without it — no memory named, or no factory given — the conversation is
  * kept in this process. A runtime session is one member's (identity.ts), so
@@ -23,6 +23,9 @@
  * A snapshot carries no token: the token lives on the MCP client's headers
  * for one invocation and is never part of the agent's state (turn.ts).
  */
+import type { BedrockAgentCoreClient } from '@aws-sdk/client-bedrock-agentcore';
+import { createAgentCoreMemorySessionStorage } from '@wick/strands-agentcore-session';
+import { ASSISTANT_AGENT_ID } from './identity.js';
 import { SNAPSHOT_SCHEMA_VERSION, type Snapshot, type SnapshotLocation, type SnapshotManifest, type SnapshotStorage } from '@strands-agents/sdk';
 
 export type SessionStorage = { readonly snapshot: SnapshotStorage };
@@ -98,4 +101,24 @@ export function sessionStorageFor(
   if (!memoryId || !agentCore) return thisProcess;
   const made = agentCore(memoryId);
   return 'snapshot' in made ? made : { snapshot: made };
+}
+
+/**
+ * The session storage the runtime hands in: Strands snapshots kept as
+ * AgentCore Memory events (packages/strands-agentcore-session — the code of
+ * Wick's pull request to aws/bedrock-agentcore-sdk-typescript). Every
+ * conversation is filed under the agent's own actor id, its session the
+ * member's `assistant-<hash>` (identity.ts): what this storage writes and what
+ * the long-term memory strategy reads, under the member as actor, never mix.
+ * The Wick server deletes a member's conversation under the same two names
+ * (services/mcp-server/src/assistant/forget.ts).
+ */
+export function agentCoreSessions(options: { readonly region?: string; readonly client?: BedrockAgentCoreClient } = {}): AgentCoreSessionStorageFactory {
+  return (memoryId) =>
+    createAgentCoreMemorySessionStorage({
+      memoryId,
+      actorId: ASSISTANT_AGENT_ID,
+      ...(options.region ? { region: options.region } : {}),
+      ...(options.client ? { client: options.client } : {}),
+    });
 }

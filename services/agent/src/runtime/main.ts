@@ -33,6 +33,7 @@ import { devicesOfHousehold, ringDeviceOwners } from '../store/ringDevices.js';
 import { doorActionHandler, doorDescribeHandler, liveStartHandler, liveStopHandler } from './handlers.js';
 import { assistantTurnHandler } from '../agents/assistant/turn.js';
 import { assistantDepsFromEnv } from '../agents/assistant/fromEnv.js';
+import { agentCoreSessions } from '../agents/assistant/sessions.js';
 import { createRuntimeServer } from './server.js';
 import { BRIEF_WEEKLY_KIND, briefWeeklyHandler } from './briefHandler.js';
 import { briefWeeklyDepsFor } from './briefWiring.js';
@@ -106,9 +107,9 @@ const server = createRuntimeServer({
 
     // The family assistant (agents/assistant/). Its settings are read per turn, so a
     // runtime without them still serves the door; the turn then says it is not set up.
-    // Conversations are kept in this microVM until the AgentCore Memory session storage
-    // (packages/strands-agentcore-session) is handed in here as assistantDepsFromEnv's second argument.
-    'assistant.turn': assistantTurnHandler(() => (assistantDeps ??= assistantDepsFromEnv(process.env))),
+    // Conversations are kept in AgentCore Memory (packages/strands-agentcore-session), so one
+    // survives a cold start of this microVM; in this process only where no memory is configured.
+    'assistant.turn': assistantTurnHandler(() => (assistantDeps ??= assistantDepsFromEnv(process.env, agentCoreSessions(process.env.AWS_REGION ? { region: process.env.AWS_REGION } : {})))),
     [BRIEF_WEEKLY_KIND]: briefWeeklyHandler(briefWeeklyDepsFor(ddb, TABLE)),
   },
 });
