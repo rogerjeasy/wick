@@ -23,7 +23,8 @@ import { photoSeenText } from '@wick/contracts';
 import { loadSentPictures } from '../photos/pictures.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
+import { z } from 'zod';
 import { HOUSEHOLD_TZ, whenInWords } from './watchSession.js';
 
 const NUMBER_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
@@ -37,6 +38,12 @@ function summaryOf(sent: number, seen: number, resident: string): string {
   return `${lead} ${resident} has seen ${seen === sent ? 'all' : inWords(seen)} of them.`;
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  summary: z.string(),
+  pictures: z.array(z.strictObject({ sent: z.string(), sentAt: z.number(), seen: z.boolean(), say: z.string() })).describe('Newest first.'),
+});
+
 export function registerGetPictures(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext, now: () => number = Date.now, timeZone: string = HOUSEHOLD_TZ): void {
   mcpServer.registerTool(
     'get_pictures',
@@ -48,6 +55,7 @@ export function registerGetPictures(mcpServer: McpServer, ddb: DynamoDBClient, c
         'It says only whether a picture has been seen: nobody is told whether the resident kept it, and that must never be said or guessed. ' +
         'A picture is sent from the Wick app itself, not through a tool.',
       inputSchema: {},
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (allowed) => {

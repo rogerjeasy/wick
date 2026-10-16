@@ -13,7 +13,7 @@ describe('gated — INV-9 on every tool call', () => {
 
     const result = await gated(ctx, handler)();
 
-    expect(result).toEqual({ content: [{ type: 'text', text: 'Margaret hasn’t allowed this yet.' }] });
+    expect(result).toEqual({ content: [{ type: 'text', text: 'Margaret hasn’t allowed this yet.' }], structuredContent: { say: 'Margaret hasn’t allowed this yet.' } });
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -34,7 +34,7 @@ describe('gated — INV-9 on every tool call', () => {
     };
     const tool = gated(ctx, async () => 'ok');
 
-    expect(await tool()).toEqual({ content: [{ type: 'text', text: 'Not yet.' }] });
+    expect(await tool()).toEqual({ content: [{ type: 'text', text: 'Not yet.' }], structuredContent: { say: 'Not yet.' } });
     allowed = true;
     expect(await tool()).toBe('ok');
   });
@@ -48,7 +48,7 @@ describe('gated — a neighbour is asked two things, and shown nothing else', ()
 
     const result = await gated(tom, handler)();
 
-    expect(result).toEqual({ content: [{ type: 'text', text: 'Margaret has asked you to help in two ways: to look at who is at the door, and to ring when asked. Nothing else about the house is shared with a neighbour.' }] });
+    expect(result).toEqual({ content: [{ type: 'text', text: 'Margaret has asked you to help in two ways: to look at who is at the door, and to ring when asked. Nothing else about the house is shared with a neighbour.' }], structuredContent: { say: 'Margaret has asked you to help in two ways: to look at who is at the door, and to ring when asked. Nothing else about the house is shared with a neighbour.' } });
     expect(handler).not.toHaveBeenCalled();
   });
 

@@ -2,8 +2,9 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { DECLINE_REPLY, REPLY_CHOICES, STANDING_REPLIES, buildMessageCard, offeredReplies, registerSendNoteToTv } from '../send_note_to_tv.js';
+import { DECLINE_REPLY, KEY_ALREADY_USED_TEXT, REPLY_CHOICES, SAME_NOTE_WINDOW_MS, STANDING_REPLIES, buildMessageCard, offeredReplies, registerSendNoteToTv } from '../send_note_to_tv.js';
 import { allowedContext } from './toolContext.js';
+import { createMemoryTable } from '../../__tests__/memoryTable.js';
 
 // INV-2: the tool is handed its sender (in a deployment, egress.ts's
 // sendToDevice) and reaches a television no other way. Here it is handed a spy.
@@ -71,7 +72,7 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
   async function send(args: Record<string, unknown>) {
     sendToDevice.mockResolvedValue(undefined);
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerSendNoteToTv(mcpServer, allowedContext('hh-9', { name: 'Tom' }), sendToDevice);
+    registerSendNoteToTv(mcpServer, createMemoryTable().ddb, allowedContext('hh-9', { name: 'Tom' }), sendToDevice);
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
     await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
@@ -99,7 +100,7 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
     sendToDevice.mockResolvedValue(undefined);
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerSendNoteToTv(mcpServer, allowedContext('hh-9', { name: 'Tom' }), sendToDevice);
+    registerSendNoteToTv(mcpServer, createMemoryTable().ddb, allowedContext('hh-9', { name: 'Tom' }), sendToDevice);
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -122,7 +123,7 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
     sendToDevice.mockResolvedValue(undefined);
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerSendNoteToTv(mcpServer, allowedContext('hh-9', { name: 'Tom' }), sendToDevice);
+    registerSendNoteToTv(mcpServer, createMemoryTable().ddb, allowedContext('hh-9', { name: 'Tom' }), sendToDevice);
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -136,7 +137,7 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
 
   it('sends nothing for someone the resident has not allowed', async () => {
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerSendNoteToTv(mcpServer, {
+    registerSendNoteToTv(mcpServer, createMemoryTable().ddb, {
       householdId: 'hh-9',
       userId: 'u_tom',
       access: async () => ({ ok: false, reason: 'waiting', say: 'Margaret hasn’t allowed this yet.' }),
@@ -156,7 +157,7 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
     sendToDevice.mockRejectedValue(new Error('AccessDeniedException: arn:aws:iam::123456789012:role/wick-mcp'));
 
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-    registerSendNoteToTv(mcpServer, allowedContext('hh-9'), sendToDevice);
+    registerSendNoteToTv(mcpServer, createMemoryTable().ddb, allowedContext('hh-9'), sendToDevice);
 
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.1.0' });
@@ -171,5 +172,87 @@ describe('registerSendNoteToTv (registered tool handler, end to end)', () => {
     const content = result.content as { type: string; text: string }[];
     expect(content[0]!.text).not.toContain('AccessDeniedException');
     expect(content[0]!.text).not.toContain('arn:aws:iam');
+  });
+});
+
+describe('send_note_to_tv sends a note once, however often it is asked (INV-6)', () => {
+  const sent = vi.fn();
+  let clock = 1_800_000_000_000;
+
+  async function sarahsClient(table = createMemoryTable(), userId = 'u_sarah') {
+    const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
+    registerSendNoteToTv(mcpServer, table.ddb, allowedContext('hh-9', { userId, name: 'Sarah' }), sent, () => clock);
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+    return { table, send: (args: Record<string, unknown>) => client.callTool({ name: 'send_note_to_tv', arguments: args }) };
+  }
+
+  beforeEach(() => {
+    sent.mockReset();
+    sent.mockResolvedValue(undefined);
+    clock = 1_800_000_000_000;
+  });
+
+  it('a retried call is answered with the first note, and nothing reaches the television twice', async () => {
+    const sarah = await sarahsClient();
+
+    const first = await sarah.send({ message: 'Lunch on Sunday?', replies: ['yes_please', 'another_day'] });
+    clock += 5_000;
+    const again = await sarah.send({ replies: ['yes_please', 'another_day'], message: 'Lunch on Sunday?' });
+
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(again.structuredContent).toEqual({ ...(first.structuredContent as object), repeated: true });
+  });
+
+  it('the same words after the window are a new note, and so are other words at once', async () => {
+    const sarah = await sarahsClient();
+
+    await sarah.send({ message: 'Goodnight, Mum.' });
+    await sarah.send({ message: 'Sleep well.' });
+    clock += SAME_NOTE_WINDOW_MS + 1;
+    await sarah.send({ message: 'Goodnight, Mum.' });
+
+    expect(sent).toHaveBeenCalledTimes(3);
+  });
+
+  it('is one note per person: someone else in the circle sending the same words sends their own', async () => {
+    const table = createMemoryTable();
+    await (await sarahsClient(table, 'u_sarah')).send({ message: 'Happy birthday!' });
+    await (await sarahsClient(table, 'u_tom')).send({ message: 'Happy birthday!' });
+
+    expect(sent).toHaveBeenCalledTimes(2);
+  });
+
+  it('a note that failed to send can be sent again at once', async () => {
+    const sarah = await sarahsClient();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    sent.mockRejectedValueOnce(new Error('the television channel is down'));
+
+    expect((await sarah.send({ message: 'Are you warm enough?' })).isError).toBe(true);
+    expect((await sarah.send({ message: 'Are you warm enough?' })).structuredContent).toMatchObject({ sent: true });
+    expect(sent).toHaveBeenCalledTimes(2);
+  });
+
+  it('a client’s idempotency key holds for a day, and the same key for another note is refused, not answered', async () => {
+    const sarah = await sarahsClient();
+
+    await sarah.send({ message: 'See you at three.', idempotencyKey: 'try-7f3a9c21' });
+    clock += 60 * 60 * 1000;
+    const retried = await sarah.send({ message: 'See you at three.', idempotencyKey: 'try-7f3a9c21' });
+    const reused = await sarah.send({ message: 'Something else entirely.', idempotencyKey: 'try-7f3a9c21' });
+
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(retried.structuredContent).toMatchObject({ sent: true, repeated: true });
+    expect(reused.structuredContent).toEqual({ say: KEY_ALREADY_USED_TEXT });
+  });
+
+  it('keeps the claim apart from the words: the row holds a hash and the card’s id, never the note', async () => {
+    const sarah = await sarahsClient();
+    await sarah.send({ message: 'Lunch on Sunday?' });
+
+    const rows = JSON.stringify(sarah.table.rows('HH#hh-9'));
+    expect(rows).toContain('ONCE#send_note_to_tv#');
+    expect(rows).not.toContain('Lunch on Sunday');
   });
 });

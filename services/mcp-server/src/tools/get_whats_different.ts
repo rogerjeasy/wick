@@ -30,7 +30,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
+import { z } from 'zod';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -114,6 +115,20 @@ export async function loadWhatsDifferent(
   };
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  differences: z.array(z.strictObject({
+    id: z.string(),
+    kind: z.string().optional().describe('missed_visit, door_at_night, door_quiet, door_busy or visit_disputed.'),
+    sentence: z.string().describe('The sentence the resident was shown when they were asked, word for word.'),
+    at: z.number(),
+    toldAt: z.number(),
+  })).describe('What the resident asked Wick to tell, newest first. Empty says nothing about whether anything is different.'),
+  weeksObserved: z.number().optional(),
+  keptPrivate: z.array(z.string()),
+  summary: z.string().describe('The whole answer in words, to be said as it stands.'),
+});
+
 export function registerGetWhatsDifferent(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -130,6 +145,7 @@ export function registerGetWhatsDifferent(
         'Use it for "is anything different", "is everything all right" or "anything I should know". Say `summary` as it stands. ' +
         'An empty answer means nothing has been told — it does NOT mean nothing is different, so never say that nothing is different, that all is well, or that anything is being kept back. It is not an alert and must not be told as one.',
       inputSchema: {},
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (allowed) => {

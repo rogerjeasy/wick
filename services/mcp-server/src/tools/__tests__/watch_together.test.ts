@@ -778,6 +778,16 @@ describe('following the film', () => {
       expect(card.actions.map((a) => a.id)).toEqual([WATCH_ACTIONS.ok]);
     });
 
+    it('answers a retried call with the answer already given, and sends one card (INV-6)', async () => {
+      const { sarah, sessionId } = await atTheCredits();
+      const first = await sarah.call('answer_watch_together', { sessionId, answer: 'loved_it' });
+
+      const again = await sarah.call('answer_watch_together', { sessionId, answer: 'loved_it' });
+
+      expect(again.structured).toEqual(first.structured);
+      expect(sarah.cards.filter((c) => c.id === watchCardId('answer', sessionId))).toHaveLength(1);
+    });
+
     it('takes one answer from each of them, and tells each what the other said', async () => {
       const { sarah, sessionId, tv, clock } = await atTheCredits();
       await tv.answers('all_right', clock.now + 5_000);

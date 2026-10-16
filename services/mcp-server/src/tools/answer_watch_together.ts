@@ -22,7 +22,7 @@ import { WATCH_ACTIONS, WATCH_ANSWERS, type QueuedCard, type WatchAnswer } from 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { WRITES, data, say } from './result.js';
+import { answerSchema, WRITES, data, say } from './result.js';
 import { NOTHING_ASKED, TABLE, answersInWords, mySession, sessionKey, watchCard, type WatchSession } from './watchSession.js';
 
 const ANSWER_KEYS = Object.keys(WATCH_ANSWERS) as [WatchAnswer, ...WatchAnswer[]];
@@ -55,6 +55,12 @@ export async function answerWatchTogether(
   const session = await mySession(ddb, householdId, userId, sessionId);
   if (!session) return no(NOTHING_ASKED(residentName));
   if (session.askedAt === undefined) return no(NOT_FINISHED_TEXT);
+  const shown = (held: WatchSession, text: string): WatchAnswerOutcome => {
+    const theirAnswer = held.residentAnswer ? WATCH_ANSWERS[held.residentAnswer] : undefined;
+    return { shown: true, by: held.invitedByName, text, ...(theirAnswer ? { theirAnswer } : {}), answersInWords: answersInWords(residentName, text, theirAnswer) };
+  };
+  // INV-6: the same answer asked again (a retried call) is the answer already given; nothing is sent twice.
+  if (session.familyAnswer === answer) return shown(session, WATCH_ANSWERS[answer]);
   if (session.familyAnswer) return no(alreadyAnswered(session));
   if (at >= session.closesAt) return no(`It is too late to put an answer on the television. A note will still reach ${residentName}.`);
 
@@ -70,6 +76,7 @@ export async function answerWatchTogether(
     if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
     // Answered in the moment between the read and the write, from another window.
     const settled = await mySession(ddb, householdId, userId, sessionId);
+    if (settled?.familyAnswer === answer) return shown(settled, WATCH_ANSWERS[answer]);
     return no(settled?.familyAnswer ? alreadyAnswered(settled) : NOT_FINISHED_TEXT);
   }
 
@@ -85,9 +92,17 @@ export async function answerWatchTogether(
     now: at,
   }));
 
-  const theirAnswer = session.residentAnswer ? WATCH_ANSWERS[session.residentAnswer] : undefined;
-  return { shown: true, by, text, ...(theirAnswer ? { theirAnswer } : {}), answersInWords: answersInWords(residentName, text, theirAnswer) };
+  return shown(session, text);
 }
+
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  shown: z.literal(true),
+  by: z.string(),
+  text: z.string().describe('The signed-in family member’s own answer.'),
+  theirAnswer: z.string().optional().describe('The resident’s answer, when they have given one.'),
+  answersInWords: z.string(),
+});
 
 export function registerAnswerWatchTogether(
   mcpServer: McpServer,
@@ -110,6 +125,7 @@ export function registerAnswerWatchTogether(
         sessionId: z.string().min(1).max(64).describe('The `sessionId` get_watch_together returned.'),
         answer: z.enum(ANSWER_KEYS).describe('The key of the chosen answer, e.g. "loved_it".'),
       },
+      outputSchema: OUTPUT,
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { sessionId, answer }: { sessionId: string; answer: WatchAnswer }) => {

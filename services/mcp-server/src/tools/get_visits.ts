@@ -41,7 +41,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 /** Where the house is: the same default as the card she is asked on (services/agent agents/door/actionLambda.ts). */
@@ -130,6 +130,26 @@ export function visitsSummary(visits: readonly VisitForFamily[], residentName: s
   return `${came} ${said}`;
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  days: z.number().int(),
+  visits: z.array(z.strictObject({
+    personId: z.string(),
+    name: z.string(),
+    date: z.string().describe('YYYY-MM-DD, where the house is.'),
+    day: z.string(),
+    arrived: z.string().describe('"9:02 am".'),
+    left: z.string().optional().describe('Absent when nobody was seen leaving.'),
+    arrivedAt: z.number(),
+    leftAt: z.number().optional(),
+    confirmed: z.boolean().describe('The resident herself said this is right. False says only that she has not.'),
+  })).describe('Newest first.'),
+  confirmedCount: z.number().int(),
+  residentName: z.string(),
+  summary: z.string().describe('The whole of it in words, to be said as it stands.'),
+  simulated: z.literal(true).optional().describe('A demo home’s visits: nobody made them.'),
+});
+
 export function registerGetVisits(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext, now: () => number = Date.now): void {
   mcpServer.registerTool(
     'get_visits',
@@ -145,6 +165,7 @@ export function registerGetVisits(mcpServer: McpServer, ddb: DynamoDBClient, ctx
         personId: z.string().optional().describe('The visitor’s `personId` from list_regular_visitors, e.g. "maria". Leave out for every regular visitor.'),
         days: z.number().int().min(1).max(MAX_VISIT_DAYS).optional().describe(`How many days back to look, 1 to ${MAX_VISIT_DAYS}. Leave out for the last ${DEFAULT_VISIT_DAYS}.`),
       },
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { personId, days = DEFAULT_VISIT_DAYS }: { personId?: string | undefined; days?: number | undefined }) => {

@@ -98,7 +98,7 @@ describe('list_regular_visitors (end to end through the registered tool)', () =>
     const result = await client.callTool({ name: 'list_regular_visitors', arguments: {} });
 
     expect(textOf(result)).toBe(FAMILY_REFUSAL_TEXT);
-    expect(result.structuredContent).toBeUndefined();
+    expect(result.structuredContent).toEqual({ say: FAMILY_REFUSAL_TEXT });
   });
 });
 

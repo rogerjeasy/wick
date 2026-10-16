@@ -110,7 +110,7 @@ export function createMcpServer(
   registerGetWeekNarrative(mcpServer, ddb, ctx);
   registerGetToday(mcpServer, ddb, ctx);
   registerDidVisitorCome(mcpServer, ddb, ctx);
-  registerSendNoteToTv(mcpServer, ctx, sendCard);
+  registerSendNoteToTv(mcpServer, ddb, ctx, sendCard);
   registerGetReplies(mcpServer, ddb, ctx);
   registerListRegularVisitors(mcpServer, ddb, ctx);
   registerGetWhatsDifferent(mcpServer, ddb, ctx);

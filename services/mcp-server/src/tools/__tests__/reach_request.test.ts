@@ -84,7 +84,7 @@ describe('get_reach_request', () => {
     const { call } = await connected(table(request()), asDavid);
     const answer = await call('get_reach_request');
     expect(answer.text).toBe(NOT_ASKED);
-    expect(answer.structured).toBeUndefined();
+    expect(answer.structured).toEqual({ say: answer.text });
   });
 
   it('tells the next person once the three minutes have passed them the question', async () => {
@@ -168,6 +168,17 @@ describe('answer_reach_request', () => {
     expect((await second.call('answer_reach_request', { requestId: REACH_ID, answer: 'now' })).text).toBe('David has already answered: “I’ll ring you within the hour.”');
     expect(second.cards).toHaveLength(0);
     expect(stored(t)?.answer?.key).toBe('soon');
+  });
+
+  it('answers a retried call with the answer already given, and sends her television one card (INV-6)', async () => {
+    const t = table(request({ asked: 2 }));
+    const david = await connected(t, asDavid);
+    const first = await david.call('answer_reach_request', { requestId: REACH_ID, answer: 'soon' });
+
+    const again = await david.call('answer_reach_request', { requestId: REACH_ID, answer: 'soon' });
+
+    expect(again.structured).toEqual(first.structured);
+    expect(david.cards).toHaveLength(1);
   });
 
   it('is not open to somebody who was not asked, and tells them nothing', async () => {

@@ -34,7 +34,8 @@ import type { QueuedCard } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
+import { z } from 'zod';
 import { isWaveCardId } from '../accounts/familyTvWave.js';
 import { theirOwnWords } from '../guardian.js';
 
@@ -81,6 +82,16 @@ export async function loadNoteReplies(ddb: DynamoDBClient, householdId: string, 
   return notes.sort((a, b) => b.sentAt - a.sentAt).slice(0, MAX_NOTES);
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  notes: z.array(z.strictObject({
+    from: z.string(),
+    message: z.string().nullable().describe('The note’s words, for the person who wrote them; null for everyone else.'),
+    sentAt: z.number(),
+    reply: z.strictObject({ text: z.string(), at: z.number() }).nullable().describe('The resident’s reply, or null if there is none yet.'),
+  })).describe('Newest first.'),
+});
+
 export function registerGetReplies(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext, now: () => number = Date.now): void {
   mcpServer.registerTool(
     'get_replies',
@@ -90,6 +101,7 @@ export function registerGetReplies(mcpServer: McpServer, ddb: DynamoDBClient, ct
         "Returns this week's notes sent to the household television, newest first: who sent each and when, and the resident's one-button reply, or null if they haven't replied yet. " +
         "`message` is the note's words for a note the person asking wrote themselves, and null for everyone else's: a note is between the person who wrote it and the resident.",
       inputSchema: {},
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async () => {

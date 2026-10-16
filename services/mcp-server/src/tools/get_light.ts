@@ -26,7 +26,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
+import { z } from 'zod';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
@@ -65,6 +66,13 @@ export async function loadLight(ddb: DynamoDBClient, householdId: string, now: n
   };
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  lit: z.boolean(),
+  summary: z.string().describe('The whole answer in words, to be said as it stands.'),
+  seen: z.string().describe('That the resident is told of this look.'),
+});
+
 export function registerGetLight(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -81,6 +89,7 @@ export function registerGetLight(
         'A light that is not lit does NOT mean anything is wrong and does NOT mean the resident is not up: it may not be lit yet, or the resident may have put it out, and the two cannot be told apart — so never say which, and never guess. ' +
         'It carries no time, and must not be told as one. The resident is shown who looked in.',
       inputSchema: {},
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (allowed) => {

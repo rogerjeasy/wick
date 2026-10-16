@@ -20,8 +20,8 @@ import { WATCH_ACTIONS, type QueuedCard } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { WRITES, data, say } from './result.js';
-import { CANCELLED_TEXT, NOTHING_ASKED, TABLE, WITHDRAWN_TEXT, describeWatch, mySession, sessionKey, watchCard, type WatchView } from './watchSession.js';
+import { answerSchema, WRITES, data, say } from './result.js';
+import { CANCELLED_TEXT, NOTHING_ASKED, TABLE, WITHDRAWN_TEXT, describeWatch, mySession, sessionKey, watchCard, type WatchView, WATCH_VIEW } from './watchSession.js';
 
 /**
  * What became of sitting down: the session as it now stands — `already`
@@ -98,6 +98,9 @@ export async function sitDownToWatch(
   return { sat: true, already: false, view: describeWatch({ ...session, joinedAt: at }, at, residentName) };
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema(WATCH_VIEW);
+
 export function registerJoinWatchTogether(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -117,6 +120,7 @@ export function registerJoinWatchTogether(
       inputSchema: {
         sessionId: z.string().min(1).max(64).describe('The `sessionId` get_watch_together returned.'),
       },
+      outputSchema: OUTPUT,
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { sessionId }: { sessionId: string }) => {

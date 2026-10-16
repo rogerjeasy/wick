@@ -28,7 +28,8 @@ import { DOOR_ANSWERS, DOOR_CARD_TTL_MS, DOOR_LOOK_SK_PREFIX, isDoorAnswer, type
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
+import { z } from 'zod';
 import { familyText } from '../guardian.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
@@ -114,6 +115,18 @@ export async function loadDoorRequest(ddb: DynamoDBClient, householdId: string, 
   return newest ? describeLook(ddb, householdId, newest, now) : undefined;
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  requestId: z.string(),
+  askedAt: z.number(),
+  state: z.enum(['waiting', 'answered', 'gone']),
+  line: z.string().optional().describe('"waiting": the door card’s line.'),
+  description: z.string().optional().describe('"waiting": what the picture shows, when Wick is sure.'),
+  pictureUrl: z.string().optional(),
+  answers: z.array(z.strictObject({ key: z.string(), text: z.string() })).optional().describe('"waiting": what can be answered.'),
+  answer: z.strictObject({ by: z.string(), text: z.string(), at: z.number() }).optional().describe('"answered": who answered, and what.'),
+});
+
 export function registerGetDoorRequest(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext, now: () => number = Date.now): void {
   mcpServer.registerTool(
     'get_door_request',
@@ -125,6 +138,7 @@ export function registerGetDoorRequest(mcpServer: McpServer, ddb: DynamoDBClient
         '"answered" (who answered and what), or "gone" (the door card left the television first). ' +
         'Answer a waiting question with answer_door_request, passing this `requestId`.',
       inputSchema: {},
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (allowed) => {

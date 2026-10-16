@@ -273,6 +273,21 @@ Carry `correlationId` from ingress (Ring webhook / MCP request)
 through EventBridge, the agent, persistence, the card payload, and back from the
 device on `card_shown` / `card_action`.
 
+On the family side, a write tool a client sends twice acts once.
+`send_note_to_tv` claims each call first with one conditional write
+(`services/mcp-server/src/tools/once.ts`), keyed on the member, the tool and
+the note's words — or on the client's own `idempotencyKey` when it sends one
+— and held two minutes (a key: a day). A retry inside that window is
+answered with the first note, marked `repeated`, and nothing reaches the
+television again; a send that failed lets its claim go, so the retry is
+tried. The same words sent after the window are a second note, on purpose.
+An answer to the door, to a request to ring or to a film's question, asked
+again by the same person with the same answer, is the answer already given;
+a different one is told the first stands. `expect_visit` and
+`add_regular_visitor` overwrite their own one row, and `invite_to_watch`
+sends no second invitation while one is open. **Never** add a write tool
+that sends anything to a television without one of these.
+
 ### INV-7 — The resident sees their week before the family can read it
 `NARR#<isoWeek>.residentSeenAt` gates family readability. Ordering is enforced on
 the write path, not by convention.
