@@ -8,7 +8,7 @@ Ring's Developer Playground, and Alexa+ is a simulated surface in front of a
 real MCP server. Everything in between runs on AWS in `us-east-1`.
 
 Below, each tool gets the five answers Devpost asks for. The evidence is in
-[`FRICTION.md`](../FRICTION.md): 37 entries, each written when the problem
+[`FRICTION.md`](../FRICTION.md): 40 entries, each written when the problem
 happened, cited here as FL-0xx. Feature requests, with a priority for each, are
 at the end.
 
@@ -55,11 +55,11 @@ Native 0.83 with `react-native-kepler` 4.0.1.*
 
 **Used for:** her television (`apps/tv-vega`): the home screen, the player, the
 cards, and a background service. We used `headless-task-manager` for the
-service, the `NotificationManager` TurboModule for a toast over another app,
-`kepler-media-controls` so a platform pause counts as a natural break,
-`react-native-w3cmedia` for films and the door's live view,
-`kepler-content-personalization` for playback events, and `kepler-file-system`
-for the pairing token.
+service, the parts of react-native-kepler's `useToastKepler` for a toast over
+another app, `kepler-media-controls` so a platform pause counts as a natural
+break, `react-native-w3cmedia` for films and the door's live view,
+`kepler-content-personalization` to report what she watches as she watches it,
+and `kepler-file-system` for the pairing token.
 
 **Worked well:**
 - The SDK is on npm, so the Vega app lives in an ordinary workspace with type
@@ -90,8 +90,16 @@ do nothing.
   command, so "Alexa, pause" can't be tried without a Fire TV (FL-031).
 - WebView crashes on the simulator, and there's no WebRTC module, so Ring's
   live video needs a cloud bridge (FL-015).
-- We never confirmed that Content Personalization updates Continue Watching:
-  the simulator gives no way to see it.
+- Content Personalization's reports are easy to see taken (the platform logs
+  `reportNewPlaybackEvent called` and `completed successfully`), but not where
+  they go: Continue Watching needs a catalogue integration, and an app whose
+  films are in no Amazon catalogue gets no row and no error. The guide's
+  `vega exec loggingctl` command fails; `vega device start-log-stream` works
+  (FL-043).
+- The only documented toast API is a React hook, `useToastKepler`, and the
+  one place a toast is needed, a background service, has no React tree. We post
+  with the hook's own parts from react-native-kepler's ToastKepler directory
+  (FL-044).
 
 **Onboarding:** hello world was quick. Getting our own app running took five
 days, because each problem was silent and came one at a time: a missing icon, a
@@ -110,8 +118,10 @@ credits position are exactly what a calm television app needs. We'd want the
 emulator API 34.*
 
 **Used for:** the same app on Fire OS. It bundles the Vega source with four
-small adapters, and adds an Android foreground service so the door can reach
-her behind another app. Amazon's `react-native-multi-tv-app-sample` was our
+small adapters, adds an Android foreground service so the door can reach
+her behind another app, and makes her film Android's `MediaSession`, so
+"Alexa, pause" and the remote's media keys pass through the same rules as on
+Vega. Amazon's `react-native-multi-tv-app-sample` was our
 reference, and we contributed to it.
 
 **Worked well:**
@@ -121,6 +131,9 @@ reference, and we contributed to it.
   uses something an adapter doesn't offer.
 - Headless JS inside a foreground service ran the Vega app's channel code
   unchanged.
+- Android's `MediaSession` and `cmd media_session dispatch` made her film's
+  session easy to prove on the emulator, and the same remote-key echo seen on
+  Vega appeared and was handled by the same shared filter.
 - CI builds the APK on every change.
 
 **Needs work:**
@@ -130,6 +143,9 @@ reference, and we contributed to it.
 - One OK button arrives in three different shapes, which isn't in the Fire TV
   React Native guide. Our first two-second hold mistook a short press for a hold
   (FL-028).
+- Fire TV's Alexa and Vega's media controls send the same words as different
+  commands: absolute seeks against relative skips, and no explicit start over.
+  Neither can be sent without a device (FL-042).
 - The no-heads-up-over-another-app rule is only in a 2021 blog post, with no
   exception for a doorbell. The emulator draws no third-party notifications, so
   we could only check ours in the system log (FL-035, FL-036).
