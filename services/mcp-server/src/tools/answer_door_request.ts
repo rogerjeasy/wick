@@ -18,14 +18,14 @@
  * resident reading "it's all right" and then "don't open the door": the
  * write is conditional, and whoever comes second is told what was said.
  */
-import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { PutItemCommand, type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { z } from 'zod';
 import { DOOR_ANSWERS, type CardPatch, type DoorAnswer } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { NOBODY_ASKED, describeLook, loadLookRow } from './get_door_request.js';
-import { WRITES, data, say, type AnswerOutcome } from './result.js';
+import { ANSWER_OUTCOME, WRITES, data, say, type AnswerOutcome } from './result.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -64,7 +64,9 @@ export async function answerDoorRequest(
   const row = await loadLookRow(ddb, householdId, requestId);
   const request = row ? await describeLook(ddb, householdId, row, now) : undefined;
   if (!row || !request) return { shown: false, say: NOBODY_ASKED(residentName) };
-  if (request.state === 'answered') return { shown: false, say: alreadyAnswered(request.answer) };
+  // INV-6: this person's own answer, asked again (a retried call), is the answer they gave — not someone else's.
+  const theirs = (held: Record<string, AttributeValue> | undefined): boolean => held?.answeredBy?.S === who.userId && held.answerKey?.S === answer;
+  if (request.state === 'answered') return theirs(row) ? { shown: true, by: request.answer.by, text: request.answer.text } : { shown: false, say: alreadyAnswered(request.answer) };
   if (request.state === 'gone') {
     return { shown: false, say: `The door card has already gone from the television, so an answer cannot be shown on it. A note or a telephone call will still reach ${residentName}.` };
   }
@@ -87,6 +89,7 @@ export async function answerDoorRequest(
     // Someone answered in the moment between the read and the write.
     const latest = await loadLookRow(ddb, householdId, requestId);
     const settled = latest ? await describeLook(ddb, householdId, latest, now) : undefined;
+    if (settled?.state === 'answered' && theirs(latest)) return { shown: true, by: settled.answer.by, text: settled.answer.text };
     return { shown: false, say: settled?.state === 'answered' ? alreadyAnswered(settled.answer) : NOBODY_ASKED(residentName) };
   }
 
@@ -94,6 +97,9 @@ export async function answerDoorRequest(
   await sendPatch({ cardId: request.requestId, notice: `${by} says: ${text}` }, householdId);
   return { shown: true, by, text };
 }
+
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = ANSWER_OUTCOME;
 
 export function registerAnswerDoorRequest(
   mcpServer: McpServer,
@@ -115,6 +121,7 @@ export function registerAnswerDoorRequest(
         requestId: z.string().min(1).max(64).describe('The `requestId` get_door_request returned for the question being answered.'),
         answer: z.enum(ANSWER_KEYS).describe('The key of the chosen answer, e.g. "dont_open".'),
       },
+      outputSchema: OUTPUT,
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { requestId, answer }: { requestId: string; answer: DoorAnswer }) => {

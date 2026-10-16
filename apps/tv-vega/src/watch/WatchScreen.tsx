@@ -39,7 +39,7 @@ import * as React from 'react';
 import { BackHandler, StyleSheet, Text, View, useKeplerAppStateManager, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import type { HouseholdLanguage } from '@wick/contracts';
-import { fontSize, safe } from '@wick/vega-calm-ui';
+import { useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
 import { words } from '../words/words.js';
 import { PlayerService, type PlayerSnapshot } from '../player/PlayerService.js';
@@ -101,6 +101,7 @@ type Status = 'opening' | 'playing' | 'paused' | 'failed';
 
 export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
   const { programme } = props;
+  const styles = useCalmStyles(makeStyles);
   const [player, setPlayer] = React.useState<VideoPlayer | null>(null);
   const [status, setStatus] = React.useState<Status>('opening');
 
@@ -309,29 +310,30 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  notice: {
-    position: 'absolute',
-    left: 48,
-    bottom: 32,
-    backgroundColor: safe.raised,
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    gap: 4,
-  },
-  noticeText: {
-    color: safe.ink,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-  attribution: {
-    color: safe.inkDim,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: '#000000',
+    },
+    notice: {
+      position: 'absolute',
+      left: 48,
+      bottom: 32,
+      backgroundColor: t.palette.raised,
+      borderRadius: 16,
+      paddingVertical: 16,
+      paddingHorizontal: 24,
+      gap: 4,
+    },
+    noticeText: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+    attribution: {
+      color: t.palette.inkDim,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+  });

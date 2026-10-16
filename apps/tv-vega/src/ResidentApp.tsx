@@ -65,13 +65,26 @@
  * (watch/remoteKeys.ts playIsTheCards). Only when she asks: nothing here
  * ever starts a reading by itself. And where reading cannot work the mark
  * of the key is not drawn and Play is the film's from the first press.
+ *
+ * Easier to see (seeing/seeing.ts). A pill on the home screen opens its
+ * card, drawn here like any card and held to the same one second. Its
+ * presses change the whole television through the provider at the root
+ * (seeing/SeeingProvider.tsx). A card from the server comes over it, and
+ * it is there again when that card has gone.
+ *
+ * The platform's screen reader (VoiceView). When it is on, each card that
+ * comes on screen is announced once (read/announce.ts); her pictures never
+ * fill an idle home screen — a slideshow is moving content, and the reader
+ * would speak over it (mantel/idle.ts); and the mark of the Play key is not
+ * drawn, since the reader already speaks the card. Play itself still reads.
  */
 import * as React from 'react';
 import { Linking } from 'react-native';
 import { BackHandler, StyleSheet, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import type { DeviceEvent, DeviceToken, HomeState, HouseholdLanguage, MantelItem, QueuedCard } from '@wick/contracts';
-import { safe } from '@wick/vega-calm-ui';
+import { announce, useCalmStyles, useScreenReaderEnabled, type CalmTheme } from '@wick/vega-calm-ui';
+import { speechTextOf } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
 import { LiveView } from './live/LiveView.js';
@@ -108,6 +121,10 @@ import { holdCardChannel, type RunningCardChannel } from './transport/startCardC
 import { launchCardService } from './headless/launchCardService.js';
 import type { DeviceConfig } from './config.js';
 import { useOnScreen } from './useOnScreen.js';
+import { announcer } from './read/announce.js';
+import { SeeingCard } from './seeing/SeeingCard.js';
+import { useSeeing } from './seeing/SeeingProvider.js';
+import { SEEING_CARD, seeingActions, seeingCardShows } from './seeing/seeing.js';
 
 const QUEUE_POLL_MS = 1000;
 
@@ -218,7 +235,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
    * drawn — by its id, so the same card drawn again stays live.
    */
   const settle = React.useMemo(() => pressSettle(), []);
-  settle.appeared(card?.id ?? null, Date.now());
+
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
@@ -235,6 +252,14 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   // Bumped on the way back from live view: remounting the card re-applies its
   // preferred focus, so OK works again at once rather than after an arrow key.
   const [returnedFromLive, setReturnedFromLive] = React.useState(0);
+  /** Easier to see: she opened its card, and the button on it she pressed last. */
+  const [seeingOpen, setSeeingOpen] = React.useState(false);
+  const [seeingFocus, setSeeingFocus] = React.useState<string | undefined>(undefined);
+  const seeing = useSeeing();
+  const styles = useCalmStyles(makeStyles);
+  const seeingShown = seeingCardShows({ open: seeingOpen, card: card !== null, liveOpen: liveFor !== null });
+  // Its one second, like any card's: counted from when it comes on screen, by its name.
+  settle.appeared(card?.id ?? (seeingShown ? SEEING_CARD : null), Date.now());
 
   // The card channel lives here, in the process that renders, for as long
   // as Wick is on screen: the one QueueStore instance the render loop reads
@@ -247,8 +272,9 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   // the card instead.
   const onScreen = useOnScreen();
   /** What is on screen now, for the look below, which runs between renders. */
-  const screenNow = React.useRef({ watching: false, mantelOpen: false, liveOpen: false, onScreen: true });
-  screenNow.current = { watching: watching !== null, mantelOpen, liveOpen: liveFor !== null, onScreen };
+  const screenReader = useScreenReaderEnabled();
+  const screenNow = React.useRef({ watching: false, mantelOpen: false, liveOpen: false, onScreen: true, seeing: false, screenReader: false });
+  screenNow.current = { watching: watching !== null, mantelOpen, liveOpen: liveFor !== null, onScreen, seeing: seeingShown, screenReader };
   /** The channel while it is held, for the one thing the app asks on it by itself: its cards again (below). */
   const cardChannel = React.useRef<RunningCardChannel | null>(null);
   /**
@@ -421,8 +447,11 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
         watching: on.watching,
         mantelOpen: on.mantelOpen,
         liveOpen: on.liveOpen,
-        cardShowing: shown !== undefined,
+        // The Easier to see card is a card on screen like any other: the home is not quiet under it.
+        cardShowing: shown !== undefined || on.seeing,
         waiting: waitingCard !== undefined,
+        // A screen reader is on: no slideshow (mantel/idle.ts).
+        screenReader: on.screenReader,
         home,
         now,
         idle: idleNow.current,
@@ -507,6 +536,12 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     lightAsked.asked(at);
     void store.enqueueOutbound({ t: 'light', at });
   }, [store, lightAsked]);
+
+  // Easier to see: the pill opens its card; its first button holds the focus.
+  const handleOpenSeeing = React.useCallback(() => {
+    setSeeingFocus(undefined);
+    setSeeingOpen(true);
+  }, []);
 
   // OK held for two seconds: ask for the card that offers to have someone ring her.
   const handleHold = React.useCallback(() => {
@@ -673,6 +708,35 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     [store, card, guard, breakController, reachAsked, settle],
   );
 
+  // A press on the Easier to see card: held to the card's one second and the hold's thumb like any card's, then
+  // the provider's to act on (seeing/SeeingProvider.tsx). Back closes it.
+  const handleSeeingAction = React.useCallback(
+    (actionId: string) => {
+      const now = Date.now();
+      if (guard.swallows(now)) return;
+      if (blocksHome(idleNow.current)) return;
+      if (!settle.acts(now)) return;
+      setSeeingFocus(actionId);
+      if (seeing.press(actionId)) setSeeingOpen(false);
+    },
+    [guard, settle, seeing],
+  );
+
+  // The platform's screen reader is told of each card once, as it comes on screen (read/announce.ts): the words
+  // Play would read, in the order it would read them.
+  const announcements = React.useMemo(() => announcer(), []);
+  const announced = onScreen && liveFor === null ? (card ? card.id : seeingShown ? SEEING_CARD : null) : null;
+  const announceWords = React.useRef<() => string>(() => '');
+  announceWords.current = () => {
+    if (card) return speechTextOf(card.card).join(' ');
+    if (!language) return '';
+    const say = words(language);
+    return [say('seeing.headline'), say('seeing.detail'), ...seeingActions(seeing.preferences, say).map((action) => action.label)].join(' ');
+  };
+  React.useEffect(() => {
+    if (announcements.shown(announced, screenReader)) announce(announceWords.current());
+  }, [announcements, announced, screenReader]);
+
   // Back on a waiting card the resident opened puts it back to waiting.
   // Registered again whenever what is on screen changes, so it is asked
   // before the screens underneath; it declines anything that is not its own.
@@ -684,6 +748,11 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
         idleNow.current = back.idle;
         setIdle(back.idle);
         lastActiveAt.current = Date.now();
+        return true;
+      }
+      // Back on the Easier to see card puts it away, as its own Back does.
+      if (seeingShown) {
+        setSeeingOpen(false);
         return true;
       }
       if (!backClosesOpened({ openedId: openedId.current, shownId: card?.id ?? null, liveOpen: liveFor !== null })) return false;
@@ -698,13 +767,13 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       return true;
     });
     return () => sub.remove();
-  }, [card, liveFor, handleAction]);
+  }, [card, liveFor, handleAction, seeingShown]);
 
   // Not yet known which language to say it in: a moment, at launch. Nothing is drawn in the wrong one.
   if (language === null) return <View style={styles.unlit} />;
   const say = words(language);
   // The home screen behind whatever is over it (home/behind.ts): while a card is on screen, none of it is drawn.
-  const behind = homeBehind({ card: card !== null, mantelOpen, idle });
+  const behind = homeBehind({ card: card !== null || seeingShown, mantelOpen, idle });
 
   return (
     <View style={styles.screen}>
@@ -743,6 +812,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           lookedIn={lookedIn}
           mantel={offersMantel(home) ? say('home.mantel') : undefined}
           onOpenMantel={handleOpenMantel}
+          seeing={say('seeing.entry')}
+          onOpenSeeing={handleOpenSeeing}
           onHold={handleHold}
           onKeyUp={handleKeyUp}
         />
@@ -770,8 +841,14 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       {card && !liveFor ? (
         <View style={styles.cardLayer} pointerEvents="box-none">
           <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} language={language} onAction={handleAction} onPictureFailed={handlePictureFailed} />
-          {/* The mark of the Play key: Play reads this card aloud. Only where it can. */}
-          {readable ? <ReadHint cardType={card.card.type} language={language} /> : null}
+          {/* The mark of the Play key: Play reads this card aloud. Only where it can — and not while a screen reader speaks the card already. */}
+          {readable && !screenReader ? <ReadHint cardType={card.card.type} language={language} /> : null}
+        </View>
+      ) : null}
+      {/* Easier to see, where any card goes. A card from the server comes over it; it is back when that card has gone. */}
+      {seeingShown && !watching ? (
+        <View style={styles.cardLayer} pointerEvents="box-none">
+          <SeeingCard language={language} focusId={seeingFocus} onAction={handleSeeingAction} />
         </View>
       ) : null}
       {/* Back returns to the card as it was. */}
@@ -791,21 +868,22 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  // The home screen's own ground, with nothing on it yet.
-  unlit: {
-    flex: 1,
-    backgroundColor: safe.ground,
-  },
-  // The door card anchors itself to the same corner (DoorCard.tsx); every
-  // other card is laid out by this.
-  cardLayer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    paddingHorizontal: 48,
-    paddingBottom: 32,
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    screen: {
+      flex: 1,
+    },
+    // The home screen's own ground, with nothing on it yet.
+    unlit: {
+      flex: 1,
+      backgroundColor: t.palette.ground,
+    },
+    // The door card anchors itself to the same corner (DoorCard.tsx); every
+    // other card is laid out by this.
+    cardLayer: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'flex-end',
+      paddingHorizontal: 48,
+      paddingBottom: 32,
+    },
+  });

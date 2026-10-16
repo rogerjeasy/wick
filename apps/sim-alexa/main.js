@@ -5,6 +5,7 @@
  * directory's README for why this exists.
  */
 import {
+  CAROUSEL_INLINE,
   DECLINED_RESULT,
   FILMS,
   HELP_TEXT,
@@ -15,6 +16,7 @@ import {
   applicationServerKey,
   confirmWrite,
   describeCall,
+  developerMode,
   doorQuestionToAnnounce,
   encodeWithin,
   follow,
@@ -27,6 +29,7 @@ import {
   photoNews,
   photoOffer,
   photoRetry,
+  presentChecklist,
   presentCircle,
   presentConnect,
   presentPairLink,
@@ -116,10 +119,18 @@ function setStatus(text, state = 'idle') {
   el.dataset.state = state;
 }
 
-/** Everything that asks the server: the chips, the text field and its button. */
+/**
+ * Everything that asks the server: the chips, the text field and its button.
+ * Signed out, the first screen is the link card and nothing else: the field
+ * and the chips would only be things that cannot be pressed yet.
+ */
 function enableToolButtons(enabled) {
   for (const el of document.querySelectorAll('.chip, #ask-input, #ask-send, #ask-voice')) el.disabled = !enabled;
   $('link-card').hidden = enabled;
+  if ($('dock')) $('dock').hidden = !enabled;
+  // There are no answers to speak until there is somebody to answer.
+  $('speak-toggle').hidden = !enabled;
+  log.dataset.signedIn = String(enabled);
   $('sign-out').hidden = !enabled;
   if ($('account')) $('account').hidden = !enabled;
 }
@@ -278,13 +289,15 @@ function signedOut(reason) {
   stopLookingAtLanguage();
   stopLookingAtPictures();
   stopListening({ discard: true });
+  stopChecklist();
   $('light').hidden = true;
   // A link that ended by itself cannot tell the server; the browser still stops listening.
   void forgetThisBrowser({ tellServer: false });
   enableToolButtons(false);
   // No home, so no stand-in doorbell among the chips.
   showSuggestions();
-  setStatus(reason);
+  // Plainly signed out is what the first screen already shows: the bar does not say it again.
+  setStatus(reason, reason === 'Not connected' ? 'signed-out' : 'idle');
   // The link card is back on screen, so its demo button must be decided
   // again: a link that had expired used to leave it hidden.
   void offerDemoIfAllowed();
@@ -474,7 +487,11 @@ let lastCustomerTurn = null;
 
 /**
  * Keep the question and the start of its answer in view: the sentence is
- * the answer, and a long card must not push it off the top.
+ * the answer, and a long card must not push it off the top. The question
+ * goes to the top only when what follows it fills the screen; otherwise the
+ * browser stops at the end of the conversation, with the question further
+ * down and nothing empty under the answer. No room is kept under the last
+ * turn for it (styles.css .log).
  */
 function scrollToEnd() {
   if (lastCustomerTurn) log.scrollTop = lastCustomerTurn.offsetTop - 12;
@@ -552,13 +569,29 @@ function renderRows(card) {
  * there is nothing further to confirm, because nothing is sent that the
  * button did not say.
  */
-function renderDoorCard(card) {
-  const node = el('article', 'card door');
+/**
+ * A card's header: the title, and the line under it. The title is the
+ * card's name for a screen reader too (aria-labelledby), so a list of cards
+ * can be moved through by name.
+ */
+let cardIds = 0;
+function cardHead(node, title, meta) {
   const head = el('div', 'card-head');
-  head.appendChild(el('h2', 'card-title', card.title));
-  head.appendChild(el('span', 'card-meta', card.meta));
+  const heading = el('div', 'card-heading');
+  const h = el('h2', 'card-title', title);
+  h.id = `card-${(cardIds += 1)}`;
+  node.setAttribute('aria-labelledby', h.id);
+  heading.appendChild(h);
+  if (meta) heading.appendChild(el('span', 'card-meta', meta));
+  head.appendChild(heading);
   node.appendChild(head);
+  return head;
+}
 
+/** @param {string} [said]  the sentence above it: the vision model's sentence is not shown twice, and stays the picture's alt text */
+function renderDoorCard(card, said) {
+  const node = el('article', 'card door');
+  // The picture first, as on her television: it is what she is asking about.
   if (card.pictureUrl) {
     const picture = el('img', 'door-picture');
     picture.src = card.pictureUrl;
@@ -566,19 +599,87 @@ function renderDoorCard(card) {
     // Ring's address for the picture is signed: it is not passed on to anyone.
     picture.referrerPolicy = 'no-referrer';
     node.appendChild(picture);
-  } else {
-    node.appendChild(el('p', 'empty', 'The picture has not arrived yet.'));
   }
-  if (card.description) node.appendChild(el('p', 'door-description', card.description));
+  cardHead(node, card.title, card.meta);
+  if (!card.pictureUrl) node.appendChild(el('p', 'empty', 'The picture has not arrived yet.'));
+  if (card.description && !String(said ?? '').includes(card.description)) node.appendChild(el('p', 'primary-text door-description', card.description));
 
   const answers = el('div', 'door-answers');
+  answers.setAttribute('role', 'group');
+  answers.setAttribute('aria-label', 'Your answer, shown on her television');
   for (const answer of card.answers) {
     const button = el('button', 'btn', answer.text);
     button.type = 'button';
-    button.addEventListener('click', () => void answerFromCard('answer_door_request', card.requestId, answer.key, answers));
+    button.addEventListener('click', () => void answerFromCard('answer_door_request', card.requestId, answer.key, answers, button));
     answers.appendChild(button);
   }
   node.appendChild(answers);
+  node.appendChild(cardFoot(card.footnote));
+  return node;
+}
+
+/**
+ * The week: the paragraph the Narrator wrote, how it measured against a
+ * usual one, and a carousel of the days its timeline has something on — the
+ * design guide's Carousel, a row of items scrolled sideways, the first few
+ * inline and "See all" for the rest. Every word is the tool's, or the
+ * page's own labels; all of it is put on the page as text.
+ *
+ * @param {object} card  surface.js presentWeek's card
+ * @param {string} said  the sentence above it: the paragraph is not shown twice
+ */
+function renderWeekCard(card, said) {
+  const node = el('article', 'card week');
+  cardHead(node, card.title, card.meta);
+  if (card.text && !String(said ?? '').includes(card.text)) node.appendChild(el('p', 'primary-text', card.text));
+
+  if (card.facts?.length) {
+    const facts = el('dl', 'measures');
+    for (const fact of card.facts) {
+      const item = el('div', 'measure');
+      item.append(el('dt', undefined, fact.label), el('dd', undefined, fact.value));
+      facts.appendChild(item);
+    }
+    node.appendChild(facts);
+  }
+
+  if (card.days.length === 0) {
+    node.appendChild(el('p', 'empty', card.empty ?? 'Nothing to show.'));
+  } else {
+    const days = el('ul', 'carousel');
+    // A row that scrolls sideways is reached by the keyboard too: it takes the focus, and the arrow keys move it.
+    days.tabIndex = 0;
+    days.setAttribute('aria-label', `${card.title}, day by day`);
+    for (const day of card.days) {
+      const item = el('li', 'day');
+      const head = el('div', 'day-head');
+      head.append(el('h3', 'day-name', day.weekday), el('span', 'card-meta', day.dayMonth));
+      item.appendChild(head);
+      item.appendChild(el('p', 'day-count', day.count));
+      const entries = el('ul', 'day-entries');
+      for (const entry of day.entries) {
+        const line = el('li');
+        line.append(el('span', 'day-time', entry.time), el('span', undefined, entry.text));
+        entries.appendChild(line);
+      }
+      item.appendChild(entries);
+      days.appendChild(item);
+    }
+    node.appendChild(days);
+    if (card.days.length > CAROUSEL_INLINE) {
+      days.dataset.collapsed = 'true';
+      const more = el('button', 'btn link', `See all ${card.days.length} days`);
+      more.type = 'button';
+      more.setAttribute('aria-expanded', 'false');
+      more.addEventListener('click', () => {
+        const collapsed = days.dataset.collapsed === 'true';
+        days.dataset.collapsed = String(!collapsed);
+        more.setAttribute('aria-expanded', String(collapsed));
+        more.textContent = collapsed ? 'Show fewer' : `See all ${card.days.length} days`;
+      });
+      node.appendChild(more);
+    }
+  }
   node.appendChild(cardFoot(card.footnote));
   return node;
 }
@@ -592,17 +693,14 @@ function renderDoorCard(card) {
 function renderReachCard(card) {
   const node = el('article', 'card reach');
   node.dataset.requestId = card.requestId;
-  const head = el('div', 'card-head');
-  head.appendChild(el('h2', 'card-title', card.title));
-  head.appendChild(el('span', 'card-meta', card.meta));
-  node.appendChild(head);
+  cardHead(node, card.title, card.meta);
 
   // Laid out as the door's answers are: each its own full-width button.
   const answers = el('div', 'door-answers');
   for (const answer of card.answers) {
     const button = el('button', 'btn', answer.text);
     button.type = 'button';
-    button.addEventListener('click', () => void answerFromCard('answer_reach_request', card.requestId, answer.key, answers));
+    button.addEventListener('click', () => void answerFromCard('answer_reach_request', card.requestId, answer.key, answers, button));
     answers.appendChild(button);
   }
   node.appendChild(answers);
@@ -620,9 +718,7 @@ function renderReachCard(card) {
  */
 function renderVisitsCard(card) {
   const node = el('article', 'card visits');
-  const head = el('div', 'card-head');
-  head.appendChild(el('h2', 'card-title', card.title));
-  node.appendChild(head);
+  cardHead(node, card.title, card.meta);
   node.appendChild(renderRows(card));
   if (card.more) node.appendChild(el('p', 'visits-note', card.more));
   node.appendChild(el('p', 'visits-note', card.note));
@@ -631,11 +727,13 @@ function renderVisitsCard(card) {
 }
 
 /** The press on an answer's button, for the door and for a request to ring alike: the tool is called with the card's request and the button's key. */
-async function answerFromCard(tool, requestId, answer, buttons) {
+async function answerFromCard(tool, requestId, answer, buttons, pressed) {
   const all = [...buttons.querySelectorAll('button')];
   for (const button of all) button.disabled = true;
   try {
     const result = await callTool(tool, { requestId, answer });
+    // The answer given stays marked on the card; the others are put out of use.
+    if (result.isError !== true && pressed) pressed.setAttribute('aria-pressed', 'true');
     // Whatever came back has just been said here: the next look does not say it again (reachToAnnounce).
     if (tool === 'answer_reach_request' && result.isError !== true) reachSeen.set(requestId, 'answered');
     assistantSays(presentResult(tool, result.content?.[0]?.text ?? '', {}, formatTime, result.isError === true));
@@ -648,18 +746,23 @@ async function answerFromCard(tool, requestId, answer, buttons) {
   }
 }
 
-function renderCard(card) {
-  if (card.kind === 'door') return renderDoorCard(card);
+/**
+ * A tool's card, in the design guide's vocabulary: a header, the primary
+ * text, an image where the tool returned one, and at most three actions.
+ *
+ * @param {object} card  surface.js's card
+ * @param {string} [said]  the sentence above it, so that a card does not say it again
+ */
+function renderCard(card, said) {
+  if (card.kind === 'door') return renderDoorCard(card, said);
+  if (card.kind === 'week') return renderWeekCard(card, said);
   if (card.kind === 'reach') return renderReachCard(card);
   if (card.kind === 'visits') return renderVisitsCard(card);
   if (card.kind === 'watch') return renderWatchCard(card);
   if (card.kind === 'invitation') return renderInvitationCard(card);
   if (card.kind === 'light') return renderLightCard(card);
-  const node = el('article', 'card');
-  const head = el('div', 'card-head');
-  head.appendChild(el('h2', 'card-title', card.title));
-  if (card.meta) head.appendChild(el('span', 'card-meta', card.meta));
-  node.appendChild(head);
+  const node = el('article', `card ${card.kind ?? ''}`.trim());
+  cardHead(node, card.title, card.meta);
 
   if (card.facts?.length) {
     const facts = el('dl', 'facts');
@@ -705,7 +808,7 @@ function fillAssistantTurn(turn, presented) {
   const say = el('p', 'say', presented.say);
   say.dataset.tone = presented.tone;
   turn.appendChild(say);
-  if (presented.card) turn.appendChild(renderCard(presented.card));
+  if (presented.card) turn.appendChild(renderCard(presented.card, presented.say));
   speak(presented.say);
   scrollToEnd();
 }
@@ -715,7 +818,7 @@ async function askTool(tool, args, context = {}) {
   try {
     const result = await callTool(tool, args);
     const text = result.content?.[0]?.text ?? '';
-    fillAssistantTurn(turn, presentResult(tool, text, context, formatTime, result.isError === true));
+    fillAssistantTurn(turn, presentResult(tool, text, { timeZone: me?.household.timeZone, ...context }, formatTime, result.isError === true));
   } catch (err) {
     fillAssistantTurn(turn, { say: err.message, card: null, tone: 'error' });
   }
@@ -828,7 +931,7 @@ function fillTurn(turn, presented) {
   const say = el('p', 'say', presented.say);
   say.dataset.tone = presented.tone;
   turn.appendChild(say);
-  for (const card of presented.cards) turn.appendChild(renderCard(card));
+  for (const card of presented.cards) turn.appendChild(renderCard(card, presented.say));
   if (presented.trace) turn.appendChild(el('p', 'trace', presented.trace));
   speak(presented.say);
   scrollToEnd();
@@ -847,7 +950,7 @@ async function runCall(turn, call) {
     const isError = result.isError === true;
     return {
       result: { id: call.id, name: call.name, text, ...(isError ? { isError: true } : {}) },
-      presented: presentResult(call.name, text, { message: call.args?.message, now: Date.now() }, formatTime, isError),
+      presented: presentResult(call.name, text, { message: call.args?.message, now: Date.now(), timeZone: me?.household.timeZone }, formatTime, isError),
     };
   } catch (err) {
     return {
@@ -972,9 +1075,9 @@ function assistantSays(presented) {
 
 /**
  * Says something nobody asked for — a question from the door, a request to
- * ring — and brings it to the top of the conversation. There is no question
- * above it to scroll to (scrollToEnd), and left to that rule it lands out of
- * sight: above the room kept under the last turn, or below an earlier answer.
+ * ring — and brings it into view, at the top where what follows fills the
+ * screen. There is no question above it to scroll to (scrollToEnd), and left
+ * to that rule it could land below an earlier answer, out of sight.
  */
 function announce(presented) {
   const turn = assistantSays(presented);
@@ -1013,7 +1116,7 @@ async function lookForDoorQuestion() {
     const known = presented.card?.kind === 'door' ? announcedDoorQuestions.get(presented.card.requestId) : undefined;
     if (known && known.shown !== text && !known.turn.querySelector('.door-answers button:disabled')) {
       known.shown = text;
-      known.turn.querySelector('.card.door')?.replaceWith(renderCard(presented.card));
+      known.turn.querySelector('.card.door')?.replaceWith(renderCard(presented.card, presented.say));
     }
   } catch {
     // A look that failed is tried again; nothing is said about it.
@@ -1082,6 +1185,8 @@ document.addEventListener('visibilitychange', () => {
   void languageCard?.look();
   // Or seen a picture that was waiting on her television.
   void pictureCard?.look();
+  // Or pressed Allow on the Circle card, which is what somebody setting up has just gone to her television to see.
+  if (checklist?.timer) void lookAtChecklist();
 });
 
 // A nudge that arrives while this page is open (sw.js): look at once.
@@ -1815,11 +1920,11 @@ function addConnectTelevision({ prefill, wanted } = {}) {
     // Nobody needs a Fire TV to see the resident's side: a television in a
     // browser tab pairs with the same code and shows the same cards.
     const hint = el('p', 'empty', 'No Fire TV to hand? ');
-    const tv = el('a', undefined, 'Open a virtual television');
+    const tv = el('a', undefined, 'Open her television in a browser tab');
     tv.href = me.virtualTelevisionUrl;
     tv.target = '_blank';
     tv.rel = 'noopener';
-    hint.append(tv, ', press “Pair & connect” there, and enter its code here.');
+    hint.append(tv, ' and enter the code on the television here.');
     rest.appendChild(hint);
   }
 
@@ -2668,6 +2773,121 @@ async function showCircle() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Getting started: what is left to set up, as steps that tick themselves off.
+// What each step says, and which is next, is decided in surface.js
+// (presentChecklist) from real state; this draws it, and keeps looking while
+// it waits on her press on the Circle card.
+// ---------------------------------------------------------------------------
+
+/** The people who have asked a question from this browser: the checklist's last step. Only an id is kept. */
+const ASKED_KEY = 'wick_asked';
+/** As often as the door is looked at: her press is one press, and may be minutes away. */
+const CHECKLIST_LOOK_MS = 5000;
+/** The one checklist on the page: `{ turn, steps, action, televisions, timer }`. */
+let checklist = null;
+
+function askedHere() {
+  try {
+    const asked = JSON.parse(localStorage.getItem(ASKED_KEY) ?? '[]');
+    return Boolean(me) && Array.isArray(asked) && asked.includes(me.user.userId);
+  } catch {
+    return false;
+  }
+}
+
+/** A question was asked: the last step is done, and the checklist on the page, if there is one, says so. */
+function noteAsked() {
+  if (!me || me.membership.status !== 'allowed' || askedHere()) return;
+  try {
+    const asked = JSON.parse(localStorage.getItem(ASKED_KEY) ?? '[]');
+    localStorage.setItem(ASKED_KEY, JSON.stringify([...(Array.isArray(asked) ? asked : []), me.user.userId].slice(-20)));
+  } catch {
+    // Not kept in this browser: the step is ticked on this page only.
+  }
+  if (checklist) fillChecklist(presentChecklist(me, checklist.televisions, true));
+}
+
+function stopChecklist() {
+  if (checklist?.timer) clearInterval(checklist.timer);
+  checklist = null;
+}
+
+/** Fills the checklist's steps for how things stand now. The line under them is a live region: "All set." is heard when it comes. */
+function fillChecklist(view) {
+  if (!checklist || !view) return;
+  checklist.action = null;
+  checklist.steps.replaceChildren(...view.steps.map((step, i) => {
+    const li = el('li', step.done ? 'step done' : step.key === view.current ? 'step current' : 'step');
+    if (step.key === view.current) li.setAttribute('aria-current', 'step');
+    const mark = el('span', 'step-mark', step.done ? '✓' : String(i + 1));
+    mark.setAttribute('aria-hidden', 'true');
+    const words = el('div', 'step-words');
+    const title = el('p', 'step-title');
+    title.append(el('span', 'sr-only', step.done ? 'Done: ' : step.key === view.current ? 'Next: ' : 'Then: '), step.title);
+    words.append(title, el('p', 'step-detail', step.detail));
+    if (step.action) {
+      const button = el('button', 'btn final', step.action.label);
+      button.type = 'button';
+      button.addEventListener('click', () => {
+        if (step.action.kind === 'connect') addConnectTelevision();
+        else if (step.action.kind === 'ask') void handleUtterance(step.action.utterance);
+      });
+      words.appendChild(button);
+      checklist.action = button;
+    }
+    li.append(mark, words);
+    return li;
+  }));
+  checklist.status.textContent = view.complete ? 'All set.' : '';
+  // Looking goes on only while it waits on her press.
+  if (view.waiting && checklist.timer === null) checklist.timer = setInterval(() => void lookAtChecklist(), CHECKLIST_LOOK_MS);
+  else if (!view.waiting && checklist.timer !== null) {
+    clearInterval(checklist.timer);
+    checklist.timer = null;
+  }
+}
+
+/** Puts the checklist at the end of the conversation — one on the page, so an older one goes — unless nothing is left to set up. */
+function showChecklist(televisions) {
+  if (checklist) {
+    checklist.turn.remove();
+    stopChecklist();
+  }
+  const view = me ? presentChecklist(me, televisions, askedHere()) : null;
+  if (!view || view.complete) return;
+  const turn = el('div', 'turn-assistant');
+  const { card, body } = plainCard(view.title, 'Each step ticks itself off when it is true.');
+  card.classList.add('checklist');
+  const steps = el('ol', 'steps');
+  const status = el('p', 'watch-status');
+  status.setAttribute('role', 'status');
+  body.append(steps, status);
+  turn.appendChild(card);
+  log.appendChild(turn);
+  checklist = { turn, steps, status, action: null, televisions, timer: null };
+  fillChecklist(view);
+  scrollToEnd();
+}
+
+/** Has she pressed Allow? Asked of the server (INV-9), and only while the page is looked at. */
+async function lookAtChecklist() {
+  const mine = checklist;
+  if (!mine || !mine.turn.isConnected || !me) return stopChecklist();
+  if (document.hidden || answering) return;
+  try {
+    const latest = await api('/api/me');
+    if (checklist !== mine || latest.membership.status === me.membership.status) return;
+    // Her answer is in: the welcome says what it means, and the checklist is drawn again under it.
+    await welcome();
+  } catch {
+    // A look that failed is tried again; nothing is said about it.
+  }
+}
+
+/** sessionStorage's note that this tab was opened with ?dev (surface.js developerMode). */
+const DEV_KEY = 'wick_dev';
+
 /**
  * Who is linked, and what they can do next. Said after linking, after a
  * reload, and after a television is connected.
@@ -2698,8 +2918,12 @@ async function welcome() {
   // for a family member, one sentence for somebody offered neither — but never straight to it: the code in a
   // link is first shown and confirmed (addPairLinkGate), because anybody can send such a link.
   if (pair) addPairLinkGate(pair);
-  else if (me.membership.role === 'organiser' && presented.next === 'connect') addConnectTelevision();
-  else $('ask-input').focus();
+  else {
+    // What is left to set up, if anything, with the next step's button: connecting her television comes first.
+    showChecklist(televisions);
+    // Without scrolling to it: the conversation's end is already in view, and a focus would stop it getting there.
+    (checklist?.action ?? $('ask-input')).focus({ preventScroll: true });
+  }
   watchTheDoor();
   watchForTheFilm();
   void lookAtTheLight();
@@ -2762,6 +2986,7 @@ async function handleUtterance(text) {
     }
   }
   if (!answered) answerByRules(text);
+  noteAsked();
 }
 
 /**
@@ -2800,10 +3025,7 @@ async function readListing() {
 /** The link card, as a customer would meet Wick before enabling it. */
 function showListing(listing) {
   if (!$('listing-body')) return;
-  $('link-say').textContent = `${listing.name}, as it would be listed for Alexa+. This listing is simulated.`;
   $('link-title').textContent = listing.name;
-  $('link-detail').textContent = listing.summary;
-  $('connect').textContent = 'Enable and link your account';
   if (listing.iconUrl) {
     // An icon that will not load is left out, not shown broken.
     $('listing-icon').addEventListener('error', () => { $('listing-icon').hidden = true; }, { once: true });
@@ -2981,6 +3203,8 @@ $('speak-toggle').addEventListener('click', (event) => {
 });
 
 $('connect').addEventListener('click', () => void connect());
+// A developer pointing the page at another server: whether it offers the demo is asked of that one.
+$('server-url').addEventListener('change', () => void offerDemoIfAllowed());
 // Optional chaining, here and below: this script and its page are uploaded
 // separately, and a deploy that stopped half way once left the new script
 // running against the old page. A missing button must not stop the rest.
@@ -2994,6 +3218,8 @@ async function offerDemoIfAllowed() {
     const allowed = options.demo === true;
     if ($('demo')) $('demo').hidden = !allowed;
     if ($('demo-hint')) $('demo-hint').hidden = !allowed;
+    // One primary action on the first screen: the demo where there is one, signing in where there is not.
+    $('connect').className = allowed && $('demo') ? 'btn quiet' : 'btn final';
   } catch {
     // No answer means no demo. The sign-in button still says why if the server is unreachable.
   }
@@ -3220,18 +3446,11 @@ async function finishRingSignIn(completion) {
 }
 
 // ---------------------------------------------------------------------------
-// The page on a telephone. The disclosure above the conversation is open
-// where there is room for it, and one line until it is opened where there is
-// not. And the page is as tall as what can be seen of it (styles.css
-// --app-height): when the keyboard opens, the question field stays above it.
+// The page on a telephone. The disclosure above the conversation is one line
+// until it is opened, on every screen. And the page is as tall as what can be
+// seen of it (styles.css --app-height): when the keyboard opens, the question
+// field stays above it.
 // ---------------------------------------------------------------------------
-
-const wideScreen = window.matchMedia('(min-width: 761px)');
-function openDisclosureIfWide() {
-  if ($('disclosure')) $('disclosure').open = wideScreen.matches;
-}
-openDisclosureIfWide();
-wideScreen.addEventListener?.('change', openDisclosureIfWide);
 
 function fitToWhatIsSeen() {
   const seen = window.visualViewport;
@@ -3245,6 +3464,11 @@ fitToWhatIsSeen();
 
 (async function start() {
   const params = new URLSearchParams(window.location.search);
+  // The server's address is a developer's to see and change (surface.js developerMode), remembered for this tab.
+  if (developerMode(window.location.search, sessionStorage.getItem(DEV_KEY))) {
+    sessionStorage.setItem(DEV_KEY, '1');
+    $('server').hidden = false;
+  }
   // Taken out of the address at once, whatever happens next: it is not
   // something to leave in the history or hand to a reload.
   const ringCompletion = new URLSearchParams(window.location.hash.slice(1)).get('ring');

@@ -72,7 +72,7 @@ import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { parsePattern, stillWelcome } from '@wick/agent';
 import { describePattern } from './list_regular_visitors.js';
-import { WRITES, data, say } from './result.js';
+import { answerSchema, WRITES, data, say } from './result.js';
 import { familyText } from '../guardian.js';
 import { localToUtc } from './when.js';
 
@@ -208,6 +208,15 @@ export interface RegularVisitorAnswer {
   readonly usualDays: string;
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  added: z.literal(true),
+  changed: z.boolean().describe('True when an entry this person added before was changed.'),
+  personId: z.string(),
+  name: z.string(),
+  usualDays: z.string(),
+});
+
 export function registerAddRegularVisitor(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -227,6 +236,7 @@ export function registerAddRegularVisitor(
         days: z.array(z.enum(DAY_NAMES)).min(1).max(7).describe('The days of the week they usually come, e.g. ["tuesday","friday"].'),
         time: z.string().describe('The time they usually come, in 24-hour HH:MM, in the household’s local time.'),
       },
+      outputSchema: OUTPUT,
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (_allowed, asked: { name: string; days: DayName[]; time: string }) => {

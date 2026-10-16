@@ -40,8 +40,9 @@ jobs:
       # The Vega source, checked a second time against the Fire OS adapters.
       - run: npm run typecheck
       # The release type, so the JavaScript is bundled by Gradle too. One
-      # architecture is enough to prove the build.
-      - run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --console=plain
+      # architecture is enough to prove the build. The native side's own
+      # decisions (android/app/src/test) run first, on the JVM.
+      - run: ./gradlew testReleaseUnitTest assembleRelease -PreactNativeArchitectures=arm64-v8a --console=plain
         working-directory: apps/tv-fireos/android
       - uses: actions/upload-artifact@v4
         with:

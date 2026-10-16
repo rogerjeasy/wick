@@ -18,6 +18,8 @@
  * later, refuses a neighbour without having to remember to.
  */
 import type { Access } from '../accounts/circle.js';
+import { timed, type PhaseTimer } from '../timing.js';
+import { say } from './result.js';
 
 export interface ToolContext {
   readonly householdId: string;
@@ -29,12 +31,14 @@ export interface ToolContext {
    * noted.
    */
   lookedIn?(allowed: Extract<Access, { ok: true }>): Promise<void>;
+  /** This request's timing (timing.ts): the gate and the handler are timed here. Absent, nothing is. */
+  readonly timing?: PhaseTimer;
 }
 
 export type Allowed = Extract<Access, { ok: true }>;
 
-/** A type alias, not an interface: the SDK's tool result has an index signature, which an interface cannot satisfy. */
-type Refusal = { content: [{ type: 'text'; text: string }] };
+/** A refusal is told as any sentence is (result.ts `say`): as text, and as `{ say }` in structured content. */
+type Refusal = ReturnType<typeof say>;
 
 /** What a neighbour is told by any tool that is not theirs: what they are for, and that there is nothing more. */
 export const neighbourRefusal = (residentName: string): string =>
@@ -61,15 +65,14 @@ export function gated<Args extends unknown[], R>(
   } = {},
 ): (...args: Args) => Promise<R | Refusal> {
   return async (...args: Args) => {
-    const access = await ctx.access();
-    if (!access.ok) return { content: [{ type: 'text' as const, text: access.say }] };
-    if (access.membership.role === 'neighbour' && !options.neighbour) {
-      return { content: [{ type: 'text' as const, text: neighbourRefusal(access.household.residentName) }] };
-    }
+    const access = await timed(ctx.timing, 'gate', () => ctx.access());
+    if (!access.ok) return say(access.say);
+    if (access.membership.role === 'neighbour' && !options.neighbour) return say(neighbourRefusal(access.household.residentName));
     if (options.looksIn && ctx.lookedIn) {
       // Never the reason an answer fails: the question is answered whether or not the look was noted.
-      await ctx.lookedIn(access).catch((err: unknown) => console.error(JSON.stringify({ level: 'error', msg: 'look_not_noted', err: err instanceof Error ? err.name : 'unknown' })));
+      const lookedIn = ctx.lookedIn;
+      await timed(ctx.timing, 'gate', () => lookedIn(access)).catch((err: unknown) => console.error(JSON.stringify({ level: 'error', msg: 'look_not_noted', err: err instanceof Error ? err.name : 'unknown' })));
     }
-    return handler(access, ...args);
+    return timed(ctx.timing, 'handler', () => handler(access, ...args));
   };
 }

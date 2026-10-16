@@ -23,7 +23,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
 import { DAY_ARGUMENT, resolveRecentDay } from './when.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
@@ -91,6 +91,16 @@ export async function checkVisitor(
   };
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  visited: z.boolean(),
+  at: z.number().optional().describe('When they came, in milliseconds since the epoch. Absent when they did not.'),
+  name: z.string().optional().describe('Absent for an id this household does not know.'),
+  expectedToday: z.boolean().describe('Whether that day is one of their usual days.'),
+  date: z.string().describe('The day answered for, YYYY-MM-DD.'),
+  dayInWords: z.string(),
+});
+
 export function registerDidVisitorCome(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -110,6 +120,7 @@ export function registerDidVisitorCome(
         day: z.string().optional().describe(DAY_ARGUMENT),
         date: z.string().optional().describe('An exact day, YYYY-MM-DD, when a date was given. Leave both out for today.'),
       },
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (_allowed, { personId, day, date }: { personId: string; day?: string | undefined; date?: string | undefined }) => {

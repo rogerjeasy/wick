@@ -55,7 +55,12 @@ the door, a note from the family, the week's summary — is drawn with it.
 | --- | --- |
 | `CalmCard` | The base surface: a headline, optional detail, up to three actions, optional picture beside the words. Throws a `CalmViolation` at render if the floor is broken. |
 | `TwoPhaseCard` | Render what you have now, patch the slow part in later without moving anything already on screen. The detail area (and, with `mediaSize`, the picture) is reserved at mount. |
+| `CalmPreferencesProvider` | Larger text and higher contrast for everything under it: put one at the root of the app. |
+| `useCalmTheme()`, `useCalmStyles(make)`, `CalmText` | The theme a component is drawn in, a component's styles made from it, and words that follow it. |
+| `calmTheme(preferences)`, `fitCard`, `textPairs`, `checkTheme` | The four themes and the arithmetic under them, as plain functions. |
 | `useScreenReaderEnabled()` | Whether VoiceView (Fire TV), TalkBack or VoiceOver is on, followed live. |
+| `useHighTextContrastEnabled()` | Whether the platform's high-contrast text setting is on (Vega and Android), followed live. |
+| `announce(sentence)` | Hands a sentence to the screen reader, if one is on. |
 | `useReduceMotionEnabled()` | Whether the viewer asked for less motion. `TwoPhaseCard` uses it to skip its fade. |
 | `watchAccessibility()` | The logic under both hooks, as a plain function you can test or use outside React. |
 | `assertContrast`, `assertActionLimit`, `assertItemLimit`, `assertCardFits`, `assertNoAlarmColour`, `fontSize`, `contrastRatio`, `alarmHue`, `cardHeightDp` | The checks themselves, for your own components. |
@@ -154,6 +159,58 @@ supported end state, not a loading condition. There is no spinner and no
 "Loading…". When it arrives it fades in over 200ms in space that was already
 reserved, or appears at once if the viewer asked for reduced motion.
 
+### Larger text and higher contrast
+
+The floor does not move down, but a viewer can ask for more. Put one
+provider at the root of the app, with what the viewer chose:
+
+```tsx
+import { CalmPreferencesProvider } from 'vega-calm-ui';
+
+<CalmPreferencesProvider preferences={{ largerText: true, higherContrast: false }}>
+  <App />
+</CalmPreferencesProvider>;
+```
+
+- **Larger text** sets every size 1.25 times the token: 40pt body, 60pt
+  headline, 80pt display.
+- **Higher contrast** is pure black and white: every word is 21:1 on its
+  ground (the theme promises, and checks, at least 15:1), a card has a white
+  edge, every button is outlined at rest, and the focus ring is 6dp instead
+  of 2. There is no amber and, as always, no red.
+
+`CalmCard` and `TwoPhaseCard` follow it without a prop. Your own components
+follow it by writing their styles as a function of the theme:
+
+```tsx
+import { StyleSheet, Text } from '@amazon-devices/react-native-kepler';
+import { useCalmStyles, type CalmTheme } from 'vega-calm-ui';
+
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    line: { color: t.palette.inkDim, fontSize: t.fontSize('body'), lineHeight: t.lineHeight('body') },
+  });
+
+export function Line({ children }: { children: string }) {
+  const styles = useCalmStyles(makeStyles); // made once per theme
+  return <Text style={styles.line}>{children}</Text>;
+}
+```
+
+At larger text a card still has to fit a 960x540dp screen with its buttons
+on it, and its words have to be whole. `CalmCard` works that out as it is
+drawn (`fitCard`, an estimate from the length of the words): it takes the
+compact card's spacing first, then its headline at body size, and if its
+words would still not be whole it is drawn at the standard size — children
+and all, through `CalmThemeProvider`. Whole at 32pt beats cut at 40. Tell it
+about words its children draw with `childWords`, and write them with
+`CalmText` so they fall back with the card.
+
+To follow the platform's own setting as the default, read
+`useHighTextContrastEnabled()`. On Vega there is no text-size setting an app
+can read; React Native already applies the platform's `fontScale` to every
+`Text`, so do not apply it again.
+
 ### Screen reader and reduced motion
 
 ```tsx
@@ -175,7 +232,8 @@ on a platform that cannot answer: an unknown setting is never reported as on.
 | Check | Rule | Where |
 | --- | --- | --- |
 | `fontSize(role)` | Nothing below 32pt | Every text style in the components |
-| `assertContrast(fg, bg)` | At least 7:1 (WCAG AAA), computed, not assumed | Card text on the card, and every button's words on that button |
+| `assertContrast(fg, bg, min?)` | At least 7:1 (WCAG AAA), computed, not assumed — 15:1 with higher contrast on | Card text on the card, and every button's words on that button |
+| `checkTheme(theme)` | Every size at or above 32pt, every word on every ground at the theme's ratio, no red | Every theme, when it is made |
 | `assertActionLimit(n)` / `assertItemLimit(n)` | At most three | `CalmCard` actions |
 | `assertCardFits(shape)` | The card, at 32pt, fits a 540dp-tall screen with 32dp clear above and below, so the buttons can never be pushed off | `CalmCard` (`detailLines`, `compact`) |
 | `assertNoAlarmColour(hex)` | No saturated red, caught by hue (the wedge 345–12deg, over 35% saturation), so a new shade is caught like `#FF0000` | The palette's accent |
@@ -210,6 +268,10 @@ they reach a build at all.
 | `palette.raised` | `#1E1B17` | Card surface |
 | `palette.accent` | `#E8B75D` | Amber, the primary button. Warm without being an alarm |
 | `palette.focus` | `#FFFFFF` | The focus ring |
+| `largerText.scale` | 1.25 | Larger text: 32pt becomes 40pt |
+| `contrast.highContrastMinRatio` | 15 | What higher contrast promises; black on white is 21 |
+| `highContrastPalette` | `#FFFFFF` / `#000000` | Higher contrast: pure black and white |
+| `focusRing` | 2dp; 6dp with higher contrast | The ring, thicker with higher contrast on |
 
 ## ESLint rules
 

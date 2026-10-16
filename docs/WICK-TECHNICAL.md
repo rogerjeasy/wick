@@ -287,6 +287,13 @@ Every resident card obeys the same floor, enforced at render by `packages/vega-c
 | Auto-dismiss | Never | `no-auto-dismiss` |
 | Reachability | D-pad + OK only; no text entry | Design rule; every flow |
 | Settle time | A card takes no press for one second after it appears | `src/press/settle.ts` |
+| Larger text | Every size × 1.25 (floor 40 pt); a card's words stay whole | calm-ui `calmTheme`, `fitCard`; `home/homeLayout.ts` |
+| Higher contrast | Pure black and white, ≥ 15:1; 6 dp focus ring | calm-ui `checkTheme`, `theme.test.ts` |
+| No bypass | Every colour and size comes from the theme | `seeing/__tests__/noBypass.test.ts` |
+
+**Easier to see.** A pill on her home screen opens a card with exactly three buttons — *Larger text*, *Higher contrast*, *Back* — each saying how it stands (*"Larger text: on"*). A press changes the whole television at once: the choice reaches every screen through one `CalmPreferencesProvider` at the root (`src/seeing/SeeingProvider.tsx`), and every style sheet is a function of the theme (`useCalmStyles`). At larger text a card fits itself to the 960×540 dp screen (`fitCard`): first the compact card's spacing, then its headline at body size, and if its words would still not be whole it is drawn at the standard size — whole at 32 pt beats cut at 40. On the home screen the pills have a row of their own and the films' pictures take what the words leave; a title takes two lines rather than be cut. The platform's high-contrast text setting (`AccessibilityInfo.isHighTextContrastEnabled`, followed by `highTextContrastChanged`) is the default until she presses; Vega offers no text-size setting an app can read (FL-038). Her choice is kept in the app's own file store, on the television only — the Vega Virtual Device keeps nothing across launches (FL-013). A family member's own television stays at the standard size (its pages are measured at it) and follows the platform's contrast.
+
+**The screen reader.** With VoiceView on (`useScreenReaderEnabled`), each card that comes on screen is announced once through `AccessibilityInfo.announceForAccessibility` — the words Play would read (`src/read/announce.ts`); her pictures never fill an idle home screen (`mantel/idle.ts`); and the mark of the Play key is not drawn, because the reader already speaks the card.
 
 **Read to me.** While a card is on screen, the Play key asks for it to be read aloud in her language: its sentences, then what she can press. The voice is **Amazon Polly**'s, made at the edge when she asks (`services/edge-device/lambda/speech.mjs`), kept a day so the same card is made once, and answered only to the television that asked. A card never reads itself.
 
@@ -300,7 +307,7 @@ Every resident card obeys the same floor, enforced at render by `packages/vega-c
 
 ### 3.7 The Fire OS build
 
-`apps/tv-fireos` has no screens of its own. It bundles `apps/tv-vega/src` and gives it Android in place of four Amazon packages (`react-native-kepler` → `react-native-tvos`; `react-native-w3cmedia` → ExoPlayer through `react-native-video`; `kepler-file-system` → key-value storage; `kepler-media-controls` → nothing yet). Amazon publishes no Fire OS emulator; it runs on the **Android TV emulator** (API 34), the alternative the hackathon FAQ names. It has no background service, so no toast over another app. See [`apps/tv-fireos/README.md`](../apps/tv-fireos/README.md) for what has and has not been seen on the emulator.
+`apps/tv-fireos` has no screens of its own. It bundles `apps/tv-vega/src` and gives it Android in place of four Amazon packages (`react-native-kepler` → `react-native-tvos`; `react-native-w3cmedia` → ExoPlayer through `react-native-video`; `kepler-file-system` → key-value storage; `kepler-media-controls` → nothing yet). Amazon publishes no Fire OS emulator; it runs on the **Android TV emulator** (API 34), the alternative the hackathon FAQ names. Its door outside Wick is an Android foreground service running the shared channel code through Headless JS on the television's background WebSocket, which posts one high-priority notification for a door card (and nothing for anything else) — Amazon's guidance says no heads-up over another app, and Wick departs from it for the door only (FL-035); the emulator draws no third-party notification, so it was checked through `dumpsys` (FL-036). See [`apps/tv-fireos/README.md`](../apps/tv-fireos/README.md) for what has and has not been seen on the emulator.
 
 ### 3.8 Other televisions
 
@@ -612,6 +619,11 @@ The wearable connector was removed with the Day agent (§5.3). The section numbe
 - MCP spec **2025-11-25**, **Streamable HTTP**, in the SDK's **stateless** mode: every request is answered by a server built for the person its own token names, and nothing a request needs is held in process memory. OAuth clients, codes, tokens and the sign-in cookie are in DynamoDB.
 - Its own **OAuth 2.1 authorization server** (PKCE S256, dynamic client registration, metadata at `/.well-known/oauth-authorization-server`), because an Alexa+ add-on needs one. It does not decide who anyone is: its sign-in pages hand the email and password to an **Amazon Cognito** user pool (`accounts/identity.ts`), and everything it issues names the person Cognito vouched for.
 - Unauthenticated requests get `401` with no `WWW-Authenticate`, as the quickstart asks.
+- Every token is bound to this server's resource (RFC 8707): a client that names another resource is refused at `/authorize` and `/token` (`invalid_target`), one that names none gets this server's, and a token bound to anything else is refused on every request (`accounts/oauthProvider.ts`).
+- Every tool declares an **output schema** (`tools/result.ts` `answerSchema`): its own fields, or `{ say }` alone for a sentence such as a refusal. The Guardian's wrapper checks each answer against it before it leaves; a wrong one fails as any answer does. The SDK's client checks the same schema on the way in (`__tests__/outputSchema.test.ts` calls every tool on a demo home).
+- A write sent twice acts once (INV-6): `send_note_to_tv` claims each call with one conditional write (`tools/once.ts`), so a retried call, or the same note sent again within two minutes, is answered with the first note and sends nothing; a client may pass `idempotencyKey` instead. An answer retried by the same person is the answer already given.
+- Each request is answered as one JSON body with a `Server-Timing` header — `auth` (the token's check), `build` (this request's server), `gate` (INV-9), `handler`, `guard` (the Guardian), `total` — and logged as one `mcp_request` line with the method, the tool's name, the status and the milliseconds, and nothing about anyone (`timing.ts`). `tools/list` is the same for everyone, so it is made once per process.
+- It runs as one esbuild bundle under plain `node` (`services/mcp-server/build.mjs`, `Dockerfile`: Node 22.23.3 pinned by digest, no `node_modules` in the image, user `node`). `GET /health` reads nothing and says the version and commit. App Runner's health check is still TCP (`infra/mcp.tf`): it moves to HTTP on `/health` in a change of its own, once an image with the route is running, because an older image answers that path 404. On SIGTERM the server stops accepting, lets requests in flight finish within ten seconds, and exits 0 (`lifecycle.ts`).
 - Every tool is wrapped in `gated` (`tools/context.ts`): the household comes from the token (INV-8), and the resident's allowance is checked on every call (INV-9). A neighbour is refused every tool not marked `neighbour: true`.
 - No tool calls a model. The week is precomputed (§5.4); every other tool reads rows.
 - The same process serves the family app's `/api` (televisions, Ring link, language, pictures, the stand-in doorbell, voice), a family member's television's `/tv/*` routes, and the assistant.
@@ -628,7 +640,7 @@ The wearable connector was removed with the Day agent (§5.3). The section numbe
 | Watching together | `invite_to_watch`, `get_watch_together`, `answer_watch_together`, `join_watch_together`, `withdraw_watch_invitation` |
 | Pictures | `get_pictures` (only that she has seen one) |
 
-**The family app** (`apps/sim-alexa`, on CloudFront) signs in to a real account, and for each question the assistant — **Claude Sonnet 4.5** on Bedrock, in the Wick server — chooses which tool to call; the page then calls that tool on the real MCP server and shows what it returned. *Try the demo* makes a guest account and a demo home with six weeks of simulated history. A family member can also ask by voice: the page sends one utterance of at most ten seconds to `POST /api/hear`, which streams it to **Amazon Transcribe** and asks the words as if typed; nothing of the recording is kept or logged. Built and tested, and seen working locally against a stand-in for Transcribe; not yet seen against the deployed stack.
+**The family app** (`apps/sim-alexa`, on CloudFront) signs in to a real account, and for each question the assistant — **Claude Sonnet 4.5** on Bedrock, in the Wick server — chooses which tool to call; the page then calls that tool on the real MCP server and shows what it returned. *Try the demo* makes a guest account and a demo home with six weeks of simulated history. Signed out, the first screen is one sentence on what Wick is, *Try the demo* and *Sign in*; the server's address is shown only with `?dev`. Signed in with something left to set up, a checklist ticks itself off from `/api/me` and `/api/circle` — her television connected, her Allow on the Circle card (looked for every five seconds while it waits), a first question asked. Tool results are cards in the design guide's vocabulary (header, primary text, the picture where the tool returned one, at most three actions); the week's card is its paragraph, its measures, and a carousel of the days its timeline has something on (`surface.js` `weekDays`), with *See all* past five. A family member can also ask by voice: the page sends one utterance of at most ten seconds to `POST /api/hear`, which streams it to **Amazon Transcribe** and asks the words as if typed; nothing of the recording is kept or logged. Built and tested, and seen working locally against a stand-in for Transcribe; not yet seen against the deployed stack.
 
 **Alexa+ routes by intent**, so the name "Wick" is rarely spoken. `examplePhrases` are natural questions (*"how's my mum been this week"*), not invocation patterns.
 
@@ -729,7 +741,7 @@ Not instrumented: `kepler-performance-api` and a Perfetto trace were planned and
 
 ### 9.3 MCP latency
 
-Alexa+ asks for a round trip under 500 ms ✅ V. No tool calls a model, and the week is one `GetItem`. But measured against the deployed server on 13 October 2026, from a laptop in Europe, calls take **either about 0.2–0.3 s or about 0.75–1.15 s**, in bursts, on every tool — about half miss 500 ms. `npm run addon:check -- --live` reports a **median** over five calls (about 0.2 s for `tools/call`), and the median hides the slow mode. The cause is not established; the hypotheses (App Runner idle CPU, per-request server construction, connection reuse, `vite-node` at run time) and the plan to find it are in GitHub issue [#47](https://github.com/rogerjeasy/wick/issues/47).
+Alexa+ asks for a round trip under 500 ms ✅ V. No tool calls a model, and the week is one `GetItem`. Measured against the deployed server (13 October, and again on 16 October with `npm run latency:mcp`, from a laptop in Europe), calls take **either about 0.2–0.3 s or about 0.75–1.15 s**. On 16 October every slow call was the first on a new connection: App Runner's front end ends a kept-alive connection with `Connection: close` after anything from 2 s to 40 s, and a new TLS connection from Europe costs about 0.5–0.8 s more (FRICTION.md FL-033). At one call a second, 54 calls on a reused connection had p50 201 ms and p95 296 ms, none over 500 ms; the 6 on a new connection all were (p50 780 ms). Back to back, 100 calls had p50 190 ms and p95 217 ms, with one call over 500 ms. Those guest calls stop at the access gate (no television had allowed the guest), so they measure the token check, the server and the gate, not a tool's own reads. The server's own work is small: against the local dev server (in-memory store) its `Server-Timing` total is about 1–2.5 ms at the median, the request's server about 1 ms of it. Since this change the server keeps idle connections 65 s, so it is not the side that closes them, and every answer carries `Server-Timing`; whether App Runner then closes fewer connections has not been measured, because that image is not deployed yet. `npm run addon:check -- --live` reports a **median** over five calls, which hides the slow mode; `npm run latency:mcp` reports p50/p95/p99. Issue [#47](https://github.com/rogerjeasy/wick/issues/47) has the figures.
 
 ---
 
@@ -836,10 +848,10 @@ GitHub Actions, OIDC to AWS — no static keys in the repository.
 |---|---|
 | `ci.yml` | `npm run verify`, and the property tests as their own job. Touches no AWS. |
 | `deploy-edge.yml` | On `main` (edge, infra, family app, add-on paths): verify, `npm run build:lambda`, `terraform apply` |
-| `deploy-agent.yml` | On `main` (agent, policy, MCP server paths): property tests, verify, build the agent bundle, `terraform apply`. It does not push container images. |
+| `deploy-agent.yml` | On `main` (agent, policy, MCP server paths): property tests, verify, build and push the images the push changes (the Wick server's linux/amd64, with `WICK_COMMIT` set to the short SHA), pin their tags in SSM, build the agent bundle, `terraform apply`, and wait for App Runner to run the pinned image. |
 | `tv-fireos.yml` | Typecheck the Vega source against the Fire OS adapters, build the APK, upload it |
 
-The container images are pushed by hand: `scripts/push-agent-image.sh` builds the AgentCore and live-bridge images (arm64) and pins their tag in `infra/images.auto.tfvars`; the Wick server's image (`services/mcp-server/Dockerfile`, linux/amd64) is pushed to ECR `:latest`, and App Runner deploys it automatically. The Vega app is built with the Vega SDK (`npm run build` in `apps/tv-vega` → `react-native build-vega`) on a developer machine; CI does not build the `.vpkg`.
+The container images are built on a push to `main` by `deploy-agent.yml`, and can be pushed from a laptop: `scripts/push-agent-image.sh` builds the AgentCore and live-bridge images (arm64) and pins their tag in SSM (`infra/images.tf`); the Wick server's image (`services/mcp-server/Dockerfile`, linux/amd64: an esbuild bundle and a pinned Node runtime, nothing else) is built by `deploy-agent.yml`, or by `scripts/push-mcp-image.sh` from a laptop, tagged with the short SHA and pinned in `/wick/images/mcp-server`; the next apply deploys it. The Vega app is built with the Vega SDK (`npm run build` in `apps/tv-vega` → `react-native build-vega`) on a developer machine; CI does not build the `.vpkg`.
 
 ### 13.3 Environments
 
@@ -857,7 +869,7 @@ Each was a decision gate before design depended on it.
 
 | # | Spike | Outcome |
 |---|---|---|
-| **SP-1** | Can anything render over another app's playback? | **Partly.** A third-party Vega app cannot draw over another app, but its background service can post a **system toast** with a button that brings Wick forward (FL-022, FL-026). The door uses it; nothing else interrupts another app. Fire OS: not built. |
+| **SP-1** | Can anything render over another app's playback? | **Partly.** A third-party Vega app cannot draw over another app, but its background service can post a **system toast** with a button that brings Wick forward (FL-022, FL-026). The door uses it; nothing else interrupts another app. Fire OS: a foreground service posts a high-priority Android notification for the door (FL-035); not seen drawn — the Android TV emulator draws none (FL-036). |
 | **SP-2** | Ring snapshot latency | **3.15 s** end to end (n = 3), and the call returns a *recorded* frame, not a live one (FL-005). Phase 1 ships without a picture. |
 | **SP-3** | Ring WHEP on Vega | Vega has no WebRTC and its WebView crashed on the simulator (FL-015). Bridged instead: WHEP → werift → ffmpeg → HLS in a Lambda, because the AgentCore microVM has no outbound UDP (FL-017). Works on both simulators with the Playground camera. |
 | **SP-4** | Alexa+ add-on access | Partner-gated, no application path (FL-001). The MCP server was built to the spec anyway and exercised through MCP Inspector and the family app. |
@@ -897,7 +909,7 @@ The plan was spine first (S1 door, S4a family line, S5 Guardian, S2 break engine
 | **Q4** | Does `kepler-file-system` give any at-rest protection, or is the device JWT plaintext? | Undocumented. Assumed plaintext, and the token is scoped accordingly (INV-1). On the Vega simulator, nothing written persists at all (FL-013). |
 | **Q5** | AgentCore Gateway or a custom Streamable HTTP server for MCP? | **Answered:** custom server, because it has to be its own OAuth authorization server with dynamic client registration for Alexa+, and Cognito decides identity. |
 | **Q6** | Audio ducking API, and whether it ducks another app's audio | Not pursued; Wick plays no sound of its own except a reading she asked for. |
-| **Q7** | Does the accessibility privilege expose contrast or reduced-motion preferences? | Reduced motion and screen-reader state are read through `AccessibilityInfo` (`vega-calm-ui`). No text-size or contrast preference API was found (L11). |
+| **Q7** | Does the accessibility privilege expose contrast or reduced-motion preferences? | Reduced motion, screen-reader state and high-contrast text are read through `AccessibilityInfo` (`vega-calm-ui`; Vega emits `screenReaderChanged` and `highTextContrastChanged`). No text-size preference API was found (L11, FL-038). |
 | **Q8** | Which MCP client makes the most legible demo? | The family app (`apps/sim-alexa`), which shows the tool call and its answer. |
 | **Q9** | Why is the deployed MCP server two-speed? | Open — issue #47 (§9.3). |
 
@@ -916,7 +928,7 @@ Everything here was in version 1.0 of this document, or was proposed later, and 
 | **AgentCore Gateway** as the MCP front door | Replaced by the custom server (Q5). |
 | **SQS FIFO per household**, an EventBridge archive | Not built. The door path has one dead-letter queue (`infra/alarms.tf`, `infra/agent.tf`): an event that exhausts EventBridge's and Lambda's retries is kept there for 14 days and raises an alarm. |
 | **EMF metrics and dashboards** (`door.glass_to_glass_ms`, `mcp.roundtrip_ms`, …) | Not built. Latency has been measured by hand (§9). The alarms are built (§11). |
-| **M6 — the week as a panel in the Alexa+ conversation (MCP Apps)** | Not built. The family app shows the week as text. |
+| **M6 — the week as a panel in the Alexa+ conversation (MCP Apps)** | Not built. The family app shows the week as its own card (paragraph, measures, a carousel of its days), drawn by the page from `get_week_narrative`'s data, not an MCP Apps panel. |
 | **A household withdrawal cascade** (`DELETE /household/{id}`) | Not built. Members can be removed and televisions disconnected; whole-household deletion is a manual operation. |
 | **Voice notes from the family** (Transcribe into a note, `voice/` prefix) | Not built as a note. Transcribe is used only to turn a family member's spoken *question* into words. The `voice/` lifecycle rule exists with nothing writing to it. |
 | **Replies drafted by a model** | Not built as planned. Two of a note's three replies are *chosen* — by the assistant, from a fixed list of sentences Wick wrote (`REPLY_CHOICES`) — and the third is always *"Not right now."* No model writes words the resident would be pressing (`send_note_to_tv.ts`). |
@@ -989,7 +1001,7 @@ The wearable cheat sheet was removed with the connector (§7.2).
 
 ```
 Spec      MCP 2025-11-25 · Streamable HTTP (not legacy SSE)
-Latency   round trip < 500ms  (the deployed server misses it on about half of calls — §9.3)
+Latency   round trip < 500ms  (from Europe, missed on calls that open a new connection — §9.3)
 Auth      401 without WWW-Authenticate when unauthenticated
           PRM at /.well-known/oauth-authorization-server
           code_challenge_methods_supported: ["S256"]

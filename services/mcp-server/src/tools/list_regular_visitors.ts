@@ -19,7 +19,8 @@ import { gated, type ToolContext } from './context.js';
 import { expectedToday } from './did_visitor_come.js';
 import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
+import { z } from 'zod';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 const DAY_MS = 86_400_000;
@@ -113,6 +114,18 @@ export async function loadVisitors(ddb: DynamoDBClient, householdId: string, now
   return { visitors, expected };
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  visitors: z.array(z.strictObject({
+    personId: z.string(),
+    name: z.string(),
+    usualDays: z.string().optional(),
+    expectedToday: z.boolean(),
+    lastVisitAt: z.number().optional(),
+  })),
+  expected: z.array(z.strictObject({ name: z.string(), at: z.number() })).describe('Family members who said they are coming, and when.'),
+});
+
 export function registerListRegularVisitors(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -128,6 +141,7 @@ export function registerListRegularVisitors(
         'whether today is one of them, and when they last came (`lastVisitAt`, within four weeks) — and any visits somebody has announced (`expected`). ' +
         'Call this first when a question names a visitor ("Maria", "the carer") or asks when someone last came.',
       inputSchema: {},
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async () => {

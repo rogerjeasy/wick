@@ -32,6 +32,29 @@ const READ_WORDS = {
   'read.hint': 'Press Play to hear this.',
 } as const;
 
+/**
+ * The door, outside Wick, on Fire OS (apps/tv-fireos/src/door): the button on the notification, the line under
+ * its title before the door agent has said who is there, and the quiet notification that says Wick is listening.
+ */
+const DOOR_ALERT_WORDS = {
+  'doorAlert.open': 'Open Wick',
+  'doorAlert.who': 'Open Wick to see who it is.',
+  'doorAlert.listening': 'Wick will tell you when someone is at the door.',
+} as const;
+
+/** Easier to see (seeing/seeing.ts): the pill, and its card's headline, line and three buttons. */
+const SEEING_WORDS = {
+  'seeing.entry': 'Easier to see',
+  'seeing.entryLabel': 'Easier to see. Press OK for larger text or higher contrast.',
+  'seeing.headline': 'Easier to see',
+  'seeing.detail': 'This changes only this television.',
+  'seeing.largerOn': 'Larger text: on',
+  'seeing.largerOff': 'Larger text: off',
+  'seeing.contrastOn': 'Higher contrast: on',
+  'seeing.contrastOff': 'Higher contrast: off',
+  'seeing.back': 'Back',
+} as const;
+
 describe('the words table — English, exactly as the television said it before there was a table', () => {
   it('says every sentence as it was written in the component it came from', () => {
     expect(WORDS.en).toEqual({
@@ -82,7 +105,17 @@ describe('the words table — English, exactly as the television said it before 
       'programme.minutes': '{count} minutes',
       ...MANTEL_WORDS,
       ...READ_WORDS,
+      ...DOOR_ALERT_WORDS,
+      ...SEEING_WORDS,
     });
+  });
+
+  it('says what the door outside Wick added on Fire OS, and nothing else', () => {
+    expect(Object.keys(WORDS.en).filter((key) => key.startsWith('doorAlert.'))).toEqual(Object.keys(DOOR_ALERT_WORDS));
+  });
+
+  it('says what Easier to see added, and nothing else — the names the browser television gives the same three buttons', () => {
+    expect(Object.keys(WORDS.en).filter((key) => key.startsWith('seeing.'))).toEqual(Object.keys(SEEING_WORDS));
   });
 
   it('says what "Read to me" added (packages/contracts speech.ts), and nothing else', () => {

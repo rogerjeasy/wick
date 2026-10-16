@@ -32,7 +32,7 @@ describe('the family app under its Content-Security-Policy', () => {
   });
 
   it('loads hls.js from exactly the file the policy names, with Subresource Integrity', () => {
-    for (const source of [read('../main.js'), read('../../ops-console/device.js')]) {
+    for (const source of [read('../main.js'), read('../../ops-console/tv-core.js')]) {
       expect(source).toContain("const HLS_SRC = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.light.min.js';");
       expect(source).toMatch(/script\.integrity = HLS_INTEGRITY/);
     }

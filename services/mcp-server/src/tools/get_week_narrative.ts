@@ -26,7 +26,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
 import { clears } from '../guardian.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
@@ -187,6 +187,63 @@ export function familyCopyOfLatest(latest: LatestWeekResult, policy: HouseholdPo
   return { status: 'available', narrative: family.narrative, ...(latest.thisWeek ? { thisWeek: latest.thisWeek } : {}) };
 }
 
+/**
+ * The week as this tool gives it, field by field. A stored week is JSON
+ * read back from its row: a field added to the row later must not reach
+ * the family by being carried along, nor break the tool's output schema.
+ */
+export function weekAnswer(week: WeekNarrative, thisWeek?: ThisWeekStatus) {
+  return {
+    householdId: week.householdId,
+    isoWeek: week.isoWeek,
+    text: week.text,
+    ...(week.textSource === undefined ? {} : { textSource: week.textSource }),
+    deltas: (week.deltas ?? []).map((d) => ({
+      metric: d.metric,
+      ...(d.label === undefined ? {} : { label: d.label }),
+      thisWeek: d.thisWeek,
+      ...(d.lastWeek === undefined ? {} : { lastWeek: d.lastWeek }),
+      baseline: d.baseline,
+      zScore: d.zScore,
+      baselineWeeks: d.baselineWeeks,
+      ...(d.verdict === undefined ? {} : { verdict: d.verdict }),
+    })),
+    timeline: week.timeline.map((e) => ({ at: e.at, kind: e.kind, summary: e.summary, ...(e.personId === undefined ? {} : { personId: e.personId }) })),
+    generatedAt: week.generatedAt,
+    ...(week.residentSeenAt === undefined ? {} : { residentSeenAt: week.residentSeenAt }),
+    ...(week.simulated ? { simulated: true as const } : {}),
+    ...(thisWeek ? { thisWeek } : {}),
+  };
+}
+
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  householdId: z.string(),
+  isoWeek: z.string().describe('"2026-W41".'),
+  text: z.string().describe('The week in words.'),
+  textSource: z.enum(['model', 'facts']).optional(),
+  deltas: z.array(z.strictObject({
+    metric: z.string(),
+    label: z.string().optional(),
+    thisWeek: z.number(),
+    lastWeek: z.number().optional(),
+    baseline: z.number(),
+    zScore: z.number(),
+    baselineWeeks: z.number(),
+    verdict: z.enum(['usual', 'more', 'fewer']).optional(),
+  })),
+  timeline: z.array(z.strictObject({
+    at: z.number(),
+    kind: z.enum(['door', 'presence', 'visit', 'card', 'deviation']),
+    summary: z.string(),
+    personId: z.string().optional(),
+  })),
+  generatedAt: z.number(),
+  residentSeenAt: z.number().optional(),
+  simulated: z.literal(true).optional().describe('A demo home’s week: nobody lived it.'),
+  thisWeek: z.enum(['not_written', 'awaiting_resident']).optional().describe('Set when the week given is not the current one: what has become of the current one.'),
+});
+
 export function registerGetWeekNarrative(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -204,6 +261,7 @@ export function registerGetWeekNarrative(
         '"awaiting_resident": it is on the television, and they read it first). ' +
         "Never returns a week the resident hasn't seen yet.",
       inputSchema: { isoWeek: z.string().optional().describe('ISO 8601 week, e.g. "2026-W38", for that exact week. Leave out for the latest week there is to read.') },
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (_allowed, { isoWeek }: { isoWeek?: string | undefined }) => {
@@ -222,7 +280,7 @@ export function registerGetWeekNarrative(
         return say(isoWeek && isoWeek !== currentWeek ? WEEK_NOT_WRITTEN_THEN_TEXT : WEEK_NOT_WRITTEN_TEXT);
       }
       if (result.status === 'private') return say(FAMILY_REFUSAL_TEXT);
-      return data({ ...result.narrative, ...(result.thisWeek ? { thisWeek: result.thisWeek } : {}) });
+      return data(weekAnswer(result.narrative, result.thisWeek));
     }, { looksIn: true })),
   );
 }

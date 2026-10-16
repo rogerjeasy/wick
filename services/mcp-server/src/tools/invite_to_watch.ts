@@ -30,7 +30,7 @@ import { PROGRAMMES, WATCH_ACTIONS, programmeById, watchWindow, type QueuedCard 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { WRITES, data, say } from './result.js';
+import { answerSchema, WRITES, data, say } from './result.js';
 import { localToUtc } from './when.js';
 import { HOUSEHOLD_TZ, TABLE, describeWatch, firstName, invitationItem, isOpen, latestKey, mySession, watchCard, whenInWords, type WatchSession, type WatchView } from './watchSession.js';
 
@@ -46,6 +46,16 @@ export const INVITE_TOO_FAR_TEXT = 'That is more than two months away. Ask neare
 export const INVITE_TRY_AGAIN_TEXT = 'That did not go through. Ask again.';
 
 const PROGRAMME_IDS = PROGRAMMES.map((p) => p.id) as [string, ...string[]];
+
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  invited: z.literal(true),
+  sessionId: z.string(),
+  film: z.string(),
+  startsAt: z.number(),
+  when: z.string(),
+  fromName: z.string(),
+});
 
 export function registerInviteToWatch(
   mcpServer: McpServer,
@@ -69,6 +79,7 @@ export function registerInviteToWatch(
         date: z.string().describe('The day to watch, YYYY-MM-DD.'),
         time: z.string().describe('The time to watch in 24-hour HH:MM, in the household’s local time.'),
       },
+      outputSchema: OUTPUT,
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { programme, date, time }: { programme: string; date: string; time: string }) => {

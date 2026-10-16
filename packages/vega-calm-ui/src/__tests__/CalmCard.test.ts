@@ -1,14 +1,16 @@
 /**
- * CalmCard has no hooks, so it can be called as a function and its element
- * tree read directly — no renderer, no device. The platform components are
+ * CalmCard's one hook is the theme it is drawn in; `renderCalmCard` is the
+ * card in a theme it is handed, so it can be called as a function and its
+ * element tree read directly — no renderer, no device. The platform components are
  * stood in for by their names; what is checked is what CalmCard asks of
  * them: roles, labels, focus, colours, line limits, and what it refuses.
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { ReactElement, ReactNode } from 'react';
-import { CalmCard } from '../CalmCard.js';
+import { renderCalmCard, type CalmCardProps } from '../CalmCard.js';
 import { CalmViolation, contrastRatio } from '../constraints.js';
-import { palette } from '../tokens.js';
+import { calmTheme, type CalmPreferences } from '../theme.js';
+import { highContrastPalette, palette } from '../tokens.js';
 
 vi.mock('@amazon-devices/react-native-kepler', () => ({
   View: 'View',
@@ -19,7 +21,7 @@ vi.mock('@amazon-devices/react-native-kepler', () => ({
   AccessibilityInfo: {},
 }));
 
-type Props = Parameters<typeof CalmCard>[0];
+type Props = CalmCardProps;
 type Element = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
 
 const actions: Props['actions'] = [
@@ -28,8 +30,10 @@ const actions: Props['actions'] = [
   { id: 'dismiss', label: 'Not now', kind: 'dismiss' },
 ];
 
-function card(overrides: Partial<Props> = {}): Element {
-  return CalmCard({ headline: 'Someone is at the door', actions, onAction: () => undefined, ...overrides }) as Element;
+const STANDARD: CalmPreferences = { largerText: false, higherContrast: false };
+
+function card(overrides: Partial<Props> = {}, preferences: CalmPreferences = STANDARD): Element {
+  return renderCalmCard({ headline: 'Someone is at the door', actions, onAction: () => undefined, ...overrides }, calmTheme(preferences)) as Element;
 }
 
 /** Every element in the tree, depth first. */
@@ -114,5 +118,76 @@ describe('CalmCard', () => {
     const detail = ofType(card({ detail: 'Words', compact: true, detailLines: 6 }), 'Text')[1];
     expect(detail?.props.numberOfLines).toBe(6);
     expect(() => card({ detail: 'Words', detailLines: 6 })).toThrow(CalmViolation);
+  });
+});
+
+describe('CalmCard, drawn with what the viewer asked for', () => {
+  const LARGER: CalmPreferences = { largerText: true, higherContrast: false };
+  const HIGH: CalmPreferences = { largerText: false, higherContrast: true };
+
+  it('sets every word 1.25 times larger with larger text on: the floor becomes 40pt', () => {
+    const tree = card({ detail: 'She is holding a bag of shopping.' }, LARGER);
+    const [headline, detail, ...labels] = ofType(tree, 'Text');
+    expect(flat(headline?.props.style).fontSize).toBe(60);
+    expect(flat(detail?.props.style).fontSize).toBe(40);
+    for (const label of labels) expect(flat(label.props.style).fontSize).toBe(40);
+  });
+
+  it('writes every word white on black with higher contrast on, at 15:1 or better', () => {
+    const tree = card({ detail: 'She is holding a bag of shopping.' }, HIGH);
+    const [box] = ofType(tree, 'View');
+    const ground = flat(box?.props.style).backgroundColor as string;
+    expect(ground).toBe(highContrastPalette.raised);
+    const [headline, detail] = ofType(tree, 'Text');
+    for (const text of [headline, detail]) expect(contrastRatio(flat(text?.props.style).color as string, ground)).toBeGreaterThanOrEqual(15);
+    for (const button of ofType(tree, 'Pressable')) {
+      const background = flat((button.props.style as (s: { focused: boolean }) => unknown)({ focused: false })).backgroundColor as string;
+      const [label] = ofType(button, 'Text');
+      expect(contrastRatio(flat(label?.props.style).color as string, background)).toBeGreaterThanOrEqual(15);
+    }
+  });
+
+  it('gives a black card a white edge with higher contrast on, so it stands apart from a black screen', () => {
+    const [box] = ofType(card({}, HIGH), 'View');
+    expect(flat(box?.props.style).borderWidth).toBeGreaterThan(0);
+    expect(flat(box?.props.style).borderColor).toBe('#FFFFFF');
+  });
+
+  it('draws the focus ring thicker with higher contrast on, and moves nothing when the focus moves', () => {
+    const [first] = ofType(card({}, HIGH), 'Pressable');
+    const style = first?.props.style as (state: { focused: boolean }) => unknown;
+    const rest = flat(style({ focused: false }));
+    const focused = flat(style({ focused: true }));
+    expect(focused.borderWidth).toBe(6);
+    expect(focused.borderColor).toBe('#FFFFFF');
+    expect((rest.borderWidth as number) + (rest.margin as number)).toBe((focused.borderWidth as number) + (focused.margin as number));
+    const [standard] = ofType(card(), 'Pressable');
+    expect(flat((standard?.props.style as (s: { focused: boolean }) => unknown)({ focused: true })).borderWidth).toBe(2);
+  });
+
+  it('is drawn at the standard size when its words would not be whole at larger text — never cut, never under 32pt', () => {
+    const long = 'A long note from the family that runs on and on. '.repeat(4).trim().slice(0, 240);
+    const [headline, detail] = ofType(card({ detail: long }, LARGER), 'Text');
+    expect(flat(headline?.props.style).fontSize).toBe(48);
+    expect(flat(detail?.props.style).fontSize).toBe(32);
+    expect(detail?.props.numberOfLines).toBe(5);
+  });
+
+  it('keeps a short card large at larger text, and its words whole', () => {
+    const [, detail] = ofType(card({ detail: 'Sarah will ring at six.' }, LARGER), 'Text');
+    expect(flat(detail?.props.style).fontSize).toBe(40);
+    expect(detail?.props.numberOfLines).toBeGreaterThanOrEqual(1);
+  });
+
+  it('keeps higher contrast when it falls back from larger text', () => {
+    const long = 'word '.repeat(48).trim();
+    const [headline] = ofType(card({ detail: long }, { largerText: true, higherContrast: true }), 'Text');
+    expect(flat(headline?.props.style).fontSize).toBe(48);
+    expect(flat(headline?.props.style).color).toBe('#FFFFFF');
+  });
+
+  it('refuses a fourth action at larger text too', () => {
+    const four = [...actions, { id: 'more', label: 'More', kind: 'secondary' as const }];
+    expect(() => card({ actions: four }, LARGER)).toThrow(CalmViolation);
   });
 });

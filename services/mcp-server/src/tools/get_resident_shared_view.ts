@@ -14,7 +14,8 @@ import type { FactClass } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data } from './result.js';
+import { answerSchema, READS, data } from './result.js';
+import { z } from 'zod';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -57,6 +58,16 @@ export const FACT_CLASS_WORDS: Readonly<Record<FactClass, string>> = {
   VERBATIM: 'What was said, word for word',
 };
 
+const FACT_CLASS = z.enum(Object.keys(FACT_CLASS_WORDS) as [FactClass, ...FactClass[]]);
+
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  sharedWithFamily: z.array(FACT_CLASS).describe('The kinds of thing the resident shares with family, as codes.'),
+  residentExclusions: z.array(FACT_CLASS).describe('The kinds the resident has chosen to keep to themselves, as codes.'),
+  sharedInWords: z.array(z.string()).describe('`sharedWithFamily`, each in the words the television uses for it.'),
+  keptPrivateInWords: z.array(z.string()).describe('`residentExclusions`, each in the words the television uses for it.'),
+});
+
 export function registerGetResidentSharedView(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext): void {
   mcpServer.registerTool(
     'get_resident_shared_view',
@@ -66,6 +77,7 @@ export function registerGetResidentSharedView(mcpServer: McpServer, ddb: DynamoD
         "Returns exactly what the resident has agreed is shared with family — the counterpart of the television's \"What Sarah Sees\" screen. " +
         'Use `sharedInWords` and `keptPrivateInWords` when saying it: they are what each kind of thing means.',
       inputSchema: {},
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async () => {

@@ -74,11 +74,12 @@ describe('ResidentApp.tsx — read to me', () => {
     expect(app).toMatch(/filmPlayer\.current = player;/);
   });
 
-  it('draws the mark of the Play key with the card — only where reading can work, and not while the door camera is over the card', () => {
+  it('draws the mark of the Play key with the card — only where reading can work, not while the door camera is over the card, and not while a screen reader speaks the card already', () => {
     const layer = app.slice(app.indexOf('{card && !liveFor ? ('), app.indexOf('{liveFor ? ('));
 
     expect(layer).toMatch(/<CardRenderer\b/);
-    expect(layer).toMatch(/\{readable \? <ReadHint cardType=\{card\.card\.type\} language=\{language\} \/> : null\}/);
+    expect(layer).toMatch(/\{readable && !screenReader \? <ReadHint cardType=\{card\.card\.type\} language=\{language\} \/> : null\}/);
+    expect(app).toMatch(/const screenReader = useScreenReaderEnabled\(\);/);
     expect(layer.indexOf('<ReadHint')).toBeGreaterThan(layer.indexOf('<CardRenderer'));
   });
 

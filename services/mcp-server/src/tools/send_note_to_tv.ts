@@ -40,10 +40,12 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { MAX_CARD_DETAIL_CHARS, type QueuedCard } from '@wick/contracts';
+import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { WRITES, data } from './result.js';
+import { answerSchema, WRITES, data, say } from './result.js';
+import { callKey, claimOnce } from './once.js';
 import { theirOwnWords } from '../guardian.js';
 
 /** The way out that is always offered. */
@@ -124,10 +126,40 @@ export function buildMessageCard(input: BuildMessageCardInput): QueuedCard {
  */
 export type SendCard = (card: QueuedCard, serverOnly?: { readonly sentBy?: string }) => Promise<void>;
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  sent: z.literal(true),
+  cardId: z.string(),
+  fromName: z.string(),
+  message: z.string(),
+  replies: z.array(z.string()).describe('The buttons the resident is offered, in order.'),
+  repeated: z.literal(true).optional().describe('The same note was sent moments ago, and was not sent again: this is that note.'),
+});
+
+/**
+ * How long the same note from the same person counts as the same call
+ * (tools/once.ts): long enough for a client's retry, or a second press of
+ * Send, and short enough that saying the same thing again later is a note.
+ */
+export const SAME_NOTE_WINDOW_MS = 2 * 60 * 1000;
+/** How long a client's own idempotency key holds. */
+export const IDEMPOTENCY_KEY_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const NOTE_ON_ITS_WAY_TEXT = 'That note is already on its way to the television.';
+export const KEY_ALREADY_USED_TEXT = 'That idempotency key was already used for a different note, so this one was not sent.';
+
+/** What a sent note's answer keeps, to give a retry: its id and its buttons, never its words. */
+interface SentNote {
+  readonly cardId: string;
+  readonly fromName: string;
+  readonly replies: readonly string[];
+}
+
 export function registerSendNoteToTv(
   mcpServer: McpServer,
+  ddb: DynamoDBClient,
   ctx: ToolContext,
   sendCard: SendCard,
+  now: () => number = Date.now,
 ): void {
   mcpServer.registerTool(
     'send_note_to_tv',
@@ -138,28 +170,59 @@ export function registerSendNoteToTv(
         'Pass `replies`: the keys of the two replies from this list that best answer this particular note — ' +
         `${Object.entries(REPLY_CHOICES).map(([key, text]) => `${key} ("${text}")`).join(', ')}. ` +
         `A third, "${DECLINE_REPLY}", is always added. Without two keys from the list the standing three are used. Replies cannot be written, only chosen. ` +
-        'The answer says which replies were offered (`replies`).',
+        'The answer says which replies were offered (`replies`). ' +
+        'Sending the same note again within two minutes does not send it twice: the answer is the first one, with `repeated`. ' +
+        'A client that retries may pass `idempotencyKey`, the same for every try of one note.',
       inputSchema: {
         message: z.string().min(1).max(MAX_CARD_DETAIL_CHARS).describe(`The note text, at most ${MAX_CARD_DETAIL_CHARS} characters: it is read on a television, in large type, in full.`),
         replies: z.array(z.string()).max(3).optional().describe('The keys of two replies from the list in this tool’s description, e.g. ["yes_please", "another_day"].'),
+        idempotencyKey: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/).optional().describe('Optional. The same value on every retry of one note (8 to 128 letters, digits, ".", "_", ":" or "-"): the note is sent once.'),
       },
+      outputSchema: OUTPUT,
       annotations: WRITES,
     },
     // The sender is never an argument. The resident trusts the name on the
     // card, so it is the name of the person the resident allowed — a note
     // cannot be made to say it came from somebody else.
-    withFriendlyErrors(gated(ctx, async (allowed, { message, replies }: { message: string; replies?: string[] | undefined }) => {
+    withFriendlyErrors(gated(ctx, async (allowed, { message, replies, idempotencyKey }: { message: string; replies?: string[] | undefined; idempotencyKey?: string | undefined }) => {
       const fromName = allowed.membership.name;
+      const asked = callKey({ message, replies });
+      // INV-6: a retried call, or the same note sent again at once, is one note.
+      const claim = await claimOnce<SentNote>(ddb, {
+        householdId: ctx.householdId,
+        userId: ctx.userId,
+        tool: 'send_note_to_tv',
+        ...(idempotencyKey === undefined
+          ? { key: asked, windowMs: SAME_NOTE_WINDOW_MS }
+          : { key: `key:${idempotencyKey}`, asked, windowMs: IDEMPOTENCY_KEY_WINDOW_MS }),
+        now: now(),
+      });
+      if (!claim.first) {
+        if (idempotencyKey !== undefined && !claim.sameCall) return say(KEY_ALREADY_USED_TEXT);
+        if (!claim.answer) return say(NOTE_ON_ITS_WAY_TEXT);
+        const sent = claim.answer;
+        return theirOwnWords(data({ sent: true, cardId: sent.cardId, fromName: sent.fromName, message, replies: [...sent.replies], repeated: true }), [message]);
+      }
+
       const card = buildMessageCard({
         householdId: ctx.householdId,
         correlationId: randomUUID(),
         fromName,
         message,
         replies,
-        now: Date.now(),
+        now: now(),
       });
-      await sendCard(card, { sentBy: ctx.userId });
+      try {
+        await sendCard(card, { sentBy: ctx.userId });
+      } catch (err) {
+        // Not sent, so a retry must be able to send it.
+        await claim.release().catch(() => {});
+        throw err;
+      }
       const offered = card.card.type === 'MESSAGE' ? card.card.suggestedReplies : [];
+      // Kept for a retry; a failure to keep it only means a retry is told the note is on its way.
+      await claim.keep({ cardId: card.id, fromName, replies: offered }).catch((err: unknown) =>
+        console.error(JSON.stringify({ level: 'error', msg: 'once_not_kept', tool: 'send_note_to_tv', err: err instanceof Error ? err.name : 'unknown' })));
       return theirOwnWords(data({ sent: true, cardId: card.id, fromName, message, replies: offered }), [message]);
     })),
   );

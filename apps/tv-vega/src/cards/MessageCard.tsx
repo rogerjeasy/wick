@@ -15,7 +15,7 @@
 import * as React from 'react';
 import { Image, StyleSheet } from '@amazon-devices/react-native-kepler';
 import type { HouseholdLanguage, MessageCard as MessageCardModel } from '@wick/contracts';
-import { CalmCard, safe } from '@wick/vega-calm-ui';
+import { CalmCard, useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import { words } from '../words/words.js';
 import { replyActions } from './messageActions.js';
 
@@ -28,12 +28,14 @@ export interface MessageCardProps {
 
 export function MessageCardView({ card, language, onAction }: MessageCardProps): React.JSX.Element {
   const say = words(language);
+  const styles = useCalmStyles(makeStyles);
   return (
     <CalmCard
       headline={say('message.headline', { name: card.fromName })}
       detail={card.transcript}
       actions={replyActions(card.suggestedReplies)}
       onAction={onAction}
+      mediaSize={card.fromPhotoRef ? PHOTO : undefined}
       media={
         card.fromPhotoRef ? (
           <Image
@@ -48,11 +50,13 @@ export function MessageCardView({ card, language, onAction }: MessageCardProps):
   );
 }
 
-const styles = StyleSheet.create({
-  photo: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: safe.ground,
-  },
-});
+const PHOTO = { width: 96, height: 96 } as const;
+
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    photo: {
+      ...PHOTO,
+      borderRadius: 48,
+      backgroundColor: t.palette.ground,
+    },
+  });

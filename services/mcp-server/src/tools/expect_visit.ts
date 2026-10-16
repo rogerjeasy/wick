@@ -25,7 +25,7 @@ import { withFriendlyErrors } from './errors.js';
 import { isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { loadRoster } from './list_regular_visitors.js';
 import { announcedVisitSk, memberPersonId } from '../accounts/announcedVisits.js';
-import { WRITES, data, say } from './result.js';
+import { answerSchema, WRITES, data, say } from './result.js';
 import { localToUtc } from './when.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
@@ -55,6 +55,15 @@ export interface ExpectedVisitAnswer {
   readonly alsoExpectedThatDay: readonly string[];
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  expected: z.literal(true),
+  name: z.string(),
+  at: z.number(),
+  windowMinutes: z.number(),
+  alsoExpectedThatDay: z.array(z.string()).describe('Regular visitors whose usual days include that one; empty when the resident keeps who visits private.'),
+});
+
 export function registerExpectVisit(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -73,6 +82,7 @@ export function registerExpectVisit(
         date: z.string().describe('The day of the visit, YYYY-MM-DD.'),
         time: z.string().describe('The time of the visit in 24-hour HH:MM, in the household’s local time.'),
       },
+      outputSchema: OUTPUT,
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { date, time }: { date: string; time: string }) => {

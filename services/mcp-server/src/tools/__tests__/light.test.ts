@@ -95,7 +95,7 @@ describe('get_light — the light in the window', () => {
     const { text, structured } = await ask(table);
 
     expect(text).toBe("That's something the resident is keeping to themselves. I'm not able to share it.");
-    expect(structured).toBeUndefined();
+    expect(structured).toEqual({ say: text });
   });
 
   it('counts as looking in', async () => {

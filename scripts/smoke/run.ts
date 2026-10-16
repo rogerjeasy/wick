@@ -1,6 +1,6 @@
 /**
  * The live smoke test's questions, in order, against the deployed stack:
- * the two sites, the status page, the Wick server's sign-in metadata and
+ * the two sites and her television on the second, the status page, the Wick server's sign-in metadata and
  * its refusal of a stranger, then a fresh demo guest's conversation, data,
  * sign-out and deletion.
  *
@@ -24,6 +24,7 @@ import {
   pass,
   protectedResourceVerdict,
   siteVerdict,
+  televisionPageVerdict,
   skip,
   statusVerdict,
   toolCountVerdict,
@@ -66,6 +67,12 @@ export async function runSmoke(config: SmokeConfig, fetch: Fetch, say: (result: 
       return siteVerdict(`${site} ${url}`, res.status, res.headers, config.features.securityHeaders);
     });
   }
+
+  await attempt('her television', async () => {
+    const url = `${config.virtualTv}/tv.html`;
+    const res = await fetch(url);
+    return televisionPageVerdict(url, res.status, res.headers, config.features.browserTelevision, config.features.securityHeaders);
+  });
 
   await attempt('status API', async () => {
     const res = await fetch(config.status);

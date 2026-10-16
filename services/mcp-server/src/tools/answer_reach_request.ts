@@ -30,7 +30,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { NOT_ASKED, firstName, reachesOf, stillOpen } from './get_reach_request.js';
-import { WRITES, data, say, type AnswerOutcome } from './result.js';
+import { ANSWER_OUTCOME, WRITES, data, say, type AnswerOutcome } from './result.js';
 
 const ANSWER_KEYS = Object.keys(REACH_ANSWERS) as [ReachAnswer, ...ReachAnswer[]];
 
@@ -65,6 +65,9 @@ export async function answerReachRequest(
   const request = await reaches.load(householdId, requestId);
   // Not asked, and no such request, are one answer: see get_reach_request.
   if (!request || !wasAsked(request, userId)) return { shown: false, say: NOT_ASKED(residentName) };
+  // INV-6: this person's own answer, asked again (a retried call), is the answer they gave.
+  const theirs = (given: ReachRequest['answer']): given is NonNullable<ReachRequest['answer']> => given?.by === userId && given.key === answer;
+  if (theirs(request.answer)) return { shown: true, by: request.answer.byName, text: REACH_ANSWERS[answer] };
   if (request.answer) return { shown: false, say: alreadyAnswered(request.answer) };
   if (!answersFor(request.kind).includes(answer)) {
     return { shown: false, say: `That answer does not fit what ${residentName} asked. Choose one of: ${answersFor(request.kind).map((key) => `${key} ("${REACH_ANSWERS[key]}")`).join(', ')}.` };
@@ -77,12 +80,16 @@ export async function answerReachRequest(
   if (!(await reaches.answer(householdId, requestId, given))) {
     // Someone answered in the moment between the read and the write.
     const settled = await reaches.load(householdId, requestId);
+    if (theirs(settled?.answer)) return { shown: true, by: settled!.answer!.byName, text: REACH_ANSWERS[answer] };
     return { shown: false, say: settled?.answer ? alreadyAnswered(settled.answer) : NOT_ASKED(residentName) };
   }
 
   await sendCard(buildReachCard({ ...request, answer: given }, now));
   return { shown: true, by: given.byName, text: REACH_ANSWERS[answer] };
 }
+
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = ANSWER_OUTCOME;
 
 export function registerAnswerReachRequest(
   mcpServer: McpServer,
@@ -105,6 +112,7 @@ export function registerAnswerReachRequest(
         requestId: z.string().regex(/^\d{13,16}$/).describe('The `requestId` get_reach_request returned for the request being answered.'),
         answer: z.enum(ANSWER_KEYS).describe('The key of the chosen answer, e.g. "now".'),
       },
+      outputSchema: OUTPUT,
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { requestId, answer }: { requestId: string; answer: ReachAnswer }) => {

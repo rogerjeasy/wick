@@ -25,7 +25,7 @@ anyone watching her.
 | | |
 |---|---|
 | Repository | https://github.com/rogerjeasy/wick (MIT) |
-| Try it (no account, no hardware) | https://dmaz25jvryojp.cloudfront.net/ (the family app) and https://d2sbabcft8sm3m.cloudfront.net/device.html (a television in a browser tab) |
+| Try it (no account, no hardware) | https://d2sbabcft8sm3m.cloudfront.net/tv.html (her television in a browser tab) and https://dmaz25jvryojp.cloudfront.net/ (the family app) |
 | The calm-point map | https://rogerjeasy.github.io/wick/calm-points/ |
 | Product feedback (every tool, and 15 feature requests) | [`docs/PRODUCT-FEEDBACK.md`](PRODUCT-FEEDBACK.md) |
 | Friction log (31 entries) | [`FRICTION.md`](../FRICTION.md) |
@@ -163,20 +163,33 @@ sample was opened on 2026-10-14.
 
 ### The hosted demo: no account, no hardware
 
-1. Open the [family app](https://dmaz25jvryojp.cloudfront.net/) and choose
-   **Try the demo**. You get a guest account and a demo home of your own, with
-   six weeks of simulated history.
-2. Open [a television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/device.html),
-   press **Pair & connect**, and enter its code in the family app.
-3. On the television, allow yourself. Then ask the family app anything, such as
-   *"How has my mum been this week?"*, *"Is the light on?"* or *"Ask Mum to
-   watch Sintel with me on Sunday at three"*, and answer on the television.
-4. To see the door, press the **Ring the stand-in doorbell** chip and choose who
-   is there. The door card comes up on the television within a few seconds,
-   then the picture, then the vision model's sentence. Press **Ask Guest to
-   look** there, and the family app shows you the picture to answer.
-5. For the family's side on a television, open a second television tab, press
-   **Pair & connect**, and answer *"Whose television is it?"* with **Mine**.
+1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html).
+   It is the television and nothing else, drawn as the Vega app draws it, and
+   it shows a six-digit code. The keyboard is the remote: the arrows move,
+   **Enter** is OK, **Backspace** or **Esc** is Back, **Space** or **P** is
+   Play/Pause, and **Enter** held for two seconds is Hold for Sarah. **?**
+   shows or hides the keys.
+2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose
+   **Try the demo**, and enter the television's code. You get a guest account
+   and a demo home of your own, with six weeks of simulated history.
+3. On the television, allow yourself: the question comes up once it has sat on
+   its home screen for twenty seconds, as on Vega. Then ask the family app
+   anything, such as *"How has my mum been this week?"* or *"Is the light
+   on?"*, and answer on the television.
+4. The natural break: choose a film with **Enter**, then ask the family app to
+   *"Send a note to her television"*. The note waits while the film plays.
+   Press **Space** to pause and it comes on screen five seconds later — or let
+   Big Buck Bunny reach 1:29, a measured calm point, where the film holds on
+   the cut while the note is shown. **Space** over the note reads it aloud;
+   **Enter** answers it, and from a calm point the film goes on by itself.
+5. The door: press the **Ring the stand-in doorbell** chip and choose who is
+   there. The door card comes up at once, over the playing film and without
+   pausing it, then the picture, then the vision model's sentence.
+6. **Easier to see**, on the home screen, sets larger text or higher contrast.
+7. For the family's side on a television, open
+   [the console's television](https://d2sbabcft8sm3m.cloudfront.net/device.html),
+   press **Pair & connect**, and answer *"Whose television is it?"* with
+   **Mine**.
 
 ### On the Vega Virtual Device or the Android TV emulator
 
@@ -319,10 +332,10 @@ Device and says on screen what is simulated.
 | 0:12–0:25 | Title over the film: one sentence of the idea | Built for the person being cared for, not the caregiver |
 | 0:25–0:55 | A doorbell ring → the door card over the film within seconds → the picture → the vision model's sentence → **Watch live** → Back | The door. Caption naming the source (Ring Developer Playground camera; the ring from Wick's signed stand-in, FL-027) |
 | 0:55–1:10 | On the VVD, another app in front → the system toast "Someone's at the front door." → **Open Wick** | The background service and toast (FL-022) |
-| 1:10–1:35 | Family app: a note sent mid-film → it does not appear → the film reaches a calm point, holds on the cut, the note appears → one-button reply → the reply in the family app | Natural breaks; the calm-point map for a second |
-| 1:35–1:55 | Family app: "How has Mum been this week?" → the week card on the TV first, then the paragraph in the family app | INV-7: she sees her week first; the model never counts |
+| 1:10–1:40 | **Voice, D-pad and visual in one flow.** Family app: a note sent mid-film → it does not appear → the system's transport control reaches her film through the Vega media session (its Stop, which Wick obeys as a pause; seen on the VVD) → at that pause the note comes on screen → **Play** reads it aloud (Amazon Polly) → **OK** sends her reply → the reply in the family app. Then, for a second, the same note waiting for a measured calm point instead, holding the film on the cut | The rubric's "multi-modal UX combining voice + D-pad + visual in a single flow", said in a caption. Caption: "On a Fire TV this is 'Alexa, pause'. The simulator takes no voice, so the system's own transport control stands in for it (FL-031)." The calm-point map for a second |
+| 1:40–1:55 | Family app: "How has Mum been this week?" → the week card on the TV first, then the paragraph in the family app | INV-7: she sees her week first; the model never counts |
 | 1:55–2:10 | OK held for two seconds → "Ask Sarah to ring you?" → Yes → the family member's answer appears on her TV | Hold for Sarah |
-| 2:10–2:25 | Fire OS build on the Android TV emulator, same card | One source, two Fire TV platforms |
+| 2:10–2:25 | Fire OS build on the Android TV emulator, same card; then on the VVD, **Easier to see**: Larger text, then Higher contrast, on the door card | One source, two Fire TV platforms; her television adapts to what she can see |
 | 2:25–2:45 | Architecture diagram: Vega/Fire OS ↔ IoT Core ↔ AgentCore (Strands, Nova Lite) ↔ DynamoDB ↔ MCP server ↔ family app | AWS Builder: twenty services, all Terraform |
 | 2:45–2:55 | The repo, `FRICTION.md`, `vega-calm-ui`, PR #135 | Product feedback and Open Source |
 

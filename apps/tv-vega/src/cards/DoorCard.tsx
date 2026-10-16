@@ -34,9 +34,9 @@
  * headline on one line at body size it is a little over half the screen.
  */
 import * as React from 'react';
-import { Image, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
+import { Image, StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import type { CardAction, DoorCard as DoorCardModel, HouseholdLanguage } from '@wick/contracts';
-import { TwoPhaseCard, fontSize, safe } from '@wick/vega-calm-ui';
+import { CalmText, TwoPhaseCard } from '@wick/vega-calm-ui';
 import { words } from '../words/words.js';
 import { doorDetailText } from './doorDetail.js';
 
@@ -60,6 +60,7 @@ export function DoorCardView({ card, language, onAction }: DoorCardProps): React
         onAction={onAction}
         mediaSize={FRAME}
         compact
+        childWords={[card.notice]}
         media={
           card.imageRef ? (
             <Image
@@ -74,11 +75,7 @@ export function DoorCardView({ card, language, onAction }: DoorCardProps): React
           ) : null
         }
       >
-        {card.notice ? (
-          <Text style={styles.notice} accessibilityLiveRegion="polite">
-            {card.notice}
-          </Text>
-        ) : null}
+        {card.notice ? <CalmText accessibilityLiveRegion="polite">{card.notice}</CalmText> : null}
       </TwoPhaseCard>
     </View>
   );
@@ -102,10 +99,5 @@ const styles = StyleSheet.create({
   frame: {
     width: '100%',
     height: '100%',
-  },
-  notice: {
-    color: safe.ink,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
   },
 });

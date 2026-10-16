@@ -28,6 +28,7 @@ tfplan
 .terraform.tfstate.lock.info
 infra/.build/
 services/agent/.build/
+services/mcp-server/.build/
 
 # Agent-local scratch — worktrees for isolated plan execution, and the
 # subagent-driven-development skill's per-plan progress workspace.

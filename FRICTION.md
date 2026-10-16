@@ -3,8 +3,9 @@
 Developer-experience friction encountered while building Wick on Amazon Devices,
 Ring, Alexa+ and AWS.
 
-31 entries, FL-001 to FL-032, newest first, each written when the problem was hit.
-There is no FL-020: the number was taken and the entry never written. The same
+37 entries, FL-001 to FL-041, newest first, each written when the problem was hit.
+There is no FL-020, FL-034, FL-037 or FL-039: those numbers were set aside for
+work running in parallel and not needed. The same
 problems, gathered by tool with what worked well beside them, are in
 [docs/PRODUCT-FEEDBACK.md](docs/PRODUCT-FEEDBACK.md).
 
@@ -137,6 +138,338 @@ removed from the design (2026-10-02).
                         is set on each delivery attempt and on a dead-letter replay.
                      3. Give the Playground a "send a test webhook" button (FL-027) so a partner
                         finds a wrong envelope or header on day one, not at certification.
+
+## FL-040 — The Alexa+ MCP add-on design guide names Card, List and Carousel but gives none of them an anatomy, and its components page is not in its own navigation
+
+**Date:**            2026-10-16
+
+**Tool / API:**      Alexa+ MCP add-on design guide (developer.amazon.com/docs/alexaplus/add-ons/,
+                     the overview, Display Modes, Layout and Rendering, Visual Foundations and
+                     Components and Patterns pages, as published on 2026-10-16)
+
+**Task attempted:**  Draw the family app's answers — the door, the week, the visits, today, the
+                     light, a film invitation — as the cards an Alexa+ surface would show for an
+                     add-on's tool results: a header, primary text, an image where the tool
+                     returned one, and a few actions; and the week's days as a carousel.
+
+**Steps taken:**     1. Read the overview. Its navigation lists the conversation surface, tools and
+                        data, Display Modes and the glossary; the "Build a High-Quality Design"
+                        and "Get Ready for Customers" sections are collapsed with no links in them.
+                        The overview's only rule for a card is "one title, one or two supporting
+                        fields, one clear action".
+                     2. Read Display Modes (inline, fullscreen, hydrated, voice-only) and Layout
+                        and Rendering (Block and Card viewports, `hostContext`, CSP). Both point
+                        to "Components and Patterns" for components; neither links it from the
+                        navigation, and I reached it by its address
+                        (…/mcp-addon-components-and-patterns.html).
+                     3. Components and Patterns names four patterns — List, Carousel, Card, Map —
+                        and says not to invent others. The Card is "a single entity shown with an
+                        image and optional action buttons"; the Carousel returns "3 to 5 items in
+                        inline mode" and "See more" lazy-loads the rest.
+                     4. Read Visual Foundations for the card's parts: it has colours, spacing,
+                        radii and a type scale, and no anatomy.
+
+**Expected:**        For each pattern, its parts and their limits: which text is the header and
+                     which is primary or secondary, which type token each takes, the image's
+                     aspect ratio and place, how many calls to action a card may carry, how wide
+                     a carousel item is and what "See more" does on a web transcript surface.
+
+**Actual:**          None of those is written down. A Card has "an image and optional action
+                     buttons", with no count; a Carousel has an item count but no item size; the
+                     type tokens are not tied to any part of a card. Two builders following the
+                     guide would draw different cards, and neither could say which matches what
+                     Alexa+ renders natively in hydrated mode.
+
+**Severity:**        Nice-to-have — the cards were built, but on our reading, not the guide's.
+
+**Workaround:**      Took the guide's words literally and filled the gaps with Wick's own product
+                     rules: a header (Headline2) with a line under it, primary text at Body1, the
+                     picture first where the tool returned one, at most three actions (Wick's own
+                     "three, never four"); the week's carousel shows only days its timeline has
+                     something on, five inline (the top of the guide's three to five), and "See
+                     all" lays every day out in place rather than opening another surface
+                     (`apps/sim-alexa/surface.js` `weekDays`, `CAROUSEL_INLINE`; `main.js`
+                     `renderWeekCard`).
+
+**Suggestion:**      1. Put Components and Patterns, Layout and Rendering and Visual Foundations
+                        in the guide's navigation.
+                     2. Give each pattern an anatomy diagram with its parts named, the type token
+                        and spacing each takes, the image ratio, the maximum number of calls to
+                        action, and a carousel item's width per device class.
+                     3. Say what the hydrated (data-only) mode draws for a List, a Carousel and a
+                        Card, so an add-on that returns data knows what its customer will see.
+## FL-033 — App Runner's front end closes a kept-alive client connection after a few seconds to a minute, says why nowhere, and each reconnection is the whole of the "slow" tool call
+
+**Date:**            2026-10-16
+
+**Tool / API:**      AWS App Runner (an ECR image service, us-east-1; responses carry `server: envoy`),
+                     reached over HTTP/1.1 + TLS from Node 22's `https.Agent({ keepAlive: true, maxSockets: 1 })`
+
+**Task attempted:**  Find out why the Wick server answers MCP tool calls at two speeds — about
+                     0.2 s or about 0.8–1.1 s (issue #47) — when Alexa+ asks for a round trip
+                     under 500 ms.
+
+**Steps taken:**     1. Wrote `npm run latency:mcp` (scripts/mcp-latency.ts): a fresh demo guest,
+                        then N `tools/call` requests over ONE kept-alive connection, noting for
+                        each call whether it reused the connection or had to open one, and
+                        whether the answer said `Connection: close`.
+                     2. Ran it from a laptop in Europe against the deployed server (the image
+                        from before this work: Node's default 5 s keep-alive, vite-node), four
+                        times: 100 calls back to back, 100 at one a second, 40 at one a second,
+                        40 at one every three seconds.
+                     3. Looked in the App Runner developer guide and in re:Post for any idle
+                        timeout, connection lifetime or `Connection: close` behaviour on the
+                        service's front end. Found none documented.
+
+**Expected:**        A connection a client keeps alive stays open while it is used, or the
+                     service documents how long it does stay open, so a client can plan for the
+                     reconnection.
+
+**Actual:**          The front end ends the connection with `Connection: close` on an ordinary
+                     200 answer, after a lifetime that varies from 2 s to 40 s (2.3, 4.4, 5.5,
+                     23.5 and 5.5 s in one run; 39.5, 4.0, 23.9, 9.4, 17.6, 5.6, 7.6, 4.8 s in
+                     another), more often the more slowly requests come. Every slow call is the
+                     first on a new connection: at one a second, 54 calls on a reused connection
+                     had p50 201 ms and p95 296 ms, none over 500 ms; the 6 on a new connection
+                     had p50 780 ms, all over 500 ms. Back to back (100 calls in about 20 s) only
+                     one connection was replaced and one call went over 500 ms. Whether the
+                     container's own 5 s keep-alive played a part could not be told from
+                     outside; nothing App Runner exposes says which side closed.
+
+**Severity:**        Important — from Europe it is the difference between meeting Alexa+'s
+                     500 ms and missing it on 1 % to 22 % of calls (the slower the requests come, the more), and nothing in the service's
+                     documentation lets a developer find the cause without writing a probe.
+
+**Workaround:**      The server now keeps its own idle connections open for 65 s
+                     (`keepAliveTimeout`, services/mcp-server/src/lifecycle.ts), longer than any
+                     usual proxy idle time, so the container is not the side that closes; and
+                     every answer carries `Server-Timing` (auth, build, gate, handler, guard,
+                     total), so the server's share of a slow call can be read from the client.
+                     Whether that changes App Runner's behaviour is to be measured after the
+                     deploy, with the same script. From inside us-east-1 a reconnection costs a
+                     fraction of what it costs from Europe.
+
+**Suggestion:**      1. Document the front end's connection behaviour: the idle timeout, any
+                        maximum connection lifetime or request count, and when it answers
+                        `Connection: close`.
+                     2. Say in the response (or in a metric) whether a close came from the
+                        front end or from the container's own connection.
+                     3. Offer HTTP/2 to clients, which would make one connection's set-up cost
+                        rarer still.
+
+---
+
+## FL-036 — The Android TV emulator draws no notification of a third-party app: not as a heads-up, not in its notifications panel
+
+*2026-10-16.*
+
+**Tool / API:**      Android TV emulator, system image `android-34/android-tv/arm64-v8a`
+                     (the one the hackathon FAQ names in place of a Fire TV), its launcher's
+                     notifications panel (`com.google.android.tvrecommendations` 6.3.1) /
+                     `NotificationManager`, `NotificationCompat` (AndroidX Core)
+
+**Task attempted:**  See Wick's door notification on the screen while another app is in
+                     front (FL-035), and press it, on the only stand-in for a Fire TV there is.
+
+**Steps taken:**     1. Built and installed the Fire OS APK with the door service, paired it to a
+                        demo home, put Android TV Settings in front of Wick, rang the demo home's
+                        stand-in doorbell (`POST /api/demo/doorbell`).
+                     2. `dumpsys notification --noredact`: the notification is there, on channel
+                        `wick_door`, importance 4 (HIGH), priority 1, `BigPictureStyle`, the
+                        title "Someone's at the front door (stand-in doorbell).", then — a few
+                        seconds later — the vision model's sentence and an 832x474 picture.
+                     3. Screen captures once a second for eight seconds after the ring: not a
+                        pixel changed. No heads-up.
+                     4. Opened the system's notifications panel (`cmd statusbar
+                        expand-notifications`): it lists Google's own notices and nothing of
+                        Wick's.
+                     5. Added Android's own television mark to the notification
+                        (`Notification.TvExtender`'s extras, `android.tv.EXTENSIONS` with
+                        `FLAG_AVAILABLE_ON_TV`; the class itself is a system API) and rang again:
+                        the extras were on the notification and the panel still did not list it.
+                        Taken out again.
+
+**Expected:**        The emulator the FAQ names behaves like a television for the one thing a
+                     television app most needs to test outside itself — a notification — or a
+                     written note says it does not.
+
+**Actual:**          Nothing a third-party app posts is drawn anywhere on this image. Android
+                     takes the notification, keeps it, updates it and times it out exactly as
+                     asked, and shows none of it. Fire TV's documentation says the opposite of
+                     Fire OS — a high-priority notification is a heads-up at the bottom of the
+                     screen and stays in the Notification Center — so on the emulator there is
+                     no way to see what the resident would see, nor to press it.
+
+**Severity:**        Important — the door outside Wick on Fire OS is checked on the emulator only
+                     through `dumpsys`; what it looks like on a Fire TV, and that pressing it
+                     brings Wick forward, is not seen.
+
+**Workaround:**      Checked what can be checked without a drawing: the foreground service and its
+                     type, the notification's every field through `dumpsys`, that it is updated
+                     with the picture and the sentence, that it goes when Wick comes forward, at
+                     its card's end and when the card is answered on another television, and
+                     that the intent it carries brings Wick forward to the card (sent by hand
+                     with `am start`). Then ran the same APK on an Android *phone* emulator
+                     (API 34, Google APIs) paired into the same home: there the heads-up and the
+                     picture are drawn and pressing *Open Wick* brings Wick to the card. A
+                     phone's system UI is not a Fire TV's, so this shows the notification is
+                     right, not what a Fire TV draws.
+
+**Suggestion:**      1. A Fire OS emulator image (FL-025), or at least a Fire TV system UI for the
+                        Android TV emulator that draws heads-up notifications and the Notification
+                        Center as a Fire TV does.
+                     2. Until then, one sentence on the Fire TV notifications page saying the
+                        Android TV emulator does not draw third-party notifications, so nobody
+                        spends an afternoon proving it.
+
+---
+
+## FL-035 — Fire TV's notification guidance says "no heads-up while another app is in front" in a blog post, says nothing of foreground services, and a doorbell is exactly the case it rules out
+
+*2026-10-16.*
+
+**Tool / API:**      Fire OS 7 / 8 (Android 9 / 11) Android notifications, as described in
+                     developer.amazon.com/docs/fire-tv/notifications.html and the Appstore blog
+                     post "Amazon Device Messaging (ADM) and local notifications on Fire TV"
+                     (Kevin Tsang, 2021-07-21); Android foreground services (`specialUse`,
+                     Android 14), `POST_NOTIFICATIONS` (Android 13)
+
+**Task attempted:**  Say "Someone's at the front door." on a Fire TV while another app is in
+                     front, as Wick does on Vega with a system toast (FL-022): the only thing in
+                     Wick that may interrupt anything.
+
+**Steps taken:**     1. Read the Fire TV notifications page. It says heads-up notifications
+                        "appear at the bottom of the screen and fade away after a few seconds",
+                        that "you must set the notification as a high priority", that "heads-up
+                        notifications are limited in height to normal layouts only (there are no
+                        expanded layouts)", that a large image is "the tile image in the
+                        notification card" at 16:9, and that "Users can also select Do Not
+                        Interrupt to suppress heads-up notifications". It says nothing about
+                        whether an app may post one over another app.
+                     2. Found that rule only in the blog post: "your app should not send a
+                        Heads-Up notification when another app is in the foreground", and
+                        "Build your notification mechanism in order to verify if another app is
+                        in the foreground".
+                     3. Looked for what Fire OS does with the ongoing notification Android
+                        requires of a foreground service — whether it lands in the Notification
+                        Center, and whether it lights the bell on Settings — and for any word on
+                        foreground services on Fire TV at all. Found neither.
+                     4. Built it anyway (`apps/tv-fireos/android/.../door`): a `specialUse`
+                        foreground service holding the door's background connection, one
+                        high-priority notification per door card, no sound, no vibration, no
+                        light, no badge, taken down when Wick comes forward, when the card is
+                        taken back and at the card's own five minutes.
+
+**Expected:**        The rule on the documentation page, with the exception every television
+                     platform makes: a doorbell, a call, an alarm — something happening now that
+                     the person would want to be told over a film. And a sentence on what a
+                     foreground service's notification does on a Fire TV.
+
+**Actual:**          The rule is in a blog post and has no exception. A doorbell is exactly the
+                     case it rules out: the whole point is that another app is in front. Fire
+                     TV's own Ring integration puts the doorbell's picture over any app, so the
+                     platform plainly thinks a doorbell may interrupt; a third-party app has
+                     nothing written to stand on. Whether Fire OS shows the service's ongoing
+                     notification in the Notification Center, with the bell, is not said, and
+                     with no Fire TV and no Fire OS emulator (FL-025, FL-036) it could not be
+                     looked at.
+
+**Severity:**        Important — the feature is built against the blog's advice, on purpose, for
+                     one kind of card, and how it looks on a Fire TV is unseen.
+
+**Workaround:**      Wick departs from the advice for the door only, and says so
+                     (`apps/tv-fireos/src/door/doorAlert.ts`): a note from the family, a week, a
+                     question, anything DEFERRED never posts anything outside Wick. The door's
+                     notification is high priority (a heads-up), carries no sound, and Fire OS's
+                     Do Not Interrupt still silences it — that is her choice. The service's own
+                     notification is the lowest importance there is, with no badge. On Android 13
+                     and later she is asked once, by the system, whether Wick may notify; Fire OS
+                     7 and 8 grant it at install.
+                     One thing found on the way, which is React Native's and not Amazon's: in
+                     React Native 0.83's new architecture no package registers
+                     `HeadlessJsTaskSupport`, so `AppRegistry` never tells Android a Headless JS
+                     task has ended, and a service waiting for that (as `HeadlessJsTaskService`
+                     does) never stops. Seen on the emulator; Wick's task says so through its
+                     own module instead.
+
+**Suggestion:**      1. Move the foreground rule onto the notifications page and give it the
+                        exception: "unless the notification is time-critical for the user — a
+                        doorbell, an incoming call, an alarm — in which case use
+                        `CATEGORY_CALL`/`CATEGORY_ALARM`/a named category" (and name one for a
+                        doorbell).
+                     2. Say what a foreground service's notification does on Fire TV: whether it
+                        is listed in the Notification Center, whether it lights the bell on
+                        Settings, and whether a `specialUse` service is accepted in Appstore
+                        review.
+                     3. Say whether `BigPictureStyle` is drawn anywhere on Fire TV (the page says
+                        there are no expanded layouts) and which field is the "tile image".
+
+---
+
+## FL-038 — Vega answers whether high-contrast text is on, but says nothing an app can use about text size, and the simulator cannot turn either setting, or VoiceView, on
+
+*2026-10-16*
+
+**Tool / API:**      Vega OS 1.2, Vega SDK 0.24.12044, Vega Virtual Device /
+                     `@amazon-devices/react-native-kepler` 4.0.1+rn0.83.0 (`AccessibilityInfo`,
+                     `Dimensions`, `PixelRatio`)
+
+**Task attempted:**  "Easier to see": larger text and higher contrast on her television, with
+                     the platform's own settings as the default, and VoiceView respected (each
+                     card announced once, no slideshow while it is on).
+
+**Steps taken:**     1. Looked for Vega accessibility documentation in the SDK under ~/vega/sdk:
+                        there is none (binaries, the VVD image and logs only), so read
+                        `Libraries/Components/AccessibilityInfo/AccessibilityInfo.js` in
+                        react-native-kepler, the parts marked `amznmod_react - kepler platform
+                        support`.
+                     2. Its event table for `Platform.OS === 'kepler'` has three entries:
+                        `change` and `screenReaderChanged` (both VoiceView) and
+                        `highTextContrastChanged`. `isHighTextContrastEnabled()` goes to the
+                        native module on kepler as on Android. `isBoldTextEnabled()` and
+                        `isGrayscaleEnabled()` are hard-wired to `Promise.resolve(false)` on
+                        kepler; there is no `reduceMotionChanged`.
+                     3. Looked for text size: `AccessibilityInfo` has no query for it. The
+                        only trace is `Dimensions.get('window').fontScale`, which kepler fills
+                        from a native `windowPhysicalPixels.fontScale`;
+                        `PixelRatio.getFontScale()` falls back to `PixelRatio.get()` (2 on a
+                        1080p Vega screen) when that is missing, so it cannot be trusted to mean
+                        "text size". React Native's `Text` already multiplies by `fontScale`
+                        itself (`allowFontScaling` defaults to true).
+                     4. Logged `fontScale` once at launch; the release build's `console.info`
+                        did not appear in `vega device start-log-stream`, so its value on the
+                        simulator was not seen.
+                     5. Looked for a way to turn VoiceView or high-contrast text on in the
+                        Vega Virtual Device from the CLI (`vega device run-cmd`): found none.
+                        The simulator's own Settings screens were not explored.
+
+**Expected:**        A documented accessibility page for Vega listing which `AccessibilityInfo`
+                     calls and events are real, a text-size setting an app can read (or a
+                     statement that there is none), and a way to switch VoiceView and
+                     high-contrast text on in the simulator to test against.
+
+**Actual:**          High-contrast text and VoiceView can be read and followed; text size
+                     cannot, except through a `fontScale` whose meaning on Vega is not
+                     documented and which React Native already applies to every word. Neither
+                     setting could be turned on in the simulator, so Wick's reaction to them
+                     (higher contrast by default, the announcement of each card, no slideshow,
+                     no Play mark) is checked by unit tests only.
+
+**Severity:**        Important
+
+**Workaround:**      Higher contrast follows `isHighTextContrastEnabled()` /
+                     `highTextContrastChanged` until she presses the button herself
+                     (`packages/vega-calm-ui/src/accessibility.ts`,
+                     `apps/tv-vega/src/seeing/seeing.ts`). Larger text is Wick's own setting,
+                     off by default, and the platform's `fontScale` is not followed — following
+                     it as well would scale every word twice. Her choice is kept in the app's
+                     file store, which the Vega Virtual Device does not keep across launches
+                     (FL-013): there it is forgotten at every launch.
+
+**Suggestion:**      Publish a Vega accessibility reference that says which React Native
+                     accessibility APIs work on kepler; expose the system text size (or say
+                     there is none) and document `fontScale`; add `vega device` commands, or
+                     VVD menu items, to toggle VoiceView, high-contrast text and text size.
 
 ---
 

@@ -1,0 +1,43 @@
+{
+  "generated": "by `npm run tv:build` from packages/contracts/src/programmes.ts and apps/tv-vega/src/catalog/calmPoints.ts — do not edit",
+  "programmes": [
+    {
+      "id": "big-buck-bunny",
+      "title": "Big Buck Bunny",
+      "line": "10 minutes",
+      "durationMs": 596458,
+      "creditsPositionMs": 490000,
+      "attribution": "© Blender Foundation | peach.blender.org",
+      "calmPointsMs": [
+        89771,
+        220521,
+        371271
+      ]
+    },
+    {
+      "id": "sintel",
+      "title": "Sintel",
+      "line": "15 minutes",
+      "durationMs": 888000,
+      "creditsPositionMs": 744000,
+      "attribution": "© Blender Foundation | durian.blender.org",
+      "calmPointsMs": [
+        184396,
+        342313,
+        483729,
+        684438
+      ]
+    },
+    {
+      "id": "tears-of-steel",
+      "title": "Tears of Steel",
+      "line": "12 minutes",
+      "durationMs": 734167,
+      "creditsPositionMs": 588000,
+      "attribution": "© Blender Foundation | mango.blender.org",
+      "calmPointsMs": [
+        461813
+      ]
+    }
+  ]
+}

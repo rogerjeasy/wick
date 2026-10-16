@@ -21,6 +21,7 @@
  * two and at most one write.
  */
 import { GetItemCommand, QueryCommand, type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { z } from 'zod';
 import {
   PROGRAMMES_ORIGIN,
   WATCH_ANSWERS,
@@ -201,6 +202,28 @@ export type WatchState =
   | 'watched'
   /** The time came and went without the film being seen through. */
   | 'over';
+
+/** A WatchView, field by field: the structured content of get_watch_together and join_watch_together. */
+export const WATCH_VIEW = {
+  sessionId: z.string(),
+  film: z.string(),
+  startsAt: z.number(),
+  when: z.string().describe('The same moment, in words, where the house is.'),
+  state: z.enum(['invited', 'declined', 'withdrawn', 'cancelled', 'accepted', 'ready', 'passed', 'watching', 'stopped', 'watched', 'over']),
+  canSitDown: z.boolean().optional().describe('"accepted" only: whether the seat can be taken yet.'),
+  opensAt: z.number().optional(),
+  stream: z.strictObject({ url: z.string(), durationMs: z.number(), attribution: z.string() }).optional().describe('What to play, while there is anything to follow.'),
+  playback: z.strictObject({
+    state: z.enum(['PLAYING', 'PAUSED', 'STOPPED', 'WAITING']),
+    positionMs: z.number(),
+    ageMs: z.number(),
+  }).optional().describe('Where her film is, and how long ago this server heard so.'),
+  question: z.string().optional(),
+  answers: z.array(z.strictObject({ key: z.string(), text: z.string() })).optional(),
+  yourAnswer: z.string().optional(),
+  theirAnswer: z.string().optional(),
+  answersInWords: z.string().optional(),
+};
 
 export interface WatchView {
   readonly sessionId: string;

@@ -259,7 +259,7 @@ describe('HomeScreen.tsx — the memory, as kept', () => {
   it('has every item that can take the focus report it, by its own name', () => {
     const reports = [...screen.matchAll(/onFocus=\{\(\) => reportFocus\(([^)]+)\)\}/g)].map((m) => m[1]);
 
-    expect(reports).toEqual(["'light'", '`programme:${programme.id}`', "'waiting'", "'mantel'"]);
+    expect(reports).toEqual(['`programme:${programme.id}`', "'waiting'", "'light'", "'mantel'", "'seeing'"]);
     expect(screen.match(/<Pressable\b/g)).toHaveLength(reports.length);
   });
 

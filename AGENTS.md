@@ -71,8 +71,11 @@ where their secret comes from:
 
 - **Fire OS** — made on the television, from Android's `SecureRandom`
   (`react-native-get-random-values`, loaded first by
-  `apps/tv-fireos/index.js`), and sent when it asks for a code.
-- **The browser television** (`apps/ops-console/device.js`) — made in the
+  `apps/tv-fireos/index.js`), and sent when it asks for a code. Its
+  background service — the door, outside Wick (`apps/tv-fireos/src/door`) —
+  runs in the app's own process, uses the token the app keeps and renews it
+  with the same secret: it never asks for a token without one.
+- **The browser television** (`apps/ops-console/tv-core.js`, loaded by `device.html` and `tv.html`) — made in the
   tab from Web Crypto, and sent the same way.
 - **A Vega television whose disk keeps a file** — React Native for Vega gives
   the JavaScript runtime no cryptographic generator, so the television says
@@ -273,6 +276,21 @@ Carry `correlationId` from ingress (Ring webhook / MCP request)
 through EventBridge, the agent, persistence, the card payload, and back from the
 device on `card_shown` / `card_action`.
 
+On the family side, a write tool a client sends twice acts once.
+`send_note_to_tv` claims each call first with one conditional write
+(`services/mcp-server/src/tools/once.ts`), keyed on the member, the tool and
+the note's words — or on the client's own `idempotencyKey` when it sends one
+— and held two minutes (a key: a day). A retry inside that window is
+answered with the first note, marked `repeated`, and nothing reaches the
+television again; a send that failed lets its claim go, so the retry is
+tried. The same words sent after the window are a second note, on purpose.
+An answer to the door, to a request to ring or to a film's question, asked
+again by the same person with the same answer, is the answer already given;
+a different one is told the first stands. `expect_visit` and
+`add_regular_visitor` overwrite their own one row, and `invite_to_watch`
+sends no second invitation while one is open. **Never** add a write tool
+that sends anything to a television without one of these.
+
 ### INV-7 — The resident sees their week before the family can read it
 `NARR#<isoWeek>.residentSeenAt` gates family readability. Ordering is enforced on
 the write path, not by convention.
@@ -357,6 +375,18 @@ From `docs/WICK.md` Part 5. The ones that most often get violated by accident:
   edit it by hand, and do not let a model choose one.
 - **No red, no badges, no beeps.** Not in any component, not ever.
 - **Minimum 32pt type, ≥7:1 contrast.** `packages/vega-calm-ui` enforces this; use it.
+- **Her television adapts to what she can see, everywhere at once.** Easier to
+  see (`apps/tv-vega/src/seeing/seeing.ts`) offers larger text (every size
+  times 1.25, so the floor is 40pt) and higher contrast (pure black and
+  white, held to 15:1, a 6dp focus ring). Both come through the one provider
+  at the root of the app (`seeing/SeeingProvider.tsx`) and vega-calm-ui's
+  theme. **Never** take a colour or a size straight from the tokens in a
+  screen: write its styles as a function of the theme (`useCalmStyles`).
+  `seeing/__tests__/noBypass.test.ts` fails on one that does. At larger text
+  a card's words must be whole: it takes less card around them first, and
+  falls back to the standard size rather than cut them (calm-ui `fitCard`).
+  When VoiceView is on, each card is announced once, the idle slideshow never
+  starts, and the Play mark is not drawn.
 - **One button.** Every resident action is reachable with D-pad + OK. No text entry anywhere.
 - **A press answers only what she has had time to see.** A card's buttons
   take no press for one second after that card comes on screen

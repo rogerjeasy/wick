@@ -20,9 +20,9 @@
 <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <!-- Open on a wide screen (main.js), one line on a telephone until it is opened. -->
+  <!-- One line until it is opened, on every screen: it is said before anything else, and kept out of the way. -->
   <details id="disclosure" class="disclosure">
-    <summary><strong>The Wick family app, with a simulated Alexa+ conversation.</strong></summary>
+    <summary><strong>A simulated Alexa+ surface.</strong> Real account, real Wick server, real tools. Why simulated?</summary>
     Amazon's
     Alexa+ add-on tools are open to select partners only, so this page stands in for the
     assistant, as the hackathon permits. Nothing on it is canned: you sign in to a real
@@ -39,8 +39,8 @@
       </span>
       <span class="spacer"></span>
       <span id="light" class="light" role="img" hidden></span>
-      <span id="auth-status" class="status" role="status">Not connected</span>
-      <button id="speak-toggle" class="toggle" type="button" aria-pressed="false" aria-label="Speak answers">Speak<span class="wide-only"> answers</span></button>
+      <span id="auth-status" class="status" role="status" data-state="signed-out">Not connected</span>
+      <button id="speak-toggle" class="toggle" type="button" aria-pressed="false" aria-label="Speak answers" hidden>Speak<span class="wide-only"> answers</span></button>
       <!-- Your own account: download what Wick holds, or delete it (account.js). -->
       <button id="account" class="toggle" type="button" hidden>Account</button>
       <button id="sign-out" class="toggle" type="button" hidden>Sign out</button>
@@ -48,44 +48,44 @@
 
     <!-- The conversation. Customer turns on the right; the assistant's sentence,
          then at most one card from the add-on. Announced as it arrives. -->
-    <section id="log" class="log" role="log" aria-live="polite" aria-label="Conversation">
-      <div id="link-card" class="turn-assistant">
-        <p id="link-say" class="say">To ask about the house, link Wick first.</p>
-        <div class="card">
+    <section id="log" class="log" role="log" aria-live="polite" aria-label="Conversation" data-signed-in="false">
+      <!-- The first screen: what Wick is, in one sentence, and the two ways in. -->
+      <div id="link-card" class="turn-assistant first">
+        <p id="link-say" class="say">Wick tells you how someone who lives alone is getting on at home, from her front door and her television, and only what she has agreed to share.</p>
+        <article class="card intro" aria-labelledby="link-title">
           <div class="card-head">
             <img id="listing-icon" class="listing-icon" alt="" hidden />
-            <h2 id="link-title" class="card-title">Link your Wick account</h2>
-            <span id="listing-meta" class="card-meta" hidden>Add-on · simulated listing</span>
+            <div class="card-heading">
+              <h2 id="link-title" class="card-title">Wick</h2>
+              <span id="listing-meta" class="card-meta">Add-on for Alexa+ · simulated listing</span>
+            </div>
           </div>
-          <p id="link-detail" class="empty">Sign in, or create an account with your email and a password.
-            Wick then answers only what the person at home has agreed to share.</p>
+          <p id="link-detail" class="primary-text">Ask how her week has been, see who came to the door, and put a note on her television. She decides what you can see, on her own television.</p>
+          <div class="actions">
+            <button id="demo" class="btn final" type="button" hidden>Try the demo</button>
+            <button id="connect" class="btn final" type="button">Sign in</button>
+          </div>
+          <p id="demo-hint" class="card-meta" hidden>No email and no password: a guest account and a demo home of your own, with a simulated history to ask about.</p>
           <!-- Wick's listing as an add-on, filled from ./addon.json (the package
                Amazon's toolkit would be given). Hidden until that file is read. -->
-          <div id="listing-body" class="listing" hidden>
-            <p class="card-meta">Things to say</p>
+          <details id="listing-body" class="listing" hidden>
+            <summary>Things to say, and more about Wick</summary>
             <ul id="listing-phrases" class="rows"></ul>
-            <details id="listing-about"><summary>About Wick</summary></details>
+            <div id="listing-about"></div>
             <p class="empty">Enabling Wick links a Wick account.
               <a id="listing-privacy" target="_blank" rel="noopener">Privacy</a> ·
               <a id="listing-terms" target="_blank" rel="noopener">Terms</a></p>
-          </div>
-          <div class="form">
-            <div class="actions">
-              <button id="connect" class="btn final" type="button">Sign in or create an account</button>
-              <button id="demo" class="btn quiet" type="button" hidden>Try the demo</button>
-            </div>
-            <p id="demo-hint" class="empty" hidden>The demo needs no email and no password: you get a guest
-              account and a demo home of your own.</p>
-            <details>
-              <summary>Server</summary>
-              <label>MCP server URL <input id="server-url" value="http://127.0.0.1:3300" autocomplete="off" spellcheck="false" /></label>
-            </details>
-          </div>
-        </div>
+          </details>
+          <!-- A developer's: which Wick server to link against. Shown only with ?dev (surface.js developerMode). -->
+          <details id="server" class="server" hidden>
+            <summary>Server (developer)</summary>
+            <label>MCP server URL <input id="server-url" value="http://127.0.0.1:3300" autocomplete="off" spellcheck="false" /></label>
+          </details>
+        </article>
       </div>
     </section>
 
-    <footer class="dock">
+    <footer id="dock" class="dock" hidden>
       <div id="chips" class="chips" role="group" aria-label="Things you can ask"></div>
       <form id="ask" class="ask" autocomplete="off">
         <label class="sr-only" for="ask-input">Ask Wick</label>

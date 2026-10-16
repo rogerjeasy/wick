@@ -127,7 +127,7 @@ describe('registerGetWhatsDifferent (registered tool handler, end to end)', () =
     const { text, structured } = await call(table);
 
     expect(text).toBe("That's something the resident is keeping to themselves. I'm not able to share it.");
-    expect(structured).toBeUndefined();
+    expect(structured).toEqual({ say: text });
   });
 
   it('answers with the sentence to say and the same answer as structured content, and changes nothing', async () => {

@@ -28,7 +28,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
 import { DAY_ARGUMENT, resolveRecentDay } from './when.js';
 
 export { DAY_NOT_A_DATE_TEXT, DAY_NOT_YET_TEXT, DAY_TOO_OLD_TEXT } from './when.js';
@@ -118,6 +118,14 @@ export async function loadTodayEvents(
   return { events, keptPrivate };
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  date: z.string().describe('The day answered for, YYYY-MM-DD.'),
+  dayInWords: z.string().describe('The same day in words: "Tuesday 6 October 2026".'),
+  events: z.array(z.strictObject({ at: z.number().describe('Milliseconds since the epoch.'), summary: z.string() })),
+  keptPrivate: z.array(z.string()).describe('What the resident keeps private, in plain words, named whether or not it happened.'),
+});
+
 export function registerGetToday(
   mcpServer: McpServer,
   ddb: DynamoDBClient,
@@ -136,6 +144,7 @@ export function registerGetToday(
         day: z.string().optional().describe(DAY_ARGUMENT),
         date: z.string().optional().describe('An exact day, YYYY-MM-DD, when a date was given. Leave both out for today.'),
       },
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (_allowed, asked: { date?: string | undefined; day?: string | undefined }) => {

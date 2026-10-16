@@ -24,8 +24,10 @@
  *   - the pairing screen reads it in English always: there is no household
  *     yet to have a language (pairing/PairingScreen.tsx);
  *   - a family member's own television (family/) stays English;
- *   - the toast the background service posts (notify/doorToast.ts): that
- *     process is never told the home's language.
+ *   - the toast the Vega background service posts (notify/doorToast.ts):
+ *     that process is never told the home's language. (Fire OS's door
+ *     notification does read it: its service shares the app's storage —
+ *     the `doorAlert.` sentences below.)
  *
  * Pure, and imports nothing of the platform.
  */
@@ -113,6 +115,28 @@ const en = {
   // stands on every card (read/ReadHint.tsx): the sentence itself is not written on a card, because no card
   // has a line to spare for it at 32pt.
   'read.hint': 'Press Play to hear this.',
+
+  // The door, outside Wick, on Fire OS (apps/tv-fireos/src/door). Word for word what the Vega toast says
+  // (notify/doorToast.ts), which stays English: there the service is never told the language. On Fire OS it
+  // shares the app's storage, and reads the language the app keeps there.
+  /** The one button on the notification. */
+  'doorAlert.open': 'Open Wick',
+  /** Under the title, until the door agent has said who is there. */
+  'doorAlert.who': 'Open Wick to see who it is.',
+  /** The quiet notification Android asks for while the door is listened for behind another app. */
+  'doorAlert.listening': 'Wick will tell you when someone is at the door.',
+
+  // Easier to see (seeing/seeing.ts): the pill on the home screen, and the card it opens. Each button says
+  // how its setting stands, as a whole sentence for each — never "on" put after a word.
+  'seeing.entry': 'Easier to see',
+  'seeing.entryLabel': 'Easier to see. Press OK for larger text or higher contrast.',
+  'seeing.headline': 'Easier to see',
+  'seeing.detail': 'This changes only this television.',
+  'seeing.largerOn': 'Larger text: on',
+  'seeing.largerOff': 'Larger text: off',
+  'seeing.contrastOn': 'Higher contrast: on',
+  'seeing.contrastOff': 'Higher contrast: off',
+  'seeing.back': 'Back',
 } as const;
 
 export type WordKey = keyof typeof en;
@@ -180,6 +204,21 @@ const es: Readonly<Record<WordKey, string>> = {
 
   // "Play": the key carries a mark and no word, and Play is what it is called.
   'read.hint': 'Presione Play para oír esto.',
+
+  'doorAlert.open': 'Abrir Wick',
+  'doorAlert.who': 'Abra Wick para ver quién es.',
+  'doorAlert.listening': 'Wick le avisará cuando alguien llame a la puerta.',
+
+  // "Sí" and "no" after the colon, so nothing has to agree with "letra" or "contraste".
+  'seeing.entry': 'Más fácil de ver',
+  'seeing.entryLabel': 'Más fácil de ver. Presione OK para letra más grande o más contraste.',
+  'seeing.headline': 'Más fácil de ver',
+  'seeing.detail': 'Esto cambia solo este televisor.',
+  'seeing.largerOn': 'Letra más grande: sí',
+  'seeing.largerOff': 'Letra más grande: no',
+  'seeing.contrastOn': 'Más contraste: sí',
+  'seeing.contrastOff': 'Más contraste: no',
+  'seeing.back': 'Atrás',
 };
 
 /** Every language's table. A language added to the contract does not compile until it has one. */

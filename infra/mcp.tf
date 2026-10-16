@@ -250,9 +250,11 @@ resource "aws_apprunner_service" "mcp_server" {
             # One-click guest accounts, so nobody has to give an email
             # address to try Wick (services/mcp-server/src/accounts/demo.ts).
             WICK_DEMO_ACCOUNTS = var.demo_accounts ? "on" : "off"
-            # A television in a browser tab, offered to anyone with no Fire
-            # TV to hand: it pairs with a code and shows the same cards.
-            WICK_VIRTUAL_TV_URL = "https://${aws_cloudfront_distribution.ops_console.domain_name}/device.html"
+            # Her television in a browser tab (apps/ops-console/tv.html),
+            # offered to anyone with no Fire TV to hand: it shows a code,
+            # pairs with it and is sent the same cards. Not the engineers'
+            # console around a television (device.html).
+            WICK_VIRTUAL_TV_URL = "https://${aws_cloudfront_distribution.ops_console.domain_name}/tv.html"
             # The model behind the family app's conversation. Unset, the
             # app answers by its rules and says nothing it was not told.
             WICK_ASSISTANT_MODEL_ID = local.narrative_model_profile
