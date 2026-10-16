@@ -82,7 +82,7 @@ export const LEXICON: readonly Marker[] = [
       'ill', 'illness(?:es)?', 'unwell', 'sick(?:ness)?', 'poorly', 'pain(?:s|ful)?', 'aches?', 'aching', 'hurts?',
       'hurting', 'injur(?:y|ies|ed)', 'fractur\\w*', 'broken (?:hip|arm|leg|wrist|ankle|bone)s?', 'sprain\\w*',
       'had a fall', 'a nasty fall', 'took a fall', 'fell over', 'heart (?:attack|condition|problems?|failure)', 'cardiac',
-      'strokes?(?! of\\b)', 'cancer\\w*', 'tumou?rs?', 'dementia', 'alzheimer\\w*', 'parkinson\\w*', 'diabet\\w*',
+      'strokes?(?! of (?:luck|genius|inspiration|brilliance|good fortune|midnight)\\b)', 'cancer\\w*', 'tumou?rs?', 'dementia', 'alzheimer\\w*', 'parkinson\\w*', 'diabet\\w*',
       'arthritis', 'asthma', 'copd', 'pneumonia', 'infections?', 'infected', 'flu', 'covid\\w*', 'fever',
       'bleed\\w*', 'dizz\\w*', 'faint(?:ed|ing)', 'memory loss', 'incontinen\\w*', 'depress(?:ed|ion)', 'anxiety',
       'diagnos\\w*', 'symptoms?', 'recover(?:y|ing)', 'cough\\w*', 'deaf', 'died', 'death', 'dying', 'passed away',
