@@ -25,8 +25,13 @@ import type { AssistantTurnDeps } from './turn.js';
 export function guardReplyWith(send: GuardrailSend, ref: GuardrailRef): NonNullable<AssistantTurnDeps['guardReply']> {
   return async (say, { question, toolTexts }) => {
     try {
-      return (await checkWithGuardrail(send, ref, { source: toolTexts, query: question ?? '', content: say, withoutFacts: 'topics_only' })).ok;
-    } catch {
+      const check = await checkWithGuardrail(send, ref, { source: toolTexts, query: question ?? '', content: say, withoutFacts: 'topics_only' });
+      // Why, never what: the reason names a policy, not the words it refused.
+      if (!check.ok) console.log(JSON.stringify({ level: 'warn', msg: 'assistant_guardrail_refused', why: check.reason }));
+      return check.ok;
+    } catch (err) {
+      const e = err as Error;
+      console.log(JSON.stringify({ level: 'warn', msg: 'assistant_guardrail_unavailable', error: `${e.name}: ${e.message}`.slice(0, 200) }));
       return false;
     }
   };
