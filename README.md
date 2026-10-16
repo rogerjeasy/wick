@@ -92,17 +92,15 @@ the household is a demo home.
 | **The door card**, over a film. Vega Virtual Device, 11 October 2026. | **The door, while another app is in front**: Wick's background service posts a system toast. Vega Virtual Device, 11 October 2026. |
 | ![A note from the family held at a calm point in Big Buck Bunny, with three replies](docs/screenshots/note-at-calm-point-fireos.png) | ![The calm-point map for Big Buck Bunny: three calm points at 1:29, 3:40 and 6:11, each with frames before and after the cut](docs/screenshots/calm-point-map.png) |
 | **A note at a calm point**: the film holds on a quiet cut while it is read. Fire OS build on the Android TV emulator, 12 October 2026. | **The calm-point map**, published from what Rekognition and ffmpeg measured. [Live page](https://rogerjeasy.github.io/wick/calm-points/), 12 October 2026. |
-| ![The question "Shall I tell Guest? Maria usually comes on Friday mornings. There was no visit on Friday." with Tell Guest and Keep it to myself](docs/screenshots/shall-i-tell-vega.png) | ![The question "Is this right? Maria was here on Tuesday from 12:22 pm to 1:00 pm." with Yes, that's right and No, that's not right](docs/screenshots/is-this-right-vega.png) |
-| **Shall I tell …?** A day unlike the usual is put to her first. Vega Virtual Device, 12 October 2026. | **The visit, witnessed.** Only her "Yes" confirms it. Vega Virtual Device, 13 October 2026. |
+| ![The question "Shall I tell Sarah? Maria usually comes on Tuesday mornings. There was no visit on Tuesday." with Tell Sarah and Keep it to myself](docs/screenshots/shall-i-tell-vega.png) | ![The question "Is this right? Maria was here on Tuesday from 12:22 pm to 1:00 pm." with Yes, that's right and No, that's not right](docs/screenshots/is-this-right-vega.png) |
+| **Shall I tell Sarah?** A day unlike the usual is put to her first. Vega Virtual Device, 16 October 2026. | **The visit, witnessed.** Only her "Yes" confirms it. Vega Virtual Device, 13 October 2026. |
 | ![The card "Your light is on." saying the family can see that her day has begun and nothing more, with Leave it on and Put it out for today](docs/screenshots/light-card-fireos.png) | ![After a film watched together: "That was Big Buck Bunny, with Sarah. What did you think of it?" with three answers](docs/screenshots/watch-together-credits-vega.png) |
 | **The light in the window.** Fire OS build on the Android TV emulator, 12 October 2026. | **Watch together**, at the credits. Vega Virtual Device, 12 October 2026. |
-| ![The family app on a laptop and on a phone, asked to look at the door: the picture from the stand-in doorbell, the vision model's sentence above it, and the three answers that go on her television](docs/screenshots/family-app-conversation.png) | ![The hold-for-Sarah card in Spanish: "¿Pedir a Guest que le llame?" with three buttons](docs/screenshots/hold-for-sarah-spanish-fireos.png) |
-| **The family app**, asked to look at the door: the picture, the vision model's sentence and her three answers, as a card. Laptop and phone widths, a demo guest against the deployed Wick server, 16 October 2026. | **Hold for Sarah, in Spanish.** Fire OS build on the Android TV emulator, 13 October 2026. |
+| ![The family app on a laptop and on a phone, asked to look at the door: the picture from the stand-in doorbell, the vision model's sentence above it, and the three answers that go on her television](docs/screenshots/family-app-conversation.png) | ![The hold-for-Sarah card in Spanish: "¿Pedir a Sarah que le llame?" with Sí, pedírselo a Sarah, Solo saludar and No, ahora no](docs/screenshots/hold-for-sarah-spanish-vega.png) |
+| **The family app**, asked to look at the door: the picture, the vision model's sentence and her three answers, as a card. Laptop and phone widths, a demo guest against the deployed Wick server, 16 October 2026. | **Hold for Sarah, in Spanish.** Vega Virtual Device, 16 October 2026. |
 
 "Margaret", "Sarah" and "Maria" are the demo home's fictional people: the
-resident, her daughter and her carer. A demo account is Sarah. Two screenshots
-above, "Shall I tell …?" and the Spanish hold card, were taken before demo
-accounts had her name, and say "Guest".
+resident, her daughter and her carer. Try the demo makes you Sarah.
 
 ## Why this needs Amazon
 
