@@ -1,7 +1,10 @@
 # ---------------------------------------------------------------------------
 # The Bedrock Guardrail on Wick's agents (docs/WICK-TECHNICAL.md §20).
 #
-#   the family assistant (AgentCore, assistant.turn): on its model, input and output
+#   the family assistant (AgentCore, assistant.turn): ApplyGuardrail on its reply
+#                                                       only, grounded on the tools'
+#                                                       own texts (a member's question
+#                                                       is not judged: FL-048)
 #   the Sunday brief (AgentCore, brief.weekly):         ApplyGuardrail on the writer's
 #                                                       paragraph and the suggestion,
 #                                                       with contextual grounding against

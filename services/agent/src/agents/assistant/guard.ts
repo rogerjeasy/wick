@@ -8,8 +8,11 @@
  * the agent *says* is checked instead, with `ApplyGuardrail`: the tools' own
  * texts are the grounding source and the question the query, so a sentence
  * the tools did not support is refused, and so is any guess about how she
- * feels. A reply that called no tool has nothing to ground on; the topics
- * and filters still read it (brief/guardrail.ts).
+ * feels. A reply that called no tool (a clarifying question) has nothing
+ * to ground on; it is let through grounding by name (`withoutFacts`), and the
+ * topics and filters still read it. The Wick server's number check still
+ * refuses any number in it the question did not give
+ * (services/mcp-server/src/assistant/turn.ts).
  *
  * A refused reply is not said: the turn returns without it, and the Wick
  * server answers `unsupported`, so the family app says the tools' own
@@ -22,7 +25,7 @@ import type { AssistantTurnDeps } from './turn.js';
 export function guardReplyWith(send: GuardrailSend, ref: GuardrailRef): NonNullable<AssistantTurnDeps['guardReply']> {
   return async (say, { question, toolTexts }) => {
     try {
-      return (await checkWithGuardrail(send, ref, { source: toolTexts, query: question ?? '', content: say })).ok;
+      return (await checkWithGuardrail(send, ref, { source: toolTexts, query: question ?? '', content: say, withoutFacts: 'topics_only' })).ok;
     } catch {
       return false;
     }
