@@ -57,6 +57,12 @@ import {
   lightToShow,
   watchStatus,
   watchToAnnounce,
+  AGENT_STOPPED_TEXT,
+  agentSteps,
+  agentTrace,
+  approvalsFor,
+  presentPlan,
+  readAgentTurn,
 } from './surface.js';
 import { ARRANGE_NEEDS_ASSISTANT, errandNews } from './errands.js';
 import {
@@ -962,6 +968,74 @@ async function runCall(turn, call) {
   }
 }
 
+/** One turn of the agent on AgentCore: its answer as surface.js reads it, or null if it could not be had. */
+async function agentTurn(body) {
+  try {
+    const res = await authorizedFetch('/assistant/turn', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return res.ok ? readAgentTurn(await res.json()) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** "Here is what I'll do": the list the member reads before the first confirm card. */
+function showPlan(turn, plan) {
+  turn.querySelector('.thinking')?.remove();
+  const box = el('div', 'plan');
+  box.appendChild(el('p', 'say', plan.title));
+  const list = el('ul');
+  for (const item of plan.items) list.appendChild(el('li', undefined, item));
+  box.appendChild(list);
+  turn.appendChild(box);
+  scrollToEnd();
+}
+
+/**
+ * One question, answered by Wick's agent on Amazon Bedrock AgentCore
+ * (services/agent/src/agents/assistant/): it calls the tools itself, with
+ * this person's own token, and stops before anything that changes
+ * something. The page shows the plan, asks about each call on the same
+ * confirm card as before, and sends the answers back, until there is a
+ * sentence to say. Returns false — nothing done, nothing shown — when the
+ * agent could not be asked, so converse() asks the stand-in instead.
+ */
+async function converseWithAgent(text) {
+  const turn = addThinking();
+  let answer = await agentTurn({ question: text });
+  const asked = answer !== null;
+  if (!asked) {
+    turn.remove();
+    return false;
+  }
+  for (let i = 0; answer?.kind === 'waiting' && i < MAX_STEPS; i += 1) {
+    showPlan(turn, presentPlan(answer.plan));
+    const answers = [];
+    for (const call of answer.calls) answers.push(await confirmInTurn(turn, { name: call.name, args: call.args }, call.title));
+    turn.querySelector('.plan')?.remove();
+    showProgress(turn, 'Working on it…');
+    answer = await agentTurn({ resume: { approved: approvalsFor(answer.calls, answers) } });
+  }
+  rememberTurns({ role: 'user', text });
+  if (answer?.kind !== 'answer') {
+    rememberTurns({ role: 'assistant', text: AGENT_STOPPED_TEXT });
+    fillTurn(turn, { say: AGENT_STOPPED_TEXT, tone: 'error', cards: [], trace: '' });
+    return true;
+  }
+  const now = Date.now();
+  const steps = agentSteps(answer, (name, toolText, args, isError) =>
+    presentResult(name, toolText, { message: args?.message, now, timeZone: me?.household.timeZone }, formatTime, isError));
+  const presented = presentTurn(answer.say, steps);
+  rememberTurns({ role: 'assistant', text: presented.say });
+  fillTurn(turn, presented);
+  const used = agentTrace(answer.trace);
+  if (used) turn.appendChild(el('p', 'trace', used));
+  return true;
+}
+
 /**
  * One question, answered by the assistant: it asks for tools, this page
  * calls them and reports back, until it has a sentence to say. Returns
@@ -969,6 +1043,8 @@ async function runCall(turn, call) {
  * answer by the rules instead.
  */
 async function converse(text) {
+  // Wick's agent on AgentCore first; where there is none, or it cannot answer, the stand-in below, as before.
+  if (await converseWithAgent(text)) return true;
   const turn = addThinking();
   const before = conversation.length;
   rememberTurns({ role: 'user', text });

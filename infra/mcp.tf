@@ -268,6 +268,11 @@ resource "aws_apprunner_service" "mcp_server" {
             PHOTOS_BUCKET = aws_s3_bucket.photos.bucket
             # Visit errands' state machine (infra/errands.tf). Unset, arrange_visit says it cannot.
             ERRAND_STATE_MACHINE_ARN = aws_sfn_state_machine.errand.arn
+            # The assistant as an agent on AgentCore (infra/assistant.tf):
+            # POST /assistant/turn, and forgetting a deleted member's memory.
+            ASSISTANT_RUNTIME_ARN     = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
+            ASSISTANT_RUNTIME_VERSION = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
+            AGENTCORE_MEMORY_ID       = aws_bedrockagentcore_memory.assistant.id
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
         )

@@ -21,3 +21,7 @@ export { doorWaitSeconds, executionInput, instant, windowEndOf, type ErrandExecu
 export { errandFromItem, errandItem, errandRosterEntry, errandStore, type ErrandFacts, type ErrandSend, type ErrandStore, type HeldErrand } from './store/errands.js';
 export { reachFromItem, reachItem, reachStore, type ReachSend, type ReachStore } from './store/reaches.js';
 export { visitFromItem, visitItem, visitStore, type VisitSend, type VisitStore } from './store/visits.js';
+// The assistant's rules: pure, so the Wick server bundles them too.
+export { assistantPrompt, localWhen, systemPrompt, todayLine, type Who } from './agents/assistant/prompt.js';
+// The names a member's conversation and words are kept under, shared with the Wick server.
+export { ASSISTANT_AGENT_ID, assistantSessionId, memberMemory, memberNamespace, type MemberMemory } from './agents/assistant/identity.js';

@@ -15,6 +15,9 @@ import { createLifecycle, serve, stopOnSignals } from './lifecycle.js';
 import { createCognitoIdentity, type CognitoSend } from './accounts/identity.js';
 import { createDynamoAccountStore, type DdbSend } from './accounts/store.js';
 import { createBedrockConverse } from './assistant/bedrock.js';
+import { BedrockAgentCoreClient, InvokeAgentRuntimeCommand } from '@aws-sdk/client-bedrock-agentcore';
+import { agentCoreAssistant } from './assistant/runtime.js';
+import { agentCoreForgetting, type MemorySend } from './assistant/forget.js';
 import { invokedRingLinks } from './accounts/ringLinks.js';
 import { createRekognitionModeration, type RekognitionSend } from './photos/moderation.js';
 import { createS3PhotoObjects, type S3Send } from './photos/objects.js';
@@ -64,6 +67,25 @@ const assistant = ASSISTANT_MODEL_ID
         ASSISTANT_MODEL_ID,
       ),
     }
+  : undefined;
+
+// The assistant as a Strands agent on AgentCore Runtime (assistant/turn.ts,
+// infra/assistant.tf). Unset, POST /assistant/turn says 503 and the family app
+// asks /assistant/next above. The member's own token travels in the payload;
+// the instance role may only invoke this one runtime.
+const ASSISTANT_RUNTIME_ARN = process.env.ASSISTANT_RUNTIME_ARN || undefined;
+// Where the assistant keeps each member's conversation and own words: deleted with their account (assistant/forget.ts).
+const AGENTCORE_MEMORY_ID = process.env.AGENTCORE_MEMORY_ID || undefined;
+const agentCore = ASSISTANT_RUNTIME_ARN || AGENTCORE_MEMORY_ID ? new BedrockAgentCoreClient({}) : undefined;
+const assistantAgent = ASSISTANT_RUNTIME_ARN && agentCore
+  ? agentCoreAssistant({
+      runtimeArn: ASSISTANT_RUNTIME_ARN,
+      ...(process.env.ASSISTANT_RUNTIME_VERSION ? { version: process.env.ASSISTANT_RUNTIME_VERSION } : {}),
+      send: (input, options) => agentCore.send(new InvokeAgentRuntimeCommand(input), options),
+    })
+  : undefined;
+const assistantMemory = AGENTCORE_MEMORY_ID && agentCore
+  ? agentCoreForgetting(((command) => agentCore.send(command as never)) as MemorySend, AGENTCORE_MEMORY_ID)
   : undefined;
 
 // The mantelpiece (photos/send.ts): the bucket a picture is put in
@@ -163,6 +185,8 @@ const app = createApp(ISSUER_URL, {
   // Visit errands (infra/errands.tf): the state machine named by ERRAND_STATE_MACHINE_ARN, or none.
   errands: errandMachineFromEnv(),
   ...(assistant ? { assistant } : {}),
+  ...(assistantAgent ? { assistantAgent } : {}),
+  ...(assistantMemory ? { assistantMemory } : {}),
   ...(ringLinks ? { ringLinks } : {}),
   ...(photos ? { photos } : {}),
   hear,

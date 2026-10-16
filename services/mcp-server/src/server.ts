@@ -37,6 +37,8 @@ import { checkAccess, type CircleDeps } from './accounts/circle.js';
 import { seedDemoHome } from './accounts/demoHome.js';
 import { createAssistantRouter, type AssistantDeps } from './assistant/router.js';
 import type { ToolSpec } from './assistant/brain.js';
+import type { AssistantMemory } from './assistant/forget.js';
+import type { AssistantAgent } from './assistant/turn.js';
 import type { IdentityProvider } from './accounts/identity.js';
 import { grantOf } from './accounts/oauthProvider.js';
 import type { AccountStore } from './accounts/store.js';
@@ -188,6 +190,12 @@ async function listToolSpecs(ddb: DynamoDBClient): Promise<ToolSpec[]> {
   return tools.map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema }));
 }
 
+/** Each tool's title, from the same list: what the family app's confirm card and plan call a call. */
+async function listToolTitles(ddb: DynamoDBClient): Promise<ReadonlyMap<string, string>> {
+  const { tools } = await listedTools(ddb);
+  return new Map(tools.map((t) => [t.name, t.title ?? t.annotations?.title ?? t.name]));
+}
+
 export interface AppDeps {
   readonly store: AccountStore;
   readonly identity: IdentityProvider;
@@ -219,6 +227,10 @@ export interface AppDeps {
   readonly demoAccountsPerHour?: number;
   /** The model behind the family app's conversation (assistant/brain.ts). Without one the app answers by its rules. */
   readonly assistant?: AssistantDeps;
+  /** The assistant as a Strands agent on AgentCore Runtime (assistant/turn.ts). Without one, /assistant/turn says 503. */
+  readonly assistantAgent?: AssistantAgent | undefined;
+  /** What the family assistant kept in AgentCore Memory (assistant/forget.ts), taken with an account. */
+  readonly assistantMemory?: AssistantMemory | undefined;
   /** Her television in a browser tab, for someone with no Fire TV to hand (apps/ops-console/tv.html). */
   readonly virtualTelevisionUrl?: string;
   /**
@@ -312,6 +324,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     push,
     ringLinks: deps.ringLinks,
     photos: deps.photos?.objects,
+    assistantMemory: deps.assistantMemory,
   }, requireAuth));
   app.use(createApiRouter(circle, requireAuth, {
     claimTelevision: deps.claimTelevision,
@@ -341,11 +354,14 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
 
   // The tool list is the same for everyone and for the life of the process: asked for once, on first need.
   let toolSpecs: Promise<ToolSpec[]> | undefined;
+  let toolTitles: Promise<ReadonlyMap<string, string>> | undefined;
   app.use(createAssistantRouter({
     assistant: deps.assistant,
     requireAuth,
     store: deps.store,
     toolSpecs: () => (toolSpecs ??= listToolSpecs(ddb)),
+    agent: deps.assistantAgent,
+    toolTitles: () => (toolTitles ??= listToolTitles(ddb)),
     now: circle.now,
     timeZone: HOUSEHOLD_TZ,
   }));

@@ -209,6 +209,12 @@ resource "aws_bedrockagentcore_agent_runtime" "agents" {
     LIVE_ORIGIN              = "https://${aws_cloudfront_distribution.live.domain_name}"
     RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
     WICK_CHIME_SLOT_EVENT    = var.chime_slot_event
+    # assistant.turn (infra/assistant.tf, services/agent/src/agents/assistant/fromEnv.ts).
+    WICK_MCP_URL             = local.assistant_mcp_url
+    ASSISTANT_MODEL_ID       = local.narrative_model_profile
+    AGENTS_GUARDRAIL_ID      = aws_bedrock_guardrail.wick.guardrail_id
+    AGENTS_GUARDRAIL_VERSION = aws_bedrock_guardrail_version.wick.version
+    AGENTCORE_MEMORY_ID      = aws_bedrockagentcore_memory.assistant.id
   }
 
   depends_on = [aws_iam_role_policy.agents_runtime]

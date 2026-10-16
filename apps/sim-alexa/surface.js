@@ -2426,3 +2426,67 @@ export function inviteLink(here, code) {
   url.searchParams.set('invite', code);
   return url.toString();
 }
+
+// ---------------------------------------------------------------------------
+// The assistant as an agent on Amazon Bedrock AgentCore (POST /assistant/turn,
+// services/mcp-server/src/assistant/turn.ts). The agent makes the tool calls
+// itself, with the member's own token, and stops before any write: the app
+// shows what it would do, asks about each call on its own confirm card, and
+// sends the answers back. What the tools returned comes back with the answer,
+// so the cards are the same cards.
+// ---------------------------------------------------------------------------
+
+const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Said when the agent stops part way, after a yes: the stand-in is not asked again, so nothing is done twice. */
+export const AGENT_STOPPED_TEXT = 'I could not finish that just now. Ask me what was done before trying again.';
+
+/**
+ * The agent's answer, as the app can use it — `{ kind: 'waiting', calls, plan }`
+ * or `{ kind: 'answer', say, trace, toolTexts }` (`say` undefined: say the
+ * tools' own sentences) — or null.
+ */
+export function readAgentTurn(body) {
+  if (!isPlainObject(body)) return null;
+  const { needsApproval, plan, say, trace, toolTexts } = body;
+  if (!Array.isArray(trace) || !Array.isArray(toolTexts) || trace.length !== toolTexts.length) return null;
+  if (!trace.every((t) => isPlainObject(t) && typeof t.tool === 'string' && typeof t.ok === 'boolean')) return null;
+  if (needsApproval !== undefined) {
+    const ok = Array.isArray(needsApproval) && needsApproval.length > 0
+      && needsApproval.every((c) => isPlainObject(c) && typeof c.id === 'string' && typeof c.name === 'string' && typeof c.title === 'string');
+    if (!ok) return null;
+    return { kind: 'waiting', calls: needsApproval, plan: Array.isArray(plan) ? plan.filter((p) => typeof p === 'string') : [] };
+  }
+  if (say !== undefined && typeof say !== 'string') return null;
+  if (say === undefined && body.unsupported !== true) return null;
+  return { kind: 'answer', say, trace, toolTexts };
+}
+
+/** "Here is what I'll do", and each thing, before any yes is asked for. */
+export function presentPlan(plan) {
+  return { title: 'Here is what I’ll do', items: [...plan] };
+}
+
+/** Each call's yes or no, by the id the agent gave it. Anything but a yes is a no. */
+export function approvalsFor(calls, answers) {
+  return Object.fromEntries(calls.map((call, i) => [call.id, answers[i] === true]));
+}
+
+/**
+ * The agent's calls as the app's own steps (presentTurn): each presented by
+ * `present(name, text, args, isError)`, as a call the app made itself would
+ * be; one the member said no to is a step not taken.
+ */
+export function agentSteps(answer, present) {
+  return answer.trace.map((t, i) => ({
+    name: t.tool,
+    args: t.args,
+    presented: t.declined ? null : present(t.tool, answer.toolTexts[i] ?? '', t.args, t.ok !== true),
+  }));
+}
+
+/** Who did the work: Wick's agent, and the tools it used, each once. Empty when it used none. */
+export function agentTrace(trace) {
+  const used = [...new Set(trace.filter((t) => !t.declined).map((t) => t.tool))];
+  return used.length ? `Wick’s agent on Amazon Bedrock AgentCore used: ${used.join(', ')}` : '';
+}
