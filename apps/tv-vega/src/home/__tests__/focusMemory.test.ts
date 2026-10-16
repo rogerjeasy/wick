@@ -16,10 +16,9 @@
  * hers, and neither is one reported in the moment after the home comes
  * back into reach, while the platform is still putting the focus where it
  * was told to. Everything here is plain code: the items are names, and the
- * platform is the reports a test says it made.
+ * platform is the reports a test says it made. HomeScreen.test.tsx draws
+ * the screen itself and holds it to the same rule.
  */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { FOCUS_SETTLE_MS, HOME_FOCUS_START, focusOnReturn, focusReported, isHerFocus, reachChanged, type HomeFocus } from '../focusMemory.js';
 
@@ -243,28 +242,5 @@ describe('the memory, step by step', () => {
     const focus = focusReported(reachChanged(HOME_FOCUS_START, true, NOW), SECOND, NOW - 5_000);
 
     expect(focus.item).toBeUndefined();
-  });
-});
-
-describe('HomeScreen.tsx — the memory, as kept', () => {
-  const screen = readFileSync(fileURLToPath(new URL('../HomeScreen.tsx', import.meta.url)), 'utf8');
-
-  it('writes it down only through the rule: no item sets where she was by itself', () => {
-    expect(screen).not.toMatch(/focused\.current\s*=/);
-    expect(screen.match(/focus\.current = /g)).toHaveLength(2);
-    expect(screen).toMatch(/focus\.current = reachChanged\(focus\.current, drawn && !cardVisible && inFront, Date\.now\(\)\);/);
-    expect(screen).toMatch(/focus\.current = focusReported\(focus\.current, item, Date\.now\(\)\);/);
-  });
-
-  it('has every item that can take the focus report it, by its own name', () => {
-    const reports = [...screen.matchAll(/onFocus=\{\(\) => reportFocus\(([^)]+)\)\}/g)].map((m) => m[1]);
-
-    expect(reports).toEqual(['`programme:${programme.id}`', "'waiting'", "'light'", "'mantel'", "'seeing'"]);
-    expect(screen.match(/<Pressable\b/g)).toHaveLength(reports.length);
-  });
-
-  it('puts the focus back where the rule says', () => {
-    expect(screen).toMatch(/const preferred = focusOnReturn\(focus\.current, here, start\);/);
-    expect(screen).toMatch(/hasTVPreferredFocus=\{!cardVisible && preferred === /);
   });
 });

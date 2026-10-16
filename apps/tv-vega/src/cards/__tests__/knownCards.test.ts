@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { QueuedCard } from '@wick/contracts';
 import { KNOWN_CARD_TYPES, isKnownCard } from '../knownCards.js';
@@ -32,18 +30,5 @@ describe('isKnownCard — a card this build can draw', () => {
       expect(isKnownCard(not)).toBe(false);
     }
   });
-
-  it('is the list the renderer draws: a view for every type known, and no type known without a view', () => {
-    const renderer = readFileSync(fileURLToPath(new URL('../CardRenderer.tsx', import.meta.url)), 'utf8');
-    const drawn = [...renderer.matchAll(/^\s*case '([A-Z_]+)':/gm)].map((m) => m[1]!);
-
-    expect(drawn.sort()).toEqual([...KNOWN_CARD_TYPES].sort());
-  });
-
-  it('draws nothing for anything else: the renderer has a way out, and it is nothing', () => {
-    const renderer = readFileSync(fileURLToPath(new URL('../CardRenderer.tsx', import.meta.url)), 'utf8');
-
-    expect(renderer).toMatch(/default:\s*(\/\/[^\n]*\s*)*return unknownCard\(card\);/);
-    expect(renderer).toMatch(/function unknownCard\(_card: never\): null \{\s*return null;\s*\}/);
-  });
+  // That the renderer draws each of these, and nothing for any other, is drawn in CardRenderer.test.tsx.
 });

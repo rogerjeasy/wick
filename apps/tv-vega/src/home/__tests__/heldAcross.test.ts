@@ -367,36 +367,6 @@ describe('what stays as it was', () => {
   });
 });
 
-describe('HomeScreen.tsx — a press begins and ends on the item', () => {
-  const screen = readFileSync(fileURLToPath(new URL('../HomeScreen.tsx', import.meta.url)), 'utf8');
-  const code = screen.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
-
-  it('tells every item that can be pressed when OK goes down on it', () => {
-    expect(code.match(/onPressIn=\{pressIn\}/g)).toHaveLength(5);
-    expect(code.match(/<Pressable\b/g)).toHaveLength(5);
-  });
-
-  it('begins a press only by the rule — with what the app heard of the key', () => {
-    expect(code).toMatch(/began\.current = pressBegins\(\{ reachableSince: focus\.current\.reachableSince, now: Date\.now\(\), okDownSince: okDownSince\?\.\(\) \?\? null \}\);/);
-  });
-
-  it('acts on a press only by the rule, and a press ends once', () => {
-    expect(code).toMatch(/const acts = pressEnds\(\{ keyCameUp: byKey, reachableSince: focus\.current\.reachableSince, beganAt: began\.current, now: Date\.now\(\) \}\);\s*began\.current = null;\s*if \(acts\) act\?\.\(\);/);
-  });
-
-  it('keeps what began with the screen itself: it is forgotten when the screen is taken down for a film', () => {
-    expect(code).toMatch(/const began = React\.useRef<number \| null>\(null\);/);
-  });
-
-  it('knows a key coming up from a press with no key: the platform says the key came up, and then — at once — the press', () => {
-    expect(code.match(/onPressOut=\{pressOut\}/g)).toHaveLength(5);
-    expect(code).toMatch(/const pressOut = \(\): void => \{\s*keyCameUp\.current = true;\s*onKeyUp\?\.\(\);\s*\};/);
-    expect(code).toMatch(/const byKey = keyCameUp\.current;\s*keyCameUp\.current = false;/);
-    // The app is still told every time OK comes up here: the guard for the hold goes by it (home/reach.ts).
-    expect(code).not.toMatch(/onPressOut=\{onKeyUp\}/);
-  });
-});
-
 describe('ResidentApp.tsx — what the app hears of OK', () => {
   const app = readFileSync(fileURLToPath(new URL('../../ResidentApp.tsx', import.meta.url)), 'utf8');
   const handler = app.slice(app.indexOf('useTVEventHandler((event) => {'), app.indexOf('\n  });', app.indexOf('useTVEventHandler((event) => {')));
