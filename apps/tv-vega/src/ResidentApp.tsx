@@ -89,6 +89,7 @@ import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
 import { LiveView } from './live/LiveView.js';
 import { BreakController } from './break/BreakController.js';
+import { followScreen } from './break/followScreen.js';
 import { QueueStore, type Mantel } from './headless/QueueStore.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
 import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
@@ -361,18 +362,18 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     return () => clearTimeout(giveUp);
   }, [store]);
 
+  // On screen, or behind another app: the engine and the edge are told at
+  // once, each time (break/followScreen.ts). JavaScript goes on running for
+  // some seconds after Wick leaves the screen (FL-022), so being alive is
+  // not being seen. Declared before the look below, so its first look
+  // already knows. §4.3: `fg` is the Rhythm pillar's device-side input,
+  // sent once per change.
+  React.useEffect(() => {
+    followScreen(breakController, (event) => void store.enqueueOutbound(event), onScreen, Date.now());
+  }, [token, onScreen, store, breakController]);
+
   React.useEffect(() => {
     let cancelled = false;
-
-    // The app is only ever JS-alive while foregrounded (§1.1's device
-    // plane), so reaching 'ready' IS the foreground signal — no AppState
-    // listener needed for that half. §4.3: this is the entire Rhythm
-    // pillar's device-side input, batched (here: sent once on change,
-    // which is already the minimum-chatter case a 10s coalescing window
-    // would otherwise collapse multiple changes into).
-    const foregroundAt = Date.now();
-    breakController.setForeground(true, foregroundAt);
-    void store.enqueueOutbound({ t: 'app_lifecycle', state: 'fg', at: foregroundAt });
     let lastSentBreakState: string | undefined;
 
     const tick = async () => {
