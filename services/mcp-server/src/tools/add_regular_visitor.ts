@@ -6,7 +6,7 @@
  * only way onto it was a row written into the table by hand. This is the
  * way in for the family: a name, the days, a time.
  *
- * It is still a schedule and nothing more (docs/WICK.md D3): no face, no
+ * It is still a schedule and nothing more (docs/WICK.md §4.3 M4): no face, no
  * photograph, no description of the person. Saying it again for the same
  * name changes that visitor's days and time; it never makes a second Maria.
  *
