@@ -78,8 +78,12 @@ const tvScreen = document.getElementById('tv-screen');
  *   connected()                        the card channel has just opened
  *   showKept()                         decides, in place of showKeptCard, which card is on screen
  *   home()                             draws the home screen, in place of renderEmpty's own
- *   filmStarted(film), filmStopped()   the film has opened, or closed
+ *   filmStarted(film), filmStopped(film)  the film has opened, or closed
+ *   filmFailed(film), filmBlocked(film)   it cannot be reached; the browser would not start it without a press
  *   filmControls                       whether the film's player shows its own controls (default true)
+ *   keep(kept, queued)                 keeps a card that has arrived, in place of keepCard
+ *   pressed(card, actionId, finished)  one of a card's buttons was pressed (its card_action already sent)
+ *   closed(opened)                     the card channel has closed; whether it had opened
  */
 const tvPage = {};
 
@@ -325,6 +329,7 @@ function randomHex(bytes) {
   return secureHex(bytes) ?? Array.from({ length: bytes }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
 }
 
+/** Shows a code, waits for it to be entered, and connects. Whether it did: a page with no button to press again tries again itself. */
 async function pairAndConnect() {
   setPairDisabled(true);
   setConnBadge('connecting');
@@ -370,10 +375,12 @@ async function pairAndConnect() {
     rememberTelevision({ kind: mine ? FAMILY_KIND : RESIDENT_KIND, jwt: token.jwt, deviceId, ...(proof ? { proof } : {}) });
     if (mine) enterFamilyView(token.jwt, deviceId);
     else connectWebSocket(token.jwt, deviceId, proof);
+    return true;
   } catch (err) {
     setConnBadge('disconnected');
     setConnDetail(err instanceof Error ? err.message : String(err));
     setPairDisabled(false);
+    return false;
   }
 }
 
@@ -475,6 +482,7 @@ function connectWebSocket(jwt, deviceId, proof) {
     send({ t: 'reconcile' });
     // And from now on it asks whether it is still connected: nothing else would tell it.
     watchStanding(deviceId, proof);
+    tvPage.connected?.();
   };
 
   ws.onmessage = (event) => {
@@ -499,6 +507,7 @@ function connectWebSocket(jwt, deviceId, proof) {
     setTelemetryEnabled(false);
     // A channel that was open and is not: a lost network, or a television taken out of its home. It asks which.
     if (opened) askStandingSoon();
+    tvPage.closed?.(opened);
   };
 
   ws.onerror = () => {
@@ -739,6 +748,8 @@ function finishesCard(card, actionId) {
  * showing, has not been shown anew.
  */
 function showKeptCard() {
+  // A television that plays films decides with the natural-break engine instead (tv.js).
+  if (tvPage.showKept) return tvPage.showKept();
   const now = Date.now();
   keptCards = keptCards.filter((queued) => typeof queued.expiresAt !== 'number' || queued.expiresAt > now);
   const next = cardToShow(keptCards, now) ?? null;
@@ -757,15 +768,16 @@ function handleWireMessage(msg) {
       log('!', `a card of a kind this television does not know was not shown (${String(msg.card?.card?.type)})`);
       return;
     }
-    // And it takes the screen from the mantelpiece, if that is open: nothing waits behind anything here.
-    mantelView = null;
+    // And it takes the screen from the mantelpiece, if that is open: nothing waits behind anything here. (On a
+    // television that plays films a note waits behind it, and the door comes over it: tv.js decides.)
+    if (!tvPage.showKept) mantelView = null;
     // A card is drawn as it arrives: this page has no programme to wait for
     // a break in. So the card her hold brings is on screen at once, and one
     // that arrives with the id of a card already held — who was asked,
     // written by the server onto the Reach card she pressed, or a picture
     // sent back with the line that says her mantelpiece is full — takes its
     // place. What it covers is kept, and comes back (keptCards).
-    keptCards = keepCard(keptCards, msg.card);
+    keptCards = tvPage.keep ? tvPage.keep(keptCards, msg.card) : keepCard(keptCards, msg.card);
     showKeptCard();
     return;
   }
@@ -1015,6 +1027,8 @@ function renderEmpty() {
   // Her mantelpiece, while she has it open: the home screen is what it goes back to.
   if (mantelView) return renderMantel();
   if (film) return show(null);
+  // Her television's own home screen, with its films (tv.js).
+  if (tvPage.home) return tvPage.home();
   const wrapper = el('div', 'tv-empty');
   wrapper.appendChild(el('div', undefined, tvSay('empty')));
   const looked = lookedInLine();
@@ -1204,7 +1218,7 @@ function renderMantel() {
 
 /** The unpaired screen: the code, and where to enter it (PairingScreen.tsx). */
 function renderPairingCode(code, url) {
-  const wrapper = el('div', 'tv-card urgency-deferred');
+  const wrapper = el('div', 'tv-card urgency-deferred tv-pairing');
   wrapper.appendChild(el('div', 'kicker', 'Set up Wick'));
   wrapper.appendChild(el('div', 'headline', `${code.slice(0, 3)} ${code.slice(3)}`));
   wrapper.appendChild(el('div', 'body-text', 'In the Wick family app, choose “Connect a television” and enter this code.'));
@@ -1318,8 +1332,12 @@ function renderCard(queuedCard) {
     for (const action of buttons) {
       const pill = el('button', `pill ${action.kind === 'primary' ? 'primary' : ''}`, action.label);
       pill.type = 'button';
+      // What the button answers, for a remote that presses it by another key (tv.js: Back on the card her hold brought).
+      pill.dataset.action = action.id;
       pill.addEventListener('click', () => {
         send({ t: 'card_action', cardId: card.id, action: action.id, at: Date.now() });
+        const finished = finishesCard(card, action.id);
+        tvPage.pressed?.(card, action.id, finished);
         // "Start the film" opens it, and from here this television says where it is (cardActions.ts startsFilm).
         if (card.type === 'WATCH' && action.id === 'start' && card.programmeId) startFilm(card);
         // A press that is the card's answer finishes it, as on the television (finishesCard), and the newest
@@ -1329,7 +1347,7 @@ function renderCard(queuedCard) {
         // finishes its card like any other answer: what a yes changes comes afterwards, on the home message.
         // And "Keep it" or "Thank you" on a picture: both put it away. If her mantelpiece was full the server sends
         // the card again with a line that says so, and it is kept and drawn again like any card that arrives.
-        if (finishesCard(card, action.id)) {
+        if (finished) {
           keptCards = dropCard(keptCards, card.id);
           showKeptCard();
         }
@@ -1471,7 +1489,9 @@ function stopFilm() {
   clearInterval(film.timer);
   film.hls?.destroy();
   film.layer.remove();
+  const was = film;
   film = null;
+  tvPage.filmStopped?.(was);
   if (!currentQueuedCard) renderEmpty();
 }
 
@@ -1488,6 +1508,10 @@ function sayFilmWords() {
   if (film.withLine) film.withLine.textContent = tvSay('filmWith', { name: film.withName });
 }
 
+/**
+ * Plays a film: the one a "Start the film" card names (with who follows it, while the card says they can) — or,
+ * on a television with a home screen of films, the one she chose there, which nobody follows (tv.js).
+ */
 function startFilm(card) {
   stopFilm();
   // The id goes into an address: only what a programme id can be.
@@ -1496,7 +1520,8 @@ function startFilm(card) {
 
   const layer = el('div', 'tv-film');
   const video = document.createElement('video');
-  video.controls = true;
+  // The player's own controls stand in for the remote — unless the page is a television with a remote of its own.
+  video.controls = tvPage.filmControls !== false;
   video.playsInline = true;
   layer.appendChild(video);
   // What the two lines over the film say is written by sayFilmWords, below and at every change of language.
@@ -1518,9 +1543,11 @@ function startFilm(card) {
     hls: null,
     last: null,
     together: followed ? { sessionId: card.sessionId, programmeId: card.programmeId, until: card.followedUntil } : null,
+    programmeId: card.programmeId,
     timer: setInterval(() => reportFilm(), 1000),
   };
   sayFilmWords();
+  tvPage.filmStarted?.(film);
   for (const type of ['play', 'pause', 'playing', 'waiting', 'seeked', 'ended']) video.addEventListener(type, () => reportFilm());
 
   const mine = film;
@@ -1532,12 +1559,22 @@ function startFilm(card) {
       if (film !== mine) return;
       if (!Hls?.isSupported()) return playNatively();
       mine.hls = new Hls();
+      // A film that cannot be reached is said so by the page that has words for it (tv.js); the console's player shows its own.
+      mine.hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data?.fatal && film === mine) tvPage.filmFailed?.(mine);
+      });
       mine.hls.loadSource(url);
       mine.hls.attachMedia(video);
     })
     .catch(playNatively)
     .finally(() => {
-      if (film === mine) video.play().catch(() => log('!', 'press play on the film to start it'));
+      if (film === mine) {
+        video.play().catch(() => {
+          log('!', 'press play on the film to start it');
+          // The browser would not start it without a press: the page with a Play key says so (tv.js).
+          if (film === mine) tvPage.filmBlocked?.(mine);
+        });
+      }
     });
 }
 
