@@ -107,6 +107,7 @@ export type BriefOutcome =
 /** The writer's rules: the Narrator's, and how to treat the brief's own lines. */
 export const WRITER_SYSTEM_PROMPT = `${NARRATIVE_SYSTEM_PROMPT}
 - A line about a visit the family arranged, or a film played, is a fact like the others: mention it only as it is given, or leave it out.
+- Never suggest anything the family could do: no advice, no "one thing you could do". Another step chooses the one suggestion.
 - Reply with the paragraph only.`;
 
 const WRITER_QUESTION = 'How was the week at home?';
@@ -301,7 +302,9 @@ export function buildWeeklyBriefGraph(input: BriefInput, deps: WeeklyBriefDeps) 
 export async function runWeeklyBriefGraph(input: BriefInput, deps: WeeklyBriefDeps): Promise<GraphRun<BriefOutcome>> {
   const built = buildWeeklyBriefGraph(input, deps);
   try {
-    const run = await built.graph.invoke(`Write the week ${input.isoWeek} for the family, and suggest one thing they could do.`);
+    // The task reaches every node, the writer's included: it asks for the week only. The suggester's
+    // own rules ask it for the one suggestion (live, a task that asked for one had the writer add advice).
+    const run = await built.graph.invoke(`Write the week ${input.isoWeek} for the family.`);
     const failed = run.results.find((r) => r.status !== 'COMPLETED');
     const outcome = built.outcome();
     if (failed || !outcome) {
