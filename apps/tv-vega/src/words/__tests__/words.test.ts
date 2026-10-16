@@ -32,6 +32,16 @@ const READ_WORDS = {
   'read.hint': 'Press Play to hear this.',
 } as const;
 
+/**
+ * The door, outside Wick, on Fire OS (apps/tv-fireos/src/door): the button on the notification, the line under
+ * its title before the door agent has said who is there, and the quiet notification that says Wick is listening.
+ */
+const DOOR_ALERT_WORDS = {
+  'doorAlert.open': 'Open Wick',
+  'doorAlert.who': 'Open Wick to see who it is.',
+  'doorAlert.listening': 'Wick will tell you when someone is at the door.',
+} as const;
+
 describe('the words table — English, exactly as the television said it before there was a table', () => {
   it('says every sentence as it was written in the component it came from', () => {
     expect(WORDS.en).toEqual({
@@ -82,7 +92,12 @@ describe('the words table — English, exactly as the television said it before 
       'programme.minutes': '{count} minutes',
       ...MANTEL_WORDS,
       ...READ_WORDS,
+      ...DOOR_ALERT_WORDS,
     });
+  });
+
+  it('says what the door outside Wick added on Fire OS, and nothing else', () => {
+    expect(Object.keys(WORDS.en).filter((key) => key.startsWith('doorAlert.'))).toEqual(Object.keys(DOOR_ALERT_WORDS));
   });
 
   it('says what "Read to me" added (packages/contracts speech.ts), and nothing else', () => {

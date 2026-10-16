@@ -14,9 +14,10 @@
  * service, which takes it. In that order: a service started first would ask
  * before the way was open.
  *
- * On Fire OS there is no such service (apps/tv-fireos/src/overrides/
- * launchCardService.ts gives it no address), so nothing is opened and
- * nothing is started.
+ * On Fire OS a family member's television starts no service: its only
+ * background service is the resident's door (apps/tv-fireos/src/door), and
+ * apps/tv-fireos/src/overrides/launchCardService.ts gives this address as
+ * empty, so nothing is opened and nothing is started.
  */
 export async function startOffScreenService(deps: {
   /** The service's own address — empty where there is no service. */
