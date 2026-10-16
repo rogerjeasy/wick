@@ -66,6 +66,21 @@ const TARGETS = [
     bundleAll: true,
   },
   {
+    // Visit errands (infra/errands.tf): the state machine's steps (handler
+    // `index.stepHandler`), and a ring on the bus handed to the errand
+    // waiting for it (`index.doorHandler`). One source, two functions.
+    name: 'agent-errand-step',
+    entry: 'services/agent/src/agents/errand/lambda.ts',
+    outfile: 'services/agent/.build/errand-step/index.mjs',
+    bundleAll: true,
+  },
+  {
+    name: 'agent-errand-door',
+    entry: 'services/agent/src/agents/errand/lambda.ts',
+    outfile: 'services/agent/.build/errand-door/index.mjs',
+    bundleAll: true,
+  },
+  {
     name: 'agent-narrator-weekly',
     entry: 'services/agent/src/agents/narrator/lambda.ts',
     outfile: 'services/agent/.build/narrator-weekly/index.mjs',

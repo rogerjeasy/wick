@@ -82,6 +82,17 @@ export const errandSk = (errandId: string): string => `${ERRAND_SK_PREFIX}${erra
 /** The roster's person id for the visitor an errand expects (the row is `PER#errand:<id>`). */
 export const errandPersonId = (errandId: string): string => `errand:${errandId}`;
 
+/**
+ * Her reminder of an errand is a note from the member — a MESSAGE card,
+ * whose reply is kept like any note's — but its one sentence is Wick's own
+ * (services/agent agents/errand/reminder.ts), so it is the phrasebook's and
+ * never machine-translated (phrasebook/index.ts). One card per errand: a
+ * step sent again is the same card.
+ */
+export const ERRAND_REMINDER_CARD_PREFIX = 'note-errand-';
+export const errandReminderCardId = (errandId: string): string => `${ERRAND_REMINDER_CARD_PREFIX}${errandId}`;
+export const isErrandReminderCardId = (cardId: unknown): boolean => typeof cardId === 'string' && cardId.startsWith(ERRAND_REMINDER_CARD_PREFIX);
+
 /** The errand a roster person id belongs to, or undefined for anyone else on the roster. */
 export function errandIdOf(personId: unknown): string | undefined {
   if (typeof personId !== 'string' || !personId.startsWith('errand:')) return undefined;
