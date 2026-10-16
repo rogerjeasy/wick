@@ -183,13 +183,14 @@ EventBridge handoff — independent of whether Ring ever sends anything:
 ./scripts/test-ring-webhook.sh
 ```
 
-Expect all six checks to pass (`unsigned rejected`, `wrong signature
-rejected`, `valid signature accepted`, `replay absorbed`, `idempotency record
-written`, `event reached EventBridge`). This is the fastest possible smoke
+Expect all seven checks to pass (`unsigned rejected`, `wrong signature
+rejected`, `valid signature accepted`, `signed but sent 10 min ago: refused`,
+`replay absorbed`, `idempotency record written`, `event reached EventBridge`).
+It posts Ring's v1.1 envelope, signed in `X-Signature` as Ring documents. This is the fastest possible smoke
 test if you only have a few minutes.
 
-**With the default device id, this only proves the ACK path.** The payload's
-`device_id` is a placeholder that matches nothing on your real account, so
+**With the default device id, this only proves the ACK path.** The event's
+device (`data.attributes.source`) is a placeholder that matches nothing on your real account, so
 the Door agent Lambda correctly stops at `unknown_device` and writes nothing
 further — that's the gate working, not a failure of this test, but it means
 no card gets queued and no `EVT#`/`RHYTHM#` row appears in DynamoDB.
@@ -202,7 +203,7 @@ linked Ring account:
 RING_TEST_DEVICE_ID=<real device id> ./scripts/test-ring-webhook.sh
 ```
 
-This adds a seventh check (`Door agent queued a real card`) and is the
+This adds an eighth check (`Door agent queued a real card`) and is the
 closest thing to a real doorbell press this repo can produce without Ring's
 webhook delivery actually working end to end (see the `FL-003` callout in
 §2a) — it simulates the webhook Ring *should* send, to a device that

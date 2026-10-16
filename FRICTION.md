@@ -61,6 +61,85 @@ removed from the design (2026-10-02).
 
 <!-- Newest first. -->
 
+## FL-041 — Ring signs a webhook's body and nothing else, documents no replay window, and does not say whether a retry is stamped afresh
+
+*2026-10-16.*
+
+**Tool / API:**      Ring Partner API webhooks, v1.1 payload, as documented in
+                     developer.amazon.com/docs/ring/api-documentation.html ("Notifications",
+                     "Webhook Authentication & Verification", "Webhook v1.1 Payload Structure",
+                     "Retry Logic"), read 2026-10-16
+
+**Task attempted:**  Prove Wick's webhook receiver against what Ring documents, and refuse a
+                     correctly signed event that is being replayed: a body captured once and
+                     posted again later, after its `request_id` row (24 hours) has gone.
+
+**Steps taken:**     1. Read the Notifications section end to end. It says: "All webhook requests
+                        from Ring include an HMAC-SHA256 signature in the X-Signature header",
+                        shown as `X-Signature: sha256=<hmac_signature>`, hex, keyed with the
+                        partner's HMAC signing key, over "the raw body bytes, not re-serialized
+                        JSON". The envelope is `meta.{version, time, request_id, account_id}` and
+                        `data.{id, type, attributes}`; a device event's attributes carry
+                        `source` (the device), `timestamp` (epoch ms, when it happened) and, for
+                        motion, `sub_type`. `meta.time` is "ISO 8601 timestamp when Ring sent the
+                        webhook".
+                     2. Looked for replay protection: a timestamp header, a signed timestamp
+                        beside the body (as `t=…,v1=…` schemes do), a tolerance window, a nonce.
+                        There is none for webhooks. The page's only replay protection is for
+                        account-linking nonces (a 600-second window), which it tells you not to
+                        mix up with webhooks.
+                     3. Read the retry schedule: 1 s, 5 s, 30 s, 2 min, 10 min, 1 h after the
+                        first attempt, then a dead-letter queue kept 72 hours, replayed on request
+                        through the integration representative. 4xx is never retried, and "10+
+                        consecutive failures over 24 hours" of 4xx may disable the endpoint.
+                     4. Looked for whether `meta.time` is stamped again on each retry and on a
+                        dead-letter replay, or kept from the first attempt. Not said.
+                     5. Found, in doing this, that Wick's own receiver had been written against a
+                        flat shape (`request_id`, `event_type`, `device_id`, `occurred_at` at the
+                        top) and guessed the header (`x-ring-signature ?? x-amz-signature ??
+                        x-signature`). A real Ring delivery would have been answered 400 — never
+                        retried. That was our mistake, from building before this section was
+                        read closely, and the Playground could not catch it because it sends no
+                        webhook (FL-027).
+
+**Expected:**        Either a signed timestamp outside the body with a documented tolerance
+                     (the common pattern), or a sentence saying `meta.time` is set on every
+                     delivery attempt, so a partner can safely refuse anything older than a few
+                     minutes.
+
+**Actual:**          The signature covers the body only, so the only time a partner can trust is
+                     `meta.time`. A window on it is safe for Ring's first four attempts (the
+                     fourth is 36 s after the first) whatever Ring does. If `meta.time` is kept
+                     from the first attempt, the fifth (about 2.5 minutes in) still passes a
+                     five-minute window, but the sixth and seventh (about 12.5 minutes and 1 h
+                     12 min in) and any dead-letter replay would fall outside it. If it is
+                     stamped afresh, they pass. Which it is cannot be learned without a real delivery, and the
+                     Playground sends none.
+
+**Severity:**        Important — every partner has to choose between no replay protection and a
+                     window that may drop Ring's own late retries.
+
+**Workaround:**      `services/edge-ring/lambda/webhook-receiver.mjs` reads `X-Signature` only,
+                     verifies the raw bytes, reads the v1.1 envelope, and drops a signed body
+                     whose `meta.time` is more than five minutes old or more than one minute
+                     ahead (`MAX_EVENT_AGE_MS`, `MAX_EVENT_LEAD_MS`). It answers those 200, not
+                     4xx: Ring counts repeated 4xx toward disabling an endpoint, and a late
+                     retry is Ring's own. For the door that costs
+                     nothing: a door card lives five minutes (`DOOR_CARD_TTL_MS`), and the Door
+                     agent runs no event older than that (`infra/agent.tf`). A device-lifecycle event
+                     replayed from the dead-letter queue after an outage would be dropped; Wick
+                     reads none of those today. `request_id` is still deduplicated for 24 hours.
+                     Not seen against a real Ring delivery.
+
+**Suggestion:**      1. Send a signed timestamp: `X-Signature: t=<unix>,sha256=<hmac of
+                        "t.body">`, and document a tolerance (five minutes is usual).
+                     2. Until then, say in "Webhook v1.1 Payload Structure" whether `meta.time`
+                        is set on each delivery attempt and on a dead-letter replay.
+                     3. Give the Playground a "send a test webhook" button (FL-027) so a partner
+                        finds a wrong envelope or header on day one, not at certification.
+
+---
+
 ## FL-038 — Vega answers whether high-contrast text is on, but says nothing an app can use about text size, and the simulator cannot turn either setting, or VoiceView, on
 
 *2026-10-16*

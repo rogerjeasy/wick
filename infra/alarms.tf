@@ -31,8 +31,10 @@ resource "aws_sns_topic" "alarms" {
 }
 
 # AWS sends a confirmation email first; nothing arrives until it is clicked.
+# The address is sensitive (it is a person's), so the plan never prints it;
+# whether there is one is not.
 resource "aws_sns_topic_subscription" "alarm_email" {
-  count = var.alarm_email == null ? 0 : 1
+  count = nonsensitive(var.alarm_email == null ? false : var.alarm_email != "") ? 1 : 0
 
   topic_arn = aws_sns_topic.alarms.arn
   protocol  = "email"

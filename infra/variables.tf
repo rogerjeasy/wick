@@ -102,13 +102,14 @@ variable "chime_slot_event" {
 }
 
 variable "alarm_email" {
-  description = "An address to email when an alarm fires (infra/alarms.tf). Null, the default, subscribes nobody: the alarms still change state and the topic still receives them, and a subscription can be added later. AWS emails a confirmation first. Set it in a git-ignored *.auto.tfvars or with TF_VAR_alarm_email, never in this repository: it is a person's address."
+  description = "An address to email when an alarm fires (infra/alarms.tf). Null or empty, the default, subscribes nobody: the alarms still change state and the topic still receives them. AWS emails a confirmation first. CI sets it from the repository secret ALARM_EMAIL (TF_VAR_alarm_email in deploy-edge.yml and deploy-agent.yml), so every apply keeps the subscription; a laptop apply must export TF_VAR_alarm_email too, or it removes it. Never write it in this repository: it is a person's address."
   type        = string
   default     = null
+  sensitive   = true
 
   validation {
-    condition     = var.alarm_email == null || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alarm_email))
-    error_message = "alarm_email must be an email address, or null for no subscription."
+    condition     = var.alarm_email == null || var.alarm_email == "" || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alarm_email))
+    error_message = "alarm_email must be an email address, or null or empty for no subscription."
   }
 }
 

@@ -216,6 +216,10 @@ jobs:
       # old surface.
       - name: deploy
         id: apply
+        # The alarms' email subscription (infra/alarms.tf), from a secret:
+        # this repository's logs are public. Unset, it subscribes nobody.
+        env:
+          TF_VAR_alarm_email: ${{ secrets.ALARM_EMAIL }}
         run: |
           echo "since=$(( $(date +%s) - 30 ))" >> "$GITHUB_OUTPUT"
           terraform -chdir=infra init -input=false
