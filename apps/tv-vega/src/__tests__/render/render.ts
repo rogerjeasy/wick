@@ -14,7 +14,7 @@
  */
 import type { ReactElement } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
-import { contrastRatio } from '@wick/vega-calm-ui';
+import { contrastRatio, type CalmPreferences } from '@wick/vega-calm-ui';
 
 // React's own switches for a test: `act` is how updates are flushed here, and this renderer is drawing a
 // React Native tree (which is also what keeps React 19 from warning that the renderer is deprecated for the web).
@@ -194,6 +194,32 @@ export function contrastOf(text: Node): number {
   const ground = groundOf(text);
   if (!colour || !ground) throw new Error(`"${textOf(text)}" has no colour (${colour}) or nothing behind it (${ground})`);
   return contrastRatio(colour, ground);
+}
+
+// ---------------------------------------------------------------------------
+// Easier to see.
+// ---------------------------------------------------------------------------
+
+/** The four ways Easier to see can leave the television (seeing/seeing.ts), by name. */
+export const EASIER_TO_SEE: readonly (readonly [name: string, preferences: CalmPreferences])[] = [
+  ['standard', { largerText: false, higherContrast: false }],
+  ['larger text', { largerText: true, higherContrast: false }],
+  ['higher contrast', { largerText: false, higherContrast: true }],
+  ['larger text and higher contrast', { largerText: true, higherContrast: true }],
+];
+
+/**
+ * Every line of words on the screen at the size the setting promises — 32pt,
+ * or 40 with larger text on — and against what it is written on at its
+ * ratio: 7:1, or 15:1 with higher contrast on. Returns the lines that are
+ * not, as "words: size, ratio", so a failure says which.
+ */
+export function illegible(root: Node, preferences: CalmPreferences): string[] {
+  const floor = preferences.largerText ? 40 : 32;
+  const ratio = preferences.higherContrast ? 15 : 7;
+  return all(root, 'Text')
+    .filter((text) => !(fontSize(text) >= floor) || !(contrastOf(text) >= ratio))
+    .map((text) => `${textOf(text)}: ${fontSize(text)}pt, ${contrastOf(text).toFixed(1)}:1`);
 }
 
 function hasAncestor(node: Node, type: string): boolean {

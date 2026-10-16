@@ -65,7 +65,7 @@ class AnimatedValue {
 export const Animated = {
   View: 'Animated.View',
   Value: AnimatedValue,
-  timing: (value: AnimatedValue, config: { readonly toValue: number }) => ({
+  timing: (value: AnimatedValue, config: { readonly toValue: number; readonly duration?: number; readonly useNativeDriver?: boolean }) => ({
     start: (done?: (result: { finished: boolean }) => void) => {
       value.setValue(config.toValue);
       done?.({ finished: true });
