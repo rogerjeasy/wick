@@ -28,7 +28,7 @@ scripts below and never pass through Terraform.
 | `narrator.tf` | The weekly narrative, Sunday 20:00 UTC |
 | `live.tf` | Watch live: `agent-live` and the `live-bridge` container Lambda |
 | `agentcore.tf` | The agent plane on Bedrock AgentCore Runtime, its two ECR repositories, the live-view CloudFront |
-| `mcp.tf` | The Wick server (MCP + family app API) on App Runner, and its ECR repository |
+| `mcp.tf` | The Wick server (MCP + family app API) on App Runner, and its ECR repository; App Runner checks it over HTTP on `GET /health` |
 | `accounts.tf` | Family accounts in Cognito |
 | `push.tf` | Web Push keys |
 | `photos.tf` | The mantelpiece's own bucket |
