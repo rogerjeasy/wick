@@ -18,13 +18,14 @@
  * precomputed state. NO MODEL CALL EVER RUNS INSIDE A TOOL HANDLER. If you want
  * one, you have mis-sited the work — precompute it upstream (§5.4).
  */
+import { performance } from 'node:perf_hooks';
 import express from 'express';
 import cors from 'cors';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode, ListToolsRequestSchema, type ListToolsResult } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { CardPatch, DemoDoorEvent } from '@wick/contracts';
@@ -72,6 +73,8 @@ import { registerGetReachRequest } from './tools/get_reach_request.js';
 import { registerAnswerReachRequest } from './tools/answer_reach_request.js';
 import { registerGetVisits } from './tools/get_visits.js';
 import { registerGetPictures } from './tools/get_pictures.js';
+import { closeWhenDraining, createLifecycle, healthRoute, type About, type Lifecycle } from './lifecycle.js';
+import { authChecked, startTiming, timingOf } from './timing.js';
 
 /**
  * A fresh `McpServer` for exactly one session's lifetime.
@@ -89,6 +92,8 @@ import { registerGetPictures } from './tools/get_pictures.js';
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 /** The same default as the Narrator's and get_week_narrative.ts's. */
 const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
+/** What this server tells an MCP client it is, and what `/health` says is running. */
+export const SERVER_VERSION = '0.2.0';
 
 export function createMcpServer(
   ddb: DynamoDBClient,
@@ -96,9 +101,11 @@ export function createMcpServer(
   sendCard: SendCard,
   sendPatch: (patch: CardPatch, householdId: string) => Promise<void>,
   withdrawCard: (householdId: string, cardId: string) => Promise<void>,
+  /** `ownList`: answer tools/list by the SDK's own handler — only for the one server that lists them once (`listedTools`). */
+  options: { readonly ownList?: boolean } = {},
 ): McpServer {
   // INV-4: every tool's answer is read by the Guardian before it leaves (guardian.ts).
-  const mcpServer = guardTools(new McpServer({ name: 'wick', version: '0.2.0' }));
+  const mcpServer = guardTools(new McpServer({ name: 'wick', version: SERVER_VERSION }), ctx.timing);
   registerGetResidentSharedView(mcpServer, ddb, ctx);
   registerGetWeekNarrative(mcpServer, ddb, ctx);
   registerGetToday(mcpServer, ddb, ctx);
@@ -121,7 +128,39 @@ export function createMcpServer(
   registerAnswerReachRequest(mcpServer, ddb, ctx, sendCard);
   registerGetVisits(mcpServer, ddb, ctx);
   registerGetPictures(mcpServer, ddb, ctx);
+  // The list is the same for every request and every person — no tool's
+  // name, description or schema depends on who asks — and making it turns
+  // forty-four Zod schemas into JSON Schema. So it is made once per process,
+  // by the SDK's own handler on a server of its own, and every request's
+  // server answers tools/list with that (issue #47).
+  if (!options.ownList) mcpServer.server.setRequestHandler(ListToolsRequestSchema, () => listedTools(ddb));
   return mcpServer;
+}
+
+let toolList: Promise<ListToolsResult> | undefined;
+
+/**
+ * This server's tools as a client is told of them: asked of a server of its
+ * own, over MCP's tools/list, once per process. No tool is ever called
+ * through this. A failure is not kept: the next request asks again.
+ */
+function listedTools(ddb: DynamoDBClient): Promise<ListToolsResult> {
+  return (toolList ??= (async () => {
+    const nobody: ToolContext = { householdId: '', userId: '', access: async () => { throw new Error('tools/list only'); } };
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'wick-tool-list', version: SERVER_VERSION });
+    const nowhere = async (): Promise<void> => { throw new Error('tools/list only'); };
+    await Promise.all([createMcpServer(ddb, nobody, nowhere, nowhere, nowhere, { ownList: true }).connect(serverSide), client.connect(clientSide)]);
+    try {
+      const { tools } = await client.listTools();
+      return { tools };
+    } finally {
+      await client.close();
+    }
+  })().catch((err: unknown) => {
+    toolList = undefined;
+    throw err;
+  }));
 }
 
 /**
@@ -130,23 +169,13 @@ export function createMcpServer(
  * the real ones).
  */
 /**
- * This server's tools as a client is told of them: asked of a server of its
- * own, over MCP's tools/list, so the stand-in assistant (assistant/) is
- * shown exactly the names, descriptions and schemas Alexa+ would be — not
- * a second list kept by hand. No tool is ever called through this.
+ * The tools as the stand-in assistant (assistant/) is shown them: exactly
+ * the names, descriptions and schemas Alexa+ would be — the same list
+ * tools/list answers with, not a second one kept by hand.
  */
 async function listToolSpecs(ddb: DynamoDBClient): Promise<ToolSpec[]> {
-  const nobody: ToolContext = { householdId: '', userId: '', access: async () => { throw new Error('tools/list only'); } };
-  const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'wick-assistant', version: '0.1.0' });
-  const nowhere = async (): Promise<void> => { throw new Error('tools/list only'); };
-  await Promise.all([createMcpServer(ddb, nobody, nowhere, nowhere, nowhere).connect(serverSide), client.connect(clientSide)]);
-  try {
-    const { tools } = await client.listTools();
-    return tools.map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema }));
-  } finally {
-    await client.close();
-  }
+  const { tools } = await listedTools(ddb);
+  return tools.map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema }));
 }
 
 export interface AppDeps {
@@ -201,6 +230,10 @@ export interface AppDeps {
   readonly hear?: Hear | undefined;
   readonly now?: () => number;
   readonly newId?: () => string;
+  /** Whether the process has been told to stop (lifecycle.ts). Absent, it never is. */
+  readonly lifecycle?: Lifecycle;
+  /** What `/health` says is running: the version, and the commit the image was built from. */
+  readonly about?: About;
 }
 
 /**
@@ -240,6 +273,12 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   });
 
   const app = express();
+  // Which framework answers is nobody's business, and a scanner's first question.
+  app.disable('x-powered-by');
+  const lifecycle = deps.lifecycle ?? createLifecycle();
+  app.use(closeWhenDraining(lifecycle));
+  // App Runner's health check (infra/mcp.tf): before everything else, and it reads nothing.
+  app.get('/health', healthRoute(lifecycle, deps.about ?? { version: SERVER_VERSION }));
   // Deployed, the server sits behind exactly one proxy (App Runner's), and
   // every request arrives from that proxy's address. Without this, the
   // SDK's rate limits count the proxy — so its 20 app registrations an hour
@@ -341,7 +380,10 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   const mcpCors = cors();
 
   app.options('/mcp', mcpCors);
-  app.post('/mcp', mcpCors, requireAuth(), async (req, res) => {
+  // Timed in phases (timing.ts, issue #47): the token check, this request's
+  // server, the gate, the tool, the Guardian — as a Server-Timing header and
+  // one log line that names no one.
+  app.post('/mcp', mcpCors, startTiming(), requireAuth(), authChecked(), async (req, res) => {
     try {
       // INV-8: who this request is for comes from its verified token.
       const grant = grantOf(req.auth);
@@ -350,6 +392,8 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
         return;
       }
 
+      const timing = timingOf(res);
+      const built = performance.now();
       const mcpServer = createMcpServer(ddb, {
         householdId: grant.householdId,
         userId: grant.userId,
@@ -357,9 +401,14 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
         // The light in the window: asking after the resident is something the resident is told.
         lookedIn: (allowed) =>
           recordLook(ddb, { householdId: grant.householdId, userId: grant.userId, name: allowed.membership.name }, (deps.now ?? Date.now)(), deps.sendHome ?? (async () => {})),
+        ...(timing ? { timing } : {}),
       }, deps.sendCard, deps.sendPatch, deps.withdrawCard);
       // No `sessionIdGenerator` given: that is what makes it stateless.
-      const transport = new StreamableHTTPServerTransport({});
+      // `enableJsonResponse`: the answer is one JSON body, written once the
+      // tool has answered, rather than a one-event stream opened before it
+      // runs — so its headers can carry the whole request's timing. A
+      // Streamable HTTP client takes either (MCP 2025-11-25, Transports).
+      const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
       res.on('close', () => {
         void transport.close();
         void mcpServer.close();
@@ -371,6 +420,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
       // Transport` on this class, installed SDK 1.32.1); the cast just routes around the
       // accessor-vs-optional-property mismatch.
       await mcpServer.connect(transport as unknown as Transport);
+      timing?.add('build', performance.now() - built);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
       // An uncaught error here must never propagate to Express's default

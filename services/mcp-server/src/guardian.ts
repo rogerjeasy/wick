@@ -40,6 +40,7 @@ import type { FactClass } from '@wick/contracts';
 import { clearForFamily } from '@wick/policy';
 import { SOMETHING_WENT_WRONG_TEXT } from './tools/errors.js';
 import { FACT_CLASS_WORDS } from './tools/get_resident_shared_view.js';
+import { timed, type PhaseTimer } from './timing.js';
 
 /**
  * Values that are never read as words: an id, a picture's address, a week's
@@ -156,6 +157,31 @@ export function guardToolAnswer<R extends object>(tool: string, result: R): R | 
   return WITHHELD_ANSWER;
 }
 
+/** The part of a Zod schema the gate needs: whether a value is one. */
+interface OutputSchema {
+  safeParse(value: unknown): { success: true } | { success: false; error: { issues: readonly { path: readonly PropertyKey[]; code: string }[] } };
+}
+
+/**
+ * An answer that is not what its tool declares is answered as any failure
+ * is. The SDK would check it next and send the family its own message —
+ * "Output validation error: …", naming fields — so it is checked here first,
+ * and the log says which fields, never their values.
+ */
+function keptToSchema<R extends object>(tool: string, result: R, output: OutputSchema | undefined): R | typeof WITHHELD_ANSWER {
+  const answer = result as R & ToolAnswer & { isError?: boolean };
+  if (!output || answer.isError === true) return result;
+  const checked = output.safeParse(answer.structuredContent);
+  if (checked.success) return result;
+  console.error(JSON.stringify({
+    level: 'error',
+    msg: 'tool_output_invalid',
+    tool,
+    issues: checked.error.issues.slice(0, 5).map((issue) => ({ at: issue.path.map(String).join('.'), code: issue.code })),
+  }));
+  return WITHHELD_ANSWER;
+}
+
 /** The tools behind the gate on each server, for the test that every tool is. */
 const guardedTools = new WeakMap<McpServer, Set<string>>();
 
@@ -168,16 +194,18 @@ export function toolsBehindTheGate(server: McpServer): ReadonlySet<string> {
  * tool's answer passed through the gate. `registerTool` is the only way to
  * add one; the SDK's older `tool()` is refused, so it cannot be a way round.
  */
-export function guardTools(server: McpServer): McpServer {
+export function guardTools(server: McpServer, timer?: PhaseTimer): McpServer {
   const names = new Set<string>();
   guardedTools.set(server, names);
   const register = server.registerTool.bind(server) as (name: string, config: unknown, callback: (...args: unknown[]) => unknown) => unknown;
 
   const registerTool = (name: string, config: unknown, callback: (...args: unknown[]) => unknown): unknown => {
     names.add(name);
+    const output = (config as { outputSchema?: OutputSchema } | undefined)?.outputSchema;
     return register(name, config, async (...args: unknown[]) => {
       const result = await callback(...args);
-      return typeof result === 'object' && result !== null ? guardToolAnswer(name, result) : result;
+      if (typeof result !== 'object' || result === null) return result;
+      return timed(timer, 'guard', async () => keptToSchema(name, guardToolAnswer(name, result), output));
     });
   };
   Object.assign(server, {

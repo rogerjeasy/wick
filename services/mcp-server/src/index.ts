@@ -9,7 +9,8 @@ import { TranscribeStreamingClient } from '@aws-sdk/client-transcribe-streaming'
 import { DEFAULT_POLICY } from '@wick/policy';
 import { DEMO_DOOR_DETAIL_TYPE, DEMO_DOOR_SOURCE, type DemoDoorEvent } from '@wick/contracts';
 import { sendHomeToDevices, sendPatchToDevice, sendToDevice, takeBackFromDevices } from '@wick/agent';
-import { createApp } from './server.js';
+import { createApp, SERVER_VERSION } from './server.js';
+import { createLifecycle, serve, stopOnSignals } from './lifecycle.js';
 import { createCognitoIdentity, type CognitoSend } from './accounts/identity.js';
 import { createDynamoAccountStore, type DdbSend } from './accounts/store.js';
 import { createBedrockConverse } from './assistant/bedrock.js';
@@ -131,7 +132,14 @@ const cognito = new CognitoIdentityProviderClient(
   process.env.WICK_COGNITO_REGION ? { region: process.env.WICK_COGNITO_REGION } : {},
 );
 
+// Told to stop (SIGTERM from App Runner, or Ctrl-C), the server finishes what it is answering first (lifecycle.ts).
+const lifecycle = createLifecycle();
+// The commit the image was built from (services/mcp-server/Dockerfile's WICK_COMMIT), for /health.
+const COMMIT = process.env.WICK_COMMIT || undefined;
+
 const app = createApp(ISSUER_URL, {
+  lifecycle,
+  about: { version: SERVER_VERSION, commit: COMMIT },
   store: createDynamoAccountStore(((command) => ddb.send(command as never)) as DdbSend, TABLE_NAME),
   identity: createCognitoIdentity(((command) => cognito.send(command as never)) as CognitoSend, COGNITO_CLIENT_ID),
   sendCard: (card, serverOnly) => sendToDevice(card, DEFAULT_POLICY, serverOnly),
@@ -158,8 +166,8 @@ const app = createApp(ISSUER_URL, {
   ...(VIRTUAL_TELEVISION_URL ? { virtualTelevisionUrl: VIRTUAL_TELEVISION_URL } : {}),
 });
 
-app.listen(PORT, () => {
-  console.log(`Wick MCP server listening on ${ISSUER_URL.toString()}`);
-  console.log('MCP endpoint: POST /mcp');
-  console.log('Tunnel for Alexa+/MCP Inspector: cloudflared tunnel --url http://127.0.0.1:' + PORT);
-});
+const running = await serve(app, lifecycle, PORT);
+stopOnSignals(running);
+console.log(`Wick MCP server listening on ${ISSUER_URL.toString()}`);
+console.log('MCP endpoint: POST /mcp');
+console.log('Tunnel for Alexa+/MCP Inspector: cloudflared tunnel --url http://127.0.0.1:' + PORT);
