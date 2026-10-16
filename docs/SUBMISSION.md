@@ -168,12 +168,13 @@ connection (issue #47 found that cause; the server's own p95 is 18 ms).
 Wick did not exist before the hackathon. The repository was created on
 **2026-09-14**, two weeks into the submission window (which opened on
 2026-08-31). Its first commit is a scaffold of design documents, shared types
-and stubs, and all of its more than 440 commits are dated between 2026-09-14 and
-2026-10-14. Everything in it (the Vega and Fire OS apps, the AWS stack, the
+and stubs, and all of its more than 690 commits are dated between 2026-09-14 and
+2026-10-16. Everything in it (the Vega and Fire OS apps, the AWS stack, the
 agents, the MCP server, the family app, the friction log) was built in the
-window. The two open-source contributions below were made in the window too:
-`vega-calm-ui`'s first commit is 2026-09-14, and the pull request to Amazon's
-sample was opened on 2026-10-14.
+window. The three open-source contributions below were made in the window too:
+`vega-calm-ui`'s first commit is 2026-09-14 and it was published to npm on
+2026-10-16, the pull request to Amazon's AgentCore SDK was opened on
+2026-10-16, and the one to Amazon's sample on 2026-10-14.
 
 ---
 
@@ -302,8 +303,12 @@ TypeScript template). We wrote it: `AgentCoreMemorySnapshotStorage` and
 persists a Strands agent's conversation in AgentCore Memory. 60 unit tests
 (including a real Strands `SessionManager` and `Agent` restoring a
 conversation after a simulated cold start, against a fake that enforces the
-service's limits), 98 % statement coverage of the new file, an integration
-test gated on a real memory, and documentation.
+service's limits), 98 % statement coverage of the new file, documentation,
+and five integration tests that run against a real AgentCore Memory. We ran
+them on 2026-10-16 against a new memory in our account: all five pass, twice
+in a row (save and replace, a 330 KB snapshot split and reassembled, listing,
+a second Strands agent restoring the first one's conversation, and delete).
+The pull request is open, awaiting the maintainers' review.
 
 **How it works.** Each Strands snapshot and manifest is a set of AgentCore
 Memory `blob` events tagged with metadata (kind, location, snapshot id,
@@ -322,13 +327,17 @@ AgentCore Memory through the same code (`packages/strands-agentcore-session`).
 
 ### Contribution 2: a new open-source library, `vega-calm-ui`
 
-**Contribution URL:** https://github.com/rogerjeasy/vega-calm-ui (MIT)
+**Contribution URL:** https://github.com/rogerjeasy/vega-calm-ui (MIT), on npm as
+[`vega-calm-ui`](https://www.npmjs.com/package/vega-calm-ui)
 
 **What we did.** We extracted Wick's card components into a standalone library
 of accessible, low-arousal 10-foot components for Vega OS, with an ESLint
-plugin. It has its own CI, a README written for a stranger, a CHANGELOG, and 92
-tests. It installs from GitHub (`npm install github:rogerjeasy/vega-calm-ui`;
-npm builds it on install). It is not published to the npm registry.
+plugin. It has its own CI, a README written for a stranger, a CHANGELOG, and 131
+tests. It is on npm: `npm install vega-calm-ui`. Versions 0.1.0 to 0.1.2 were
+published on 2026-10-16 by the repository's own release workflow, each with a
+provenance statement, so npm shows the commit and the workflow run that built
+it. Since 0.1.2 it publishes through npm's trusted publishing (OIDC): no npm
+token is stored anywhere, and the package refuses tokens.
 
 **How it works.**
 - `CalmCard` is a headline, optional detail, up to three actions and an
