@@ -277,13 +277,22 @@ resource "aws_apprunner_service" "mcp_server" {
     instance_role_arn = aws_iam_role.apprunner_instance.arn
   }
 
-  # TCP, not HTTP: the app has no handler for a bare GET / (its real routes
-  # are /.well-known/*, /authorize, /token, /mcp), so an HTTP health check
-  # would need a path guaranteed to 2xx that doesn't otherwise exist. TCP
-  # only asks "does something answer on the port," which is what actually
-  # matters here.
+  # HTTP, on the server's own health route (services/mcp-server/src/
+  # lifecycle.ts): 200 while it answers, 503 once it has been told to stop
+  # and is finishing what it is answering. The route reads no table and no
+  # token, so a slow DynamoDB never gets a working instance replaced. A TCP
+  # check only asked whether something listened on the port.
+  #
+  # Needs an image with that route (built from this commit or later): an
+  # older image answers 404 here, and App Runner would roll the deployment
+  # back. deploy-agent.yml pins the new image and applies in the same run.
   health_check_configuration {
-    protocol = "TCP"
+    protocol            = "HTTP"
+    path                = "/health"
+    interval            = 10
+    timeout             = 5
+    healthy_threshold   = 1
+    unhealthy_threshold = 3
   }
 
   lifecycle {
