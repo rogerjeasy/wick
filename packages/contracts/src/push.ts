@@ -24,6 +24,12 @@ export const PUSH_KINDS = {
   reachRing: 'reach_ring',
   /** The resident held the button and chose "Just say hello". */
   reachHello: 'reach_hello',
+  /** The door rang around when a visit the member arranged was expected (errand.ts). */
+  errandRang: 'errand_rang',
+  /** The window of a visit the member arranged passed with no ring. */
+  errandNoShow: 'errand_no_show',
+  /** The week (and its one suggestion) can be read: she has seen it first (INV-7). */
+  weekReady: 'week_ready',
 } as const;
 export type PushKind = (typeof PUSH_KINDS)[keyof typeof PUSH_KINDS];
 
