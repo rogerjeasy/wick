@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong><a href="https://dmaz25jvryojp.cloudfront.net/">Try the family app</a></strong> ·
-  <a href="https://d2sbabcft8sm3m.cloudfront.net/device.html">A television in a browser tab</a> ·
+  <a href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">A television in a browser tab</a> ·
   <a href="https://rogerjeasy.github.io/wick/calm-points/">The calm-point map</a>
 </p>
 
@@ -71,11 +71,13 @@ that person ([`AGENTS.md`](AGENTS.md), INV-9).
 
 No account and no hardware are needed.
 
-1. Open the [family app](https://dmaz25jvryojp.cloudfront.net/) and choose **Try the demo**. You get a guest account and a demo home of your own, with six weeks of simulated history.
-2. Open [a television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/device.html), press **Pair & connect**, and enter its code in the family app.
-3. On the television, allow yourself. From then on, ask the family app anything — *"How has my mum been this week?"*, *"Is the light on?"*, *"Ask Mum to watch Sintel with me on Sunday at three"* — and answer on the television.
-4. To see the door, press the **Ring the stand-in doorbell** chip and choose who is there. A demo home has no Ring doorbell, so this stands one in. The door card comes up on the television within a few seconds, then the picture, then a sentence about it from the vision model. Press **Ask Guest to look** there, and the family app shows you the picture to answer.
-5. For the family's side on a television, open a second television tab, press **Pair & connect**, and in the family app answer *"Whose television is it?"* with **Mine**.
+1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html). It is the television and nothing else, drawn as the Vega app draws it, and it shows a six-digit code. The keyboard is the remote: the arrows move, **Enter** is OK, **Backspace** or **Esc** is Back, **Space** or **P** is Play/Pause, and **Enter** held for two seconds is Hold for Sarah. **?** shows or hides the keys.
+2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose **Try the demo**, and enter the television's code. You get a guest account and a demo home of your own, with six weeks of simulated history.
+3. On the television, allow yourself: the question comes up once the television has sat on its home screen for twenty seconds, as on Vega. From then on, ask the family app anything — *"How has my mum been this week?"*, *"Is the light on?"* — and answer on the television.
+4. To see the natural break, choose a film with **Enter**, then ask the family app to *"Send a note to her television"*. The note waits while the film plays. Press **Space** to pause and it comes on screen five seconds later; or let Big Buck Bunny reach 1:29, a measured calm point, where it holds the film on the cut. **Space** over the note reads it aloud (Amazon Polly); a second **Space** goes back to the film and the note waits for the next break. **Enter** answers it: after a calm point the film goes on by itself, after a pause of yours it waits for your Play.
+5. To see the door, press the **Ring the stand-in doorbell** chip and choose who is there. A demo home has no Ring doorbell, so this stands one in. The door card comes up at once, over a playing film, without pausing it — then the picture, then a sentence about it from the vision model.
+6. **Easier to see**, at the bottom right of the home screen, sets larger text or higher contrast, kept on that browser.
+7. For the family's side on a television, open [the console's television](https://d2sbabcft8sm3m.cloudfront.net/device.html), press **Pair & connect**, and in the family app answer *"Whose television is it?"* with **Mine**.
 
 ## What it looks like
 
@@ -182,7 +184,7 @@ home was recorded to make this.
 
 | | In this submission |
 |---|---|
-| **Television** | The Vega Virtual Device, and the Fire OS build on the Android TV emulator (Amazon publishes no Fire OS emulator; the hackathon FAQ names this one), running the same builds a Fire TV would (`apps/tv-vega`, `apps/tv-fireos`). For anyone with neither, a virtual television in a browser tab (`apps/ops-console/device.html`) pairs with the same code and is sent the same cards. |
+| **Television** | The Vega Virtual Device, and the Fire OS build on the Android TV emulator (Amazon publishes no Fire OS emulator; the hackathon FAQ names this one), running the same builds a Fire TV would (`apps/tv-vega`, `apps/tv-fireos`). For anyone with neither, her television in a browser tab (`apps/ops-console/tv.html`) pairs with the same code and is sent the same cards: the Vega app's home screen and cards, its three films played in the page, and its natural break — the Vega app's own `BreakController`, with the films' measured calm points, bundled from its source by `npm run tv:build` — with the keyboard as the remote. It is not a Fire TV: no media session, so no "Alexa, pause"; no system toast while another tab is in front; no live view of the door; and the mantelpiece's idle screen is not there. The engineers' console around a television (`device.html`) is the same television with telemetry and raw messages. |
 | **Doorbell** | Ring's Developer Playground: a simulated camera behind Ring's real Partner API, linked by Ring's real OAuth. The Playground has no chime, so the hallway chime is built and contract-tested but not shown ([FL-019](FRICTION.md)). It sends no doorbell or motion webhook either ([FL-027](FRICTION.md)), so a demo home has a stand-in doorbell of Wick's own, rung from the family app. It never reaches Ring. Its four visitors are pictures made with an image model, of nobody real ([`docs/demo-door`](docs/demo-door/NOTICE.md)). The card says *stand-in doorbell* and offers no Watch live, since there is no camera. Everything after the ring is the Door agent's own path: the card, the timeline, the vision model's sentence, *Ask … to look*, and her language. |
 | **Alexa+** | A simulated Alexa+ surface (`apps/sim-alexa`): the add-on surface is open to select partners only ([FL-001](FRICTION.md)). It signs in to a real account by OAuth 2.1, a model chooses which of Wick's tools to call, and each call goes to the real MCP server. |
 | **The household** | A demo home. Its six weeks of history are simulated — written as the Door agent's own event rows and counted by the Narrator's own code — and every such row, week and home is marked `simulated`. The family app says so wherever it names the home. |
