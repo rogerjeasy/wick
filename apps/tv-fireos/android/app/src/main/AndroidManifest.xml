@@ -1,7 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
- 
+    <!-- The door, outside Wick (java/com/wick/tv/door): a foreground service holds the door's connection behind
+         another app, and posts one notification for the front door. Android 13 and later ask her first;
+         Fire OS 7 and 8 (Android 9 and 11) allow it at install. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.faketouch" android:required="false" />
     <!-- A television app, and only that: Fire TV and Android TV list it, a phone does not. -->
@@ -31,5 +38,22 @@
             <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
         </intent-filter>
       </activity>
+
+      <!-- Android 14 and later ask a foreground service what it is for. None of the named types is a doorbell. -->
+      <service
+        android:name=".door.DoorService"
+        android:exported="false"
+        android:foregroundServiceType="specialUse">
+        <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="Keeps the television's connection for its front doorbell open while another app is on screen, so that it can say someone is at the door." />
+      </service>
+
+      <receiver android:name=".door.StartAtBoot" android:exported="false">
+        <intent-filter>
+          <action android:name="android.intent.action.BOOT_COMPLETED" />
+          <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+        </intent-filter>
+      </receiver>
     </application>
 </manifest>

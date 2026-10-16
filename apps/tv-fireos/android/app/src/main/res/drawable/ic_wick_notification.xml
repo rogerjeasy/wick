@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wick's mark for a notification: a candle's flame over its wick. One colour, as Android draws it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2C12,2 7,7.5 7,12a5,5 0,0 0,10 0C17,7.5 12,2 12,2z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11,18h2v4h-2z" />
+</vector>
