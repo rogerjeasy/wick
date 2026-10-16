@@ -93,6 +93,23 @@ app there. What is real and what stands in is in the header comment of
 
 Nothing in it ships: the deployed entry point is `services/mcp-server/src/index.ts`.
 
+The deployed server is that entry point built ahead of time into one file and
+run by plain `node`; to run the same build:
+
+```bash
+npm run build --workspace=@wick/mcp-server   # esbuild -> services/mcp-server/.build/server.mjs
+TABLE_NAME=wick WICK_COGNITO_CLIENT_ID=… WICK_PAIRING_API_URL=… \
+  npm run start --workspace=@wick/mcp-server
+curl http://127.0.0.1:3300/health             # {"status":"ok","version":"0.2.0",…}
+```
+
+It starts without AWS credentials, far enough to answer `/health`; anything
+that reads a table needs them. Ctrl-C (or SIGTERM) lets requests in flight
+finish, then exits 0. Every `POST /mcp` answer carries a `Server-Timing`
+header; `npm run latency:mcp -- --url http://127.0.0.1:3300 --dev-allow`
+measures a hundred tool calls against the dev server above and prints each
+phase.
+
 ---
 
 ## 4. The Vega app on the Vega Virtual Device
@@ -251,7 +268,9 @@ Then:
    `deploy-edge.yml` applies Terraform for the rest; `smoke.yml` then checks
    the live stack (`npm run smoke:live`, which you can run yourself, with
    `WICK_SERVER_URL` and the other addresses it names pointed at your
-   stack). A change to the deploy role's own permissions, or an apply that
+   stack). `npm run latency:mcp` measures a hundred tool calls against it
+   over one kept-alive connection, as a fresh demo guest it deletes
+   afterwards. A change to the deploy role's own permissions, or an apply that
    adds a new AWS service, has to be run from a laptop first
    (infra/README.md, "What CI applies").
 10. **The television.** Put your addresses in `apps/tv-vega/src/config.ts`,
