@@ -95,6 +95,15 @@ removed from the design (2026-10-02).
                         reason that did score as relevant ("a note would add to a quiet week")
                         was not grounded (0.04 to 0.42), so the two filters together refused
                         nearly every reason.
+                     6. With no relevance filter, the assistant's true replies were still refused
+                        when they named a day: the tools answer in JSON, with moments in epoch
+                        milliseconds and weeks as "2026-W41". "Maria visited twice, on Tuesday and
+                        Friday" scored 0.34 and "Here's the week of 5 October" 0.08. With the
+                        moments and weeks written out at the house's time zone they scored 0.97
+                        and 0.93. One thing grounding misses in either form: which person came on
+                        which day. "Maria visited on Monday and Wednesday", on days only the
+                        door rang, scored 0.96. Wrong counts (0.01) and days with nothing on them
+                        (0.06) are caught.
 
 **Expected:**        A switch to guard the model's output only, and a documented sense of what a
                      grounding score, or a relevance score, looks like for a faithful paraphrase.
@@ -108,8 +117,9 @@ removed from the design (2026-10-02).
 
 **Workaround:**      The model has no guardrail; `ApplyGuardrail` reads each agent's reply only,
                      grounded in the tools' texts or the week's facts. Grounding at 0.5, which
-                     separates the measured cases cleanly, and no relevance filter. A new
-                     published version whenever the guardrail changes.
+                     separates the measured cases cleanly, and no relevance filter. The
+                     assistant grounds on a copy of the tools' answers with moments and weeks
+                     written out. A new published version whenever the guardrail changes.
 
 **Suggestion:**      An `outputOnly` option on Converse's guardrail config, and a table in the
                      contextual-grounding guide of example scores for faithful paraphrase,
