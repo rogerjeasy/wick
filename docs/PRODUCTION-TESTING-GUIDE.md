@@ -159,7 +159,7 @@ webhook into a card and a Rhythm write."
 RING_TEST_DEVICE_ID=<real device id> ./scripts/test-ring-webhook.sh
 ```
 
-Expect **7 passed, 0 failed**, including `Door agent queued a real card
+Expect **8 passed, 0 failed**, including `Door agent queued a real card
 (CARD# exists)`. This signs a synthetic payload with the real HMAC key and
 posts it to the real webhook endpoint — simulating exactly the webhook Ring
 itself won't send (§2b), while every downstream system (EventBridge, the
