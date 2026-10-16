@@ -165,13 +165,25 @@ export const Linking = {
 };
 
 /** Wick is the app in front, unless a test says otherwise. */
+/** Whether the app is in front, as the platform says it: `moveApp` is the television going behind another app and back. */
+const appStateListeners = new Set<(state: string) => void>();
 export const AppState = {
   currentState: 'active',
-  addEventListener: () => ({ remove: () => undefined }),
+  addEventListener: (_type: 'change', listener: (state: string) => void) => {
+    appStateListeners.add(listener);
+    return { remove: () => void appStateListeners.delete(listener) };
+  },
 };
+
+export function moveApp(state: 'active' | 'background'): void {
+  AppState.currentState = state;
+  for (const listener of [...appStateListeners]) listener(state);
+}
 
 /** Back to how the platform starts: nothing listening, nothing announced, every setting off. */
 export function resetPlatform(): void {
+  AppState.currentState = 'active';
+  appStateListeners.clear();
   accessibility.screenReader = false;
   accessibility.reduceMotion = false;
   accessibility.highTextContrast = false;

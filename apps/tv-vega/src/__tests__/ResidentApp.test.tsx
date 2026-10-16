@@ -27,7 +27,7 @@ import type { PlayerSnapshot } from '../player/PlayerService.js';
 import { CARD_SERVICE_URI } from '../headless/launchCardService.js';
 import { CATALOG } from '../catalog/catalog.js';
 import { SETTLED_AFTER_MS } from '../break/types.js';
-import { opened, resetPlatform } from './render/platform.js';
+import { moveApp, opened, resetPlatform } from './render/platform.js';
 import { resetFiles } from './render/files.js';
 import { resetMedia } from './render/media.js';
 import { button, buttons, headers, pressOk, render, shows, textOf, type Drawn } from './render/render.js';
@@ -231,5 +231,25 @@ describe('ResidentApp, drawn whole', () => {
     await wait(1_000);
     expect(headers(root).map(textOf)).toEqual(['A message from Sarah.']);
     expect(shows(root, 'I will pop round on Saturday.')).toBe(true);
+  });
+
+  it('behind another app shows no note and tells the edge so; back in front, the note waits the settled twenty seconds again', async () => {
+    const { root } = await launch();
+    await wait(SETTLED_AFTER_MS);
+    await channel.store!.drainOutbound();
+
+    // Another app comes in front. Vega lets the app's JavaScript run on for some seconds; Fire OS may keep it running.
+    await act(async () => moveApp('background'));
+    await deliver(note);
+    await wait(5_000);
+    expect(shows(root, 'A message from Sarah.')).toBe(false);
+    expect(await channel.store!.drainOutbound()).toContainEqual(expect.objectContaining({ t: 'app_lifecycle', state: 'bg' }));
+
+    await act(async () => moveApp('active'));
+    await wait(SETTLED_AFTER_MS - 1_000);
+    expect(shows(root, 'A message from Sarah.')).toBe(false);
+    expect(await channel.store!.drainOutbound()).toContainEqual(expect.objectContaining({ t: 'app_lifecycle', state: 'fg' }));
+    await wait(1_000);
+    expect(headers(root).map(textOf)).toEqual(['A message from Sarah.']);
   });
 });
