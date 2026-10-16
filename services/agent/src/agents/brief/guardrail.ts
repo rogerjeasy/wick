@@ -32,7 +32,7 @@ export type GuardrailCheck = { readonly ok: true } | { readonly ok: false; reado
 export interface GuardrailAsk {
   /** The week's fact lines: all a sentence about her week may rest on. */
   readonly source: readonly string[];
-  /** What the sentence answers. Contextual grounding scores its relevance to this. */
+  /** What the sentence answers: contextual grounding needs it beside the source. */
   readonly query: string;
   /** The sentence to check. */
   readonly content: string;

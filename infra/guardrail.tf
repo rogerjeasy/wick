@@ -97,17 +97,18 @@ resource "aws_bedrock_guardrail" "wick" {
   # Grounding: a sentence about her week must be supported by the facts it was
   # written from (the brief passes the fact lines as the grounding source, the
   # assistant the tools' own texts). 0.5, measured on the deployed guardrail
-  # on 2026-10-16: faithful paraphrases of a week's facts scored 0.68 to 0.97,
+  # on 2026-10-16: faithful paraphrases of a week's facts scored 0.68 to 1.00,
   # and every sentence carrying something the facts did not say (a trip to
-  # the shops, a mood, wrong counts) scored 0.0. At 0.75 the writer's honest
-  # paragraphs were refused and every week fell back to the counted facts.
+  # the shops, a mood, wrong counts) scored 0.00 to 0.04. At 0.75 the writer's
+  # honest paragraphs were refused and every week fell back to the counted facts.
+  #
+  # No relevance filter (FL-048). Wick answers "How has my mum been?" with what
+  # the house saw, never with how she feels, and relevance scored those honest
+  # answers 0.07 to 0.15, and plain factual suggestion reasons near 0: at 0.5 it
+  # refused nearly every true answer and nothing grounding did not.
   contextual_grounding_policy_config {
     filters_config {
       type      = "GROUNDING"
-      threshold = 0.5
-    }
-    filters_config {
-      type      = "RELEVANCE"
       threshold = 0.5
     }
   }
