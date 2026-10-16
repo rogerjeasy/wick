@@ -112,6 +112,9 @@ export function renderCalmCard(props: CalmCardProps, asked: CalmTheme): React.JS
     assertContrast(colours.label, colours.background, theme.minContrast);
   }
   assertNoAlarmColour(theme.palette.accent);
+  // How much card there is around the words: as asked, or — at larger text — less, where that is what fits.
+  const tight = fit.compactSpacing;
+  const smallHeadline = fit.bodyHeadline;
   // And the card itself against the screen, with the lines it was asked to show — at the floor, where every card must fit.
   if (!theme.preferences.largerText) assertCardFits({ compact, detailLines });
 
@@ -120,11 +123,11 @@ export function renderCalmCard(props: CalmCardProps, asked: CalmTheme): React.JS
 
   return (
     <CalmThemeProvider theme={theme}>
-      <View style={[styles.card, compact && styles.cardCompact]}>
+      <View style={[styles.card, tight && styles.cardCompact]}>
         <View style={styles.body}>
           {media}
-          <View style={[styles.text, compact && styles.textCompact]}>
-            <Text style={[styles.headline, compact && styles.headlineCompact]} accessibilityRole="header">
+          <View style={[styles.text, tight && styles.textCompact]}>
+            <Text style={[styles.headline, smallHeadline && styles.headlineCompact]} accessibilityRole="header">
               {headline}
             </Text>
 
@@ -155,9 +158,7 @@ export function renderCalmCard(props: CalmCardProps, asked: CalmTheme): React.JS
                   focused ? ring.focused : ring.rest,
                 ]}
               >
-                <Text style={[styles.actionLabel, { color: colours.label }, action.kind === 'primary' && theme.preferences.higherContrast && styles.actionLabelFirst]}>
-                  {action.label}
-                </Text>
+                <Text style={[styles.actionLabel, { color: colours.label }]}>{action.label}</Text>
               </Pressable>
             );
           })}
@@ -231,9 +232,5 @@ const makeStyles = (t: CalmTheme) =>
     },
     actionLabel: {
       fontSize: t.fontSize('body'),
-    },
-    // With higher contrast on every button is black: the first is told apart by its weight.
-    actionLabelFirst: {
-      fontWeight: '700',
     },
   });

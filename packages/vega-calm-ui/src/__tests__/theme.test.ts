@@ -173,7 +173,7 @@ describe('fitCard', () => {
 
   it('changes nothing at the floor', () => {
     const t = calmTheme(STANDARD_PREFERENCES);
-    expect(fitCard({ ...base, passages: ['x '.repeat(200)] }, t)).toEqual({ theme: t, detailLines: 5 });
+    expect(fitCard({ ...base, passages: ['x '.repeat(200)] }, t)).toEqual({ theme: t, detailLines: 5, compactSpacing: false, bodyHeadline: false });
     expect(fitCard({ ...base, detailLines: 6, compact: true }, t).detailLines).toBe(6);
   });
 
@@ -213,6 +213,24 @@ describe('fitCard', () => {
       larger,
     );
     expect(fit.theme).toBe(larger);
+  });
+
+  it('makes room with less card before it gives up the size: a note with three long replies, as seen on the Vega Virtual Device', () => {
+    const fit = fitCard(
+      {
+        headline: 'A message from Guest.',
+        passages: ['Hello Mum, I will ring you at six tonight after work. Love, Sarah.'],
+        actionLabels: ['Thanks for letting me know!', "I'll call you soon.", 'Not right now.'],
+      },
+      larger,
+    );
+    expect(fit.theme).toBe(larger);
+    expect(fit.compactSpacing).toBe(true);
+  });
+
+  it('keeps a card drawn as it asked when there is room', () => {
+    const fit = fitCard({ ...base, passages: ['Short.'] }, larger);
+    expect([fit.compactSpacing, fit.bodyHeadline]).toEqual([false, false]);
   });
 
   it('never asks a card to show more lines than it asked for', () => {

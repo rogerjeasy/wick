@@ -92,7 +92,8 @@ function makeTheme(preferences: CalmPreferences): CalmTheme {
   const size = (role: TypeRole): number => ({ body: sizes.bodyPt, headline: sizes.headlinePt, display: sizes.displayPt })[role];
 
   const actionColours = (kind: 'primary' | 'secondary' | 'dismiss'): ActionColours => {
-    // Higher contrast: every button black with white words, outlined (`ring`). The first is told apart by its weight.
+    // Higher contrast: every button black with white words, outlined (`ring`). Only the focus stands out: a
+    // bold first button was seen, on the Vega Virtual Device, to read as the focused one.
     if (preferences.higherContrast) return { background: colours.ground, label: colours.ink };
     // The first button is amber, and light ink on amber is 1.6:1, so its words are written in the dark of the ground.
     return kind === 'primary' ? { background: colours.accent, label: colours.ground } : { background: colours.ground, label: colours.ink };
@@ -289,48 +290,70 @@ export interface CardFit {
   readonly theme: CalmTheme;
   /** How many lines of detail the card shows. */
   readonly detailLines: number;
+  /** Drawn with the compact card's spacing: asked for, or the room a card at larger text needed. */
+  readonly compactSpacing: boolean;
+  /** The headline at body size, bold: a compact card's, or the last room a card at larger text can be given. */
+  readonly bodyHeadline: boolean;
 }
 
 /**
  * How a card is drawn in a theme. At the floor it is as it always was. At
  * larger text every word is 1.25 times the size, and a card still has to
- * fit the screen with its buttons on it — and its words have to be whole:
- * a card whose words, at 40pt, would run past what the screen can hold is
- * drawn at the standard size instead, where it was made to fit. Whole at
- * 32pt beats cut at 40. Nothing is ever drawn under the floor, and the
- * room never comes from smaller words than the theme it falls back to.
+ * fit the screen with its buttons on it — and its words have to be whole.
+ * The room comes from less card around the words, never from smaller
+ * words: first the compact card's spacing, then its headline at body size
+ * (40pt, bold). A card whose words would still not be whole is drawn at
+ * the standard size, where it was made to fit. Whole at 32pt beats cut at
+ * 40, and nothing is ever drawn under the floor.
  *
  * It is an estimate (GLYPH_WIDTH_EM), and it errs towards falling back.
  */
 export function fitCard(input: CardFitInput, theme: CalmTheme): CardFit {
   const asked = input.detailLines ?? limits.maxDetailLines;
-  if (!theme.preferences.largerText) return { theme, detailLines: asked };
-
-  const standard = calmTheme({ ...theme.preferences, largerText: false });
-  const fallBack: CardFit = { theme: standard, detailLines: asked };
   const compact = input.compact === true;
-  const padding = compact ? layout.compactPaddingDp : layout.cardPaddingDp;
+  const asIs: CardFit = { theme, detailLines: asked, compactSpacing: compact, bodyHeadline: compact };
+  if (!theme.preferences.largerText) return asIs;
+
+  // Less card around the words first, then the headline at body size — and only then the standard size.
+  const tries: readonly (readonly [compactSpacing: boolean, bodyHeadline: boolean])[] = compact
+    ? [[true, true]]
+    : [
+        [false, false],
+        [true, false],
+        [true, true],
+      ];
+  for (const [compactSpacing, bodyHeadline] of tries) {
+    const lines = detailLinesThatFit(input, theme, compactSpacing, bodyHeadline);
+    if (lines !== undefined) return { theme, detailLines: Math.max(1, Math.min(asked, lines)), compactSpacing, bodyHeadline };
+  }
+  return { ...asIs, theme: calmTheme({ ...theme.preferences, largerText: false }) };
+}
+
+/** The lines of detail a card of that shape has room for, with all its words whole — or undefined if they would not be. */
+function detailLinesThatFit(input: CardFitInput, theme: CalmTheme, compactSpacing: boolean, bodyHeadline: boolean): number | undefined {
+  const asked = input.detailLines ?? limits.maxDetailLines;
+  const padding = compactSpacing ? layout.compactPaddingDp : layout.cardPaddingDp;
   const inner = layout.screenWidthDp - 2 * layout.cardFromSideDp - 2 * padding - 2 * theme.cardEdgeDp;
   const textWidth = inner - (input.mediaWidthDp !== undefined ? input.mediaWidthDp + CARD_MEDIA_GAP_DP : 0);
 
-  const headlineRole: TypeRole = compact ? 'body' : 'headline';
-  const headlineLines = estimatedLines(input.headline, textWidth, theme.fontSize(headlineRole));
+  const headlineRole: TypeRole = bodyHeadline ? 'body' : 'headline';
+  const headline = estimatedLines(input.headline, textWidth, theme.fontSize(headlineRole)) * theme.lineHeight(headlineRole);
   const body = theme.lineHeight('body');
-  const words = input.passages.reduce((sum, passage) => sum + estimatedLines(passage, textWidth, theme.type.bodyPt), 0);
+  const [detail, ...rest] = input.passages;
+  const detailLines = estimatedLines(detail, textWidth, theme.type.bodyPt);
+  // The detail is cut at the lines the card asked for: words that need more are not whole.
+  if (detailLines > asked) return undefined;
+  const words = detailLines + rest.reduce((sum, passage) => sum + estimatedLines(passage, textWidth, theme.type.bodyPt), 0);
   const lines = Math.max(words, input.reservedLines ?? 0);
 
   const rows = estimatedActionRows(input.actionLabels, inner, theme);
-  const ring = theme.ring().footprintDp;
-  const actionRow = 2 * layout.actionPaddingVerticalDp + body + 2 * ring;
+  const actionRow = 2 * layout.actionPaddingVerticalDp + body + 2 * theme.ring().footprintDp;
   const actions = rows * actionRow + Math.max(0, rows - 1) * CARD_BUTTON_GAP_DP;
-  const gap = compact ? layout.compactGapDp : layout.sectionGapDp;
-  const textGap = compact ? layout.compactTextGapDp : layout.textGapDp;
+  const gap = compactSpacing ? layout.compactGapDp : layout.sectionGapDp;
+  const textGap = compactSpacing ? layout.compactTextGapDp : layout.textGapDp;
   const room = layout.screenHeightDp - 2 * layout.screenMarginDp - 2 * padding - 2 * theme.cardEdgeDp - (rows > 0 ? gap + actions : 0);
 
-  const wordsHeight = headlineLines * theme.lineHeight(headlineRole) + (lines > 0 ? textGap + lines * body : 0);
-  if (Math.max(wordsHeight, input.mediaHeightDp ?? 0) > room) return fallBack;
-
-  // The detail's lines: what the words need, never more than the card asked for, never fewer than one.
-  const detailRoom = Math.floor((room - headlineLines * theme.lineHeight(headlineRole) - textGap) / body);
-  return { theme, detailLines: Math.max(1, Math.min(asked, detailRoom)) };
+  const wordsHeight = headline + (lines > 0 ? textGap + lines * body : 0);
+  if (Math.max(wordsHeight, input.mediaHeightDp ?? 0) > room) return undefined;
+  return Math.floor((room - headline - textGap) / body);
 }
