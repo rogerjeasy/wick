@@ -17,7 +17,8 @@ at the end.
 [Alexa+ and MCP](#4-alexa-add-ons-and-mcp) · [Bedrock](#5-amazon-bedrock) ·
 [AgentCore](#6-amazon-bedrock-agentcore-runtime) · [Strands](#7-strands-agents-sdk) ·
 [AI services](#8-rekognition-polly-translate-and-transcribe) ·
-[The rest of AWS](#9-the-rest-of-the-aws-stack) · [Other tools](#other-tools) ·
+[The rest of AWS](#9-the-rest-of-the-aws-stack) · [npm](#10-npm-publishing-vega-calm-ui) ·
+[Other tools](#other-tools) ·
 [Feature requests](#feature-requests)
 
 ---
@@ -31,7 +32,7 @@ for JavaScript v3. CI deploys over GitHub OIDC and holds no AWS keys.
 |---|---|
 | **Amazon Bedrock** | **Nova Lite** writes one sentence about who is at the door, or nothing. **Claude Sonnet 4.5** is the family's assistant and writes the Sunday brief from numbers the code already counted. A **Bedrock Guardrail** (denied topics, PII, contextual grounding) checks both, and the brief calls `ApplyGuardrail` with the counted facts as the grounding source. **Stable Image Ultra** made the stand-in doorbell's four pictures, once. |
 | **Bedrock AgentCore Runtime** | Three agents: the door's Strands graphs (one session per household, each home in its own microVM), the family assistant (a Strands agent, one session per member per home), and the Sunday brief (a Strands Graph). |
-| **Bedrock AgentCore Memory** | The family assistant's conversations, including a write waiting for the member's yes, as Strands snapshots (Wick's own session storage, also a pull request to Amazon's AgentCore SDK); and the member's own words long-term, through a user-preference strategy. Deleted with the member's account. |
+| **Bedrock AgentCore Memory** | The family assistant's conversations, including a write waiting for the member's yes, as Strands snapshots (Wick's own session storage, also [a pull request to Amazon's AgentCore SDK](https://github.com/aws/bedrock-agentcore-sdk-typescript/pull/287), whose integration tests pass against a real memory); and the member's own words long-term, through a user-preference strategy. Deleted with the member's account. |
 | **AWS Step Functions** | A visit errand as one execution over days: wait for the reminder, remind her, wait for the doorbell on a task token the door's event redeems, or time out; then tell the member. |
 | **Amazon SQS** | The Sunday brief's fan-out: one message per home, a dead-letter queue, partial batch failures. |
 | **AWS Lambda** | 22 functions: the Ring webhook and OAuth, pairing, both television channels, the IoT authorizer, the door agent, card presses, the weekly narrator, and the live-view bridge. |
@@ -274,6 +275,14 @@ the stand-in doorbell's pictures of nobody real.
   refused honest prose. The relevance filter scored honest answers 0.07 to 0.15:
   "what the house saw" reads as not answering "how has she been", so we turned
   it off (FL-048).
+- Grounding can't read a date out of JSON. Tools answer with epoch
+  milliseconds and ISO weeks, so a true "Maria came on Tuesday" scored 0.34
+  and "the week of 5 October" 0.08. Written out as "Tuesday 6 October 2026,
+  10:00", the same sentences scored 0.97 and 0.93. Grounding also doesn't
+  check which person came on which day: "Maria visited on Monday", a day when
+  only the door rang, scored 0.96. It does catch a wrong count (0.01) and a
+  day with nothing on it (0.06) (FL-048). A note in the grounding guide about
+  structured sources would have saved a day.
 - A Guardrail's denied topics and the grounding check are configured together
   but fail with one undifferentiated "intervened"; we read the assessment to
   tell a refused topic from an ungrounded sentence. A summary reason would help.
@@ -321,8 +330,15 @@ member's own token.
 - A session keeps its old image for up to eight hours after a deploy. We put the
   version in the session id to force a fresh one.
 - The TypeScript SDK had no session storage for Strands on AgentCore Memory,
-  which Python has had for months. We wrote it and opened a pull request
-  (issues #160 and #214 there).
+  which Python has had for months. We wrote it and opened
+  [pull request #287](https://github.com/aws/bedrock-agentcore-sdk-typescript/pull/287)
+  (issues #160 and #214 there). Its five integration tests pass against a real
+  memory: save and replace, a 330 KB snapshot split and reassembled, listing,
+  a second Strands agent restoring the first one's conversation, and delete.
+  Wick's assistant runs the same code in production.
+- Deleting every event in a session doesn't remove it from `ListSessions`: the
+  id stays listed with no events. For a product that promises "deleted with
+  your account", a `DeleteSession` call, or a note that ids remain, would help.
 - A memory strategy's namespace can name only `{actorId}`, `{sessionId}` and
   `{memoryStrategyId}`, so "a member in a home" had to be spelled as the
   session being the home (FL-046).
@@ -367,6 +383,11 @@ settings. Graphs take a model, so tests run without AWS.
 - An agent built per request (one per invocation, as on AgentCore Runtime)
   meets interrupts, sessions and memory that each assume one long-lived agent
   (FL-046).
+- A `Graph`'s task is handed to every node. Ours read "write the week, and
+  suggest one thing they could do", so the writer, which must never suggest,
+  ended every paragraph with advice of its own. The Guardrail refused it, and
+  every week fell back to plain facts until we found why. The docs could say
+  that each node sees the original task as well as its inputs.
 
 **Onboarding:** short. The same graph code ran in tests and in AgentCore
 unchanged.
@@ -547,6 +568,48 @@ rules in one flow.
   role.
 - **Onboarding:** set up on day two.
 - **Again?** Yes.
+
+---
+
+## 10. npm (publishing `vega-calm-ui`)
+
+*npm 11.21, granular access tokens, trusted publishing (OIDC) from GitHub
+Actions, provenance through Sigstore.*
+
+**Used for:** publishing [`vega-calm-ui`](https://www.npmjs.com/package/vega-calm-ui),
+Wick's accessible 10-foot components, as an open-source package. 0.1.0, 0.1.1
+and 0.1.2 were all published on 16 October 2026 by the repository's release
+workflow, each with a provenance statement.
+
+**Worked well:**
+- Trusted publishing. Once the package existed, a trusted publisher (this
+  repository, `release.yml`) let 0.1.2 publish with no token anywhere. npm
+  records the publisher as GitHub Actions, and the package then refuses tokens
+  altogether.
+- Provenance is one flag (`--provenance`), and npm shows the commit and the
+  workflow run behind each version.
+
+**Needs work:**
+- The first publish can't use trusted publishing, because there is no package
+  to attach a publisher to yet. So a brand-new package still needs a token,
+  only to be deleted afterwards.
+- The first token failed with `E403 … Two-factor authentication or granular
+  access token with bypass 2fa enabled is required`. The token form names
+  "publish and stage" permissions but put the 2FA bypass, the setting a CI
+  publish needs, out of sight.
+- A new package first appears as a `0.0.0-stage` placeholder while npm
+  processes it. It stayed in the version list after the real versions
+  arrived, and `npm unpublish vega-calm-ui@0.0.0-stage` reported success
+  twice while the registry still listed it.
+- A trusted publisher is "pending validation" until a publish goes through it
+  within two days. Validating it means publishing a release with the token
+  removed, or npm may quietly use the token instead.
+
+**Onboarding:** about an hour, mostly on the token's 2FA setting and on
+GitHub's separate `workflow` scope, which a change to a release workflow needs.
+
+**Build with it again?** Yes, with trusted publishing from the first release
+after the first.
 
 ---
 
