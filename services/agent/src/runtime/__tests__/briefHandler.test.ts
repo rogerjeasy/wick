@@ -86,4 +86,16 @@ describe('brief.weekly — the runtime kind that writes one home’s week', () =
 
     expect(s.runs).toEqual([{ householdId: 'hh-1', isoWeek: '2026-W38', existing: { narrative: demo, raw: JSON.stringify(demo) }, keep: { simulated: true, residentSeenAt: 7, generatedAt: 3 } }]);
   });
+
+  it('writes a demo home’s week only over a simulated one: a demo request never writes a lived week, nor one that is not there', async () => {
+    const real = setup(week());
+    expect(await real.handler({ householdId: 'hh-1', isoWeek: '2026-W38', origin: 'demo' })).toEqual({ status: 'skipped', why: 'not_a_demo_week' });
+    const missing = setup();
+    expect(await missing.handler({ householdId: 'hh-1', isoWeek: '2026-W38', origin: 'demo' })).toEqual({ status: 'skipped', why: 'not_a_demo_week' });
+    expect([...real.runs, ...missing.runs]).toEqual([]);
+
+    const demo = setup(week({ simulated: true, residentSeenAt: 7 }));
+    await demo.handler({ householdId: 'hh-1', isoWeek: '2026-W38', origin: 'demo' });
+    expect(demo.runs).toHaveLength(1);
+  });
 });

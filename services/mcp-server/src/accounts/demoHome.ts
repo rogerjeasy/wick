@@ -64,7 +64,7 @@
  */
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { VISIT_SETTLED_MS, currentIsoWeek, padTimestamp, parseTimestampFromSortKey, type RosterEntry, type WeekNarrative } from '@wick/contracts';
-import { VISIT_GRACE_MS, factsWeekNarrative, isoWeekRange, parsePattern, visitItem } from '@wick/agent';
+import { VISIT_GRACE_MS, briefMessage, factsWeekNarrative, isoWeekRange, parsePattern, visitItem } from '@wick/agent';
 
 type Item = Record<string, AttributeValue>;
 
@@ -264,4 +264,33 @@ export async function seedDemoHome(
     failed += results.filter((r) => r.status === 'rejected').length;
   }
   if (failed) console.warn(JSON.stringify({ level: 'warn', msg: 'demo_home_rows_failed', householdId, failed, of: items.length }));
+}
+
+/** The newest week a demo home has a story for: the last whole week before the one it was made in (demoHomeItems). */
+export function newestDemoWeek(now: number): string {
+  return currentIsoWeek(new Date(isoWeekRange(currentIsoWeek(new Date(now))).startMs - WEEK));
+}
+
+/**
+ * Asks Wick's agents to write the demo home's newest week again — the
+ * Sunday brief, on AgentCore (services/agent graphs/weeklyBrief.ts) — so a
+ * guest who asks "How has Mum been?" reads a week the agents wrote, with
+ * the one thing they could do about it. It goes on the brief's queue as a
+ * demo home's (`origin: 'demo'`): the worker never falls back to the
+ * Narrator for it, since the week is already there. The week stays
+ * simulated, and stays read (agents/brief/store.ts).
+ *
+ * Asked, never waited for: the guest is made, and the week they first read
+ * is the facts' until the agents' replaces it. A queue that cannot be
+ * reached is logged and let go — a demo is never refused for it.
+ */
+export async function requestDemoBrief(send: (body: string) => Promise<unknown>, householdId: string, now: number): Promise<string | undefined> {
+  const isoWeek = newestDemoWeek(now);
+  try {
+    await send(briefMessage({ householdId, isoWeek, origin: 'demo' }));
+    return isoWeek;
+  } catch (err) {
+    console.warn(JSON.stringify({ level: 'warn', msg: 'demo_brief_not_requested', householdId, error: (err as Error).name || String(err) }));
+    return undefined;
+  }
 }

@@ -19,3 +19,4 @@ export { VISIT_GRACE_MS, parsePattern, whatsDifferent, type Difference, type Dif
 export { isSharedWithFamily, loadHouseholdPolicy, loadRoster } from './store/household.js';
 export { reachFromItem, reachItem, reachStore, type ReachSend, type ReachStore } from './store/reaches.js';
 export { visitFromItem, visitItem, visitStore, type VisitSend, type VisitStore } from './store/visits.js';
+export { briefMessage, type BriefMessage } from './agents/brief/fanout.js';

@@ -27,8 +27,8 @@ let target: RuntimeTarget | undefined;
 export const handler = (event: SqsBatch) =>
   workBatch(event, (message) =>
     workMessage(message, {
-      invokeBrief: (householdId, isoWeek) =>
-        invokeRuntime((target ??= agentCoreTarget(undefined, undefined, BRIEF_RUNTIME_TIMEOUT_MS)), BRIEF_WEEKLY_KIND, householdId, { isoWeek }),
+      invokeBrief: (householdId, isoWeek, origin) =>
+        invokeRuntime((target ??= agentCoreTarget(undefined, undefined, BRIEF_RUNTIME_TIMEOUT_MS)), BRIEF_WEEKLY_KIND, householdId, { isoWeek, origin }),
       narrate: async (householdId, isoWeek) => {
         const run = await narrateEveryHousehold(isoWeek, { ...narratorDeps(), listHouseholds: async () => [householdId] });
         return run.written.includes(householdId);

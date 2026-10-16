@@ -1,10 +1,12 @@
 /**
  * `brief.weekly` — the Sunday brief for one home (graphs/weeklyBrief.ts).
  *
- * Payload `{ householdId, isoWeek }`. The household is the session's
- * (runtime/invoke.ts: session = household), sent by the brief's worker
- * Lambda for a home with a television, or by the Wick server for a demo
- * home it has just made.
+ * Payload `{ householdId, isoWeek, origin? }`. The household is the
+ * session's (runtime/invoke.ts: session = household), sent by the brief's
+ * worker Lambda — for a home with a television, or, with `origin: 'demo'`,
+ * for a demo home the Wick server has just made. A demo request writes only
+ * over a simulated week: never over a lived one, and never a week that is
+ * not there (which would be written as if somebody had lived it).
  *
  * Idempotent, so a message delivered twice is harmless: the row is read
  * first, and a week the agents already wrote, or one she has already read,
@@ -43,6 +45,7 @@ export function briefWeeklyHandler(depsFor: (householdId: string) => BriefHandle
     const deps = depsFor(householdId);
 
     const existing = await deps.weeks.load(householdId, isoWeek);
+    if (payload.origin === 'demo' && !existing?.narrative.simulated) return { status: 'skipped', why: 'not_a_demo_week' };
     const decision = briefDecision(existing);
     if (!decision.write) {
       const week = existing!.narrative;

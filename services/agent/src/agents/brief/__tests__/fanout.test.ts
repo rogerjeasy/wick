@@ -43,8 +43,8 @@ describe('workMessage — the agents write the week, or the Narrator does', () =
   function deps(answer: unknown | Error, narrated: 'written' | 'failed' = 'written') {
     const calls: string[] = [];
     const d: WorkDeps = {
-      invokeBrief: async (householdId, isoWeek) => {
-        calls.push(`brief ${householdId} ${isoWeek}`);
+      invokeBrief: async (householdId, isoWeek, origin) => {
+        calls.push(`brief ${householdId} ${isoWeek}${origin === 'demo' ? ' demo' : ''}`);
         if (answer instanceof Error) throw answer;
         return answer;
       },
@@ -90,7 +90,8 @@ describe('workMessage — the agents write the week, or the Narrator does', () =
   it('never falls back to the Narrator for a demo home: its week is already there, and simulated', async () => {
     const { calls, d } = deps(new Error('down'));
     await expect(workMessage({ ...weekly, origin: 'demo' }, d)).rejects.toThrow('down');
-    expect(calls).toEqual(['brief hh-1 2026-W38']);
+    // And the runtime is told it is a demo home's week, so it writes only over a simulated one.
+    expect(calls).toEqual(['brief hh-1 2026-W38 demo']);
   });
 });
 

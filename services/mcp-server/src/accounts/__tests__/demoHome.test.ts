@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { MAX_NARRATIVE_CHARS, VISIT_ASK_WITHIN_MS, VISIT_SETTLED_MS, VISIT_SK_PREFIX, currentIsoWeek, parseTimestampFromSortKey, readyToAsk, type RosterEntry, type Visit, type WeekNarrative } from '@wick/contracts';
 import { factsWeekNarrative, isoWeekRange, toTimelineEntry, visitFromItem, whatsDifferent } from '@wick/agent';
-import { DEMO_HISTORY_TTL_MS, DEMO_HISTORY_WEEKS, DEMO_VISITOR, DEMO_VISIT_RECORD_DAYS, demoHomeItems, seedDemoHome } from '../demoHome.js';
+import { DEMO_HISTORY_TTL_MS, DEMO_HISTORY_WEEKS, DEMO_VISITOR, DEMO_VISIT_RECORD_DAYS, demoHomeItems, newestDemoWeek, requestDemoBrief, seedDemoHome } from '../demoHome.js';
 
 type Item = Record<string, AttributeValue>;
 
@@ -283,5 +283,25 @@ describe('seedDemoHome', () => {
 
     expect(calls).toBe(items.length);
     expect(written).toHaveLength(items.length - 1);
+  });
+});
+
+describe('the demo home — its newest week is written again by the agents (the Sunday brief)', () => {
+  it('asks for the newest week the history has a story for, as a demo home’s, never a weekly run', async () => {
+    const bodies: string[] = [];
+
+    const isoWeek = await requestDemoBrief(async (body) => void bodies.push(body), HH, NOW);
+
+    const newest = narratives.map((n) => n.isoWeek).sort().at(-1);
+    expect(isoWeek).toBe(newest);
+    expect(newestDemoWeek(NOW)).toBe('2026-W41');
+    expect(bodies.map((b) => JSON.parse(b))).toEqual([{ householdId: HH, isoWeek: '2026-W41', origin: 'demo' }]);
+  });
+
+  it('never fails the demo: a queue that cannot be reached is logged and let go', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(requestDemoBrief(async () => { throw new Error('AccessDenied'); }, HH, NOW)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

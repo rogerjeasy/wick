@@ -75,7 +75,7 @@ export async function dispatchWeek(
 
 export interface WorkDeps {
   /** The runtime's answer to `brief.weekly` for this home (runtime/invoke.ts); throws when it cannot be reached. */
-  readonly invokeBrief: (householdId: string, isoWeek: string) => Promise<unknown>;
+  readonly invokeBrief: (householdId: string, isoWeek: string, origin: BriefOrigin) => Promise<unknown>;
   /** The Narrator, for this one home (narrator/lambda.ts narratorDeps). True when it wrote the week. */
   readonly narrate: (householdId: string, isoWeek: string) => Promise<boolean>;
 }
@@ -95,7 +95,7 @@ const log = (line: Record<string, unknown>) => console.log(JSON.stringify(line))
 export async function workMessage(message: BriefMessage, deps: WorkDeps): Promise<WorkOutcome> {
   let answer: Record<string, unknown> | undefined;
   try {
-    const raw = await deps.invokeBrief(message.householdId, message.isoWeek);
+    const raw = await deps.invokeBrief(message.householdId, message.isoWeek, message.origin);
     answer = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
   } catch (err) {
     if (message.origin === 'demo') throw err;
