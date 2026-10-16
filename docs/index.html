@@ -67,7 +67,23 @@
   /* Television frame */
   .tv{position:relative}
   .tv-screen{border-radius:14px;padding:10px;background:linear-gradient(180deg,#2A2621,#1A1714);box-shadow:var(--shadow),0 0 0 1px #34302A inset}
-  .tv-screen img{border-radius:6px;aspect-ratio:16/9;object-fit:cover;width:100%}
+  .tv-screen img,.tv-screen video{border-radius:6px;aspect-ratio:16/9;object-fit:cover;width:100%;height:auto;display:block;background:#0B0A09}
+  .live-badge{position:absolute;top:22px;left:22px;display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;background:rgba(18,16,14,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);font-size:.74rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-dim);border:1px solid var(--line-2)}
+  .live-badge i{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+
+  /* Two screens */
+  .duo{display:grid;grid-template-columns:.9fr 1.1fr;gap:56px;align-items:center}
+  .duo-steps{list-style:none;margin:28px 0 0;padding:0;display:grid;gap:16px;counter-reset:d}
+  .duo-steps li{display:flex;gap:16px;align-items:flex-start}
+  .duo-steps li::before{counter-increment:d;content:counter(d);flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:.88rem;margin-top:2px}
+  .duo-steps b{display:block;font-weight:600}
+  .duo-steps span{color:var(--ink-dim);font-size:.95rem}
+  .browser{border-radius:14px;overflow:hidden;background:#0E0D0B;border:1px solid var(--line-2);box-shadow:var(--shadow)}
+  .browser-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:#1A1714;border-bottom:1px solid var(--line)}
+  .browser-bar i{width:10px;height:10px;border-radius:50%;background:#3A342C}
+  .browser-bar span{margin-left:10px;flex:1;max-width:320px;font-size:.75rem;color:var(--ink-faint);background:#12100E;border:1px solid var(--line);border-radius:999px;padding:3px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .browser video{display:block;width:100%;height:auto;aspect-ratio:16/10;object-fit:cover;object-position:top;background:#12100E}
+  .media-note{margin-top:14px;font-size:.84rem;color:var(--ink-faint);text-align:center}
   .tv-stand{width:34%;height:12px;margin:0 auto;background:linear-gradient(180deg,#24201B,#15130F);border-radius:0 0 10px 10px}
   .tv-caption{margin-top:18px;text-align:center;font-size:.88rem;color:var(--ink-faint)}
 
@@ -203,6 +219,7 @@
   @media (max-width:1024px){
     .hero .wrap{grid-template-columns:1fr;gap:48px}
     .why{grid-template-columns:1fr;gap:32px}
+    .duo{grid-template-columns:1fr;gap:36px}
     .flow{grid-template-columns:1fr}
     .arrow{transform:rotate(90deg);height:24px}
     .docs{grid-template-columns:repeat(2,1fr)}
@@ -272,9 +289,14 @@
         <p class="hero-note">No account and no hardware needed. You will be Sarah, her daughter, in a demo home.</p>
       </div>
       <div class="tv reveal">
-        <div class="tv-screen"><img src="screenshots/note-at-calm-point-fireos.png" alt="A note from Sarah on the television, held at a quiet moment in a film, with three one-button replies" width="1600" height="900" fetchpriority="high"></div>
+        <div class="tv-screen" style="position:relative">
+          <video class="autoplay" muted loop playsinline preload="auto" poster="screenshots/note-at-calm-point-fireos.png" width="1280" height="720" aria-label="Her television in a browser, recorded on the live system: a film plays, Sarah's note waits for her pause, she replies with one press, and then someone at the door appears over the film">
+            <source src="media/her-television.mp4" type="video/mp4">
+          </video>
+          <span class="live-badge"><i aria-hidden="true"></i>Recorded live</span>
+        </div>
         <div class="tv-stand" aria-hidden="true"></div>
-        <p class="tv-caption">Sarah's note waits for a quiet cut in the film, then holds it while Margaret reads.</p>
+        <p class="tv-caption">A note waits for her pause, she answers with one press, and the door always comes straight through.</p>
       </div>
     </div>
   </section>
@@ -343,6 +365,30 @@
           <p>Wick learns what a normal week looks like in her home, so it stays silent when nothing is wrong, and asks her first when something is.</p>
           <p class="meta">Counted in code · no model decides</p>
         </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="family-side" style="padding-top:0">
+    <div class="wrap duo">
+      <div class="reveal">
+        <p class="kicker">Her daughter's side</p>
+        <h2>Two screens, one conversation.</h2>
+        <p style="color:var(--ink-dim);font-size:1.08rem;margin:0">Sarah talks to Wick the way she would talk to Alexa+. Everything she reads comes from Wick's tools, through the Guardian.</p>
+        <ol class="duo-steps">
+          <li><div><b>She asks how Mum's week went</b><span>An honest summary, written from counted facts, and a card for each day.</span></div></li>
+          <li><div><b>She sends a note</b><span>It waits on Margaret's television for the next natural break.</span></div></li>
+          <li><div><b>Margaret answers with one press</b><span>Her reply comes back in Sarah's conversation.</span></div></li>
+        </ol>
+      </div>
+      <div class="reveal">
+        <div class="browser">
+          <div class="browser-bar" aria-hidden="true"><i></i><i></i><i></i><span>Wick family app</span></div>
+          <video class="autoplay" muted loop playsinline preload="none" poster="media/family-app-poster.jpg" width="1280" height="800" aria-label="The Wick family app, recorded on the live system: Sarah asks how her mother's week went and sees the week as a card, sends a note to the television, and then reads her mother's reply">
+            <source src="media/family-app.mp4" type="video/mp4">
+          </video>
+        </div>
+        <p class="media-note">Recorded on the deployed system, in a demo home. Waits are shown at double speed.</p>
       </div>
     </div>
   </section>
@@ -552,6 +598,20 @@
 </footer>
 
 <script>
+  (function () {
+    var videos = document.querySelectorAll('video.autoplay');
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    videos.forEach(function (v) {
+      if (still || !('IntersectionObserver' in window)) { v.controls = true; v.preload = 'metadata'; return; }
+      var watch = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { var p = v.play(); if (p && p.catch) p.catch(function () { v.controls = true; }); }
+          else v.pause();
+        });
+      }, { threshold: 0.25 });
+      watch.observe(v);
+    });
+  })();
   (function () {
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (reduce || !('IntersectionObserver' in window)) return;
