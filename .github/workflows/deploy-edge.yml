@@ -61,7 +61,12 @@ jobs:
       # Terraform, not CDK — CDK was replaced in 90d49cd and these workflows
       # still said otherwise.
       - run: terraform -chdir=infra init -input=false
+      # The alarms' email subscription (infra/alarms.tf). A secret, not a
+      # variable: this repository's logs are public, and Actions masks it.
+      # Unset, the apply subscribes nobody.
       - run: terraform -chdir=infra apply -input=false -auto-approve
+        env:
+          TF_VAR_alarm_email: ${{ secrets.ALARM_EMAIL }}
 
       # Ring credentials are NOT set here. They live in Secrets Manager
       # (wick/ring/credentials, wick/ring/tokens) and are seeded once by
