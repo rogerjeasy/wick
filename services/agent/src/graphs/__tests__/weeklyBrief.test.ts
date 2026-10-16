@@ -4,7 +4,7 @@
  * other part is the real code: the Narrator's counting and checks, the
  * Guardian, the suggestion rules.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import type { ApplyGuardrailCommandInput } from '@aws-sdk/client-bedrock-runtime';
 import type { WeekNarrative } from '@wick/contracts';
@@ -192,6 +192,22 @@ describe('the check — back to the writer once with the reason, then the facts 
 
     expect(s.writer.seen[1]).toContain('it says something the facts do not support');
     expect(run.result).toMatchObject({ textSource: 'agents', attempts: 2 });
+  });
+
+  it('logs why a draft was refused, never the draft', async () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const s = setup({ writer: ['The house was full of visitors this week.', GOOD_DRAFT], guard: guardrail((c) => (c === 'The house was full of visitors this week.' ? UNGROUNDED : undefined)) });
+
+      await s.run();
+
+      const lines = spy.mock.calls.map((c) => String(c[0]));
+      const refused = lines.map((l) => JSON.parse(l) as Record<string, unknown>).find((l) => l.msg === 'brief_draft_refused');
+      expect(refused).toMatchObject({ attempt: 1, why: expect.stringContaining('it says something the facts do not support') });
+      expect(lines.join('\n')).not.toContain('full of visitors');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('sends a draft the Guardian will not let the family read back to the writer', async () => {

@@ -216,7 +216,8 @@ export function buildWeeklyBriefGraph(input: BriefInput, deps: WeeklyBriefDeps) 
       ctx.set('check', 'done');
     } else if (refused && attempts < WRITER_ATTEMPTS) {
       retryReason = refused;
-      log({ level: 'warn', msg: 'brief_draft_refused', isoWeek: input.isoWeek, attempt: attempts });
+      // Why, never what: the reason is the one the writer is told, not its words.
+      log({ level: 'warn', msg: 'brief_draft_refused', isoWeek: input.isoWeek, attempt: attempts, why: refused });
       ctx.set('check', 'retry');
       return refused;
     } else {
