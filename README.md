@@ -198,8 +198,8 @@ services/edge-device   The television's channels: IoT Core and WebSocket
 services/mcp-server    MCP server, OAuth, accounts and the family app's API
 services/agent         Agents, Strands graphs, the live-view bridge
 services/policy        The Guardian
-packages/vega-calm-ui  Accessible 10-foot components, also published as its own repository
-packages/strands-agentcore-session  AgentCore Memory session storage for Strands TS, also a pull request to Amazon's AgentCore SDK (aws/bedrock-agentcore-sdk-typescript#287)
+packages/vega-calm-ui  Accessible 10-foot components, also its own repository and on npm (vega-calm-ui)
+packages/strands-agentcore-session  AgentCore Memory session storage for Strands TS, also a pull request to Amazon's AgentCore SDK (aws/bedrock-agentcore-sdk-typescript#287; its integration tests pass against a real memory)
 addon-package          The Alexa+ add-on manifest
 infra                  Terraform
 ```

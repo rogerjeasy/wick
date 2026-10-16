@@ -898,7 +898,7 @@ One deployed stack, used for every live check. It holds only test and demo homes
 
 ### 13.4 The Open Source extraction
 
-`packages/vega-calm-ui` (MIT) is an accessible 10-foot component set for Vega: cards that refuse to render below the type and contrast floor, a two-phase card that reserves its space, larger-text and high-contrast themes, screen-reader and reduced-motion hooks, and four ESLint rules. Its own repository is <https://github.com/rogerjeasy/vega-calm-ui>; it installs from GitHub, not npm.
+`packages/vega-calm-ui` (MIT) is an accessible 10-foot component set for Vega: cards that refuse to render below the type and contrast floor, a two-phase card that reserves its space, larger-text and high-contrast themes, screen-reader and reduced-motion hooks, and four ESLint rules. Its own repository is <https://github.com/rogerjeasy/vega-calm-ui>, and it is on npm (`npm install vega-calm-ui`): 0.1.0 to 0.1.2, published on 2026-10-16 by the repository's release workflow with provenance, the last through npm's trusted publishing with no token stored anywhere.
 
 ---
 
@@ -1004,7 +1004,7 @@ sequenceDiagram
 4. **Limits.** At most four calls in a round and six rounds in a turn, 20 seconds.
 5. **The answer.** The Bedrock Guardrail reads it first, grounded in what the tools returned (§20); a reply it refuses is not said. A reply that called no tool, such as a clarifying question, has nothing to ground on. The assistant names it as one that may stand without facts, so its topics and filters still read it. Every other check refuses a sentence that has no facts under it. Then the server passes it through the Guardian and the same number check the old assistant used, against what the tools said: the model chooses words but cannot add a fact.
 
-**Sessions.** A Strands `SessionManager` saves the conversation after each invocation, including a write paused for the member's yes, into AgentCore Memory through `packages/strands-agentcore-session`. That is the code of Wick's open-source pull request to `aws/bedrock-agentcore-sdk-typescript`, which answers that repository's issues #160 and #214. A member's conversation survives a cold start of the microVM and a new browser. It is filed under the agent's own actor id, apart from the long-term records.
+**Sessions.** A Strands `SessionManager` saves the conversation after each invocation, including a write paused for the member's yes, into AgentCore Memory through `packages/strands-agentcore-session`. That is the code of Wick's open-source pull request to `aws/bedrock-agentcore-sdk-typescript` (#287), which answers that repository's issues #160 and #214; its five integration tests pass against a real AgentCore Memory. A member's conversation survives a cold start of the microVM and a new browser. It is filed under the agent's own actor id, apart from the long-term records.
 
 **Long-term memory.** A `MemoryManager` over the official `AgentCoreMemoryStore` (`bedrock-agentcore`), with a user-preference strategy under `/households/{home}/members/{member}`. It remembers the member's own words ("our plumber is Dave"), never what a tool said about her.
 
