@@ -58,14 +58,14 @@
 import * as React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import type { HouseholdLanguage } from '@wick/contracts';
-import { useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
+import { stylesFor, useCalmTheme, type CalmTheme } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
 import { pressBegins, pressEnds } from '../press/held.js';
 import { HOLD_MS } from '../watch/hold.js';
 import { HOME_FOCUS_START, focusOnReturn, focusReported, reachChanged, type HomeFocus } from './focusMemory.js';
 import { programmeLine, words } from '../words/words.js';
 import { POSTERS } from './posters.js';
-import { CAPTION_PADDING_DP, HOME_RING_DP, HOME_SCREEN, PILL_PADDING, QUIET_PADDING, homeHeights } from './homeLayout.js';
+import { CAPTION_PADDING_DP, HOME_RING_DP, HOME_SCREEN, PILL_PADDING, QUIET_PADDING, captionPaddingDp, homeHeights, titleLines } from './homeLayout.js';
 
 export interface HomeScreenProps {
   /**
@@ -136,7 +136,10 @@ export interface HomeScreenProps {
 
 export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, seeing, onOpenSeeing, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
   const say = words(language);
-  const styles = useCalmStyles(makeStyles);
+  const theme = useCalmTheme();
+  // Never a title cut: at 40pt one may take two lines, and the pictures are shorter for it (home/homeLayout.ts).
+  const lines = titleLines(theme, programmes.map((programme) => programme.title));
+  const styles = stylesFor(lines === 1 ? makeStyles : makeStylesTwoLineTitles, theme);
   // One quiet line under the films, and a card waiting to be opened comes first.
   const quiet = waiting ? undefined : lookedIn;
   // With that line the films' pictures are shorter, so the screen stays inside 540dp (home/homeLayout.ts).
@@ -209,10 +212,13 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
             accessibilityLabel={`${programme.title}. ${programmeLine(programme, language)}`}
             style={({ focused: on }: { focused: boolean }) => [styles.tile, on ? styles.ringOn : styles.ringOff]}
           >
-            <Image source={POSTERS[programme.id]} style={[styles.poster, row ? styles.posterWithRow : null]} resizeMode="cover" accessibilityLabel="" />
+            {/* No picture where the words have left too little room for one. */}
+            {homeHeights(theme, row, lines).poster > 0 ? (
+              <Image source={POSTERS[programme.id]} style={[styles.poster, row ? styles.posterWithRow : null]} resizeMode="cover" accessibilityLabel="" />
+            ) : null}
             {/* Its title. How long it runs is said to the screen reader (above): at 40pt the screen has no line for it. */}
             <View style={styles.caption}>
-              <Text style={styles.title} numberOfLines={1}>
+              <Text style={styles.title} numberOfLines={lines}>
                 {programme.title}
               </Text>
             </View>
@@ -320,10 +326,13 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
   );
 }
 
-const makeStyles = (t: CalmTheme) => {
+const makeStyles = (t: CalmTheme) => makeStylesWith(t, 1);
+const makeStylesTwoLineTitles = (t: CalmTheme) => makeStylesWith(t, 2);
+
+const makeStylesWith = (t: CalmTheme, titles: 1 | 2) => {
   const ring = t.ring(HOME_RING_DP);
-  const heights = homeHeights(t, false);
-  const withRow = homeHeights(t, true);
+  const heights = homeHeights(t, false, titles);
+  const withRow = homeHeights(t, true, titles);
   return StyleSheet.create({
     // 960x540dp at 1080p; 48dp/32dp keeps everything inside the TV safe area.
     screen: {
@@ -412,7 +421,8 @@ const makeStyles = (t: CalmTheme) => {
       lineHeight: t.lineHeight('body'),
     },
     caption: {
-      padding: CAPTION_PADDING_DP,
+      paddingVertical: CAPTION_PADDING_DP,
+      paddingHorizontal: captionPaddingDp(t),
     },
     title: {
       color: t.palette.ink,

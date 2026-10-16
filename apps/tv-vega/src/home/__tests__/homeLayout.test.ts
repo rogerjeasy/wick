@@ -21,7 +21,8 @@ import { describe, expect, it } from 'vitest';
 import { LANGUAGES } from '@wick/contracts';
 import { calmTheme, type CalmPreferences } from '../../../../../packages/vega-calm-ui/src/theme.js';
 import { WORDS } from '../../words/words.js';
-import { HOME_RING_DP, HOME_ROW_DP, HOME_SCREEN, PILL_PADDING, POSTER_MAX_DP, QUIET_PADDING, homeHeight, homeHeights } from '../homeLayout.js';
+import { CATALOG } from '../../catalog/catalog.js';
+import { HOME_RING_DP, HOME_ROW_DP, titleWidthDp, HOME_SCREEN, PILL_PADDING, POSTER_MAX_DP, POSTER_MIN_DP, QUIET_PADDING, homeHeight, homeHeights, titleLines } from '../homeLayout.js';
 
 const GLYPH = 0.47;
 const GAP_DP = HOME_SCREEN.gap;
@@ -37,26 +38,42 @@ const name = (p: CalmPreferences): string => `${p.largerText ? 'larger' : 'stand
 const text = (words: string, pt: number): number => words.length * pt * GLYPH;
 
 describe('the screen’s height, in every theme', () => {
+  const titles = CATALOG.map((programme) => programme.title);
+
   it('is never more than the screen, with the quiet line or without it', () => {
     for (const p of EVERY) {
       const t = calmTheme(p);
-      for (const quiet of [false, true]) expect(homeHeight(t, quiet), `${name(p)}, quiet line ${quiet}`).toBeLessThanOrEqual(HOME_SCREEN.height);
+      for (const quiet of [false, true]) expect(homeHeight(t, quiet, titleLines(t, titles)), `${name(p)}, quiet line ${quiet}`).toBeLessThanOrEqual(HOME_SCREEN.height);
     }
   });
 
-  it('gives the films’ pictures what is left, never more than 200dp, and always something to see', () => {
+  it('gives the films’ pictures what is left, never more than 200dp — and none at all rather than a sliver', () => {
     for (const p of EVERY) {
       for (const quiet of [false, true]) {
-        const poster = homeHeights(calmTheme(p), quiet).poster;
+        const t = calmTheme(p);
+        const poster = homeHeights(t, quiet, titleLines(t, titles)).poster;
         expect(poster, `${name(p)}, quiet line ${quiet}`).toBeLessThanOrEqual(POSTER_MAX_DP);
-        expect(poster, `${name(p)}, quiet line ${quiet}`).toBeGreaterThanOrEqual(60);
+        expect(poster === 0 || poster >= POSTER_MIN_DP, `${name(p)}, quiet line ${quiet}: ${poster}`).toBe(true);
       }
     }
+    // At the floor the films always have their pictures.
+    expect(homeHeights(calmTheme(), true, titleLines(calmTheme(), titles)).poster).toBeGreaterThanOrEqual(POSTER_MIN_DP);
+  });
+
+  it('never cuts a film’s title: one line at 32pt, two at 40pt, where "Big Buck Bunny" is wider than a tile', () => {
+    expect(titleLines(calmTheme(), titles)).toBe(1);
+    expect(titleLines(calmTheme({ largerText: true, higherContrast: false }), titles)).toBe(2);
+    expect(titleLines(calmTheme({ largerText: true, higherContrast: false }), ['Sintel'])).toBe(1);
+  });
+
+  it('gives a title the same width with higher contrast on: the thicker ring comes out of the padding, not the words', () => {
+    expect(titleWidthDp(calmTheme({ largerText: false, higherContrast: true }))).toBe(titleWidthDp(calmTheme()));
+    expect(titleLines(calmTheme({ largerText: false, higherContrast: true }), titles)).toBe(1);
   });
 
   it('makes the pictures shorter with larger text on, and never the words smaller', () => {
-    const standard = homeHeights(calmTheme({ largerText: false, higherContrast: false }), true);
-    const larger = homeHeights(calmTheme({ largerText: true, higherContrast: false }), true);
+    const standard = homeHeights(calmTheme({ largerText: false, higherContrast: false }), false);
+    const larger = homeHeights(calmTheme({ largerText: true, higherContrast: false }), false, 2);
     expect(larger.poster).toBeLessThan(standard.poster);
     expect(larger.pills).toBeGreaterThan(standard.pills);
     expect(larger.question).toBeGreaterThan(standard.question);
