@@ -3,17 +3,23 @@
  *
  * On Vega the resident's film is a media session of the platform's
  * (apps/tv-vega/src/watch/mediaControls.ts): "Alexa, pause" and the
- * system's transport controls reach it there. On Fire OS there is no such
- * session yet. The film obeys the remote's own keys, which arrive as key
- * presses exactly as before (remoteEvents.ts), and nothing else: this
- * server takes the handler it is given and never calls it, and what it is
- * told about the film goes nowhere.
+ * system's transport controls reach it there. On Fire OS the same shared
+ * file runs unchanged against this stand-in, and the session it registers
+ * is Android's own (`android.media.session.MediaSession`), held by Wick's
+ * module (android/.../media/FilmSessionModule.kt). That is where a Fire
+ * TV's Alexa, the remote's media keys and the system's transport controls
+ * send an app their commands. What is published and what each command
+ * becomes is media/filmSession.ts: a command from Android is handed to the
+ * shared handler by Vega's own name for it, so it obeys the rules her
+ * remote's keys obey (watch/mediaSession.ts) — a held note, Read to me, the
+ * door camera, the family seat's refusal.
  *
- * Android's own media session (react-native-video's notification controls)
- * would drive the player directly, around the rules the film's commands
- * obey on Vega (watch/mediaSession.ts) — a held note, Read to me, the
- * seat's refusal — so it is not switched on.
+ * Android's other media session — react-native-video's notification
+ * controls — would drive the player directly, around those rules, so it is
+ * still not switched on.
  */
+import { filmSessionServer, type FilmSessionServer } from '../media/filmSession';
+import { nativeFilmSession } from '../media/native';
 
 /** The platform's names for what a session can do. Only the names the shared source uses. */
 export class Action {
@@ -60,14 +66,15 @@ export interface MediaSessionState {
   controls: unknown[];
 }
 
-/** Every handler the platform could call. None is ever called here. */
+/** Every handler the platform could call. Here only the seven a film obeys, and the one that names it, are ever called. */
 export type IMediaControlHandlerAsync = Record<string, (...args: never[]) => Promise<unknown>>;
 
+let server: FilmSessionServer | undefined;
+
 export const MediaControlServerComponentAsync = {
-  getOrMakeServer() {
-    return {
-      setHandlerForComponent(_handler: IMediaControlHandlerAsync, _component: unknown): void {},
-      updateMediaSessionStates(_states: MediaSessionState[]): void {},
-    };
+  /** One server for the app, as on Vega: the handler set last is the one that answers. */
+  getOrMakeServer(): FilmSessionServer {
+    server ??= filmSessionServer(nativeFilmSession);
+    return server;
   },
 };
