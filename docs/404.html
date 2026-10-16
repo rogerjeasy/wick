@@ -4,12 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Page not found · Wick</title>
+<meta name="description" content="This page isn't here. Find your way back to Wick.">
 <link rel="icon" href="/wick/icons/light-72.png">
 <meta name="theme-color" content="#12100E">
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <!-- Absolute paths: GitHub Pages serves this file at whatever path was asked for. -->
 <link rel="stylesheet" href="/wick/assets/site.css">
 <script>
@@ -25,24 +26,152 @@
     location.replace(`${location.pathname.slice(0, match.index)}/pair/?code=${match[1]}`);
   }
 </script>
+<style>
+  .lost{position:relative;overflow:hidden;padding:64px 0 88px}
+  .lost::before{content:"";position:absolute;left:50%;top:-140px;width:900px;height:900px;transform:translateX(-50%);background:radial-gradient(circle,rgba(232,183,93,.14),transparent 60%);pointer-events:none}
+  .lost .wrap{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:64px;align-items:center}
+
+  /* The lit window */
+  .window{position:relative;width:min(340px,100%);margin-inline:auto;aspect-ratio:4/5}
+  .window svg{width:100%;height:100%;display:block;overflow:visible}
+  .glow{position:absolute;inset:18% 12% 22%;border-radius:50%;background:radial-gradient(circle,rgba(232,183,93,.35),transparent 70%);filter:blur(24px);animation:breathe 6s ease-in-out infinite}
+  .flame{transform-origin:170px 262px;animation:flicker 3.2s ease-in-out infinite}
+  @keyframes flicker{0%,100%{transform:scale(1,1) rotate(0)}30%{transform:scale(.96,1.04) rotate(-1.5deg)}60%{transform:scale(1.03,.97) rotate(1deg)}}
+  @keyframes breathe{0%,100%{opacity:.85}50%{opacity:1}}
+
+  .big{font-family:var(--display);font-weight:600;font-size:clamp(4.5rem,11vw,7.5rem);line-height:.9;letter-spacing:-.04em;margin:0 0 18px;background:linear-gradient(180deg,var(--ink) 30%,var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .copy h1{margin-bottom:14px}
+  .path{display:inline-flex;max-width:100%;align-items:center;gap:8px;margin:20px 0 0;padding:6px 14px;border-radius:999px;border:1px solid var(--line-2);background:var(--raised);color:var(--ink-faint);font:500 .85rem ui-monospace,SFMono-Regular,Menlo,monospace}
+  .path{white-space:nowrap}
+  .path[hidden]{display:none}
+  .path b{font-weight:500;flex:none}
+  .path span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-dim)}
+  .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+
+  /* Where to go instead */
+  .elsewhere{padding:0 0 96px}
+  .elsewhere h2{font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);font-weight:600;margin:0 0 18px}
+  .links{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+  .link{display:flex;flex-direction:column;gap:14px;text-decoration:none;color:var(--ink);background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:22px;transition:border-color .2s,transform .2s,background .2s}
+  .link:hover{border-color:rgba(232,183,93,.45);background:var(--raised-2);transform:translateY(-2px)}
+  .link .icon{width:42px;height:42px}
+  .link h3{margin:0;font-size:1rem;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .link h3 svg{width:16px;height:16px;color:var(--ink-faint);transition:color .2s,transform .2s}
+  .link:hover h3 svg{color:var(--accent);transform:translate(2px,-2px)}
+  .link p{margin:0;color:var(--ink-dim);font-size:.92rem;line-height:1.55}
+
+  @media (max-width:900px){
+    .lost .wrap{grid-template-columns:minmax(0,1fr);gap:36px;text-align:center}
+    .window{width:min(240px,70%)}
+    .actions{justify-content:center}
+    .copy .lede{margin-inline:auto}
+    .links{grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
+  @media (max-width:560px){
+    .lost{padding:40px 0 64px}
+    .links{grid-template-columns:1fr}
+    .actions .btn{width:100%}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .flame,.glow{animation:none}
+    .link,.link h3 svg{transition:none}
+    .link:hover{transform:none}
+  }
+</style>
 </head>
 <body>
 <header class="nav">
   <div class="wrap">
     <a class="brand" href="/wick/"><img src="/wick/icons/light-72.png" alt="">Wick</a>
+    <div class="nav-links">
+      <a class="btn sm" href="https://github.com/rogerjeasy/wick">GitHub</a>
+      <a class="btn sm primary" href="https://dmaz25jvryojp.cloudfront.net/">Try the demo</a>
+    </div>
   </div>
 </header>
 
-<main class="center-page">
-  <div class="center-card">
-    <p class="kicker">404</p>
-    <h1>This page isn't here.</h1>
-    <p class="lede" style="margin:0 auto 30px">The link may be old, or the address mistyped.</p>
-    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-      <a class="btn primary" href="/wick/">Go to Wick</a>
-      <a class="btn" href="https://dmaz25jvryojp.cloudfront.net/">Open the family app</a>
+<main>
+  <section class="lost" aria-labelledby="title">
+    <div class="wrap">
+      <div class="window" aria-hidden="true">
+        <div class="glow"></div>
+        <svg viewBox="0 0 340 425" fill="none">
+          <defs>
+            <linearGradient id="pane" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#3A2C17"/>
+              <stop offset="1" stop-color="#1E1710"/>
+            </linearGradient>
+            <radialGradient id="light" cx="50%" cy="66%" r="55%">
+              <stop offset="0" stop-color="#E8B75D" stop-opacity=".55"/>
+              <stop offset="1" stop-color="#E8B75D" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="fire" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#FFF3D6"/>
+              <stop offset=".55" stop-color="#F0C474"/>
+              <stop offset="1" stop-color="#C98A2E"/>
+            </linearGradient>
+          </defs>
+          <!-- Frame: an arched window -->
+          <path d="M30 395V150a140 140 0 0 1 280 0v245z" fill="#171512" stroke="#3A342C" stroke-width="6"/>
+          <path d="M48 380V152a122 122 0 0 1 244 0v228z" fill="url(#pane)"/>
+          <path d="M48 380V152a122 122 0 0 1 244 0v228z" fill="url(#light)"/>
+          <!-- Glazing bars -->
+          <path d="M170 30v350M48 205h244" stroke="#2E2923" stroke-width="7"/>
+          <!-- Sill -->
+          <rect x="14" y="392" width="312" height="18" rx="5" fill="#25211C" stroke="#3A342C" stroke-width="2"/>
+          <!-- Candle -->
+          <rect x="152" y="284" width="36" height="96" rx="5" fill="#F4F1EA"/>
+          <rect x="152" y="284" width="12" height="96" rx="5" fill="#FFFFFF" opacity=".5"/>
+          <path d="M152 292c8 6 28 6 36 0" stroke="#C8C2B6" stroke-width="2" opacity=".6"/>
+          <path d="M170 284v-14" stroke="#3A2C17" stroke-width="3" stroke-linecap="round"/>
+          <path class="flame" d="M170 222c-14 18-20 30-20 40a20 20 0 0 0 40 0c0-10-6-22-20-40z" fill="url(#fire)"/>
+        </svg>
+      </div>
+
+      <div class="copy">
+        <p class="big" aria-hidden="true">404</p>
+        <p class="kicker">Page not found</p>
+        <h1 id="title">This page isn't here.</h1>
+        <p class="lede">The link may be old, or the address mistyped. The light's still on, though, and everything else is where you left it.</p>
+        <p class="path" id="path" hidden><b>Looked for</b><span id="path-value"></span></p>
+        <div class="actions">
+          <a class="btn primary" href="/wick/">
+            Go to the Wick home page
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a class="btn" href="https://dmaz25jvryojp.cloudfront.net/">Open the family app</a>
+        </div>
+      </div>
     </div>
-  </div>
+  </section>
+
+  <section class="elsewhere" aria-labelledby="elsewhere">
+    <div class="wrap">
+      <h2 id="elsewhere">Or go straight to</h2>
+      <div class="links">
+        <a class="link" href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="13" rx="2"/><path d="M17 2l-5 5-5-5"/></svg></span>
+          <h3>Her television <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3>
+          <p>The resident's Fire TV app, running in a browser tab.</p>
+        </a>
+        <a class="link" href="https://dmaz25jvryojp.cloudfront.net/">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+          <h3>The family app <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3>
+          <p>Choose Try the demo and you're Sarah, her daughter.</p>
+        </a>
+        <a class="link" href="https://github.com/rogerjeasy/wick/blob/main/docs/WICK.md">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg></span>
+          <h3>Product overview <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3>
+          <p>What Wick does, who it's for, and the business behind it.</p>
+        </a>
+        <a class="link" href="/wick/privacy.html">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+          <h3>Privacy <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3>
+          <p>No camera inside the home, and she sees what the family sees.</p>
+        </a>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer>
@@ -51,5 +180,15 @@
     <nav aria-label="Footer"><a href="/wick/">Home</a><a href="/wick/privacy.html">Privacy</a><a href="/wick/terms.html">Terms</a><a href="https://github.com/rogerjeasy/wick">GitHub</a></nav>
   </div>
 </footer>
+
+<script>
+  // Show which address was asked for, as text only.
+  let asked = location.pathname + location.search;
+  try { asked = decodeURIComponent(asked); } catch { /* keep it encoded */ }
+  if (asked && asked !== '/' && asked !== '/wick/404.html') {
+    document.getElementById('path-value').textContent = asked;
+    document.getElementById('path').hidden = false;
+  }
+</script>
 </body>
 </html>
