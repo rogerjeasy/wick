@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MAX_NARRATIVE_CHARS, type RhythmDelta, type TimelineEntry } from '@wick/contracts';
-import { checkNarrative, factLines, fallbackNarrative, privateNarrative, summariseWeek } from '../weekFacts.js';
+import { checkNarrative, factLines, fallbackNarrative, privateNarrative, refusalReason, summariseWeek } from '../weekFacts.js';
 import { isoWeekRange } from '../isoWeek.js';
 
 // 2026-W40 runs Monday 28 Sep to Sunday 4 Oct. London is on BST (UTC+1).
@@ -116,6 +116,13 @@ describe('checkNarrative — the model never counts', () => {
     const long = 'A quiet evening at the door. '.repeat(10);
     expect(long.length).toBeGreaterThan(MAX_NARRATIVE_CHARS);
     expect(checkNarrative(long, facts)).toMatchObject({ ok: false, reason: 'too_long' });
+  });
+
+  it('tells a writer whose draft was too long what the limit is, and how far over it went', () => {
+    // Live, the writer's first draft ran 261 and 263 characters, and "stay under the limit" named no number.
+    expect(refusalReason({ ok: false, reason: 'too_long', detail: String(MAX_NARRATIVE_CHARS + 21) })).toBe(
+      `Your draft was ${MAX_NARRATIVE_CHARS + 21} characters, 21 over the limit of ${MAX_NARRATIVE_CHARS}. Cut a clause or a sentence.`,
+    );
   });
 
   it('rejects empty prose', () => {

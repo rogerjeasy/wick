@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { WeekNarrative } from '@wick/contracts';
 import { briefWeeklyHandler, type BriefRun } from '../briefHandler.js';
 import type { StoredWeek, WeekStore } from '../../agents/brief/store.js';
@@ -43,12 +43,17 @@ function setup(existing?: WeekNarrative) {
 describe('brief.weekly — the runtime kind that writes one home’s week', () => {
   it('runs the graph for the session’s household and the week asked for, with the row as it was read', async () => {
     const s = setup();
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     const answer = await s.handler({ kind: 'brief.weekly', householdId: 'hh-1', isoWeek: '2026-W38' });
+    const logged = spy.mock.calls.map((c) => String(c[0]));
+    spy.mockRestore();
 
     expect(s.asked).toEqual(['hh-1/2026-W38']);
     expect(s.runs).toEqual([{ householdId: 'hh-1', isoWeek: '2026-W38' }]);
     expect(answer).toMatchObject({ status: 'written', textSource: 'agents', path: ['analyst'] });
+    // Who wrote the week, and on which try, is in the log: the agents, or the counted facts after two refusals.
+    expect(logged.map((l) => JSON.parse(l) as Record<string, unknown>).find((l) => l.msg === 'brief_weekly')).toMatchObject({ status: 'written', textSource: 'agents', attempts: 1 });
   });
 
   it('refuses a request that is not a household and an ISO week', async () => {

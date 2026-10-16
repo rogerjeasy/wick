@@ -62,7 +62,9 @@ export function briefWeeklyHandler(depsFor: (householdId: string) => BriefHandle
       ...(existing ? { existing } : {}),
       ...(decision.keep ? { keep: decision.keep } : {}),
     });
-    console.log(JSON.stringify({ level: run.result.status === 'failed' ? 'error' : 'info', msg: 'brief_weekly', isoWeek, status: run.result.status, path: run.path }));
+    // Who wrote the week (the agents, or the counted facts after two refusals) and on which try.
+    const written = run.result.status === 'written' ? { textSource: run.result.textSource, attempts: run.result.attempts } : {};
+    console.log(JSON.stringify({ level: run.result.status === 'failed' ? 'error' : 'info', msg: 'brief_weekly', isoWeek, status: run.result.status, ...written, path: run.path }));
     return { ...run.result, path: run.path };
   };
 }
