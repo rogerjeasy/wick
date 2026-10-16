@@ -117,6 +117,31 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["*"]
   }
 
+  # Visit errands (infra/errands.tf): the state machine, by name, and never
+  # an execution of it — CI cannot start, stop or read an errand. Without
+  # these, every apply after the first (a laptop's) fails at refresh.
+  statement {
+    sid = "ManageTheErrandMachineNeverItsExecutions"
+    actions = [
+      "states:CreateStateMachine",
+      "states:UpdateStateMachine",
+      "states:DeleteStateMachine",
+      "states:DescribeStateMachine",
+      "states:ListStateMachineVersions",
+      "states:ListTagsForResource",
+      "states:TagResource",
+      "states:UntagResource",
+    ]
+    resources = ["arn:aws:states:${local.region}:${local.account_id}:stateMachine:wick-*"]
+  }
+
+  # Checking a definition before it is written names no resource.
+  statement {
+    sid       = "ValidateAStateMachineDefinition"
+    actions   = ["states:ValidateStateMachineDefinition"]
+    resources = ["*"]
+  }
+
   # Which image each service runs (infra/images.tf): deploy-agent.yml writes
   # the tag it just pushed, and every apply reads it and keeps the two
   # parameters themselves. Held to /wick/images/*, so a deploy can neither
@@ -351,6 +376,8 @@ data "aws_iam_policy_document" "github_deploy" {
         "build.apprunner.amazonaws.com",
         "tasks.apprunner.amazonaws.com",
         "bedrock-agentcore.amazonaws.com",
+        # The errand state machine's role (infra/errands.tf).
+        "states.amazonaws.com",
       ]
     }
   }
