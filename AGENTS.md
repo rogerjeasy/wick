@@ -71,7 +71,10 @@ where their secret comes from:
 
 - **Fire OS** — made on the television, from Android's `SecureRandom`
   (`react-native-get-random-values`, loaded first by
-  `apps/tv-fireos/index.js`), and sent when it asks for a code.
+  `apps/tv-fireos/index.js`), and sent when it asks for a code. Its
+  background service — the door, outside Wick (`apps/tv-fireos/src/door`) —
+  runs in the app's own process, uses the token the app keeps and renews it
+  with the same secret: it never asks for a token without one.
 - **The browser television** (`apps/ops-console/device.js`) — made in the
   tab from Web Crypto, and sent the same way.
 - **A Vega television whose disk keeps a file** — React Native for Vega gives
