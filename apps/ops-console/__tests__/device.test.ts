@@ -1,11 +1,11 @@
 /**
- * The virtual television's family mode: the parts of device.js that decide
+ * The virtual television's family mode: the parts of tv-core.js that decide
  * something without a screen — what is read from the server's answers, what
  * a button does, where a reader's page turns to, and where a following
  * player should be.
  *
- * device.js is a plain browser script (one file, no build step: it is
- * published as it stands, infra/ops-console.tf), so it is run here in a
+ * tv-core.js and device.js are plain browser scripts (no build step: they are
+ * published as they stand, infra/ops-console.tf), so they are run here in a
  * context of its own with just enough of a page for it to load. What it
  * draws is checked in a real browser, not here.
  */
@@ -30,6 +30,16 @@ import { WORDS } from '../../tv-vega/src/words/words.js';
 import { STANDING_EVERY_MS, STANDING_MIN_GAP_MS } from '../../tv-vega/src/pairing/standing.js';
 import { replyActions } from '../../tv-vega/src/cards/messageActions.js';
 import { removesCard } from '../../tv-vega/src/cards/cardActions.js';
+
+/** The two scripts device.html loads, in its order: the television (tv-core.js), then the console around it. */
+const CORE_SOURCE = readFileSync(fileURLToPath(new URL('../tv-core.js', import.meta.url)), 'utf8');
+const CONSOLE_SOURCE = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
+function runConsole(context: vm.Context): void {
+  vm.runInContext(CORE_SOURCE, context, { filename: 'tv-core.js' });
+  vm.runInContext(CONSOLE_SOURCE, context, { filename: 'device.js' });
+}
+/** A family member's own television: the last part of the television's script. */
+const familyModeOf = (script: string): string => script.slice(script.indexOf("/* --- A family member's own television"));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- an untyped browser script, called by name
 type Device = Record<string, (...args: any[]) => any> & { constant(name: string): unknown };
@@ -57,7 +67,7 @@ function loadDevice(): Device {
     setTimeout,
     fetch: () => Promise.reject(new Error('a test asks nobody')),
   });
-  vm.runInContext(readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8'), context, { filename: 'device.js' });
+  runConsole(context);
   // Out of that context as plain data, so what comes back compares like anything made here.
   const plain = (value: unknown) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
   return new Proxy({} as Device, {
@@ -595,7 +605,7 @@ function television(opts: { watched?: boolean; remembered?: Record<string, strin
   const getComputedStyle = () => ({});
   // A browser has a cryptographic generator, and the page makes its television's secret from it.
   const context = vm.createContext({ document, window, getComputedStyle, console, URL, setInterval, clearInterval, setTimeout, clearTimeout, WebSocket: FakeWebSocket, Audio: FakeAudio, crypto: globalThis.crypto, fetch: () => Promise.reject(new Error('a test asks nobody')), ...watched });
-  vm.runInContext(readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8'), context, { filename: 'device.js' });
+  runConsole(context);
 
   // Paired as the resident's television, and connected — or the television the tab remembered being, restored by the page itself.
   if (sockets.length === 0) (context.connectWebSocket as (jwt: string, deviceId: string) => void)('a.b.c', 'ops-console-test');
@@ -845,8 +855,7 @@ describe('the browser television — the language comes from the home message, a
   });
 
   it('leaves a family member’s own television in English: none of its words come from this table', () => {
-    const script = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
-    const familyMode = script.slice(script.indexOf("/* --- A family member's own television"), script.indexOf('/* --- Telemetry'));
+    const familyMode = familyModeOf(CORE_SOURCE);
 
     expect(familyMode.length).toBeGreaterThan(1000);
     expect(familyMode).not.toMatch(/\btvSay\(|\bTV_WORDS\b|\btvLanguage\(/);
@@ -1815,9 +1824,7 @@ describe('the browser television — a card of a kind it does not know', () => {
   });
 
   it('never writes that it does not recognise a card', () => {
-    const script = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
-
-    expect(script).not.toMatch(/Unrecognized card type/);
+    for (const script of [CORE_SOURCE, CONSOLE_SOURCE]) expect(script).not.toMatch(/Unrecognized card type/);
   });
 });
 
@@ -2074,8 +2081,7 @@ describe('the browser television — her mantelpiece', () => {
   });
 
   it('leaves a family member’s own television alone: nothing of the mantelpiece is in its part of the page', () => {
-    const script = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
-    const familyMode = script.slice(script.indexOf("/* --- A family member's own television"), script.indexOf('/* --- Telemetry'));
+    const familyMode = familyModeOf(CORE_SOURCE);
 
     expect(familyMode).not.toMatch(/mantel|PHOTO/i);
   });
@@ -2257,11 +2263,10 @@ describe('the browser television — read to me', () => {
   });
 
   it('leaves a family member’s own television alone: P is not its key, and nothing of reading is in its part of the page', () => {
-    const script = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
-    const familyMode = script.slice(script.indexOf("/* --- A family member's own television"), script.indexOf('/* --- Telemetry'));
+    const familyMode = familyModeOf(CORE_SOURCE);
 
     expect(familyMode).not.toMatch(/toggleRead|stopRead|readHint|t: 'read'/);
-    expect(script).toMatch(/function residentKey\(event\) \{\s*if \(family\) return;/);
+    expect(CONSOLE_SOURCE).toMatch(/function residentKey\(event\) \{\s*if \(family\) return;/);
   });
 });
 
@@ -2316,7 +2321,7 @@ function televisionAsking(remembered: Record<string, string> = {}) {
         });
       }),
   });
-  vm.runInContext(readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8'), context, { filename: 'device.js' });
+  runConsole(context);
   const run = (code: string) => vm.runInContext(code, context) as unknown;
   return {
     asked,

@@ -320,7 +320,7 @@
 
 @media (max-width: 560px) {
   /* On a phone the sixteen-by-nine screen is too short for most cards: the screen grows for them, at this width
-     and any other, by being measured (.tv-screen.grown below, device.js fitScreen) — not by the window's width.
+     and any other, by being measured (.tv-screen.grown below, tv-core.js fitScreen) — not by the window's width.
      And it is too narrow for a picture beside the words: it goes above them, small. */
   .tv-family .family-card.with-picture {
     grid-template-columns: minmax(0, 1fr);
@@ -553,7 +553,7 @@
   content: '\25B6';
 }
 
-/* --- Nothing on the screen is cut off (device.js fitScreen) -------------- */
+/* --- Nothing on the screen is cut off (tv-core.js fitScreen) -------------- */
 
 /*
  * This page is a demonstration of a television, not a television: the

@@ -10,6 +10,7 @@ import {
   protectedResourceVerdict,
   secretsInExport,
   siteVerdict,
+  televisionPageVerdict,
   statusVerdict,
   toolCountVerdict,
   toolSources,
@@ -122,10 +123,33 @@ describe('the tool count', () => {
   });
 });
 
+describe('her television, alone, on the virtual television’s site', () => {
+  const URL_ = 'https://tv.wick.test/tv.html';
+
+  it('passes the page with 200 and the four headers', () => {
+    expect(televisionPageVerdict(URL_, 200, SECURE, true, true).map((r) => r.outcome)).toEqual(['pass', 'pass']);
+  });
+
+  it('says it is not deployed yet while the checkout does not hold it and the site does not have it', () => {
+    const [verdict] = televisionPageVerdict(URL_, 403, new Headers(), false, true);
+    expect(verdict).toMatchObject({ outcome: 'skip' });
+    expect(verdict!.detail).toMatch(/not deployed yet/);
+  });
+
+  it('fails it once the checkout holds it and the site answers anything but 200, or without the headers', () => {
+    expect(televisionPageVerdict(URL_, 403, SECURE, true, true)[0]!.outcome).toBe('fail');
+    expect(televisionPageVerdict(URL_, 200, new Headers(), true, true)[1]!.outcome).toBe('fail');
+  });
+
+  it('checks it whenever the site already has it, even before the checkout does', () => {
+    expect(televisionPageVerdict(URL_, 200, new Headers(), false, true)[1]!.outcome).toBe('fail');
+  });
+});
+
 describe('which features the checkout holds', () => {
   it('turns a check on by the file its pull request adds', () => {
     const present = new Set([`/repo/${FEATURE_MARKERS.securityHeaders}`]);
-    expect(featuresIn('/repo', (path) => present.has(path))).toEqual({ securityHeaders: true, accountData: false, televisionRef: false });
+    expect(featuresIn('/repo', (path) => present.has(path))).toEqual({ securityHeaders: true, accountData: false, televisionRef: false, browserTelevision: false });
   });
 });
 
