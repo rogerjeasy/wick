@@ -111,8 +111,8 @@ export const WRITER_SYSTEM_PROMPT = `${NARRATIVE_SYSTEM_PROMPT}
 
 const WRITER_QUESTION = 'How was the week at home?';
 /**
- * The question a reason answers, for the Guardrail's relevance score: the
- * reason for a note is judged against "why send a note", not against a
+ * The question a reason answers, the query contextual grounding needs: the
+ * reason for a note is asked against "why send a note", not against a
  * question about the whole week it was never trying to answer.
  */
 const SUGGESTER_QUESTION: Readonly<Record<SuggestedAction, string>> = {
