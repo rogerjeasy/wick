@@ -88,6 +88,19 @@ describe('the service worker — a nudge becomes a notification', () => {
     expect(options.requireInteraction).toBe(false);
   });
 
+  it('says only that there is news about a visit the member arranged — not whether anyone came, nor who', async () => {
+    for (const kind of ['errand_rang', 'errand_no_show']) {
+      const w = worker();
+
+      await w.push({ kind, who: 'the plumber', at: '10:04' });
+
+      const [, options] = w.showNotification.mock.calls[0]!;
+      expect(options.body).toBe('There is news about a visit you arranged.');
+      expect(options.tag).toBe(`wick-${kind}`);
+      expect(JSON.stringify(options)).not.toMatch(/plumber|10:04/);
+    }
+  });
+
   it('says nothing about the house for a request to ring, whatever the payload carries', async () => {
     const w = worker();
 

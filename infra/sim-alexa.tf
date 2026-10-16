@@ -89,6 +89,17 @@ resource "aws_s3_object" "sim_alexa_surface_js" {
   cache_control = "no-cache"
 }
 
+# Visit errands: what the errand tools' answers say and show, imported by
+# surface.js (apps/sim-alexa/__tests__/errands.test.ts).
+resource "aws_s3_object" "sim_alexa_errands_js" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "errands.js"
+  source        = "${path.module}/../apps/sim-alexa/errands.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/errands.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
 # Ask by voice: what the page does with the sound of a question before it
 # sends it — 16 kHz, 16-bit PCM — a separate module so it is tested without a
 # browser (apps/sim-alexa/__tests__/voice.test.ts).

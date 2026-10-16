@@ -1142,7 +1142,7 @@ describe('suggestionsFor', () => {
   it('then the app\'s own chips, without the ones that ask the same thing', () => {
     const labels = suggestionsFor(listing).slice(3).map((s: { label: string }) => s.label);
 
-    expect(labels).toEqual(['What happened today?', 'Were this week’s visits confirmed?', 'Is the light on?', 'Send a note to her television', 'Has Mum replied?', 'Did Mum ask me to look?', 'Did Mum ask for me?', 'Watch a film with Mum', 'What can I see?', 'Family circle', 'Television language', 'Send a picture']);
+    expect(labels).toEqual(['What happened today?', 'Were this week’s visits confirmed?', 'Is the light on?', 'Send a note to her television', 'Arrange a visit', 'Has Mum replied?', 'Did Mum ask me to look?', 'Did Mum ask for me?', 'Watch a film with Mum', 'What can I see?', 'Family circle', 'Television language', 'Send a picture']);
   });
 
   it('is the app\'s own chips when there is no listing', () => {

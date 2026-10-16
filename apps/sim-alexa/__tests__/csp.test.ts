@@ -66,4 +66,20 @@ describe('the family app as an app on a telephone', () => {
     expect(tf).toContain('content_type  = "application/manifest+json; charset=utf-8"');
     expect(tf).toContain('content_type  = "text/css; charset=utf-8"');
   });
+
+  it('publishes every module the page’s scripts import, so none is missing in the browser', () => {
+    const imported = new Set<string>();
+    const queue = ['main.js'];
+    while (queue.length) {
+      const file = queue.pop()!;
+      for (const [, name] of read(`../${file}`).matchAll(/^import [^;]*? from '\.\/([^']+)';/gm)) {
+        if (!imported.has(name!)) {
+          imported.add(name!);
+          queue.push(name!);
+        }
+      }
+    }
+    expect(imported).toContain('errands.js');
+    for (const file of imported) expect(tf, file).toContain(`key           = "${file}"`);
+  });
 });

@@ -20,6 +20,8 @@
  * one title, glanceable rows and nothing the sentence did not earn.
  */
 
+import { ERRAND_DECLINED_TRACE, ERRAND_SUGGESTION, confirmErrand, describeErrandCall, presentErrand, routeErrand, withNoteSent } from './errands.js';
+
 /**
  * The replies a note can be sent with, as the server keeps them
  * (services/mcp-server/src/tools/send_note_to_tv.ts REPLY_CHOICES) — here
@@ -91,6 +93,7 @@ export const SUGGESTIONS = [
   { label: 'Is anything different?', utterance: 'Is anything different?' },
   { label: 'Is the light on?', utterance: "Is the light on at Mum's?" },
   { label: 'Send a note to her television', utterance: "Put a note on Mum's television" },
+  ERRAND_SUGGESTION,
   { label: 'Has Mum replied?', utterance: 'Has Mum replied?' },
   { label: 'Did Mum ask me to look?', utterance: 'Has Mum asked me to look at the door?' },
   { label: 'Did Mum ask for me?', utterance: 'Did Mum ask for me?' },
@@ -167,6 +170,10 @@ export function routeUtterance(text, now = Date.now()) {
 
   // The doorbell is the app's own business too: connecting Ring is something the organiser does here.
   if (/\b(connect|disconnect|link|unlink)\b.*\b(doorbell|ring)\b|\bdoorbell\b.*\bconnected\b/.test(t)) return { kind: 'doorbell' };
+
+  // Visit errands (errands.js): the visits one arranged, and — with no model — not guessing at a new one.
+  const errand = routeErrand(t);
+  if (errand) return errand;
 
   // A demo home's stand-in doorbell: ringing it, or making somebody arrive. Whether this home has one is the card's to say.
   // "Did someone come to the door" is the day's list, not this.
@@ -1284,6 +1291,10 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
     return { say: `It is on the television now: “${parsed.by} says: ${parsed.text}”`, card: null, tone: 'answer' };
   }
 
+  // Visit errands (errands.js).
+  const errand = presentErrand(toolName, parsed);
+  if (errand) return errand;
+
   // A shape this surface does not know: say so, never render a guess.
   return { say: 'I got an answer I could not read.', card: null, tone: 'error' };
 }
@@ -1345,7 +1356,7 @@ export function describeCall(toolName, args = {}) {
     case 'join_watch_together': return 'Sat down to watch';
     case 'answer_watch_together': return 'Answered on the television';
     case 'withdraw_watch_invitation': return 'Took the invitation back';
-    default: return 'Asked Wick';
+    default: return describeErrandCall(toolName) ?? 'Asked Wick';
   }
 }
 
@@ -1358,6 +1369,7 @@ const DECLINED_TRACE = {
   join_watch_together: 'Did not sit down',
   answer_watch_together: 'Did not answer',
   withdraw_watch_invitation: 'Did not take it back',
+  ...ERRAND_DECLINED_TRACE,
 };
 
 /** "Saturday 17 October, 15:00" from the date and time a visit was asked for — said in full, so a wrong day is seen before it is sent. */
@@ -1391,6 +1403,8 @@ function chosenReplies(keys) {
 }
 
 export function confirmWrite(toolName, args = {}, title) {
+  const errand = confirmErrand(toolName, args);
+  if (errand) return errand;
   if (toolName === 'expect_visit') {
     return {
       title: 'Tell the door you are coming?',
@@ -1505,7 +1519,7 @@ export function presentTurn(say, steps) {
   return {
     say: said,
     tone: refused ? done[done.length - 1].presented.tone : 'answer',
-    cards: done.map((s) => s.presented.card).filter(Boolean),
+    cards: withNoteSent(done.map((s) => s.presented.card).filter(Boolean), done.map((s) => s.name)),
     trace: steps.map((s) => (s.presented ? describeCall(s.name, s.args) : (DECLINED_TRACE[s.name] ?? 'Did not do that'))).join(' · '),
   };
 }

@@ -58,6 +58,7 @@ import {
   watchStatus,
   watchToAnnounce,
 } from './surface.js';
+import { ARRANGE_NEEDS_ASSISTANT, errandNews } from './errands.js';
 import {
   DELETED_SAID,
   EXPORT_SAID,
@@ -761,6 +762,7 @@ function renderCard(card, said) {
   if (card.kind === 'watch') return renderWatchCard(card);
   if (card.kind === 'invitation') return renderInvitationCard(card);
   if (card.kind === 'light') return renderLightCard(card);
+  if (card.kind === 'errand') return renderErrandCard(card);
   const node = el('article', `card ${card.kind ?? ''}`.trim());
   cardHead(node, card.title, card.meta);
 
@@ -1196,6 +1198,7 @@ if ('serviceWorker' in navigator) {
     if (event.data.kind === 'told') void lookForWhatWasTold();
     if (event.data.kind === 'door_look') void lookForDoorQuestion();
     if (event.data.kind === 'reach_ring' || event.data.kind === 'reach_hello') void lookForReach();
+    if (event.data.kind === 'errand_rang' || event.data.kind === 'errand_no_show') void lookAtErrands();
   });
 }
 
@@ -1621,6 +1624,85 @@ function renderInvitationCard(card) {
   actions.appendChild(undo);
   node.append(head, status, actions, foot);
   return node;
+}
+
+// ---------------------------------------------------------------------------
+// Visit errands (errands.js): a visit the member arranged, as a card with its
+// steps, and the one thing that can be done about it from here while it is
+// still to come — calling it off, after the usual question.
+// ---------------------------------------------------------------------------
+
+/** The errands last shown as finished, so a nudge announces each ending once (errands.js errandNews). */
+const errandSeen = new Map();
+
+function renderErrandEntry(entry) {
+  const section = el('section', 'errand-entry');
+  if (entry.who) section.appendChild(el('p', 'errand-who', `${entry.who}, ${entry.when}`));
+  const said = el('p', 'errand-said', entry.said);
+  said.setAttribute('aria-live', 'polite');
+  section.appendChild(said);
+  const steps = el('ol', 'errand-steps');
+  for (const step of entry.steps) {
+    const item = el('li', 'errand-step', step.label);
+    item.dataset.state = step.state;
+    steps.appendChild(item);
+  }
+  section.appendChild(steps);
+  if (entry.cancellable) {
+    const actions = el('div', 'actions');
+    const callOff = el('button', 'btn quiet', 'Call it off');
+    callOff.type = 'button';
+    callOff.addEventListener('click', () => void callOffErrand(section, entry, callOff));
+    actions.appendChild(callOff);
+    section.appendChild(actions);
+  }
+  return section;
+}
+
+function renderErrandCard(card) {
+  const node = el('article', 'card errand');
+  cardHead(node, card.title, card.meta);
+  for (const entry of card.errands) node.appendChild(renderErrandEntry(entry));
+  node.appendChild(cardFoot(card.footnote));
+  return node;
+}
+
+/** Asks first, as for any write (confirmInTurn), then calls cancel_errand and draws the visit as it now stands. */
+async function callOffErrand(section, entry, button) {
+  button.disabled = true;
+  const call = { name: 'cancel_errand', args: { errandId: entry.errandId } };
+  if (!(await confirmInTurn(section, call))) {
+    button.disabled = false;
+    return;
+  }
+  try {
+    const result = await callTool(call.name, call.args);
+    const presented = presentResult(call.name, result.content?.[0]?.text ?? '', {}, formatTime, result.isError === true);
+    const after = presented.card?.kind === 'errand' ? presented.card.errands[0] : undefined;
+    if (after) section.replaceWith(renderErrandEntry(after));
+    else {
+      section.querySelector('.errand-said').textContent = presented.say;
+      button.disabled = false;
+    }
+  } catch (err) {
+    section.querySelector('.errand-said').textContent = err.message;
+    button.disabled = false;
+  }
+}
+
+/** A nudge said a visit has an answer: look, and say it once (errands.js errandNews). */
+async function lookAtErrands() {
+  if (!me || answering) return;
+  try {
+    const result = await callToolOnly('get_errands', {});
+    if (result.isError === true) return;
+    const news = errandNews(result.content?.[0]?.text ?? '', errandSeen);
+    if (!news) return;
+    errandSeen.set(news.errandId, news.status);
+    assistantSays(presentResult('get_errands', JSON.stringify({ errands: [news.view] }), {}, formatTime));
+  } catch {
+    // A look that failed is tried again at the next nudge; nothing is said about it.
+  }
 }
 
 /** While the app is open it looks, as it does for the door, and says only what is news (surface.js watchToAnnounce). */
@@ -2944,6 +3026,7 @@ function answerByRules(text) {
   if (route.kind === 'picture') return void showPictures();
   if (route.kind === 'standin') return void showStandInDoorbell();
   if (route.kind === 'notifications') return void showNotifications();
+  if (route.kind === 'arrange') return void assistantSays({ say: ARRANGE_NEEDS_ASSISTANT, tone: 'answer' });
   assistantSays({ say: HELP_TEXT, tone: 'answer' });
 }
 
@@ -2994,6 +3077,13 @@ async function handleUtterance(text) {
  * again when the add-on listing is read: its phrases then come first. And
  * again once the home is known: a demo home has a stand-in doorbell to ring.
  */
+function prefillAsk(example) {
+  const input = $('ask-input');
+  input.value = example;
+  input.focus();
+  input.select();
+}
+
 function showSuggestions(listing = shownListing) {
   shownListing = listing;
   // As enabled as the field beside them: redrawing must not open what sign-in has not.
@@ -3002,7 +3092,8 @@ function showSuggestions(listing = shownListing) {
     const chip = el('button', 'chip', suggestion.label);
     chip.type = 'button';
     chip.disabled = !enabled;
-    chip.addEventListener('click', () => void handleUtterance(suggestion.utterance));
+    // An example to be changed (errands.js ERRAND_SUGGESTION) is put in the field, not sent.
+    chip.addEventListener('click', () => (suggestion.prefill ? prefillAsk(suggestion.utterance) : void handleUtterance(suggestion.utterance)));
     return chip;
   }));
 }

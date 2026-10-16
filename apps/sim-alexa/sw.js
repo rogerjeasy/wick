@@ -20,6 +20,9 @@ const WORDS = {
   reach_ring: 'You have been asked to ring.',
   // The same button, and "Just say hello".
   reach_hello: 'Someone at home says hello.',
+  // A visit the member arranged has an answer: the door rang around then, or nobody came. Which, and who, stays in Wick.
+  errand_rang: 'There is news about a visit you arranged.',
+  errand_no_show: 'There is news about a visit you arranged.',
 };
 const OTHER = 'Something is waiting for you in Wick.';
 /** Kinds that should stay on screen until someone looks: a person is waiting on the answer. A hello waits on nothing. */

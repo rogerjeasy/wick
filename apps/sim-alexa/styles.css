@@ -303,6 +303,16 @@ button, input, textarea { font: inherit; color: inherit; }
 .watch-screen[hidden] { display: none; }
 .watch-screen video { width: 100%; height: 100%; display: block; object-fit: contain; }
 .watch-status { margin: 0; font-weight: 600; }
+
+/* A visit the member arranged (errands.js): how it stands, and its steps. No red: a step that stopped is only quieter. */
+.errand-entry + .errand-entry { border-top: 1px solid var(--line); padding-top: var(--s-s); margin-top: var(--s-s); }
+.errand-who { margin: 0; font-weight: 600; }
+.errand-said { margin: var(--s-2xs) 0 var(--s-xs); }
+.errand-steps { list-style: none; margin: 0 0 var(--s-s); padding: 0; display: flex; flex-wrap: wrap; gap: var(--s-2xs) var(--s-s); font-size: var(--t-small); }
+.errand-step::before { content: '○ '; }
+.errand-step[data-state='done']::before { content: '● '; }
+.errand-step[data-state='skipped'], .errand-step[data-state='stopped'] { color: var(--ink-dim); }
+.errand-step[data-state='skipped']::before, .errand-step[data-state='stopped']::before { content: '– '; }
 .watch-question { display: flex; flex-direction: column; gap: var(--s-xs); }
 .watch-question[hidden] { display: none; }
 .watch-question p { margin: 0; }
