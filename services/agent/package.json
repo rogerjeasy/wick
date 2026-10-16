@@ -23,6 +23,7 @@
     "@wick/contracts": "*",
     "@wick/policy": "*",
     "@wick/ring": "*",
+    "bedrock-agentcore": "^0.4.5",
     "web-push": "^3.6.7",
     "werift": "^0.24.4"
   }

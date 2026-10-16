@@ -6,6 +6,9 @@
  *   door.action    Strands graph: gate → ring → notify (no model)        M1
  *   live.start     Strands graph: gate → start (no model)                M2
  *   live.stop      the resident pressed Back                             M2
+ *   assistant.turn Strands Agent (Sonnet 4.5 + Guardrail) on Wick's MCP     §6
+ *                  tools, with the member's own token; writes wait for
+ *                  their yes (agents/assistant/)
  *
  * One microVM per household session (invoke.ts). The live stream itself
  * runs in the bridge Lambda, not here: this microVM has no outbound UDP and
@@ -27,6 +30,8 @@ import { startLive } from '../live/startLive.js';
 import { cardStore, type DdbSend } from '../store/cards.js';
 import { devicesOfHousehold, ringDeviceOwners } from '../store/ringDevices.js';
 import { doorActionHandler, doorDescribeHandler, liveStartHandler, liveStopHandler } from './handlers.js';
+import { assistantTurnHandler } from '../agents/assistant/turn.js';
+import { assistantDepsFromEnv } from '../agents/assistant/fromEnv.js';
 import { createRuntimeServer } from './server.js';
 
 const env = (name: string, fallback?: string): string => {
@@ -51,6 +56,9 @@ const ringFor = ringClientsByHousehold();
 const cards = cardStore((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
 const ringDevices = ringDeviceOwners((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
 const live = liveSessions((cmd) => ddb.send(cmd as never) as ReturnType<LiveDdbSend>, TABLE);
+
+/** Made at the first turn, and kept: one model client and one memory client for the life of the microVM. */
+let assistantDeps: ReturnType<typeof assistantDepsFromEnv>;
 
 const server = createRuntimeServer({
   busy: () => false,
@@ -92,6 +100,12 @@ const server = createRuntimeServer({
     })),
 
     'live.stop': liveStopHandler(live.requestStop),
+
+    // The family assistant (agents/assistant/). Its settings are read per turn, so a
+    // runtime without them still serves the door; the turn then says it is not set up.
+    // Conversations are kept in this microVM until the AgentCore Memory session storage
+    // (packages/strands-agentcore-session) is handed in here as assistantDepsFromEnv's second argument.
+    'assistant.turn': assistantTurnHandler(() => (assistantDeps ??= assistantDepsFromEnv(process.env))),
   },
 });
 
