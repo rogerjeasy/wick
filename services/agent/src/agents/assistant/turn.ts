@@ -28,8 +28,13 @@
  * that every number in `say` is in `toolTexts`, the question, or today
  * (brain.ts checkReply). The model chooses the words and cannot add a fact.
  *
- * The member's token is used for one thing: the McpClient's Authorization
- * header, for this turn. It is not put in the agent's state, the prompt,
+ * Before anything is opened, the token is checked with the Wick server
+ * (verify.ts): its member and household must be the payload's, or the turn
+ * is refused without a session loaded, a model asked or a memory touched.
+ * The session and the memory are named from the verified identity only.
+ *
+ * The member's token is used for two things: asking the Wick server whose
+ * it is, and the McpClient's Authorization header, for this turn. It is not put in the agent's state, the prompt,
  * the saved session, a log line or the answer.
  */
 import {
@@ -53,6 +58,7 @@ import { ASSISTANT_AGENT_ID, assistantSessionId } from './identity.js';
 import { memoryManagerFor } from './memory.js';
 import { assistantPrompt, type Who } from './prompt.js';
 import type { SessionStorage } from './sessions.js';
+import type { VerifyMember } from './verify.js';
 
 export { DECLINED_TEXT } from './approval.js';
 
@@ -79,6 +85,8 @@ export interface AssistantTurnDeps {
   readonly model: Model;
   /** Wick's MCP endpoint (WICK_MCP_URL). */
   readonly mcpUrl: string;
+  /** Whose the token is, asked of the Wick server (verify.ts verifyWithWick). */
+  readonly verifyMember: VerifyMember;
   readonly sessions: SessionStorage;
   /** The member's long-term memory in this home; absent or undefined, nothing is remembered. */
   readonly memoryFor?: (householdId: string, memberId: string) => MemoryStore | undefined;
@@ -253,7 +261,30 @@ function closeTheTurn(agent: Agent, text: string): void {
 
 // --- The turn -----------------------------------------------------------------------
 
-export async function runAssistantTurn(request: AssistantTurnRequest, deps: AssistantTurnDeps): Promise<AssistantTurnOutput> {
+export interface Refused {
+  readonly error: 'unauthorized';
+}
+
+const UNAUTHORIZED: Refused = { error: 'unauthorized' };
+
+/**
+ * A turn, for the member the token belongs to. Refused — before a session,
+ * a model or a memory is touched — unless the Wick server says the token is
+ * the payload's member, in the payload's home.
+ */
+export async function runAssistantTurn(request: AssistantTurnRequest, deps: AssistantTurnDeps): Promise<AssistantTurnOutput | Refused> {
+  let verified;
+  try {
+    verified = await deps.verifyMember(request.memberToken);
+  } catch {
+    verified = undefined;
+  }
+  if (!verified || verified.householdId !== request.householdId || verified.memberId !== request.memberId) return UNAUTHORIZED;
+  // From here on, whose conversation and memory this is comes from the token alone.
+  return answer({ ...request, householdId: verified.householdId, memberId: verified.memberId }, deps);
+}
+
+async function answer(request: AssistantTurnRequest, deps: AssistantTurnDeps): Promise<AssistantTurnOutput> {
   const timeoutMs = deps.limits?.timeoutMs ?? TURN_TIMEOUT_MS;
   const timeZone = request.timeZone ?? deps.timeZone ?? 'Europe/London';
   const sessionManager = new SessionManager({ sessionId: assistantSessionId(request.householdId, request.memberId), storage: deps.sessions });

@@ -1,7 +1,9 @@
 /**
  * A small Wick MCP server, in this process, over real Streamable HTTP: the
  * agent's McpClient talks MCP to it exactly as it talks to the deployed
- * server. It answers only a request carrying the expected bearer token, and
+ * server, and the agent asks its GET /api/me who a token belongs to, as it
+ * asks the deployed one. It answers only a request carrying the expected
+ * bearer token, and
  * records every Authorization header it was sent and every tool call. Test
  * only: lives under __tests__ and never ships.
  */
@@ -33,7 +35,13 @@ async function bodyOf(req: IncomingMessage): Promise<unknown> {
   return raw ? JSON.parse(raw) : undefined;
 }
 
-export async function startWickMcp(token: string): Promise<WickMcp> {
+/** Whose the token is, as the Wick server's GET /api/me says it. */
+export interface TokenOwner {
+  readonly householdId: string;
+  readonly userId: string;
+}
+
+export async function startWickMcp(token: string, owner: TokenOwner): Promise<WickMcp> {
   const authorizations: string[] = [];
   const calls: { name: string; args: Record<string, unknown> }[] = [];
 
@@ -87,6 +95,14 @@ export async function startWickMcp(token: string): Promise<WickMcp> {
     authorizations.push(String(req.headers.authorization ?? ''));
     if (req.headers.authorization !== `Bearer ${token}`) {
       res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'invalid_token' }));
+      return;
+    }
+    if (req.method === 'GET' && req.url === '/api/me') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        user: { userId: owner.userId, name: 'Sarah', email: 'sarah@example.com', guest: false },
+        household: { householdId: owner.householdId, name: 'Mum’s house', residentName: 'Margaret' },
+        membership: { role: 'organiser', status: 'allowed' },
+      }));
       return;
     }
     // Stateless, as the deployed server is: a server and a transport for each request.

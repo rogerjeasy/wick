@@ -1,7 +1,8 @@
 /**
  * The assistant's parts, as the deployment names them (infra/agentcore.tf):
  *
- *   WICK_MCP_URL              Wick's MCP endpoint. Unset, there is no turn.
+ *   WICK_MCP_URL              Wick's MCP endpoint, and its GET /api/me, where
+ *                             each token is checked. Unset, there is no turn.
  *   ASSISTANT_MODEL_ID        the model (the stand-in's own Sonnet 4.5 unless set)
  *   AGENTS_GUARDRAIL_ID       the Bedrock Guardrail (infra/guardrail.tf) and its
  *   AGENTS_GUARDRAIL_VERSION  published version: both, or no guardrail config
@@ -18,6 +19,7 @@ import { BedrockModel } from '@strands-agents/sdk';
 import { memberMemoryStore } from './memory.js';
 import { sessionStorageFor, type AgentCoreSessionStorageFactory } from './sessions.js';
 import type { AssistantTurnDeps } from './turn.js';
+import { verifyWithWick } from './verify.js';
 
 /** The model the stand-in assistant asks (services/mcp-server/src/assistant/bedrock.ts) and the Narrator writes with. */
 export const DEFAULT_ASSISTANT_MODEL_ID = 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
@@ -50,6 +52,8 @@ export function assistantDepsFromEnv(env: Env, agentCoreSessions?: AgentCoreSess
   return {
     model,
     mcpUrl,
+    // Whose a token is, asked of the same Wick server: the payload's ids are only a claim.
+    verifyMember: verifyWithWick(mcpUrl),
     sessions: sessionStorageFor(env, agentCoreSessions),
     now: Date.now,
     ...(env.WICK_HOUSEHOLD_TZ ? { timeZone: env.WICK_HOUSEHOLD_TZ } : {}),

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MemoryStore, MessageData, SnapshotStorage } from '@strands-agents/sdk';
 import { assistantSessionId } from '../identity.js';
 import { inMemorySnapshotStorage } from '../sessions.js';
+import { verifyWithWick } from '../verify.js';
 import {
   DECLINED_TEXT,
   NOTHING_WAITING_TEXT,
@@ -29,7 +30,7 @@ let storage: SnapshotStorage;
 const logged: string[] = [];
 
 beforeEach(async () => {
-  mcp = await startWickMcp(TOKEN);
+  mcp = await startWickMcp(TOKEN, { householdId: HH, userId: MEMBER });
   storage = inMemorySnapshotStorage();
   logged.length = 0;
   for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) {
@@ -50,13 +51,14 @@ const answer = (approved: AssistantTurnRequest['resume'] extends infer R ? (R ex
 });
 
 function deps(model: ScriptedToolModel, more: Partial<AssistantTurnDeps> = {}): AssistantTurnDeps {
-  return { model, mcpUrl: mcp.url, sessions: { snapshot: storage }, now: () => NOW, ...more };
+  return { model, mcpUrl: mcp.url, verifyMember: verifyWithWick(mcp.url), sessions: { snapshot: storage }, now: () => NOW, ...more };
 }
 
 /** One question to a fresh agent, as each invocation of the runtime is. */
 const turn = (request: AssistantTurnRequest, script: Step[], more: Partial<AssistantTurnDeps> = {}) => {
   const model = new ScriptedToolModel(script);
-  return { model, out: runAssistantTurn(request, deps(model, more)) };
+  // A refusal is asserted with toEqual; every other test reads the turn's output.
+  return { model, out: runAssistantTurn(request, deps(model, more)) as Promise<AssistantTurnOutput> };
 };
 
 const savedSession = async (): Promise<string> =>
@@ -242,9 +244,70 @@ describe('the conversation, kept between questions', () => {
     await turn(ask('Our plumber is Dave'), [{ say: 'Noted.' }]).out;
 
     const model = new ScriptedToolModel([{ say: 'Hello.' }]);
-    await runAssistantTurn({ ...ask('Hello'), memberId: 'usr-tom' }, deps(model));
+    // Tom's own token, verified as Tom's.
+    await runAssistantTurn({ ...ask('Hello'), memberId: 'usr-tom' }, deps(model, { verifyMember: async () => ({ householdId: HH, memberId: 'usr-tom' }) }));
 
     expect(JSON.stringify(model.seen[0]!.messages)).not.toContain('Dave');
+  });
+});
+
+describe('whose conversation it is comes from the token, never from the payload', () => {
+  /** The storage, watched: what a refused turn must never read. */
+  function watched() {
+    const loads: string[] = [];
+    const saves: string[] = [];
+    const watchedStorage: SnapshotStorage = {
+      ...storage,
+      loadSnapshot: async (params) => { loads.push(params.location.sessionId); return storage.loadSnapshot(params); },
+      saveSnapshot: async (params) => { saves.push(params.location.sessionId); return storage.saveSnapshot(params); },
+    };
+    return { loads, saves, sessions: { snapshot: watchedStorage } };
+  }
+
+  it('restores the member’s own session when the token is theirs', async () => {
+    await turn(ask('Our plumber is Dave'), [{ say: 'Noted.' }]).out;
+    const w = watched();
+
+    const { model, out } = turn(ask('Who is our plumber?'), [{ say: 'Dave.' }], { sessions: w.sessions });
+    await out;
+
+    expect(w.loads).toEqual([assistantSessionId(HH, MEMBER)]);
+    expect(JSON.stringify(model.seen[0]!.messages)).toContain('Dave');
+  });
+
+  it('refuses ids that are not the token’s: another member’s session is never loaded, no model is asked, nothing is remembered', async () => {
+    // Tom's conversation, saved earlier.
+    await runAssistantTurn({ ...ask('My plumber is Dave'), memberId: 'usr-tom' }, deps(new ScriptedToolModel([{ say: 'Noted.' }]), { verifyMember: async () => ({ householdId: HH, memberId: 'usr-tom' }) }));
+    const w = watched();
+    const memoryFor = vi.fn(() => undefined);
+
+    // Sarah's token, Tom's ids.
+    const { model, out } = turn({ ...ask('Who is my plumber?'), memberId: 'usr-tom' }, [{ say: 'Dave.' }], { sessions: w.sessions, memoryFor });
+    const another = await turn({ ...ask('Hello'), householdId: 'hh_other' }, [{ say: 'Hi.' }], { sessions: w.sessions, memoryFor }).out;
+
+    expect(await out).toEqual({ error: 'unauthorized' });
+    expect(another).toEqual({ error: 'unauthorized' });
+    expect(w.loads).toEqual([]);
+    expect(w.saves).toEqual([]);
+    expect(model.seen).toEqual([]);
+    expect(memoryFor).not.toHaveBeenCalled();
+    expect(mcp.calls).toEqual([]);
+  });
+
+  it('refuses a token the Wick server does not accept, and a check that cannot be made, the same way', async () => {
+    const w = watched();
+    const memoryFor = vi.fn(() => undefined);
+
+    const forged = turn({ ...ask('Hello'), memberToken: 'not-a-token' }, [{ say: 'Hi.' }], { sessions: w.sessions, memoryFor });
+    const unreachable = turn(ask('Hello'), [{ say: 'Hi.' }], { sessions: w.sessions, memoryFor, verifyMember: verifyWithWick('http://127.0.0.1:1/mcp') });
+    const throwing = turn(ask('Hello'), [{ say: 'Hi.' }], { sessions: w.sessions, memoryFor, verifyMember: async () => { throw new Error('boom'); } });
+
+    expect(await forged.out).toEqual({ error: 'unauthorized' });
+    expect(await unreachable.out).toEqual({ error: 'unauthorized' });
+    expect(await throwing.out).toEqual({ error: 'unauthorized' });
+    expect(w.loads).toEqual([]);
+    expect([forged.model, unreachable.model, throwing.model].every((m) => m.seen.length === 0)).toBe(true);
+    expect(memoryFor).not.toHaveBeenCalled();
   });
 });
 
@@ -254,6 +317,7 @@ describe('the member’s token goes to Wick’s server and nowhere else', () => 
     const afterInterrupt = await savedSession();
     const second = await turn(answer(true), [{ call: [{ name: 'get_today' }] }, { say: 'Sent.' }]).out;
 
+    await turn({ ...ask('Hello'), memberId: 'usr-tom' }, []).out;
     for (const kept of [afterInterrupt, await savedSession(), JSON.stringify(first), JSON.stringify(second), ...logged]) {
       expect(kept).not.toContain(TOKEN);
     }
@@ -352,6 +416,14 @@ describe('assistantTurnHandler — the runtime kind "assistant.turn"', () => {
     const out = (await handler(payload, { sessionId: assistantSessionId(HH, MEMBER) })) as AssistantTurnOutput;
 
     expect(out.say).toBe('Hello Sarah.');
+  });
+
+  it('refuses a turn whose token is not the payload’s member', async () => {
+    const model = new ScriptedToolModel([{ say: 'Hello.' }]);
+    const handler = assistantTurnHandler(() => deps(model));
+
+    expect(await handler({ ...payload, memberId: 'usr-tom' }, { sessionId: assistantSessionId(HH, 'usr-tom') })).toEqual({ error: 'unauthorized' });
+    expect(model.seen).toEqual([]);
   });
 
   it('refuses a turn sent to another member’s runtime session', async () => {
