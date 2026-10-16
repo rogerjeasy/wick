@@ -61,7 +61,7 @@ export function createAuth(
   /**
    * §7.3 requires 401 with NO WWW-Authenticate header when unauthenticated.
    * Omitting `resourceMetadataUrl` only drops the header's
-   * `resource_metadata` attribute in the installed SDK (1.30.0) —
+   * `resource_metadata` attribute in the installed SDK (1.32.1) —
    * `requireBearerAuth` still unconditionally sets the header on every
    * 401/403 (verified in node_modules/@modelcontextprotocol/sdk
    * .../middleware/bearerAuth.js). So the header is stripped here at the

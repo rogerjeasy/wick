@@ -328,7 +328,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   //
   // The SDK's stateless mode (`sessionIdGenerator: undefined`): one transport
   // and one McpServer per request, each closed when the response is — its
-  // own reference, installed SDK 1.30.0:
+  // own reference, installed SDK 1.32.1:
   // node_modules/@modelcontextprotocol/sdk/dist/esm/examples/server/simpleStatelessStreamableHttp.js.
   // A transport in this mode does not ask for `initialize` first and ignores
   // any `Mcp-Session-Id` a client still sends from before.
@@ -368,7 +368,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
       // `X | undefined` even though Transport declares them as optional `X` — under this
       // repo's `exactOptionalPropertyTypes`, those aren't the same type. The class does
       // structurally implement Transport (verified against the SDK's own `implements
-      // Transport` on this class, installed SDK 1.30.0); the cast just routes around the
+      // Transport` on this class, installed SDK 1.32.1); the cast just routes around the
       // accessor-vs-optional-property mismatch.
       await mcpServer.connect(transport as unknown as Transport);
       await transport.handleRequest(req, res, req.body);
