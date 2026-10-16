@@ -63,23 +63,36 @@ PY
 [ -n "$HMAC_KEY_RING" ] || { echo "HMAC_KEY_RING is not set in .env" >&2; exit 1; }
 export HMAC_KEY_RING
 
+# Ring's v1.1 envelope (developer.amazon.com/docs/ring/api-documentation.html,
+# "Webhook v1.1 Payload Structure"). Sent now — meta.time is inside the
+# webhook's five-minute window — about a sighting `minutes ago` before it.
 BODY=$(python3 -c "
-import json,sys,time
-body = {
-  'request_id': 'visit-%s-%d' % (sys.argv[1], int(time.time()*1000)),
-  'event_type': sys.argv[2],
-  'device_id': sys.argv[4],
-  'occurred_at': int(time.time()*1000) - int(sys.argv[5]) * 60000,
-}
-if sys.argv[3]: body['sub_type'] = sys.argv[3]
-print(json.dumps(body))" "$KIND" "$EVENT_TYPE" "$SUB_TYPE" "$DEVICE_ID" "$AGO_MIN")
+import json,sys,time,datetime
+now = int(time.time()*1000)
+seen = now - int(sys.argv[5]) * 60000
+attributes = {'source': sys.argv[4], 'source_type': 'devices', 'timestamp': seen}
+if sys.argv[3]: attributes['sub_type'] = sys.argv[3]
+print(json.dumps({
+  'meta': {
+    'version': '1.1',
+    'time': datetime.datetime.fromtimestamp(now/1000, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+    'request_id': 'visit-%s-%d' % (sys.argv[1], now),
+    'account_id': 'ava1.ring.account.wick-test',
+  },
+  'data': {
+    'id': '%s_%s_%d' % (sys.argv[4], sys.argv[2], seen),
+    'type': sys.argv[2],
+    'attributes': attributes,
+    'relationships': {'devices': {'links': {'self': '/v1/devices/%s' % sys.argv[4]}}},
+  },
+}))" "$KIND" "$EVENT_TYPE" "$SUB_TYPE" "$DEVICE_ID" "$AGO_MIN")
 
 SIG=$(python3 -c "
 import hmac,hashlib,os,sys
-print(hmac.new(os.environ['HMAC_KEY_RING'].encode(), sys.argv[1].encode(), hashlib.sha256).hexdigest())
+print('sha256=' + hmac.new(os.environ['HMAC_KEY_RING'].encode(), sys.argv[1].encode(), hashlib.sha256).hexdigest())
 " "$BODY")
 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$BASE" \
-        -H 'Content-Type: application/json' -H "X-Ring-Signature: $SIG" -d "$BODY")
+        -H 'Content-Type: application/json' -H "X-Signature: $SIG" -d "$BODY")
 echo "$KIND, $AGO_MIN minutes ago ($EVENT_TYPE${SUB_TYPE:+ / $SUB_TYPE}) -> $code"
 [ "$code" = "200" ] || exit 1
