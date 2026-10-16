@@ -1,9 +1,10 @@
 /**
  * Ring webhook detail -> the shape handleDoorEvent needs.
  *
- * webhook.mjs puts `{ ...payload, correlationId, receivedAt }` onto the
- * `wick` bus as the EventBridge detail, where `payload` is Ring's raw
- * webhook body (Appendix B): `request_id`, `event_type`, `sub_type`,
+ * The webhook (edge-ring webhook-receiver.mjs `readRingEvent`) reads Ring's
+ * v1.1 envelope (`meta.request_id`, `data.type`, `data.attributes.{source,
+ * timestamp, sub_type}`) into a flat detail and puts it, with `correlationId`
+ * and `receivedAt`, on the `wick` bus: `request_id`, `event_type`, `sub_type`,
  * `device_id`, `occurred_at`. This module turns that into a RingHistoryEvent
  * and decides whether it is worth a card at all.
  *
