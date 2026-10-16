@@ -87,24 +87,34 @@ removed from the design (2026-10-02).
                         faithful paraphrases of a week's facts scored 0.68 to 0.97 ("It was a quiet
                         week" 0.73); every sentence adding something the facts did not say scored
                         0.0.
+                     5. With grounding at 0.5, the assistant's honest answers were still refused,
+                        by the relevance filter (0.5). It scored "Someone came to the front door
+                        six times this week. Maria visited twice." 0.09 against "How has my mum
+                        been this week?", other faithful answers 0.07 to 0.15, and factual
+                        suggestion reasons ("Maria visited twice this week, as usual.") 0.01. A
+                        reason that did score as relevant ("a note would add to a quiet week")
+                        was not grounded (0.04 to 0.42), so the two filters together refused
+                        nearly every reason.
 
 **Expected:**        A switch to guard the model's output only, and a documented sense of what a
-                     grounding score looks like for a faithful paraphrase.
+                     grounding score, or a relevance score, looks like for a faithful paraphrase.
 
 **Actual:**          A Guardrail on Converse always reads the input; the documentation suggests 0.7
                      to 0.8 as a starting threshold without saying that ordinary paraphrase scores
-                     below it.
+                     below it. Relevance reads an answer that declines the premise of a question
+                     (what the house saw, not how she feels) as irrelevant.
 
 **Severity:**        Important
 
 **Workaround:**      The model has no guardrail; `ApplyGuardrail` reads each agent's reply only,
                      grounded in the tools' texts or the week's facts. Grounding at 0.5, which
-                     separates the measured cases cleanly. A new published version whenever the
-                     guardrail changes.
+                     separates the measured cases cleanly, and no relevance filter. A new
+                     published version whenever the guardrail changes.
 
 **Suggestion:**      An `outputOnly` option on Converse's guardrail config, and a table in the
                      contextual-grounding guide of example scores for faithful paraphrase,
-                     summarisation and invented facts.
+                     summarisation and invented facts, and the same for relevance when an answer
+                     honestly narrows the question.
 
 ---
 

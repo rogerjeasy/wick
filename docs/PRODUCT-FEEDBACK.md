@@ -270,8 +270,10 @@ the stand-in doorbell's pictures of nobody real.
   there is no switch to read the answer only: our "guessing her mood" topic
   refused "How has my mum been this week?". We guard each agent's reply with
   `ApplyGuardrail` instead. And the grounding threshold had to be measured:
-  faithful paraphrase scored 0.68 to 0.97, invented facts 0.0, so 0.75 refused
-  honest prose (FL-048).
+  faithful paraphrase scored 0.68 to 1.00, invented facts 0.00 to 0.04, so 0.75
+  refused honest prose. The relevance filter scored honest answers 0.07 to 0.15:
+  "what the house saw" reads as not answering "how has she been", so we turned
+  it off (FL-048).
 - A Guardrail's denied topics and the grounding check are configured together
   but fail with one undifferentiated "intervened"; we read the assessment to
   tell a refused topic from an ungrounded sentence. A summary reason would help.
