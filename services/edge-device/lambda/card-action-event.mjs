@@ -54,3 +54,19 @@ export function buildCardRetiredEntry({ busName, householdId, deviceId, cardId, 
     Detail: JSON.stringify({ householdId, deviceId, cardId, at }),
   };
 }
+
+/**
+ * Her first press of OK on a week card: residentSeenAt is set, and the week
+ * can now be read by the family (INV-7). The agent plane is told, so the
+ * family is nudged that it is there (services/agent brief/weekReady.ts) —
+ * only the agent plane may reach their browsers. The household, the week
+ * and when: nothing of what she read.
+ */
+export function buildWeekSeenEntry({ busName, householdId, isoWeek, at }) {
+  return {
+    EventBusName: busName,
+    Source: 'wick.device',
+    DetailType: 'week.seen',
+    Detail: JSON.stringify({ householdId, isoWeek, at }),
+  };
+}

@@ -40,7 +40,9 @@
  * near-simultaneous double press racing this is harmless — first write
  * wins with a timestamp a few milliseconds apart from the second, and
  * "not already set" is still checked so the resident's actual first
- * viewing is never overwritten by a later stray press.
+ * viewing is never overwritten by a later stray press. The press that does
+ * set it also puts `wick.device` / `week.seen` on the bus, so the family is
+ * nudged that the week is there to read (week_ready).
  *
  * Trust promise 2: `sharing` on a Week card opens "What Sarah sees", and the
  * sharing card's own presses change the resident's exclusions and turn its
@@ -119,7 +121,7 @@ import { finishedAmong, finishedSince, isReplayable, markCardActed, markCardShow
 import { deviceBindingKey, isServed } from './device-standing.mjs';
 import { refusesUnproven } from './proof.mjs';
 import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
-import { announcesRetirement, buildCardActionEntry, buildCardRetiredEntry, shouldPublish } from './card-action-event.mjs';
+import { announcesRetirement, buildCardActionEntry, buildCardRetiredEntry, buildWeekSeenEntry, shouldPublish } from './card-action-event.mjs';
 import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
 import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate, watchPress } from './watch-together.mjs';
 import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
@@ -202,17 +204,20 @@ async function recordTvActivity(householdId, deviceId, measureName, at) {
   }
 }
 
-/** INV-7. See this file's header comment for why it's read-check-write, not a condition. */
+/**
+ * INV-7. See this file's header comment for why it's read-check-write, not a condition.
+ * True when this press is the one that made the week readable.
+ */
 async function markNarrativeSeen(householdId, isoWeek, seenAt) {
   const res = await ddb.send(new GetItemCommand({
     TableName: TABLE,
     Key: { pk: { S: `HH#${householdId}` }, sk: { S: `NARR#${isoWeek}` } },
   }));
   const raw = res.Item?.data?.S;
-  if (!raw) return; // no narrative stored for this week — nothing to mark
+  if (!raw) return false; // no narrative stored for this week — nothing to mark
 
   const narrative = JSON.parse(raw);
-  if (narrative.residentSeenAt !== undefined) return; // first viewing is authoritative
+  if (narrative.residentSeenAt !== undefined) return false; // first viewing is authoritative
 
   narrative.residentSeenAt = seenAt;
   await ddb.send(new PutItemCommand({
@@ -223,6 +228,21 @@ async function markNarrativeSeen(householdId, isoWeek, seenAt) {
       data: { S: JSON.stringify(narrative) },
     },
   }));
+  return true;
+}
+
+/**
+ * The week is the family's to read now (buildWeekSeenEntry). Logged, never
+ * thrown: the week is already readable, and a nudge is a courtesy — the
+ * family app finds the week when it next asks either way.
+ */
+async function publishWeekSeen(detail) {
+  try {
+    const res = await events.send(new PutEventsCommand({ Entries: [buildWeekSeenEntry({ busName: BUS, ...detail })] }));
+    if (res.FailedEntryCount) console.error('week_seen_publish_rejected', { isoWeek: detail.isoWeek, code: res.Entries?.[0]?.ErrorCode });
+  } catch (err) {
+    console.error('week_seen_publish_failed', { isoWeek: detail.isoWeek, err: err?.name });
+  }
 }
 
 /**
@@ -359,7 +379,10 @@ export async function handleDeviceEvent({ householdId, deviceId, unproven = fals
 
     if (deviceEvent.t === 'card_action' && deviceEvent.action === 'seen') {
       const weekMatch = WEEK_CARD_ID.exec(deviceEvent.cardId);
-      if (weekMatch) await markNarrativeSeen(householdId, weekMatch[1], deviceEvent.at);
+      // The first reading only: the week has just become the family's to read, and they are told so once.
+      if (weekMatch && (await markNarrativeSeen(householdId, weekMatch[1], deviceEvent.at))) {
+        await publishWeekSeen({ householdId, isoWeek: weekMatch[1], at: deviceEvent.at });
+      }
     }
   } else if (deviceEvent.t === 'watch_position') {
     await recordWatchPosition({ sendCard, householdId, deviceEvent });

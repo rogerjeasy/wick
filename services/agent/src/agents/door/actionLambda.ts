@@ -14,6 +14,7 @@
  *   card.retired               → egress.ts, here: the home's other televisions put the card away
  *   home.changed               → egress.ts, here: the home's other televisions are told how the home screen stands
  *     … languageChangedTo      → egress.ts, here: the cards she has not answered are put into the language she has just chosen
+ *   week.seen                  → brief/weekReady.ts, here: she has read her week → the family is nudged that it is there
  *   reach.due                  → reach/due.ts, here: three minutes on and no answer → the next person is asked
  *                                (not from the bus: the one-time schedule reach/timer.ts set calls this function)
  *
@@ -49,6 +50,10 @@ import { isSharedWithFamily, loadHouseholdPolicy } from '../../store/household.j
 import { buildTellCard } from '../tell/ask.js';
 import { familyToAsk } from './index.js';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
+import { tellWeekReady, type WeekReadyResult } from '../brief/weekReady.js';
+
+/** The edge's event when she first reads her week (edge-device card-action-event.mjs buildWeekSeenEntry). */
+export const WEEK_SEEN = 'week.seen';
 
 type Invoke = (kind: string, householdId: string, payload: Record<string, unknown>) => Promise<unknown>;
 
@@ -85,6 +90,8 @@ export interface CardActionRoutes {
   readonly visitAnswer: (detail: Record<string, unknown>) => Promise<VisitAnswerResult>;
   /** Puts any visit that is ready to the resident (visit/ask.ts). Answers with the visits asked about. */
   readonly askVisits: (householdId: string) => Promise<readonly string[]>;
+  /** She has read her week: the family is told it is there to read (brief/weekReady.ts). Absent, nobody is told. */
+  readonly weekSeen?: (detail: Record<string, unknown>) => Promise<WeekReadyResult>;
 }
 
 /** How long after her press a change of language is still acted on. */
@@ -148,6 +155,8 @@ export async function routeCardAction(evt: DeviceBusEvent, routes: CardActionRou
       return { result: 'home_told' };
     }
   }
+  // Her first press of OK on the week card (edge device-event.mjs): a reading, never a press to carry out.
+  if (evt['detail-type'] === WEEK_SEEN) return { result: routes.weekSeen ? await routes.weekSeen(evt.detail) : 'ignored' };
   // A timer, and so never a press — whatever else it may carry.
   if (evt['detail-type'] === REACH_DUE) return { result: await routes.reachDue(evt.detail) };
   if (evt.detail.action === DOOR_ACTIONS.askFamily) return { result: await routes.askFamily(evt.detail) };
@@ -313,6 +322,11 @@ export const handler = async (evt: DeviceBusEvent): Promise<void> => {
     reachDue,
     visitAnswer,
     askVisits,
+    weekSeen: (detail) => tellWeekReady(detail, {
+      listFamily: (householdId) => looks().listFamily(householdId),
+      weekShared: async (householdId) => isSharedWithFamily('RHYTHM', await loadHouseholdPolicy(ddb, TABLE, householdId)),
+      nudge: async (userIds, kind) => void (await nudgeFamily(userIds, kind)),
+    }),
   });
   // Ids and the outcome only — never card content.
   console.log(JSON.stringify({ level: 'info', msg: 'card_action_handled', cardId: evt.detail.cardId, action: evt.detail.action, out }));

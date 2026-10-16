@@ -20,6 +20,8 @@ const WORDS = {
   reach_ring: 'You have been asked to ring.',
   // The same button, and "Just say hello".
   reach_hello: 'Someone at home says hello.',
+  // She has read her week on her television, so the family may now (INV-7). Not what it says.
+  week_ready: 'The week is ready for you to read.',
 };
 const OTHER = 'Something is waiting for you in Wick.';
 /** Kinds that should stay on screen until someone looks: a person is waiting on the answer. A hello waits on nothing. */
