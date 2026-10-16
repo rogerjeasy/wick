@@ -62,13 +62,13 @@ var WickTv = (() => {
 
   // packages/contracts/src/demoDoor.ts
   var DEMO_DOOR_PICTURES_URL = "https://rogerjeasy.github.io/wick/demo-door/";
-  var visitor = (key, label, eventType) => ({
+  var visitor = (key, label, eventType, picture = `${key}.jpg`) => ({
     key,
     label,
     eventType,
     ...eventType === "motion_detected" ? { subType: "human" } : {},
-    picture: `${key}.jpg`,
-    pictureUrl: `${DEMO_DOOR_PICTURES_URL}${key}.jpg`
+    picture,
+    pictureUrl: `${DEMO_DOOR_PICTURES_URL}${picture}`
   });
   var VISITORS = {
     // The demo home's regular visitor (accounts/demoHome.ts DEMO_VISITOR). The door matches her only inside her usual time.
@@ -76,7 +76,11 @@ var WickTv = (() => {
     parcel: visitor("parcel", "A parcel delivery", "button_press"),
     stranger: visitor("stranger", "Somebody she does not know", "button_press"),
     // Ring saw a person move, and the picture shows nobody: the card's headline is corrected (door/index.ts).
-    nobody: visitor("nobody", "Nobody there, only movement", "motion_detected")
+    nobody: visitor("nobody", "Nobody there, only movement", "motion_detected"),
+    // Whoever a member arranged to come (errand.ts arrange_visit), ringing now: arrange one a few minutes ahead and
+    // ring this, and the door matches them by the time as it would anyone expected. Somebody at the door with
+    // something for the house: the delivery's picture, made already, and described by the vision step as it is.
+    arranged: visitor("arranged", "The visitor you arranged", "button_press", "parcel.jpg")
   };
 
   // packages/contracts/src/live.ts
@@ -165,20 +169,6 @@ var WickTv = (() => {
   var HEAR_BYTES_PER_SAMPLE = 2;
   var HEAR_MAX_MS = 1e4;
   var MAX_HEAR_BYTES = HEAR_MAX_MS / 1e3 * HEAR_SAMPLE_RATE * HEAR_BYTES_PER_SAMPLE + HEAR_SAMPLE_RATE * HEAR_BYTES_PER_SAMPLE / 4;
-
-  // packages/contracts/src/errand.ts
-  var ERRAND_LIMITS = {
-    /** Open errands one household may have at once. */
-    maxOpenPerHousehold: 10,
-    /** "the plumber", "the window cleaner", "Dave from the council". */
-    whoMaxChars: 40,
-    /** A ring this many minutes either side of the time still counts (expect_visit's window). */
-    windowMinutes: 60,
-    /** Soon enough for a judge to watch one run end to end. */
-    minLeadMs: 2 * 6e4,
-    /** Beyond this a visit is a hope, not a plan (expect_visit's limit). */
-    maxLeadMs: 60 * 24 * 36e5
-  };
 
   // packages/contracts/src/phrasebook/engine.ts
   var FIELD_LIMIT = 240;
@@ -656,6 +646,20 @@ var WickTv = (() => {
     }
   };
   var SPANISH = compile(Object.values(ES_CATALOGUE).flat(), spanishWords);
+
+  // packages/contracts/src/errand.ts
+  var ERRAND_LIMITS = {
+    /** Open errands one household may have at once. */
+    maxOpenPerHousehold: 10,
+    /** "the plumber", "the window cleaner", "Dave from the council". */
+    whoMaxChars: 40,
+    /** A ring this many minutes either side of the time still counts (expect_visit's window). */
+    windowMinutes: 60,
+    /** Soon enough for a judge to watch one run end to end. */
+    minLeadMs: 2 * 6e4,
+    /** Beyond this a visit is a hope, not a plan (expect_visit's limit). */
+    maxLeadMs: 60 * 24 * 36e5
+  };
 
   // apps/tv-vega/src/break/types.ts
   var CALM_POINT_WINDOW_MS = 8e3;

@@ -9,22 +9,6 @@
  * __tests__/phrasebookCoverage.test.ts holds this file to it, byte for byte.
  */
 
-// packages/contracts/src/errand.ts
-var ERRAND_LIMITS = {
-  /** Open errands one household may have at once. */
-  maxOpenPerHousehold: 10,
-  /** "the plumber", "the window cleaner", "Dave from the council". */
-  whoMaxChars: 40,
-  /** A ring this many minutes either side of the time still counts (expect_visit's window). */
-  windowMinutes: 60,
-  /** Soon enough for a judge to watch one run end to end. */
-  minLeadMs: 2 * 6e4,
-  /** Beyond this a visit is a hope, not a plan (expect_visit's limit). */
-  maxLeadMs: 60 * 24 * 36e5
-};
-var ERRAND_REMINDER_CARD_PREFIX = "note-errand-";
-var isErrandReminderCardId = (cardId) => typeof cardId === "string" && cardId.startsWith(ERRAND_REMINDER_CARD_PREFIX);
-
 // packages/contracts/src/phrasebook/engine.ts
 var FIELD_LIMIT = 240;
 var MAX_ENGLISH_CHARS = 2e3;
@@ -508,7 +492,8 @@ var WAVE_CARD_PREFIX = "note-wave-";
 var HEADLINE_CARDS = ["SHARING", "CIRCLE", "TELL", "WATCH", "LIGHT", "REACH", "VISIT"];
 var isFields = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var isText = (value) => typeof value === "string" && value !== "";
-var isWicksOwnNote = (card) => card.type === "MESSAGE" && typeof card.id === "string" && (card.id.startsWith(WAVE_CARD_PREFIX) || isErrandReminderCardId(card.id));
+var ERRAND_REMINDER_CARD_PREFIX = "note-errand-";
+var isWicksOwnNote = (card) => card.type === "MESSAGE" && typeof card.id === "string" && (card.id.startsWith(WAVE_CARD_PREFIX) || card.id.startsWith(ERRAND_REMINDER_CARD_PREFIX));
 function sayIn(language, english) {
   const book = Object.prototype.hasOwnProperty.call(BOOKS, language) ? BOOKS[language] : void 0;
   return book?.say(english);

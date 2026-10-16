@@ -16,7 +16,6 @@
  * phrasebook.generated.mjs from this directory; a test holds it to it).
  */
 import type { Card, CardPatch } from '../card.js';
-import { isErrandReminderCardId } from '../errand.js';
 import type { OtherLanguage } from '../language.js';
 import type { HomeState } from '../light.js';
 import type { Phrasebook } from './engine.js';
@@ -49,10 +48,15 @@ const isText = (value: unknown): value is string => typeof value === 'string' &&
 /**
  * The same for her reminder of a visit the family arranged (errand.ts
  * ERRAND_REMINDER_CARD_PREFIX, services/agent agents/errand/reminder.ts):
- * a note from them, in Wick's own sentence.
+ * a note from them, in Wick's own sentence. Spelt here, not imported, so the
+ * edge's generated copy of this directory stays this directory alone; the
+ * agent's coverage test builds the reminder with errand.ts's own id and
+ * fails if its sentence is not translated.
  */
+const ERRAND_REMINDER_CARD_PREFIX = 'note-errand-';
+
 const isWicksOwnNote = (card: Fields): boolean =>
-  card.type === 'MESSAGE' && typeof card.id === 'string' && (card.id.startsWith(WAVE_CARD_PREFIX) || isErrandReminderCardId(card.id));
+  card.type === 'MESSAGE' && typeof card.id === 'string' && (card.id.startsWith(WAVE_CARD_PREFIX) || card.id.startsWith(ERRAND_REMINDER_CARD_PREFIX));
 
 /** One of Wick's own sentences in her language — or undefined when the phrasebook does not hold it. */
 export function sayIn(language: OtherLanguage, english: string): string | undefined {
