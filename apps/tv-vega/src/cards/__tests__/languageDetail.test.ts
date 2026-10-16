@@ -2,12 +2,9 @@
  * The question about her language is asked in both languages at once, so
  * its detail is the longest a card carries — up to 240 characters — and
  * all of it has to be read: the half that is cut off may be the half she
- * can read. LanguageCard.tsx itself has no test (it is a view, like the
- * others); what it is drawn with is decided in languageDetail.ts and held
- * here.
+ * can read. What it is drawn with is decided in languageDetail.ts and held
+ * here; CardRenderer.test.tsx draws LanguageCard.tsx with it.
  */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { LANGUAGES, MAX_CARD_DETAIL_CHARS, languageQuestion, type HouseholdLanguage } from '@wick/contracts';
 // By path: the package's index brings the components in, and with them the platform.
@@ -102,11 +99,5 @@ describe('the question about her language — all of it on the screen', () => {
     for (const language of LANGUAGES) {
       expect(languageQuestion(language, 'Sarah').headline.length).toBeLessThanOrEqual(headlineCharsPerLine(true));
     }
-  });
-
-  it('is drawn by its view with exactly those two things, the server’s words, and its two buttons as they came', () => {
-    const view = readFileSync(fileURLToPath(new URL('../LanguageCard.tsx', import.meta.url)), 'utf8');
-
-    expect(view).toMatch(/<CalmCard\s+headline=\{card\.headline\}\s+detail=\{card\.detail\}\s+actions=\{card\.actions\}\s+onAction=\{onAction\}\s+compact=\{LANGUAGE_CARD_COMPACT\}\s+detailLines=\{LANGUAGE_DETAIL_LINES\}\s*\/>/);
   });
 });

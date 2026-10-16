@@ -1,8 +1,8 @@
 /**
  * The picture card (packages/contracts mantel.ts): how big the picture is,
  * and that the headline and both buttons are still on the screen at 32pt
- * beside it. PhotoCard.tsx itself has no test (it is a view, like the
- * others); what it is drawn with is decided in photoLayout.ts and held here.
+ * beside it. What it is drawn with is decided in photoLayout.ts and held
+ * here; CardRenderer.test.tsx draws PhotoCard.tsx with it.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -81,45 +81,12 @@ describe('pictureAddress — a picture is fetched only from an https address', (
   });
 });
 
-describe('PhotoCard.tsx — a picture it cannot show', () => {
-  const view = readFileSync(fileURLToPath(new URL('../PhotoCard.tsx', import.meta.url)), 'utf8');
-
-  it('says so to the app, whether the card came with no address or the address stopped answering — so a new one can be asked for', () => {
-    expect(view).toMatch(/if \(uri === undefined\) onPictureFailed\?\.\(\);/);
-    expect(view).toMatch(/onFailed=\{onPictureFailed\}/);
-  });
-
-  it('is told by the renderer which card it was', () => {
-    const renderer = readFileSync(fileURLToPath(new URL('../CardRenderer.tsx', import.meta.url)), 'utf8');
-
-    expect(renderer).toMatch(/onPictureFailed=\{pictureFailed\}/);
-    expect(renderer).toMatch(/onPictureFailed\?\.\(card\.id\)/);
-  });
-});
-
-describe('PhotoCard.tsx — drawn with exactly those things', () => {
+describe('PhotoCard.tsx — what a render cannot see', () => {
+  // The card is drawn, its picture lost and its buttons pressed in CardRenderer.test.tsx. A check that passes
+  // leaves nothing on the screen to see, so this one is still read as source.
   const view = readFileSync(fileURLToPath(new URL('../PhotoCard.tsx', import.meta.url)), 'utf8');
 
   it('checks its own height before anything reaches the screen', () => {
     expect(view).toMatch(/assertCardFits\(\{ compact: PHOTO_CARD_COMPACT, mediaHeightDp: PHOTO_BOX\.height \}\)/);
-  });
-
-  it('draws the server’s headline and its two buttons as they came, and the notice under them', () => {
-    expect(view).toMatch(/headline=\{card\.headline\}/);
-    expect(view).toMatch(/actions=\{card\.actions\}/);
-    expect(view).toMatch(/compact=\{PHOTO_CARD_COMPACT\}/);
-    expect(view).toMatch(/\{card\.notice \? \(/);
-    expect(view).toMatch(/numberOfLines=\{PHOTO_NOTICE_LINES\}/);
-  });
-
-  it('shows the picture whole, or the calm line in its place', () => {
-    expect(view).toMatch(/<Picture\b/);
-    expect(view).toMatch(/const uri = pictureAddress\(card\.photoUrl\);/);
-    expect(view).toMatch(/uri=\{uri\}/);
-    const picture = readFileSync(fileURLToPath(new URL('../../mantel/Picture.tsx', import.meta.url)), 'utf8');
-    expect(picture).toMatch(/resizeMode="contain"/);
-    expect(picture).not.toMatch(/resizeMode="cover"/);
-    expect(picture).toMatch(/onError=/);
-    expect(picture).toMatch(/say\('photo\.unavailable'\)/);
   });
 });

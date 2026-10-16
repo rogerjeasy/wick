@@ -26,9 +26,11 @@
 import * as React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Card, HouseholdLanguage } from '@wick/contracts';
-import { CalmPreferencesProvider, CalmViolation, type CalmPreferences } from '@wick/vega-calm-ui';
+import { CalmCard, CalmPreferencesProvider, CalmViolation, type CalmPreferences } from '@wick/vega-calm-ui';
 import { CardRenderer } from '../CardRenderer.js';
 import { KNOWN_CARD_TYPES } from '../knownCards.js';
+import { LANGUAGE_CARD_COMPACT, LANGUAGE_DETAIL_LINES } from '../languageDetail.js';
+import { PHOTO_CARD_COMPACT, PHOTO_NOTICE_LINES } from '../photoLayout.js';
 import { CARD_CASES } from '../../__tests__/render/cards.js';
 import { all, button, flat, named, buttons, contrastOf, fontSize, headers, preferred, press, render, settle, shows, textOf, texts } from '../../__tests__/render/render.js';
 
@@ -65,9 +67,23 @@ async function sizes(card: Card, language: HouseholdLanguage, preferences: CalmP
   return all(drawn.root, 'Text').map(fontSize);
 }
 
-describe('every kind of card has a case here', () => {
-  it('draws each kind the build knows: a kind added to the contract needs a card in render/cards.ts', () => {
+describe('the kinds of card', () => {
+  it('has a case here for each kind the build knows: a kind added to the contract needs a card in render/cards.ts', () => {
     expect(new Set(CARD_CASES.map((c) => c.card.type))).toEqual(new Set(KNOWN_CARD_TYPES));
+  });
+
+  it('draws every kind the build knows (cards/knownCards.ts) — each below is drawn, with a headline and its buttons', async () => {
+    for (const type of KNOWN_CARD_TYPES) {
+      const example = CARD_CASES.find((c) => c.card.type === type)!;
+      const drawn = await drawCard({ card: example.card, language: 'en' });
+      expect({ type, headers: headers(drawn.root).length, buttons: buttons(drawn.root).length > 0 }).toEqual({ type, headers: 1, buttons: true });
+    }
+  });
+
+  it('draws nothing at all for a kind it does not know — no card that takes the remote with nothing on it', async () => {
+    const unknown = { ...byName('TELL').card, type: 'SOMETHING_NEW' } as unknown as Card;
+    const drawn = await drawCard({ card: unknown, language: 'en' });
+    expect(drawn.renderer.toJSON()).toBeNull();
   });
 });
 
@@ -199,6 +215,19 @@ describe('the picture from the family', () => {
     expect(picture!.props.accessibilityLabel).toBe('Una foto de Sarah');
   });
 
+  it('is drawn compact, with the server’s headline and two buttons as they came, and the notice given its five lines', async () => {
+    const example = byName('PHOTO, mantelpiece full and no address');
+    const drawn = await drawCard({ card: example.card, language: 'en' });
+    const photo = example.card as Extract<Card, { type: 'PHOTO' }>;
+
+    expect(drawn.root.findAllByType(CalmCard)[0]!.props.compact).toBe(PHOTO_CARD_COMPACT);
+    expect(headers(drawn.root).map(textOf)).toEqual([photo.headline]);
+    expect(buttons(drawn.root).map((b) => b.props.accessibilityLabel)).toEqual(photo.actions.map((a) => a.label));
+    const notice = all(drawn.root, 'Text').find((t) => textOf(t) === photo.notice)!;
+    expect(notice.props.numberOfLines).toBe(PHOTO_NOTICE_LINES);
+    expect(notice.props.accessibilityLiveRegion).toBe('polite');
+  });
+
   it('says calmly that a picture without an address cannot be shown, tells the app once, and its buttons still work', async () => {
     const example = byName('PHOTO, mantelpiece full and no address');
     const onPictureFailed = vi.fn();
@@ -225,6 +254,22 @@ describe('the picture from the family', () => {
     expect(onPictureFailed).toHaveBeenCalledWith('photo-ph_1');
     expect(all(drawn.root, 'Image').length).toBe(0);
     expect(texts(drawn.root)).toContain('The picture cannot be shown just now.');
+  });
+});
+
+describe('the question about her language', () => {
+  it('is drawn compact with six lines of detail, and the server’s words and two buttons exactly as they came', async () => {
+    const example = byName('LANGUAGE');
+    const drawn = await drawCard({ card: example.card, language: 'en' });
+    const [card] = drawn.root.findAllByType(CalmCard);
+    expect(card!.props.compact).toBe(LANGUAGE_CARD_COMPACT);
+    expect(card!.props.detailLines).toBe(LANGUAGE_DETAIL_LINES);
+
+    const question = example.card as Extract<Card, { type: 'LANGUAGE' }>;
+    expect(headers(drawn.root).map(textOf)).toEqual([question.headline]);
+    const detail = all(drawn.root, 'Text').find((t) => textOf(t) === question.detail)!;
+    expect(detail.props.numberOfLines).toBe(6);
+    expect(buttons(drawn.root).map((b) => b.props.accessibilityLabel)).toEqual(question.actions.map((a) => a.label));
   });
 });
 
