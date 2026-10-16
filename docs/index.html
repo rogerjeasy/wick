@@ -3,145 +3,564 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Wick — the television as the care surface</title>
-<meta name="description" content="Wick turns the television into the care surface for the person being cared for. Fire TV, Ring and Alexa+.">
+<title>Wick · Care on the screen she already watches</title>
+<meta name="description" content="Wick is a Fire TV app for an older person living alone. The door, the family and the rhythm of her week, on her own television, with her in charge. Fire TV, Ring and Alexa+.">
 <link rel="icon" href="icons/light-72.png">
-<meta property="og:title" content="Wick — Still wick.">
-<meta property="og:description" content="The television as the care surface for the person being cared for.">
+<meta property="og:title" content="Wick · Care on the screen she already watches">
+<meta property="og:description" content="The television as the care surface for the person being cared for. Fire TV, Ring and Alexa+.">
 <meta property="og:image" content="https://rogerjeasy.github.io/wick/carousel/wick-1.png">
+<meta name="theme-color" content="#12100E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --ground:#12100E; --raised:#1E1B17; --ink:#F4F1EA; --ink-dim:#C8C2B6; --accent:#E8B75D;
+    --ground:#12100E; --ground-2:#171512; --raised:#1E1B17; --raised-2:#25211C;
+    --line:#2E2923; --line-2:#3A342C;
+    --ink:#F4F1EA; --ink-dim:#C8C2B6; --ink-faint:#8F887C;
+    --accent:#E8B75D; --accent-ink:#1A1408; --accent-soft:rgba(232,183,93,.12);
+    --radius:16px; --radius-sm:10px;
+    --display:"Fraunces",Georgia,"Times New Roman",serif;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --shadow:0 30px 80px -30px rgba(0,0,0,.75);
   }
   *{box-sizing:border-box}
-  body{
-    margin:0; background:var(--ground); color:var(--ink);
-    font:17px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.65 var(--sans);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  img{max-width:100%;height:auto;display:block}
+  a{color:inherit}
+  :focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:6px}
+  .wrap{width:min(1160px,100% - 40px);margin-inline:auto}
+  .skip{position:absolute;left:-999px;top:12px;background:var(--accent);color:var(--accent-ink);padding:8px 14px;border-radius:8px;z-index:20}
+  .skip:focus{left:12px}
+
+  /* Navigation */
+  .nav{position:sticky;top:0;z-index:10;background:rgba(18,16,14,.78);backdrop-filter:saturate(140%) blur(14px);-webkit-backdrop-filter:saturate(140%) blur(14px);border-bottom:1px solid rgba(46,41,35,.7)}
+  .nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;gap:16px}
+  .brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-family:var(--display);font-size:1.3rem;font-weight:600;letter-spacing:-.01em}
+  .brand img{width:30px;height:30px;border-radius:8px}
+  .nav ul{display:flex;gap:28px;list-style:none;margin:0;padding:0}
+  .nav ul a{text-decoration:none;color:var(--ink-dim);font-size:.94rem;transition:color .2s}
+  .nav ul a:hover{color:var(--ink)}
+  .nav-cta{display:flex;gap:10px;align-items:center}
+
+  /* Buttons */
+  .btn{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 20px;border-radius:999px;font-weight:600;font-size:.95rem;text-decoration:none;border:1px solid var(--line-2);color:var(--ink);background:transparent;transition:background .2s,border-color .2s,color .2s,transform .2s;cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:var(--ink-faint);background:rgba(255,255,255,.03)}
+  .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .btn.primary:hover{background:#F0C474;border-color:#F0C474}
+  .btn svg{width:18px;height:18px}
+  .btn.sm{min-height:38px;padding:0 16px;font-size:.88rem}
+
+  /* Hero */
+  .hero{position:relative;padding:88px 0 72px;overflow:hidden}
+  .hero::before{content:"";position:absolute;inset:-20% -10% auto auto;width:780px;height:780px;background:radial-gradient(circle,rgba(232,183,93,.16),transparent 62%);pointer-events:none}
+  .hero .wrap{position:relative;display:grid;grid-template-columns:1.02fr 1fr;gap:64px;align-items:center}
+  .eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  h1{font-family:var(--display);font-weight:600;font-size:clamp(2.5rem,5.2vw,4.1rem);line-height:1.04;letter-spacing:-.025em;margin:18px 0 22px}
+  h1 em{font-style:normal;color:var(--accent)}
+  .lede{font-size:1.15rem;color:var(--ink-dim);max-width:34rem;margin:0 0 32px}
+  .cta-row{display:flex;flex-wrap:wrap;gap:12px}
+  .hero-note{margin-top:22px;font-size:.86rem;color:var(--ink-faint)}
+
+  /* Television frame */
+  .tv{position:relative}
+  .tv-screen{border-radius:14px;padding:10px;background:linear-gradient(180deg,#2A2621,#1A1714);box-shadow:var(--shadow),0 0 0 1px #34302A inset}
+  .tv-screen img{border-radius:6px;aspect-ratio:16/9;object-fit:cover;width:100%}
+  .tv-stand{width:34%;height:12px;margin:0 auto;background:linear-gradient(180deg,#24201B,#15130F);border-radius:0 0 10px 10px}
+  .tv-caption{margin-top:18px;text-align:center;font-size:.88rem;color:var(--ink-faint)}
+
+  /* Metrics */
+  .metrics{border-block:1px solid var(--line);background:var(--ground-2)}
+  .metrics .wrap{display:grid;grid-template-columns:repeat(4,1fr)}
+  .metric{padding:30px 24px;border-left:1px solid var(--line)}
+  .metric:first-child{border-left:0}
+  .metric b{display:block;font-family:var(--display);font-size:2.2rem;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+  .metric span{color:var(--ink-dim);font-size:.92rem}
+
+  /* Sections */
+  section{padding:104px 0}
+  .section-head{max-width:46rem;margin-bottom:52px}
+  .section-head.center{margin-inline:auto;text-align:center}
+  .kicker{font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:0 0 14px}
+  h2{font-family:var(--display);font-weight:600;font-size:clamp(1.9rem,3.4vw,2.7rem);line-height:1.12;letter-spacing:-.02em;margin:0 0 16px}
+  .section-head p{color:var(--ink-dim);font-size:1.08rem;margin:0}
+  .section-head p.kicker,.why p.kicker{color:var(--accent);font-size:.8rem;margin:0 0 14px}
+
+  /* Contrast: caregiver vs her */
+  .contrast{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .panel{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:34px}
+  .panel h3{margin:0 0 18px;font-size:1.05rem;font-weight:600;display:flex;align-items:center;gap:10px}
+  .panel.muted h3{color:var(--ink-faint)}
+  .panel.her{background:linear-gradient(180deg,rgba(232,183,93,.08),rgba(232,183,93,.02)),var(--raised);border-color:rgba(232,183,93,.35)}
+  .panel.her h3{color:var(--accent)}
+  .panel ul{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+  .panel li{display:flex;gap:12px;color:var(--ink-dim)}
+  .panel li svg{flex:none;width:20px;height:20px;margin-top:3px}
+  .panel.muted li svg{color:var(--ink-faint)}
+  .panel.her li svg{color:var(--accent)}
+
+  /* Pillars */
+  .pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  .pillar{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:32px;transition:border-color .25s,transform .25s}
+  .pillar:hover{border-color:var(--line-2);transform:translateY(-2px)}
+  .icon{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);margin-bottom:22px}
+  .icon svg{width:22px;height:22px}
+  .pillar h3{font-size:1.2rem;margin:0 0 10px;font-weight:600}
+  .pillar p{margin:0;color:var(--ink-dim)}
+  .pillar .meta{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:.86rem;color:var(--ink-faint)}
+
+  /* Gallery */
+  .gallery{display:grid;grid-template-columns:repeat(6,1fr);gap:20px}
+  .shot{margin:0;background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .shot img{width:100%;aspect-ratio:16/9;object-fit:contain;background:#0B0A09}
+  .shot figcaption{padding:16px 20px 18px}
+  .shot strong{display:block;font-weight:600;margin-bottom:2px}
+  .shot span{color:var(--ink-faint);font-size:.88rem}
+  .shot.wide{grid-column:span 3}
+  .shot.third{grid-column:span 2}
+
+  /* Features */
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .feature{background:var(--ground);padding:28px 28px 30px}
+  .feature h3{font-size:1.02rem;font-weight:600;margin:0 0 8px;display:flex;align-items:center;gap:10px}
+  .feature h3 i{font-style:normal;font-size:.74rem;color:var(--accent);font-weight:600;letter-spacing:.06em}
+  .feature p{margin:0 0 10px;color:var(--ink-dim);font-size:.95rem}
+  .feature .never{margin:0;font-size:.86rem;color:var(--ink-faint)}
+  .feature .never b{color:var(--ink-dim);font-weight:600}
+
+  /* Trust */
+  .trust{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+  .promise{display:flex;gap:18px;background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:28px}
+  .promise .icon{margin:0;flex:none}
+  .promise h3{margin:0 0 6px;font-size:1.05rem;font-weight:600}
+  .promise p{margin:0;color:var(--ink-dim);font-size:.95rem}
+
+  /* Why Amazon */
+  .why{display:grid;grid-template-columns:1fr 1.15fr;gap:56px;align-items:center}
+  .why p{color:var(--ink-dim)}
+  .compare{width:100%;border-collapse:separate;border-spacing:0;background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;font-size:.95rem}
+  .compare th,.compare td{padding:16px 20px;text-align:left;border-bottom:1px solid var(--line)}
+  .compare tr:last-child td{border-bottom:0}
+  .compare th{color:var(--ink-faint);font-weight:500;font-size:.82rem;letter-spacing:.08em;text-transform:uppercase}
+  .compare tr.us td{background:var(--accent-soft);color:var(--ink);font-weight:600}
+  .compare tr.us td:not(:first-child){color:var(--accent)}
+  .compare td.none{color:var(--ink-faint)}
+
+  /* Architecture */
+  .arch{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:40px}
+  .flow{display:grid;grid-template-columns:1fr auto 1.4fr auto 1fr;gap:18px;align-items:stretch}
+  .node{background:var(--ground);border:1px solid var(--line-2);border-radius:var(--radius-sm);padding:20px}
+  .node h4{margin:0 0 6px;font-size:.98rem;font-weight:600}
+  .node p{margin:0;font-size:.86rem;color:var(--ink-faint)}
+  .node.core{border-color:rgba(232,183,93,.45);background:linear-gradient(180deg,rgba(232,183,93,.07),transparent),var(--ground)}
+  .node.core h4{color:var(--accent)}
+  .node + .node{margin-top:12px}
+  .arrow{display:grid;place-items:center;color:var(--ink-faint)}
+  .arrow svg{width:26px;height:26px}
+  .stack{display:flex;flex-wrap:wrap;gap:8px;margin-top:30px;padding-top:26px;border-top:1px solid var(--line)}
+  .chip{font-size:.82rem;padding:6px 12px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-dim)}
+  .chip.key{border-color:rgba(232,183,93,.45);color:var(--accent)}
+
+  /* Try */
+  .try{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;counter-reset:step}
+  .step{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:30px;position:relative}
+  .step::before{counter-increment:step;content:counter(step);display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-weight:600;font-size:.92rem;margin-bottom:18px}
+  .step h3{margin:0 0 8px;font-size:1.08rem;font-weight:600}
+  .step p{margin:0 0 18px;color:var(--ink-dim);font-size:.95rem}
+  .keys{display:flex;flex-wrap:wrap;gap:6px;margin-top:-4px}
+  kbd{font:500 .78rem var(--sans);padding:3px 8px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:6px;color:var(--ink-dim);background:var(--ground)}
+  .honest{margin-top:26px;padding:18px 22px;border:1px dashed var(--line-2);border-radius:var(--radius-sm);color:var(--ink-faint);font-size:.9rem}
+  .honest b{color:var(--ink-dim)}
+
+  /* Docs */
+  .docs{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .doc{display:block;text-decoration:none;background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:24px;transition:border-color .2s,transform .2s}
+  .doc:hover{border-color:rgba(232,183,93,.5);transform:translateY(-2px)}
+  .doc h3{margin:0 0 6px;font-size:1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  .doc h3 svg{width:16px;height:16px;color:var(--ink-faint)}
+  .doc p{margin:0;color:var(--ink-faint);font-size:.88rem}
+
+  /* Closing */
+  .closing{text-align:center;padding:96px 0;background:radial-gradient(ellipse at center,rgba(232,183,93,.10),transparent 60%)}
+  .closing h2{max-width:40rem;margin-inline:auto}
+  .closing p{color:var(--ink-dim);max-width:34rem;margin:0 auto 30px}
+  .closing .cta-row{justify-content:center}
+
+  footer{border-top:1px solid var(--line);padding:34px 0 46px;color:var(--ink-faint);font-size:.88rem}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:18px;justify-content:space-between;align-items:center}
+  footer nav{display:flex;flex-wrap:wrap;gap:20px}
+  footer a{text-decoration:none;color:var(--ink-dim)}
+  footer a:hover{color:var(--ink)}
+
+  /* Reveal (only when scripts run, and never under reduced motion) */
+  .js .reveal{opacity:0;transform:translateY(14px);transition:opacity .5s ease-out,transform .5s ease-out}
+  .js .reveal.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.js .reveal{opacity:1;transform:none;transition:none}.pillar,.doc,.btn{transition:none}}
+
+  /* Responsive */
+  @media (max-width:1024px){
+    .hero .wrap{grid-template-columns:1fr;gap:48px}
+    .why{grid-template-columns:1fr;gap:32px}
+    .flow{grid-template-columns:1fr}
+    .arrow{transform:rotate(90deg);height:24px}
+    .docs{grid-template-columns:repeat(2,1fr)}
+    .features{grid-template-columns:repeat(2,1fr)}
   }
-  .wrap{max-width:46rem;margin:0 auto;padding:4.5rem 1.25rem 6rem}
-  header{text-align:center;margin-bottom:4rem}
-  header img{width:104px;height:104px;display:block;margin:0 auto 1.25rem}
-  h1{font-family:Georgia,"Times New Roman",serif;font-size:3.1rem;margin:0;letter-spacing:-.01em}
-  .tagline{font-family:Georgia,serif;color:var(--accent);font-size:1.25rem;margin:.35rem 0 1.4rem}
-  .lede{color:var(--ink-dim);max-width:34rem;margin:0 auto}
-  .chips{margin-top:1.5rem;color:var(--accent);font-size:.95rem;letter-spacing:.02em}
-  h2{font-size:1.05rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-dim);
-     margin:3.5rem 0 1.25rem;font-weight:600}
-  .pillars{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))}
-  .card{background:var(--raised);border-radius:12px;padding:1.4rem 1.5rem}
-  .card h3{margin:0 0 .4rem;font-size:1.05rem;color:var(--accent);font-weight:600}
-  .card p{margin:0;color:var(--ink-dim);font-size:.95rem;line-height:1.6}
-  table{width:100%;border-collapse:collapse;font-size:.93rem}
-  th,td{text-align:left;padding:.6rem .5rem;border-bottom:1px solid #2A2621}
-  th{color:var(--ink-dim);font-weight:600}
-  td.yes{color:var(--accent);font-weight:600}
-  td.no{color:#6E675D}
-  ul.promises{list-style:none;padding:0;margin:0}
-  ul.promises li{padding:.55rem 0 .55rem 1.6rem;position:relative;color:var(--ink-dim)}
-  ul.promises li::before{content:"—";position:absolute;left:0;color:var(--accent)}
-  ul.promises strong{color:var(--ink)}
-  .links{display:flex;flex-wrap:wrap;gap:.7rem;margin-top:1.25rem}
-  .links a{
-    display:inline-block;padding:.6rem 1.05rem;border-radius:8px;text-decoration:none;
-    background:var(--raised);color:var(--ink);font-size:.95rem;border:1px solid #2A2621;
+  @media (max-width:860px){
+    .nav ul{display:none}
+    .metrics .wrap{grid-template-columns:repeat(2,1fr)}
+    .metric:nth-child(3){border-left:0}
+    .metric:nth-child(n+3){border-top:1px solid var(--line)}
+    .contrast,.pillars,.trust,.try{grid-template-columns:1fr}
+    .gallery{grid-template-columns:1fr}
+    .shot.wide,.shot.third{grid-column:auto}
+    section{padding:76px 0}
   }
-  .links a:hover{border-color:var(--accent);color:var(--accent)}
-  .links a.primary{background:var(--accent);color:var(--ground);border-color:var(--accent);font-weight:600}
-  footer{margin-top:4.5rem;padding-top:1.75rem;border-top:1px solid #2A2621;
-         color:#6E675D;font-size:.88rem;display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-between}
-  footer a{color:var(--ink-dim)}
-  @media (max-width:520px){h1{font-size:2.4rem}.wrap{padding-top:3rem}}
+  @media (max-width:560px){
+    .features,.docs{grid-template-columns:1fr}
+    .nav-cta .btn:not(.primary){display:none}
+    .hero{padding:56px 0 52px}
+    .panel,.pillar,.arch,.step{padding:24px}
+    .compare{font-size:.84rem}
+    .compare th,.compare td{padding:11px 8px}
+    .compare th{font-size:.7rem;letter-spacing:.04em}
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
+<a class="skip" href="#main">Skip to content</a>
 
-  <header>
-    <img src="icons/light-241.png" alt="">
-    <h1>Wick</h1>
-    <p class="tagline">Still wick.</p>
-    <p class="lede">
-      Every product built for ageing at home is built for the <em>caregiver</em> — a phone app,
-      full of alerts, checked by a daughter three hundred miles away. Wick inverts that: it puts
-      the intelligence <strong>inside the home</strong>, on the one screen a 78-year-old already
-      looks at for seven hours a day, and asks them to install nothing, learn nothing, wear
-      nothing and change nothing.
-    </p>
-    <p class="chips">Fire TV &nbsp;·&nbsp; Ring &nbsp;·&nbsp; Alexa+</p>
-  </header>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="icons/light-72.png" alt="">Wick</a>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#how">How it works</a></li>
+        <li><a href="#see">See it</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#trust">Privacy</a></li>
+        <li><a href="#architecture">Architecture</a></li>
+      </ul>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn sm" href="https://github.com/rogerjeasy/wick">GitHub</a>
+      <a class="btn sm primary" href="https://dmaz25jvryojp.cloudfront.net/">Try the demo</a>
+    </div>
+  </div>
+</header>
 
-  <h2>What it does</h2>
-  <div class="pillars">
-    <div class="card">
-      <h3>The Door</h3>
-      <p>A doorbell press puts a card on the television in under three seconds — a live still and
-         one plain sentence describing who is actually there. One button rings the Ring Chime
-         in the hallway, so whoever else is home knows someone is at the door — and the card says
-         whether it rang. Another shows the doorbell camera live.</p>
+<main id="main">
+
+  <section class="hero" id="top">
+    <div class="wrap">
+      <div>
+        <span class="eyebrow"><span class="dot" aria-hidden="true"></span>Fire TV · Ring · Alexa+</span>
+        <h1>Care that lives on the screen <em>she already watches.</em></h1>
+        <p class="lede">Wick turns an older person's television into a calm companion: who is at the door, a note from her daughter, the shape of her week. She answers with one button, and she decides what her family sees.</p>
+        <div class="cta-row">
+          <a class="btn primary" href="https://dmaz25jvryojp.cloudfront.net/">
+            Try the demo
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a class="btn" href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="13" rx="2"/><path d="M17 2l-5 5-5-5"/></svg>
+            Open her television
+          </a>
+        </div>
+        <p class="hero-note">No account and no hardware needed. You will be Sarah, her daughter, in a demo home.</p>
+      </div>
+      <div class="tv reveal">
+        <div class="tv-screen"><img src="screenshots/note-at-calm-point-fireos.png" alt="A note from Sarah on the television, held at a quiet moment in a film, with three one-button replies" width="1600" height="900" fetchpriority="high"></div>
+        <div class="tv-stand" aria-hidden="true"></div>
+        <p class="tv-caption">Sarah's note waits for a quiet cut in the film, then holds it while Margaret reads.</p>
+      </div>
     </div>
-    <div class="card">
-      <h3>The Family</h3>
-      <p>A distant daughter asks her own Echo “how’s Mum been this week?” and gets a truthful,
-         unsensational narrative. Notes go back the other way — at the end of an episode, never mid-scene — and the resident
-         replies with one button.</p>
-    </div>
-    <div class="card">
-      <h3>The Rhythm</h3>
-      <p>Wick learns what a normal week looks like in this house, so it can stay silent when
-         nothing is wrong — and so the weekly narrative can say “that’s up from last week” and
-         mean it.</p>
+  </section>
+
+  <div class="metrics" aria-label="Measured on the deployed system">
+    <div class="wrap">
+      <div class="metric"><b>2.3 s</b><span>from the doorbell to her screen</span></div>
+      <div class="metric"><b>1 button</b><span>for every answer she gives</span></div>
+      <div class="metric"><b>22 tools</b><span>for the family, through MCP</span></div>
+      <div class="metric"><b>0</b><span>cameras inside her home</span></div>
     </div>
   </div>
 
-  <h2>Why this needs Amazon</h2>
-  <table>
-    <tr><th></th><th>Screen</th><th>Doorbell API</th><th>Assistant</th></tr>
-    <tr><td><strong>Amazon</strong></td><td class="yes">Fire TV</td><td class="yes">Ring</td><td class="yes">Alexa+</td></tr>
-    <tr><td>Google</td><td>Google TV</td><td class="no">limited</td><td>Gemini</td></tr>
-    <tr><td>Apple</td><td>Apple TV</td><td class="no">—</td><td>Siri</td></tr>
-    <tr><td>Roku</td><td>Roku</td><td class="no">—</td><td class="no">—</td></tr>
-  </table>
-  <p style="color:var(--ink-dim);margin-top:1rem">
-    Wick is not an app that happens to run on Fire TV. It is an argument for why Fire TV sits at
-    the centre of the Amazon home.
-  </p>
+  <section id="why-wick">
+    <div class="wrap">
+      <div class="section-head center reveal">
+        <p class="kicker">The idea</p>
+        <h2>Most care technology is built for the caregiver. Wick is built for her.</h2>
+        <p>People over 75 watch more than four hours of television a day (<a href="https://www.bls.gov/news.release/atus.t11a.htm">BLS, 2025</a>). Wick meets them there, and asks them to install nothing, learn nothing and wear nothing.</p>
+      </div>
+      <div class="contrast">
+        <div class="panel muted reveal">
+          <h3>Built for the caregiver</h3>
+          <ul>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>A phone app full of alerts, checked from far away</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>Cameras and sensors that watch her</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>Wearables she forgets to charge</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>Decisions made about her, not with her</li>
+          </ul>
+        </div>
+        <div class="panel her reveal">
+          <h3>Built for her</h3>
+          <ul>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Calm cards on the television she already uses</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>The front door only; nothing inside is watched</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>One button on the remote she already holds</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Nothing is shared until she says yes</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
 
-  <h2>The trust model</h2>
-  <ul class="promises">
-    <li><strong>No camera ever shows the inside of this house to anyone.</strong> Ring is used for
-        the front door and for the fact that someone arrived. Never to watch the resident.</li>
-    <li><strong>The resident can see everything the family can see</strong> — on their own
-        television, and can remove anything from it permanently with one button.</li>
-    <li><strong>Nothing about health, money or relationships leaves the house without permission.</strong>
-        Enforced by a policy engine with property-based tests, not by the good intentions of a model.</li>
-    <li><strong>Wick reports what was said and what happened, never what it thinks you felt.</strong>
-        No mood detection. No wellness scores.</li>
-  </ul>
+  <section id="how" style="padding-top:0">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker">How it works</p>
+        <h2>Three things, done quietly.</h2>
+      </div>
+      <div class="pillars">
+        <article class="pillar reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17"/><circle cx="15" cy="12" r="1"/></svg></div>
+          <h3>The door</h3>
+          <p>A ring puts a card on her television in seconds, then the doorbell's picture and one plain sentence about who is there. Even over another app.</p>
+          <p class="meta">Ring Partner API · Amazon Nova Lite</p>
+        </article>
+        <article class="pillar reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/></svg></div>
+          <h3>The family</h3>
+          <p>Her daughter asks Alexa+ <em>"How's Mum been this week?"</em> and gets an honest answer. Notes wait for a natural break; she replies with one press.</p>
+          <p class="meta">MCP server · Claude Sonnet 4.5 on Bedrock</p>
+        </article>
+        <article class="pillar reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+          <h3>The rhythm</h3>
+          <p>Wick learns what a normal week looks like in her home, so it stays silent when nothing is wrong, and asks her first when something is.</p>
+          <p class="meta">Counted in code · no model decides</p>
+        </article>
+      </div>
+    </div>
+  </section>
 
-  <h2>Read more</h2>
-  <!--
-    All document links point at GitHub rather than at relative paths on this site.
-    Pages runs with .nojekyll (so asset paths are served verbatim), which means a
-    relative .md link serves raw markdown. GitHub renders these documents properly
-    — headings, tables, a sticky outline, mermaid — and they are long technical
-    documents that benefit from all of it.
-  -->
-  <div class="links">
-    <a class="primary" href="https://github.com/rogerjeasy/wick">Source on GitHub</a>
-    <a href="https://github.com/rogerjeasy/wick/blob/main/docs/WICK.md">Product definition</a>
-    <a href="https://github.com/rogerjeasy/wick/blob/main/docs/WICK-TECHNICAL.md">Technical document</a>
-    <a href="https://github.com/rogerjeasy/wick/blob/main/FRICTION.md">Friction log</a>
+  <section id="see" style="background:var(--ground-2);border-block:1px solid var(--line)">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker">See it</p>
+        <h2>On the Vega Virtual Device and the Fire OS build.</h2>
+        <p>Taken against the deployed system. The televisions are simulators and the home is a demo home.</p>
+      </div>
+      <div class="gallery">
+        <figure class="shot wide reveal">
+          <img src="screenshots/door-card-over-film-vega.png" alt="A door card over a playing film, with the doorbell's picture and one sentence describing it" width="1280" height="625" loading="lazy">
+          <figcaption><strong>Someone at the door</strong><span>The card comes up over the film, at once.</span></figcaption>
+        </figure>
+        <figure class="shot wide reveal">
+          <img src="screenshots/door-toast-over-another-app-vega.png" alt="A system toast over another app: Someone's at the front door" width="1600" height="855" loading="lazy">
+          <figcaption><strong>Even in another app</strong><span>A system toast on Vega; a notification on Fire OS.</span></figcaption>
+        </figure>
+        <figure class="shot third reveal">
+          <img src="screenshots/shall-i-tell-vega.png" alt="The question Shall I tell Sarah? with Tell Sarah and Keep it to myself" width="1600" height="814" loading="lazy">
+          <figcaption><strong>Shall I tell Sarah?</strong><span>An unusual day is put to her first.</span></figcaption>
+        </figure>
+        <figure class="shot third reveal">
+          <img src="screenshots/hold-for-sarah-spanish-vega.png" alt="The hold card in Spanish: Pedir a Sarah que le llame?" width="1600" height="855" loading="lazy">
+          <figcaption><strong>Hold for Sarah, in Spanish</strong><span>Hold OK to ask someone to ring her.</span></figcaption>
+        </figure>
+        <figure class="shot third reveal">
+          <img src="screenshots/watch-together-credits-vega.png" alt="After a film watched together: That was Big Buck Bunny, with Sarah" width="1280" height="651" loading="lazy">
+          <figcaption><strong>Watch together</strong><span>Sarah's screen follows hers.</span></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker">Features</p>
+        <h2>Twelve features. Each one says what it will never do.</h2>
+        <p>Every feature is one button for her, and every one has a rule that protects her, enforced in code.</p>
+      </div>
+      <div class="features reveal">
+        <div class="feature"><h3>Ask Sarah to look</h3><p>One press asks her daughter to look at the same doorbell picture.</p><p class="never"><b>Never</b> shows the door unless she asks.</p></div>
+        <div class="feature"><h3>Shall I tell Sarah?</h3><p>An unusual day is put to her first, with the exact sentence.</p><p class="never"><b>Never</b> tells what she keeps to herself.</p></div>
+        <div class="feature"><h3>Calm points</h3><p>Notes wait for the credits, a pause, or a quiet cut measured in the film.</p><p class="never"><b>Never</b> interrupts a scene.</p></div>
+        <div class="feature"><h3>Watch together</h3><p>Her daughter's screen follows hers, from miles away.</p><p class="never"><b>Never</b> lets anyone touch her remote.</p></div>
+        <div class="feature"><h3>The light in the window</h3><p>The family sees one thing: whether her day has begun.</p><p class="never"><b>Never</b> says when, where or what.</p></div>
+        <div class="feature"><h3>Hold for Sarah</h3><p>Hold OK for two seconds to ask one person to ring her.</p><p class="never"><b>Never</b> calls anyone or raises an alarm.</p></div>
+        <div class="feature"><h3>The visit, witnessed</h3><p>After the carer leaves: <em>"Is this right?"</em></p><p class="never"><b>Never</b> confirms a visit without her.</p></div>
+        <div class="feature"><h3>Sarah's television</h3><p>Her daughter's own Fire TV shows her light and requests.</p><p class="never"><b>Never</b> becomes her television.</p></div>
+        <div class="feature"><h3>Her language</h3><p>Spanish, the moment she says yes on her own screen.</p><p class="never"><b>Never</b> machine-translates her consent.</p></div>
+        <div class="feature"><h3>The mantelpiece</h3><p>Family pictures she can keep on her idle screen.</p><p class="never"><b>Never</b> tells whether she kept one.</p></div>
+        <div class="feature"><h3>Read to me</h3><p>Play reads the card aloud, in her language.</p><p class="never"><b>Never</b> speaks unless she asks.</p></div>
+        <div class="feature"><h3>Easier to see</h3><p>Larger text and higher contrast, everywhere at once.</p><p class="never"><b>Never</b> shrinks a word to make it fit.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="trust" style="padding-top:0">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker">Privacy and trust</p>
+        <h2>Privacy is the product, not a policy page.</h2>
+      </div>
+      <div class="trust">
+        <div class="promise reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><path d="M3 3l18 18"/></svg></div>
+          <div><h3>No camera inside her home</h3><p>Ring is used at the front door, and for the fact that someone arrived. Never to watch her.</p></div>
+        </div>
+        <div class="promise reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <div><h3>Her consent, on her screen</h3><p>Nobody reads her home until she presses Allow, checked again on every request.</p></div>
+        </div>
+        <div class="promise reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+          <div><h3>Some things never leave</h3><p>Health, money, relationships and location never reach the family. A rules engine checks every word first.</p></div>
+        </div>
+        <div class="promise reveal">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 15h8M9 9h.01M15 9h.01"/></svg></div>
+          <div><h3>No guessing about feelings</h3><p>No mood detection, no wellness scores. Wick reports what happened, never what it thinks she felt.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="amazon" style="background:var(--ground-2);border-block:1px solid var(--line)">
+    <div class="wrap why">
+      <div class="reveal">
+        <p class="kicker">Why Amazon</p>
+        <h2>Only Amazon has all three.</h2>
+        <p>Wick needs a trusted screen in the room, a doorbell with a real developer API, and an assistant the family already uses. Fire TV, Ring and Alexa+ make that possible in one home.</p>
+      </div>
+      <table class="compare reveal">
+        <thead><tr><th scope="col"></th><th scope="col">Screen</th><th scope="col">Doorbell API</th><th scope="col">Assistant</th></tr></thead>
+        <tbody>
+          <tr class="us"><td>Amazon</td><td>Fire TV</td><td>Ring</td><td>Alexa+</td></tr>
+          <tr><td>Google</td><td>Google TV</td><td>Nest, limited</td><td>Gemini</td></tr>
+          <tr><td>Apple</td><td>Apple TV</td><td class="none">none</td><td>Siri</td></tr>
+          <tr><td>Roku</td><td>Roku</td><td class="none">none</td><td class="none">none</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker">Architecture</p>
+        <h2>The television shows. The cloud thinks. The family reads through a gate.</h2>
+        <p>Serverless on AWS, all in Terraform, deployed from GitHub over OIDC.</p>
+      </div>
+      <div class="arch reveal">
+        <div class="flow">
+          <div>
+            <div class="node"><h4>Her television</h4><p>Vega app or Fire OS build. Renders and reports; decides nothing.</p></div>
+            <div class="node"><h4>Ring doorbell</h4><p>Signed webhooks, recorded frames, live view.</p></div>
+          </div>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+          <div>
+            <div class="node core"><h4>Wick on AWS</h4><p>IoT Core and API Gateway at the edge. Agents on Lambda and Bedrock AgentCore. One DynamoDB table.</p></div>
+            <div class="node core"><h4>The Guardian</h4><p>A rules engine on every word bound for the family. No model decides what is private.</p></div>
+          </div>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+          <div>
+            <div class="node"><h4>The family</h4><p>Alexa+ over a standard MCP server, with OAuth 2.1.</p></div>
+            <div class="node"><h4>Sarah's television</h4><p>Her own view, and nothing more.</p></div>
+          </div>
+        </div>
+        <div class="stack" aria-label="Technologies">
+          <span class="chip key">Vega OS</span><span class="chip key">Fire OS</span><span class="chip key">Ring Partner API</span><span class="chip key">Alexa+ MCP</span>
+          <span class="chip">Amazon Bedrock</span><span class="chip">Nova Lite</span><span class="chip">Claude Sonnet 4.5</span><span class="chip">AgentCore + Strands</span>
+          <span class="chip">Lambda</span><span class="chip">App Runner</span><span class="chip">IoT Core</span><span class="chip">EventBridge</span><span class="chip">DynamoDB</span><span class="chip">Cognito</span>
+          <span class="chip">Rekognition</span><span class="chip">Polly</span><span class="chip">Translate</span><span class="chip">Transcribe</span><span class="chip">Terraform</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="try" style="background:var(--ground-2);border-block:1px solid var(--line)">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker">Try it</p>
+        <h2>Five minutes, in two browser tabs.</h2>
+      </div>
+      <div class="try">
+        <div class="step reveal">
+          <h3>Open her television</h3>
+          <p>A full-screen Fire TV in your browser. Your keyboard is the remote.</p>
+          <div class="keys"><kbd>Arrows</kbd><kbd>Enter</kbd><kbd>Esc</kbd><kbd>Space</kbd></div>
+          <p style="margin-top:18px"><a class="btn sm" href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">Open her television</a></p>
+        </div>
+        <div class="step reveal">
+          <h3>Become Sarah</h3>
+          <p>In the family app, choose <b>Try the demo</b> and enter the code on the television. Then press <b>Allow Sarah</b> on the television.</p>
+          <p><a class="btn sm primary" href="https://dmaz25jvryojp.cloudfront.net/">Try the demo</a></p>
+        </div>
+        <div class="step reveal">
+          <h3>Ask, send, ring</h3>
+          <p>Ask <em>"How has my mum been this week?"</em>, send a note during a film, or ring the stand-in doorbell.</p>
+          <p><a class="btn sm" href="https://rogerjeasy.github.io/wick/calm-points/">See the calm-point map</a></p>
+        </div>
+      </div>
+      <p class="honest"><b>What is simulated.</b> Built without hardware, as the hackathon allows: the televisions are the Vega Virtual Device and the Android TV emulator, the doorbell is Ring's Developer Playground or a labelled stand-in, Alexa+ is a simulated surface, and the home is a demo home. Everything between them is real and deployed.</p>
+    </div>
+  </section>
+
+  <section id="docs">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker">Read more</p>
+        <h2>The documents behind it.</h2>
+      </div>
+      <div class="docs">
+        <a class="doc reveal" href="https://github.com/rogerjeasy/wick/blob/main/docs/WICK.md"><h3>Product definition<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3><p>Who it is for and why it works this way.</p></a>
+        <a class="doc reveal" href="https://github.com/rogerjeasy/wick/blob/main/docs/WICK-TECHNICAL.md"><h3>Technical document<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3><p>Architecture, figures, security, measurements.</p></a>
+        <a class="doc reveal" href="https://github.com/rogerjeasy/wick/blob/main/FRICTION.md"><h3>Friction log<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3><p>Every platform gap, written when it was hit.</p></a>
+        <a class="doc reveal" href="https://github.com/rogerjeasy/vega-calm-ui"><h3>vega-calm-ui<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3><p>Open-source accessible 10-foot components for Vega.</p></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing">
+    <div class="wrap reveal">
+      <h2>She stays in charge. Her family stays close.</h2>
+      <p>Built for the Build, Ship, Shape Amazon Developer Hackathon. Fire TV track, with the AWS Builder and Open Source challenges.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="https://dmaz25jvryojp.cloudfront.net/">Try the demo</a>
+        <a class="btn" href="https://github.com/rogerjeasy/wick">View the source</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Wick · MIT licensed</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/rogerjeasy/wick">GitHub</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="terms.html">Terms</a>
+      <a href="https://github.com/rogerjeasy/wick/blob/main/LICENSE">Licence</a>
+    </nav>
   </div>
+</footer>
 
-  <footer>
-    <span>Built for the Amazon Developer Hackathon · Fire TV track</span>
-    <span>
-      <a href="privacy.html">Privacy</a> ·
-      <a href="terms.html">Terms</a> ·
-      <a href="https://github.com/rogerjeasy/wick/blob/main/LICENSE">MIT</a>
-    </span>
-  </footer>
-
-</div>
+<script>
+  (function () {
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || !('IntersectionObserver' in window)) return;
+    document.documentElement.classList.add('js');
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { rootMargin: '0px 0px -8% 0px' });
+    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+  })();
+</script>
 </body>
 </html>
