@@ -501,7 +501,44 @@ const NOT_THIS_WEEK = {
   awaiting_resident: 'This week’s story is on the television, where the person it’s about reads it first.',
 };
 
-function presentWeek(week, formatTime, now) {
+/**
+ * How many items a carousel shows before "See all": the design guide's
+ * Carousel returns three to five items inline (Components and Patterns).
+ */
+export const CAROUSEL_INLINE = 5;
+
+/**
+ * The days of a week, for the week card's carousel: one item for each day
+ * its timeline has something on, oldest first, each with what happened and
+ * when. Built from the timeline get_week_narrative returned and nothing else
+ * — a day with nothing on it is not shown, because an empty day is not a fact
+ * the week gave (a door kept private leaves days empty too). The day is the
+ * day at the house, in its time zone, as the times are (timeFormatter).
+ * Every string is the tool's own, carried as it came, for textContent.
+ *
+ * @param {unknown[]} timeline  get_week_narrative's `timeline`
+ * @param {string | undefined} timeZone  the household's IANA zone (GET /api/me); the reader's own if absent
+ * @returns {{date: string, weekday: string, dayMonth: string, count: string, entries: {time: string, text: string}[]}[]}
+ */
+export function weekDays(timeline, timeZone) {
+  const zone = timeZone ? { timeZone } : {};
+  const dateOf = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', ...zone });
+  const weekdayOf = new Intl.DateTimeFormat('en-GB', { weekday: 'long', ...zone });
+  const dayMonthOf = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', ...zone });
+  const clockOf = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...zone });
+
+  const readable = (Array.isArray(timeline) ? timeline : []).filter((e) => Number.isFinite(e?.at) && typeof e.summary === 'string');
+  const days = new Map();
+  for (const entry of [...readable].sort(byTime)) {
+    const at = new Date(entry.at);
+    const date = dateOf.format(at);
+    if (!days.has(date)) days.set(date, { date, weekday: weekdayOf.format(at), dayMonth: dayMonthOf.format(at), entries: [] });
+    days.get(date).entries.push({ time: clockOf.format(at), text: entry.summary });
+  }
+  return [...days.values()].map((day) => ({ ...day, count: things(day.entries.length) }));
+}
+
+function presentWeek(week, formatTime, now, timeZone) {
   const items = [...week.timeline].sort(byTime).map((e) => ({ primary: e.summary, secondary: formatTime(e.at) }));
   const earlier = NOT_THIS_WEEK[week.thisWeek];
   const named = weekOf(week.isoWeek);
@@ -520,9 +557,12 @@ function presentWeek(week, formatTime, now) {
     say: earlier ? `${earlier} Here is the week of ${named}. ${week.text}` : week.text,
     tone: 'answer',
     card: {
-      kind: 'list',
+      // The paragraph, then a carousel of the days it covers (main.js renderWeekCard).
+      kind: 'week',
       title: isThisWeek || !named ? 'This week' : `Week of ${named}`,
       meta: week.isoWeek ?? '',
+      text: week.text,
+      days: weekDays(week.timeline, timeZone),
       ...(facts.length ? { facts } : {}),
       items,
       empty: isThisWeek ? 'Nothing at the door this week.' : 'Nothing at the door that week.',
@@ -1185,7 +1225,7 @@ function presentSharedView(view) {
 /**
  * @param {string} toolName
  * @param {string} raw        the tool result's text content, as the server sent it
- * @param {{message?: string, now?: number}} context  what the customer asked for, and when
+ * @param {{message?: string, now?: number, timeZone?: string}} context  what the customer asked for, when, and the house's time zone (for the week's days)
  * @param {(atMs: number) => string} formatTime
  * @param {boolean} isError   the MCP result's own isError flag
  */
@@ -1194,7 +1234,7 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   if (!parsed) return plain(toolName, raw, isError);
 
   if (toolName === 'get_week_narrative' && typeof parsed.text === 'string' && Array.isArray(parsed.timeline)) {
-    return presentWeek(parsed, formatTime, context.now ?? Date.now());
+    return presentWeek(parsed, formatTime, context.now ?? Date.now(), context.timeZone);
   }
   const now = context.now ?? Date.now();
   if (toolName === 'get_today' && Array.isArray(parsed.events)) return presentToday(parsed, formatTime, now);
@@ -1512,6 +1552,86 @@ export function presentWelcome(me, televisions) {
     tone: 'waiting',
     next: null,
   };
+}
+
+/**
+ * What is left to set up, said as steps that tick themselves off — from
+ * real state only: GET /api/me (whether she has allowed you), how many of
+ * her televisions are connected (GET /api/circle, which only the organiser
+ * or someone allowed may ask: INV-9), and whether a question has been asked
+ * from this browser. Each step says what to do; only the first one not yet
+ * done offers its button, and a step that waits on her press offers none —
+ * nothing here can do it for her.
+ *
+ * Null for somebody she turned down or removed: there is nothing for them to
+ * set up, and the welcome says why.
+ *
+ * @param me  GET /api/me
+ * @param {number | undefined} televisions  her televisions connected, when the app may know
+ * @param {boolean} asked  a question has been asked from this browser
+ */
+export function presentChecklist(me, televisions, asked) {
+  const resident = me.household.residentName;
+  const { role, status } = me.membership;
+  if (status === 'declined' || status === 'removed') return null;
+  const organiser = role === 'organiser';
+  const allowed = status === 'allowed';
+  // Not known (the circle could not be read): she can only have allowed you on a television that was connected.
+  const connected = televisions === undefined ? allowed : televisions > 0;
+
+  const steps = [];
+  if (organiser) {
+    steps.push({
+      key: 'television',
+      title: `Connect ${resident}’s television`,
+      detail: connected ? 'Connected.' : 'Open Wick on her television, or her television in a browser tab, and enter the code on the television.',
+      done: connected,
+      action: { kind: 'connect', label: 'Connect a television' },
+    });
+  }
+  steps.push({
+    key: 'allowed',
+    title: `${resident} allows you, on her television`,
+    detail: allowed
+      ? `${resident} allowed you.`
+      : organiser && !connected
+        ? `Once it is connected, ${resident} is asked on it whether to allow you. One press.`
+        : `A card on ${resident}’s television asks whether to allow you. One press of Allow, there.`,
+    done: allowed,
+  });
+  steps.push({
+    key: 'ask',
+    title: 'Ask your first question',
+    detail: asked ? 'Asked.' : `Anything about the house. For example: “How has ${resident} been this week?”`,
+    done: asked && allowed,
+    action: { kind: 'ask', label: `Ask how ${resident} has been`, utterance: `How has ${resident} been this week?` },
+  });
+
+  const current = steps.find((s) => !s.done)?.key ?? null;
+  return {
+    title: 'Getting started',
+    steps: steps.map((s) => {
+      const { action, ...rest } = s;
+      return s.key === current && action ? { ...rest, action } : rest;
+    }),
+    current,
+    // Waiting on her press: the app looks again until it comes (main.js).
+    waiting: current === 'allowed',
+    complete: current === null,
+  };
+}
+
+/**
+ * Whether the page shows the address of the Wick server it links against.
+ * That is a developer's business: the deployed page links against the server
+ * its add-on package names (serverFor), and a laptop's against its own. Shown
+ * when the page is opened with `?dev`, and for the rest of that tab.
+ *
+ * @param {string} search  location.search
+ * @param {string | null} remembered  sessionStorage's note that this tab asked for it
+ */
+export function developerMode(search, remembered) {
+  return new URLSearchParams(search).has('dev') || remembered === '1';
 }
 
 function memberLine(member, resident) {
