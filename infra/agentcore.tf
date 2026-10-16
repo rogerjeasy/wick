@@ -209,6 +209,12 @@ resource "aws_bedrockagentcore_agent_runtime" "agents" {
     LIVE_ORIGIN              = "https://${aws_cloudfront_distribution.live.domain_name}"
     RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
     WICK_CHIME_SLOT_EVENT    = var.chime_slot_event
+    # The Sunday brief (brief.weekly, brief.tf): the published Guardrail it
+    # applies, the Narrator's model, and the household's clock.
+    AGENTS_GUARDRAIL_ID      = aws_bedrock_guardrail.wick.guardrail_id
+    AGENTS_GUARDRAIL_VERSION = aws_bedrock_guardrail_version.wick.version
+    WICK_NARRATIVE_MODEL     = local.narrative_model_profile
+    WICK_HOUSEHOLD_TZ        = var.household_time_zone
   }
 
   depends_on = [aws_iam_role_policy.agents_runtime]

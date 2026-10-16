@@ -266,6 +266,9 @@ resource "aws_apprunner_service" "mcp_server" {
             # Where the family's pictures are kept (infra/photos.tf). Unset,
             # no picture can be sent, and a picture's card goes without one.
             PHOTOS_BUCKET = aws_s3_bucket.photos.bucket
+            # The Sunday brief's queue (brief.tf): a demo home's newest week
+            # is written again by the agents. Unset, the demo keeps the facts'.
+            WICK_BRIEF_QUEUE_URL = aws_sqs_queue.brief.url
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
         )
