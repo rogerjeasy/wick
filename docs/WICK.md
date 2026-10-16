@@ -272,7 +272,7 @@ any time, never applied to strangers, never used to build a profile of anyone.
 
 | ID | Feature | What it does |
 |---|---|---|
-| **S4** | **The family line** | The family asks in plain words and gets a paragraph, not a dashboard. It runs on an MCP server, the open standard Alexa+ uses, with 22 tools. Alexa+ add-ons are partner-only for now, so the family app calls the same server today. |
+| **S4** | **The family line** | The family asks in plain words and gets a paragraph, not a dashboard. It runs on an MCP server, the open standard Alexa+ uses, with 25 tools, and an agent on Amazon Bedrock AgentCore that uses them with the member's own token and asks before every write. Alexa+ add-ons are partner-only for now, so the family app calls the same server and agent today. |
 | **M3** | **One-button reply** | A note arrives at a natural break with three replies. Two are chosen from a fixed list of sentences I wrote, and the third is always *"Not right now."* No model ever puts words in her mouth. |
 | **D4** | **Ask about it** | Specific questions, like "did Maria come on Tuesday?" |
 | | **Hold for Sarah** | She holds OK for two seconds to ask one person to ring her. If they don't answer in three minutes, the next person is asked. |
@@ -280,6 +280,7 @@ any time, never applied to strangers, never used to build a profile of anyone.
 | | **The light in the window** | The family sees one thing: whether her day has begun. She can put it out. |
 | | **The mantelpiece** | The family sends pictures, checked by Amazon Rekognition. She keeps them or lets them go. |
 | | **Sarah's television** | A family member connects Wick on their own Fire TV. |
+| | **Visit errands** | *"The plumber is coming Thursday at ten — let Mum know."* After the member's yes, a note waits for her natural break, the door is told whom to expect, she is reminded that morning, and the member is told when the door rang or that nobody came. It never says the plumber came: only that someone rang around then. |
 
 ### 5.3 Her week, under her control
 
@@ -290,6 +291,7 @@ any time, never applied to strangers, never used to build a profile of anyone.
 | **D1** | **Shall I tell Sarah?** | When the week really is different, Wick asks **her** first and shows the exact sentence. Only *"Tell"* lets the family read it. *"Keep it to myself"* looks to the family as if nothing happened. |
 | **M5** | **The visit, witnessed** | *"Maria was here from 9:02 to 9:47. Is this right?"* Only her "Yes" confirms a visit. |
 | **D2** | **What Sarah sees** | A screen on her television listing everything the family can see, with one press to take anything off. |
+| | **The Sunday brief** | Her week, written by agents from counted facts and checked twice, ends with one thing the family member could do: write a note, arrange a visit, or watch a film together. She sees it first. |
 
 ### 5.4 Comfort and access
 
@@ -542,19 +544,22 @@ The full design is in [`WICK-TECHNICAL.md`](WICK-TECHNICAL.md). In short:
 
 - **The television shows and never decides.** It holds no secrets, so a cheap
   device in someone's front room is never a risk.
-- **An agent does the thinking,** in the cloud, and keeps working while the
-  television is off. Six small agents each have one job: Door, Narrator, Tell,
+- **Agents do the thinking,** in the cloud, and keep working while the
+  television is off. Small agents each have one job: Door, Narrator, Tell,
   Visit, Reach, and the Guardian, which enforces the policy on everything that
-  leaves the house. Only Door and Narrator call an AI model.
-- **Every family question is answered from data already counted,** so no model
-  runs while the family waits.
+  leaves the house. Three of them use AI models, on Amazon Bedrock AgentCore:
+  the Door, the family's assistant (which calls Wick's own tools with the
+  member's token and asks before every write), and the Sunday brief's graph.
+- **Every answer comes from data already counted.** The assistant's model
+  chooses which tools to ask and the words; the facts are the tools', and a
+  number the tools did not give is refused.
 
 | Layer | Technology |
 |---|---|
 | **Television** | Vega OS with React Native, a background service for the door, media controls, and the same app on Fire OS through four small adapters |
 | **Door** | Ring Partner API: webhooks, recorded frames, live view, the Chime |
 | **Family** | An MCP server for Alexa+, and a family app that uses it today |
-| **Agents** | Amazon Bedrock (Nova Lite, Claude Sonnet 4.5), AgentCore Runtime with Strands, one isolated session per household |
+| **Agents** | Amazon Bedrock (Nova Lite, Claude Sonnet 4.5) behind a Bedrock Guardrail; AgentCore Runtime with Strands agents and graphs; AgentCore Memory for the assistant's conversations; Step Functions for visit errands |
 | **AWS** | Lambda, API Gateway, IoT Core, EventBridge and Scheduler, App Runner, DynamoDB, S3, CloudFront, Secrets Manager, Cognito, Rekognition, Polly, Translate and Transcribe, all in Terraform |
 
 ---

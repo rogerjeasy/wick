@@ -11,7 +11,7 @@ How Wick is built, as the code stands. [`WICK.md`](WICK.md) says what Wick is an
 
 What is simulated in this submission (the televisions, the doorbell, Alexa+ and the household) is set out in the README's [*What is real, and what is simulated*](../README.md#what-is-real-and-what-is-simulated). Ideas that were planned and not built are in [§17](#17-considered-and-not-built).
 
-**Contents.** Summary · [0 Reading this document](#0-how-to-read-this-document) · [1 Architecture](#1-architecture) · [2 Repository](#2-repository-layout) · [3 The television](#3-the-television) · [4 Device and cloud](#4-device--cloud) · [5 Agents](#5-the-agent-plane) · [6 The Guardian](#6-the-guardian) · [7 Connectors](#7-connectors) · [8 Data](#8-data-model) · [9 Performance](#9-performance) · [10 Security](#10-security) · [11 Observability](#11-observability) · [12 Testing](#12-testing) · [13 Build and deploy](#13-build-deploy-extract) · [14 Spikes](#14-the-spikes-and-what-they-found) · [15 Build order](#15-build-order-as-it-happened) · [16 Open questions](#16-open-technical-questions) · [17 Not built](#17-considered-and-not-built) · [Appendices](#appendix-a--verified-vega-identifiers)
+**Contents.** Summary · [0 Reading this document](#0-how-to-read-this-document) · [1 Architecture](#1-architecture) · [2 Repository](#2-repository-layout) · [3 The television](#3-the-television) · [4 Device and cloud](#4-device--cloud) · [5 Agents](#5-the-agent-plane) · [6 The Guardian](#6-the-guardian) · [7 Connectors](#7-connectors) · [8 Data](#8-data-model) · [9 Performance](#9-performance) · [10 Security](#10-security) · [11 Observability](#11-observability) · [12 Testing](#12-testing) · [13 Build and deploy](#13-build-deploy-extract) · [14 Spikes](#14-the-spikes-and-what-they-found) · [15 Build order](#15-build-order-as-it-happened) · [16 Open questions](#16-open-technical-questions) · [17 Not built](#17-considered-and-not-built) · [18 The assistant as an agent](#18-the-family-assistant-as-an-agent) · [19 Visit errands](#19-visit-errands) · [20 The Guardrail](#20-the-guardrail) · [21 The Sunday brief](#21-the-sunday-brief) · [Appendices](#appendix-a--verified-vega-identifiers)
 
 ---
 
@@ -964,6 +964,108 @@ One deployed stack, used for every live check. It holds only test and demo homes
 | A model in the Guardian | Rules only, by design |
 | Face matching for visitors | Rejected: schedule only |
 | Testing on Fire TV hardware | No hardware; the simulators are the evidence |
+
+---
+
+## 18. THE FAMILY ASSISTANT AS AN AGENT
+
+*In short: the family's assistant is a Strands agent on Bedrock AgentCore Runtime. It calls Wick's own MCP tools with the family member's own token, pauses for the member's yes before every write, and keeps the conversation in AgentCore Memory.*
+
+The family app asks `POST /assistant/turn` on the Wick server. The server checks the member's token and the resident's permission (INV-8, INV-9) and invokes the AgentCore runtime (`InvokeAgentRuntime`, kind `assistant.turn`) with a runtime session that is that member's in that home (`assistant-<sha256(home:member)>`). The token travels in the payload and is never logged, stored or returned.
+
+```mermaid
+sequenceDiagram
+    participant App as Family app
+    participant Srv as Wick server
+    participant RT as AgentCore Runtime<br/>(Strands Agent)
+    participant Mem as AgentCore Memory
+    participant MCP as Wick MCP tools
+    App->>Srv: question (member's token)
+    Srv->>RT: assistant.turn (token in payload)
+    RT->>Srv: GET /api/me with the token
+    Note over RT: refuses unless the token's member and home<br/>are the payload's
+    RT->>Mem: restore the member's session
+    RT->>MCP: read tools, with the member's token
+    RT-->>Srv: needsApproval: arrange_visit, send_note_to_tv
+    Srv-->>App: "Here is what I'll do" + one confirm card per write
+    App->>Srv: yes / no
+    Srv->>RT: resume
+    RT->>MCP: the approved write, once
+    RT->>Mem: save the session
+    RT-->>Srv: say + the tools' own texts
+    Srv-->>App: answer, after the Guardian and the number check
+```
+
+**One turn** (`services/agent/src/agents/assistant/turn.ts`):
+
+1. **Who.** The token is checked against the Wick server (`GET /api/me`, `verify.ts`) before anything else. Unless the token's member and home are the ones in the payload, the turn answers `unauthorized`: no session is loaded, no model is called, no tool runs. The runtime is shared with the door's kinds, so the payload is not trusted.
+2. **The agent.** A Strands `Agent` on Claude Sonnet 4.5 with the Bedrock Guardrail (§20), its tools from `McpClient` pointed at Wick's MCP server with `Authorization: Bearer <member token>`. Every rule the tools enforce applies to it: it can do nothing the member could not.
+3. **Writes wait for a yes.** A `BeforeToolCallEvent` hook interrupts any tool whose MCP annotation is not `readOnlyHint: true` (`approval.ts`). The turn returns the waiting calls; the app shows them on the confirm cards it has always used; the member's answer resumes the agent with `InterruptResponseContent`. One yes covers exactly one call (`hook:beforeToolCall:<toolUseId>:approve`). A declined call gets a "declined" result.
+4. **Limits.** At most four calls in a round and six rounds in a turn, 20 seconds.
+5. **The answer.** The server passes it through the Guardian and the same number check the old assistant used, against what the tools said: the model chooses words but cannot add a fact.
+
+**Sessions.** A Strands `SessionManager` saves the conversation after each invocation, including a write paused for the member's yes, into AgentCore Memory through `packages/strands-agentcore-session`. That is the code of Wick's open-source pull request to `aws/bedrock-agentcore-sdk-typescript`, which answers that repository's issues #160 and #214. A member's conversation survives a cold start of the microVM and a new browser. It is filed under the agent's own actor id, apart from the long-term records.
+
+**Long-term memory.** A `MemoryManager` over the official `AgentCoreMemoryStore` (`bedrock-agentcore`), with a user-preference strategy under `/households/{home}/members/{member}`. It remembers the member's own words ("our plumber is Dave"), never what a tool said about her.
+
+**Fallback.** When the runtime is not configured or fails, the route answers 503 and the app uses the previous assistant (`/assistant/next`), unchanged. A failure after a yes is reported, never retried by the old path, so nothing is done twice.
+
+**Deleting an account** deletes the member's AgentCore Memory too: their conversation events and their long-term records (`services/mcp-server/src/assistant/forget.ts`).
+
+## 19. VISIT ERRANDS
+
+*In short: "The plumber is coming Thursday at ten — let Mum know" is carried out over days by a Step Functions workflow: the door is told whom to expect, she is reminded on the morning, and the member is told when the door rang or when nobody came.*
+
+The member asks the assistant; the agent calls `arrange_visit` and `send_note_to_tv`; the member says yes to both. From then on code carries it out: `packages/contracts/src/errand.ts`, `services/mcp-server/src/tools/arrange_visit.ts`, `services/agent/src/agents/errand/`, `infra/errands.tf` and `infra/errand.asl.json`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> HasReminder
+    HasReminder --> WaitForReminder: a reminder was asked for
+    HasReminder --> WaitForDoor: none
+    WaitForReminder --> Remind: 08:00 on the day, her time
+    Remind --> WaitForDoor
+    WaitForDoor --> Rang: door.rang inside the window
+    WaitForDoor --> NoShow: the window ends
+    Rang --> [*]: member told
+    NoShow --> [*]: member told
+    WaitForDoor --> MarkFailed: an error after retries
+```
+
+- **`arrange_visit`** `{ who, date, time, reminder, tellMe }`. In one DynamoDB transaction it writes the errand (`ERRAND#<id>`) and a roster entry for the visitor (`PER#errand:<id>`, the expected moment ±60 minutes, filed under the member). Then it starts the state machine, named after the errand so a retry starts nothing twice. `who` must clear the Guardian: the errand's words reach the family again. Limits: 2 minutes to 60 days ahead, ten open errands per home.
+- **The door.** Every ring, real or stand-in, puts a `door.rang` event on the Wick bus after the card is made (best effort: it never delays the card). The `errand-door` Lambda finds the home's errand waiting on that window and wakes the workflow (`SendTaskSuccess`). The card itself already says who it looks like, through the roster, and adds "Sarah arranged this visit."
+- **The reminder** is a note from the member, written by code from the phrasebook, in her language, DEFERRED: it waits for a natural break like any other note.
+- **The member is told** by Web Push (no names, no times in the payload) and sees the outcome in the family app: "Someone rang at 10:04, around when the plumber was expected", never "the plumber came". Whether it was the plumber is hers to say (M5).
+- **Every step asks again** whether the member is still allowed (INV-9). If not, the errand closes quietly and the roster entry goes.
+- `get_errands` and `cancel_errand` (only the author may cancel) complete the set. **25 MCP tools** in all.
+- **For judges**: arrange a visit five minutes ahead in a demo home, then ring the stand-in doorbell's "The visitor you arranged".
+
+## 20. THE GUARDRAIL
+
+*In short: a Bedrock Guardrail is a second, model-side check on both agents. The Guardian stays the gate of record.*
+
+`infra/guardrail.tf`: denied topics (medical advice, financial advice, guessing her mood), content filters at HIGH, phone numbers, emails and addresses anonymised, and contextual grounding at 0.75 with relevance at 0.5, published as a fixed version. The assistant attaches it to its model. The Sunday brief applies it (`ApplyGuardrail`) to its paragraph and its suggestion with the week's counted facts as the grounding source: a sentence the facts do not support is refused. Either check, the Guardian or the Guardrail, may refuse.
+
+## 21. THE SUNDAY BRIEF
+
+*In short: each home's week is written by a Strands Graph on AgentCore — counted by code, written by a model, checked twice — and ends with one thing the family member could do, chosen from a fixed menu and checked by code.*
+
+```mermaid
+flowchart LR
+    A[analyst<br/>code: the counts] --> W[writer<br/>Sonnet]
+    W --> C{check<br/>numbers · Guardian ·<br/>Guardrail grounding}
+    C -- refused, once --> A
+    C -- refused twice --> F[the facts' own paragraph]
+    C -- passes --> S[suggester<br/>structured output]
+    F --> S
+    S --> V{validate<br/>code}
+    V --> ST[store<br/>INV-7: she sees it first]
+```
+
+- **Fan-out.** Sunday's rule starts `brief-dispatch`, which queues one message per home with a television (SQS, with a dead-letter queue and an alarm). `brief-worker` invokes the runtime (`brief.weekly`) for one home at a time, two at once at most. If the runtime fails, it falls back to the Narrator for that home, so a week is always written. This also removes the Narrator's limit of one 15-minute run for every home.
+- **The suggestion** (`packages/contracts/src/brief.ts`) is one of `send_note`, `arrange_visit`, `watch_together` or `nothing`, with a reason of at most 140 characters. Code decides whether it may stand: `arrange_visit` only if a usual visitor came less than usual, `watch_together` only if a film was played that week. The reason passes the number check, the Guardian and the Guardrail. Anything else becomes `nothing`.
+- **Delivery.** She sees her week first, as before (INV-7). The first time she opens it on her television, the edge puts `week.seen` on the bus and the family members with notifications on get a `week_ready` push. The family app's week card then shows "One thing you could do" with one button: write a note, arrange a visit, or invite her to a film.
+- **Demo homes** get their newest week rewritten by the agents when the home is made, so a judge sees an agents' week with a suggestion.
 
 ---
 

@@ -8,7 +8,7 @@ Ring's Developer Playground, and Alexa+ is a simulated surface in front of a
 real MCP server. Everything in between runs on AWS in `us-east-1`.
 
 Below, each tool gets the five answers Devpost asks for. The evidence is in
-[`FRICTION.md`](../FRICTION.md): 40 entries, each written when the problem
+[`FRICTION.md`](../FRICTION.md): 43 entries, each written when the problem
 happened, cited here as FL-0xx. Feature requests, with a priority for each, are
 at the end.
 
@@ -29,8 +29,11 @@ for JavaScript v3. CI deploys over GitHub OIDC and holds no AWS keys.
 
 | Service | What Wick does with it |
 |---|---|
-| **Amazon Bedrock** | **Nova Lite** writes one sentence about who is at the door, or nothing. **Claude Sonnet 4.5** writes the weekly summary from numbers the code already counted, and picks which tool answers a family member's question. **Stable Image Ultra** made the stand-in doorbell's four pictures, once. |
-| **Bedrock AgentCore Runtime** | Runs the door's work as Strands graphs: the description, the gate before the hallway chime, and Watch live. One session per household, so each home runs in its own microVM. |
+| **Amazon Bedrock** | **Nova Lite** writes one sentence about who is at the door, or nothing. **Claude Sonnet 4.5** is the family's assistant and writes the Sunday brief from numbers the code already counted. A **Bedrock Guardrail** (denied topics, PII, contextual grounding) checks both, and the brief calls `ApplyGuardrail` with the counted facts as the grounding source. **Stable Image Ultra** made the stand-in doorbell's four pictures, once. |
+| **Bedrock AgentCore Runtime** | Three agents: the door's Strands graphs (one session per household, each home in its own microVM), the family assistant (a Strands agent, one session per member per home), and the Sunday brief (a Strands Graph). |
+| **Bedrock AgentCore Memory** | The family assistant's conversations, including a write waiting for the member's yes, as Strands snapshots (Wick's own session storage, also a pull request to Amazon's AgentCore SDK); and the member's own words long-term, through a user-preference strategy. Deleted with the member's account. |
+| **AWS Step Functions** | A visit errand as one execution over days: wait for the reminder, remind her, wait for the doorbell on a task token the door's event redeems, or time out; then tell the member. |
+| **Amazon SQS** | The Sunday brief's fan-out: one message per home, a dead-letter queue, partial batch failures. |
 | **AWS Lambda** | 22 functions: the Ring webhook and OAuth, pairing, both television channels, the IoT authorizer, the door agent, card presses, the weekly narrator, and the live-view bridge. |
 | **Amazon API Gateway** | An HTTP API for Ring, pairing and Watch live, and a WebSocket API that every television can fall back to. |
 | **AWS IoT Core** | The television's main channel, MQTT over WSS, with a custom authorizer that checks the television's own token. |
@@ -245,8 +248,9 @@ registered developer would make it buildable.
 `stability.stable-image-ultra-v1:1`; the Converse API.*
 
 **Used for:** Nova Lite for the door's sentence, run as a Strands agent with a
-validator that can drop it. Claude Sonnet 4.5 for the weekly summary from
-counted facts, and for the family app's assistant. Stable Image Ultra, once, for
+validator that can drop it. Claude Sonnet 4.5 for the family's assistant and
+the Sunday brief's writer and suggester. A Bedrock Guardrail on both, with
+contextual grounding for the brief. Stable Image Ultra, once, for
 the stand-in doorbell's pictures of nobody real.
 
 **Worked well:**
@@ -255,10 +259,16 @@ the stand-in doorbell's pictures of nobody real.
   2.9 s after the ring (median of five, stand-in doorbell).
 - Cross-region inference profiles, once the IAM grant covered both the profile
   and the model.
+- Guardrails' contextual grounding is exactly the check a care product needs
+  for a model-written paragraph: "is every sentence supported by these counted
+  facts?" as one `ApplyGuardrail` call, with a threshold, in Terraform.
 
 **Needs work:**
 - Amazon's own image models (Nova Canvas, Titan Image v2) have reached end of
   life, vanished from the model list, and name no successor (FL-030).
+- A Guardrail's denied topics and the grounding check are configured together
+  but fail with one undifferentiated "intervened"; we read the assessment to
+  tell a refused topic from an ungrounded sentence. A summary reason would help.
 - A model can be listed and still refused: Claude Sonnet 5 was listed for our
   account and every call failed with `AccessDeniedException`. The weekly summary
   failed silently until we moved to Sonnet 4.5. The model list should say
@@ -275,16 +285,24 @@ someone's door.
 
 ## 6. Amazon Bedrock AgentCore Runtime
 
-**Used for:** one runtime running the door's Strands graphs. The session is the
-household, so each home's graphs run in their own microVM. We didn't use
-AgentCore Memory, Identity or Gateway.
+**Used for:** one runtime with three kinds of work: the door's Strands graphs
+(the session is the household, so each home runs in its own microVM), the
+family assistant (one session per member per home), and the Sunday brief.
+**AgentCore Memory** keeps the assistant's conversations and the member's own
+words. We didn't use Identity or Gateway: Gateway's per-user OAuth flow has an
+open bug in the TypeScript SDK (#37 there), and Wick's tools already take the
+member's own token.
 
 **Worked well:**
 - Session-level microVM isolation is exactly right for one-home-per-session
   data, and cost one line of design.
 - The container contract (`/ping`, `/invocations`) is small and easy to test
   locally.
-- It's in the Terraform AWS provider, alongside everything else.
+- It's in the Terraform AWS provider, alongside everything else, Memory and its
+  strategies included.
+- AgentCore Memory's metadata filters on `ListEvents` let one session hold both
+  the conversation and the agent's saved state without either reading the
+  other.
 
 **Needs work:**
 - There's no outbound UDP, and nothing says so. Ring's live view connected and
@@ -294,6 +312,12 @@ AgentCore Memory, Identity or Gateway.
   small Lambda shim.
 - A session keeps its old image for up to eight hours after a deploy. We put the
   version in the session id to force a fresh one.
+- The TypeScript SDK had no session storage for Strands on AgentCore Memory,
+  which Python has had for months. We wrote it and opened a pull request
+  (issues #160 and #214 there).
+- A memory strategy's namespace can name only `{actorId}`, `{sessionId}` and
+  `{memoryStrategyId}`, so "a member in a home" had to be spelled as the
+  session being the home (FL-046).
 
 **Onboarding:** the runtime and its graphs landed in one pull request. The one
 trap is ordering: the runtime needs an image before it can be created.
@@ -308,16 +332,33 @@ elsewhere until egress is documented.
 *`@strands-agents/sdk` 1.18 (TypeScript).*
 
 **Used for:** the door's graphs, which mix one vision agent with deterministic
-steps. The parts a model must never decide, such as whether to sound a chime,
-are plain code in the same graph.
+steps; the family assistant, an `Agent` with an `McpClient` on Wick's own MCP
+server, hooks that interrupt every write for the member's yes, and a
+`SessionManager`; and the Sunday brief, a `Graph` with an analyst, a writer, a
+check and a suggester using structured output. The parts a model must never
+decide, such as whether to sound a chime or which suggestion may stand, are
+plain code in the same graphs.
 
 **Worked well:** any `Node` subclass can be a node, so model steps and rule steps
 share one traceable graph. `BedrockModel` needs only an id and a couple of
 settings. Graphs take a model, so tests run without AWS.
 
-**Needs work:** nothing logged. A built-in "function node" would save a
-40-line subclass for each plain step, and a TypeScript example mixing model and
-rule nodes would help.
+- Interrupts from a `BeforeToolCallEvent` hook are the right shape for "ask
+  the person before any write": one interrupt per call, resumed with
+  `InterruptResponseContent`, and the paused call runs without asking the model
+  again.
+- `McpClient` takes headers, so an agent can call an MCP server as the person
+  it acts for.
+
+**Needs work:**
+- A built-in "function node" would save a 40-line subclass for each plain
+  step, and a TypeScript example mixing model and rule nodes would help.
+- A TypeScript `Graph` cannot loop back into a node that also has an edge from
+  outside the loop: the run ends after the first node with status COMPLETED and
+  no error (FL-047).
+- An agent built per request (one per invocation, as on AgentCore Runtime)
+  meets interrupts, sessions and memory that each assume one long-lived agent
+  (FL-046).
 
 **Onboarding:** short. The same graph code ran in tests and in AgentCore
 unchanged.
@@ -417,6 +458,30 @@ rules in one flow.
   doorbell off the real door path.
 - **Needs work:** neither can target AgentCore directly.
 - **Onboarding:** short.
+- **Again?** Yes.
+
+**AWS Step Functions.**
+- **Used for:** a visit errand, as one Standard execution over days: a Wait for
+  the reminder, a Lambda task, then a `.waitForTaskToken` task the door's
+  `door.rang` event redeems, with a timeout at the end of the visit's window.
+- **Worked well:** a multi-day wait costs nothing while it waits, retries and
+  catches are declarative, and the execution graph shows a judge exactly where
+  an errand is. Naming the execution after the errand makes a retried start
+  harmless.
+- **Needs work:** a Wait can take an absolute timestamp, but a task's
+  `TimeoutSecondsPath` only takes seconds from when the task starts, which a
+  state machine cannot compute in JSONPath; we pass it in the input (FL-045).
+- **Onboarding:** one afternoon, with the States Language reference open.
+- **Again?** Yes, for anything that waits on people.
+
+**Amazon SQS.**
+- **Used for:** the Sunday brief's fan-out: one message per home, a dead-letter
+  queue after three tries, and partial batch failures, with Lambda's maximum
+  concurrency at two so Bedrock is never asked for more than the account allows.
+- **Worked well:** `ReportBatchItemFailures` and an event source mapping's
+  maximum concurrency turn a fan-out into one line of Terraform each.
+- **Needs work:** nothing logged.
+- **Onboarding:** familiar.
 - **Again?** Yes.
 
 **AWS App Runner and Amazon ECR.**
