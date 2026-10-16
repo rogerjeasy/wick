@@ -40,8 +40,7 @@ data "aws_iam_policy_document" "ws_connect" {
     # full-item replace can't clobber pairedAt/denylisted — see the file's
     # own comment). PutItem: the CONN#<id>/META reverse-lookup item.
     # dynamodb:Query is NOT needed here — reconcile moved to route.mjs's
-    # $default handler (see route.mjs and the Task 7 fix-round notes in
-    # .superpowers/sdd/2026-09-16-s1-device-wiring/progress.md).
+    # $default handler (see route.mjs).
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.wick.arn]
   }

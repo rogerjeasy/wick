@@ -30,10 +30,8 @@ infra/.build/
 services/agent/.build/
 services/mcp-server/.build/
 
-# Agent-local scratch — worktrees for isolated plan execution, and the
-# subagent-driven-development skill's per-plan progress workspace.
+# Agent-local scratch: worktrees for isolated plan execution.
 .worktrees/
-.superpowers/
 # Native EnterWorktree tool's own worktree directory (a different
 # convention than .worktrees/ above, used when the harness creates the
 # worktree itself rather than a plain `git worktree add`).

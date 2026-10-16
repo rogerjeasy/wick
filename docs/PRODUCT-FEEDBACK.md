@@ -1211,7 +1211,7 @@ Not Amazon's, listed so the picture is complete.
 | werift 0.24.4 + ffmpeg | Ring WHEP → HLS in the live bridge Lambda |
 | `react-native-tvos`, `react-native-video` | The Fire OS build |
 | MCP Inspector | Exercising the MCP server before the family app existed |
-| Claude Code | The coding agent used to build Wick (design notes under `docs/superpowers/`); Ring's Appstore Knowledge MCP server was configured for it at project scope (`.mcp.json`) |
+| Claude Code | The coding agent used to build Wick; Ring's Appstore Knowledge MCP server was configured for it at project scope (`.mcp.json`) |
 
 Kiro was not used.
 
