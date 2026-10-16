@@ -27,7 +27,7 @@ async function mcpClient(h: Harness, who: Linked): Promise<{ client: Client; tra
   // Same `exactOptionalPropertyTypes` accessor-vs-optional-property mismatch as
   // server.ts's own transport cast: `sessionId` is `string | undefined` on the
   // class but `string` (optional) on `Transport`. Structurally compatible
-  // (verified: StreamableHTTPClientTransport `implements Transport`, SDK 1.30.0).
+  // (verified: StreamableHTTPClientTransport `implements Transport`, SDK 1.32.1).
   await client.connect(transport as unknown as Transport);
   closers.push(() => client.close());
   return { client, transport };

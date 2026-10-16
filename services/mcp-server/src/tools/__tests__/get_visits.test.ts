@@ -252,7 +252,7 @@ describe('get_visits — who it answers, and about which home', () => {
     const answer = await (await connected(t, asSarah, NOW, watched))();
 
     expect(answer.text).toBe(FAMILY_REFUSAL_TEXT);
-    expect(answer.structured).toBeUndefined();
+    expect(answer.structured).toEqual({ say: answer.text });
     // The policy, and nothing after it: no visit was read.
     expect(sent).toEqual(['GetItemCommand']);
   });
@@ -261,7 +261,7 @@ describe('get_visits — who it answers, and about which home', () => {
     const answer = await (await connected(table(confirmed()), asTom))();
 
     expect(answer.text).toBe('Margaret has asked you to help in two ways: to look at who is at the door, and to ring when asked. Nothing else about the house is shared with a neighbour.');
-    expect(answer.structured).toBeUndefined();
+    expect(answer.structured).toEqual({ say: answer.text });
   });
 
   it('answers nobody the resident has not allowed', async () => {

@@ -3,7 +3,7 @@
 Developer-experience friction encountered while building Wick on Amazon Devices,
 Ring, Alexa+ and AWS.
 
-31 entries, FL-001 to FL-032, newest first, each written when the problem was hit.
+32 entries, FL-001 to FL-033, newest first, each written when the problem was hit.
 There is no FL-020: the number was taken and the entry never written. The same
 problems, gathered by tool with what worked well beside them, are in
 [docs/PRODUCT-FEEDBACK.md](docs/PRODUCT-FEEDBACK.md).
@@ -197,6 +197,64 @@ removed from the design (2026-10-02).
                         action, and a carousel item's width per device class.
                      3. Say what the hydrated (data-only) mode draws for a List, a Carousel and a
                         Card, so an add-on that returns data knows what its customer will see.
+## FL-033 — App Runner's front end closes a kept-alive client connection after a few seconds to a minute, says why nowhere, and each reconnection is the whole of the "slow" tool call
+
+**Date:**            2026-10-16
+
+**Tool / API:**      AWS App Runner (an ECR image service, us-east-1; responses carry `server: envoy`),
+                     reached over HTTP/1.1 + TLS from Node 22's `https.Agent({ keepAlive: true, maxSockets: 1 })`
+
+**Task attempted:**  Find out why the Wick server answers MCP tool calls at two speeds — about
+                     0.2 s or about 0.8–1.1 s (issue #47) — when Alexa+ asks for a round trip
+                     under 500 ms.
+
+**Steps taken:**     1. Wrote `npm run latency:mcp` (scripts/mcp-latency.ts): a fresh demo guest,
+                        then N `tools/call` requests over ONE kept-alive connection, noting for
+                        each call whether it reused the connection or had to open one, and
+                        whether the answer said `Connection: close`.
+                     2. Ran it from a laptop in Europe against the deployed server (the image
+                        from before this work: Node's default 5 s keep-alive, vite-node), four
+                        times: 100 calls back to back, 100 at one a second, 40 at one a second,
+                        40 at one every three seconds.
+                     3. Looked in the App Runner developer guide and in re:Post for any idle
+                        timeout, connection lifetime or `Connection: close` behaviour on the
+                        service's front end. Found none documented.
+
+**Expected:**        A connection a client keeps alive stays open while it is used, or the
+                     service documents how long it does stay open, so a client can plan for the
+                     reconnection.
+
+**Actual:**          The front end ends the connection with `Connection: close` on an ordinary
+                     200 answer, after a lifetime that varies from 2 s to 40 s (2.3, 4.4, 5.5,
+                     23.5 and 5.5 s in one run; 39.5, 4.0, 23.9, 9.4, 17.6, 5.6, 7.6, 4.8 s in
+                     another), more often the more slowly requests come. Every slow call is the
+                     first on a new connection: at one a second, 54 calls on a reused connection
+                     had p50 201 ms and p95 296 ms, none over 500 ms; the 6 on a new connection
+                     had p50 780 ms, all over 500 ms. Back to back (100 calls in about 20 s) only
+                     one connection was replaced and one call went over 500 ms. Whether the
+                     container's own 5 s keep-alive played a part could not be told from
+                     outside; nothing App Runner exposes says which side closed.
+
+**Severity:**        Important — from Europe it is the difference between meeting Alexa+'s
+                     500 ms and missing it on 1 % to 22 % of calls (the slower the requests come, the more), and nothing in the service's
+                     documentation lets a developer find the cause without writing a probe.
+
+**Workaround:**      The server now keeps its own idle connections open for 65 s
+                     (`keepAliveTimeout`, services/mcp-server/src/lifecycle.ts), longer than any
+                     usual proxy idle time, so the container is not the side that closes; and
+                     every answer carries `Server-Timing` (auth, build, gate, handler, guard,
+                     total), so the server's share of a slow call can be read from the client.
+                     Whether that changes App Runner's behaviour is to be measured after the
+                     deploy, with the same script. From inside us-east-1 a reconnection costs a
+                     fraction of what it costs from Europe.
+
+**Suggestion:**      1. Document the front end's connection behaviour: the idle timeout, any
+                        maximum connection lifetime or request count, and when it answers
+                        `Connection: close`.
+                     2. Say in the response (or in a metric) whether a close came from the
+                        front end or from the container's own connection.
+                     3. Offer HTTP/2 to clients, which would make one connection's set-up cost
+                        rarer still.
 
 ---
 

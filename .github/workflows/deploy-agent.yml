@@ -53,7 +53,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           common='^(package\.json|package-lock\.json|tsconfig\.base\.json|apps/tv-vega/package\.json|\.dockerignore|packages/|services/)'
-          mcp="$common|^vitest\.config\.ts$"
+          mcp="$common"
           agents="$common|^scripts/build-lambda\.mjs$|^docs/demo-door/"
           if [ "$GITHUB_EVENT_NAME" != push ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
             echo "a manual run, or no earlier commit to compare with: both images"
@@ -94,8 +94,9 @@ jobs:
             echo "wick-mcp-server:$tag is already pushed"; exit 0
           fi
           # One platform, no attestations: a single image manifest, which is
-          # what App Runner pulls.
+          # what App Runner pulls. WICK_COMMIT is what GET /health says is running.
           docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+            --build-arg WICK_COMMIT="$tag" \
             -f services/mcp-server/Dockerfile -t "$REGISTRY/wick-mcp-server:$tag" --push .
 
   # The AgentCore runtime and the live bridge: arm64, built natively on an

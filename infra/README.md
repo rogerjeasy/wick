@@ -142,7 +142,9 @@ built from (each Dockerfile's `COPY` lines), or by hand from the Actions tab:
 
 1. **verify** — `npm run test:property` and `npm run verify`.
 2. **mcp-image** and **agent-images**, only for the images the push changed:
-   the Wick server for `linux/amd64` on `ubuntu-latest`; the AgentCore
+   the Wick server for `linux/amd64` on `ubuntu-latest` (an esbuild bundle
+   on a pinned Node runtime, `WICK_COMMIT` set to the short SHA so
+   `GET /health` says which commit is running); the AgentCore
    runtime and the live bridge for `linux/arm64` on `ubuntu-24.04-arm`,
    natively. Each is pushed under the commit's short SHA, never `latest`.
 3. **deploy**, in the `terraform-infra` concurrency group that every apply

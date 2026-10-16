@@ -31,7 +31,8 @@ import { reachStore, type ReachSend, type ReachStore } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data, say } from './result.js';
+import { answerSchema, READS, data, say } from './result.js';
+import { z } from 'zod';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -85,6 +86,17 @@ export function reachFor(request: ReachRequest | undefined, userId: string, resi
   };
 }
 
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  requestId: z.string(),
+  kind: z.enum(['ring', 'hello']),
+  askedAt: z.number(),
+  state: z.enum(['waiting', 'answered']),
+  summary: z.string().optional().describe('"waiting": the whole of it in words, to be said as it stands.'),
+  answers: z.array(z.strictObject({ key: z.string(), text: z.string() })).optional(),
+  answer: z.strictObject({ by: z.string(), text: z.string(), at: z.number(), yours: z.boolean() }).optional(),
+});
+
 export function registerGetReachRequest(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext, now: () => number = Date.now): void {
   mcpServer.registerTool(
     'get_reach_request',
@@ -97,6 +109,7 @@ export function registerGetReachRequest(mcpServer: McpServer, ddb: DynamoDBClien
         'It is not an emergency signal and carries no reason: never guess at one, and never say anything is wrong. ' +
         'Answer a waiting request with answer_reach_request, passing this `requestId`.',
       inputSchema: {},
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (allowed) => {

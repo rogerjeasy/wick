@@ -22,8 +22,11 @@ import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { READS, data, say } from './result.js';
-import { NOTHING_ASKED, describeWatch, mySession, mySessions } from './watchSession.js';
+import { answerSchema, READS, data, say } from './result.js';
+import { NOTHING_ASKED, describeWatch, mySession, mySessions, WATCH_VIEW } from './watchSession.js';
+
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema(WATCH_VIEW);
 
 export function registerGetWatchTogether(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext, now: () => number = Date.now): void {
   mcpServer.registerTool(
@@ -42,6 +45,7 @@ export function registerGetWatchTogether(mcpServer: McpServer, ddb: DynamoDBClie
       inputSchema: {
         sessionId: z.string().min(1).max(64).optional().describe('The `sessionId` of one session. Without it, the newest.'),
       },
+      outputSchema: OUTPUT,
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { sessionId }: { sessionId?: string | undefined }) => {

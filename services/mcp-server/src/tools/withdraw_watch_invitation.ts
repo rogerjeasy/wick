@@ -36,11 +36,20 @@ import { WATCH_ACTIONS, watchCardId, type QueuedCard } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
-import { WRITES, data, say } from './result.js';
+import { answerSchema, WRITES, data, say } from './result.js';
 import { NOTHING_ASKED, TABLE, describeWatch, mySession, mySessions, sessionKey, watchCard, type WatchSession } from './watchSession.js';
 
 /** How often her press can win the write before this stops looking again. Once is enough: a session moves one way. */
 const LOOKS = 3;
+
+/** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
+const OUTPUT = answerSchema({
+  withdrawn: z.literal(true),
+  told: z.boolean().describe('Whether the resident’s television was told.'),
+  sessionId: z.string(),
+  film: z.string(),
+  when: z.string(),
+});
 
 export function registerWithdrawWatchInvitation(
   mcpServer: McpServer,
@@ -63,6 +72,7 @@ export function registerWithdrawWatchInvitation(
       inputSchema: {
         sessionId: z.string().min(1).max(64).optional().describe('The `sessionId` get_watch_together returned. Without it, the newest.'),
       },
+      outputSchema: OUTPUT,
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { sessionId }: { sessionId?: string | undefined }) => {

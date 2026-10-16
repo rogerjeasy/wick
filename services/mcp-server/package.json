@@ -8,7 +8,9 @@
   "license": "MIT",
   "author": "Roger Bavibidila",
   "scripts": {
-    "dev": "vite-node -c ../../vitest.config.ts src/index.ts"
+    "dev": "vite-node -c ../../vitest.config.ts src/index.ts",
+    "build": "node build.mjs",
+    "start": "node --enable-source-maps .build/server.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1131.0",
@@ -18,7 +20,7 @@
     "@aws-sdk/client-rekognition": "^3.1150.0",
     "@aws-sdk/client-s3": "^3.1150.0",
     "@aws-sdk/client-transcribe-streaming": "^3.1150.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@wick/agent": "*",
     "@wick/contracts": "*",
     "@wick/policy": "*",

@@ -156,7 +156,8 @@ describe('get_door_request (through the registered tool)', () => {
     const answer = await call('get_door_request');
 
     expect(answer.text).toBe("Margaret hasn't allowed this yet.");
-    expect(answer.structured).toBeUndefined();
+    // A refusal carries its sentence and nothing else (result.ts `say`).
+    expect(answer.structured).toEqual({ say: answer.text });
   });
 });
 
@@ -198,6 +199,19 @@ describe('answer_door_request (through the registered tool)', () => {
     expect(second.text).toBe(`Sarah has already answered: "${DOOR_ANSWERS.known}"`);
     expect(tom.patches).toEqual([]);
     expect(await loadDoorRequest(table.ddb, 'hh-1', NOW)).toMatchObject({ answer: { by: 'Sarah', text: DOOR_ANSWERS.known } });
+  });
+
+  it('answers a retried call with the answer already given, and patches the card once (INV-6)', async () => {
+    const table = asked();
+    const sarah = await connected(table);
+    const first = await sarah.call('answer_door_request', { requestId: 'door-abc', answer: 'known' });
+
+    const again = await sarah.call('answer_door_request', { requestId: 'door-abc', answer: 'known' });
+
+    expect(again.structured).toEqual(first.structured);
+    expect(sarah.patches).toHaveLength(1);
+    // A different answer from the same person is not a retry: the first answer stands.
+    expect((await sarah.call('answer_door_request', { requestId: 'door-abc', answer: 'dont_open' })).text).toBe(`Sarah has already answered: "${DOOR_ANSWERS.known}"`);
   });
 
   it('will not show words somebody wrote: an answer is chosen from Wick\'s own, or refused', async () => {
