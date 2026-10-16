@@ -180,7 +180,7 @@ export interface AppDeps {
   readonly demoAccountsPerHour?: number;
   /** The model behind the family app's conversation (assistant/brain.ts). Without one the app answers by its rules. */
   readonly assistant?: AssistantDeps;
-  /** A television in a browser tab, for someone with no Fire TV to hand (apps/ops-console/device.html). */
+  /** Her television in a browser tab, for someone with no Fire TV to hand (apps/ops-console/tv.html). */
   readonly virtualTelevisionUrl?: string;
   /**
    * The mantelpiece (photos/send.ts): the bucket a picture is put in, and
