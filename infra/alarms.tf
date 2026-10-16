@@ -34,7 +34,7 @@ resource "aws_sns_topic" "alarms" {
 # The address is sensitive (it is a person's), so the plan never prints it;
 # whether there is one is not.
 resource "aws_sns_topic_subscription" "alarm_email" {
-  count = nonsensitive(coalesce(var.alarm_email, "") != "") ? 1 : 0
+  count = nonsensitive(var.alarm_email == null ? false : var.alarm_email != "") ? 1 : 0
 
   topic_arn = aws_sns_topic.alarms.arn
   protocol  = "email"
