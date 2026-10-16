@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { DELETED_SAID, exportFileName, isAboutMyAccount, presentAccount, presentDeletion, revocationBody, signOutAddress } from '../account.js';
 
 const SARAH = { user: { userId: 'u1', name: 'Sarah', email: 'sarah@example.com', guest: false }, household: { residentName: 'Margaret' } };
-const GUEST = { user: { userId: 'guest_1', name: 'Guest', email: '', guest: true }, household: { residentName: 'Margaret' } };
+const GUEST = { user: { userId: 'guest_1', name: 'Sarah', email: '', guest: true }, household: { residentName: 'Margaret' } };
 
 describe('what is about one’s own account', () => {
   it.each(['my account', 'Delete my account', 'download my data', 'Close my Wick account', 'export my data'])('hears “%s”', (said) => {

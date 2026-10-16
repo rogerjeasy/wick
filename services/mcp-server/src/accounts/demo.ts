@@ -25,7 +25,8 @@
 import type { Identity } from './identity.js';
 
 export const GUEST_ID_PREFIX = 'guest_';
-export const GUEST_NAME = 'Guest';
+/** A demo guest is the daughter of the product's own story (docs/WICK.md): Sarah, Margaret's daughter. */
+export const GUEST_NAME = 'Sarah';
 /** The person the demo home is set up around — the product's own Margaret. */
 export const DEMO_RESIDENT_NAME = 'Margaret';
 export const DEMO_HOME_NAME = 'Demo home';

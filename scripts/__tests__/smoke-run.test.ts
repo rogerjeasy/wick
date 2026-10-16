@@ -76,7 +76,7 @@ function stack(withPr70: boolean) {
     if (!withPr70) return new Response('Cannot', { status: 404 });
     switch (`${method} ${pathname}`) {
       case 'GET /api/account/export':
-        return Response.json({ account: { name: 'Guest' }, linkedApps: [{ app: 'smoke', token: 'access' }] });
+        return Response.json({ account: { name: 'Sarah' }, linkedApps: [{ app: 'smoke', token: 'access' }] });
       case 'GET /account/sign-out': {
         const back = searchParams.get('redirect_uri');
         return back === 'http://127.0.0.1:9/addon-check' ? new Response(null, { status: 303, headers: { location: back } }) : new Response('<html>');

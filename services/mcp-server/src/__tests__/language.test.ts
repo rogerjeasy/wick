@@ -682,7 +682,7 @@ describe('INV-8: the household is the token’s — no request can name another'
 });
 
 describe('the demo home — a guest is its organiser, so the asking works there unchanged', () => {
-  it('lets a guest ask on the demo home’s television, as Guest, and take the question back', async () => {
+  it('lets a guest ask on the demo home’s television, as Sarah, and take the question back', async () => {
     const { h, languageCards, withdrawn } = await server({ demoAccounts: true });
     // One click on the family app's demo button (demo.test.ts).
     const browser = new Browser(h.base);
@@ -702,7 +702,7 @@ describe('the demo home — a guest is its organiser, so the asking works there 
 
     expect(res.status).toBe(200);
     expect(languageCards()).toHaveLength(1);
-    expect(languageCards()[0]!.card).toMatchObject({ householdId: me.household.householdId, detail: languageQuestion('es', 'Guest').detail });
+    expect(languageCards()[0]!.card).toMatchObject({ householdId: me.household.householdId, detail: languageQuestion('es', 'Sarah').detail });
 
     h.store.answerLanguage(me.household.householdId, 'yes');
     expect(await (await read(h, guest)).json()).toEqual({ language: 'es', choices: CHOICES });
