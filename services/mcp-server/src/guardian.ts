@@ -48,7 +48,7 @@ import { timed, type PhaseTimer } from './timing.js';
  * answer for a coincidence. A person's id made from their name (`personId`)
  * is not here: it is the name, spelt another way.
  */
-const NOT_WORDS: ReadonlySet<string> = new Set(['id', 'requestId', 'sessionId', 'cardId', 'householdId', 'correlationId', 'pictureUrl', 'isoWeek']);
+const NOT_WORDS: ReadonlySet<string> = new Set(['id', 'requestId', 'sessionId', 'cardId', 'householdId', 'correlationId', 'pictureUrl', 'isoWeek', 'errandId']);
 
 /** The words Wick uses to name the classes themselves: a label, not a fact about anyone. */
 const CLASS_NAMES: ReadonlySet<string> = new Set([...Object.keys(FACT_CLASS_WORDS), ...Object.values(FACT_CLASS_WORDS)]);

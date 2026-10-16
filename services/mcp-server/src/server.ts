@@ -73,6 +73,10 @@ import { registerGetReachRequest } from './tools/get_reach_request.js';
 import { registerAnswerReachRequest } from './tools/answer_reach_request.js';
 import { registerGetVisits } from './tools/get_visits.js';
 import { registerGetPictures } from './tools/get_pictures.js';
+import { registerArrangeVisit } from './tools/arrange_visit.js';
+import { registerGetErrands } from './tools/get_errands.js';
+import { registerCancelErrand } from './tools/cancel_errand.js';
+import type { ErrandMachine } from './tools/errands.js';
 import { closeWhenDraining, createLifecycle, healthRoute, type About, type Lifecycle } from './lifecycle.js';
 import { authChecked, startTiming, timingOf } from './timing.js';
 
@@ -101,8 +105,11 @@ export function createMcpServer(
   sendCard: SendCard,
   sendPatch: (patch: CardPatch, householdId: string) => Promise<void>,
   withdrawCard: (householdId: string, cardId: string) => Promise<void>,
-  /** `ownList`: answer tools/list by the SDK's own handler — only for the one server that lists them once (`listedTools`). */
-  options: { readonly ownList?: boolean } = {},
+  /**
+   * `ownList`: answer tools/list by the SDK's own handler — only for the one server that lists them once (`listedTools`).
+   * `errands`: the visit errands' state machine (tools/errands.ts); absent, arrange_visit says it cannot.
+   */
+  options: { readonly ownList?: boolean; readonly errands?: ErrandMachine | undefined } = {},
 ): McpServer {
   // INV-4: every tool's answer is read by the Guardian before it leaves (guardian.ts).
   const mcpServer = guardTools(new McpServer({ name: 'wick', version: SERVER_VERSION }), ctx.timing);
@@ -128,6 +135,9 @@ export function createMcpServer(
   registerAnswerReachRequest(mcpServer, ddb, ctx, sendCard);
   registerGetVisits(mcpServer, ddb, ctx);
   registerGetPictures(mcpServer, ddb, ctx);
+  registerArrangeVisit(mcpServer, ddb, ctx, options.errands);
+  registerGetErrands(mcpServer, ddb, ctx);
+  registerCancelErrand(mcpServer, ddb, ctx, options.errands);
   // The list is the same for every request and every person — no tool's
   // name, description or schema depends on who asks — and making it turns
   // forty-four Zod schemas into JSON Schema. So it is made once per process,
@@ -223,6 +233,8 @@ export interface AppDeps {
    * Wick has none.
    */
   readonly ringDemoDoor?: ((event: DemoDoorEvent) => Promise<void>) | undefined;
+  /** The visit errands' state machine (tools/errands.ts). Absent, arrange_visit says this Wick cannot arrange visits. */
+  readonly errands?: ErrandMachine | undefined;
   /**
    * Ask by voice (hear/transcribe.ts): one spoken question turned into words
    * by Amazon Transcribe. Absent, `/api/hear` says this Wick cannot hear yet.
@@ -402,7 +414,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
         lookedIn: (allowed) =>
           recordLook(ddb, { householdId: grant.householdId, userId: grant.userId, name: allowed.membership.name }, (deps.now ?? Date.now)(), deps.sendHome ?? (async () => {})),
         ...(timing ? { timing } : {}),
-      }, deps.sendCard, deps.sendPatch, deps.withdrawCard);
+      }, deps.sendCard, deps.sendPatch, deps.withdrawCard, { errands: deps.errands });
       // No `sessionIdGenerator` given: that is what makes it stateless.
       // `enableJsonResponse`: the answer is one JSON body, written once the
       // tool has answered, rather than a one-event stream opened before it

@@ -10,6 +10,7 @@ import { DEFAULT_POLICY } from '@wick/policy';
 import { DEMO_DOOR_DETAIL_TYPE, DEMO_DOOR_SOURCE, type DemoDoorEvent } from '@wick/contracts';
 import { sendHomeToDevices, sendPatchToDevice, sendToDevice, takeBackFromDevices } from '@wick/agent';
 import { createApp, SERVER_VERSION } from './server.js';
+import { errandMachineFromEnv } from './tools/errands.js';
 import { createLifecycle, serve, stopOnSignals } from './lifecycle.js';
 import { createCognitoIdentity, type CognitoSend } from './accounts/identity.js';
 import { createDynamoAccountStore, type DdbSend } from './accounts/store.js';
@@ -159,6 +160,8 @@ const app = createApp(ISSUER_URL, {
   },
   demoAccounts: DEMO_ACCOUNTS,
   ringDemoDoor,
+  // Visit errands (infra/errands.tf): the state machine named by ERRAND_STATE_MACHINE_ARN, or none.
+  errands: errandMachineFromEnv(),
   ...(assistant ? { assistant } : {}),
   ...(ringLinks ? { ringLinks } : {}),
   ...(photos ? { photos } : {}),

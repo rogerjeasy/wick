@@ -30,7 +30,9 @@ afterEach(async () => {
 /** A guest in a demo home with six weeks of history (accounts/demoHome.ts), allowed, over real HTTP. */
 async function demoGuest(): Promise<{ h: Harness; client: Client }> {
   const table = createMemoryTable();
-  const h = await startServer({ demoAccounts: true, ddb: table.ddb });
+  // Visit errands start a state machine: here, one that only answers with an execution's name.
+  const errands = { start: async (name: string) => `arn:aws:states:eu-west-2:111122223333:execution:wick-errand:${name}`, stop: async () => {} };
+  const h = await startServer({ demoAccounts: true, ddb: table.ddb, errands });
   closers.push(h.close);
   const browser = new Browser(h.base);
   const oauth = await registerClient(h.base);
@@ -89,6 +91,10 @@ const CALLS = (): [string, Record<string, unknown>][] => [
   ['get_visits', {}],
   ['get_visits', { days: 31 }],
   ['get_pictures', {}],
+  ['arrange_visit', { who: 'the plumber', date: tomorrow(), time: '10:00', reminder: 'morning_of', tellMe: true }],
+  ['arrange_visit', { who: 'the nurse', date: tomorrow(), time: '11:00' }],
+  ['get_errands', {}],
+  ['cancel_errand', { errandId: 'err_NOSUCHNOSUCHNOSUCHN' }],
 ];
 
 describe('the tool contract (outputSchema)', () => {
@@ -96,7 +102,7 @@ describe('the tool contract (outputSchema)', () => {
     const { client } = await demoGuest();
     const { tools } = await client.listTools();
 
-    expect(tools).toHaveLength(22);
+    expect(tools).toHaveLength(25);
     for (const tool of tools) {
       expect(tool.outputSchema, tool.name).toMatchObject({ type: 'object', additionalProperties: false });
       expect(tool.outputSchema!.properties, tool.name).toHaveProperty('say');
@@ -118,7 +124,7 @@ describe('the tool contract (outputSchema)', () => {
       expect(result.structuredContent, name).toBeDefined();
     }
 
-    expect(called.size).toBe(22);
+    expect(called.size).toBe(25);
     expect(invalid.mock.calls.flat().join('\n')).not.toContain('tool_output_invalid');
   });
 });
