@@ -19,8 +19,9 @@
  * one — that handler refuses every command and says there is no session
  * (media/noFilm.ts).
  *
- * On Fire OS this package is the stand-in in apps/tv-fireos/src/adapters:
- * there is no media session there, and commands never arrive.
+ * On Fire OS this package is the stand-in in apps/tv-fireos/src/adapters,
+ * and the session is Android's own: the same handler is called there, by
+ * the same names, for Alexa on a Fire TV and the remote's media keys.
  */
 import { Action, PlaybackStatus } from '@amazon-devices/kepler-media-controls';
 import type {

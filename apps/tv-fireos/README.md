@@ -9,7 +9,7 @@ Android in place of the four Amazon packages that source was written against:
 | `@amazon-devices/react-native-kepler` — View, Text, Pressable, the remote's key events | React Native's own (`react-native-tvos`), with the media keys renamed | `src/adapters/kepler.ts` |
 | `@amazon-devices/react-native-w3cmedia` — `VideoPlayer`, `KeplerVideoView`, `AudioPlayer` | ExoPlayer through `react-native-video`, behind the same objects | `src/adapters/w3cmedia.tsx`, `videoPlayer.ts`, `audioPlayer.ts`, `AudioHost.tsx` |
 | `@amazon-devices/kepler-file-system` — three file calls | the app's key-value storage | `src/adapters/fileSystem.ts` |
-| `@amazon-devices/kepler-media-controls` — the film as a media session ("Alexa, pause") | nothing yet: the film obeys the remote's keys only | `src/adapters/mediaControls.ts` |
+| `@amazon-devices/kepler-media-controls` — the film as a media session ("Alexa, pause") | Android's own `MediaSession`, held by Wick's module; each command is handed to the shared handler by Vega's name for it | `src/adapters/mediaControls.ts`, `src/media/`, `android/.../media/` |
 
 One shared file is replaced outright: `headless/launchCardService.ts`, which on
 Vega starts a background service by a `pkg://` address Android does not have.
@@ -276,6 +276,64 @@ notification takes her language from what the app kept when it last started
 the service: on a television paired a moment before, that was English until
 Wick next came on screen.
 
+## Her film, by voice
+
+On a Fire TV, "Alexa, pause", "Alexa, play", "Alexa, rewind", "Alexa,
+fast-forward", "Alexa, restart" and the remote's media keys reach an app
+through its Android `MediaSession`. On Vega the film is already the
+platform's media session (`apps/tv-vega/src/watch/mediaControls.ts`); here
+the same file runs unchanged, and the session it registers is Android's:
+
+| Part | File |
+|---|---|
+| The server the shared session asks for: a published state goes to Android, a command from Android goes to the shared handler by Vega's name for it (`handlePause`, `handleSkipForward`…) | `src/media/filmSession.ts`, `src/adapters/mediaControls.ts` |
+| The JavaScript side of the module | `src/media/native.ts` |
+| The session itself (`android.media.session.MediaSession`, no new dependency): made when the film's first state is published, released when the shared code says there is no film | `android/.../media/FilmSessionModule.kt` |
+| What Android is told, and what each of its commands becomes, as plain values (tested on the JVM) | `android/.../media/FilmTransport.kt` |
+
+So every command obeys the rules her remote's keys obey
+(`apps/tv-vega/src/watch/mediaSession.ts`): a pause is a natural break and a
+waiting note comes on screen over it; Stop is a pause; nothing moves while
+the door camera has the screen; a family member's seat refuses everything and
+never has a session. Two things differ from Vega, both in `FilmTransport.kt`
+and written up in `FRICTION.md` FL-042: Fire TV's Alexa sends rewind,
+fast-forward and restart as a seek to a position, so a seek to zero is start
+over and any other is a skip by the distance; and "Alexa, previous" asks for
+the item before, which Wick has not got, so it is refused, as on Vega. The
+manifest carries Amazon's `voicecommandcontrol` permission and the
+`supports_background_media_session` opt-in.
+
+**What was checked, on 2026-10-16,** on the Android TV emulator (API 34),
+with the shared watch screen playing Big Buck Bunny from Wick's programme
+origin. The emulator's paired Wick was signed by another key and could not
+be replaced without unpairing it, so this was a separate test install under
+another package name, showing the watch screen alone (no home screen, no
+cards) — a harness, not committed:
+
+- `adb shell dumpsys media_session`: Wick's session, `active=true`,
+  `state=PLAYING(3)`, `actions=843` (pause, play/pause, stop, seek, rewind,
+  fast-forward), the film's title and its credit line, and it is the media
+  button session; paused, `actions=845` (play in place of pause);
+- `adb shell cmd media_session dispatch pause` paused the film through the
+  shared rules (`media_command pause` in the device log, then the player
+  paused 0.3 s later, after the echo wait); `play` resumed it;
+  `fast-forward` and `rewind` moved it 30 seconds, as the skip keys do;
+  `stop` paused it; `play-pause` toggled it; `next` and `previous` did
+  nothing;
+- the remote's own Play/Pause key (`adb shell input keyevent
+  KEYCODE_MEDIA_PLAY_PAUSE`) reaches the app twice, as the key and as the
+  session's command, as on Vega (FL-031): the key acted, and the command was
+  let go as its echo (`media_command_echo toggle`) — one press, one toggle;
+- Back left the film, and the session was removed (`removeSession`, "Media
+  button session is changed to null"); a `dispatch pause` after that reached
+  nothing.
+
+**What was not seen:** Alexa. The emulator has none, so `cmd media_session
+dispatch` — Android's own route for a media key to the active session — is
+the closest there is. Whether a Fire TV sends "Alexa, rewind ten seconds" as
+the seek Amazon's page describes, and what Alexa says back, is unverified; the
+seek is handled and tested on the JVM, but could not be sent on the emulator.
+
 ## Not a workspace
 
 `apps/tv-fireos` is deliberately left out of the root `package.json`'s
@@ -295,7 +353,9 @@ directory's `node_modules`.
   (`CARD_SERVICE_URI` is empty in `src/overrides/launchCardService.ts`).
 - **Content Personalization** — a Vega API. Fire TV's equivalent is a separate
   integration.
-- Amazon Device Messaging, the Fire TV Integration SDK, camera, voice.
+- Amazon Device Messaging, the Fire TV Integration SDK, camera, and any voice
+  beyond the film's transport ("Alexa, pause" and the rest, below): Alexa
+  cannot open a film or ask Wick anything here.
 - A signing key or an Appstore submission. Both build types are signed with
   the debug key Android's tooling makes on each machine.
 

@@ -7,6 +7,7 @@ import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.wick.tv.door.DoorAlertPackage
+import com.wick.tv.media.FilmSessionPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -17,6 +18,8 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           // Wick's own: the door, outside Wick (door/DoorAlertModule.kt).
           add(DoorAlertPackage())
+          // Her film as Android's media session: "Alexa, pause" (media/FilmSessionModule.kt).
+          add(FilmSessionPackage())
         },
     )
   }

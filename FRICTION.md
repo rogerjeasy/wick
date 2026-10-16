@@ -3,7 +3,7 @@
 Developer-experience friction encountered while building Wick on Amazon Devices,
 Ring, Alexa+ and AWS.
 
-37 entries, FL-001 to FL-041, newest first, each written when the problem was hit.
+38 entries, FL-001 to FL-042, newest first, each written when the problem was hit.
 There is no FL-020, FL-034, FL-037 or FL-039: those numbers were set aside for
 work running in parallel and not needed. The same
 problems, gathered by tool with what worked well beside them, are in
@@ -61,6 +61,77 @@ removed from the design (2026-10-02).
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-042 — Fire TV's Alexa and Vega's speak different media-session languages for the same words, and nothing that runs off a Fire TV can send either
+
+*2026-10-16.*
+
+**Tool / API:**      Fire OS media sessions as described in developer.amazon.com/docs/fire-tv/
+                     mediasession-api-integration.html ("Voice-enabling Transport Controls with
+                     Media Session API on Fire TV"), read 2026-10-16; Android
+                     `android.media.session.MediaSession` (API 21); Android TV emulator, system
+                     image `android-34/android-tv/arm64-v8a`; compared with Vega Media Controls
+                     (`@amazon-devices/kepler-media-controls` 1.0.25, FL-031)
+
+**Task attempted:**  Give the Fire OS build the media session the Vega build already has, so
+                     "Alexa, pause" reaches her film there too — through the same shared handler
+                     and the same rules as her remote's keys (apps/tv-vega/src/watch/mediaSession.ts).
+
+**Steps taken:**     1. Read the Fire TV page. "Alexa, play"/"resume" → `onPlay`; "pause" and
+                        "stop" → `onPause`; "rewind" and "fast-forward", with or without a length
+                        of time, → `onSeekTo(position)`, Alexa working out the position ("absolute
+                        time is not supported"); "restart" → `onSeekTo(0)`; "previous"/"next" →
+                        `onSkipToPrevious`/`onSkipToNext`. Missing actions make Alexa say the
+                        command is not supported. A permission
+                        (`com.amazon.permission.media.session.voicecommandcontrol`, not needed from
+                        Fire OS 14) and an opt-in meta-data
+                        (`com.amazon.voice.supports_background_media_session`) are asked for.
+                     2. Compared with Vega, where the same words arrive as `handleStartOver`,
+                        `handleSkipForward(delta)`, `handleSkipBackward(delta)` and `handleStop`,
+                        and a seek to a time is a separate command Wick does not offer.
+                     3. Mapped Android to Vega's names in one small Kotlin file: a seek to zero is
+                        start over; any other seek is a skip by its distance from where the
+                        published state says the film is now; fast-forward and rewind keys are
+                        the skips; previous and next are refused.
+                     4. Looked for a way to send a voice command to the Android TV emulator. It has
+                        no Alexa. `adb shell cmd media_session dispatch <pause|play|fast-forward|
+                        rewind|stop|play-pause|next|previous>` sends a media key to the media
+                        button session, which proves the session and its key handling; nothing
+                        sends `onSeekTo`, which is how Alexa sends three of the five commands.
+                     5. Sent the remote's Play/Pause with `input keyevent`: as on Vega (FL-031) it
+                        reaches the app twice, as the key (React Native does not consume it) and
+                        as the session's command, a millisecond apart. Fast-forward reaches the
+                        session only as the key coming up.
+
+**Expected:**        One model for "Alexa, rewind thirty seconds" across Amazon's two TV platforms,
+                     or a table on each page saying how the other's commands map; and a way to send
+                     an Alexa transport command to an app without a Fire TV.
+
+**Actual:**          Two models. A shared app has to keep both: Vega's relative skips and explicit
+                     start over, and Fire TV's absolute seeks with restart as a seek to zero —
+                     which means the Fire OS side has to reckon where the film is from its own
+                     last published state to turn a seek back into a skip. "Stop" is a pause on
+                     Fire TV's Alexa and its own command on Vega. The voice half cannot be run
+                     anywhere but a Fire TV.
+
+**Severity:**        Important — the Fire OS session is proved on the emulator only for media keys;
+                     the seeks Alexa sends for rewind, fast-forward and restart are proved on the
+                     JVM, not on a device.
+
+**Workaround:**      Map both onto the shared rules' seven commands (FilmTransport.kt, tested on the
+                     JVM); prove the session on the emulator with `cmd media_session dispatch`
+                     (state, actions, metadata, every key, release on leaving the film); let the
+                     shared echo filter (`keyEchoes`) drop the doubled Play/Pause, as on Vega.
+
+**Suggestion:**      1. One cross-platform table of Alexa transport utterances against Vega Media
+                        Controls handlers and Android `MediaSession` callbacks, on both pages.
+                     2. A command-line way to send an Alexa transport command to an app — an
+                        `adb shell` intent on Fire OS, a `vega` subcommand on Vega — so it can be
+                        tested without speaking to a device.
+                     3. Say on both pages that the remote's Play/Pause reaches the app both as a
+                        key and as a session command.
+
+---
 
 ## FL-041 — Ring signs a webhook's body and nothing else, documents no replay window, and does not say whether a retry is stamped afresh
 
