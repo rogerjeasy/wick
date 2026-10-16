@@ -774,7 +774,7 @@ Ship an `AGENTS.md` at the repo root encoding INV-1…INV-9 as rules for any cod
 
 **Status page.** `GET /status` (`services/edge-ring/lambda/status.mjs`, read-only) feeds the ops console's dashboard: the Ring link, the last events, the televisions.
 
-Metrics, dashboards and alarms are **not built** (§17).
+**Alarms.** `infra/alarms.tf` puts errors and throttles alarms on every Lambda, and alarms on the door path's dead-letter queue, the narrator, App Runner 5xx, the edge HTTP API 5xx and the televisions' WebSocket API. Each notifies the SNS topic `wick-alarms`, on alarm and on recovery. The topic emails the address in the repository secret `ALARM_EMAIL`, which both deploy workflows pass to Terraform; with no secret set, nobody is told. Custom metrics and dashboards are not built (§17).
 
 ---
 
@@ -908,8 +908,8 @@ Everything here was in version 1.0 of this document, or was proposed later, and 
 | **AgentCore Memory** | The household's memory is the DynamoDB table; nothing needed a second store. |
 | **AgentCore Identity** for Ring tokens | Ring tokens are in Secrets Manager, one secret per household, refreshed by one Lambda (§7.1). |
 | **AgentCore Gateway** as the MCP front door | Replaced by the custom server (Q5). |
-| **SQS FIFO per household**, **a DLQ per EventBridge rule**, an EventBridge archive | Not built. EventBridge's and Lambda's own retries are the only retries; an event that exhausts them is not kept anywhere. |
-| **EMF metrics, dashboards and alarms** (`door.glass_to_glass_ms`, `mcp.roundtrip_ms`, …) | Not built. Latency has been measured by hand (§9). |
+| **SQS FIFO per household**, an EventBridge archive | Not built. The door path has one dead-letter queue (`infra/alarms.tf`, `infra/agent.tf`): an event that exhausts EventBridge's and Lambda's retries is kept there for 14 days and raises an alarm. |
+| **EMF metrics and dashboards** (`door.glass_to_glass_ms`, `mcp.roundtrip_ms`, …) | Not built. Latency has been measured by hand (§9). The alarms are built (§11). |
 | **M6 — the week as a panel in the Alexa+ conversation (MCP Apps)** | Not built. The family app shows the week as text. |
 | **A household withdrawal cascade** (`DELETE /household/{id}`) | Not built. Members can be removed and televisions disconnected; whole-household deletion is a manual operation. |
 | **Voice notes from the family** (Transcribe into a note, `voice/` prefix) | Not built as a note. Transcribe is used only to turn a family member's spoken *question* into words. The `voice/` lifecycle rule exists with nothing writing to it. |

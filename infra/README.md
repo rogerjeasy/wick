@@ -189,11 +189,19 @@ on alarm and on recovery.
 The MQTT authorizer is the `iot-authorize` Lambda, so its failures are its
 errors and throttles alarms.
 
-**To receive them**, set `alarm_email` and apply. It is a person's address,
-so it does not go in this repository: use a git-ignored `*.auto.tfvars`, or
-`TF_VAR_alarm_email`. AWS emails a confirmation link first; nothing arrives
-until it is clicked. With `alarm_email` null (the default) the alarms still
-change state and show in the CloudWatch console, and nobody is told.
+**To receive them**, set the repository secret `ALARM_EMAIL`:
+
+```
+gh secret set ALARM_EMAIL --repo rogerjeasy/wick
+```
+
+Both deploy workflows pass it to Terraform as `TF_VAR_alarm_email`, so every
+CI apply keeps the subscription. It is a secret, not a variable, because this
+repository's Actions logs are public; the variable is `sensitive`, so a plan
+never prints it either. AWS emails a confirmation link first; nothing arrives
+until it is clicked. A laptop apply must export `TF_VAR_alarm_email` as well,
+or it removes the subscription. With no address (the default) the alarms
+still change state and show in the CloudWatch console, and nobody is told.
 
 ## Retries and the dead-letter queue
 
