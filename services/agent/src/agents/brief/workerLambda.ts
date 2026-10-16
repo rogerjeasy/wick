@@ -8,6 +8,7 @@
  *
  * Thin wiring; what it decides is tested in fanout.ts.
  */
+import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb';
 import { narrateEveryHousehold } from '../narrator/everyHousehold.js';
 import { narratorDeps } from '../narrator/lambda.js';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
@@ -23,6 +24,25 @@ import { workBatch, workMessage, type SqsBatch } from './fanout.js';
 export const BRIEF_RUNTIME_TIMEOUT_MS = 170_000;
 
 let target: RuntimeTarget | undefined;
+const ddb = new DynamoDBClient({});
+const TABLE = process.env.TABLE_NAME ?? '';
+
+/** The week's row as it stands, read consistently: none, stored and unread, or read (INV-7's residentSeenAt). */
+async function storedWeek(householdId: string, isoWeek: string): Promise<'none' | 'unread' | 'read'> {
+  const { Item } = await ddb.send(new GetItemCommand({
+    TableName: TABLE,
+    Key: { pk: { S: `HH#${householdId}` }, sk: { S: `NARR#${isoWeek}` } },
+    ConsistentRead: true,
+  }));
+  const data = Item?.data?.S;
+  if (!data) return 'none';
+  try {
+    return typeof (JSON.parse(data) as { residentSeenAt?: unknown }).residentSeenAt === 'number' ? 'read' : 'unread';
+  } catch {
+    // A row that cannot be read is still a row: never written over.
+    return 'unread';
+  }
+}
 
 export const handler = (event: SqsBatch) =>
   workBatch(event, (message) =>
@@ -33,5 +53,6 @@ export const handler = (event: SqsBatch) =>
         const run = await narrateEveryHousehold(isoWeek, { ...narratorDeps(), listHouseholds: async () => [householdId] });
         return run.written.includes(householdId);
       },
+      storedWeek,
     }),
   );

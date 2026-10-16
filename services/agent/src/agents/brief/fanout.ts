@@ -78,6 +78,13 @@ export interface WorkDeps {
   readonly invokeBrief: (householdId: string, isoWeek: string, origin: BriefOrigin) => Promise<unknown>;
   /** The Narrator, for this one home (narrator/lambda.ts narratorDeps). True when it wrote the week. */
   readonly narrate: (householdId: string, isoWeek: string) => Promise<boolean>;
+  /**
+   * Whether this home's week is already stored, and whether she has read it
+   * (`residentSeenAt`). Asked before the Narrator is called: the Narrator
+   * writes without a condition, so it must never be called over a week that
+   * is already there.
+   */
+  readonly storedWeek: (householdId: string, isoWeek: string) => Promise<'none' | 'unread' | 'read'>;
 }
 
 export type WorkOutcome = 'written' | 'skipped' | 'not_written' | 'narrated' | 'bad_request';
@@ -91,6 +98,7 @@ const log = (line: Record<string, unknown>) => console.log(JSON.stringify(line))
  * television has a week on Monday. When the week was stored but her card
  * could not be sent, the message is retried instead: brief.weekly then
  * sends the card again, and the Narrator must not write over the agents'.
+ * The Narrator is called only where no week is stored at all.
  */
 export async function workMessage(message: BriefMessage, deps: WorkDeps): Promise<WorkOutcome> {
   let answer: Record<string, unknown> | undefined;
@@ -106,6 +114,14 @@ export async function workMessage(message: BriefMessage, deps: WorkDeps): Promis
   if (status === 'written' || status === 'skipped' || status === 'not_written' || status === 'bad_request') return status;
   if (status === 'failed' && answer?.stored === true) throw new Error('brief_card_not_sent');
   if (message.origin === 'demo') throw new Error(`brief_failed: ${String(answer?.error ?? status)}`);
+
+  // The Narrator writes only where there is no week yet. A week she has read
+  // stays exactly as she read it (a duplicate message, a throttled runtime);
+  // one stored and unread — the agents', whose card has yet to go — is
+  // retried, and the runtime sends its card then.
+  const stored = await deps.storedWeek(message.householdId, message.isoWeek);
+  if (stored === 'read') return 'skipped';
+  if (stored === 'unread') throw new Error('brief_week_stored_retry');
 
   log({ level: 'warn', msg: 'brief_fell_back_to_narrator', isoWeek: message.isoWeek, error: String(answer?.error ?? 'runtime_unavailable') });
   if (!(await deps.narrate(message.householdId, message.isoWeek))) throw new Error('week_not_written');
