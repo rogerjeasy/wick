@@ -405,6 +405,73 @@ removed from the design (2026-10-02).
 
 ---
 
+## FL-038 — Vega answers whether high-contrast text is on, but says nothing an app can use about text size, and the simulator cannot turn either setting, or VoiceView, on
+
+*2026-10-16*
+
+**Tool / API:**      Vega OS 1.2, Vega SDK 0.24.12044, Vega Virtual Device /
+                     `@amazon-devices/react-native-kepler` 4.0.1+rn0.83.0 (`AccessibilityInfo`,
+                     `Dimensions`, `PixelRatio`)
+
+**Task attempted:**  "Easier to see": larger text and higher contrast on her television, with
+                     the platform's own settings as the default, and VoiceView respected (each
+                     card announced once, no slideshow while it is on).
+
+**Steps taken:**     1. Looked for Vega accessibility documentation in the SDK under ~/vega/sdk:
+                        there is none (binaries, the VVD image and logs only), so read
+                        `Libraries/Components/AccessibilityInfo/AccessibilityInfo.js` in
+                        react-native-kepler, the parts marked `amznmod_react - kepler platform
+                        support`.
+                     2. Its event table for `Platform.OS === 'kepler'` has three entries:
+                        `change` and `screenReaderChanged` (both VoiceView) and
+                        `highTextContrastChanged`. `isHighTextContrastEnabled()` goes to the
+                        native module on kepler as on Android. `isBoldTextEnabled()` and
+                        `isGrayscaleEnabled()` are hard-wired to `Promise.resolve(false)` on
+                        kepler; there is no `reduceMotionChanged`.
+                     3. Looked for text size: `AccessibilityInfo` has no query for it. The
+                        only trace is `Dimensions.get('window').fontScale`, which kepler fills
+                        from a native `windowPhysicalPixels.fontScale`;
+                        `PixelRatio.getFontScale()` falls back to `PixelRatio.get()` (2 on a
+                        1080p Vega screen) when that is missing, so it cannot be trusted to mean
+                        "text size". React Native's `Text` already multiplies by `fontScale`
+                        itself (`allowFontScaling` defaults to true).
+                     4. Logged `fontScale` once at launch; the release build's `console.info`
+                        did not appear in `vega device start-log-stream`, so its value on the
+                        simulator was not seen.
+                     5. Looked for a way to turn VoiceView or high-contrast text on in the
+                        Vega Virtual Device from the CLI (`vega device run-cmd`): found none.
+                        The simulator's own Settings screens were not explored.
+
+**Expected:**        A documented accessibility page for Vega listing which `AccessibilityInfo`
+                     calls and events are real, a text-size setting an app can read (or a
+                     statement that there is none), and a way to switch VoiceView and
+                     high-contrast text on in the simulator to test against.
+
+**Actual:**          High-contrast text and VoiceView can be read and followed; text size
+                     cannot, except through a `fontScale` whose meaning on Vega is not
+                     documented and which React Native already applies to every word. Neither
+                     setting could be turned on in the simulator, so Wick's reaction to them
+                     (higher contrast by default, the announcement of each card, no slideshow,
+                     no Play mark) is checked by unit tests only.
+
+**Severity:**        Important
+
+**Workaround:**      Higher contrast follows `isHighTextContrastEnabled()` /
+                     `highTextContrastChanged` until she presses the button herself
+                     (`packages/vega-calm-ui/src/accessibility.ts`,
+                     `apps/tv-vega/src/seeing/seeing.ts`). Larger text is Wick's own setting,
+                     off by default, and the platform's `fontScale` is not followed — following
+                     it as well would scale every word twice. Her choice is kept in the app's
+                     file store, which the Vega Virtual Device does not keep across launches
+                     (FL-013): there it is forgotten at every launch.
+
+**Suggestion:**      Publish a Vega accessibility reference that says which React Native
+                     accessibility APIs work on kepler; expose the system text size (or say
+                     there is none) and document `fontScale`; add `vega device` commands, or
+                     VVD menu items, to toggle VoiceView, high-contrast text and text size.
+
+---
+
 ## FL-032 — Speech to text from a browser through App Runner has to be one buffered POST: App Runner has no WebSockets, says so only in a closed GitHub issue, and documents no request-body limit
 
 **Tool / API:**      AWS App Runner (an ECR image service, us-east-1) /

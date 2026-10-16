@@ -34,8 +34,22 @@ import { televisionIdentity } from './deviceId.js';
 import { televisionMode } from './family/mode.js';
 import { FamilyApp } from './family/FamilyApp.js';
 import { ResidentApp } from './ResidentApp.js';
+import { AtStandardSize, SeeingProvider } from './seeing/SeeingProvider.js';
 
+/**
+ * Easier to see (seeing/seeing.ts) is around everything — the pairing
+ * screen, her television, a family member's — so a choice made on this
+ * television reaches every word on it.
+ */
 export default function App(): React.JSX.Element {
+  return (
+    <SeeingProvider>
+      <Television />
+    </SeeingProvider>
+  );
+}
+
+function Television(): React.JSX.Element {
   const config = React.useMemo(() => loadDeviceConfig(), []);
   // Who this television is: its id, and the secret it proves a refresh with
   // where its storage keeps one (deviceId.ts). The app is the one process
@@ -115,7 +129,11 @@ export default function App(): React.JSX.Element {
 
   // The one branch. Nothing of the resident's is mounted on a family member's television.
   if (televisionMode(screen.token) === 'family') {
-    return <FamilyApp token={screen.token} serverUrl={config.wickServerUrl} pairing={pairing} onSignedOut={handleSignedOut} />;
+    return (
+      <AtStandardSize>
+        <FamilyApp token={screen.token} serverUrl={config.wickServerUrl} pairing={pairing} onSignedOut={handleSignedOut} />
+      </AtStandardSize>
+    );
   }
   return <ResidentApp token={screen.token} config={config} {...(standing ? { standing } : {})} />;
 }

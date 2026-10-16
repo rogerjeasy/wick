@@ -19,7 +19,7 @@
 import * as React from 'react';
 import { StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import { DEFAULT_LANGUAGE } from '@wick/contracts';
-import { fontSize, safe } from '@wick/vega-calm-ui';
+import { useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import { words } from '../words/words.js';
 import type { PairingStartResponse } from './PairingFlow.js';
 import { STILL_TRYING } from './connect.js';
@@ -38,6 +38,7 @@ export interface PairingScreenProps {
 const say = words(DEFAULT_LANGUAGE);
 
 export function PairingScreen({ info, trying }: PairingScreenProps): React.JSX.Element {
+  const styles = useCalmStyles(makeStyles);
   return (
     <View style={styles.root}>
       <Text style={styles.headline}>{say('pairing.title')}</Text>
@@ -57,10 +58,11 @@ export function PairingScreen({ info, trying }: PairingScreenProps): React.JSX.E
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: safe.ground },
-  headline: { fontSize: fontSize('headline'), color: safe.ink, marginBottom: 24 },
-  code: { fontSize: fontSize('display'), color: safe.accent, letterSpacing: 8, marginBottom: 16 },
-  body: { fontSize: fontSize('body'), color: safe.inkDim, textAlign: 'center', paddingHorizontal: 96, marginBottom: 16 },
-  link: { fontSize: fontSize('body'), color: safe.inkDim },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    root: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.palette.ground },
+    headline: { fontSize: t.fontSize('headline'), color: t.palette.ink, marginBottom: 24 },
+    code: { fontSize: t.fontSize('display'), color: t.palette.accent, letterSpacing: 8, marginBottom: 16 },
+    body: { fontSize: t.fontSize('body'), color: t.palette.inkDim, textAlign: 'center', paddingHorizontal: 96, marginBottom: 16 },
+    link: { fontSize: t.fontSize('body'), color: t.palette.inkDim },
+  });

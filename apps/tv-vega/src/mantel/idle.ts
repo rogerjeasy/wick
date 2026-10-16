@@ -58,12 +58,18 @@ export interface HomeNow {
   readonly cardShowing: boolean;
   /** Something waits in the home screen's row that is hers to answer. */
   readonly waiting: boolean;
+  /**
+   * The platform's screen reader (VoiceView) is on. Then her pictures never
+   * fill the screen: a slideshow is moving content, and the reader would be
+   * talking over pictures that change under it. Absent is off.
+   */
+  readonly screenReader?: boolean | undefined;
   readonly home: HomeState;
 }
 
 /** Whether the home screen is in front with nothing on it but the films — and she has pictures to show. */
 export function homeIsQuiet(at: HomeNow): boolean {
-  return at.foreground && !at.watching && !at.mantelOpen && !at.liveOpen && !at.cardShowing && !at.waiting && offersMantel(at.home);
+  return at.foreground && !at.watching && !at.mantelOpen && !at.liveOpen && !at.cardShowing && !at.waiting && at.screenReader !== true && offersMantel(at.home);
 }
 
 /**

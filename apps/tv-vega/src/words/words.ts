@@ -125,6 +125,18 @@ const en = {
   'doorAlert.who': 'Open Wick to see who it is.',
   /** The quiet notification Android asks for while the door is listened for behind another app. */
   'doorAlert.listening': 'Wick will tell you when someone is at the door.',
+
+  // Easier to see (seeing/seeing.ts): the pill on the home screen, and the card it opens. Each button says
+  // how its setting stands, as a whole sentence for each — never "on" put after a word.
+  'seeing.entry': 'Easier to see',
+  'seeing.entryLabel': 'Easier to see. Press OK for larger text or higher contrast.',
+  'seeing.headline': 'Easier to see',
+  'seeing.detail': 'This changes only this television.',
+  'seeing.largerOn': 'Larger text: on',
+  'seeing.largerOff': 'Larger text: off',
+  'seeing.contrastOn': 'Higher contrast: on',
+  'seeing.contrastOff': 'Higher contrast: off',
+  'seeing.back': 'Back',
 } as const;
 
 export type WordKey = keyof typeof en;
@@ -196,6 +208,17 @@ const es: Readonly<Record<WordKey, string>> = {
   'doorAlert.open': 'Abrir Wick',
   'doorAlert.who': 'Abra Wick para ver quién es.',
   'doorAlert.listening': 'Wick le avisará cuando alguien llame a la puerta.',
+
+  // "Sí" and "no" after the colon, so nothing has to agree with "letra" or "contraste".
+  'seeing.entry': 'Más fácil de ver',
+  'seeing.entryLabel': 'Más fácil de ver. Presione OK para letra más grande o más contraste.',
+  'seeing.headline': 'Más fácil de ver',
+  'seeing.detail': 'Esto cambia solo este televisor.',
+  'seeing.largerOn': 'Letra más grande: sí',
+  'seeing.largerOff': 'Letra más grande: no',
+  'seeing.contrastOn': 'Más contraste: sí',
+  'seeing.contrastOff': 'Más contraste: no',
+  'seeing.back': 'Atrás',
 };
 
 /** Every language's table. A language added to the contract does not compile until it has one. */

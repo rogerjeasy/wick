@@ -372,8 +372,8 @@ describe('HomeScreen.tsx — a press begins and ends on the item', () => {
   const code = screen.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
   it('tells every item that can be pressed when OK goes down on it', () => {
-    expect(code.match(/onPressIn=\{pressIn\}/g)).toHaveLength(4);
-    expect(code.match(/<Pressable\b/g)).toHaveLength(4);
+    expect(code.match(/onPressIn=\{pressIn\}/g)).toHaveLength(5);
+    expect(code.match(/<Pressable\b/g)).toHaveLength(5);
   });
 
   it('begins a press only by the rule — with what the app heard of the key', () => {
@@ -389,7 +389,7 @@ describe('HomeScreen.tsx — a press begins and ends on the item', () => {
   });
 
   it('knows a key coming up from a press with no key: the platform says the key came up, and then — at once — the press', () => {
-    expect(code.match(/onPressOut=\{pressOut\}/g)).toHaveLength(4);
+    expect(code.match(/onPressOut=\{pressOut\}/g)).toHaveLength(5);
     expect(code).toMatch(/const pressOut = \(\): void => \{\s*keyCameUp\.current = true;\s*onKeyUp\?\.\(\);\s*\};/);
     expect(code).toMatch(/const byKey = keyCameUp\.current;\s*keyCameUp\.current = false;/);
     // The app is still told every time OK comes up here: the guard for the hold goes by it (home/reach.ts).

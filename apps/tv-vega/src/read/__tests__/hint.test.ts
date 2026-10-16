@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import type { Card } from '@wick/contracts';
 import { cardHeightDp } from '../../../../../packages/vega-calm-ui/src/constraints.js';
 import { layout, type } from '../../../../../packages/vega-calm-ui/src/tokens.js';
+import { calmTheme } from '../../../../../packages/vega-calm-ui/src/theme.js';
 import { KNOWN_CARD_TYPES } from '../../cards/knownCards.js';
 import { LANGUAGE_DETAIL_LINES } from '../../cards/languageDetail.js';
 import { PHOTO_BOX } from '../../cards/photoLayout.js';
@@ -51,13 +52,23 @@ describe('hintPlace — where the mark stands, on every kind of card', () => {
     for (const cardType of KNOWN_CARD_TYPES) {
       const compact = COMPACT_CARDS.includes(cardType);
       const padding = compact ? layout.compactPaddingDp : layout.cardPaddingDp;
-      const place = hintPlace(cardType);
+      const place = hintPlace(cardType, calmTheme());
 
       // The card layer keeps a card 48dp from the side and 32 from the bottom (ResidentApp `cardLayer`, DoorCard `lowerThird`).
       expect(place.right, cardType).toBe(48 + padding);
       // Centred on the one row of buttons every card ends with.
       expect(place.bottom, cardType).toBeCloseTo(32 + padding + (BUTTON_ROW_DP - HINT_MARK.height) / 2, 5);
     }
+  });
+
+  it('moves with the theme: centred on a row of 40pt buttons with larger text on, inside the card’s edge with higher contrast on', () => {
+    const larger = hintPlace('WEEK', calmTheme({ largerText: true, higherContrast: false }));
+    expect(larger.right).toBe(48 + layout.cardPaddingDp);
+    expect(larger.bottom).toBeCloseTo(32 + layout.cardPaddingDp + (2 * 20 + 40 * 1.4 - HINT_MARK.height) / 2, 5);
+    const high = hintPlace('WEEK', calmTheme({ largerText: false, higherContrast: true }));
+    expect(high.right).toBe(48 + layout.cardPaddingDp + 2);
+    // The ring is 6dp, not 2: 4 more above the words and 4 more below.
+    expect(high.bottom).toBeCloseTo(32 + layout.cardPaddingDp + 2 + (BUTTON_ROW_DP + 8 - HINT_MARK.height) / 2, 5);
   });
 
   it('is small enough never to lie over a button’s words: no wider than the button’s own padding', () => {
@@ -82,7 +93,7 @@ describe('hintPlace — where the mark stands, on every kind of card', () => {
   });
 
   it('has a place for a card of a kind it has not heard of, as an ordinary card', () => {
-    expect(hintPlace('SOMETHING_NEW' as Card['type'])).toEqual(hintPlace('WEEK'));
+    expect(hintPlace('SOMETHING_NEW' as Card['type'], calmTheme())).toEqual(hintPlace('WEEK', calmTheme()));
   });
 });
 
@@ -104,7 +115,7 @@ describe('ReadHint.tsx — the mark, as drawn', () => {
   });
 
   it('stands where hintPlace says', () => {
-    expect(view).toMatch(/const place = hintPlace\(cardType\);/);
+    expect(view).toMatch(/const place = hintPlace\(cardType, useCalmTheme\(\)\);/);
     expect(view).toMatch(/right: place\.right, bottom: place\.bottom/);
   });
 });

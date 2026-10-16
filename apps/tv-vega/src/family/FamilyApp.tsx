@@ -29,7 +29,7 @@ import * as React from 'react';
 import { Linking } from 'react-native';
 import { StyleSheet, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import type { DeviceToken, FamilyTvPress } from '@wick/contracts';
-import { safe } from '@wick/vega-calm-ui';
+import { useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import { CARD_SERVICE_URI, launchCardService } from '../headless/launchCardService.js';
 import type { PairingFlow } from '../pairing/PairingFlow.js';
 import { useOnScreen } from '../useOnScreen.js';
@@ -56,6 +56,7 @@ export interface FamilyAppProps {
 }
 
 export function FamilyApp({ token, serverUrl, pairing, onSignedOut }: FamilyAppProps): React.JSX.Element {
+  const styles = useCalmStyles(makeStyles);
   const onScreen = useOnScreen();
   const [look, setLook] = React.useState<LookState>({ kind: 'starting', unreachable: false });
   /** Cards that only say how something stands, put away on this screen with "All right". */
@@ -274,9 +275,10 @@ export function FamilyApp({ token, serverUrl, pairing, onSignedOut }: FamilyAppP
   );
 }
 
-const styles = StyleSheet.create({
-  ground: {
-    flex: 1,
-    backgroundColor: safe.ground,
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    ground: {
+      flex: 1,
+      backgroundColor: t.palette.ground,
+    },
+  });

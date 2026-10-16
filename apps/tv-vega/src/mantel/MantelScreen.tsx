@@ -27,7 +27,7 @@
 import * as React from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import type { HouseholdLanguage } from '@wick/contracts';
-import { CalmCard, fontSize, safe } from '@wick/vega-calm-ui';
+import { CalmCard, useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import type { Mantel } from '../headless/QueueStore.js';
 import { HOLD_MS } from '../watch/hold.js';
 import { words } from '../words/words.js';
@@ -62,6 +62,7 @@ const WAITING = '…';
 export function MantelScreen(props: MantelScreenProps): React.JSX.Element {
   const { language, mantel, cardVisible, onHold, onKeyUp } = props;
   const say = words(language);
+  const styles = useCalmStyles(makeStyles);
   const [state, setState] = React.useState<Viewer>(VIEWER_START);
 
   // The handlers below are registered once; they read the newest state and props here.
@@ -156,32 +157,33 @@ export function MantelScreen(props: MantelScreenProps): React.JSX.Element {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: safe.ground,
-  },
-  view: {
-    flex: 1,
-    paddingHorizontal: MANTEL_PADDING.horizontal,
-    paddingVertical: MANTEL_PADDING.vertical,
-    gap: MANTEL_GAP_DP,
-  },
-  // All the height that is left: mantelLayout.ts MANTEL_PICTURE_AREA.
-  picture: {
-    flex: 1,
-  },
-  line: {
-    color: safe.inkDim,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-    textAlign: 'center',
-  },
-  // Where ResidentApp's card layer puts a card: the same corner, the same margins.
-  choice: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    paddingHorizontal: 48,
-    paddingBottom: 32,
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    screen: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: t.palette.ground,
+    },
+    view: {
+      flex: 1,
+      paddingHorizontal: MANTEL_PADDING.horizontal,
+      paddingVertical: MANTEL_PADDING.vertical,
+      gap: MANTEL_GAP_DP,
+    },
+    // All the height that is left: mantelLayout.ts MANTEL_PICTURE_AREA.
+    picture: {
+      flex: 1,
+    },
+    line: {
+      color: t.palette.inkDim,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+      textAlign: 'center',
+    },
+    // Where ResidentApp's card layer puts a card: the same corner, the same margins.
+    choice: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'flex-end',
+      paddingHorizontal: 48,
+      paddingBottom: 32,
+    },
+  });

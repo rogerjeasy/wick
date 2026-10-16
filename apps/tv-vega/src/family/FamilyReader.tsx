@@ -14,7 +14,7 @@
  */
 import * as React from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
-import { actionColours, assertContrast, fontSize, safe } from '@wick/vega-calm-ui';
+import { assertContrast, useCalmStyles, useCalmTheme, type CalmTheme } from '@wick/vega-calm-ui';
 import { READER_LINE_HEIGHT, READER_PAGE_LINES, readerKey, readerPage, type ReaderKey, type Reading } from './reader.js';
 
 export interface FamilyReaderProps {
@@ -23,12 +23,13 @@ export interface FamilyReaderProps {
   readonly onKey: (key: ReaderKey) => void;
 }
 
-const BUTTON = actionColours('primary');
-
 export function FamilyReader({ reading, onKey }: FamilyReaderProps): React.JSX.Element {
-  assertContrast(safe.ink, safe.ground);
-  assertContrast(safe.inkDim, safe.ground);
-  assertContrast(BUTTON.label, BUTTON.background);
+  const theme = useCalmTheme();
+  const styles = useCalmStyles(makeStyles);
+  const button = theme.actionColours('primary');
+  assertContrast(theme.palette.ink, theme.palette.ground, theme.minContrast);
+  assertContrast(theme.palette.inkDim, theme.palette.ground, theme.minContrast);
+  assertContrast(button.label, button.background, theme.minContrast);
 
   // Registered once; they read the newest handler from here.
   const latest = React.useRef(onKey);
@@ -78,51 +79,52 @@ export function FamilyReader({ reading, onKey }: FamilyReaderProps): React.JSX.E
   );
 }
 
-const styles = StyleSheet.create({
-  // 960x540dp at 1080p; 48dp/32dp keeps everything inside the TV safe area.
-  screen: {
-    flex: 1,
-    backgroundColor: safe.ground,
-    paddingHorizontal: 48,
-    paddingVertical: 32,
-    gap: 16,
-  },
-  page: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  // 540 - 2x32 (safe area) - 16 (gap) - 78 (the button) = 382dp for the page; nine lines at 1.3 are 374.
-  words: {
-    color: safe.ink,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * READER_LINE_HEIGHT,
-  },
-  foot: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 24,
-  },
-  // The card's own button (vega-calm-ui CalmCard), a little less tall: the page needs the room.
-  button: {
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    backgroundColor: BUTTON.background,
-  },
-  // Focus is a ring, never a colour change alone.
-  buttonFocused: {
-    borderColor: safe.focus,
-  },
-  buttonLabel: {
-    color: BUTTON.label,
-    fontSize: fontSize('body'),
-  },
-  counter: {
-    color: safe.inkDim,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    // 960x540dp at 1080p; 48dp/32dp keeps everything inside the TV safe area.
+    screen: {
+      flex: 1,
+      backgroundColor: t.palette.ground,
+      paddingHorizontal: 48,
+      paddingVertical: 32,
+      gap: 16,
+    },
+    page: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    // 540 - 2x32 (safe area) - 16 (gap) - 78 (the button) = 382dp for the page; nine lines at 1.3 are 374.
+    words: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.fontSize('body') * READER_LINE_HEIGHT,
+    },
+    foot: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 24,
+    },
+    // The card's own button (vega-calm-ui CalmCard), a little less tall: the page needs the room.
+    button: {
+      paddingVertical: 16,
+      paddingHorizontal: 32,
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: 'transparent',
+      backgroundColor: t.actionColours('primary').background,
+    },
+    // Focus is a ring, never a colour change alone.
+    buttonFocused: {
+      borderColor: t.palette.focus,
+    },
+    buttonLabel: {
+      color: t.actionColours('primary').label,
+      fontSize: t.fontSize('body'),
+    },
+    counter: {
+      color: t.palette.inkDim,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+  });

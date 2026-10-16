@@ -21,7 +21,7 @@
 import * as React from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import type { HouseholdLanguage, MantelItem } from '@wick/contracts';
-import { fontSize, motion, safe } from '@wick/vega-calm-ui';
+import { motion, useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import { words } from '../words/words.js';
 import { Picture } from './Picture.js';
 
@@ -37,6 +37,7 @@ export interface IdleScreenProps {
 
 export function IdleScreen({ language, visible, item, onFailed }: IdleScreenProps): React.JSX.Element {
   const say = words(language);
+  const styles = useCalmStyles(makeStyles);
   const opacity = React.useRef(new Animated.Value(0)).current;
   const photoId = item?.photoId;
 
@@ -69,30 +70,31 @@ export function IdleScreen({ language, visible, item, onFailed }: IdleScreenProp
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  lit: {
-    backgroundColor: safe.ground,
-  },
-  picture: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  // Bottom left, inside the television's safe area, on a solid band so it reads over any picture.
-  from: {
-    position: 'absolute',
-    left: 48,
-    bottom: 32,
-    backgroundColor: safe.raised,
-    borderRadius: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-  },
-  // "Small" is the floor: nothing on a television is set under 32pt.
-  fromText: {
-    color: safe.inkDim,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    screen: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    lit: {
+      backgroundColor: t.palette.ground,
+    },
+    picture: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    // Bottom left, inside the television's safe area, on a solid band so it reads over any picture.
+    from: {
+      position: 'absolute',
+      left: 48,
+      bottom: 32,
+      backgroundColor: t.palette.raised,
+      borderRadius: 16,
+      paddingVertical: 8,
+      paddingHorizontal: 20,
+    },
+    // "Small" is the floor: nothing on a television is set under 32pt.
+    fromText: {
+      color: t.palette.inkDim,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+  });

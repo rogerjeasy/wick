@@ -7,7 +7,7 @@
  * in `vega-calm-ui/eslint` catch the same mistakes in your own code before it
  * runs.
  */
-import { layout, limits, palette, type } from './tokens.js';
+import { contrast, layout, limits, palette, type } from './tokens.js';
 
 export class CalmViolation extends Error {
   constructor(message: string) {
@@ -140,13 +140,18 @@ export function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** Principle 7: AAA, not AA. Checked, not assumed. */
-export function assertContrast(foreground: string, background: string): void {
+/**
+ * Principle 7: AAA, not AA. Checked, not assumed. A theme that promises
+ * more — higher contrast promises 15:1 — passes its own ratio
+ * (`theme.minContrast`); nothing passes less than 7.
+ */
+export function assertContrast(foreground: string, background: string, minRatio: number = contrast.minRatio): void {
+  const floor = Math.max(minRatio, contrast.minRatio);
   const ratio = contrastRatio(foreground, background);
-  if (ratio < 7) {
+  if (ratio < floor) {
     throw new CalmViolation(
       `Contrast ${ratio.toFixed(2)}:1 between ${foreground} and ${background}; ` +
-        'the floor is 7:1 (WCAG AAA).',
+        (floor === contrast.minRatio ? 'the floor is 7:1 (WCAG AAA).' : `this theme promises ${floor}:1.`),
     );
   }
 }

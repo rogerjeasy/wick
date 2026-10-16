@@ -20,7 +20,7 @@ import * as React from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import { LIVE_FIRST_PICTURE_TIMEOUT_MS, type HouseholdLanguage, type LiveSessionResponse } from '@wick/contracts';
-import { CalmCard, fontSize, safe } from '@wick/vega-calm-ui';
+import { CalmCard, useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import { words } from '../words/words.js';
 import { liveMessage, outcomeWhenPlayerStops, secondsLeft, startLiveSession, stopLiveSession, waitForPlaylist, type LiveOutcome } from './liveClient.js';
 
@@ -40,6 +40,7 @@ type Phase =
 
 export function LiveView({ pairingApiUrl, jwt, cardId, language, onClose }: LiveViewProps): React.JSX.Element {
   const say = words(language);
+  const styles = useCalmStyles(makeStyles);
   const back = React.useMemo(() => [{ id: 'back', label: say('live.back'), kind: 'primary' as const }], [say]);
   const [phase, setPhase] = React.useState<Phase>({ kind: 'opening' });
   const [now, setNow] = React.useState(Date.now());
@@ -182,46 +183,47 @@ export function LiveView({ pairingApiUrl, jwt, cardId, language, onClose }: Live
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: safe.ground,
-  },
-  centred: {
-    justifyContent: 'center',
-    paddingHorizontal: 96,
-  },
-  // Bottom, inside the 5% TV safe area, on a solid band so it reads over any picture.
-  caption: {
-    position: 'absolute',
-    left: 48,
-    right: 48,
-    bottom: 32,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: safe.raised,
-    borderRadius: 16,
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-  },
-  captionText: {
-    color: safe.ink,
-    fontSize: fontSize('body'),
-  },
-  back: {
-    borderRadius: 12,
-    borderWidth: 4,
-    borderColor: 'transparent',
-    paddingHorizontal: 32,
-    paddingVertical: 8,
-    backgroundColor: safe.ground,
-  },
-  backFocused: {
-    borderColor: safe.focus,
-  },
-  backText: {
-    color: safe.ink,
-    fontSize: fontSize('body'),
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    screen: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: t.palette.ground,
+    },
+    centred: {
+      justifyContent: 'center',
+      paddingHorizontal: 96,
+    },
+    // Bottom, inside the 5% TV safe area, on a solid band so it reads over any picture.
+    caption: {
+      position: 'absolute',
+      left: 48,
+      right: 48,
+      bottom: 32,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: t.palette.raised,
+      borderRadius: 16,
+      paddingHorizontal: 32,
+      paddingVertical: 16,
+    },
+    captionText: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('body'),
+    },
+    back: {
+      borderRadius: 12,
+      borderWidth: 4,
+      borderColor: 'transparent',
+      paddingHorizontal: 32,
+      paddingVertical: 8,
+      backgroundColor: t.palette.ground,
+    },
+    backFocused: {
+      borderColor: t.palette.focus,
+    },
+    backText: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('body'),
+    },
+  });

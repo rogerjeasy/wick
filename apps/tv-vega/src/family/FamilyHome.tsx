@@ -37,7 +37,7 @@
  */
 import * as React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
-import { CalmCard, assertContrast, fontSize, safe } from '@wick/vega-calm-ui';
+import { CalmCard, assertContrast, useCalmStyles, useCalmTheme, type CalmTheme } from '@wick/vega-calm-ui';
 import { familyLines, startingLines, type Showing, type Wave } from './familyScreen.js';
 import { rowsDrawn, waveDrawn } from './layout.js';
 import type { LookState } from './looker.js';
@@ -67,9 +67,11 @@ interface LaidOut {
 
 export function FamilyHome({ look, shown, pictureUrl, onAction, wave, onWave, onWaveFocus, onWaveBlur, returns }: FamilyHomeProps): React.JSX.Element {
   // The card checks its own surface; these are the words drawn straight on the ground.
-  assertContrast(safe.ink, safe.ground);
-  assertContrast(safe.inkDim, safe.ground);
-  assertContrast(safe.ink, safe.raised);
+  const theme = useCalmTheme();
+  const styles = useCalmStyles(makeStyles);
+  assertContrast(theme.palette.ink, theme.palette.ground, theme.minContrast);
+  assertContrast(theme.palette.inkDim, theme.palette.ground, theme.minContrast);
+  assertContrast(theme.palette.ink, theme.palette.raised, theme.minContrast);
 
   /** Where each line ends, in dp from the top of the screen, by its words — as laid out, not as estimated. */
   const [rowBottoms, setRowBottoms] = React.useState<Readonly<Record<string, number>>>({});
@@ -221,76 +223,77 @@ export function FamilyHome({ look, shown, pictureUrl, onAction, wave, onWave, on
 const HEADING = '\u0000heading';
 const OWNER = '\u0000owner';
 
-const styles = StyleSheet.create({
-  // 960x540dp at 1080p; 48dp/32dp keeps everything inside the TV safe area.
-  screen: {
-    flex: 1,
-    backgroundColor: safe.ground,
-    paddingHorizontal: 48,
-    paddingVertical: 32,
-    gap: 8,
-  },
-  alone: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sentence: {
-    color: safe.ink,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-    textAlign: 'center',
-    paddingHorizontal: 48,
-  },
-  heading: {
-    color: safe.ink,
-    fontSize: fontSize('headline'),
-    lineHeight: fontSize('headline') * 1.25,
-  },
-  quiet: {
-    color: safe.inkDim,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-  // The resident's card layer (ResidentApp.tsx), to the dp.
-  cardLayer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    paddingHorizontal: 48,
-    paddingBottom: 32,
-  },
-  // In its place, and not drawn.
-  unseen: {
-    opacity: 0,
-  },
-  // Quiet, like the row on the resident's home screen that is there to be found (home/HomeScreen.tsx): as wide as its words.
-  wave: {
-    alignSelf: 'flex-start',
-    borderRadius: 16,
-    borderWidth: 4,
-    borderColor: 'transparent',
-    backgroundColor: safe.raised,
-    paddingHorizontal: 20,
-    paddingVertical: 2,
-  },
-  // Focus is a ring, never colour alone.
-  waveFocused: {
-    borderColor: safe.focus,
-  },
-  waveLabel: {
-    color: safe.ink,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-  // 16:9, the doorbell's own frame, the size the resident's door card gives it.
-  frame: {
-    width: 256,
-    height: 144,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: safe.ground,
-  },
-  picture: {
-    width: '100%',
-    height: '100%',
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    // 960x540dp at 1080p; 48dp/32dp keeps everything inside the TV safe area.
+    screen: {
+      flex: 1,
+      backgroundColor: t.palette.ground,
+      paddingHorizontal: 48,
+      paddingVertical: 32,
+      gap: 8,
+    },
+    alone: {
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    sentence: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+      textAlign: 'center',
+      paddingHorizontal: 48,
+    },
+    heading: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('headline'),
+      lineHeight: t.lineHeight('headline'),
+    },
+    quiet: {
+      color: t.palette.inkDim,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+    // The resident's card layer (ResidentApp.tsx), to the dp.
+    cardLayer: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'flex-end',
+      paddingHorizontal: 48,
+      paddingBottom: 32,
+    },
+    // In its place, and not drawn.
+    unseen: {
+      opacity: 0,
+    },
+    // Quiet, like the row on the resident's home screen that is there to be found (home/HomeScreen.tsx): as wide as its words.
+    wave: {
+      alignSelf: 'flex-start',
+      borderRadius: 16,
+      borderWidth: 4,
+      borderColor: 'transparent',
+      backgroundColor: t.palette.raised,
+      paddingHorizontal: 20,
+      paddingVertical: 2,
+    },
+    // Focus is a ring, never colour alone.
+    waveFocused: {
+      borderColor: t.palette.focus,
+    },
+    waveLabel: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+    // 16:9, the doorbell's own frame, the size the resident's door card gives it.
+    frame: {
+      width: 256,
+      height: 144,
+      borderRadius: 12,
+      overflow: 'hidden',
+      backgroundColor: t.palette.ground,
+    },
+    picture: {
+      width: '100%',
+      height: '100%',
+    },
+  });
