@@ -36,7 +36,10 @@ interface World {
 async function server(overrides: Partial<AppDeps> = {}): Promise<World> {
   const table = createMemoryTable();
   const rung: DemoDoorEvent[] = [];
-  const world = { clock: Date.UTC(2026, 9, 14, 14, 0) };
+  // Starts at the real time and only moves forward from it: the OAuth bearer check and the
+  // store's expiry read the wall clock, so a fixed date made every sign-in here expire
+  // once that date was half an hour in the past.
+  const world = { clock: Date.now() };
   const h = await startServer({
     demoAccounts: true,
     ddb: table.ddb,
