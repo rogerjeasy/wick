@@ -9,9 +9,9 @@
  * are below. So the sentence is what the screen reader says, and what is
  * drawn is the key's own mark, at the right-hand end of the buttons' row —
  * small enough that it can never lie over a button's words.
+ *
+ * ReadHint.test.tsx draws the mark itself, on every kind of card.
  */
-import { readFileSync, readdirSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Card } from '@wick/contracts';
 import { cardHeightDp } from '../../../../../packages/vega-calm-ui/src/constraints.js';
@@ -80,42 +80,7 @@ describe('hintPlace — where the mark stands, on every kind of card', () => {
     expect(HINT_MARK.height).toBeGreaterThanOrEqual(type.bodyPt - 4);
   });
 
-  it('knows which cards are drawn compact — the ones whose views say so, and no others', () => {
-    const cards = fileURLToPath(new URL('../../cards/', import.meta.url));
-    const views = readdirSync(cards).filter((file) => /Card\.tsx$/.test(file));
-    const compact = views
-      .filter((file) => /<(CalmCard|TwoPhaseCard)\b[^>]*?\bcompact\b/s.test(readFileSync(`${cards}${file}`, 'utf8')))
-      .map((file) => file.replace(/Card\.tsx$/, '').toUpperCase())
-      .sort();
-
-    expect(views.length).toBe(KNOWN_CARD_TYPES.length);
-    expect(compact).toEqual([...COMPACT_CARDS].sort());
-  });
-
   it('has a place for a card of a kind it has not heard of, as an ordinary card', () => {
     expect(hintPlace('SOMETHING_NEW' as Card['type'], calmTheme())).toEqual(hintPlace('WEEK', calmTheme()));
-  });
-});
-
-describe('ReadHint.tsx — the mark, as drawn', () => {
-  const view = readFileSync(fileURLToPath(new URL('../ReadHint.tsx', import.meta.url)), 'utf8');
-
-  it('says the sentence to someone who cannot see it, in her language', () => {
-    expect(view).toMatch(/accessibilityLabel=\{words\(language\)\('read\.hint'\)\}/);
-  });
-
-  it('is drawn, not written: a shape that needs no letter of any font', () => {
-    expect(view).not.toMatch(/<Text\b/);
-    expect(view).toMatch(/borderLeftWidth: HINT_MARK\.width/);
-  });
-
-  it('is not a button: it cannot be focused or pressed, and the card’s three stay three', () => {
-    expect(view).not.toMatch(/Pressable|onPress|focusable(?!=\{false\})/);
-    expect(view).toMatch(/pointerEvents="none"/);
-  });
-
-  it('stands where hintPlace says', () => {
-    expect(view).toMatch(/const place = hintPlace\(cardType, useCalmTheme\(\)\);/);
-    expect(view).toMatch(/right: place\.right, bottom: place\.bottom/);
   });
 });
