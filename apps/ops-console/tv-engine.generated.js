@@ -1055,7 +1055,27 @@ var WickTv = (() => {
     // Read to me (packages/contracts speech.ts). What the screen reader says for the mark of the Play key that
     // stands on every card (read/ReadHint.tsx): the sentence itself is not written on a card, because no card
     // has a line to spare for it at 32pt.
-    "read.hint": "Press Play to hear this."
+    "read.hint": "Press Play to hear this.",
+    // The door, outside Wick, on Fire OS (apps/tv-fireos/src/door). Word for word what the Vega toast says
+    // (notify/doorToast.ts), which stays English: there the service is never told the language. On Fire OS it
+    // shares the app's storage, and reads the language the app keeps there.
+    /** The one button on the notification. */
+    "doorAlert.open": "Open Wick",
+    /** Under the title, until the door agent has said who is there. */
+    "doorAlert.who": "Open Wick to see who it is.",
+    /** The quiet notification Android asks for while the door is listened for behind another app. */
+    "doorAlert.listening": "Wick will tell you when someone is at the door.",
+    // Easier to see (seeing/seeing.ts): the pill on the home screen, and the card it opens. Each button says
+    // how its setting stands, as a whole sentence for each — never "on" put after a word.
+    "seeing.entry": "Easier to see",
+    "seeing.entryLabel": "Easier to see. Press OK for larger text or higher contrast.",
+    "seeing.headline": "Easier to see",
+    "seeing.detail": "This changes only this television.",
+    "seeing.largerOn": "Larger text: on",
+    "seeing.largerOff": "Larger text: off",
+    "seeing.contrastOn": "Higher contrast: on",
+    "seeing.contrastOff": "Higher contrast: off",
+    "seeing.back": "Back"
   };
   var es = {
     "home.question": "¿Qué le gustaría ver?",
@@ -1111,7 +1131,20 @@ var WickTv = (() => {
     "mantel.leave": "Dejarla",
     "mantel.takeDown": "Quitarla",
     // "Play": the key carries a mark and no word, and Play is what it is called.
-    "read.hint": "Presione Play para oír esto."
+    "read.hint": "Presione Play para oír esto.",
+    "doorAlert.open": "Abrir Wick",
+    "doorAlert.who": "Abra Wick para ver quién es.",
+    "doorAlert.listening": "Wick le avisará cuando alguien llame a la puerta.",
+    // "Sí" and "no" after the colon, so nothing has to agree with "letra" or "contraste".
+    "seeing.entry": "Más fácil de ver",
+    "seeing.entryLabel": "Más fácil de ver. Presione OK para letra más grande o más contraste.",
+    "seeing.headline": "Más fácil de ver",
+    "seeing.detail": "Esto cambia solo este televisor.",
+    "seeing.largerOn": "Letra más grande: sí",
+    "seeing.largerOff": "Letra más grande: no",
+    "seeing.contrastOn": "Más contraste: sí",
+    "seeing.contrastOff": "Más contraste: no",
+    "seeing.back": "Atrás"
   };
   var sayIn = (table) => (key, values) => (
     // Each place is filled once, from the sentence as written: a name that itself looks like a place is left as it is.
