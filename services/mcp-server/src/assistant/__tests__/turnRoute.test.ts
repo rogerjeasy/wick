@@ -130,9 +130,17 @@ describe('POST /assistant/turn — the assistant as an agent on AgentCore', () =
   });
 
   it('says the tools’ own sentences instead when the agent adds a number, or says what the Guardian refuses', async () => {
-    const invented = await server({ assistantAgent: runtime({ say: 'The doorbell went 9 times.', ...READ }).agent });
-    const sarah = await allowedSarah(invented);
-    expect(await (await post(invented, sarah.tokens.access_token, { question: 'Who came?' })).json()).toEqual({ unsupported: true, ...READ });
+    // The number check lets through numbers from the date and time (brain.ts checkReply), so the
+    // clock is fixed where no part of it is 9: unfixed, this failed from 9 to 10 o'clock in London.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.UTC(2026, 9, 15, 13, 20)); // Thursday 15 October 2026, 14:20 in London
+    try {
+      const invented = await server({ assistantAgent: runtime({ say: 'The doorbell went 9 times.', ...READ }).agent });
+      const sarah = await allowedSarah(invented);
+      expect(await (await post(invented, sarah.tokens.access_token, { question: 'Who came?' })).json()).toEqual({ unsupported: true, ...READ });
+    } finally {
+      vi.useRealTimers();
+    }
 
     const health = await server({ assistantAgent: runtime({ say: 'She seems depressed and should see her doctor about her medication.', ...READ }).agent });
     const tom = await allowedSarah(health);
