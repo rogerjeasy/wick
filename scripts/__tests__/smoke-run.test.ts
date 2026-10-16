@@ -100,7 +100,7 @@ async function run(withPr70: boolean, features: Partial<Features> = {}) {
       virtualTv: 'https://tv.wick.test',
       server: SERVER,
       status: 'https://edge.wick.test/status',
-      features: { securityHeaders: false, accountData: false, televisionRef: false, ...features },
+      features: { securityHeaders: false, accountData: false, televisionRef: false, browserTelevision: false, ...features },
       expectedTools: 2,
     },
     fetch,

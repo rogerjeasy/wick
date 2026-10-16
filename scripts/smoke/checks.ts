@@ -44,18 +44,22 @@ export interface Features {
   readonly accountData: boolean;
   /** #68: the circle names a television by a `ref`, never by its device id. */
   readonly televisionRef: boolean;
+  /** Her television, alone, on the virtual television's site (apps/ops-console/tv.html). */
+  readonly browserTelevision: boolean;
 }
 
 export const FEATURE_MARKERS: Record<keyof Features, string> = {
   securityHeaders: 'infra/csp/family-app.csp',
   accountData: 'services/mcp-server/src/accounts/accountDataRouter.ts',
   televisionRef: 'services/edge-device/lambda/proof.mjs',
+  browserTelevision: 'apps/ops-console/tv.html',
 };
 
 export const FEATURE_PRS: Record<keyof Features, string> = {
   securityHeaders: '#70',
   accountData: '#70',
   televisionRef: '#68',
+  browserTelevision: 'feat/browser-television',
 };
 
 export function featuresIn(root: string, exists: (path: string) => boolean = existsSync): Features {
@@ -63,6 +67,7 @@ export function featuresIn(root: string, exists: (path: string) => boolean = exi
     securityHeaders: exists(join(root, FEATURE_MARKERS.securityHeaders)),
     accountData: exists(join(root, FEATURE_MARKERS.accountData)),
     televisionRef: exists(join(root, FEATURE_MARKERS.televisionRef)),
+    browserTelevision: exists(join(root, FEATURE_MARKERS.browserTelevision)),
   };
 }
 
@@ -110,6 +115,18 @@ export function siteVerdict(site: string, status: number, headers: Headers, expe
   else if (!expectHeaders && missing.length === 4) results.push(skip(name, `none sent: not deployed yet (${FEATURE_PRS.securityHeaders})`));
   else results.push(fail(name, `missing ${missing.join(', ')}`));
   return results;
+}
+
+/**
+ * Her television, alone (tv.html), on the virtual television's site: 200 and
+ * the same headers as the site. Before the checkout holds the page, a site
+ * that does not have it yet — CloudFront answers 403 for a file S3 does not
+ * hold — is not deployed yet, not a failure.
+ */
+export function televisionPageVerdict(url: string, status: number, headers: Headers, deployed: boolean, expectHeaders: boolean): CheckResult[] {
+  const name = `her television ${url}`;
+  if (!deployed && status !== 200) return [skip(name, `answered ${status}: not deployed yet (${FEATURE_PRS.browserTelevision})`)];
+  return siteVerdict(name, status, headers, expectHeaders);
 }
 
 // ---------------------------------------------------------------------------
