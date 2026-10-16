@@ -135,6 +135,35 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["arn:aws:states:${local.region}:${local.account_id}:stateMachine:wick-*"]
   }
 
+  # The deploy role manages AgentCore (the runtime, the memory and its
+  # strategy) and never reads what is in them: no member's conversation, no
+  # member's remembered words, and no invocation of the agents. Explicit, so
+  # bedrock-agentcore:* above can never grant it.
+  statement {
+    sid    = "NeverReadAMembersMemoryNorInvokeTheAgents"
+    effect = "Deny"
+    actions = [
+      "bedrock-agentcore:InvokeAgentRuntime",
+      "bedrock-agentcore:InvokeAgentRuntimeForUser",
+      "bedrock-agentcore:CreateEvent",
+      "bedrock-agentcore:GetEvent",
+      "bedrock-agentcore:ListEvents",
+      "bedrock-agentcore:DeleteEvent",
+      "bedrock-agentcore:ListActors",
+      "bedrock-agentcore:ListSessions",
+      "bedrock-agentcore:RetrieveMemoryRecords",
+      "bedrock-agentcore:ListMemoryRecords",
+      "bedrock-agentcore:GetMemoryRecord",
+      "bedrock-agentcore:DeleteMemoryRecord",
+      "bedrock-agentcore:BatchCreateMemoryRecords",
+      "bedrock-agentcore:BatchUpdateMemoryRecords",
+      "bedrock-agentcore:BatchDeleteMemoryRecords",
+      "bedrock-agentcore:StartMemoryExtractionJob",
+      "bedrock-agentcore:ListMemoryExtractionJobs",
+    ]
+    resources = ["*"]
+  }
+
   # The agents' Bedrock Guardrail (infra/guardrail.tf): the guardrail and its
   # published versions, and nothing that applies or lists any other.
   statement {

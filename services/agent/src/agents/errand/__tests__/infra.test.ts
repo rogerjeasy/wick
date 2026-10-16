@@ -44,10 +44,14 @@ describe('infra/errands.tf', () => {
     expect(policy).not.toContain('errand_door');
   });
 
-  it('lets the two Lambdas hand a token back only to this machine, and gives errand-door only what finding one needs', () => {
+  it('lets the two Lambdas hand a token back on "*", which is all SendTaskSuccess accepts, and gives errand-door only what finding one needs', () => {
+    // AWS's Service Authorization Reference: SendTaskSuccess has no resource
+    // types. A policy naming the state machine is refused on every call; the
+    // token read from the errand's own row is what scopes it.
     for (const name of ['errand_step', 'errand_door']) {
       const policy = block(errands, `data "aws_iam_policy_document" "${name}" {`);
-      expect(policy).toMatch(/actions\s+= \["states:SendTaskSuccess"\]\s+resources = \[aws_sfn_state_machine\.errand\.arn\]/);
+      expect(policy).toMatch(/actions\s+= \["states:SendTaskSuccess"\]\s+resources = \["\*"\]/);
+      expect(policy).not.toMatch(/SendTaskSuccess"\]\s+resources = \[aws_sfn_state_machine/);
     }
     expect(actionsOf(block(errands, 'data "aws_iam_policy_document" "errand_door" {'))).toEqual(['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:UpdateItem', 'states:SendTaskSuccess']);
     // errand-step sends her reminder and a nudge; it is never given Translate: the reminder is the phrasebook's.

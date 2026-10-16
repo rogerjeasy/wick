@@ -90,10 +90,15 @@ data "aws_iam_policy_document" "errand_step" {
 
   # The door step hands its own token back when the errand ended while it
   # was being armed (called off, or its author no longer allowed).
+  # SendTaskSuccess names no resource type (AWS's Service Authorization
+  # Reference: Step Functions, SendTaskSuccess — no resource types), so it is
+  # granted on "*": a policy naming the state machine would be refused every
+  # time. The token itself is the scope: only the errand's own token, read
+  # from its row, is ever handed back.
   statement {
     sid       = "HandBackItsOwnTaskToken"
     actions   = ["states:SendTaskSuccess"]
-    resources = [aws_sfn_state_machine.errand.arn]
+    resources = ["*"]
   }
 }
 
@@ -155,10 +160,12 @@ data "aws_iam_policy_document" "errand_door" {
     resources = [aws_dynamodb_table.wick.arn]
   }
 
+  # On "*" for the same reason as errand-step's: SendTaskSuccess names no
+  # resource type. The token read from that household's errand row is the scope.
   statement {
     sid       = "WakeTheErrandThatWasWaiting"
     actions   = ["states:SendTaskSuccess"]
-    resources = [aws_sfn_state_machine.errand.arn]
+    resources = ["*"]
   }
 }
 
