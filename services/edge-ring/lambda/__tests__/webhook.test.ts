@@ -302,38 +302,41 @@ describe('the Ring webhook: the window on meta.time', () => {
     expect(MAX_EVENT_LEAD_MS).toBe(60_000);
   });
 
-  it('accepts an event sent exactly five minutes ago, and refuses one a millisecond older with 400', async () => {
+  // Dropped with a 200, never a 4xx: Ring counts repeated 4xx toward disabling the endpoint,
+  // and a late retry of Ring's own would otherwise be one.
+  it('accepts an event sent exactly five minutes ago, and drops one a millisecond older with 200 and nothing on the bus', async () => {
     expect((await harness().handler(request(at(NOW - MAX_EVENT_AGE_MS)))).statusCode).toBe(200);
     const late = harness();
-    expect(await late.handler(request(at(NOW - MAX_EVENT_AGE_MS - 1)))).toEqual({ statusCode: 400, body: '' });
+    expect(await late.handler(request(at(NOW - MAX_EVENT_AGE_MS - 1)))).toEqual({ statusCode: 200, body: '' });
     expect(late.table.puts).toHaveLength(0);
     expect(late.bus.entries).toHaveLength(0);
   });
 
-  it('accepts an event stamped exactly a minute ahead, and refuses one a millisecond further with 400', async () => {
+  it('accepts an event stamped exactly a minute ahead, and drops one a millisecond further with 200 and nothing on the bus', async () => {
     expect((await harness().handler(request(at(NOW + MAX_EVENT_LEAD_MS)))).statusCode).toBe(200);
     const early = harness();
-    expect((await early.handler(request(at(NOW + MAX_EVENT_LEAD_MS + 1)))).statusCode).toBe(400);
+    expect((await early.handler(request(at(NOW + MAX_EVENT_LEAD_MS + 1)))).statusCode).toBe(200);
     expect(early.bus.entries).toHaveLength(0);
   });
 
   it('is under the signature: moving meta.time into the window breaks the signature', async () => {
-    const { handler } = harness();
+    const { handler, bus } = harness();
     const old = at(NOW - 60 * 60_000);
     const signature = sign(old);
     const freshened = old.replace(/"time":"[^"]+"/, `"time":"${new Date(NOW).toISOString()}"`);
-    expect((await handler(request(old, { [SIGNATURE_HEADER]: signature }))).statusCode).toBe(400);
+    expect((await handler(request(old, { [SIGNATURE_HEADER]: signature }))).statusCode).toBe(200);
     expect((await handler(request(freshened, { [SIGNATURE_HEADER]: signature }))).statusCode).toBe(401);
+    expect(bus.entries).toHaveLength(0);
   });
 
-  it('a replay of a body accepted a day ago — its request_id long forgotten — is refused', async () => {
+  it('a replay of a body accepted a day ago — its request_id long forgotten — is dropped', async () => {
     let now = NOW;
     const { handler, table, bus } = harness({ now: () => now });
     const body = at(NOW - 1_000);
     expect((await handler(request(body))).statusCode).toBe(200);
     table.rows.clear(); // the 24-hour TTL has let the row go
     now = NOW + IDEMPOTENCY_TTL_SEC * 1000 + 1;
-    expect((await handler(request(body))).statusCode).toBe(400);
+    expect((await handler(request(body))).statusCode).toBe(200);
     expect(bus.entries).toHaveLength(1);
   });
 });

@@ -306,7 +306,8 @@ Developer Playground (released 2026-05-28).
 
 - **Webhooks** (`button_press`, `motion_detected`): put the door card on the
   television. Verified with HMAC-SHA256 (`X-Signature`, over the raw body),
-  refused when Ring sent them over five minutes ago, and made idempotent on
+  dropped (answered 200, nothing done) when Ring sent them over five minutes
+  ago, and made idempotent on
   `meta.request_id`, inside Ring's five seconds
   (`services/edge-ring/lambda/webhook-receiver.mjs`).
 - **`POST /v1/devices/{id}/media/image/download`**: the still on the door card

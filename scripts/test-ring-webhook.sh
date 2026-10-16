@@ -115,7 +115,7 @@ check "valid signature accepted" 200 "$code"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$BASE" \
         -H 'Content-Type: application/json' -H "X-Signature: $STALE_SIG" -d "$STALE_BODY")
-check "signed but sent 10 min ago: refused" 400 "$code"
+check "signed but sent 10 min ago: acknowledged and dropped" 200 "$code"
 
 ms=$(curl -s -o /dev/null -w '%{time_total}' --max-time 20 -X POST "$BASE" \
       -H 'Content-Type: application/json' -H "X-Signature: $SIG" -d "$BODY" \

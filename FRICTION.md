@@ -112,21 +112,22 @@ removed from the design (2026-10-02).
                      fourth is 36 s after the first) whatever Ring does. If `meta.time` is kept
                      from the first attempt, the fifth (about 2.5 minutes in) still passes a
                      five-minute window, but the sixth and seventh (about 12.5 minutes and 1 h
-                     12 min in) and any dead-letter replay would be refused — with a 4xx, which
-                     Ring counts toward disabling the endpoint. If it is stamped afresh, they
-                     pass. Which it is cannot be learned without a real delivery, and the
+                     12 min in) and any dead-letter replay would fall outside it. If it is
+                     stamped afresh, they pass. Which it is cannot be learned without a real delivery, and the
                      Playground sends none.
 
 **Severity:**        Important — every partner has to choose between no replay protection and a
                      window that may drop Ring's own late retries.
 
 **Workaround:**      `services/edge-ring/lambda/webhook-receiver.mjs` reads `X-Signature` only,
-                     verifies the raw bytes, reads the v1.1 envelope, and refuses (400) a signed
-                     body whose `meta.time` is more than five minutes old or more than one minute
-                     ahead (`MAX_EVENT_AGE_MS`, `MAX_EVENT_LEAD_MS`). For the door that costs
+                     verifies the raw bytes, reads the v1.1 envelope, and drops a signed body
+                     whose `meta.time` is more than five minutes old or more than one minute
+                     ahead (`MAX_EVENT_AGE_MS`, `MAX_EVENT_LEAD_MS`). It answers those 200, not
+                     4xx: Ring counts repeated 4xx toward disabling an endpoint, and a late
+                     retry is Ring's own. For the door that costs
                      nothing: a door card lives five minutes (`DOOR_CARD_TTL_MS`), and the Door
                      agent runs no event older than that (`infra/agent.tf`). A device-lifecycle event
-                     replayed from the dead-letter queue after an outage would be refused; Wick
+                     replayed from the dead-letter queue after an outage would be dropped; Wick
                      reads none of those today. `request_id` is still deduplicated for 24 hours.
                      Not seen against a real Ring delivery.
 

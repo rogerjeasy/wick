@@ -4,7 +4,7 @@
  * The entire design is Ring's five-second acknowledgement budget:
  *
  *   1. verify HMAC-SHA256 over the raw body (constant time)
- *   2. read Ring's v1.1 envelope, and refuse one Ring sent too long ago
+ *   2. read Ring's v1.1 envelope, and drop one Ring sent too long ago (200, nothing on the bus)
  *   3. idempotency: conditional PutItem on meta.request_id, TTL 24h
  *   4. PutEvents -> EventBridge
  *   5. return 200
@@ -37,9 +37,9 @@ import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 /** The one header Ring documents for the signature. API Gateway hands headers over lower-cased. */
 export const SIGNATURE_HEADER = 'x-signature';
 
-/** A correctly signed event Ring sent longer ago than this is refused: it is a replay, or too late to be a door. */
+/** A correctly signed event Ring sent longer ago than this is dropped: it is a replay, or too late to be a door. */
 export const MAX_EVENT_AGE_MS = 5 * 60_000;
-/** ...and one stamped further ahead of this clock than this. Clocks differ; by more than a minute, the stamp is wrong. */
+/** ...and so is one stamped further ahead of this clock than this. Clocks differ; by more than a minute, the stamp is wrong. */
 export const MAX_EVENT_LEAD_MS = 60_000;
 
 /** How long a request_id is remembered. Longer than the window, so nothing inside it is taken twice. */
@@ -162,10 +162,12 @@ export function createWebhookHandler({ readKey, putItem, putEvents, table, busNa
     }
     const receivedAt = now();
     if (!insideWindow(ring.sentAt, receivedAt)) {
-      // Signed by Ring, but not now: a replay of a body seen before, or one held back.
-      // 4xx, so Ring does not send it again.
-      log('warn', 'outside_window', { requestId: ring.requestId, skewMs: receivedAt - ring.sentAt });
-      return EMPTY(400);
+      // Signed by Ring, but not now: a replay of a body seen before, or one of Ring's own
+      // late retries. Acknowledged and dropped: nothing reaches the bus. Not a 4xx, because
+      // Ring counts repeated 4xx toward disabling the endpoint, and a late retry is Ring's
+      // own doing; a 200 also stops Ring sending it again.
+      log('warn', 'outside_window_dropped', { requestId: ring.requestId, skewMs: receivedAt - ring.sentAt });
+      return EMPTY(200);
     }
 
     // 3 — idempotency. A duplicate is a success, not an error: Ring retries, and a
