@@ -57,20 +57,19 @@ body {
 button, input, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
-/* One honest line, outside the surface: what this is and is not. */
+/* One honest line, outside the surface: what this is and is not. Opened, it says why. */
 .disclosure {
   margin: 0;
   width: 100%;
   max-width: 1180px;
-  padding: var(--s-s) var(--s-m);
+  padding: var(--s-xs) var(--s-m);
   color: var(--ink-dim);
   font-size: 14px;
   line-height: 1.45;
 }
 .disclosure strong { color: var(--ink); font-weight: 600; }
-.disclosure summary { cursor: pointer; }
-.disclosure[open] summary { display: inline; }
-.disclosure[open] summary::marker, .disclosure[open] summary::-webkit-details-marker { content: ""; display: none; }
+.disclosure summary { cursor: pointer; padding: 0; }
+.disclosure[open] summary { margin-bottom: var(--s-2xs); }
 
 .surface {
   width: 100%;
@@ -102,7 +101,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .flame { width: 0.8em; height: 1.1em; flex: none; }
 
 /* The light in the window: lit, or not. Not lit is quiet, never a warning. */
-.light { display: inline-flex; align-items: center; gap: var(--s-xs); color: var(--ink-dim); }
+.light { display: inline-flex; align-items: center; gap: var(--s-xs); color: var(--ink-dim); white-space: nowrap; }
 .light .flame, .window .flame { filter: grayscale(1); opacity: 0.35; }
 .light.lit { color: var(--ink); }
 .light.lit .flame, .window.lit .flame { filter: none; opacity: 1; }
@@ -133,8 +132,17 @@ button, input, textarea { font: inherit; color: inherit; }
   gap: var(--s-xl);
   scroll-behavior: smooth;
 }
-/* Room under the last turn, so its question can sit at the top. */
-.log::after { content: ""; flex: none; height: 40vh; height: 40dvh; }
+/*
+ * No room is kept under the last turn. A short conversation sits at the foot
+ * of the screen, next to the field it was asked from, as a conversation does;
+ * a long one scrolls, and the newest question is brought to the top only when
+ * its answer fills the screen (main.js scrollToEnd). The space above takes
+ * what is left over and nothing more: it is nothing once the log scrolls.
+ */
+.log::before { content: ""; flex: 1 0 0; margin-bottom: calc(-1 * var(--s-xl)); }
+/* Signed out, the first screen: the card in the middle, as wide as it reads well. */
+.log[data-signed-in="false"]::after { content: ""; flex: 1 0 0; margin-top: calc(-1 * var(--s-xl)); }
+.log[data-signed-in="false"] .first { align-self: center; width: 100%; max-width: 46rem; }
 @media (prefers-reduced-motion: reduce) { .log { scroll-behavior: auto; } }
 
 .turn-customer {
@@ -175,9 +183,67 @@ button, input, textarea { font: inherit; color: inherit; }
   flex-direction: column;
   gap: var(--s-m);
 }
-.card-head { display: flex; align-items: baseline; gap: var(--s-m); }
-.card-title { font-size: var(--t-headline); font-weight: 600; margin: 0; }
+/* The card's header: its title, and the line under it; an icon beside them where there is one. */
+.card-head { display: flex; align-items: center; gap: var(--s-m); }
+.card-heading { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.card-title { font-size: var(--t-headline); font-weight: 600; margin: 0; line-height: 1.25; }
 .card-meta { color: var(--ink-dim); font-size: var(--t-small); }
+/* The card's primary text: the tool's own sentence, at reading size. */
+.primary-text { margin: 0; font-size: var(--t-body); line-height: 1.45; text-wrap: pretty; }
+
+/* The first screen: one card, two ways in. */
+.card.intro { gap: var(--s-l); }
+.card.intro .actions { display: flex; flex-wrap: wrap; gap: var(--s-s); }
+.card.intro .actions .btn { font-size: var(--t-body); padding: var(--s-s) var(--s-xl); min-height: 2.6em; }
+.card.intro .listing-icon { width: 64px; height: 64px; }
+.card.intro details summary { font-size: var(--t-small); }
+
+/* Getting started: numbered steps, each ticked off when it is true. */
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-s); }
+.step { display: flex; gap: var(--s-m); align-items: flex-start; background: var(--card-inner); border-radius: var(--r-m); padding: var(--s-s) var(--s-m); }
+.step-mark {
+  flex: none; width: 1.9em; height: 1.9em; border-radius: var(--r-pill);
+  display: inline-grid; place-items: center; font-weight: 600; font-size: var(--t-small);
+  border: 2px solid var(--line); color: var(--ink-dim);
+}
+.step.current .step-mark { border-color: var(--wick); color: var(--ink); }
+.step.done .step-mark { background: var(--button); border-color: var(--button); color: var(--ink); }
+.step-words { display: flex; flex-direction: column; gap: var(--s-2xs); min-width: 0; }
+.step-words .btn { align-self: flex-start; margin-top: var(--s-2xs); }
+.step-title { margin: 0; font-weight: 600; }
+.step.done .step-title { color: var(--ink-dim); }
+.step-detail { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
+
+/* The week: the paragraph, its measures as small tiles, then its days in a row scrolled sideways (the guide's Carousel). */
+.measures { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(14em, 1fr)); gap: var(--s-xs); font-size: var(--t-small); }
+.measures .measure { background: var(--card-inner); border-radius: var(--r-m); padding: var(--s-xs) var(--s-m); }
+.measures dt { font-weight: 600; }
+.measures dd { margin: 0; color: var(--ink-dim); }
+.carousel {
+  list-style: none; margin: 0; padding: 2px 2px var(--s-xs);
+  display: flex; gap: var(--s-s);
+  overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity; scroll-behavior: smooth;
+  scrollbar-width: thin;
+}
+.carousel > li {
+  flex: 0 0 13em; scroll-snap-align: start;
+  background: var(--card-inner); border-radius: var(--r-m);
+  padding: var(--s-s) var(--s-m);
+  display: flex; flex-direction: column; gap: var(--s-2xs);
+  font-size: var(--t-small);
+}
+.carousel[data-collapsed="true"] > li:nth-child(n + 6) { display: none; }
+/* "See all": every day at once, wrapped onto as many rows as it takes — the guide's overflow surface, in place. */
+.carousel[data-collapsed="false"] { flex-wrap: wrap; overflow-x: visible; }
+.carousel[data-collapsed="false"] > li { flex: 1 1 13em; }
+.day-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-xs); }
+.day-name { margin: 0; font-size: var(--t-body); font-weight: 600; }
+.day-count { margin: 0; color: var(--ink-dim); }
+.day-entries { list-style: none; margin: var(--s-2xs) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-2xs); }
+.day-entries li { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-xs); }
+.day-time { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .carousel { scroll-behavior: auto; } }
 /* The week measured: this week beside the one before and a usual one. */
 .facts { margin: 0 0 var(--s-s); display: grid; grid-template-columns: max-content 1fr; gap: var(--s-2xs) var(--s-m); }
 .facts dt { font-weight: 600; }
@@ -217,9 +283,11 @@ button, input, textarea { font: inherit; color: inherit; }
 .card-foot .note { flex: 1; }
 /* A question from the front door: the picture first, then each answer as its own full-width button. */
 .door-picture { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--r-m); background: var(--card-inner); }
-.door-description { margin: 0; }
 .door-answers { display: flex; flex-direction: column; gap: var(--s-xs); }
 .door-answers .btn { text-align: left; }
+/* The answer that was given stays marked; the others are out of use. */
+.door-answers .btn[aria-pressed="true"] { opacity: 1; border-color: var(--ink-dim); }
+.door-answers .btn[aria-pressed="true"]::before { content: "✓ "; }
 /* Under a request to ring: answering is not ringing. Quiet, like a footnote. */
 .reach-note { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
 /* Under the visits: how many came earlier, and what the times are. Quiet, like a footnote. */
@@ -280,11 +348,11 @@ input.linkbox { font-size: var(--t-small); }
 details { color: var(--ink-dim); font-size: var(--t-small); }
 /* The add-on listing: its icon beside the name, and what it says about itself. */
 .listing-icon { width: 56px; height: 56px; border-radius: var(--r-m); align-self: center; flex: none; }
-.listing { display: flex; flex-direction: column; gap: var(--s-s); }
+.listing[open] { display: flex; flex-direction: column; gap: var(--s-s); }
 .listing p { margin: 0; }
 .listing a { color: var(--ink); }
-.listing details p, .listing details ul { margin: var(--s-xs) 0 0; }
-.listing details ul { padding-left: 1.2em; }
+.listing #listing-about p, .listing #listing-about ul { margin: var(--s-xs) 0 0; }
+.listing #listing-about ul { padding-left: 1.2em; }
 details summary { cursor: pointer; padding: var(--s-2xs) 0; }
 details label { display: flex; flex-direction: column; gap: var(--s-2xs); margin-top: var(--s-xs); }
 
@@ -349,7 +417,15 @@ details label { display: flex; flex-direction: column; gap: var(--s-2xs); margin
   .turn-assistant { max-width: 100%; }
   .turn-customer { max-width: 88%; overflow-wrap: anywhere; }
   .card { padding: var(--s-m); }
-  .card-head { flex-wrap: wrap; gap: var(--s-2xs) var(--s-s); }
+  .card-head { gap: var(--s-s); }
+  .card.intro .actions .btn { flex: 1 1 100%; }
+  .card.intro .listing-icon { width: 48px; height: 48px; }
+  /* Two days and the edge of a third: there is more to the side. */
+  .carousel { margin: 0 calc(-1 * var(--s-m)); padding: 2px var(--s-m) var(--s-xs); scroll-padding-inline: var(--s-m); }
+  .carousel > li { flex-basis: 9.5em; }
+  /* The time above what happened: a tile is narrow here. */
+  .day-entries li { grid-template-columns: 1fr; gap: 0; }
+  .measures { grid-template-columns: 1fr; }
   /* A row's two halves stack when they do not fit side by side, rather than run off the screen. */
   .row { flex-wrap: wrap; }
   .row .secondary { white-space: normal; }
@@ -364,6 +440,8 @@ details label { display: flex; flex-direction: column; gap: var(--s-2xs); margin
  * leave the conversation a strip. There they are one row, scrolled sideways.
  */
 @media (min-width: 761px) and (max-height: 900px) {
+  /* And its type a step smaller: at the far-field scale a question and its answer would not fit between the bar and the field. */
+  :root { --scale: 1.25; }
   .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: var(--s-2xs); }
 }
 
