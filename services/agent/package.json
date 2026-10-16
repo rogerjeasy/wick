@@ -17,6 +17,7 @@
     "@aws-sdk/client-s3": "^3.1144.0",
     "@aws-sdk/client-scheduler": "^3.1150.0",
     "@aws-sdk/client-secrets-manager": "^3.1144.0",
+    "@aws-sdk/client-sqs": "^3.1152.0",
     "@aws-sdk/client-translate": "^3.1150.0",
     "@aws-sdk/s3-request-presigner": "^3.1150.0",
     "@strands-agents/sdk": "^1.17.0",
@@ -24,6 +25,7 @@
     "@wick/policy": "*",
     "@wick/ring": "*",
     "web-push": "^3.6.7",
-    "werift": "^0.24.4"
+    "werift": "^0.24.4",
+    "zod": "^4.6.5"
   }
 }
