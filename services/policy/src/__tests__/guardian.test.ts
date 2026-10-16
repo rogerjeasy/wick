@@ -36,6 +36,13 @@ describe('what reached the family before the gate', () => {
     expect(classesOf('Nurse Joy')).toEqual(['HEALTH']);
   });
 
+  it('withholds a stroke followed by "of", unless it is one of the idioms', () => {
+    // Found by the property suite on seed 150: "A STROKE of" was cleared, because the
+    // exception for "a stroke of luck" let every "stroke of" through.
+    expect(classesOf('She had a stroke of some kind.')).toEqual(['HEALTH']);
+    expect(classesOf('A STROKE of')).toEqual(['HEALTH']);
+  });
+
   it('withholds a relationship and an address', () => {
     expect(classesOf('Her boyfriend came round after the divorce.')).toEqual(['RELATIONSHIP']);
     expect(classesOf('Send it to 14 Elm Road, SW1A 1AA.')).toEqual(['LOCATION']);
@@ -67,6 +74,8 @@ describe('what it must not catch', () => {
     'Someone was at the front door three times this week, as usual.',
     'Big Buck Bunny on Saturday at 3pm.',
     'A stroke of luck.',
+    'What a stroke of genius.',
+    'At the stroke of midnight.',
   ];
 
   for (const sentence of ordinary) {
