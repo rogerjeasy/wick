@@ -134,9 +134,11 @@ function localHourOnDay(t: number, hour: number, timeZone: string): number {
 
 /**
  * When she is reminded of a visit at `at`. Eight in the morning on the day,
- * her time — or an hour before, if the visit is before eight. A reminder
- * whose moment has passed is sent now, as long as the visit is still ahead;
- * a visit that is not ahead gets none.
+ * her time — or an hour before, if the visit is before eight. Never later
+ * than the visit's window opens: the errand listens for the door only after
+ * the reminder, so a reminder inside the window would leave its first part
+ * deaf to a ring. A reminder whose moment has passed is sent now, as long as
+ * the visit is still ahead; a visit that is not ahead gets none.
  */
 export function remindAtFor(choice: ReminderChoice, at: number, timeZone: string, now: number): number | undefined {
   if (choice === 'none' || at <= now) return undefined;
@@ -145,7 +147,8 @@ export function remindAtFor(choice: ReminderChoice, at: number, timeZone: string
     const morning = localHourOnDay(at, MORNING_REMINDER_HOUR, timeZone);
     if (morning < at) remindAt = morning;
   }
-  return Math.max(remindAt, now);
+  const windowOpens = at - ERRAND_LIMITS.windowMinutes * 60_000;
+  return Math.max(Math.min(remindAt, windowOpens), now);
 }
 
 export const ERRAND_EVENTS = {

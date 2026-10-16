@@ -82,6 +82,16 @@ describe('reminders', () => {
     expect(remindAtFor('hour_before', at, tz, now)).toBe(now);
   });
 
+  it('is never later than the visit’s window opens, so the door is listening for the whole window', () => {
+    // 08:30 in London (07:30 UTC, BST): the window opens at 07:30 local, before eight.
+    const halfPastEight = Date.UTC(2026, 9, 15, 7, 30);
+    const windowOpens = halfPastEight - ERRAND_LIMITS.windowMinutes * 60_000;
+    expect(remindAtFor('morning_of', halfPastEight, tz, halfPastEight - 48 * HOUR)).toBe(windowOpens);
+    for (const choice of ['morning_of', 'hour_before'] as const) {
+      expect(remindAtFor(choice, at, tz, at - 48 * HOUR)!).toBeLessThanOrEqual(at - ERRAND_LIMITS.windowMinutes * 60_000);
+    }
+  });
+
   it('no reminder at all, or for a visit that is not ahead', () => {
     expect(remindAtFor('none', at, tz, at - 48 * HOUR)).toBeUndefined();
     expect(remindAtFor('hour_before', at, tz, at + 1)).toBeUndefined();
