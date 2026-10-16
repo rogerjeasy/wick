@@ -1,0 +1,121 @@
+/* Wick: shared styles for the project's secondary pages (privacy, terms,
+   Ring link, pairing, not found). The home page (index.html) carries the
+   same tokens inline. */
+:root{
+  --ground:#12100E; --ground-2:#171512; --raised:#1E1B17; --raised-2:#25211C;
+  --line:#2E2923; --line-2:#3A342C;
+  --ink:#F4F1EA; --ink-dim:#C8C2B6; --ink-faint:#8F887C;
+  --accent:#E8B75D; --accent-ink:#1A1408; --accent-soft:rgba(232,183,93,.12);
+  --radius:16px; --radius-sm:10px;
+  --display:"Fraunces",Georgia,"Times New Roman",serif;
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.7 var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column}
+main{flex:1}
+img{max-width:100%;height:auto;display:block}
+a{color:var(--accent);text-underline-offset:3px}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:6px}
+.wrap{width:min(1080px,100% - 40px);margin-inline:auto}
+.narrow{width:min(720px,100% - 40px);margin-inline:auto}
+
+/* Navigation */
+.nav{position:sticky;top:0;z-index:10;background:rgba(18,16,14,.8);backdrop-filter:saturate(140%) blur(14px);-webkit-backdrop-filter:saturate(140%) blur(14px);border-bottom:1px solid rgba(46,41,35,.7)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;gap:16px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);font-family:var(--display);font-size:1.3rem;font-weight:600}
+.brand img{width:30px;height:30px;border-radius:8px}
+.nav-links{display:flex;gap:10px;align-items:center}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 20px;border-radius:999px;font:600 .95rem var(--sans);text-decoration:none;border:1px solid var(--line-2);color:var(--ink);background:transparent;transition:background .2s,border-color .2s;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--ink-faint);background:rgba(255,255,255,.03)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover{background:#F0C474;border-color:#F0C474}
+.btn.sm{min-height:38px;padding:0 16px;font-size:.88rem}
+.btn svg{width:18px;height:18px}
+
+/* Page header */
+.page-head{position:relative;padding:72px 0 40px;overflow:hidden}
+.page-head::before{content:"";position:absolute;right:-180px;top:-260px;width:620px;height:620px;background:radial-gradient(circle,rgba(232,183,93,.13),transparent 62%);pointer-events:none}
+.kicker{font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:0 0 14px}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(2.2rem,4.6vw,3.3rem);line-height:1.08;letter-spacing:-.02em;margin:0 0 16px}
+.lede{font-size:1.12rem;color:var(--ink-dim);margin:0;max-width:40rem}
+.meta{margin-top:20px;display:flex;flex-wrap:wrap;gap:8px}
+.pill{font-size:.82rem;padding:5px 12px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-dim)}
+
+/* Legal documents */
+.doc-layout{display:grid;grid-template-columns:220px 1fr;gap:56px;padding:24px 0 96px}
+.toc{position:sticky;top:96px;align-self:start;font-size:.9rem}
+.toc p{font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);margin:0 0 12px;font-weight:600}
+.toc ol{list-style:none;margin:0;padding:0;border-left:1px solid var(--line)}
+.toc a{display:block;padding:6px 0 6px 16px;margin-left:-1px;border-left:1px solid transparent;color:var(--ink-dim);text-decoration:none}
+.toc a:hover{color:var(--ink);border-left-color:var(--accent)}
+.doc{max-width:46rem}
+.doc section{padding:8px 0 28px;border-bottom:1px solid var(--line);margin-bottom:28px;scroll-margin-top:90px}
+.doc section:last-child{border-bottom:0}
+.doc h2{font-family:var(--display);font-weight:600;font-size:1.55rem;letter-spacing:-.01em;margin:0 0 14px}
+.doc p,.doc li{color:var(--ink-dim)}
+.doc strong{color:var(--ink);font-weight:600}
+.doc ul{padding-left:0;list-style:none;margin:0 0 12px;display:grid;gap:10px}
+.doc ul li{position:relative;padding-left:22px}
+.doc ul li::before{content:"";position:absolute;left:2px;top:.72em;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.summary{background:linear-gradient(180deg,rgba(232,183,93,.08),rgba(232,183,93,.02)),var(--raised);border:1px solid rgba(232,183,93,.32);border-radius:var(--radius);padding:26px 28px;margin-bottom:36px}
+.summary h2{font-size:1.15rem;margin-bottom:12px;font-family:var(--sans);font-weight:600}
+.summary ul{margin:0}
+.callout{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius-sm);padding:18px 20px;color:var(--ink-dim);font-size:.95rem}
+.callout strong{color:var(--ink)}
+.table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;font-size:.94rem;margin:6px 0 12px}
+.table th,.table td{text-align:left;padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+.table tr:last-child td{border-bottom:0}
+.table th{background:var(--raised);color:var(--ink-faint);font-weight:500;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase}
+.table td:first-child{color:var(--ink);font-weight:500;width:38%}
+.table td{color:var(--ink-dim)}
+
+/* Cards and panels */
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.card{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:30px}
+.card.good{border-color:rgba(232,183,93,.35);background:linear-gradient(180deg,rgba(232,183,93,.07),rgba(232,183,93,.01)),var(--raised)}
+.card h2{font-size:1.1rem;font-weight:600;margin:0 0 16px;display:flex;align-items:center;gap:10px}
+.card.good h2{color:var(--accent)}
+.card ul{list-style:none;margin:0;padding:0;display:grid;gap:14px}
+.card li{display:flex;gap:12px;color:var(--ink-dim)}
+.card li svg{flex:none;width:20px;height:20px;margin-top:3px}
+.card.good li svg{color:var(--accent)}
+.card.never li svg{color:var(--ink-faint)}
+.card li strong{color:var(--ink);font-weight:600}
+.icon{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.icon svg{width:22px;height:22px}
+
+/* Centered single-purpose pages */
+.center-page{display:grid;place-items:center;padding:72px 0 96px}
+.center-card{width:min(560px,100% - 40px);text-align:center}
+.center-card .icon{margin:0 auto 22px}
+.code-boxes{display:flex;justify-content:center;gap:10px;margin:28px 0 30px}
+.code-boxes span{width:56px;height:68px;display:grid;place-items:center;border-radius:12px;background:var(--raised);border:1px solid var(--line-2);font:600 2rem var(--display);color:var(--accent)}
+.code-boxes span.gap{width:12px;background:none;border:0}
+.steps{list-style:none;padding:0;margin:30px 0 0;text-align:left;display:grid;gap:12px;counter-reset:s}
+.steps li{display:flex;gap:14px;align-items:flex-start;background:var(--raised);border:1px solid var(--line);border-radius:var(--radius-sm);padding:14px 16px;color:var(--ink-dim)}
+.steps li::before{counter-increment:s;content:counter(s);flex:none;width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:.85rem}
+
+footer{border-top:1px solid var(--line);padding:30px 0 40px;color:var(--ink-faint);font-size:.88rem}
+footer .wrap{display:flex;flex-wrap:wrap;gap:18px;justify-content:space-between;align-items:center}
+footer nav{display:flex;flex-wrap:wrap;gap:20px}
+footer a{text-decoration:none;color:var(--ink-dim)}
+footer a:hover{color:var(--ink)}
+
+@media (max-width:900px){
+  .doc-layout{grid-template-columns:1fr;gap:24px}
+  .toc{position:static}
+  .cards{grid-template-columns:1fr}
+}
+@media (max-width:560px){
+  .nav-links .btn:not(.primary){display:none}
+  .page-head{padding:48px 0 28px}
+  .card{padding:24px}
+  .code-boxes{gap:6px}
+  .code-boxes span{width:44px;height:56px;font-size:1.6rem}
+  .table th,.table td{padding:10px 12px}
+  .table td:first-child{width:auto}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}}
