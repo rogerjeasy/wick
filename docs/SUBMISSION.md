@@ -289,7 +289,7 @@ with the five product-feedback answers for each. How the agents work is in
 
 ### Contribution 1: AgentCore Memory session storage for Strands TypeScript, a pull request to Amazon's AgentCore SDK
 
-**Contribution URL:** AGENTCORE_PR_URL
+**Contribution URL:** https://github.com/aws/bedrock-agentcore-sdk-typescript/pull/287
 (branch [`rogerjeasy:feat/strands-session-storage`](https://github.com/rogerjeasy/bedrock-agentcore-sdk-typescript/tree/feat/strands-session-storage))
 
 **What we did.** Amazon's official AgentCore TypeScript SDK
