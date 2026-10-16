@@ -63,9 +63,16 @@ export async function checkWithGuardrail(send: GuardrailSend, ref: GuardrailRef 
     guardrailIdentifier: ref.id,
     guardrailVersion: ref.version,
     source: 'OUTPUT',
+    // With nothing to ground on — a reply that called no tool, a clarifying
+    // question — the grounding check has nothing to weigh, so it is left out
+    // and the topics and filters read the sentence alone.
     content: [
-      { text: { text: ask.source.join('\n'), qualifiers: ['grounding_source'] } },
-      { text: { text: ask.query, qualifiers: ['query'] } },
+      ...(ask.source.length > 0
+        ? [
+            { text: { text: ask.source.join('\n'), qualifiers: ['grounding_source' as const] } },
+            { text: { text: ask.query, qualifiers: ['query' as const] } },
+          ]
+        : []),
       { text: { text: ask.content, qualifiers: ['guard_content'] } },
     ],
   });

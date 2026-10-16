@@ -14,6 +14,8 @@
  * serves the door and the live view must not fail to start for want of the
  * assistant's settings.
  */
+import { ApplyGuardrailCommand, BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
+import { guardReplyWith } from './guard.js';
 import { BedrockAgentCoreClient } from '@aws-sdk/client-bedrock-agentcore';
 import { BedrockModel } from '@strands-agents/sdk';
 import { memberMemoryStore } from './memory.js';
@@ -40,11 +42,11 @@ export function assistantDepsFromEnv(env: Env, agentCoreSessions?: AgentCoreSess
     ...(env.AWS_REGION ? { region: env.AWS_REGION } : {}),
     maxTokens: MAX_TOKENS,
     temperature: 0.2,
-    // The member's own question, and the model's answer. The tools' results
-    // are not sent through it: they have been through the Guardian already,
-    // and are the household's own words, not the member's.
-    ...(guardrailIdentifier && guardrailVersion ? { guardrailConfig: { guardrailIdentifier, guardrailVersion, guardLatestUserMessage: true } } : {}),
+    // No guardrail on the model: it would read the member's question, and
+    // "How has my mum been?" is what Wick is for. The reply is guarded
+    // instead (guard.ts), grounded in what the tools returned.
   });
+  const guardrails = new BedrockRuntimeClient(env.AWS_REGION ? { region: env.AWS_REGION } : {});
 
   const memoryId = env.AGENTCORE_MEMORY_ID;
   const client = memoryId ? new BedrockAgentCoreClient(env.AWS_REGION ? { region: env.AWS_REGION } : {}) : undefined;
@@ -56,6 +58,9 @@ export function assistantDepsFromEnv(env: Env, agentCoreSessions?: AgentCoreSess
     verifyMember: verifyWithWick(mcpUrl),
     sessions: sessionStorageFor(env, agentCoreSessions),
     now: Date.now,
+    ...(guardrailIdentifier && guardrailVersion
+      ? { guardReply: guardReplyWith((input) => guardrails.send(new ApplyGuardrailCommand(input)), { id: guardrailIdentifier, version: guardrailVersion }) }
+      : {}),
     ...(env.WICK_HOUSEHOLD_TZ ? { timeZone: env.WICK_HOUSEHOLD_TZ } : {}),
     ...(memoryId && client ? { memoryFor: (householdId: string, memberId: string) => memberMemoryStore({ memoryId, householdId, memberId, client }) } : {}),
   };

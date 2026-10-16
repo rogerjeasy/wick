@@ -1,3 +1,4 @@
+import { assistantDepsFromEnv } from '../fromEnv.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MemoryStore, MessageData, SnapshotStorage } from '@strands-agents/sdk';
 import { assistantSessionId } from '../identity.js';
@@ -63,6 +64,39 @@ const turn = (request: AssistantTurnRequest, script: Step[], more: Partial<Assis
 
 const savedSession = async (): Promise<string> =>
   JSON.stringify(await storage.loadSnapshot({ location: { sessionId: assistantSessionId(HH, MEMBER), scope: 'agent', scopeId: 'wick-assistant' } }));
+
+describe('the Guardrail reads what the agent says, never what the member asks', () => {
+  it('hands the reply to the guard with the tools’ own texts as its grounding and the question as its query', async () => {
+    const seen: { say: string; question?: string; toolTexts: readonly string[] }[] = [];
+    const { out } = turn(ask('How has my mum been this week?'), [
+      { call: [{ name: 'get_today', input: { day: 'today' } }] },
+      { say: 'The doorbell went 6 times today.' },
+    ], { guardReply: async (say, grounding) => { seen.push({ say, ...grounding }); return true; } });
+
+    const result = await out;
+
+    expect(result.say).toBe('The doorbell went 6 times today.');
+    expect(seen).toEqual([{ say: 'The doorbell went 6 times today.', question: 'How has my mum been this week?', toolTexts: ['{"dayInWords":"today","doorbell":6,"films":2}'] }]);
+  });
+
+  it('says nothing of a reply the guard refuses: the Wick server then says the tools’ own sentences', async () => {
+    const { out } = turn(ask('How has my mum been this week?'), [
+      { call: [{ name: 'get_today', input: { day: 'today' } }] },
+      { say: 'She seems a bit low this week.' },
+    ], { guardReply: async () => false });
+
+    const result = await out;
+
+    expect(result.say).toBeUndefined();
+    expect(result.toolTexts).toEqual(['{"dayInWords":"today","doorbell":6,"films":2}']);
+  });
+
+  it('never puts the member’s question through the model’s own guardrail: asking after her is what the product is for', () => {
+    const made = assistantDepsFromEnv({ WICK_MCP_URL: 'https://wick.example/mcp', AGENTS_GUARDRAIL_ID: 'g1', AGENTS_GUARDRAIL_VERSION: '2', AWS_REGION: 'us-east-1' })!;
+    expect(JSON.stringify((made.model as unknown as { getConfig(): unknown }).getConfig())).not.toContain('guardrail');
+    expect(made.guardReply).toBeTypeOf('function');
+  });
+});
 
 describe('a question the tools can answer by reading', () => {
   it('runs read-only tools without asking, and says what they returned', async () => {

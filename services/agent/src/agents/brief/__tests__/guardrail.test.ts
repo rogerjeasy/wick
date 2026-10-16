@@ -39,6 +39,14 @@ describe('checkWithGuardrail — the Bedrock Guardrail, with contextual groundin
     ]);
   });
 
+  it('sends no grounding source or query when there are no facts to ground on: the topics and filters still read the sentence', async () => {
+    const g = guardrail({ action: 'NONE', assessments: [] });
+
+    await checkWithGuardrail(g.send, REF, { source: [], query: 'What time is the plumber coming?', content: 'What time is the plumber coming?' });
+
+    expect(g.asked[0]!.content).toEqual([{ text: { text: 'What time is the plumber coming?', qualifiers: ['guard_content'] } }]);
+  });
+
   it('refuses a sentence the facts do not support, and says why in words a writer can act on', async () => {
     const g = guardrail({
       action: 'GUARDRAIL_INTERVENED',

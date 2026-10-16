@@ -92,11 +92,16 @@ resource "aws_bedrock_guardrail" "wick" {
   }
 
   # Grounding: a sentence about her week must be supported by the facts it was
-  # written from (the brief passes the fact lines as the grounding source).
+  # written from (the brief passes the fact lines as the grounding source, the
+  # assistant the tools' own texts). 0.5, measured on the deployed guardrail
+  # on 2026-10-16: faithful paraphrases of a week's facts scored 0.68 to 0.97,
+  # and every sentence carrying something the facts did not say (a trip to
+  # the shops, a mood, wrong counts) scored 0.0. At 0.75 the writer's honest
+  # paragraphs were refused and every week fell back to the counted facts.
   contextual_grounding_policy_config {
     filters_config {
       type      = "GROUNDING"
-      threshold = 0.75
+      threshold = 0.5
     }
     filters_config {
       type      = "RELEVANCE"
@@ -110,6 +115,12 @@ resource "aws_bedrock_guardrail" "wick" {
 resource "aws_bedrock_guardrail_version" "wick" {
   guardrail_arn = aws_bedrock_guardrail.wick.guardrail_arn
   description   = "Published by Terraform."
+
+  # A change to the guardrail publishes a new version; the agents read the
+  # version number from their environment (agentcore.tf), so they follow.
+  lifecycle {
+    replace_triggered_by = [aws_bedrock_guardrail.wick]
+  }
 }
 
 output "agents_guardrail_id" {
