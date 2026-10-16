@@ -81,8 +81,14 @@ export interface TurnLimits {
 }
 
 export interface AssistantTurnDeps {
-  /** Claude Sonnet 4.5 with the Bedrock Guardrail (main.ts); a scripted model in tests. */
+  /** Claude Sonnet 4.5 (fromEnv.ts); a scripted model in tests. */
   readonly model: Model;
+  /**
+   * The Bedrock Guardrail on what the agent says, grounded in what the tools
+   * returned (guard.ts). False means the reply is not said. Absent, nothing is
+   * asked of it. Never the member's question: asking after her is the point.
+   */
+  readonly guardReply?: (say: string, grounding: { readonly question?: string; readonly toolTexts: readonly string[] }) => Promise<boolean>;
   /** Wick's MCP endpoint (WICK_MCP_URL). */
   readonly mcpUrl: string;
   /** Whose the token is, asked of the Wick server (verify.ts verifyWithWick). */
@@ -347,6 +353,11 @@ async function answer(request: AssistantTurnRequest, deps: AssistantTurnDeps): P
     }
     // The member's words are written before the answer leaves: the microVM may idle after it.
     await agent.memoryManager?.flush();
+    // The Guardrail reads the reply, grounded in the tools' own texts. One it refuses is not said.
+    if (say && deps.guardReply && !(await deps.guardReply(say, { ...(done.asked ? { question: done.asked } : {}), toolTexts: done.toolTexts }))) {
+      console.log(JSON.stringify({ level: 'warn', msg: 'assistant_reply_guarded' }));
+      return { ...done };
+    }
     return { ...(say ? { say } : {}), ...done };
   } finally {
     await mcp.disconnect().catch(() => undefined);

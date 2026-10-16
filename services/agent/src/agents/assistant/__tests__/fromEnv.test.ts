@@ -20,14 +20,13 @@ describe('assistantDepsFromEnv — the deployment names the server, the model, t
     expect(assistantDepsFromEnv({ ...ENV, WICK_MCP_URL: undefined })).toBeUndefined();
   });
 
-  it('asks Claude Sonnet 4.5 on Bedrock, with the Bedrock Guardrail on what the member asks and what it answers', () => {
+  it('asks Claude Sonnet 4.5 on Bedrock, with the Bedrock Guardrail on what it answers and never on what the member asks', () => {
     const deps = assistantDepsFromEnv(ENV)!;
 
     expect(deps.model).toBeInstanceOf(BedrockModel);
-    expect(deps.model.getConfig()).toMatchObject({
-      modelId: ENV.ASSISTANT_MODEL_ID,
-      guardrailConfig: { guardrailIdentifier: 'gr-abc123', guardrailVersion: '1', guardLatestUserMessage: true },
-    });
+    expect(deps.model.getConfig()).toMatchObject({ modelId: ENV.ASSISTANT_MODEL_ID });
+    expect(deps.model.getConfig()).not.toHaveProperty('guardrailConfig');
+    expect(deps.guardReply).toBeTypeOf('function');
     expect(deps.mcpUrl).toBe('https://wick.example/mcp');
   });
 
@@ -36,9 +35,10 @@ describe('assistantDepsFromEnv — the deployment names the server, the model, t
     expect(DEFAULT_ASSISTANT_MODEL_ID).toBe('us.anthropic.claude-sonnet-4-5-20250929-v1:0');
   });
 
-  it('has no guardrail config where the deployment named none, rather than a broken one', () => {
+  it('guards no reply where the deployment named no guardrail, rather than a broken one', () => {
+    expect(assistantDepsFromEnv({ ...ENV, AGENTS_GUARDRAIL_ID: undefined })!.guardReply).toBeUndefined();
+    expect(assistantDepsFromEnv({ ...ENV, AGENTS_GUARDRAIL_VERSION: '' })!.guardReply).toBeUndefined();
     expect(configOf(assistantDepsFromEnv({ ...ENV, AGENTS_GUARDRAIL_ID: undefined })).guardrailConfig).toBeUndefined();
-    expect(configOf(assistantDepsFromEnv({ ...ENV, AGENTS_GUARDRAIL_VERSION: '' })).guardrailConfig).toBeUndefined();
   });
 
   it('remembers each member’s words in AgentCore Memory where a memory is named, and nothing where none is', () => {

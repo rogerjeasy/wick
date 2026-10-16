@@ -3,7 +3,7 @@
 Developer-experience friction encountered while building Wick on Amazon Devices,
 Ring, Alexa+ and AWS.
 
-43 entries, FL-001 to FL-047, newest first, each written when the problem was hit.
+44 entries, FL-001 to FL-048, newest first, each written when the problem was hit.
 There is no FL-020, FL-034, FL-037 or FL-039: those numbers were set aside for
 work running in parallel and not needed. The same
 problems, gathered by tool with what worked well beside them, are in
@@ -61,6 +61,52 @@ removed from the design (2026-10-02).
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-048 — A Bedrock Guardrail on Converse reads the user's question too, and its grounding threshold has to be measured on your own text
+
+*2026-10-16.*
+
+**Tool / API:**      Amazon Bedrock Guardrails (published version 1), Converse through the Strands
+                     `BedrockModel` (`guardrailConfig`, `guardLatestUserMessage`), `ApplyGuardrail`;
+                     us-east-1
+
+**Task attempted:**  Put a Guardrail on the family assistant and the Sunday brief: no medical or
+                     financial advice, no guessing the resident's mood, nothing a model says that
+                     the counted facts do not support.
+
+**Steps taken:**     1. Attached the Guardrail to the assistant's model (`guardrailConfig`, with
+                        `guardLatestUserMessage: true` so only the newest question is read).
+                     2. Asked the deployed assistant "How has my mum been this week?". It answered
+                        with the Guardrail's blocked-input message: the "guessing her mood" topic
+                        refused the question Wick exists to answer.
+                     3. Looked for a way to have Converse evaluate the output only. There is none:
+                        without `guardContent` blocks every input message is read, and with them the
+                        chosen input is read.
+                     4. Set contextual grounding at 0.75 for the brief, then found every week on the
+                        deployed stack fell back to the counted facts. Measured with ApplyGuardrail:
+                        faithful paraphrases of a week's facts scored 0.68 to 0.97 ("It was a quiet
+                        week" 0.73); every sentence adding something the facts did not say scored
+                        0.0.
+
+**Expected:**        A switch to guard the model's output only, and a documented sense of what a
+                     grounding score looks like for a faithful paraphrase.
+
+**Actual:**          A Guardrail on Converse always reads the input; the documentation suggests 0.7
+                     to 0.8 as a starting threshold without saying that ordinary paraphrase scores
+                     below it.
+
+**Severity:**        Important
+
+**Workaround:**      The model has no guardrail; `ApplyGuardrail` reads each agent's reply only,
+                     grounded in the tools' texts or the week's facts. Grounding at 0.5, which
+                     separates the measured cases cleanly. A new published version whenever the
+                     guardrail changes.
+
+**Suggestion:**      An `outputOnly` option on Converse's guardrail config, and a table in the
+                     contextual-grounding guide of example scores for faithful paraphrase,
+                     summarisation and invented facts.
+
+---
 
 ## FL-047 — A Strands TypeScript Graph cannot loop back to a node that has an edge from outside the loop
 

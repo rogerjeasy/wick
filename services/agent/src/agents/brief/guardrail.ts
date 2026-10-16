@@ -36,6 +36,14 @@ export interface GuardrailAsk {
   readonly query: string;
   /** The sentence to check. */
   readonly content: string;
+  /**
+   * What to do when `source` is empty. By default the sentence is refused
+   * unasked: a sentence about her week with no facts under it is not
+   * written. `topics_only` is for a sentence that need not rest on facts —
+   * the assistant's clarifying question — and sends it with no grounding
+   * source, so the topics and filters still read it.
+   */
+  readonly withoutFacts?: 'refuse' | 'topics_only';
 }
 
 /** The Guardrail infra/agentcore.tf names, or undefined in a deployment that has none. */
@@ -59,13 +67,22 @@ function reasonOf(reply: GuardrailReply): string {
 
 export async function checkWithGuardrail(send: GuardrailSend, ref: GuardrailRef | undefined, ask: GuardrailAsk): Promise<GuardrailCheck> {
   if (!ref) throw new Error('guardrail_not_configured');
+  const grounded = ask.source.length > 0;
+  if (!grounded && ask.withoutFacts !== 'topics_only') return { ok: false, reason: 'there are no facts for it to rest on' };
   const reply = await send({
     guardrailIdentifier: ref.id,
     guardrailVersion: ref.version,
     source: 'OUTPUT',
+    // With nothing to ground on, and the caller's say-so (withoutFacts), the
+    // grounding check is left out and the topics and filters read the
+    // sentence alone.
     content: [
-      { text: { text: ask.source.join('\n'), qualifiers: ['grounding_source'] } },
-      { text: { text: ask.query, qualifiers: ['query'] } },
+      ...(grounded
+        ? [
+            { text: { text: ask.source.join('\n'), qualifiers: ['grounding_source' as const] } },
+            { text: { text: ask.query, qualifiers: ['query' as const] } },
+          ]
+        : []),
       { text: { text: ask.content, qualifiers: ['guard_content'] } },
     ],
   });

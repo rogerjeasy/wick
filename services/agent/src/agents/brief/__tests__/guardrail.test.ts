@@ -39,6 +39,23 @@ describe('checkWithGuardrail — the Bedrock Guardrail, with contextual groundin
     ]);
   });
 
+  it('sends no grounding source or query when the caller says a sentence may stand without facts: the topics and filters still read it', async () => {
+    const g = guardrail({ action: 'NONE', assessments: [] });
+
+    await checkWithGuardrail(g.send, REF, { source: [], query: 'What time is the plumber coming?', content: 'What time is the plumber coming?', withoutFacts: 'topics_only' });
+
+    expect(g.asked[0]!.content).toEqual([{ text: { text: 'What time is the plumber coming?', qualifiers: ['guard_content'] } }]);
+  });
+
+  it('refuses a sentence with no facts to ground on unless the caller says it may stand without them: grounding never quietly drops out', async () => {
+    const g = guardrail({ action: 'NONE', assessments: [] });
+
+    const result = await checkWithGuardrail(g.send, REF, { source: [], query: 'How was the week?', content: 'She went to the shops on Tuesday.' });
+
+    expect(result).toEqual({ ok: false, reason: 'there are no facts for it to rest on' });
+    expect(g.asked).toEqual([]);
+  });
+
   it('refuses a sentence the facts do not support, and says why in words a writer can act on', async () => {
     const g = guardrail({
       action: 'GUARDRAIL_INTERVENED',

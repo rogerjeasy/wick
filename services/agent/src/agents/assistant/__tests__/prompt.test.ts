@@ -19,6 +19,11 @@ describe('the assistant’s rules, one set for both assistants', () => {
     expect(assistantPrompt(WHO, NOW, TZ)).toMatch(/If a day or the time is missing, ask for it; never guess one/);
   });
 
+  it('works a relative time out from now, instead of asking for one it was given', () => {
+    // Live, "the window cleaner is coming in five minutes" was answered with "what day, and what time exactly?".
+    expect(assistantPrompt(WHO, NOW, TZ)).toMatch(/"in five minutes".*are a day and a time: work them out from now/);
+  });
+
   it('arranges a visit with arrange_visit and send_note_to_tv', () => {
     const prompt = assistantPrompt(WHO, NOW, TZ);
 
