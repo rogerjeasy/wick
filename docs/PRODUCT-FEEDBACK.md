@@ -461,10 +461,12 @@ developer.amazon.com/docs/alexaplus/add-ons, read 2026-09-14 and 2026-10-11.
   client lifecycle page shows the Alexa+ client sending `2025-03-26`. Nothing
   says which versions a server must accept, or whether the `resources`
   capability in the example response is required. Our server answers both.
-- **Our server does not meet the 500 ms target on every call.** Calls take
-  either about 0.25 s or about 1 s, in bursts, on every tool (our issue
-  [#47](https://github.com/rogerjeasy/wick/issues/47)). This is ours to fix,
-  and the cause is not yet known. We mention it because a real add-on would be
+- **Our server does not meet the 500 ms target on every call.** On an open
+  connection every call did (p95 230–241 ms from Europe); a call on a new
+  connection took 0.7–1.1 s, and App Runner's front end closes connections
+  after a few seconds, so 3 % to 6 % of calls missed it (our issue
+  [#47](https://github.com/rogerjeasy/wick/issues/47), FL-033). The server's
+  own work has a p95 of 18 ms. We mention it because a real add-on would be
   judged on it.
 
 #### How was your onboarding experience (getting from zero to hello world)
