@@ -1,7 +1,7 @@
 {
   "name": "wick",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "Wick — the television as the care surface for the person being cared for.",
   "license": "MIT",
