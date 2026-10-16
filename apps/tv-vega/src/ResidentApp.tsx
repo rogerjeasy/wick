@@ -89,9 +89,12 @@ import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
 import { LiveView } from './live/LiveView.js';
 import { BreakController } from './break/BreakController.js';
+import { followScreen } from './break/followScreen.js';
 import { QueueStore, type Mantel } from './headless/QueueStore.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
 import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
+import { CONTENT_ID_NAMESPACE, platformPlaybackReporter } from './personalization/report.js';
+import { WatchActivity } from './personalization/watchActivity.js';
 import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
 import { homeBehind } from './home/behind.js';
 import { HomeScreen } from './home/HomeScreen.js';
@@ -134,9 +137,6 @@ const QUEUE_POLL_MS = 1000;
  * neither must not keep the screen dark.
  */
 const LANGUAGE_RECALL_WAIT_MS = 1000;
-
-/** The namespace Content Personalization files Wick's own programme ids under. */
-const CONTENT_ID_NAMESPACE = 'wick';
 
 export interface ResidentAppProps {
   /** The resident's television's token: one that names no kind. */
@@ -237,6 +237,16 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const settle = React.useMemo(() => pressSettle(), []);
 
   const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
+  // Watch Activity for the platform (Content Personalization): when, by Amazon's rules, and the report itself.
+  const watchActivity = React.useMemo(() => new WatchActivity(), []);
+  const reportPlayback = React.useMemo(() => platformPlaybackReporter(), []);
+  const tellPlatform = React.useCallback(
+    (snapshot: PlayerSnapshot, at: number) => {
+      const due = watchActivity.next(snapshot, at);
+      if (due) reportPlayback(due);
+    },
+    [watchActivity, reportPlayback],
+  );
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
   /**
@@ -361,18 +371,18 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     return () => clearTimeout(giveUp);
   }, [store]);
 
+  // On screen, or behind another app: the engine and the edge are told at
+  // once, each time (break/followScreen.ts). JavaScript goes on running for
+  // some seconds after Wick leaves the screen (FL-022), so being alive is
+  // not being seen. Declared before the look below, so its first look
+  // already knows. §4.3: `fg` is the Rhythm pillar's device-side input,
+  // sent once per change.
+  React.useEffect(() => {
+    followScreen(breakController, (event) => void store.enqueueOutbound(event), onScreen, Date.now());
+  }, [token, onScreen, store, breakController]);
+
   React.useEffect(() => {
     let cancelled = false;
-
-    // The app is only ever JS-alive while foregrounded (§1.1's device
-    // plane), so reaching 'ready' IS the foreground signal — no AppState
-    // listener needed for that half. §4.3: this is the entire Rhythm
-    // pillar's device-side input, batched (here: sent once on change,
-    // which is already the minimum-chatter case a 10s coalescing window
-    // would otherwise collapse multiple changes into).
-    const foregroundAt = Date.now();
-    breakController.setForeground(true, foregroundAt);
-    void store.enqueueOutbound({ t: 'app_lifecycle', state: 'fg', at: foregroundAt });
     let lastSentBreakState: string | undefined;
 
     const tick = async () => {
@@ -489,25 +499,31 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     (snapshot: PlayerSnapshot | undefined) => {
       const now = Date.now();
       breakController.setPlayback(snapshot, now);
+      // Every snapshot, once a second: the platform hears changes, seeks and the 60-second beat.
+      if (snapshot) tellPlatform(snapshot, now);
+      else watchActivity.reset();
       // Only for the film she started with someone, and only what the reporter thinks worth saying.
       const position = togetherReporter?.report(snapshot, now);
       if (position) void store.enqueueOutbound(position);
     },
-    [breakController, togetherReporter, store],
+    [breakController, togetherReporter, store, tellPlatform, watchActivity],
   );
 
   // §4.3 and §3.3: the cloud hears about it now, over the channel this
-  // process holds; the platform reads it later, from the local store.
+  // process holds, and the platform hears it now too (personalization/
+  // report.ts). The local store keeps it for the nightly flush.
   const handlePlaybackEvent = React.useCallback(
     (snapshot: PlayerSnapshot) => {
       const at = Date.now();
       void store.enqueueOutbound(toPlaybackDeviceEvent(snapshot, at));
+      // Leaving the film comes only this way, as a stop: the platform hears it as EXIT.
+      tellPlatform(snapshot, at);
       const stored = toStoredPlaybackEvent(snapshot, CONTENT_ID_NAMESPACE, at, true);
       // Best-effort: the VVD has no data root (FL-013), and a store that
       // cannot be written must not stop the programme.
       if (stored) playbackStore.append(stored).catch((e) => console.error('playback_event_store_failed', e));
     },
-    [store, playbackStore],
+    [store, playbackStore, tellPlatform],
   );
 
   const handleExitWatching = React.useCallback(() => {

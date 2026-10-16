@@ -18,8 +18,9 @@
  * ring her.
  *
  * The home screen is modelled here as HomeScreen.tsx keeps it — the same
- * pure functions, in the same order — and HomeScreen.tsx is read as source
- * at the end, so a press that reaches an item without the rule fails here.
+ * pure functions, in the same order. HomeScreen.test.tsx draws the screen
+ * itself and presses every item on it, so a press that reaches an item
+ * without the rule fails there.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -281,36 +282,13 @@ describe('what the second does not touch', () => {
   });
 });
 
-describe('HomeScreen.tsx — every press goes through the rule', () => {
-  const screen = readFileSync(fileURLToPath(new URL('../HomeScreen.tsx', import.meta.url)), 'utf8');
-  const code = screen.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
-
-  it('asks the one rule, from the moment the home came within reach — the same moment its memory of the focus counts from', () => {
-    // Through press/held.ts, whose timing is `pressActs` and nothing else (press/__tests__/held.test.ts).
-    expect(code).toMatch(/const press =[\s\S]{0,300}pressEnds\(\{ keyCameUp: byKey, reachableSince: focus\.current\.reachableSince, beganAt: began\.current, now: Date\.now\(\) \}\)/);
-    expect(code).not.toMatch(/PRESS_SETTLE_MS|setTimeout|1_?000/);
+describe('press/held.ts — the second is the one rule, and keeps no clock of its own', () => {
+  // What HomeScreen does with a press is drawn and pressed in HomeScreen.test.tsx. This guards what a render
+  // cannot see: that the timing a press is judged by is press/settle.ts's, and nothing written beside it.
+  it('judges a press by `pressActs` and nothing else', () => {
     const held = readFileSync(fileURLToPath(new URL('../../press/held.ts', import.meta.url)), 'utf8');
     expect(held).toMatch(/return pressActs\(at\.reachableSince, at\.now\);/);
     expect(held).not.toMatch(/PRESS_SETTLE_MS|setTimeout|\d_?000/);
-  });
-
-  it('gives a film, the waiting row, the light’s pill, the mantelpiece’s pill and Easier to see no other way to be pressed', () => {
-    const presses = [...code.matchAll(/onPress=\{([^\n]+)\}\n/g)].map((m) => m[1]);
-
-    expect(presses).toEqual(['press(() => onChoose(programme))', 'press(onOpenWaiting)', 'press(onOpenLight)', 'press(onOpenMantel)', 'press(onOpenSeeing)']);
-    expect(code.match(/<Pressable\b/g)).toHaveLength(presses.length);
-  });
-
-  it('leaves the hold, and the key coming up, exactly as they were: neither is a press', () => {
-    expect(code.match(/onLongPress=\{onHold\}/g)).toHaveLength(5);
-    // The key coming up is still told to the app, every time, through the screen's own note of it.
-    expect(code.match(/onPressOut=\{pressOut\}/g)).toHaveLength(5);
-    expect(code).toMatch(/keyCameUp\.current = true;\s*onKeyUp\?\.\(\);/);
-    expect(code.match(/delayLongPress=\{HOLD_MS\}/g)).toHaveLength(5);
-  });
-
-  it('counts the home as back only when Wick is the app on screen', () => {
-    expect(code).toMatch(/focus\.current = reachChanged\(focus\.current, drawn && !cardVisible && inFront, Date\.now\(\)\);/);
   });
 });
 

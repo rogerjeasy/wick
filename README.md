@@ -133,8 +133,8 @@ design is in [docs/WICK-TECHNICAL.md](docs/WICK-TECHNICAL.md).
 
 | | Used for |
 |---|---|
-| **Vega OS** | The resident's app in React Native for Vega. A headless service shows the door over other apps, media controls make a platform pause count as a natural break, and `w3cmedia` plays the films and the door's live view. |
-| **Fire OS** | The same source through four small adapters, with an Android foreground service for the door. |
+| **Vega OS** | The resident's app in React Native for Vega. A headless service shows the door over other apps, media controls make a platform pause count as a natural break, `w3cmedia` plays the films and the door's live view, and Content Personalization is told what she watches as she watches it. |
+| **Fire OS** | The same source through four small adapters, with an Android foreground service for the door, and her film as Android's `MediaSession`, so "Alexa, pause" and the remote's media keys go through the same rules as on Vega. |
 | **Ring Partner API** | OAuth link, webhooks, recorded frames and live view (WebRTC bridged to HLS for the television). |
 | **Alexa+ MCP** | An MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1) with 22 tools. The add-on surface is partner-only, so a simulated Alexa+ app calls it, as the rules allow. |
 | **Amazon Bedrock** | Nova Lite describes the door's picture in one sentence. Claude Sonnet 4.5 writes the weekly summary from numbers already counted, and picks tools in the family app. No model runs inside a tool. |

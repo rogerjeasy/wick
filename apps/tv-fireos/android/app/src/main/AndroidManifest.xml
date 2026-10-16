@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Her film as a media session (java/com/wick/tv/media): Fire TV's Alexa sends "pause", "play", "rewind"
+         and "restart" to it only with this, before Fire OS 14 (Amazon, "Voice-enabling Transport Controls with
+         Media Session API on Fire TV"). Android itself does not know it, and asks nothing. -->
+    <uses-permission android:name="com.amazon.permission.media.session.voicecommandcontrol" />
 
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.faketouch" android:required="false" />
@@ -24,6 +28,9 @@
       android:banner="@drawable/tv_banner"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
+      <!-- Alexa's command reaches the session while Alexa still holds the sound, not after (same Amazon page).
+           Safe here: the player does not start again by itself when the sound comes back, so a pause stays one. -->
+      <meta-data android:name="com.amazon.voice.supports_background_media_session" android:value="true" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"

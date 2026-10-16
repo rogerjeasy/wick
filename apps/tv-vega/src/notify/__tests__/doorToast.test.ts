@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { QueuedCard } from '@wick/contracts';
+import { AppLaunchTarget, ToastKind } from '@amazon-devices/react-native-kepler/Libraries/Components/ToastKepler/NotificationManagerUtils';
 import { MAX_NOTIFICATION_BYTES, doorToast, notificationBytes, postToast, WICK_ICON_URL } from '../doorToast.js';
 
 const door = (over: Record<string, unknown> = {}): QueuedCard => ({
@@ -54,6 +55,14 @@ describe('doorToast', () => {
       kind: { kindDescriptor: 5 },
       name: 'MenuToastRenderTemplate',
     });
+  });
+
+  it("is built from the parts react-native-kepler's useToastKepler builds with, not copies of them", () => {
+    const toast = doorToast(door())!;
+    expect(toast.mChannel.kind).toBeInstanceOf(ToastKind);
+    expect(toast.mLaunchTargets?.[0]).toBeInstanceOf(AppLaunchTarget);
+    // The hook's long toast.
+    expect(toast.mTimeout).toBe(8);
   });
 
   it('carries the description once the door agent has one', () => {

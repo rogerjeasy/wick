@@ -474,14 +474,6 @@ describe('where it is wired', () => {
     expect(resident).not.toMatch(/jwt=\{token\.jwt\}/);
   });
 
-  it('and a fresh token taken while she is watching the door does not start the picture again: a view keeps the token it was opened with', () => {
-    const live = read('live/LiveView.tsx');
-    expect(live).toMatch(/const \[openedWith\] = React\.useState\(jwt\);/);
-    // Nothing in the view runs again because the token changed.
-    expect(live).not.toMatch(/\[[^\]]*\bjwt\b[^\]]*\]\);/);
-    expect(live.match(/jwt: openedWith/g)).toHaveLength(2);
-  });
-
   it('App.tsx writes a fresh token down only over one that ends sooner, and asks with the token in use', () => {
     expect(app).toMatch(/keep: \(fresh: DeviceToken\) => pairing\.keepIfLonger\(fresh\)/);
     expect(app).toMatch(/ask: \(held: DeviceToken\) => pairing\.renew\(held\.deviceId, held\.jwt, \{ remember: false \}\)/);

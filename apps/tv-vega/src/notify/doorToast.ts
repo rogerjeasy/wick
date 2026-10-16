@@ -23,12 +23,26 @@
  * sends them. So these two are not in the words table (words/words.ts),
  * and this directory is left out of the scan that holds the app to it.
  *
- * The content is the shape react-native-kepler's own useToastKepler builds
- * (Libraries/Components/ToastKepler). Verified on the VVD 2026-10-11 — see
- * FRICTION.md FL-022 for what the platform accepts and what it silently
- * drops.
+ * HOW IT IS POSTED. Vega's documented toast API is a React hook,
+ * `useToastKepler` (react-native-kepler, "useToastKepler" in the React Native
+ * for Vega API reference), and the card service is a headless process with no
+ * React tree to call a hook from (FRICTION.md FL-044). So Wick does what that
+ * hook does, with the hook's own parts: the content is built from the classes
+ * it builds with (`ToastKind`, `AppLaunchTarget`), in its `NotificationContent`
+ * type, and handed to the module it posts to (`NativeNotificationManager`) —
+ * all three imported from react-native-kepler's ToastKepler directory, not
+ * rebuilt here or looked up by name. When the SDK changes that contract, the
+ * type check fails here instead of a toast that draws nothing. The hook's
+ * choices are kept: a menu toast whenever there is a launch target, NORMAL
+ * importance, and its LONG duration. Verified on the VVD — FL-022 says what
+ * the platform accepts and what it silently drops.
  */
 import type { QueuedCard } from '@wick/contracts';
+import type {
+  Importance,
+  NotificationContent,
+} from '@amazon-devices/react-native-kepler/Libraries/Components/ToastKepler/NativeNotificationManager';
+import { AppLaunchTarget, ToastKind } from '@amazon-devices/react-native-kepler/Libraries/Components/ToastKepler/NotificationManagerUtils';
 
 /**
  * https only: the system renderer fetches the icon itself and cannot read a
@@ -39,8 +53,17 @@ export const WICK_ICON_URL = 'https://rogerjeasy.github.io/wick/icons/light-126.
 /** The interactive component's own URI — what the toast's button launches. */
 const WICK_APP_URI = 'pkg://com.wick.tv.main';
 
-/** The platform's long toast, in seconds (ToastKeplerDuration.LONG). */
+/** ToastKeplerDuration.LONG, in seconds: the hook's longer toast. */
 const TOAST_SECONDS = 8;
+
+/**
+ * The hook's importance (Importance.IMPORTANCE_NORMAL) and template
+ * (RenderTemplate.MENU_TOAST). Named as values here because the enums live in
+ * the module that looks the TurboModule up as it loads, which cannot be
+ * loaded outside a Vega runtime; the type keeps the importance honest.
+ */
+const NORMAL = 'NORMAL' as Importance;
+const MENU_TOAST = 'MenuToastRenderTemplate';
 
 /**
  * The notification manager refuses a notification over 4096 bytes
@@ -51,22 +74,8 @@ const TOAST_SECONDS = 8;
  */
 export const MAX_NOTIFICATION_BYTES = 4096;
 
-/** NotificationManager's kind for a toast — the only kind a third-party app may post. */
-const TOAST_KIND = 5;
-
-export interface ToastContent {
-  readonly mTitle: string;
-  readonly mDescription: string;
-  readonly mIconUri: string;
-  readonly mTimeout: number;
-  readonly mLaunchTargets: readonly { readonly appUri: string; readonly title: string; readonly iconUri: string }[];
-  readonly mChannel: {
-    readonly importance: { readonly importance: 'NORMAL' };
-    readonly kind: { readonly kindDescriptor: number };
-    /** The render template. Any other name is accepted and draws nothing. */
-    readonly name: 'MenuToastRenderTemplate';
-  };
-}
+/** A toast as the platform takes it: react-native-kepler's own `NotificationContent`. */
+export type ToastContent = NotificationContent;
 
 /**
  * How much of the cap a toast takes: its JSON, in UTF-8 bytes. The platform
@@ -96,11 +105,13 @@ export function wickToast(title: string, description: string, iconUri: string): 
     mDescription: description,
     mIconUri: iconUri,
     mTimeout: TOAST_SECONDS,
-    mLaunchTargets: [{ appUri: WICK_APP_URI, title: 'Open Wick', iconUri: 'not_used' }],
+    // As the hook makes its launch target: the third argument is not used by the platform.
+    mLaunchTargets: [new AppLaunchTarget(WICK_APP_URI, 'Open Wick', 'not_used')],
     mChannel: {
-      importance: { importance: 'NORMAL' },
-      kind: { kindDescriptor: TOAST_KIND },
-      name: 'MenuToastRenderTemplate',
+      importance: { importance: NORMAL },
+      kind: new ToastKind(),
+      // The render template is the channel's name. Any other name is accepted and draws nothing.
+      name: MENU_TOAST,
     },
   };
 }
@@ -124,14 +135,14 @@ export function doorToast(queued: QueuedCard): ToastContent | undefined {
 }
 
 export interface NotificationManagerLike {
-  post(content: ToastContent): Promise<unknown>;
+  post(content: ToastContent): unknown;
 }
 
 async function platformNotificationManager(): Promise<NotificationManagerLike> {
-  // Imported lazily for the same reason CardService imports the file system
-  // lazily: looking a TurboModule up throws outside a Vega runtime.
-  const { TurboModuleRegistry } = await import('@amazon-devices/keplerscript-turbomodule-api');
-  return TurboModuleRegistry.getEnforcing('NotificationManager') as unknown as NotificationManagerLike;
+  // The module useToastKepler posts to. Imported lazily for the same reason
+  // CardService imports the file system lazily: it looks its TurboModule up
+  // as it loads, which throws outside a Vega runtime.
+  return (await import('@amazon-devices/react-native-kepler/Libraries/Components/ToastKepler/NativeNotificationManager')).default;
 }
 
 /**

@@ -256,8 +256,8 @@ Vega's `manifest.toml` declares `interactive`, `service` and `task` components. 
 | Component | Kind | Purpose |
 |---|---|---|
 | `com.wick.tv.main` | interactive | Every screen, the player |
-| `com.wick.tv.card.service` | service | Keeps a background connection and posts a system toast for a door card while another app is in front (FL-022, FL-026) |
-| `com.wick.tv.content.dataRefresh.provider` | service | Serves watch activity to the platform (§3.3) |
+| `com.wick.tv.card.service` | service | Keeps a background connection and posts a system toast for a door card while another app is in front (FL-022, FL-026). The toast is built and posted with react-native-kepler's own `useToastKepler` parts, since a service cannot call a hook (FL-044) |
+| `com.wick.tv.content.dataRefresh.provider` | service | Answers the platform's Content Personalization pulls (§3.3) |
 | `com.wick.tv.rhythmSyncTask`, `onInstallTask` | task | Registered; the batch upload is not scheduled, since playback is sent live. First-run state |
 
 The main component provides `IContentPersonalizationServer` and `IMediaPlaybackServer` (Start over, skip forward and back; Play, Pause and Stop are core). `IContentLauncherServer` and `IAccountLoginServer` are partner-gated and not declared.
@@ -268,7 +268,9 @@ Tasks register with `registerHeadlessEntryPoint`, services with `registerHeadles
 
 ### 3.3 Content Personalization
 
-Wick's handlers push `IPlaybackEvent`s (with `creditsPositionMs`) to the platform's provider and commit (`DataRefreshService.ts`). ✅ V. No mocks are wired in, unlike the sample. Whether events reach Continue Watching was not checked (SP-7).
+The player reports Watch Activity as it happens, by Amazon's "When to Send" rules: on every change of state, on a seek, and every 60 seconds while in the player (`personalization/watchActivity.ts`). Each report is `ContentPersonalizationServer.reportNewPlaybackEvent` with the content id (`cdf_id`), an internal profile id, duration, position, state and the credits position (`personalization/report.ts`). Leaving a film is `EXIT`, never `PAUSE`, as Amazon's table says. ✅ V on the Vega Virtual Device: the platform's own log shows `reportNewPlaybackEvent called` and `sendPlaybackEvents async call completed successfully` at the start, the 60-second mark, a pause and leaving the film. The data-refresh service answers the platform's pulls with nothing and commits (`DataRefreshService.ts`): the playback pull is for off-device viewing, which Wick does not have, and Wick has no watchlist or entitlements. No mocks are wired in, unlike the sample.
+
+What is not shown is a Continue Watching row. That row is drawn from a Fire TV catalogue integration, and Wick's three Blender films are in no Amazon catalogue, so the platform has nothing to resolve the ids against (SP-7, FL-043).
 
 ### 3.4 The Natural-Break Engine
 
@@ -298,6 +300,8 @@ stateDiagram-v2
 
 1. `DOOR` shows at once, in any state. It never pauses the film or makes a sound.
 2. Deferred cards show only `AT_BREAK` or `TV_SETTLED` (INV-5, property-tested).
+
+Wick going behind another app is told to the engine each time it happens, and coming back starts the twenty settled seconds again (`break/followScreen.ts`, on `AppState` through `useOnScreen`). The edge hears `app_lifecycle` `fg` and `bg` with it. On the Vega simulator the app is mounted afresh when it comes back, so this matters most in the seconds before Vega stops a backgrounded app's JavaScript, and on Fire OS, where it can keep running for the door's Headless JS task.
 3. A card shown mid-film, at a calm point or in a pause, holds the film on the cut until it is answered. At the credits nothing is held.
 4. A card ignored twice waits on the home screen instead of returning.
 
@@ -335,7 +339,7 @@ Every resident card obeys one floor, enforced at render by `packages/vega-calm-u
 
 ### 3.7 The Fire OS build
 
-`apps/tv-fireos` has no screens of its own. It bundles `apps/tv-vega/src` with four adapters: `react-native-kepler` to `react-native-tvos`, `w3cmedia` to ExoPlayer, `kepler-file-system` to key-value storage, and media controls to nothing yet. It runs on the Android TV emulator (API 34), which the hackathon FAQ allows. For the door outside Wick, an Android foreground service runs the shared channel code through Headless JS and posts one high-priority notification. Amazon's guidance says no heads-up over another app; Wick makes that exception for the door only (FL-035). The emulator draws no third-party notifications, so this was checked through `dumpsys` and on a phone emulator (FL-036). Details in [`apps/tv-fireos/README.md`](../apps/tv-fireos/README.md).
+`apps/tv-fireos` has no screens of its own. It bundles `apps/tv-vega/src` with four adapters: `react-native-kepler` to `react-native-tvos`, `w3cmedia` to ExoPlayer, `kepler-file-system` to key-value storage, and media controls to Android's own `MediaSession` (`src/media`, `android/.../media`). The shared session code registers its handler unchanged and each Android command is handed to it by Vega's name, so "Alexa, pause" is a natural break exactly as on Vega. Fire TV's Alexa sends rewind, fast-forward and restart as seeks: a seek to zero is start over, any other a skip by its distance (FL-042). Checked on the emulator with `cmd media_session dispatch`; Alexa itself needs a Fire TV. It runs on the Android TV emulator (API 34), which the hackathon FAQ allows. For the door outside Wick, an Android foreground service runs the shared channel code through Headless JS and posts one high-priority notification. Amazon's guidance says no heads-up over another app; Wick makes that exception for the door only (FL-035). The emulator draws no third-party notifications, so this was checked through `dumpsys` and on a phone emulator (FL-036). Details in [`apps/tv-fireos/README.md`](../apps/tv-fireos/README.md).
 
 ### 3.8 Other televisions
 
@@ -829,14 +833,14 @@ Every slow call opened a new connection: App Runner's front end closes idle conn
 
 ## 12. TESTING
 
-*In short: about 5,800 automated tests, property tests on the two rules that matter most, and live checks against the deployed stack.*
+*In short: about 6,000 automated tests, the television's screens rendered by React itself, property tests on the two rules that matter most, and live checks against the deployed stack.*
 
 ### 12.1 Real and simulated, resolved
 
 | Layer | Rule |
 |---|---|
 | Unit and property tests | Fixtures are expected; they live under `__tests__` and never ship |
-| The running product | No mock is reachable: `npm run check:no-mocks` fails the build otherwise |
+| The running product | No mock is reachable: `npm run check:no-mocks` fails the build otherwise. It reads every import the way TypeScript does (`ts.preProcessFile`), so named, re-exported, bare, dynamic and `require` imports are all caught |
 | The demo | Simulated devices and a marked demo home; everything between is the deployed stack |
 
 `npm run verify` runs typecheck, lint, the no-mocks guard and every test. CI runs it on every pull request, with the property tests as a separate job; `main` requires both.
@@ -860,6 +864,10 @@ Ring responses recorded from the Playground, redacted and replayed; the chime te
 ### 12.6 Device testing
 
 No physical Fire TV or Ring device. Live checks ran on the Vega Virtual Device, the Fire OS build on the Android TV emulator, and the browser television, against the deployed stack ([`docs/screenshots/`](screenshots/)). Legibility at three metres, a real panel's contrast, and sound have not been checked.
+
+### 12.7 The television's screens
+
+Every Vega screen is rendered in tests by React's own reconciler (`react-test-renderer`), with its hooks, effects and state running; only the platform's components, the disk and the media player stand in (`apps/tv-vega/src/__tests__/render`). Every card type is drawn in all four Easier to see settings and in English and Spanish, and held to the calm limits: no more than three labelled buttons, one header, nothing under 32 pt, and 7:1 contrast (15:1 in higher contrast). The home screen, pairing, live view, the idle screen and the Easier to see card are drawn too, and `ResidentApp` is drawn whole, with its real queue, break engine and one-second look: a door card comes over a film, a note waits for the credits, and nothing but the door is shown while Wick is behind another app.
 
 ---
 
@@ -903,7 +911,7 @@ One deployed stack, used for every live check. It holds only test and demo homes
 | **SP-3** | Ring live view on Vega? | Vega has no WebRTC (FL-015). Bridged to HLS in a Lambda, since AgentCore has no outbound UDP (FL-017). |
 | **SP-4** | Alexa+ add-on access? | Partner-gated (FL-001). Built to spec, exercised through the family app. |
 | **SP-5** | MQTT inside Vega's React Native? | Works, with a WebSocket fallback. |
-| **SP-7** | Content Personalization to Continue Watching? | Not run. |
+| **SP-7** | Content Personalization to Continue Watching? | Reports are taken by the platform on the VVD (§3.3). Continue Watching needs a catalogue integration Wick does not have (FL-043). |
 | **SP-8** | A Vega build on real Fire TV hardware? | Not run; the simulator is the evidence the rules allow. |
 
 ---

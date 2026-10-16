@@ -1,14 +1,14 @@
 /**
- * The mantelpiece's two screens and the app that puts them up. None of
- * them is rendered here — no view in this app is — so what they decide is
- * in mantel.ts and idle.ts, tested there, and this holds the views to
- * using exactly that: read as source, the way family/__tests__/apart.test.ts
- * reads the app.
+ * The mantelpiece's two screens and the app that puts them up. What they
+ * decide is in mantel.ts and idle.ts, tested there. The idle screen is
+ * drawn in IdleScreen.test.tsx; the mantelpiece and the app are still held
+ * to the rules here by reading them as source, the way
+ * family/__tests__/apart.test.ts reads the app.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { layout, motion, type } from '../../../../../packages/vega-calm-ui/src/tokens.js';
+import { layout, type } from '../../../../../packages/vega-calm-ui/src/tokens.js';
 import { cardHeightDp } from '../../../../../packages/vega-calm-ui/src/constraints.js';
 import { MANTEL_PICTURE_AREA } from '../mantelLayout.js';
 
@@ -84,37 +84,6 @@ describe('MantelScreen.tsx', () => {
 
   it('has no timer: nothing on it changes by itself', () => {
     expect(screen).not.toMatch(/setTimeout|setInterval|Animated/);
-  });
-});
-
-describe('IdleScreen.tsx', () => {
-  const screen = code('../IdleScreen.tsx');
-
-  it('holds the focus the whole time it is mounted — on, and while the key that ended it is still down — so no press reaches the home screen', () => {
-    expect(screen).toMatch(/<Pressable\b[\s\S]*?focusable\b[\s\S]*?hasTVPreferredFocus\b/);
-    // Nothing on it is pressed, held or chosen: it has no controls.
-    expect(screen).not.toMatch(/onPress=|onLongPress=|onAction=/);
-  });
-
-  it('draws nothing once a key has ended it: the home screen shows through', () => {
-    expect(screen).toMatch(/\{visible && item \? \(/);
-  });
-
-  it('has no words but, small, who the picture is from — and none in the picture’s place if it cannot be shown', () => {
-    expect(screen).toMatch(/say\('mantel\.from', \{ name: item\.fromName \}\)/);
-    expect(screen).toMatch(/wordless/);
-    expect(screen.match(/say\(/g)).toHaveLength(2);
-  });
-
-  it('changes pictures with a fade no longer than the motion token allows — 200 ms — and has no timer of its own', () => {
-    expect(motion.durationMs).toBe(200);
-    expect(screen).toMatch(/duration: motion\.durationMs/);
-    expect(screen).not.toMatch(/duration: \d/);
-    expect(screen).not.toMatch(/setTimeout|setInterval/);
-  });
-
-  it('listens for no key itself: the app does, in one place', () => {
-    expect(screen).not.toMatch(/useTVEventHandler|BackHandler/);
   });
 });
 

@@ -10,8 +10,9 @@
  * component, so the last one set is the one that answers: this one obeys
  * nothing.
  *
- * On Fire OS this package is the stand-in in apps/tv-fireos/src/adapters,
- * which does nothing at all.
+ * On Fire OS this package is the stand-in in apps/tv-fireos/src/adapters:
+ * "no film" there releases Android's media session, so nothing is left for
+ * a command to reach.
  */
 import { MediaControlServerComponentAsync, PlaybackStatus } from '@amazon-devices/kepler-media-controls';
 import type { IMediaControlHandlerAsync, IMediaSessionId, MediaSessionState } from '@amazon-devices/kepler-media-controls';

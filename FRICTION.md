@@ -3,7 +3,7 @@
 Developer-experience friction encountered while building Wick on Amazon Devices,
 Ring, Alexa+ and AWS.
 
-37 entries, FL-001 to FL-041, newest first, each written when the problem was hit.
+40 entries, FL-001 to FL-044, newest first, each written when the problem was hit.
 There is no FL-020, FL-034, FL-037 or FL-039: those numbers were set aside for
 work running in parallel and not needed. The same
 problems, gathered by tool with what worked well beside them, are in
@@ -61,6 +61,171 @@ removed from the design (2026-10-02).
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-044 — Vega's only documented toast API is a React hook, and the one place a toast is needed has no React tree
+
+*2026-10-16.*
+
+**Tool / API:**      React Native for Vega 0.83, `useToastKepler` (`@amazon-devices/react-native-kepler`
+                     4.0.1, Libraries/Components/ToastKepler); `@amazon-devices/headless-task-manager`
+                     1.2.8; Vega Virtual Device, SDK 0.24.12044
+
+**Task attempted:**  Post the door's system toast from the card service (a headless service, the only
+                     part of Wick that runs while another app is in front, FL-022) through a
+                     documented API, instead of looking the `NotificationManager` TurboModule up by
+                     name and posting a hand-copied object.
+
+**Steps taken:**     1. Searched the Vega docs and npm for a toast or notification API. The API
+                        reference documents `useToastKepler` and nothing else; the "interactive
+                        toast" guide uses `react-native-toast-message` inside a screen. No
+                        `@amazon-devices/*` notification package is published.
+                     2. Read `ToastKepler.kepler.js`: the hook calls `useContext` and `useCallback`,
+                        builds a `NotificationContent` with `ToastKind` and `AppLaunchTarget`, and
+                        posts it to `NativeNotificationManager`. A hook cannot be called outside a
+                        React render, and a headless service renders nothing.
+                     3. Built the toast from the hook's own classes and type, and posted it to the
+                        hook's own module, all imported from react-native-kepler's ToastKepler
+                        directory (apps/tv-vega/src/notify/doorToast.ts). Checked on the VVD: the
+                        toast is drawn over the launcher with the door's picture, the sentence and
+                        "Open Wick" (`notification_manager_tm: Posting notification`).
+
+**Expected:**        A documented, non-hook way to post a toast, since the docs say background
+                     services exist to do work while another app is in front.
+
+**Actual:**          Only the hook is documented. Its parts are reachable through the package's
+                     `exports` map but are not part of the documented API, so a background service
+                     has to reach past the documented surface either way.
+
+**Severity:**        Important
+
+**Workaround:**      The hook's own parts, typed by its own `NotificationContent`, so a change to
+                     the contract in a later SDK fails Wick's type check instead of posting a toast
+                     that draws nothing.
+
+**Suggestion:**      Export and document a plain function beside the hook — for example
+                     `showToast({ title, description, iconUri, options, duration })` — usable from a
+                     headless service, and say in the headless services guide that a service may
+                     post one.
+
+---
+
+## FL-043 — Content Personalization takes Watch Activity with a clear log, but where it goes cannot be seen without a catalogue
+
+*2026-10-16.*
+
+**Tool / API:**      `@amazon-devices/kepler-content-personalization` 1.3.3; Vega Virtual Device,
+                     SDK 0.24.12044, CLI 1.3.4; Vega docs "Get Started with Vega Content
+                     Personalization" and "Watch Activity" (0.24), read 2026-10-16
+
+**Task attempted:**  Report what she watches to the platform as it happens, by the "When to Send"
+                     rules, and see the result.
+
+**Steps taken:**     1. Reported `reportNewPlaybackEvent` on each change of state, each seek and every
+                        60 seconds in the player, with the content id in `cdf_id`, an
+                        `app_internal` profile id, duration, position, state and the credits
+                        position (apps/tv-vega/src/personalization).
+                     2. Ran the guide's check, `vega exec loggingctl log -f | grep -Ei
+                        'kepler.tv.personalization'`: it fails with "No such file or directory:
+                        'loggingctl'". `vega device run-cmd --command 'loggingctl log -f'` printed
+                        nothing. `vega device start-log-stream` showed the platform's lines:
+                        `reportNewPlaybackEvent called`, `async call received`, `sendPlaybackEvents
+                        async call completed successfully` — at the start, at 60 s, at a pause and
+                        on leaving the film.
+                     3. Looked for Continue Watching. The guide says the content id comes from "your
+                        catalog file", and Wick's three films are Blender's open films, in no Amazon
+                        catalogue. Nothing on the VVD showed a row, and nothing said why.
+                     4. Read the playback pull handler's documentation: it is for playback that
+                        happened off the device (`reportRefreshedPlaybackEvents`). Wick used to send
+                        this television's own stored events through it as active events, which would
+                        have counted each evening twice; it now answers with nothing.
+
+**Expected:**        The documented log check to run, and either a Continue Watching row or a log
+                     line saying an id could not be resolved.
+
+**Actual:**          The documented command fails as written. Reports are accepted silently whether
+                     or not the platform can use them.
+
+**Severity:**        Nice-to-have
+
+**Workaround:**      `vega device start-log-stream` to see reports taken; Continue Watching left
+                     unverified and said so (WICK-TECHNICAL §3.3, SP-7).
+
+**Suggestion:**      Correct the guide's command for the CLI it ships with; log a warning when a
+                     reported content id is not in the app's catalogue; say on the "Watch Activity"
+                     page whether the pull handler should return on-device events.
+
+---
+
+## FL-042 — Fire TV's Alexa and Vega's speak different media-session languages for the same words, and nothing that runs off a Fire TV can send either
+
+*2026-10-16.*
+
+**Tool / API:**      Fire OS media sessions as described in developer.amazon.com/docs/fire-tv/
+                     mediasession-api-integration.html ("Voice-enabling Transport Controls with
+                     Media Session API on Fire TV"), read 2026-10-16; Android
+                     `android.media.session.MediaSession` (API 21); Android TV emulator, system
+                     image `android-34/android-tv/arm64-v8a`; compared with Vega Media Controls
+                     (`@amazon-devices/kepler-media-controls` 1.0.25, FL-031)
+
+**Task attempted:**  Give the Fire OS build the media session the Vega build already has, so
+                     "Alexa, pause" reaches her film there too — through the same shared handler
+                     and the same rules as her remote's keys (apps/tv-vega/src/watch/mediaSession.ts).
+
+**Steps taken:**     1. Read the Fire TV page. "Alexa, play"/"resume" → `onPlay`; "pause" and
+                        "stop" → `onPause`; "rewind" and "fast-forward", with or without a length
+                        of time, → `onSeekTo(position)`, Alexa working out the position ("absolute
+                        time is not supported"); "restart" → `onSeekTo(0)`; "previous"/"next" →
+                        `onSkipToPrevious`/`onSkipToNext`. Missing actions make Alexa say the
+                        command is not supported. A permission
+                        (`com.amazon.permission.media.session.voicecommandcontrol`, not needed from
+                        Fire OS 14) and an opt-in meta-data
+                        (`com.amazon.voice.supports_background_media_session`) are asked for.
+                     2. Compared with Vega, where the same words arrive as `handleStartOver`,
+                        `handleSkipForward(delta)`, `handleSkipBackward(delta)` and `handleStop`,
+                        and a seek to a time is a separate command Wick does not offer.
+                     3. Mapped Android to Vega's names in one small Kotlin file: a seek to zero is
+                        start over; any other seek is a skip by its distance from where the
+                        published state says the film is now; fast-forward and rewind keys are
+                        the skips; previous and next are refused.
+                     4. Looked for a way to send a voice command to the Android TV emulator. It has
+                        no Alexa. `adb shell cmd media_session dispatch <pause|play|fast-forward|
+                        rewind|stop|play-pause|next|previous>` sends a media key to the media
+                        button session, which proves the session and its key handling; nothing
+                        sends `onSeekTo`, which is how Alexa sends three of the five commands.
+                     5. Sent the remote's Play/Pause with `input keyevent`: as on Vega (FL-031) it
+                        reaches the app twice, as the key (React Native does not consume it) and
+                        as the session's command, a millisecond apart. Fast-forward reaches the
+                        session only as the key coming up.
+
+**Expected:**        One model for "Alexa, rewind thirty seconds" across Amazon's two TV platforms,
+                     or a table on each page saying how the other's commands map; and a way to send
+                     an Alexa transport command to an app without a Fire TV.
+
+**Actual:**          Two models. A shared app has to keep both: Vega's relative skips and explicit
+                     start over, and Fire TV's absolute seeks with restart as a seek to zero —
+                     which means the Fire OS side has to reckon where the film is from its own
+                     last published state to turn a seek back into a skip. "Stop" is a pause on
+                     Fire TV's Alexa and its own command on Vega. The voice half cannot be run
+                     anywhere but a Fire TV.
+
+**Severity:**        Important — the Fire OS session is proved on the emulator only for media keys;
+                     the seeks Alexa sends for rewind, fast-forward and restart are proved on the
+                     JVM, not on a device.
+
+**Workaround:**      Map both onto the shared rules' seven commands (FilmTransport.kt, tested on the
+                     JVM); prove the session on the emulator with `cmd media_session dispatch`
+                     (state, actions, metadata, every key, release on leaving the film); let the
+                     shared echo filter (`keyEchoes`) drop the doubled Play/Pause, as on Vega.
+
+**Suggestion:**      1. One cross-platform table of Alexa transport utterances against Vega Media
+                        Controls handlers and Android `MediaSession` callbacks, on both pages.
+                     2. A command-line way to send an Alexa transport command to an app — an
+                        `adb shell` intent on Fire OS, a `vega` subcommand on Vega — so it can be
+                        tested without speaking to a device.
+                     3. Say on both pages that the remote's Play/Pause reaches the app both as a
+                        key and as a session command.
+
+---
 
 ## FL-041 — Ring signs a webhook's body and nothing else, documents no replay window, and does not say whether a retry is stamped afresh
 

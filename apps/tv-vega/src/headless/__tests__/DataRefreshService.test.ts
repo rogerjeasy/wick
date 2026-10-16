@@ -1,22 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest';
 import { __setDataRefreshTestDeps, onStartDataRefresh, onStopDataRefresh } from '../DataRefreshService.js';
-import type { FileSystemLike } from '../QueueStore.js';
-
-function fakeFs(): FileSystemLike {
-  const files = new Map<string, string>();
-  return {
-    async exists(path) {
-      return files.has(path) && files.get(path) !== '';
-    },
-    async readFileAsString(path) {
-      return files.get(path) ?? '';
-    },
-    async writeStringToFile(path, content) {
-      files.set(path, content);
-      return content.length;
-    },
-  };
-}
 
 afterEach(async () => {
   await onStopDataRefresh();
@@ -28,7 +11,6 @@ describe('DataRefreshService', () => {
     const calls: string[] = [];
     const componentInstance = {} as never;
     __setDataRefreshTestDeps({
-      fs: fakeFs(),
       server: {
         setPlaybackEventsHandlerForComponent: (_h: unknown, c: unknown) => {
           calls.push('playback');
