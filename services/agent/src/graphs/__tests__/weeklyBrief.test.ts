@@ -155,7 +155,9 @@ describe('the Sunday brief — analyst → writer → check → suggester → va
     };
     const s = setup({ writer: [GOOD_DRAFT], errands: [errand] });
     await s.run();
-    expect(s.writer.seen[0]).toContain('Sarah arranged a visit from the plumber: someone rang the doorbell around the time they were expected.');
+    expect(s.writer.seen[0]).toContain('A visit from the plumber was arranged: someone rang the doorbell around the time they were expected.');
+    // The whole family reads the week: the member who arranged it is not named.
+    expect(s.writer.seen[0]).not.toContain('Sarah');
   });
 });
 

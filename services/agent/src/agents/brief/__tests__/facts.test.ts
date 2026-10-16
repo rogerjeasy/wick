@@ -60,18 +60,18 @@ describe('readErrandRow — an errand row, read rather than trusted', () => {
 describe('errandLines — the visits the family arranged that week, and how each ended', () => {
   const errand = (status: string, at = THURSDAY_TEN, who = 'the plumber') => readErrandRow(errandItem({ status, at, who }))!;
 
-  it('says what the door saw, never that the visitor came', () => {
+  it('says what the door saw, never that the visitor came, and never which member arranged it', () => {
     expect(errandLines([errand('rang')], W38)).toEqual([
-      'Sarah arranged a visit from the plumber: someone rang the doorbell around the time they were expected.',
+      'A visit from the plumber was arranged: someone rang the doorbell around the time they were expected.',
     ]);
     expect(errandLines([errand('no_show')], W38)).toEqual([
-      'Sarah arranged a visit from the plumber: nobody rang the doorbell while they were expected.',
+      'A visit from the plumber was arranged: nobody rang the doorbell while they were expected.',
     ]);
-    expect(errandLines([errand('cancelled')], W38)).toEqual(['Sarah arranged a visit from the plumber, and then called it off.']);
+    for (const line of errandLines([errand('rang'), errand('no_show')], W38)) expect(line).not.toContain('Sarah');
   });
 
-  it('says nothing of an errand still under way, or one that failed: it has not ended in anything the door saw', () => {
-    for (const status of ['planned', 'reminded', 'waiting', 'failed']) expect(errandLines([errand(status)], W38)).toEqual([]);
+  it('says nothing of an errand called off — by its author, or closed because its author is no longer allowed — nor of one still under way or failed', () => {
+    for (const status of ['cancelled', 'planned', 'reminded', 'waiting', 'failed']) expect(errandLines([errand(status)], W38)).toEqual([]);
   });
 
   it('keeps to the week, in the order the visits were due, and carries no number', () => {
@@ -80,8 +80,8 @@ describe('errandLines — the visits the family arranged that week, and how each
       W38,
     );
     expect(lines).toEqual([
-      'Sarah arranged a visit from the plumber: someone rang the doorbell around the time they were expected.',
-      'Sarah arranged a visit from the nurse: nobody rang the doorbell while they were expected.',
+      'A visit from the plumber was arranged: someone rang the doorbell around the time they were expected.',
+      'A visit from the nurse was arranged: nobody rang the doorbell while they were expected.',
     ]);
     expect(lines.join(' ')).not.toMatch(/\d/);
   });

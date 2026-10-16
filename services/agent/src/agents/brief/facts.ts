@@ -65,18 +65,21 @@ export function readErrandRow(item: Item): ErrandOutcome | undefined {
 /**
  * How each errand due in the week ended, as a fact. In the door's terms
  * only: "someone rang around the time", never "the plumber came" — the door
- * saw a ring, not who rang. An errand still under way, or one that failed,
- * ended in nothing the door saw, and is not told.
+ * saw a ring, not who rang. The week is read by the whole family, so no
+ * member is named: an errand is its author's to be told about
+ * (tools/get_errands.ts). An errand called off — by its author, or closed
+ * quietly because its author is no longer allowed (errand/step.ts) — is
+ * not told, nor one still under way or one that failed: none ended in
+ * anything the door saw.
  */
 export function errandLines(errands: readonly ErrandOutcome[], range: WeekRange): string[] {
   return errands
     .filter((e) => e.at >= range.startMs && e.at < range.endMs)
     .sort((a, b) => a.at - b.at)
     .flatMap((e) => {
-      const arranged = `${e.createdByName} arranged a visit from ${e.who}`;
+      const arranged = `A visit from ${e.who} was arranged`;
       if (e.status === 'rang') return [`${arranged}: someone rang the doorbell around the time they were expected.`];
       if (e.status === 'no_show') return [`${arranged}: nobody rang the doorbell while they were expected.`];
-      if (e.status === 'cancelled') return [`${arranged}, and then called it off.`];
       return [];
     });
 }
