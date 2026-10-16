@@ -26,8 +26,12 @@
  * an import-time side effect that throws outside a Vega runtime (handlers.ts
  * says the same). Best effort and silent, like the toast: a report that fails
  * must never stop her film.
+ *
+ * The SDK's parts are named below by the few methods this file calls, not by
+ * the SDK's own types: the Fire OS build type-checks this file too, against a
+ * stand-in with nothing in it (apps/tv-fireos/src/adapters/unavailable.ts),
+ * and the real SDK is checked against these shapes where it is imported.
  */
-import type { IPlaybackEvent } from '@amazon-devices/kepler-content-personalization';
 import type { WatchReport } from './watchActivity.js';
 
 /** ContentIdNamespaces.NAMESPACE_CDF_ID, as a string so nothing is imported to name it. */
@@ -37,17 +41,44 @@ export const PROFILE_ID_NAMESPACE = 'app_internal';
 /** The one profile on her television. */
 export const PROFILE_ID = 'resident';
 
-type Sdk = typeof import('@amazon-devices/kepler-content-personalization');
-type Builders = Pick<Sdk, 'ContentIdBuilder' | 'PlaybackEventBuilder' | 'PlaybackState' | 'ProfileIdBuilder'>;
+interface IdBuilder {
+  id(id: string): IdBuilder;
+  idNamespace(namespace: string): IdBuilder;
+  build(): unknown;
+}
+
+interface EventBuilder {
+  contentId(contentId: never): EventBuilder;
+  profileId(profileId: never): EventBuilder;
+  playbackPositionMs(positionMs: number): EventBuilder;
+  playbackState(state: never): EventBuilder;
+  durationMs(durationMs: number): EventBuilder;
+  creditsPositionMs(creditsPositionMs: number): EventBuilder;
+  buildActiveEvent(): unknown;
+}
+
+/** ContentIdBuilder, ProfileIdBuilder, PlaybackEventBuilder and PlaybackState, as this file uses them. */
+export interface Builders {
+  readonly ContentIdBuilder: new () => IdBuilder;
+  readonly ProfileIdBuilder: new () => IdBuilder;
+  readonly PlaybackEventBuilder: new () => EventBuilder;
+  readonly PlaybackState: { readonly PLAYING: unknown; readonly PAUSED: unknown; readonly EXIT: unknown };
+}
+
+/** ContentPersonalizationServer, as this file uses it. */
+interface Server {
+  reportNewPlaybackEvent(event: never): void;
+}
 
 /** The platform's event for one report. Throws as the SDK's builder does if a required field is missing. */
-export function toPlaybackEvent(report: WatchReport, sdk: Builders): IPlaybackEvent {
+export function toPlaybackEvent(report: WatchReport, sdk: Builders): unknown {
   const { ContentIdBuilder, PlaybackEventBuilder, PlaybackState, ProfileIdBuilder } = sdk;
+  const state = report.state === 'PLAYING' ? PlaybackState.PLAYING : report.state === 'PAUSED' ? PlaybackState.PAUSED : PlaybackState.EXIT;
   const builder = new PlaybackEventBuilder()
-    .contentId(new ContentIdBuilder().id(report.contentId).idNamespace(CONTENT_ID_NAMESPACE).build())
-    .profileId(new ProfileIdBuilder().id(PROFILE_ID).idNamespace(PROFILE_ID_NAMESPACE).build())
+    .contentId(new ContentIdBuilder().id(report.contentId).idNamespace(CONTENT_ID_NAMESPACE).build() as never)
+    .profileId(new ProfileIdBuilder().id(PROFILE_ID).idNamespace(PROFILE_ID_NAMESPACE).build() as never)
     .playbackPositionMs(report.positionMs)
-    .playbackState(report.state === 'PLAYING' ? PlaybackState.PLAYING : report.state === 'PAUSED' ? PlaybackState.PAUSED : PlaybackState.EXIT)
+    .playbackState(state as never)
     .durationMs(report.durationMs);
   if (report.creditsPositionMs !== undefined) builder.creditsPositionMs(report.creditsPositionMs);
   return builder.buildActiveEvent();
@@ -62,7 +93,9 @@ export type PlaybackReporter = (report: WatchReport) => void;
  * name with an empty module (apps/tv-fireos/src/adapters/unavailable.ts) —
  * it says so once and reports nothing more.
  */
-export function platformPlaybackReporter(load: () => Promise<Partial<Builders & Pick<Sdk, 'ContentPersonalizationServer'>>> = () => import('@amazon-devices/kepler-content-personalization')): PlaybackReporter {
+export function platformPlaybackReporter(
+  load: () => Promise<Partial<Builders & { readonly ContentPersonalizationServer: Server }>> = () => import('@amazon-devices/kepler-content-personalization'),
+): PlaybackReporter {
   let tail: Promise<void> = Promise.resolve();
   let unavailable = false;
   return (report) => {
@@ -76,7 +109,7 @@ export function platformPlaybackReporter(load: () => Promise<Partial<Builders & 
           console.warn('playback_report_unavailable');
           return;
         }
-        sdk.ContentPersonalizationServer.reportNewPlaybackEvent(toPlaybackEvent(report, sdk as Builders));
+        sdk.ContentPersonalizationServer.reportNewPlaybackEvent(toPlaybackEvent(report, sdk as Builders) as never);
       })
       .catch((err: unknown) => console.error('playback_report_failed', err));
   };
