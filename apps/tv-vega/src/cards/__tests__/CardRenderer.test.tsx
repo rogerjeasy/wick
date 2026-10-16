@@ -30,7 +30,7 @@ import { CalmPreferencesProvider, CalmViolation, type CalmPreferences } from '@w
 import { CardRenderer } from '../CardRenderer.js';
 import { KNOWN_CARD_TYPES } from '../knownCards.js';
 import { CARD_CASES } from '../../__tests__/render/cards.js';
-import { all, button, flat, buttons, contrastOf, fontSize, headers, preferred, press, render, settle, shows, textOf, texts } from '../../__tests__/render/render.js';
+import { all, button, flat, named, buttons, contrastOf, fontSize, headers, preferred, press, render, settle, shows, textOf, texts } from '../../__tests__/render/render.js';
 
 vi.mock('@amazon-devices/react-native-kepler', () => import('../../__tests__/render/platform.js'));
 
@@ -89,11 +89,11 @@ describe.each(CARD_CASES)('$name', (example) => {
         expect(b.props.accessibilityLabel).toBe(textOf(b));
         expect(String(b.props.accessibilityLabel).trim()).not.toBe('');
       }
-      expect(preferred(root)).toEqual([pressable[0]]);
+      expect(preferred(root)).toEqual([named(pressable[0]!)]);
 
       // One headline, read out as a header.
       const [header, ...more] = headers(root);
-      expect(more).toEqual([]);
+      expect(more.length).toBe(0);
       expect(textOf(header!).trim()).not.toBe('');
 
       // Nothing under 32pt; every word against what it is written on at the theme's ratio.
@@ -140,9 +140,9 @@ describe('larger text, where the words fit', () => {
 describe('the door card', () => {
   it('has no picture until one arrives, and keeps its room for one', async () => {
     const drawn = await drawCard({ card: byName('DOOR, before the picture').card, language: 'en' });
-    expect(all(drawn.root, 'Image')).toEqual([]);
+    expect(all(drawn.root, 'Image').length).toBe(0);
     // TwoPhaseCard reserves the frame's box at mount, so the picture patching in moves nothing.
-    expect(all(drawn.root, 'View').filter((view) => flat(view.props.style).width === 256 && flat(view.props.style).height === 144)).toHaveLength(1);
+    expect(all(drawn.root, 'View').filter((view) => flat(view.props.style).width === 256 && flat(view.props.style).height === 144).length).toBe(1);
   });
 
   it('shows the picture from the door, named for the screen reader in her language, and what the camera saw', async () => {
@@ -150,7 +150,7 @@ describe('the door card', () => {
     for (const [language, label] of [['en', 'Picture from the front door camera'], ['es', 'Imagen de la cámara de la puerta']] as const) {
       const drawn = await drawCard({ card: language === 'es' ? example.spanish : example.card, language });
       const [picture, ...others] = all(drawn.root, 'Image');
-      expect(others).toEqual([]);
+      expect(others.length).toBe(0);
       expect(picture!.props.source).toEqual({ uri: 'https://frames.example.com/door-evt-2.jpg' });
       expect(picture!.props.accessibilityLabel).toBe(label);
     }
@@ -205,7 +205,7 @@ describe('the picture from the family', () => {
     const onAction = vi.fn();
     const drawn = await drawCard({ card: example.card, language: 'en', onAction, onPictureFailed });
 
-    expect(all(drawn.root, 'Image')).toEqual([]);
+    expect(all(drawn.root, 'Image').length).toBe(0);
     expect(texts(drawn.root)).toContain('The picture cannot be shown just now.');
     expect(texts(drawn.root)).toContain('Your mantelpiece is full. Take one down, then you can keep this.');
     expect(onPictureFailed).toHaveBeenCalledTimes(1);
@@ -223,7 +223,7 @@ describe('the picture from the family', () => {
     const [picture] = all(drawn.root, 'Image');
     await settle(() => picture!.props.onError());
     expect(onPictureFailed).toHaveBeenCalledWith('photo-ph_1');
-    expect(all(drawn.root, 'Image')).toEqual([]);
+    expect(all(drawn.root, 'Image').length).toBe(0);
     expect(texts(drawn.root)).toContain('The picture cannot be shown just now.');
   });
 });

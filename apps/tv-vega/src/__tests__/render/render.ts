@@ -117,9 +117,45 @@ export async function press(node: Node): Promise<void> {
   });
 }
 
-/** The buttons the focus can be asked to start on: the one each screen names with `hasTVPreferredFocus`. */
-export function preferred(root: Node): Node[] {
-  return root.findAll((node) => typeof node.type === 'string' && node.props.hasTVPreferredFocus === true);
+/**
+ * OK on the remote, down and up, on a button that has the focus — the way
+ * the platform tells a Pressable: the key went down, the key came up, and
+ * at once, pressed. (`press` is a press with no key: the platform's click,
+ * or a screen reader's.)
+ */
+export async function pressOk(node: Node): Promise<void> {
+  const call = (name: string): void => (node.props[name] as (() => void) | undefined)?.();
+  await act(async () => call('onPressIn'));
+  await act(async () => {
+    call('onPressOut');
+    call('onPress');
+  });
+}
+
+/** The focus arrives on a node, as the D-pad brings it there. */
+export async function focus(node: Node): Promise<void> {
+  await act(async () => {
+    (node.props.onFocus as (() => void) | undefined)?.();
+  });
+}
+
+/**
+ * Where the focus is asked to start: everything the screen marks with
+ * `hasTVPreferredFocus`, by name (`named`).
+ */
+export function preferred(root: Node): string[] {
+  return root.findAll((node) => typeof node.type === 'string' && node.props.hasTVPreferredFocus === true).map(named);
+}
+
+/**
+ * A node in a few words — its label, or its kind and its words — for an
+ * assertion to compare. Compare these, or counts, never nodes themselves:
+ * a node reaches the whole tree, and a failing assertion that prints one
+ * runs the test worker out of memory.
+ */
+export function named(node: Node): string {
+  const label = node.props.accessibilityLabel;
+  return typeof label === 'string' ? label : `${String(node.type)}: ${textOf(node)}`;
 }
 
 // ---------------------------------------------------------------------------
