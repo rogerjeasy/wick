@@ -999,10 +999,10 @@ sequenceDiagram
 **One turn** (`services/agent/src/agents/assistant/turn.ts`):
 
 1. **Who.** The token is checked against the Wick server (`GET /api/me`, `verify.ts`) before anything else. Unless the token's member and home are the ones in the payload, the turn answers `unauthorized`: no session is loaded, no model is called, no tool runs. The runtime is shared with the door's kinds, so the payload is not trusted.
-2. **The agent.** A Strands `Agent` on Claude Sonnet 4.5 with the Bedrock Guardrail (§20), its tools from `McpClient` pointed at Wick's MCP server with `Authorization: Bearer <member token>`. Every rule the tools enforce applies to it: it can do nothing the member could not.
+2. **The agent.** A Strands `Agent` on Claude Sonnet 4.5, its tools from `McpClient` pointed at Wick's MCP server with `Authorization: Bearer <member token>`. Every rule the tools enforce applies to it: it can do nothing the member could not.
 3. **Writes wait for a yes.** A `BeforeToolCallEvent` hook interrupts any tool whose MCP annotation is not `readOnlyHint: true` (`approval.ts`). The turn returns the waiting calls; the app shows them on the confirm cards it has always used; the member's answer resumes the agent with `InterruptResponseContent`. One yes covers exactly one call (`hook:beforeToolCall:<toolUseId>:approve`). A declined call gets a "declined" result.
 4. **Limits.** At most four calls in a round and six rounds in a turn, 20 seconds.
-5. **The answer.** The server passes it through the Guardian and the same number check the old assistant used, against what the tools said: the model chooses words but cannot add a fact.
+5. **The answer.** The Bedrock Guardrail reads it first, grounded in what the tools returned (§20); a reply it refuses is not said. Then the server passes it through the Guardian and the same number check the old assistant used, against what the tools said: the model chooses words but cannot add a fact.
 
 **Sessions.** A Strands `SessionManager` saves the conversation after each invocation, including a write paused for the member's yes, into AgentCore Memory through `packages/strands-agentcore-session`. That is the code of Wick's open-source pull request to `aws/bedrock-agentcore-sdk-typescript`, which answers that repository's issues #160 and #214. A member's conversation survives a cold start of the microVM and a new browser. It is filed under the agent's own actor id, apart from the long-term records.
 
@@ -1044,7 +1044,9 @@ stateDiagram-v2
 
 *In short: a Bedrock Guardrail is a second, model-side check on both agents. The Guardian stays the gate of record.*
 
-`infra/guardrail.tf`: denied topics (medical advice, financial advice, guessing her mood), content filters at HIGH, phone numbers, emails and addresses anonymised, and contextual grounding at 0.75 with relevance at 0.5, published as a fixed version. The assistant attaches it to its model. The Sunday brief applies it (`ApplyGuardrail`) to its paragraph and its suggestion with the week's counted facts as the grounding source: a sentence the facts do not support is refused. Either check, the Guardian or the Guardrail, may refuse.
+`infra/guardrail.tf`: denied topics (medical advice, financial advice, guessing her mood), content filters at HIGH, phone numbers, emails and addresses anonymised, and contextual grounding at 0.5 with relevance at 0.5, published as a fixed version that changes whenever the guardrail does. Both agents apply it (`ApplyGuardrail`) to what they *say*, never to what they are asked: the Sunday brief to its paragraph and suggestion, grounded in the week's counted facts; the assistant to its reply, grounded in the tools' own texts. A sentence the facts do not support is refused, and so is any guess about how she feels. Either check, the Guardian or the Guardrail, may refuse.
+
+Two things measured on the deployed guardrail decided this (FL-048). Attached to the model, the guardrail read the member's question too, and its "guessing her mood" topic refused "How has my mum been this week?", the question Wick exists to answer. And the grounding threshold had to be measured, not assumed: faithful paraphrases of a week's facts scored 0.68 to 0.97, every sentence adding something the facts did not say scored 0.0, and at the first threshold, 0.75, honest paragraphs were refused.
 
 ## 21. THE SUNDAY BRIEF
 

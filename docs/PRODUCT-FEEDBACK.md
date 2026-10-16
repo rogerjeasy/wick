@@ -8,7 +8,7 @@ Ring's Developer Playground, and Alexa+ is a simulated surface in front of a
 real MCP server. Everything in between runs on AWS in `us-east-1`.
 
 Below, each tool gets the five answers Devpost asks for. The evidence is in
-[`FRICTION.md`](../FRICTION.md): 43 entries, each written when the problem
+[`FRICTION.md`](../FRICTION.md): 44 entries, each written when the problem
 happened, cited here as FL-0xx. Feature requests, with a priority for each, are
 at the end.
 
@@ -266,6 +266,12 @@ the stand-in doorbell's pictures of nobody real.
 **Needs work:**
 - Amazon's own image models (Nova Canvas, Titan Image v2) have reached end of
   life, vanished from the model list, and name no successor (FL-030).
+- A Guardrail on Converse reads the user's question as well as the answer, and
+  there is no switch to read the answer only: our "guessing her mood" topic
+  refused "How has my mum been this week?". We guard each agent's reply with
+  `ApplyGuardrail` instead. And the grounding threshold had to be measured:
+  faithful paraphrase scored 0.68 to 0.97, invented facts 0.0, so 0.75 refused
+  honest prose (FL-048).
 - A Guardrail's denied topics and the grounding check are configured together
   but fail with one undifferentiated "intervened"; we read the assessment to
   tell a refused topic from an ungrounded sentence. A summary reason would help.
