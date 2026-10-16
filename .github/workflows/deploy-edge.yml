@@ -3,7 +3,7 @@ name: deploy-edge
 on:
   push:
     branches: [main]
-    paths: ['services/edge-ring/**', 'services/edge-device/**', 'infra/**', 'apps/sim-alexa/**', 'addon-package/**']
+    paths: ['services/edge-ring/**', 'services/edge-device/**', 'infra/**', 'apps/sim-alexa/**', 'apps/ops-console/**', 'addon-package/**']
   workflow_dispatch:
 
 # OIDC only. No static AWS keys in this repository, ever — the role ARN is not

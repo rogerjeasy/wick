@@ -87,6 +87,14 @@ export default tseslint.config(
     ignores: ['**/__tests__/**'],
   },
 
+  // The browser television's pages load plain classic scripts, one after another, sharing one global scope
+  // (apps/ops-console: tv-core.js, then device.js or tv.js). What one declares for the next is marked
+  // `/* exported */` at its top, which ESLint honours only for a script.
+  {
+    files: ['apps/ops-console/*.js'],
+    languageOptions: { sourceType: 'script' },
+  },
+
   // Metro and Babel load their own config as plain CommonJS by convention —
   // not part of the app's ESM/TS source.
   {

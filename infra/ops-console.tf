@@ -39,11 +39,13 @@ locals {
     aws_apigatewayv2_api.edge.api_endpoint,
   )
 
-  ops_console_device_js = replace(
+  # The browser television itself (tv-core.js), which both pages that are a television load: device.html, the
+  # console, and tv.html, the resident's television and nothing else.
+  ops_console_tv_core_js = replace(
     replace(
       replace(
         replace(
-          file("${path.module}/../apps/ops-console/device.js"),
+          file("${path.module}/../apps/ops-console/tv-core.js"),
           "PAIRING_API_URL_PLACEHOLDER",
           aws_apigatewayv2_api.edge.api_endpoint,
         ),
@@ -110,11 +112,21 @@ resource "aws_s3_object" "ops_console_status_js" {
   cache_control = "no-cache"
 }
 
+resource "aws_s3_object" "ops_console_tv_core_js" {
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "tv-core.js"
+  content       = local.ops_console_tv_core_js
+  etag          = md5(local.ops_console_tv_core_js)
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+# The console around the television: no placeholders of its own.
 resource "aws_s3_object" "ops_console_device_js" {
   bucket        = aws_s3_bucket.ops_console.id
   key           = "device.js"
-  content       = local.ops_console_device_js
-  etag          = md5(local.ops_console_device_js)
+  source        = "${path.module}/../apps/ops-console/device.js"
+  etag          = filemd5("${path.module}/../apps/ops-console/device.js")
   content_type  = "application/javascript; charset=utf-8"
   cache_control = "no-cache"
 }

@@ -6,7 +6,7 @@
  *
  *   - Fire OS: installed by react-native-get-random-values, which
  *     apps/tv-fireos/index.js loads before the app (Android's SecureRandom).
- *   - The browser television has its own (apps/ops-console/device.js).
+ *   - The browser television has its own (apps/ops-console/tv-core.js).
  *   - Vega: React Native for Vega gives the JavaScript runtime none, and the
  *     SDK's only crypto package is an Expo module (`@amazon-devices/
  *     expo-crypto`, which needs Expo). So a Vega television makes no secret
