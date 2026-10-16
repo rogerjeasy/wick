@@ -360,7 +360,7 @@ to the family: Wick cannot know what was kept.
 
 ## Product rules that constrain code
 
-From `docs/WICK.md` Part 5. The ones that most often get violated by accident:
+From `docs/WICK.md` §7. The ones that most often get violated by accident:
 
 - **Three items, never four.** DayCard holds at most 3. DoorCard has at most 3 actions.
 - **No auto-dismiss, no timers.** Nothing disappears on a countdown.

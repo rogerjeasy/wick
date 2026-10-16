@@ -1,7 +1,7 @@
 /**
  * The home screen — what would you like to watch?
  *
- * The same floor as every card (docs/WICK.md Part 5): 32pt and up, 7:1
+ * The same floor as every card (docs/WICK.md §7): 32pt and up, 7:1
  * contrast, D-pad and OK only, three choices at most, no red, nothing that
  * moves on its own. Focus is a ring, never colour alone.
  *

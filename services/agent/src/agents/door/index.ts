@@ -29,7 +29,7 @@ import {
 import type { RingDevice, RingHistoryEvent, RingImage } from '@wick/ring';
 import { matchVisitor } from './roster.js';
 
-/** Plain English, always the same, never "motion detected". docs/WICK.md §3.3. */
+/** Plain English, always the same, never "motion detected". docs/WICK.md §4.2. */
 export const DOOR_LINE = "Someone's at the front door.";
 
 /**

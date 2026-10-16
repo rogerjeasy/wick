@@ -1,6 +1,6 @@
 /**
  * D1 — Something's Different: the few things about today that are unlike
- * this household's own usual, said plainly (docs/WICK.md §4.4).
+ * this household's own usual, said plainly (docs/WICK.md §5.3).
  *
  * Never an alert. A difference is a sentence the family can read when they
  * next look, in the same calm register as the week — and most days there

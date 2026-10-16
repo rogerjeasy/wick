@@ -288,6 +288,6 @@ fresh one shortly before.
 
 ### 6.5 What it costs
 
-[`docs/WICK.md`](WICK.md#76-what-it-costs-to-run) §7.6 estimates the running
+[`docs/WICK.md`](WICK.md#92-what-it-costs-to-run) §9.2 estimates the running
 cost. The App Runner service is the largest fixed item: one instance is always
 on.

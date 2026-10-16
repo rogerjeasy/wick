@@ -5,7 +5,7 @@
  * from the door event's timestamp against a roster entry's expected
  * pattern, never from the visitor's face. Ring gives third-party developers
  * no facial-recognition signal, and the product rules it out even if it
- * did (D3, docs/WICK.md §4.3 M4): "an explicitly opt-in roster... never
+ * did (docs/WICK.md §5.1 M4): "an explicitly opt-in roster... never
  * applied to strangers, never used to build a profile of anyone." basis is
  * always 'schedule' here — VisitorMatch's 'roster_face' variant exists in
  * the type for a future nobody has decided to build.
