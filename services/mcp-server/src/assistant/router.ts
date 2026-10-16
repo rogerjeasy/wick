@@ -32,6 +32,7 @@ import { isGuest } from '../accounts/demo.js';
 import { grantOf } from '../accounts/oauthProvider.js';
 import type { AccountStore } from '../accounts/store.js';
 import { nextStep, readTurns, type Converse, type ToolSpec } from './brain.js';
+import { turnRoute, type AssistantAgent } from './turn.js';
 
 export interface AssistantDeps {
   readonly converse: Converse;
@@ -44,6 +45,14 @@ export interface AssistantRouterOptions {
   readonly store: AccountStore;
   /** This server's own tool list, as tools/list gives it. */
   readonly toolSpecs: () => Promise<readonly ToolSpec[]>;
+  /**
+   * The assistant as a Strands agent on AgentCore Runtime (turn.ts,
+   * POST /assistant/turn). Absent where no runtime is configured: that route
+   * then answers 503 and the app asks /assistant/next.
+   */
+  readonly agent?: AssistantAgent | undefined;
+  /** Each of this server's tools' name and title, for what waits for a member's yes. */
+  readonly toolTitles?: () => Promise<ReadonlyMap<string, string>>;
   readonly now: () => number;
   readonly timeZone: string;
 }
@@ -78,11 +87,12 @@ interface Budget {
  * Within a budget everyone's ten minutes start together, so what is
  * remembered is never more than one window's worth of people.
  */
-export function createStepLimiter(now: () => number): (userId: string) => boolean {
+export function createStepLimiter(now: () => number): (userId: string, cost?: number) => boolean {
   const fresh = (): Budget => ({ windowStart: now(), windowTaken: 0, dayStart: now(), dayTaken: 0, people: new Map() });
   const budgets = { guest: fresh(), account: fresh() };
 
-  return (userId) => {
+  // `cost`: a turn of the agent (turn.ts) counts as several steps; it is taken whole or not at all.
+  return (userId, cost = 1) => {
     const budget = isGuest(userId) ? budgets.guest : budgets.account;
     const at = now();
     if (at - budget.windowStart >= WINDOW_MS) {
@@ -95,10 +105,10 @@ export function createStepLimiter(now: () => number): (userId: string) => boolea
       budget.dayTaken = 0;
     }
     const mine = budget.people.get(userId) ?? 0;
-    if (budget.dayTaken >= STEPS_PER_DAY || budget.windowTaken >= STEPS_PER_WINDOW || mine >= STEPS_PER_PERSON) return false;
-    budget.people.set(userId, mine + 1);
-    budget.windowTaken += 1;
-    budget.dayTaken += 1;
+    if (budget.dayTaken + cost > STEPS_PER_DAY || budget.windowTaken + cost > STEPS_PER_WINDOW || mine + cost > STEPS_PER_PERSON) return false;
+    budget.people.set(userId, mine + cost);
+    budget.windowTaken += cost;
+    budget.dayTaken += cost;
     return true;
   };
 }
@@ -143,6 +153,15 @@ export function createAssistantRouter(options: AssistantRouterOptions): express.
       res.status(502).json({ error: 'assistant_failed', message: 'I could not think that through just now.' });
     }
   });
+
+  router.post('/assistant/turn', turnRoute({
+    agent: options.agent,
+    store,
+    toolTitles: options.toolTitles ?? (async () => new Map((await toolSpecs()).map((t) => [t.name, t.name]))),
+    mayStep,
+    now,
+    timeZone,
+  }));
 
   return router;
 }
