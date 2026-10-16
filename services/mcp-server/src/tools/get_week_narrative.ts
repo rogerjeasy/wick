@@ -19,7 +19,7 @@
  */
 import { z } from 'zod';
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { currentIsoWeek, type RhythmDelta, type TimelineEntry, type WeekNarrative } from '@wick/contracts';
+import { SUGGESTED_ACTIONS, currentIsoWeek, type RhythmDelta, type TimelineEntry, type WeekNarrative } from '@wick/contracts';
 import type { HouseholdPolicy } from '@wick/policy';
 import { fallbackNarrative, isoWeekRange, privateNarrative, summariseWeek, visibleDeltas } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -134,7 +134,15 @@ export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, ti
   // A comparison names its visitor twice: as a label, and in its metric (`visit:<personId>`).
   const unclearDelta = (d: RhythmDelta) => !clears(d.metric) || (d.label !== undefined && !clears(d.label));
   const unclear = !clears(narrative.text) || narrative.timeline.some(unclearEntry) || (narrative.deltas ?? []).some(unclearDelta);
-  if (!hidden.door && !hidden.visits && !unclear) return { status: 'available', narrative };
+  if (!hidden.door && !hidden.visits && !unclear) {
+    // The Sunday brief's suggestion is read like everything else: one the gate cannot clear is left out, never reworded.
+    if (narrative.suggestion && !clears(narrative.suggestion.reason)) {
+      console.warn(JSON.stringify({ level: 'warn', msg: 'guardian_withheld', where: 'week_suggestion', isoWeek: narrative.isoWeek }));
+      const { suggestion: _withheld, ...rest } = narrative;
+      return { status: 'available', narrative: rest };
+    }
+    return { status: 'available', narrative };
+  }
   if (unclear) console.warn(JSON.stringify({ level: 'warn', msg: 'guardian_withheld', where: 'week', isoWeek: narrative.isoWeek }));
 
   const hides = (kind: string) => (kind === 'door' && hidden.door) || ((kind === 'visit' || kind === 'presence') && hidden.visits);
@@ -144,9 +152,11 @@ export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, ti
   const deltas = visibleDeltas(narrative.deltas ?? [], hidden).filter((d) => !unclearDelta(d));
   // Only her own choice is said to be kept private: what the Guardian held back is not mentioned at all.
   const text = hidden.door || hidden.visits ? privateNarrative(facts, hidden, deltas) : fallbackNarrative(facts, deltas);
+  // The suggestion rested on the whole week, so it goes with the paragraph: the family's copy is the facts they may read, and no more.
+  const { suggestion: _rested, ...rest } = narrative;
   return {
     status: 'available',
-    narrative: { ...narrative, timeline, deltas, text, textSource: 'facts' },
+    narrative: { ...rest, timeline, deltas, text, textSource: 'facts' },
   };
 }
 
@@ -198,6 +208,7 @@ export function weekAnswer(week: WeekNarrative, thisWeek?: ThisWeekStatus) {
     isoWeek: week.isoWeek,
     text: week.text,
     ...(week.textSource === undefined ? {} : { textSource: week.textSource }),
+    ...(week.suggestion === undefined ? {} : { suggestion: { action: week.suggestion.action, reason: week.suggestion.reason } }),
     deltas: (week.deltas ?? []).map((d) => ({
       metric: d.metric,
       ...(d.label === undefined ? {} : { label: d.label }),
@@ -221,7 +232,11 @@ const OUTPUT = answerSchema({
   householdId: z.string(),
   isoWeek: z.string().describe('"2026-W41".'),
   text: z.string().describe('The week in words.'),
-  textSource: z.enum(['model', 'facts']).optional(),
+  textSource: z.enum(['model', 'facts', 'agents']).optional().describe('"agents": written by the Sunday brief, Wick\'s agents on AgentCore.'),
+  suggestion: z
+    .strictObject({ action: z.enum(SUGGESTED_ACTIONS), reason: z.string() })
+    .optional()
+    .describe('The Sunday brief\'s one thing the family member could do about the week: send_note, arrange_visit, watch_together, or nothing.'),
   deltas: z.array(z.strictObject({
     metric: z.string(),
     label: z.string().optional(),
@@ -259,7 +274,8 @@ export function registerGetWeekNarrative(
         'With no week named, returns the most recent week the resident has already read on their own television; ' +
         '`thisWeek` is then set when that is not the current week ("not_written": Wick writes the week on Sunday evening; ' +
         '"awaiting_resident": it is on the television, and they read it first). ' +
-        "Never returns a week the resident hasn't seen yet.",
+        "Never returns a week the resident hasn't seen yet. " +
+        'A week written by Wick\'s agents (the Sunday brief) carries `suggestion`: one thing the family member could do about it, under the same rule.',
       inputSchema: { isoWeek: z.string().optional().describe('ISO 8601 week, e.g. "2026-W38", for that exact week. Leave out for the latest week there is to read.') },
       outputSchema: OUTPUT,
       annotations: READS,

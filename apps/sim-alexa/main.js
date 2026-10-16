@@ -639,6 +639,7 @@ function renderWeekCard(card, said) {
   const node = el('article', 'card week');
   cardHead(node, card.title, card.meta);
   if (card.text && !String(said ?? '').includes(card.text)) node.appendChild(el('p', 'primary-text', card.text));
+  if (card.suggestion) node.appendChild(renderWeekSuggestion(card.suggestion));
 
   if (card.facts?.length) {
     const facts = el('dl', 'measures');
@@ -689,6 +690,35 @@ function renderWeekCard(card, said) {
   }
   node.appendChild(cardFoot(card.footnote));
   return node;
+}
+
+/**
+ * The Sunday brief's one thing to do about the week (surface.js
+ * presentSuggestion): its sentence, and the one button that starts it here
+ * — the note composer, "Arrange a visit" in the box to ask in, or the
+ * invitation to watch a film together. Nothing is sent by the button
+ * itself: each opens what this page already offers, and asks as it always
+ * does. "Nothing" has no button.
+ */
+function renderWeekSuggestion(suggestion) {
+  const box = el('div', 'week-suggestion');
+  box.appendChild(el('p', 'primary-text', suggestion.text));
+  if (!suggestion.action) return box;
+  const button = el('button', 'btn', suggestion.label);
+  button.type = 'button';
+  button.addEventListener('click', () => startSuggestion(suggestion.action));
+  box.appendChild(button);
+  return box;
+}
+
+function startSuggestion(action) {
+  if (action === 'send_note') return void addComposer();
+  if (action === 'watch_together') return void addInvitationToWatch();
+  if (action === 'arrange_visit') {
+    const input = $('ask-input');
+    input.value = 'Arrange a visit';
+    input.focus();
+  }
 }
 
 /**

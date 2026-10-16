@@ -339,3 +339,36 @@ describe('routeCardAction — "The visit, witnessed"', () => {
   });
 });
 
+
+describe('routeCardAction — she has read her week (week.seen)', () => {
+  const routes = () => ({
+    invoke: vi.fn(),
+    askFamily: vi.fn(),
+    tellAnswer: vi.fn(),
+    askResident: vi.fn(async () => []),
+    withdraw: vi.fn(),
+    tellHome: vi.fn(),
+    reachAsk: vi.fn(),
+    reachDue: vi.fn(),
+    visitAnswer: vi.fn(),
+    askVisits: vi.fn(async () => []),
+    weekSeen: vi.fn(async () => ({ result: 'nudged' as const, members: 1 })),
+  });
+  const seen = { householdId: 'margaret', isoWeek: '2026-W38', at: 5 };
+
+  it('tells the family the week is ready, and is never mistaken for a press', async () => {
+    const r = routes();
+
+    const out = await routeCardAction({ 'detail-type': 'week.seen', detail: seen }, r);
+
+    expect(r.weekSeen).toHaveBeenCalledWith(seen);
+    expect(r.invoke).not.toHaveBeenCalled();
+    expect(out).toEqual({ result: { result: 'nudged', members: 1 } });
+  });
+
+  it('ignores it in a deployment that tells nobody', async () => {
+    const { weekSeen: _none, ...r } = routes();
+    expect(await routeCardAction({ 'detail-type': 'week.seen', detail: seen }, r)).toEqual({ result: 'ignored' });
+    expect(r.invoke).not.toHaveBeenCalled();
+  });
+});

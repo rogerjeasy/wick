@@ -34,7 +34,8 @@ import { createApiRouter, type ClaimTelevision, type RingLinks } from './account
 import { createAccountDataRouter } from './accounts/accountDataRouter.js';
 import { createFamilyTelevisionRouter } from './accounts/familyTelevisionRouter.js';
 import { checkAccess, type CircleDeps } from './accounts/circle.js';
-import { seedDemoHome } from './accounts/demoHome.js';
+import { requestDemoBrief, seedDemoHome } from './accounts/demoHome.js';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { createAssistantRouter, type AssistantDeps } from './assistant/router.js';
 import type { ToolSpec } from './assistant/brain.js';
 import type { AssistantMemory } from './assistant/forget.js';
@@ -280,6 +281,9 @@ export function securityHeaders(issuerUrl: URL): express.RequestHandler {
   };
 }
 
+/** The Sunday brief's queue (infra/brief.tf), made when a demo home first asks for its week. */
+let briefQueue: SQSClient | undefined;
+
 export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   const { ddb } = deps;
   const circle: CircleDeps = {
@@ -291,9 +295,14 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   const { router: authRouter, requireAuth } = createAuth(issuerUrl, circle, deps.identity, {
     demoAccounts: deps.demoAccounts,
     demoAccountsPerHour: deps.demoAccountsPerHour,
-    // A guest's home starts with six weeks to ask about, marked simulated (accounts/demoHome.ts).
-    seedDemoHome: (householdId) =>
-      seedDemoHome((item) => ddb.send(new PutItemCommand({ TableName: TABLE, Item: item })), householdId, circle.now(), HOUSEHOLD_TZ),
+    // A guest's home starts with six weeks to ask about, marked simulated (accounts/demoHome.ts),
+    // and its newest week is then written again by Wick's agents — asked for, never waited for.
+    seedDemoHome: async (householdId) => {
+      const now = circle.now();
+      await seedDemoHome((item) => ddb.send(new PutItemCommand({ TableName: TABLE, Item: item })), householdId, now, HOUSEHOLD_TZ);
+      const queueUrl = process.env.WICK_BRIEF_QUEUE_URL;
+      if (queueUrl) void requestDemoBrief((body) => (briefQueue ??= new SQSClient({})).send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: body })), householdId, now);
+    },
   });
 
   const app = express();

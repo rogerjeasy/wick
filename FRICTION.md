@@ -62,6 +62,49 @@ removed from the design (2026-10-02).
 
 <!-- Newest first. -->
 
+## FL-047 — A Strands TypeScript Graph cannot loop back to a node that has an edge from outside the loop
+
+*2026-10-16.*
+
+**Tool / API:**      Strands Agents SDK for TypeScript 1.18.0 (`@strands-agents/sdk`, `Graph` in
+                     `multiagent/graph.js`); structured output (`structuredOutputSchema`, zod 4)
+
+**Task attempted:**  The Sunday brief as a Graph: analyst → writer → check, with the check sending a
+                     refused draft back to the writer once, with the reason, before the suggester
+                     (services/agent/src/graphs/weeklyBrief.ts).
+
+**Steps taken:**     1. Built the obvious edges: analyst → writer, writer → check, check → writer
+                        (conditional, "retry"), check → suggester (conditional, "done").
+                     2. The run stopped after the analyst. Read `_findReady` and
+                        `_allDependenciesSatisfied`: a node runs only when every incoming edge's
+                        source has COMPLETED and every edge handler is true. The writer's incoming
+                        edges are the analyst's and the check's; the check cannot have completed
+                        before the writer's first run, so the writer never runs.
+                     3. The class comment says so ("AND semantics … Python uses OR"), and that the
+                        TS Graph supports cycles (`maxSteps`), but no example shows a cycle with an
+                        entry edge, and the graph does not warn that one can never start.
+                     4. Made the loop's entry a declared source: `sources: ['analyst']`, edges
+                        analyst → writer → check → analyst. The analyst keeps what it counted and,
+                        on its second visit, hands the writer the same facts with the reason.
+
+**Expected:**        A conditional back-edge into the writer, as in the Python SDK's
+                     `GraphBuilder` with OR semantics, or a construction-time error for a node that
+                     can never become ready.
+
+**Actual:**          The graph runs its source and finishes quietly with every other node pending:
+                     no error, no warning, a result whose status is COMPLETED.
+
+**Severity:**        Important
+
+**Workaround:**      The cycle enters through a declared source node; the retry passes back
+                     through it. Tested end to end with a scripted model (the retry path appears in
+                     the run's node order). Structured output needed no workaround: the agent
+                     node's `structuredOutput` is on its NodeResult, read in the next node.
+
+**Suggestion:**      Either an edge option for OR (`{ source, target, any: true }`), or a check at
+                     construction that every node is reachable under AND semantics, naming the
+                     node that can never start. And one example of a refine-and-retry loop in the
+                     multi-agent docs, which is the commonest loop there is.
 ## FL-046 — A Strands agent built per request: interrupts, sessions and memory each assume one long-lived agent
 
 *2026-10-16.*

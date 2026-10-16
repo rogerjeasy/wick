@@ -547,6 +547,29 @@ export function weekDays(timeline, timeZone) {
   return [...days.values()].map((day) => ({ ...day, count: things(day.entries.length) }));
 }
 
+/** The Sunday brief's actions, and the one button each puts on the week card (main.js renderWeekCard). */
+const SUGGESTION_BUTTONS = {
+  send_note: 'Write a note',
+  arrange_visit: 'Arrange a visit',
+  watch_together: 'Watch a film together',
+};
+
+/**
+ * The week's one suggestion, from the Sunday brief (get_week_narrative's
+ * `suggestion`): "One thing you could do: …" and the one button that does
+ * it — or, for "nothing", its reason alone and no button. The reason is the
+ * server's, already past the Guardian; this page only labels it. Anything
+ * it cannot read is left off the card.
+ */
+export function presentSuggestion(suggestion) {
+  if (typeof suggestion !== 'object' || suggestion === null) return undefined;
+  const { action, reason } = suggestion;
+  if (typeof reason !== 'string' || !reason.trim()) return undefined;
+  if (action === 'nothing') return { text: reason.trim() };
+  if (!Object.hasOwn(SUGGESTION_BUTTONS, action)) return undefined;
+  return { text: `One thing you could do: ${reason.trim()}`, action, label: SUGGESTION_BUTTONS[action] };
+}
+
 function presentWeek(week, formatTime, now, timeZone) {
   const items = [...week.timeline].sort(byTime).map((e) => ({ primary: e.summary, secondary: formatTime(e.at) }));
   const earlier = NOT_THIS_WEEK[week.thisWeek];
@@ -562,12 +585,14 @@ function presentWeek(week, formatTime, now, timeZone) {
       ...(d.verdict !== undefined ? [`usually about ${Math.round(d.baseline)}`] : []),
     ].join(' · '),
   }));
+  const suggestion = presentSuggestion(week.suggestion);
   return {
     say: earlier ? `${earlier} Here is the week of ${named}. ${week.text}` : week.text,
     tone: 'answer',
     card: {
       // The paragraph, then a carousel of the days it covers (main.js renderWeekCard).
       kind: 'week',
+      ...(suggestion ? { suggestion } : {}),
       title: isThisWeek || !named ? 'This week' : `Week of ${named}`,
       meta: week.isoWeek ?? '',
       text: week.text,

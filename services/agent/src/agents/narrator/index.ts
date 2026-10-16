@@ -36,7 +36,7 @@ import type { RhythmDelta, TimelineEntry, WeekNarrative } from '@wick/contracts'
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { isoWeekRange, type WeekRange } from './isoWeek.js';
 import { toTimelineEntry } from './timeline.js';
-import { checkNarrative, factLines, fallbackNarrative, summariseWeek, type WeekFacts } from './weekFacts.js';
+import { checkNarrative, factLines, fallbackNarrative, refusalReason, summariseWeek, type WeekFacts } from './weekFacts.js';
 import { comparisonLines } from './comparisons.js';
 import { baselineWindow, weekDeltas } from '../../rhythm/baseline.js';
 
@@ -60,7 +60,7 @@ export interface NarratorDeps {
 
 const MODEL_ATTEMPTS = 2;
 
-interface WeekCounted {
+export interface WeekCounted {
   readonly timeline: TimelineEntry[];
   readonly facts: WeekFacts;
   readonly deltas: RhythmDelta[];
@@ -71,7 +71,7 @@ interface WeekCounted {
  * before. `rawItems` covers baselineWindow(range). No model is involved, so
  * every caller counts the same way.
  */
-function countWeek(
+export function countWeek(
   rawItems: readonly Record<string, AttributeValue>[],
   range: WeekRange,
   when: { readonly now: number; readonly timeZone: string; readonly observedSince: number | undefined },
@@ -134,13 +134,7 @@ export async function computeWeekNarrative(
     const check = checkNarrative(draft, facts, deltas);
     if (check.ok) text = draft;
     else {
-      retryReason = check.reason === 'unsupported_number'
-        ? `Your draft used "${check.detail}", a number that is not in the facts. Use only the numbers given.`
-        : check.reason === 'unsupported_comparison'
-          ? `Your draft said "${check.detail}", which the facts do not support. Compare with last week, or with what is usual, only where the facts do.`
-          : check.reason === 'too_long'
-            ? `Your draft was ${check.detail} characters. Stay under the limit.`
-            : 'Your draft was empty.';
+      retryReason = refusalReason(check);
       console.warn(JSON.stringify({ level: 'warn', msg: 'narrative_rejected', isoWeek, attempt, reason: check.reason, detail: check.detail }));
     }
   }

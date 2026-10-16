@@ -23,6 +23,8 @@ const WORDS = {
   // A visit the member arranged has an answer: the door rang around then, or nobody came. Which, and who, stays in Wick.
   errand_rang: 'There is news about a visit you arranged.',
   errand_no_show: 'There is news about a visit you arranged.',
+  // She has read her week on her television, so the family may now (INV-7). Not what it says.
+  week_ready: 'The week is ready for you to read.',
 };
 const OTHER = 'Something is waiting for you in Wick.';
 /** Kinds that should stay on screen until someone looks: a person is waiting on the answer. A hello waits on nothing. */

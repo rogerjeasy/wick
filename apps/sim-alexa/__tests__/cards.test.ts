@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — a plain browser module, deliberately untyped (no build step).
-import { CAROUSEL_INLINE, developerMode, presentChecklist, presentResult, routeUtterance, weekDays } from '../surface.js';
+import { CAROUSEL_INLINE, developerMode, presentChecklist, presentResult, presentSuggestion, routeUtterance, weekDays } from '../surface.js';
 
 const at = (ms: number) => `t${ms}`;
 
@@ -188,6 +188,43 @@ describe('the week card — the paragraph, then a carousel of its days', () => {
   it('shows the guide’s three to five items inline before “See all”', () => {
     expect(CAROUSEL_INLINE).toBeGreaterThanOrEqual(3);
     expect(CAROUSEL_INLINE).toBeLessThanOrEqual(5);
+  });
+});
+
+describe('the week card’s one suggestion — the Sunday brief’s “One thing you could do”', () => {
+  const week = { isoWeek: '2026-W40', text: 'A quiet week.', timeline: [], deltas: [], textSource: 'agents' };
+  const context = { now: Date.UTC(2026, 9, 1, 12), timeZone: 'Europe/London' };
+  const withSuggestion = (action: string, reason: string) =>
+    presentResult('get_week_narrative', JSON.stringify({ ...week, suggestion: { action, reason } }), context, at).card.suggestion;
+
+  it('offers a note: the button opens the note composer', () => {
+    expect(withSuggestion('send_note', 'A quiet week: a note would be nice to come back to.')).toEqual({
+      text: 'One thing you could do: A quiet week: a note would be nice to come back to.',
+      action: 'send_note',
+      label: 'Write a note',
+    });
+  });
+
+  it('offers to arrange a visit, and to watch a film together, each with its own button', () => {
+    expect(withSuggestion('arrange_visit', 'Maria did not visit this week.')).toMatchObject({ action: 'arrange_visit', label: 'Arrange a visit' });
+    expect(withSuggestion('watch_together', 'A film was played this week.')).toMatchObject({ action: 'watch_together', label: 'Watch a film together' });
+  });
+
+  it('shows “nothing” as its reason alone, with no button: there is nothing to press', () => {
+    expect(withSuggestion('nothing', 'A usual week: nothing needs doing.')).toEqual({ text: 'A usual week: nothing needs doing.' });
+  });
+
+  it('shows no suggestion for a week without one, or one it cannot read', () => {
+    expect(presentResult('get_week_narrative', JSON.stringify(week), context, at).card.suggestion).toBeUndefined();
+    expect(presentSuggestion({ action: 'call_her', reason: 'x' })).toBeUndefined();
+    expect(presentSuggestion({ action: 'send_note' })).toBeUndefined();
+    expect(presentSuggestion({ action: 'send_note', reason: '   ' })).toBeUndefined();
+    expect(presentSuggestion('send_note')).toBeUndefined();
+  });
+
+  it('puts the words on the page as the server gave them, and adds only its own labels', () => {
+    const odd = '<img src=x onerror=alert(1)>';
+    expect(withSuggestion('send_note', odd).text).toBe(`One thing you could do: ${odd}`);
   });
 });
 

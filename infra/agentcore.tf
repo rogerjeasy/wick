@@ -215,6 +215,9 @@ resource "aws_bedrockagentcore_agent_runtime" "agents" {
     AGENTS_GUARDRAIL_ID      = aws_bedrock_guardrail.wick.guardrail_id
     AGENTS_GUARDRAIL_VERSION = aws_bedrock_guardrail_version.wick.version
     AGENTCORE_MEMORY_ID      = aws_bedrockagentcore_memory.assistant.id
+    # The Sunday brief (brief.weekly, brief.tf): the Narrator's model and the household's clock.
+    WICK_NARRATIVE_MODEL = local.narrative_model_profile
+    WICK_HOUSEHOLD_TZ    = var.household_time_zone
   }
 
   depends_on = [aws_iam_role_policy.agents_runtime]

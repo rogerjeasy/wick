@@ -273,6 +273,9 @@ resource "aws_apprunner_service" "mcp_server" {
             ASSISTANT_RUNTIME_ARN     = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
             ASSISTANT_RUNTIME_VERSION = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
             AGENTCORE_MEMORY_ID       = aws_bedrockagentcore_memory.assistant.id
+            # The Sunday brief's queue (brief.tf): a demo home's newest week
+            # is written again by the agents. Unset, the demo keeps the facts'.
+            WICK_BRIEF_QUEUE_URL = aws_sqs_queue.brief.url
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
         )

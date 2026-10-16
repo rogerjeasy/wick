@@ -9,6 +9,7 @@
  *   assistant.turn Strands Agent (Sonnet 4.5 + Guardrail) on Wick's MCP     §6
  *                  tools, with the member's own token; writes wait for
  *                  their yes (agents/assistant/)
+ *   brief.weekly   Strands graph: analyst → writer → check → suggester   the Sunday brief
  *
  * One microVM per household session (invoke.ts). The live stream itself
  * runs in the bridge Lambda, not here: this microVM has no outbound UDP and
@@ -33,6 +34,8 @@ import { doorActionHandler, doorDescribeHandler, liveStartHandler, liveStopHandl
 import { assistantTurnHandler } from '../agents/assistant/turn.js';
 import { assistantDepsFromEnv } from '../agents/assistant/fromEnv.js';
 import { createRuntimeServer } from './server.js';
+import { BRIEF_WEEKLY_KIND, briefWeeklyHandler } from './briefHandler.js';
+import { briefWeeklyDepsFor } from './briefWiring.js';
 
 const env = (name: string, fallback?: string): string => {
   const value = process.env[name] ?? fallback;
@@ -106,6 +109,7 @@ const server = createRuntimeServer({
     // Conversations are kept in this microVM until the AgentCore Memory session storage
     // (packages/strands-agentcore-session) is handed in here as assistantDepsFromEnv's second argument.
     'assistant.turn': assistantTurnHandler(() => (assistantDeps ??= assistantDepsFromEnv(process.env))),
+    [BRIEF_WEEKLY_KIND]: briefWeeklyHandler(briefWeeklyDepsFor(ddb, TABLE)),
   },
 });
 

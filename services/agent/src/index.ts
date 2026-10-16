@@ -25,3 +25,4 @@ export { visitFromItem, visitItem, visitStore, type VisitSend, type VisitStore }
 export { assistantPrompt, localWhen, systemPrompt, todayLine, type Who } from './agents/assistant/prompt.js';
 // The names a member's conversation and words are kept under, shared with the Wick server.
 export { ASSISTANT_AGENT_ID, assistantSessionId, memberMemory, memberNamespace, type MemberMemory } from './agents/assistant/identity.js';
+export { briefMessage, type BriefMessage } from './agents/brief/fanout.js';
