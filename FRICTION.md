@@ -62,6 +62,57 @@ removed from the design (2026-10-02).
 
 <!-- Newest first. -->
 
+## FL-046 — A Strands agent built per request: interrupts, sessions and memory each assume one long-lived agent
+
+*2026-10-16.*
+
+**Tool / API:**      Strands Agents TypeScript SDK 1.18 (`@strands-agents/sdk`: `BeforeToolCallEvent.interrupt`,
+                     `SessionManager`, `MemoryManager`); `bedrock-agentcore` 0.4.5
+                     (`experimental/memory/strands` `AgentCoreMemoryStore`); AgentCore Memory namespaces
+
+**Task attempted:**  Run the family assistant as one Strands `Agent` per AgentCore invocation (it must
+                     be built with the member's own token on its `McpClient`), pausing before every
+                     write for the member's yes and resuming in the next invocation, with the
+                     conversation in a `SessionManager` and the member's words in AgentCore Memory.
+
+**Steps taken:**     1. Raised an interrupt from `BeforeToolCallEvent` for every tool whose MCP
+                        `readOnlyHint` is not `true`, and resumed with `InterruptResponseContent` in a
+                        new agent restored by the `SessionManager`. This works across processes: the
+                        pending tool call is in the snapshot (services/agent/src/agents/assistant/turn.ts).
+                     2. Asked a new question while a write was waiting: the agent throws ("Agent is in
+                        an interrupted state"). There is no public way to drop a pending interrupt.
+                        Answering "no" with `limits: { turns: 1 }` closes it without a model call, but
+                        leaves the conversation ending on a tool result, so the next question makes two
+                        user messages in a row, which Bedrock's Converse refuses.
+                     3. Restored a session: `loadSnapshot` also restores the saved system prompt,
+                        replacing the one the agent was built with, so a prompt that says what day it
+                        is says the day of the first question.
+                     4. Gave a `MemoryManager` the official `AgentCoreMemoryStore`: its default
+                        extraction cadence counts turns of one agent, so an agent that lives for one
+                        question never writes; and the namespace can only use `{actorId}`,
+                        `{sessionId}` and `{memoryStrategyId}`, so "a member in a home" has to be the
+                        actor in the session.
+
+**Expected:**        Interrupts, sessions and memory documented for an agent rebuilt on every request,
+                     which is how a server that acts with each caller's credentials must build it.
+
+**Actual:**          Each works, each needs a step the docs do not mention: decline and close the turn
+                     by hand (an assistant message pushed to keep the roles alternating), set
+                     `agent.systemPrompt` again after `initialize()`, use `InvocationTrigger` and
+                     `flush()` before answering, and make the home the AgentCore session.
+
+**Severity:**        Important
+
+**Workaround:**      All four, in turn.ts and memory.ts, each tested with a scripted model against an
+                     in-process MCP server over real Streamable HTTP.
+
+**Suggestion:**      Add `agent.cancelInterrupts()` (or let a plain prompt resume an interrupted agent
+                     by declining what is pending), let `SessionManager` leave out the system prompt
+                     (`exclude: ['systemPrompt']`), document the per-request pattern with
+                     `InvocationTrigger`, and let a namespace template take caller-supplied values.
+
+---
+
 ## FL-044 — Vega's only documented toast API is a React hook, and the one place a toast is needed has no React tree
 
 *2026-10-16.*
