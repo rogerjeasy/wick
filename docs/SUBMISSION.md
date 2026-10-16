@@ -141,7 +141,8 @@ events (FL-027), and no outbound UDP in AgentCore Runtime (FL-017).
 
 A real Fire TV and a real Ring doorbell in a real home; the Alexa+ add-on the
 day access opens (the package is ready: `npm run addon:check -- --live`); the
-MCP latency fix (issue #47).
+connections kept open in front of the MCP server, so no call pays a new TLS
+connection (issue #47 found that cause; the server's own p95 is 18 ms).
 
 ---
 
