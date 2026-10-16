@@ -14,15 +14,20 @@
  *
  * The fade is the package's one animation: 200ms, opacity only.
  * When the platform says the viewer wants reduced motion, there is no fade.
+ *
+ * The reserved lines are the theme's (CalmPreferences.tsx): two lines at
+ * 40pt with larger text on. The detail is measured with the card at larger
+ * text (CalmCard `childWords`), and follows it if it falls back.
  */
 import * as React from 'react';
-import { Animated, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
+import { Animated, StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import { useReduceMotionEnabled } from './accessibility.js';
 import { CalmCard, type CalmCardProps } from './CalmCard.js';
-import { fontSize, safe } from './constraints.js';
+import { CalmText, useCalmStyles } from './CalmPreferences.js';
+import type { CalmTheme } from './theme.js';
 import { motion } from './tokens.js';
 
-export interface TwoPhaseCardProps extends Omit<CalmCardProps, 'detail'> {
+export interface TwoPhaseCardProps extends Omit<CalmCardProps, 'detail' | 'mediaSize'> {
   /**
    * Phase 2. Undefined means "nothing has arrived, and possibly never will" —
    * which is a supported end state, not a loading condition.
@@ -38,10 +43,10 @@ export interface TwoPhaseCardProps extends Omit<CalmCardProps, 'detail'> {
 }
 
 /** Two lines of reserved space, so arriving text displaces nothing. */
-const RESERVED_DETAIL_HEIGHT = fontSize('body') * 1.4 * 2;
+export const RESERVED_DETAIL_LINES = 2;
 
 export function TwoPhaseCard(props: TwoPhaseCardProps): React.JSX.Element {
-  const { detail, media, mediaSize, children, ...rest } = props;
+  const { detail, media, mediaSize, children, childWords, ...rest } = props;
   const opacity = React.useRef(new Animated.Value(detail ? 1 : 0)).current;
   const reduceMotion = useReduceMotionEnabled();
 
@@ -62,32 +67,40 @@ export function TwoPhaseCard(props: TwoPhaseCardProps): React.JSX.Element {
   return (
     <CalmCard
       {...rest}
-      media={mediaSize ? <View style={[styles.mediaSlot, mediaSize]}>{media}</View> : media}
+      mediaSize={mediaSize}
+      childWords={[...(childWords ?? []), detail]}
+      childLines={RESERVED_DETAIL_LINES}
+      media={mediaSize ? <MediaSlot size={mediaSize}>{media}</MediaSlot> : media}
     >
       {children}
       {/* Reserved whether or not Phase 2 ever lands. Nothing below this moves. */}
-      <View style={styles.detailSlot}>
-        <Animated.View style={{ opacity }}>
-          {detail ? <Text style={styles.detail}>{detail}</Text> : null}
-        </Animated.View>
-      </View>
+      <DetailSlot>
+        <Animated.View style={{ opacity }}>{detail ? <CalmText tone="dim">{detail}</CalmText> : null}</Animated.View>
+      </DetailSlot>
     </CalmCard>
   );
 }
 
-const styles = StyleSheet.create({
-  mediaSlot: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: safe.ground,
-  },
-  detailSlot: {
-    minHeight: RESERVED_DETAIL_HEIGHT,
-    justifyContent: 'flex-start',
-  },
-  detail: {
-    color: safe.inkDim,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    mediaSlot: {
+      borderRadius: 12,
+      overflow: 'hidden',
+      backgroundColor: t.palette.ground,
+    },
+    detailSlot: {
+      minHeight: t.lineHeight('body') * RESERVED_DETAIL_LINES,
+      justifyContent: 'flex-start',
+    },
+  });
+
+/** Drawn inside the card, so it is in the card's theme — the standard one if the card fell back. */
+function DetailSlot({ children }: { readonly children?: React.ReactNode }): React.JSX.Element {
+  const styles = useCalmStyles(makeStyles);
+  return <View style={styles.detailSlot}>{children}</View>;
+}
+
+function MediaSlot({ size, children }: { readonly size: { readonly width: number; readonly height: number }; readonly children?: React.ReactNode }): React.JSX.Element {
+  const styles = useCalmStyles(makeStyles);
+  return <View style={[styles.mediaSlot, size]}>{children}</View>;
+}

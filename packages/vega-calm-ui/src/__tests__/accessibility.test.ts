@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { watchAccessibility, type AccessibilitySource } from '../accessibility.js';
+import { announce, watchAccessibility, type AccessibilitySource } from '../accessibility.js';
 
 vi.mock('@amazon-devices/react-native-kepler', () => ({ AccessibilityInfo: {} }));
 
@@ -91,5 +91,50 @@ describe('watchAccessibility', () => {
     await settle();
     expect(() => stop()).not.toThrow();
     expect(seen).toEqual([true]);
+  });
+});
+
+describe('watchAccessibility — the platform’s high-contrast text', () => {
+  it('asks Vega’s isHighTextContrastEnabled, and follows highTextContrastChanged', async () => {
+    const { source, emit } = fakeSource(() => Promise.resolve(false));
+    const withContrast: AccessibilitySource = { ...source, isHighTextContrastEnabled: () => Promise.resolve(true) };
+    const seen: boolean[] = [];
+    watchAccessibility(withContrast, 'highTextContrast', (v) => seen.push(v));
+    await settle();
+    emit('highTextContrastChanged', false);
+    expect(seen).toEqual([true, false]);
+  });
+
+  it('stays off where the platform has no such setting: unknown is never on', async () => {
+    const { source } = fakeSource(() => Promise.resolve(true));
+    const seen: boolean[] = [];
+    watchAccessibility(source, 'highTextContrast', (v) => seen.push(v));
+    await settle();
+    expect(seen).toEqual([]);
+  });
+});
+
+describe('announce', () => {
+  it('hands the sentence to the platform’s screen reader', () => {
+    const said: string[] = [];
+    const { source } = fakeSource(() => Promise.resolve(true));
+    announce('Maria is at the door. Not now.', { ...source, announceForAccessibility: (s) => said.push(s) });
+    expect(said).toEqual(['Maria is at the door. Not now.']);
+  });
+
+  it('says nothing for nothing, and never throws where the platform cannot announce', () => {
+    const said: string[] = [];
+    const { source } = fakeSource(() => Promise.resolve(true));
+    announce('', { ...source, announceForAccessibility: (s) => said.push(s) });
+    expect(said).toEqual([]);
+    expect(() => announce('Hello', source)).not.toThrow();
+    expect(() =>
+      announce('Hello', {
+        ...source,
+        announceForAccessibility: () => {
+          throw new Error('not here');
+        },
+      }),
+    ).not.toThrow();
   });
 });
