@@ -17,6 +17,14 @@ has said Allow, and the "Connect a television" card links to a virtual
 television in a browser tab for anyone with no Fire TV to hand
 (`services/mcp-server/src/accounts/demo.ts`).
 
+**The first screen.** Signed out it says what Wick is in one sentence, with
+*Try the demo* first and *Sign in* second. Signed in with something left to
+set up, a short checklist says what to do next and ticks itself off from the
+server's own answers: her television connected, her Allow on the Circle card,
+a first question asked (`presentChecklist`). The address of the Wick server is
+a developer's business: the field is shown only when the page is opened with
+`?dev` (on a laptop it still defaults to `http://127.0.0.1:3300`).
+
 To try the whole journey with no AWS:
 `npx vite-node -c vitest.config.ts services/mcp-server/src/__tests__/devServer.ts`
 
@@ -71,9 +79,14 @@ type scale), that:
    (`routeUtterance`): it never goes silent and never makes an answer up;
 4. answers the way an assistant around an add-on does: **one sentence that
    stands alone spoken** (voice-only is the guide's baseline; "Speak answers"
-   reads it aloud), then **the cards the answer earned** — a list with "See
-   all" past four rows, the week measured against a usual one, a
-   confirmation — and a line saying, in plain words, what was done to answer;
+   reads it aloud), then **the cards the answer earned**, in the guide's
+   vocabulary — a header, the primary text, the picture where the tool
+   returned one, at most three actions: a list with "See all" past four
+   rows; the week as its paragraph, its measures against a usual week, and a
+   **carousel of its days** (only the days its timeline has something on,
+   five inline, "See all" for the rest); the door with its picture, the
+   vision model's sentence and the three answers; a confirmation — and a
+   line saying, in plain words, what was done to answer;
 5. shows a refusal as what it is. "Kept private" and "Not yet" are answers,
    in the server's own words, never an error.
 

@@ -93,8 +93,8 @@ the household is a demo home.
 | **Shall I tell …?** A day unlike the usual is put to her first. Vega Virtual Device, 12 October 2026. | **The visit, witnessed.** Only her "Yes" confirms it. Vega Virtual Device, 13 October 2026. |
 | ![The card "Your light is on." saying the family can see that her day has begun and nothing more, with Leave it on and Put it out for today](docs/screenshots/light-card-fireos.png) | ![After a film watched together: "That was Big Buck Bunny, with Sarah. What did you think of it?" with three answers](docs/screenshots/watch-together-credits-vega.png) |
 | **The light in the window.** Fire OS build on the Android TV emulator, 12 October 2026. | **Watch together**, at the credits. Vega Virtual Device, 12 October 2026. |
-| ![The family app: a guest asks to invite Mum to watch Big Buck Bunny, and the answer says the invitation is on her television](docs/screenshots/family-app-conversation.png) | ![The hold-for-Sarah card in Spanish: "¿Pedir a Guest que le llame?" with three buttons](docs/screenshots/hold-for-sarah-spanish-fireos.png) |
-| **The family app**, signed in as a demo guest, in a browser against the deployed stack, 12 October 2026. | **Hold for Sarah, in Spanish.** Fire OS build on the Android TV emulator, 13 October 2026. |
+| ![The family app on a laptop and on a phone, asked to look at the door: the picture from the stand-in doorbell, the vision model's sentence above it, and the three answers that go on her television](docs/screenshots/family-app-conversation.png) | ![The hold-for-Sarah card in Spanish: "¿Pedir a Guest que le llame?" with three buttons](docs/screenshots/hold-for-sarah-spanish-fireos.png) |
+| **The family app**, asked to look at the door: the picture, the vision model's sentence and her three answers, as a card. Laptop and phone widths, a demo guest against the deployed Wick server, 16 October 2026. | **Hold for Sarah, in Spanish.** Fire OS build on the Android TV emulator, 13 October 2026. |
 
 "Guest" is the name a demo account is given; "Margaret", "Sarah" and "Maria"
 are the demo home's fictional people.

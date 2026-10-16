@@ -61,6 +61,68 @@ removed from the design (2026-10-02).
 
 <!-- Newest first. -->
 
+## FL-040 — The Alexa+ MCP add-on design guide names Card, List and Carousel but gives none of them an anatomy, and its components page is not in its own navigation
+
+**Date:**            2026-10-16
+
+**Tool / API:**      Alexa+ MCP add-on design guide (developer.amazon.com/docs/alexaplus/add-ons/,
+                     the overview, Display Modes, Layout and Rendering, Visual Foundations and
+                     Components and Patterns pages, as published on 2026-10-16)
+
+**Task attempted:**  Draw the family app's answers — the door, the week, the visits, today, the
+                     light, a film invitation — as the cards an Alexa+ surface would show for an
+                     add-on's tool results: a header, primary text, an image where the tool
+                     returned one, and a few actions; and the week's days as a carousel.
+
+**Steps taken:**     1. Read the overview. Its navigation lists the conversation surface, tools and
+                        data, Display Modes and the glossary; the "Build a High-Quality Design"
+                        and "Get Ready for Customers" sections are collapsed with no links in them.
+                        The overview's only rule for a card is "one title, one or two supporting
+                        fields, one clear action".
+                     2. Read Display Modes (inline, fullscreen, hydrated, voice-only) and Layout
+                        and Rendering (Block and Card viewports, `hostContext`, CSP). Both point
+                        to "Components and Patterns" for components; neither links it from the
+                        navigation, and I reached it by its address
+                        (…/mcp-addon-components-and-patterns.html).
+                     3. Components and Patterns names four patterns — List, Carousel, Card, Map —
+                        and says not to invent others. The Card is "a single entity shown with an
+                        image and optional action buttons"; the Carousel returns "3 to 5 items in
+                        inline mode" and "See more" lazy-loads the rest.
+                     4. Read Visual Foundations for the card's parts: it has colours, spacing,
+                        radii and a type scale, and no anatomy.
+
+**Expected:**        For each pattern, its parts and their limits: which text is the header and
+                     which is primary or secondary, which type token each takes, the image's
+                     aspect ratio and place, how many calls to action a card may carry, how wide
+                     a carousel item is and what "See more" does on a web transcript surface.
+
+**Actual:**          None of those is written down. A Card has "an image and optional action
+                     buttons", with no count; a Carousel has an item count but no item size; the
+                     type tokens are not tied to any part of a card. Two builders following the
+                     guide would draw different cards, and neither could say which matches what
+                     Alexa+ renders natively in hydrated mode.
+
+**Severity:**        Nice-to-have — the cards were built, but on our reading, not the guide's.
+
+**Workaround:**      Took the guide's words literally and filled the gaps with Wick's own product
+                     rules: a header (Headline2) with a line under it, primary text at Body1, the
+                     picture first where the tool returned one, at most three actions (Wick's own
+                     "three, never four"); the week's carousel shows only days its timeline has
+                     something on, five inline (the top of the guide's three to five), and "See
+                     all" lays every day out in place rather than opening another surface
+                     (`apps/sim-alexa/surface.js` `weekDays`, `CAROUSEL_INLINE`; `main.js`
+                     `renderWeekCard`).
+
+**Suggestion:**      1. Put Components and Patterns, Layout and Rendering and Visual Foundations
+                        in the guide's navigation.
+                     2. Give each pattern an anatomy diagram with its parts named, the type token
+                        and spacing each takes, the image ratio, the maximum number of calls to
+                        action, and a carousel item's width per device class.
+                     3. Say what the hydrated (data-only) mode draws for a List, a Carousel and a
+                        Card, so an add-on that returns data knows what its customer will see.
+
+---
+
 ## FL-032 — Speech to text from a browser through App Runner has to be one buffered POST: App Runner has no WebSockets, says so only in a closed GitHub issue, and documents no request-body limit
 
 **Tool / API:**      AWS App Runner (an ECR image service, us-east-1) /
