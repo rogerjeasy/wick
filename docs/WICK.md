@@ -586,7 +586,7 @@ There's no Fire TV hardware, Ring doorbell or real resident in this project.
 | Door card to its picture | 2.7 s median |
 | The family line on an open connection | 230–241 ms p95, against Alexa+'s 500 ms target |
 | The family line on a new connection | 0.7–1.1 s, because App Runner closes idle connections |
-| Automated tests | 6,004, all passing, with the television's screens rendered |
+| Automated tests | 6,426, all passing, with the television's screens rendered |
 
 ### 13.3 Limitations
 

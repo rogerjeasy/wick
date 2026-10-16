@@ -1023,7 +1023,7 @@ stateDiagram-v2
     [*] --> HasReminder
     HasReminder --> WaitForReminder: a reminder was asked for
     HasReminder --> WaitForDoor: none
-    WaitForReminder --> Remind: 08:00 on the day, her time
+    WaitForReminder --> Remind: 08:00 on the day, her time,<br/>and before the window opens
     Remind --> WaitForDoor
     WaitForDoor --> Rang: door.rang inside the window
     WaitForDoor --> NoShow: the window ends
@@ -1033,7 +1033,7 @@ stateDiagram-v2
 ```
 
 - **`arrange_visit`** `{ who, date, time, reminder, tellMe }`. In one DynamoDB transaction it writes the errand (`ERRAND#<id>`) and a roster entry for the visitor (`PER#errand:<id>`, the expected moment ±60 minutes, filed under the member). Then it starts the state machine, named after the errand so a retry starts nothing twice. `who` must clear the Guardian: the errand's words reach the family again. Limits: 2 minutes to 60 days ahead, ten open errands per home.
-- **The door.** Every ring, real or stand-in, puts a `door.rang` event on the Wick bus after the card is made (best effort: it never delays the card). The `errand-door` Lambda finds the home's errand waiting on that window and wakes the workflow (`SendTaskSuccess`). The card itself already says who it looks like, through the roster, and adds "Sarah arranged this visit."
+- **The door.** Every press of the bell, real or stand-in, puts a `door.rang` event on the Wick bus after the card is made (best effort: it never delays the card). A person seen at the door who did not ring gets her card but is not a ring. The `errand-door` Lambda finds the home's errand waiting on that window and wakes the workflow (`SendTaskSuccess`). The card itself already says who it looks like, through the roster, and adds "Sarah arranged this visit."
 - **The reminder** is a note from the member, written by code from the phrasebook, in her language, DEFERRED: it waits for a natural break like any other note.
 - **The member is told** by Web Push (no names, no times in the payload) and sees the outcome in the family app: "Someone rang at 10:04, around when the plumber was expected", never "the plumber came". Whether it was the plumber is hers to say (M5).
 - **Every step asks again** whether the member is still allowed (INV-9). If not, the errand closes quietly and the roster entry goes.
