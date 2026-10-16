@@ -28,6 +28,17 @@ describe('guardReplyWith — the Guardrail on what the assistant says', () => {
     ]);
   });
 
+  it('grounds on the tools’ answers with their moments and weeks written out at the house’s time zone', async () => {
+    const g = guardrail({ action: 'NONE', assessments: [] });
+    const tool = JSON.stringify({ isoWeek: '2026-W41', timeline: [{ at: Date.UTC(2026, 9, 6, 9, 0), summary: 'Maria visited.' }] });
+
+    await guardReplyWith(g.send, REF)('Maria visited on Tuesday.', { question: 'How was her week?', toolTexts: [tool], timeZone: 'Europe/London' });
+
+    const source = g.asked[0]!.content!.find((c) => c.text?.qualifiers?.includes('grounding_source'))!.text!.text!;
+    expect(source).toContain('the week of Monday 5 October 2026');
+    expect(source).toContain('Tuesday 6 October 2026, 10:00');
+  });
+
   it('still asks the Guardrail about a reply that called no tool, a clarifying question: its topics and filters read it', async () => {
     const g = guardrail({ action: 'NONE', assessments: [] });
 

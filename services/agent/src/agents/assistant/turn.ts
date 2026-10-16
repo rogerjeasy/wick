@@ -88,7 +88,7 @@ export interface AssistantTurnDeps {
    * returned (guard.ts). False means the reply is not said. Absent, nothing is
    * asked of it. Never the member's question: asking after her is the point.
    */
-  readonly guardReply?: (say: string, grounding: { readonly question?: string; readonly toolTexts: readonly string[] }) => Promise<boolean>;
+  readonly guardReply?: (say: string, grounding: { readonly question?: string; readonly toolTexts: readonly string[]; readonly timeZone?: string }) => Promise<boolean>;
   /** Wick's MCP endpoint (WICK_MCP_URL). */
   readonly mcpUrl: string;
   /** Whose the token is, asked of the Wick server (verify.ts verifyWithWick). */
@@ -354,7 +354,7 @@ async function answer(request: AssistantTurnRequest, deps: AssistantTurnDeps): P
     // The member's words are written before the answer leaves: the microVM may idle after it.
     await agent.memoryManager?.flush();
     // The Guardrail reads the reply, grounded in the tools' own texts. One it refuses is not said.
-    if (say && deps.guardReply && !(await deps.guardReply(say, { ...(done.asked ? { question: done.asked } : {}), toolTexts: done.toolTexts }))) {
+    if (say && deps.guardReply && !(await deps.guardReply(say, { ...(done.asked ? { question: done.asked } : {}), toolTexts: done.toolTexts, timeZone }))) {
       console.log(JSON.stringify({ level: 'warn', msg: 'assistant_reply_guarded' }));
       return { ...done };
     }
