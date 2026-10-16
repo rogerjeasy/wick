@@ -30,7 +30,7 @@ if ! aws ssm get-parameter --region "$REGION" --name "$PARAMETER" >/dev/null 2>&
 fi
 
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"
-docker build --platform linux/amd64 -f services/mcp-server/Dockerfile -t "$REPO_URL:$TAG" . >&2
+docker build --platform linux/amd64 --build-arg WICK_COMMIT="$TAG" -f services/mcp-server/Dockerfile -t "$REPO_URL:$TAG" . >&2
 docker push "$REPO_URL:$TAG" >&2
 
 aws ssm put-parameter --region "$REGION" --name "$PARAMETER" --value "$TAG" --overwrite >/dev/null
