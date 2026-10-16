@@ -43,7 +43,7 @@
  */
 import { Agent, BedrockModel, Graph, type Model } from '@strands-agents/sdk';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import type { BriefSuggestion, RhythmDelta, TimelineEntry, WeekNarrative } from '@wick/contracts';
+import type { BriefSuggestion, RhythmDelta, SuggestedAction, TimelineEntry, WeekNarrative } from '@wick/contracts';
 import { clearForFamily, type HouseholdPolicy } from '@wick/policy';
 import { countWeek } from '../agents/narrator/index.js';
 import { isoWeekRange, type WeekRange } from '../agents/narrator/isoWeek.js';
@@ -110,7 +110,17 @@ export const WRITER_SYSTEM_PROMPT = `${NARRATIVE_SYSTEM_PROMPT}
 - Reply with the paragraph only.`;
 
 const WRITER_QUESTION = 'How was the week at home?';
-const SUGGESTER_QUESTION = 'What is one thing the family member could do about this week?';
+/**
+ * The question a reason answers, for the Guardrail's relevance score: the
+ * reason for a note is judged against "why send a note", not against a
+ * question about the whole week it was never trying to answer.
+ */
+const SUGGESTER_QUESTION: Readonly<Record<SuggestedAction, string>> = {
+  send_note: 'Why might the family member send a note to her television this week?',
+  arrange_visit: 'Why might the family member arrange a visit this week?',
+  watch_together: 'Why might the family member invite her to watch a film together this week?',
+  nothing: 'Why does this week need nothing more than reading it?',
+};
 
 export function briefModel(maxTokens: number): Model {
   return new BedrockModel({ modelId: NARRATIVE_MODEL_ID, region: NARRATIVE_REGION, maxTokens, temperature: 0.3 });
@@ -228,7 +238,7 @@ export function buildWeeklyBriefGraph(input: BriefInput, deps: WeeklyBriefDeps) 
       return 'nothing';
     }
     try {
-      const grounded = await checkWithGuardrail(deps.guardrail, deps.guardrailRef, { source: week.lines, query: SUGGESTER_QUESTION, content: verdict.suggestion.reason });
+      const grounded = await checkWithGuardrail(deps.guardrail, deps.guardrailRef, { source: week.lines, query: SUGGESTER_QUESTION[verdict.suggestion.action], content: verdict.suggestion.reason });
       if (!grounded.ok) {
         log({ level: 'warn', msg: 'brief_suggestion_refused', isoWeek: input.isoWeek, why: 'guardrail' });
         return 'nothing';

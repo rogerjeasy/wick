@@ -142,6 +142,9 @@ describe('the Sunday brief — analyst → writer → check → suggester → va
     expect(guarded).toEqual([GOOD_DRAFT, 'Maria did not visit this week.']);
     const source = s.guard.asked[0]!.content!.find((c) => c.text?.qualifiers?.includes('grounding_source'))!.text!.text!;
     expect(source).toContain('Someone came to the front door 3 times.');
+    // The reason is judged for relevance against the question it answers: why this action.
+    const query = s.guard.asked[1]!.content!.find((c) => c.text?.qualifiers?.includes('query'))!.text!.text!;
+    expect(query).toBe('Why might the family member arrange a visit this week?');
   });
 
   it('includes the visits the family arranged that week, and how they ended, in what the writer is told', async () => {
