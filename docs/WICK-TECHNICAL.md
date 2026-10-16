@@ -287,6 +287,13 @@ Every resident card obeys the same floor, enforced at render by `packages/vega-c
 | Auto-dismiss | Never | `no-auto-dismiss` |
 | Reachability | D-pad + OK only; no text entry | Design rule; every flow |
 | Settle time | A card takes no press for one second after it appears | `src/press/settle.ts` |
+| Larger text | Every size × 1.25 (floor 40 pt); a card's words stay whole | calm-ui `calmTheme`, `fitCard`; `home/homeLayout.ts` |
+| Higher contrast | Pure black and white, ≥ 15:1; 6 dp focus ring | calm-ui `checkTheme`, `theme.test.ts` |
+| No bypass | Every colour and size comes from the theme | `seeing/__tests__/noBypass.test.ts` |
+
+**Easier to see.** A pill on her home screen opens a card with exactly three buttons — *Larger text*, *Higher contrast*, *Back* — each saying how it stands (*"Larger text: on"*). A press changes the whole television at once: the choice reaches every screen through one `CalmPreferencesProvider` at the root (`src/seeing/SeeingProvider.tsx`), and every style sheet is a function of the theme (`useCalmStyles`). At larger text a card fits itself to the 960×540 dp screen (`fitCard`): first the compact card's spacing, then its headline at body size, and if its words would still not be whole it is drawn at the standard size — whole at 32 pt beats cut at 40. On the home screen the pills have a row of their own and the films' pictures take what the words leave; a title takes two lines rather than be cut. The platform's high-contrast text setting (`AccessibilityInfo.isHighTextContrastEnabled`, followed by `highTextContrastChanged`) is the default until she presses; Vega offers no text-size setting an app can read (FL-038). Her choice is kept in the app's own file store, on the television only — the Vega Virtual Device keeps nothing across launches (FL-013). A family member's own television stays at the standard size (its pages are measured at it) and follows the platform's contrast.
+
+**The screen reader.** With VoiceView on (`useScreenReaderEnabled`), each card that comes on screen is announced once through `AccessibilityInfo.announceForAccessibility` — the words Play would read (`src/read/announce.ts`); her pictures never fill an idle home screen (`mantel/idle.ts`); and the mark of the Play key is not drawn, because the reader already speaks the card.
 
 **Read to me.** While a card is on screen, the Play key asks for it to be read aloud in her language: its sentences, then what she can press. The voice is **Amazon Polly**'s, made at the edge when she asks (`services/edge-device/lambda/speech.mjs`), kept a day so the same card is made once, and answered only to the television that asked. A card never reads itself.
 
@@ -891,7 +898,7 @@ The plan was spine first (S1 door, S4a family line, S5 Guardian, S2 break engine
 | **Q4** | Does `kepler-file-system` give any at-rest protection, or is the device JWT plaintext? | Undocumented. Assumed plaintext, and the token is scoped accordingly (INV-1). On the Vega simulator, nothing written persists at all (FL-013). |
 | **Q5** | AgentCore Gateway or a custom Streamable HTTP server for MCP? | **Answered:** custom server, because it has to be its own OAuth authorization server with dynamic client registration for Alexa+, and Cognito decides identity. |
 | **Q6** | Audio ducking API, and whether it ducks another app's audio | Not pursued; Wick plays no sound of its own except a reading she asked for. |
-| **Q7** | Does the accessibility privilege expose contrast or reduced-motion preferences? | Reduced motion and screen-reader state are read through `AccessibilityInfo` (`vega-calm-ui`). No text-size or contrast preference API was found (L11). |
+| **Q7** | Does the accessibility privilege expose contrast or reduced-motion preferences? | Reduced motion, screen-reader state and high-contrast text are read through `AccessibilityInfo` (`vega-calm-ui`; Vega emits `screenReaderChanged` and `highTextContrastChanged`). No text-size preference API was found (L11, FL-038). |
 | **Q8** | Which MCP client makes the most legible demo? | The family app (`apps/sim-alexa`), which shows the tool call and its answer. |
 | **Q9** | Why is the deployed MCP server two-speed? | Open — issue #47 (§9.3). |
 

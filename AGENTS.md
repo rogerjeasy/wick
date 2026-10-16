@@ -357,6 +357,18 @@ From `docs/WICK.md` Part 5. The ones that most often get violated by accident:
   edit it by hand, and do not let a model choose one.
 - **No red, no badges, no beeps.** Not in any component, not ever.
 - **Minimum 32pt type, ≥7:1 contrast.** `packages/vega-calm-ui` enforces this; use it.
+- **Her television adapts to what she can see, everywhere at once.** Easier to
+  see (`apps/tv-vega/src/seeing/seeing.ts`) offers larger text (every size
+  times 1.25, so the floor is 40pt) and higher contrast (pure black and
+  white, held to 15:1, a 6dp focus ring). Both come through the one provider
+  at the root of the app (`seeing/SeeingProvider.tsx`) and vega-calm-ui's
+  theme. **Never** take a colour or a size straight from the tokens in a
+  screen: write its styles as a function of the theme (`useCalmStyles`).
+  `seeing/__tests__/noBypass.test.ts` fails on one that does. At larger text
+  a card's words must be whole: it takes less card around them first, and
+  falls back to the standard size rather than cut them (calm-ui `fitCard`).
+  When VoiceView is on, each card is announced once, the idle slideshow never
+  starts, and the Play mark is not drawn.
 - **One button.** Every resident action is reachable with D-pad + OK. No text entry anywhere.
 - **A press answers only what she has had time to see.** A card's buttons
   take no press for one second after that card comes on screen
