@@ -9,7 +9,7 @@ import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import type { ApplyGuardrailCommandInput } from '@aws-sdk/client-bedrock-runtime';
 import type { WeekNarrative } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
-import { BRIEF_NODES, runWeeklyBriefGraph, type BriefInput, type WeeklyBriefDeps } from '../weeklyBrief.js';
+import { BRIEF_NODES, WRITER_SYSTEM_PROMPT, runWeeklyBriefGraph, type BriefInput, type WeeklyBriefDeps } from '../weeklyBrief.js';
 import type { GuardrailReply } from '../../agents/brief/guardrail.js';
 import { STRUCTURED_OUTPUT_TOOL, TurnsModel, type Turn } from './turnsModel.js';
 
@@ -118,6 +118,16 @@ describe('the Sunday brief — analyst → writer → check → suggester → va
     expect(s.saved[0]!.timeline).toHaveLength(3);
     // INV-7: her copy goes to her television; nothing here marks it seen.
     expect(s.cards).toEqual([s.saved[0]]);
+  });
+
+  it('never asks the writer for a suggestion: the suggester makes the one suggestion, from a fixed menu', async () => {
+    // Live, the graph's task ("…and suggest one thing they could do") reached the writer, and every
+    // draft ended with advice of its own: too long the first time, ungrounded (0.02) the second.
+    const s = setup({ writer: [GOOD_DRAFT] });
+    await s.run();
+
+    expect(s.writer.seen[0]).not.toMatch(/suggest|one thing|could do/i);
+    expect(WRITER_SYSTEM_PROMPT).toMatch(/Never suggest anything the family could do/);
   });
 
   it('shows the writer counted facts only — never a raw timestamp — and the suggester only the actions the week allows', async () => {
