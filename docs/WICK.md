@@ -778,7 +778,7 @@ Keeping the thinking out of the television is the single most important structur
 | **Vega's content personalisation** | Lets an app tell the Fire TV home screen what has been watched. | The television behaves correctly, and Wick learns the rhythm without a new sensor. |
 | **Vega's media player and media controls** | The video engine, and the platform's transport controls ("Alexa, pause"). | Owning playback is what makes the Natural-Break Engine possible. |
 | **Vega's UI components** | The focus system that makes a directional pad work properly. | Native-feeling navigation. |
-| **The Fire OS build** | The same app on Android-based Fire TV, through four small adapters. | Widens the reach. Amazon publishes no Fire OS emulator, so it runs on the Android TV emulator. It has no background service. |
+| **The Fire OS build** | The same app on Android-based Fire TV, through four small adapters. | Widens the reach. Amazon publishes no Fire OS emulator, so it runs on the Android TV emulator. Its door reaches her behind another app through an Android foreground service and one notification (FL-035, FL-036). |
 | **A television in a browser tab** | A web page that pairs and receives cards exactly as a television does. | So anyone can try Wick with no Fire TV and no simulator. |
 
 ## 7.3 Layer 2 — The agent
@@ -925,7 +925,7 @@ This is the single biggest constraint on Wick. Vega has a background task system
 
 **What this means in practice:** the Door Card works as designed while Wick is the active application. If the resident is watching a different streaming app, Wick cannot currently interrupt it.
 
-**How we handle it:** Wick plays films itself, so in normal use it *is* the active app. Where it isn't, on Vega, Wick's background service posts a **system toast** over the other app — *"Someone's at the front door."* — with one button that brings Wick forward, and a second toast with the picture and the sentence when they are ready (FRICTION.md FL-022, FL-026). Only the door does this. The Fire OS build has no background service, and Fire OS's own guidance says an app should not send a heads-up notification while another app is in front. The feature request still stands: *a permissioned, rate-limited overlay surface for approved ambient applications, with a visible user permission prompt.*
+**How we handle it:** Wick plays films itself, so in normal use it *is* the active app. Where it isn't, on Vega, Wick's background service posts a **system toast** over the other app — *"Someone's at the front door."* — with one button that brings Wick forward, and a second toast with the picture and the sentence when they are ready (FRICTION.md FL-022, FL-026). Only the door does this. On Fire OS an Android foreground service posts one high-priority notification for the door, with one button that brings Wick forward; Amazon's guidance says an app should not send a heads-up while another app is in front, and Wick makes that exception for the front door only (FL-035). It has not been seen on a Fire TV: the Android TV emulator draws no third-party notification (FL-036). The feature request still stands: *a permissioned, rate-limited overlay surface for approved ambient applications, with a visible user permission prompt.*
 
 ### **L2 — Vega has no camera, no microphone, no Bluetooth and no presence sensors for third-party apps.** *(Severity: Important)* **→ FR**
 Verified against the real dependency lists of every official Vega sample app. There is no way for Wick to see or hear the room from the television itself.

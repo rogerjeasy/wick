@@ -263,6 +263,10 @@ no Fire OS emulator. `useTVEventHandler` handles the remote. Amazon's
   picture, Watch live, and still paired after a reinstall
   (`apps/tv-fireos/README.md`).
 - CI builds the APK on every change (`.github/workflows/tv-fireos.yml`).
+- Headless JS inside a foreground service ran the Vega app's own channel code
+  unchanged (2026-10-16). Because the service shares the app's process and
+  storage, it uses the app's token and her language, with none of the
+  hand-off Vega needs (FL-029).
 
 #### What needs work?
 
@@ -279,6 +283,14 @@ no Fire OS emulator. `useTVEventHandler` handles the remote. Amazon's
 - **`adb shell input` cannot hold a key.** Finding FL-028 took a virtual
   remote built on the kernel's `uinput`. Vega's `inputd-cli --holdDuration`
   already does this.
+- **The door outside the app** (FL-035, FL-036). The rule that matters — no
+  heads-up while another app is in front — is in a 2021 blog post, not on the
+  notifications page, and has no exception for a doorbell, which is the one
+  case it was written against. Nothing is said about foreground services on
+  Fire TV. And the Android TV emulator draws no notification of a
+  third-party app, so Wick's door notification (a `specialUse` foreground
+  service and one high-priority notification) was checked only through
+  `dumpsys notification`.
 
 #### How was your onboarding experience (getting from zero to hello world)
 

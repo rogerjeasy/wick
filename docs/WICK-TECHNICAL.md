@@ -300,7 +300,7 @@ Every resident card obeys the same floor, enforced at render by `packages/vega-c
 
 ### 3.7 The Fire OS build
 
-`apps/tv-fireos` has no screens of its own. It bundles `apps/tv-vega/src` and gives it Android in place of four Amazon packages (`react-native-kepler` → `react-native-tvos`; `react-native-w3cmedia` → ExoPlayer through `react-native-video`; `kepler-file-system` → key-value storage; `kepler-media-controls` → nothing yet). Amazon publishes no Fire OS emulator; it runs on the **Android TV emulator** (API 34), the alternative the hackathon FAQ names. It has no background service, so no toast over another app. See [`apps/tv-fireos/README.md`](../apps/tv-fireos/README.md) for what has and has not been seen on the emulator.
+`apps/tv-fireos` has no screens of its own. It bundles `apps/tv-vega/src` and gives it Android in place of four Amazon packages (`react-native-kepler` → `react-native-tvos`; `react-native-w3cmedia` → ExoPlayer through `react-native-video`; `kepler-file-system` → key-value storage; `kepler-media-controls` → nothing yet). Amazon publishes no Fire OS emulator; it runs on the **Android TV emulator** (API 34), the alternative the hackathon FAQ names. Its door outside Wick is an Android foreground service running the shared channel code through Headless JS on the television's background WebSocket, which posts one high-priority notification for a door card (and nothing for anything else) — Amazon's guidance says no heads-up over another app, and Wick departs from it for the door only (FL-035); the emulator draws no third-party notification, so it was checked through `dumpsys` (FL-036). See [`apps/tv-fireos/README.md`](../apps/tv-fireos/README.md) for what has and has not been seen on the emulator.
 
 ### 3.8 Other televisions
 
@@ -862,7 +862,7 @@ Each was a decision gate before design depended on it.
 
 | # | Spike | Outcome |
 |---|---|---|
-| **SP-1** | Can anything render over another app's playback? | **Partly.** A third-party Vega app cannot draw over another app, but its background service can post a **system toast** with a button that brings Wick forward (FL-022, FL-026). The door uses it; nothing else interrupts another app. Fire OS: not built. |
+| **SP-1** | Can anything render over another app's playback? | **Partly.** A third-party Vega app cannot draw over another app, but its background service can post a **system toast** with a button that brings Wick forward (FL-022, FL-026). The door uses it; nothing else interrupts another app. Fire OS: a foreground service posts a high-priority Android notification for the door (FL-035); not seen drawn — the Android TV emulator draws none (FL-036). |
 | **SP-2** | Ring snapshot latency | **3.15 s** end to end (n = 3), and the call returns a *recorded* frame, not a live one (FL-005). Phase 1 ships without a picture. |
 | **SP-3** | Ring WHEP on Vega | Vega has no WebRTC and its WebView crashed on the simulator (FL-015). Bridged instead: WHEP → werift → ffmpeg → HLS in a Lambda, because the AgentCore microVM has no outbound UDP (FL-017). Works on both simulators with the Playground camera. |
 | **SP-4** | Alexa+ add-on access | Partner-gated, no application path (FL-001). The MCP server was built to the spec anyway and exercised through MCP Inspector and the family app. |

@@ -174,7 +174,7 @@ $ANDROID_HOME/platform-tools/adb install -r android/app/build/outputs/apk/releas
 $ANDROID_HOME/platform-tools/adb shell am start -n com.wick.tv/.MainActivity
 ```
 
-The build has no background service, so no system toast over another app.
+The build starts an Android foreground service once it is paired, and a door card that arrives while another app is in front becomes one notification. The Android TV emulator draws no third-party notification ([FL-036](../FRICTION.md)): read it with `adb shell dumpsys notification`, or run the same APK on an Android phone emulator to see it drawn.
 
 ---
 
