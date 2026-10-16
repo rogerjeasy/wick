@@ -31,7 +31,7 @@ import * as React from 'react';
 import { BackHandler, StyleSheet, Text, View, useKeplerAppStateManager } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import { FAMILY_TV_SEAT_EVERY_MS, type FamilyTvPress, type FamilyTvSeat } from '@wick/contracts';
-import { CalmCard, assertContrast, fontSize, safe } from '@wick/vega-calm-ui';
+import { CalmCard, assertContrast, useCalmStyles, useCalmTheme, type CalmTheme } from '@wick/vega-calm-ui';
 import { refuseFilmCommands } from '../media/noFilm.js';
 import type { FamilyClient, SeatAnswer } from './familyClient.js';
 import { ALL_RIGHT, SOMETHING_WAITS } from './familyScreen.js';
@@ -67,8 +67,10 @@ interface Heard {
 const KEEP_UP_EVERY_MS = 1000;
 
 export function FamilySeat({ client, onScreen, waiting, onLeave, onAnswer, onRefused }: FamilySeatProps): React.JSX.Element {
-  assertContrast(safe.ink, safe.raised);
-  assertContrast(safe.inkDim, safe.raised);
+  const theme = useCalmTheme();
+  const styles = useCalmStyles(makeStyles);
+  assertContrast(theme.palette.ink, theme.palette.raised, theme.minContrast);
+  assertContrast(theme.palette.inkDim, theme.palette.raised, theme.minContrast);
 
   // No media session here: "Alexa, pause" in this room reaches neither her film nor this copy of it.
   // Once, as the seat opens: the app's component does not change while it runs.
@@ -276,47 +278,48 @@ function SeatFilm({ url, durationMs, heard, onFailed }: SeatFilmProps): React.JS
   return player ? <KeplerVideoView videoPlayer={player} style={StyleSheet.absoluteFill} scalingmode="fit" /> : null;
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  // Where the resident's watch screen says what it has to (watch/WatchScreen.tsx), to the dp.
-  notice: {
-    position: 'absolute',
-    left: 48,
-    bottom: 32,
-    backgroundColor: safe.raised,
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    gap: 4,
-  },
-  // At the top, clear of the notice and of the question's card.
-  waiting: {
-    position: 'absolute',
-    left: 48,
-    top: 32,
-    backgroundColor: safe.raised,
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-  },
-  noticeText: {
-    color: safe.ink,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-  attribution: {
-    color: safe.inkDim,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-  // The resident's card layer (ResidentApp.tsx), to the dp.
-  cardLayer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    paddingHorizontal: 48,
-    paddingBottom: 32,
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: '#000000',
+    },
+    // Where the resident's watch screen says what it has to (watch/WatchScreen.tsx), to the dp.
+    notice: {
+      position: 'absolute',
+      left: 48,
+      bottom: 32,
+      backgroundColor: t.palette.raised,
+      borderRadius: 16,
+      paddingVertical: 16,
+      paddingHorizontal: 24,
+      gap: 4,
+    },
+    // At the top, clear of the notice and of the question's card.
+    waiting: {
+      position: 'absolute',
+      left: 48,
+      top: 32,
+      backgroundColor: t.palette.raised,
+      borderRadius: 16,
+      paddingVertical: 16,
+      paddingHorizontal: 24,
+    },
+    noticeText: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+    attribution: {
+      color: t.palette.inkDim,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+    // The resident's card layer (ResidentApp.tsx), to the dp.
+    cardLayer: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'flex-end',
+      paddingHorizontal: 48,
+      paddingBottom: 32,
+    },
+  });

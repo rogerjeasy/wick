@@ -15,7 +15,7 @@
 import * as React from 'react';
 import { Image, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import type { HouseholdLanguage } from '@wick/contracts';
-import { fontSize, safe } from '@wick/vega-calm-ui';
+import { useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import { words } from '../words/words.js';
 
 export interface PictureProps {
@@ -32,6 +32,7 @@ export interface PictureProps {
 
 export function Picture({ uri, fromName, language, onFailed, wordless }: PictureProps): React.JSX.Element {
   const say = words(language);
+  const styles = useCalmStyles(makeStyles);
   // Which address failed, not just that one did: a new address is a new try.
   const [failed, setFailed] = React.useState<string | undefined>(undefined);
   const shown = uri !== undefined && failed !== uri;
@@ -58,26 +59,27 @@ export function Picture({ uri, fromName, language, onFailed, wordless }: Picture
   );
 }
 
-const styles = StyleSheet.create({
-  // Fills whatever box it is put in; what is not picture is the ground.
-  box: {
-    flex: 1,
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: safe.ground,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  picture: {
-    width: '100%',
-    height: '100%',
-  },
-  line: {
-    color: safe.inkDim,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-    textAlign: 'center',
-    paddingHorizontal: 16,
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    // Fills whatever box it is put in; what is not picture is the ground.
+    box: {
+      flex: 1,
+      alignSelf: 'stretch',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: t.palette.ground,
+      borderRadius: 12,
+      overflow: 'hidden',
+    },
+    picture: {
+      width: '100%',
+      height: '100%',
+    },
+    line: {
+      color: t.palette.inkDim,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+      textAlign: 'center',
+      paddingHorizontal: 16,
+    },
+  });

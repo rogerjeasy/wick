@@ -20,9 +20,9 @@
  * it sends this one (mantel/mantel.ts pictureRefresher).
  */
 import * as React from 'react';
-import { StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
+import { StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import type { HouseholdLanguage, PhotoCard as PhotoCardModel } from '@wick/contracts';
-import { CalmCard, assertCardFits, fontSize, safe } from '@wick/vega-calm-ui';
+import { CalmCard, CalmText, assertCardFits } from '@wick/vega-calm-ui';
 import { Picture } from '../mantel/Picture.js';
 import { PHOTO_BOX, PHOTO_CARD_COMPACT, PHOTO_NOTICE_LINES, pictureAddress } from './photoLayout.js';
 
@@ -51,6 +51,8 @@ export function PhotoCardView({ card, language, onAction, onPictureFailed }: Pho
       actions={card.actions}
       onAction={onAction}
       compact={PHOTO_CARD_COMPACT}
+      mediaSize={PHOTO_BOX}
+      childWords={[card.notice]}
       media={
         <View style={styles.box}>
           <Picture uri={uri} fromName={card.fromName} language={language} onFailed={onPictureFailed} />
@@ -59,9 +61,9 @@ export function PhotoCardView({ card, language, onAction, onPictureFailed }: Pho
     >
       {/* Her mantelpiece is full: said under the headline, as the door card says what a press led to. */}
       {card.notice ? (
-        <Text style={styles.notice} numberOfLines={PHOTO_NOTICE_LINES} accessibilityLiveRegion="polite">
+        <CalmText numberOfLines={PHOTO_NOTICE_LINES} accessibilityLiveRegion="polite">
           {card.notice}
-        </Text>
+        </CalmText>
       ) : null}
     </CalmCard>
   );
@@ -71,10 +73,5 @@ const styles = StyleSheet.create({
   box: {
     width: PHOTO_BOX.width,
     height: PHOTO_BOX.height,
-  },
-  notice: {
-    color: safe.ink,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
   },
 });

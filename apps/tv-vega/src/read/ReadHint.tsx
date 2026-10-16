@@ -13,7 +13,7 @@
 import * as React from 'react';
 import { StyleSheet, View } from '@amazon-devices/react-native-kepler';
 import type { Card, HouseholdLanguage } from '@wick/contracts';
-import { safe } from '@wick/vega-calm-ui';
+import { useCalmStyles, useCalmTheme, type CalmTheme } from '@wick/vega-calm-ui';
 import { words } from '../words/words.js';
 import { HINT_MARK, hintPlace } from './hintPlace.js';
 
@@ -23,7 +23,8 @@ export interface ReadHintProps {
 }
 
 export function ReadHint({ cardType, language }: ReadHintProps): React.JSX.Element {
-  const place = hintPlace(cardType);
+  const place = hintPlace(cardType, useCalmTheme());
+  const styles = useCalmStyles(makeStyles);
   return (
     <View
       style={[styles.hint, { right: place.right, bottom: place.bottom }]}
@@ -37,21 +38,22 @@ export function ReadHint({ cardType, language }: ReadHintProps): React.JSX.Eleme
   );
 }
 
-const styles = StyleSheet.create({
-  hint: {
-    position: 'absolute',
-    width: HINT_MARK.width,
-    height: HINT_MARK.height,
-  },
-  // A triangle pointing right: no width or height of its own, only borders.
-  mark: {
-    width: 0,
-    height: 0,
-    borderTopWidth: HINT_MARK.height / 2,
-    borderBottomWidth: HINT_MARK.height / 2,
-    borderLeftWidth: HINT_MARK.width,
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-    borderLeftColor: safe.ink,
-  },
-});
+const makeStyles = (t: CalmTheme) =>
+  StyleSheet.create({
+    hint: {
+      position: 'absolute',
+      width: HINT_MARK.width,
+      height: HINT_MARK.height,
+    },
+    // A triangle pointing right: no width or height of its own, only borders.
+    mark: {
+      width: 0,
+      height: 0,
+      borderTopWidth: HINT_MARK.height / 2,
+      borderBottomWidth: HINT_MARK.height / 2,
+      borderLeftWidth: HINT_MARK.width,
+      borderTopColor: 'transparent',
+      borderBottomColor: 'transparent',
+      borderLeftColor: t.palette.ink,
+    },
+  });
