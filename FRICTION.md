@@ -62,6 +62,50 @@ removed from the design (2026-10-02).
 
 <!-- Newest first. -->
 
+## FL-045 — A Step Functions Wait takes a moment, but a task's timeout only takes seconds from now
+
+*2026-10-16.*
+
+**Tool / API:**      AWS Step Functions, Amazon States Language (JSONPath): `Wait.TimestampPath`,
+                     `Task.TimeoutSecondsPath`, `arn:aws:states:::lambda:invoke.waitForTaskToken`
+
+**Task attempted:**  A visit errand (infra/errand.asl.json): wait until her reminder, then wait at the
+                     door for a ring until the end of the visit's window — an absolute moment, an hour
+                     after the time the family member gave — and say nobody came if it passes.
+
+**Steps taken:**     1. The reminder is a Wait with `TimestampPath`: an ISO 8601 moment from the
+                        execution's input. That works as written.
+                     2. The door is a task with a task token, so its end has to be its timeout. Read
+                        the Task state reference (docs.aws.amazon.com/step-functions/latest/dg/
+                        state-task.html, 2026-10-16): `TimeoutSeconds` is "a positive, non-zero
+                        integer", counted from when the task starts; `TimeoutSecondsPath` selects one
+                        from the input, "JSONPath only". There is no `TimeoutTimestampPath`.
+                     3. Looked for a way to turn the window's end into seconds in the definition. The
+                        JSONPath intrinsic functions have arithmetic (`States.MathAdd`) but nothing
+                        that reads a timestamp or the clock.
+
+**Expected:**        A task's deadline could be given the way a Wait's is: as a moment.
+
+**Actual:**          Only as seconds from the task's own start, which depends on when the steps
+                     before it ran — here, whenever the reminder was sent. JSONata could compute it,
+                     but a state is in one query language or the other, and the rest of the machine
+                     reads and places results with JSONPath.
+
+**Severity:**        Nice-to-have
+
+**Workaround:**      The seconds are counted in code: by the Wick server when the execution starts
+                     (for an errand with no reminder) and by the reminder step for one with
+                     (services/agent agents/errand/machine.ts `doorWaitSeconds`, at least 60), and
+                     the door task reads them with `TimeoutSecondsPath`. A test walks every path of
+                     the machine to hold the two to each other (errand/__tests__/asl.test.ts).
+
+**Suggestion:**      Add `TimeoutTimestamp` / `TimeoutTimestampPath` to Task states, mirroring Wait's
+                     `Timestamp` / `TimestampPath`, so a callback can be given a deadline that is a
+                     time of day; or document the JSONata expression that does it in the callback
+                     pattern's guide.
+
+---
+
 ## FL-044 — Vega's only documented toast API is a React hook, and the one place a toast is needed has no React tree
 
 *2026-10-16.*
