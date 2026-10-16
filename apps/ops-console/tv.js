@@ -882,6 +882,14 @@ useTvPage({
   home: renderHome,
   connected: channelOpened,
   closed: channelClosed,
+  // Disconnected from the family app: the pairing screen again, with a new code, as on Vega.
+  gone() {
+    clearInterval(tick);
+    tick = null;
+    keptCards = [];
+    currentQueuedCard = null;
+    void pairUntilPaired();
+  },
   filmStarted,
   filmStopped,
   filmFailed,

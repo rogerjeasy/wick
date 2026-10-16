@@ -106,6 +106,22 @@ describe('pairing — the code, large, and one sentence on where to enter it', (
   });
 });
 
+describe('disconnected from the family app — the pairing screen again, as on Vega', () => {
+  it('shows a new code once the pairing service says no home holds this television', async () => {
+    const tv = await atHome();
+    tv.advance(60_000);
+    const refresh = tv.asked.find((a) => a.url.endsWith('/pair/refresh'))!;
+    refresh.answer(404);
+    await tv.settle();
+
+    expect(tv.says()).toContain(WORDS.en['pairing.gettingCode']);
+    tv.asked.find((a) => a.url.endsWith('/pair/start'))!.answer(200, { code: '654321' });
+    await tv.settle();
+    expect(tv.says()).toContain('654 321');
+    expect(tv.tab.size).toBe(0);
+  });
+});
+
 describe('the home screen — what the Vega home shows', () => {
   it('asks what she would like to watch, beside her light, over the three films, with who looked in and “Easier to see”', async () => {
     const tv = await atHome();

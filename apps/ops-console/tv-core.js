@@ -84,6 +84,7 @@ const tvScreen = document.getElementById('tv-screen');
  *   keep(kept, queued)                 keeps a card that has arrived, in place of keepCard
  *   pressed(card, actionId, finished)  one of a card's buttons was pressed (its card_action already sent)
  *   closed(opened)                     the card channel has closed; whether it had opened
+ *   gone()                             the pairing service says this television is no longer in a home
  */
 const tvPage = {};
 
@@ -660,6 +661,8 @@ function televisionGone() {
   setPairDisabled(false);
   setTelemetryEnabled(false);
   renderNoLongerConnected();
+  // A television with nothing around it to press shows its pairing code again, as the television's own app does (tv.js).
+  tvPage.gone?.();
 }
 
 // Back in front after being behind another tab: asked at once, if it may be.
