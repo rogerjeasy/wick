@@ -135,6 +135,30 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["arn:aws:states:${local.region}:${local.account_id}:stateMachine:wick-*"]
   }
 
+  # The agents' Bedrock Guardrail (infra/guardrail.tf): the guardrail and its
+  # published versions, and nothing that applies or lists any other.
+  statement {
+    sid = "ManageTheAgentsGuardrail"
+    actions = [
+      "bedrock:CreateGuardrail",
+      "bedrock:UpdateGuardrail",
+      "bedrock:DeleteGuardrail",
+      "bedrock:GetGuardrail",
+      "bedrock:CreateGuardrailVersion",
+      "bedrock:ListTagsForResource",
+      "bedrock:TagResource",
+      "bedrock:UntagResource",
+    ]
+    resources = ["arn:aws:bedrock:${local.region}:${local.account_id}:guardrail/*"]
+  }
+
+  # Creating a guardrail names no resource until it exists.
+  statement {
+    sid       = "CreateAGuardrail"
+    actions   = ["bedrock:CreateGuardrail", "bedrock:ListGuardrails"]
+    resources = ["*"]
+  }
+
   # Checking a definition before it is written names no resource.
   statement {
     sid       = "ValidateAStateMachineDefinition"
