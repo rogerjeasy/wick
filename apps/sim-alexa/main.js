@@ -296,7 +296,8 @@ function signedOut(reason) {
   enableToolButtons(false);
   // No home, so no stand-in doorbell among the chips.
   showSuggestions();
-  setStatus(reason);
+  // Plainly signed out is what the first screen already shows: the bar does not say it again.
+  setStatus(reason, reason === 'Not connected' ? 'signed-out' : 'idle');
   // The link card is back on screen, so its demo button must be decided
   // again: a link that had expired used to leave it hidden.
   void offerDemoIfAllowed();
@@ -587,7 +588,8 @@ function cardHead(node, title, meta) {
   return head;
 }
 
-function renderDoorCard(card) {
+/** @param {string} [said]  the sentence above it: the vision model's sentence is not shown twice, and stays the picture's alt text */
+function renderDoorCard(card, said) {
   const node = el('article', 'card door');
   // The picture first, as on her television: it is what she is asking about.
   if (card.pictureUrl) {
@@ -600,7 +602,7 @@ function renderDoorCard(card) {
   }
   cardHead(node, card.title, card.meta);
   if (!card.pictureUrl) node.appendChild(el('p', 'empty', 'The picture has not arrived yet.'));
-  if (card.description) node.appendChild(el('p', 'primary-text door-description', card.description));
+  if (card.description && !String(said ?? '').includes(card.description)) node.appendChild(el('p', 'primary-text door-description', card.description));
 
   const answers = el('div', 'door-answers');
   answers.setAttribute('role', 'group');
@@ -752,7 +754,7 @@ async function answerFromCard(tool, requestId, answer, buttons, pressed) {
  * @param {string} [said]  the sentence above it, so that a card does not say it again
  */
 function renderCard(card, said) {
-  if (card.kind === 'door') return renderDoorCard(card);
+  if (card.kind === 'door') return renderDoorCard(card, said);
   if (card.kind === 'week') return renderWeekCard(card, said);
   if (card.kind === 'reach') return renderReachCard(card);
   if (card.kind === 'visits') return renderVisitsCard(card);
@@ -1114,7 +1116,7 @@ async function lookForDoorQuestion() {
     const known = presented.card?.kind === 'door' ? announcedDoorQuestions.get(presented.card.requestId) : undefined;
     if (known && known.shown !== text && !known.turn.querySelector('.door-answers button:disabled')) {
       known.shown = text;
-      known.turn.querySelector('.card.door')?.replaceWith(renderCard(presented.card));
+      known.turn.querySelector('.card.door')?.replaceWith(renderCard(presented.card, presented.say));
     }
   } catch {
     // A look that failed is tried again; nothing is said about it.
@@ -1918,11 +1920,11 @@ function addConnectTelevision({ prefill, wanted } = {}) {
     // Nobody needs a Fire TV to see the resident's side: a television in a
     // browser tab pairs with the same code and shows the same cards.
     const hint = el('p', 'empty', 'No Fire TV to hand? ');
-    const tv = el('a', undefined, 'Open a virtual television');
+    const tv = el('a', undefined, 'Open her television in a browser tab');
     tv.href = me.virtualTelevisionUrl;
     tv.target = '_blank';
     tv.rel = 'noopener';
-    hint.append(tv, ', press “Pair & connect” there, and enter its code here.');
+    hint.append(tv, ' and enter the code on the television here.');
     rest.appendChild(hint);
   }
 
@@ -2811,7 +2813,7 @@ function stopChecklist() {
   checklist = null;
 }
 
-/** Fills the checklist's steps for how things stand now. Its parts are made once, so a screen reader hears the change. */
+/** Fills the checklist's steps for how things stand now. The line under them is a live region: "All set." is heard when it comes. */
 function fillChecklist(view) {
   if (!checklist || !view) return;
   checklist.action = null;

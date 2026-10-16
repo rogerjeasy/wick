@@ -1584,7 +1584,7 @@ export function presentChecklist(me, televisions, asked) {
     steps.push({
       key: 'television',
       title: `Connect ${resident}’s television`,
-      detail: connected ? 'Connected.' : 'Open Wick on her television, or a virtual one in a browser tab, and enter the six-digit code it shows.',
+      detail: connected ? 'Connected.' : 'Open Wick on her television, or her television in a browser tab, and enter the code on the television.',
       done: connected,
       action: { kind: 'connect', label: 'Connect a television' },
     });
