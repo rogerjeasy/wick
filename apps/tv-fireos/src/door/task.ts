@@ -25,3 +25,6 @@ export async function doorTask(): Promise<void> {
 
 /** Wick is on screen with this television's token (overrides/launchCardService.ts). */
 export const reconsiderDoor = runner.reconsider;
+
+/** Wick is on screen and keeps no token: nothing of any home is held or shown behind another app. */
+export const stopDoor = runner.stop;

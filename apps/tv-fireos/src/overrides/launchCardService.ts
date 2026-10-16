@@ -16,7 +16,8 @@
  *     at is now on the screen, which is all the notification was for.
  *   - A door service still holding the connection of the television this
  *     was before it was paired again is made to take it up anew, with the
- *     token the app keeps now (door/doorService.ts `doorRunner`).
+ *     token the app keeps now (door/doorService.ts `doorRunner`); and with
+ *     no token kept, it is stopped and nothing is started.
  *   - On Android 13 and later she is asked, once, whether Wick may put up
  *     notifications (door/doorAlert.ts `shouldAskToNotify`). Fire OS 7 and 8
  *     never ask.
@@ -32,25 +33,14 @@
 import { words } from '../../../tv-vega/src/words/words.js';
 import { KeplerFileSystem } from '../adapters/fileSystem';
 import { shouldAskToNotify } from '../door/doorAlert';
-import { TOKEN_PATH } from '../../../tv-vega/src/pairing/PairingFlow.js';
-import { rememberedLanguage, type Whose } from '../door/doorService';
+import { keptWhose, rememberedLanguage } from '../door/doorService';
 import { askToNotify, doorModule, notifyPermission } from '../door/native';
-import { reconsiderDoor } from '../door/task';
+import { reconsiderDoor, stopDoor } from '../door/task';
 
 export const CARD_SERVICE_URI = '';
 
 /** Written once she has been asked, so she is never asked again. Her answer is Android's to keep, not this file's. */
 const ASKED_PATH = '/data/wick-notifications-asked.json';
-
-/** Whose television the app holds now: the token it keeps. */
-async function whoseNow(): Promise<Whose | undefined> {
-  try {
-    const kept = JSON.parse(await KeplerFileSystem.readFileAsString(TOKEN_PATH, 'utf8')) as Partial<Whose> | null;
-    return typeof kept?.deviceId === 'string' && typeof kept.householdId === 'string' ? { deviceId: kept.deviceId, householdId: kept.householdId } : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /** Never throws, like the original: without the service Wick still works whenever it is on screen. */
 export async function launchCardService(_openURL: (uri: string) => Promise<unknown>): Promise<void> {
@@ -58,9 +48,14 @@ export async function launchCardService(_openURL: (uri: string) => Promise<unkno
   if (!door) return;
   try {
     await door.clearAll();
+    const whose = await keptWhose(KeplerFileSystem);
+    // No token kept (disconnected, not paired, or let go): nothing of any home is held behind another app.
+    if (!whose) {
+      stopDoor();
+      return;
+    }
     // Paired again since the service took up its connection: it is taken up again, for this television.
-    const whose = await whoseNow();
-    if (whose) reconsiderDoor(whose);
+    reconsiderDoor(whose);
     const permission = await notifyPermission();
     const askedBefore = await KeplerFileSystem.exists(ASKED_PATH);
     if (shouldAskToNotify({ ...permission, askedBefore })) {

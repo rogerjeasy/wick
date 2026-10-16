@@ -8,7 +8,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ControlMessage, QueuedCard } from '@wick/contracts';
-import { doorRunner, holdDoor, LANGUAGE_PATH, type DoorAlerts, type DoorHold, type Whose } from '../door/doorService.js';
+import { doorRunner, holdDoor, keptWhose, LANGUAGE_PATH, type DoorAlerts, type DoorHold, type Whose } from '../door/doorService.js';
 import type { DoorAlert } from '../door/doorAlert.js';
 import { QueueStore, type FileSystemLike } from '../../../tv-vega/src/headless/QueueStore.js';
 
@@ -208,7 +208,7 @@ describe('the door service on Fire OS', () => {
     const fetchImpl = (async () => new Response('device_not_paired', { status: 404 })) as unknown as typeof fetch;
     held = holdDoor({ fs: memoryFs(), config: CONFIG, createChannel: channel.createChannel, fetchImpl, alerts: recordingAlerts() });
 
-    await expect(held.done).resolves.toBeUndefined();
+    await expect(held.done).resolves.toBe('over');
     expect(channel.asked).toEqual([]);
   });
 
@@ -222,7 +222,7 @@ describe('the door service on Fire OS', () => {
       alerts: recordingAlerts(),
     });
 
-    await expect(held.done).resolves.toBeUndefined();
+    await expect(held.done).resolves.toBe('over');
     expect(channel.asked).toEqual([]);
   });
 
@@ -233,7 +233,7 @@ describe('the door service on Fire OS', () => {
 
     held.stop();
 
-    await expect(held.done).resolves.toBeUndefined();
+    await expect(held.done).resolves.toBe('over');
     expect(channel.closed()).toBe(1);
   });
 
@@ -262,8 +262,8 @@ describe('the door service across a new pairing', () => {
   /** A hold the test ends, saying whose token it holds. */
   function standInHold(whose: Whose) {
     let end: () => void = () => undefined;
-    const done = new Promise<void>((resolve) => {
-      end = resolve;
+    const done = new Promise<'over' | 'retake'>((resolve) => {
+      end = () => resolve('over');
     });
     let stopped = false;
     const hold: DoorHold = {
@@ -350,5 +350,139 @@ describe('the door service across a new pairing', () => {
     void runner.run();
 
     expect(holds).toHaveLength(2);
+  });
+});
+
+/** Channels the test can tell apart: each its own handlers, and whether it was closed. */
+function standInChannels() {
+  const made: { token: { jwt: string; householdId: string }; card: (c: QueuedCard) => void; closed: boolean; state: 'open' | 'closed' }[] = [];
+  const createChannel = async (_config: unknown, token: unknown) => {
+    const cards = new Set<(c: QueuedCard) => void>();
+    const one = {
+      token: token as { jwt: string; householdId: string },
+      card: (c: QueuedCard) => cards.forEach((h) => h(c)),
+      closed: false,
+      state: 'open' as 'open' | 'closed',
+    };
+    made.push(one);
+    return {
+      get state() {
+        return one.state;
+      },
+      onCard: (h: (c: QueuedCard) => void) => {
+        cards.add(h);
+        return () => cards.delete(h);
+      },
+      onControl: () => () => undefined,
+      send: async () => undefined,
+      connect: async () => undefined,
+      close: () => {
+        one.closed = true;
+      },
+    };
+  };
+  return { made, createChannel };
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe('the door service follows the token the app keeps (INV-1, INV-8)', () => {
+  it('reads whose television the app holds from its token, and nothing for a family television or none', async () => {
+    expect(await keptWhose(await pairedAs(resident))).toEqual({ deviceId: 'tv-1', householdId: 'hh-1' });
+    expect(await keptWhose(await pairedAs({ ...resident, kind: 'family', userId: 'u-1' }))).toBeUndefined();
+    expect(await keptWhose(memoryFs())).toBeUndefined();
+    const torn = memoryFs();
+    await torn.writeStringToFile('/data/wick-token.json', '{"jwt":', 'utf8');
+    expect(await keptWhose(torn)).toBeUndefined();
+  });
+
+  it('with no token kept, lets the connection go, takes its notifications down, and posts nothing more', async () => {
+    const fs = await pairedAs(resident);
+    const channels = standInChannels();
+    const alerts = recordingAlerts();
+    held = holdDoor({ fs, config: CONFIG, createChannel: channels.createChannel, fetchImpl: noNetwork, alerts, keptEveryMs: 5 });
+    await settle();
+    channels.made[0]!.card(doorCard());
+    await settle();
+    expect(alerts.shown).toHaveLength(1);
+
+    // The family disconnected the television: the app forgets its token (pairing/PairingFlow.ts).
+    await fs.writeStringToFile('/data/wick-token.json', '', 'utf8');
+
+    await expect(held.done).resolves.toBe('over');
+    expect(held.holding()).toBeUndefined();
+    expect(channels.made[0]!.closed).toBe(true);
+    expect(alerts.cleared).toEqual(['door-1']);
+    channels.made[0]!.card(doorCard('door-2'));
+    await settle();
+    expect(alerts.shown).toHaveLength(1);
+  });
+
+  it("with another home's token kept, takes the connection up again for the new home only", async () => {
+    const fs = await pairedAs(resident);
+    const channels = standInChannels();
+    const alerts = recordingAlerts();
+    const runner = doorRunner(() => holdDoor({ fs, config: CONFIG, createChannel: channels.createChannel, fetchImpl: noNetwork, alerts, keptEveryMs: 5 }));
+    let ended = false;
+    void runner.run().then(() => {
+      ended = true;
+    });
+    await settle();
+    channels.made[0]!.card(doorCard('door-old'));
+    await settle();
+
+    // Paired again, as a new television, into another home.
+    const other = { jwt: 'other-jwt', deviceId: 'tv-2', householdId: 'hh-2', expiresAt: Date.now() + HOUR };
+    await fs.writeStringToFile('/data/wick-identity.json', JSON.stringify({ deviceId: 'tv-2', proof: 'b'.repeat(64), paired: true }), 'utf8');
+    await fs.writeStringToFile('/data/wick-token.json', JSON.stringify(other), 'utf8');
+    await wait(40);
+
+    expect(channels.made.map((c) => c.token.householdId)).toEqual(['hh-1', 'hh-2']);
+    expect(channels.made[0]!.closed).toBe(true);
+    expect(channels.made[1]!.closed).toBe(false);
+    expect(alerts.cleared).toEqual(['door-old']);
+    expect(ended).toBe(false);
+
+    channels.made[0]!.card(doorCard('door-stale'));
+    channels.made[1]!.card(doorCard('door-new'));
+    await settle();
+    expect(alerts.shown.map((a) => a.cardId)).toEqual(['door-old', 'door-new']);
+    runner.stop();
+  });
+
+  it('ends, and takes its notifications down, when the pairing service says the television is no longer connected', async () => {
+    const fs = await pairedAs(resident);
+    const channels = standInChannels();
+    const alerts = recordingAlerts();
+    const asked: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      asked.push(url);
+      return new Response('device_not_paired', { status: 404 });
+    }) as unknown as typeof fetch;
+    held = holdDoor({ fs, config: CONFIG, createChannel: channels.createChannel, fetchImpl, alerts });
+    await settle();
+    channels.made[0]!.card(doorCard());
+    await settle();
+
+    // The edge refuses this television from now on: from here, a connection that is not open.
+    channels.made[0]!.state = 'closed';
+
+    await expect(held.done).resolves.toBe('over');
+    expect(asked).toEqual(['https://pair.example/pair/refresh']);
+    expect(alerts.cleared).toEqual(['door-1']);
+    expect(channels.made[0]!.closed).toBe(true);
+  });
+
+  it('is stopped outright when Wick is on screen and keeps no token', async () => {
+    const fs = await pairedAs(resident);
+    const channels = standInChannels();
+    const runner = doorRunner(() => holdDoor({ fs, config: CONFIG, createChannel: channels.createChannel, fetchImpl: noNetwork, alerts: recordingAlerts() }));
+    const task = runner.run();
+    await settle();
+
+    runner.stop();
+
+    await expect(task).resolves.toBeUndefined();
+    expect(channels.made[0]!.closed).toBe(true);
   });
 });
