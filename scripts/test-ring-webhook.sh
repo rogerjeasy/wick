@@ -18,7 +18,7 @@
 #
 #   RING_TEST_DEVICE_ID=<real device id> ./scripts/test-ring-webhook.sh
 #
-# The payload is stamped "now" by default, and nothing was recorded "now",
+# The event is seen "now" by default, and nothing was recorded "now",
 # so Phase 2 finds no frame (Ring: 416 MEDIA_NOT_FOUND) and the card never
 # gets its picture or description. To exercise Phase 2 against real media,
 # press a simulation button in the Ring Developer Playground, then:
@@ -58,20 +58,39 @@ if [ "$OCCURRED_AT" = "latest" ]; then
     || { echo "cannot resolve the latest Ring event for $DEVICE_ID" >&2; exit 1; }
 fi
 
-BODY=$(python3 -c "
-import json,sys,time
+# Ring's v1.1 envelope, as its documentation gives it (developer.amazon.com/docs/
+# ring/api-documentation.html, "Webhook v1.1 Payload Structure"): meta.time is
+# when Ring sent it — now — and attributes.timestamp is when the camera saw it.
+envelope () { # request_id sent_at_ms
+  python3 -c "
+import json,sys,time,datetime
+sent = int(sys.argv[4]) if sys.argv[4] else int(time.time()*1000)
+seen = int(sys.argv[3]) if sys.argv[3] else sent
 print(json.dumps({
-  'request_id': sys.argv[1],
-  'event_type': 'motion_detected',
-  'sub_type': 'human',
-  'device_id': sys.argv[2],
-  'occurred_at': int(sys.argv[3]) if sys.argv[3] else int(time.time()*1000),
-}))" "$REQ_ID" "$DEVICE_ID" "$OCCURRED_AT")
-
-SIG=$(python3 -c "
+  'meta': {
+    'version': '1.1',
+    'time': datetime.datetime.fromtimestamp(sent/1000, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+    'request_id': sys.argv[1],
+    'account_id': 'ava1.ring.account.wick-test',
+  },
+  'data': {
+    'id': '%s_motion_%d' % (sys.argv[2], seen),
+    'type': 'motion_detected',
+    'attributes': {'source': sys.argv[2], 'source_type': 'devices', 'timestamp': seen, 'sub_type': 'human'},
+    'relationships': {'devices': {'links': {'self': '/v1/devices/%s' % sys.argv[2]}}},
+  },
+}))" "$1" "$DEVICE_ID" "$OCCURRED_AT" "${2:-}"
+}
+sign () { python3 -c "
 import hmac,hashlib,os,sys
-print(hmac.new(os.environ['HMAC_KEY_RING'].encode(), sys.argv[1].encode(), hashlib.sha256).hexdigest())
-" "$BODY")
+print('sha256=' + hmac.new(os.environ['HMAC_KEY_RING'].encode(), sys.argv[1].encode(), hashlib.sha256).hexdigest())
+" "$1"; }
+
+BODY=$(envelope "$REQ_ID")
+SIG=$(sign "$BODY")
+# Signed by the real key, but sent ten minutes ago: outside the webhook's window.
+STALE_BODY=$(envelope "$REQ_ID-stale" "$(python3 -c "import time;print(int(time.time()*1000) - 600000)")")
+STALE_SIG=$(sign "$STALE_BODY")
 
 pass=0; fail=0
 check () { # name expected actual
@@ -87,18 +106,22 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$BASE" \
 check "unsigned request rejected" 401 "$code"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$BASE" \
-        -H 'Content-Type: application/json' -H "X-Ring-Signature: deadbeef" -d "$BODY")
+        -H 'Content-Type: application/json' -H "X-Signature: sha256=deadbeef" -d "$BODY")
 check "wrong signature rejected" 401 "$code"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$BASE" \
-        -H 'Content-Type: application/json' -H "X-Ring-Signature: $SIG" -d "$BODY")
+        -H 'Content-Type: application/json' -H "X-Signature: $SIG" -d "$BODY")
 check "valid signature accepted" 200 "$code"
 
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$BASE" \
+        -H 'Content-Type: application/json' -H "X-Signature: $STALE_SIG" -d "$STALE_BODY")
+check "signed but sent 10 min ago: refused" 400 "$code"
+
 ms=$(curl -s -o /dev/null -w '%{time_total}' --max-time 20 -X POST "$BASE" \
-      -H 'Content-Type: application/json' -H "X-Ring-Signature: $SIG" -d "$BODY" \
+      -H 'Content-Type: application/json' -H "X-Signature: $SIG" -d "$BODY" \
       | python3 -c "import sys;print(int(float(sys.stdin.read())*1000))")
 check "replay absorbed (idempotent)" 200 "$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$BASE" \
-      -H 'Content-Type: application/json' -H "X-Ring-Signature: $SIG" -d "$BODY")"
+      -H 'Content-Type: application/json' -H "X-Signature: $SIG" -d "$BODY")"
 echo "        round trip ${ms}ms (Ring's budget is 5000ms)"
 
 sleep 4
