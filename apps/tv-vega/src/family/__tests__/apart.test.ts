@@ -211,6 +211,7 @@ describe('App.tsx — the one branch', () => {
       'pairing/PairingScreen.tsx',
       'pairing/connect.ts',
       'react',
+      'seeing/SeeingProvider.tsx',
     ]);
   });
 

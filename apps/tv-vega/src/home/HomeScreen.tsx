@@ -13,12 +13,20 @@
  * reach.ts). The platform's own long press tells the two apart, so the film
  * under her thumb does not start when she lets go.
  *
- * Her mantelpiece (packages/contracts/src/mantel.ts) is opened from a pill
- * at the right-hand end of the quiet row under the films — there whenever
- * she has kept something, and never where the focus starts. Not in the
- * title row beside the light's: at 32pt a second pill does not fit there
- * (home/__tests__/homeLayout.test.ts has the numbers), and the question is
- * not what should be cut.
+ * Four rows (home/homeLayout.ts has the heights): the question, alone; the
+ * three films; the quiet line — what is waiting, or who looked in — when
+ * there is one; and the pills. The pills are her light in the window, her
+ * mantelpiece (packages/contracts/src/mantel.ts) whenever she has kept
+ * something, and Easier to see (seeing/seeing.ts), always — none of them
+ * ever where the focus starts. They were in the title row and the quiet
+ * row once; at 40pt neither has room for one (home/__tests__/
+ * homeLayout.test.ts has the numbers), and the question is not what should
+ * be cut.
+ *
+ * Everything here is drawn in the theme she chose (vega-calm-ui
+ * CalmPreferences.tsx): with larger text on every word is larger and the
+ * films' pictures are shorter, never the other way round; with higher
+ * contrast on it is black and white and the focus ring is thicker.
  *
  * The remote is not always this screen's: a card, the mantelpiece, or her
  * pictures filling an idle screen may have it (`cardVisible`). Then nothing
@@ -50,13 +58,14 @@
 import * as React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import type { HouseholdLanguage } from '@wick/contracts';
-import { fontSize, safe } from '@wick/vega-calm-ui';
+import { useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
 import { pressBegins, pressEnds } from '../press/held.js';
 import { HOLD_MS } from '../watch/hold.js';
 import { HOME_FOCUS_START, focusOnReturn, focusReported, reachChanged, type HomeFocus } from './focusMemory.js';
 import { programmeLine, words } from '../words/words.js';
 import { POSTERS } from './posters.js';
+import { CAPTION_PADDING_DP, HOME_RING_DP, HOME_SCREEN, PILL_PADDING, QUIET_PADDING, homeHeights } from './homeLayout.js';
 
 export interface HomeScreenProps {
   /**
@@ -112,6 +121,9 @@ export interface HomeScreenProps {
    */
   readonly mantel?: string | undefined;
   readonly onOpenMantel?: (() => void) | undefined;
+  /** The word on the pill that opens Easier to see (words/words.ts): always there. */
+  readonly seeing: string;
+  readonly onOpenSeeing?: (() => void) | undefined;
   /** OK was held for two seconds on whatever has the focus (watch/hold.ts HOLD_MS). */
   readonly onHold?: (() => void) | undefined;
   /**
@@ -122,12 +134,13 @@ export interface HomeScreenProps {
   readonly onKeyUp?: (() => void) | undefined;
 }
 
-export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, seeing, onOpenSeeing, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
   const say = words(language);
-  // One quiet row under the films, and a card waiting to be opened comes first.
+  const styles = useCalmStyles(makeStyles);
+  // One quiet line under the films, and a card waiting to be opened comes first.
   const quiet = waiting ? undefined : lookedIn;
-  // With anything in that row the films' pictures are thirty dp shorter, so the screen stays inside 540dp.
-  const row = waiting !== undefined || quiet !== undefined || mantel !== undefined;
+  // With that line the films' pictures are shorter, so the screen stays inside 540dp (home/homeLayout.ts).
+  const row = waiting !== undefined || quiet !== undefined;
 
   // Where the focus starts: the film she last watched, or the first. Never a pill.
   const start = `programme:${lastWatchedId ?? programmes[0]?.id}`;
@@ -166,7 +179,7 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
       began.current = null;
       if (acts) act?.();
     };
-  const here = [...programmes.map((programme) => `programme:${programme.id}`), ...(light ? ['light'] : []), ...(waiting ? ['waiting'] : []), ...(mantel ? ['mantel'] : [])];
+  const here = [...programmes.map((programme) => `programme:${programme.id}`), ...(waiting ? ['waiting'] : []), ...(light ? ['light'] : []), ...(mantel ? ['mantel'] : []), 'seeing'];
   const preferred = focusOnReturn(focus.current, here, start);
 
   // A card is on screen: nothing of this screen is drawn behind it. Left out whole, never partly covered.
@@ -178,26 +191,6 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
         <Text style={[styles.question, styles.questionText]} accessibilityRole="header" numberOfLines={1}>
           {say('home.question')}
         </Text>
-        {/* Never focused on its own: the films are what the screen is for. */}
-        {light ? (
-          <Pressable
-            onPress={press(onOpenLight)}
-            onPressIn={pressIn}
-            onLongPress={onHold}
-            delayLongPress={HOLD_MS}
-            onPressOut={pressOut}
-            onFocus={() => reportFocus('light')}
-            focusable={!cardVisible}
-            hasTVPreferredFocus={!cardVisible && preferred === 'light'}
-            accessibilityRole="button"
-            accessibilityLabel={say('home.lightLabel', { light })}
-            style={({ focused: on }: { focused: boolean }) => [styles.light, on && styles.tileFocused]}
-          >
-            <Text style={styles.line} numberOfLines={1}>
-              {light}
-            </Text>
-          </Pressable>
-        ) : null}
       </View>
 
       <View style={styles.row}>
@@ -214,15 +207,13 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
             hasTVPreferredFocus={!cardVisible && preferred === `programme:${programme.id}`}
             accessibilityRole="button"
             accessibilityLabel={`${programme.title}. ${programmeLine(programme, language)}`}
-            style={({ focused: on }: { focused: boolean }) => [styles.tile, on && styles.tileFocused]}
+            style={({ focused: on }: { focused: boolean }) => [styles.tile, on ? styles.ringOn : styles.ringOff]}
           >
             <Image source={POSTERS[programme.id]} style={[styles.poster, row ? styles.posterWithRow : null]} resizeMode="cover" accessibilityLabel="" />
+            {/* Its title. How long it runs is said to the screen reader (above): at 40pt the screen has no line for it. */}
             <View style={styles.caption}>
               <Text style={styles.title} numberOfLines={1}>
                 {programme.title}
-              </Text>
-              <Text style={styles.line} numberOfLines={1}>
-                {programmeLine(programme, language)}
               </Text>
             </View>
           </Pressable>
@@ -244,7 +235,7 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
               hasTVPreferredFocus={!cardVisible && preferred === 'waiting'}
               accessibilityRole="button"
               accessibilityLabel={say('home.waitingLabel', { line: waiting })}
-              style={({ focused: on }: { focused: boolean }) => [styles.waiting, styles.quietLine, on && styles.tileFocused]}
+              style={({ focused: on }: { focused: boolean }) => [styles.waiting, styles.quietLine, on ? styles.ringOn : styles.ringOff]}
             >
               {/* The line gets the width; "Open" says what OK does, and is never what is cut. */}
               <Text style={[styles.line, styles.waitingLine]} numberOfLines={1}>
@@ -252,136 +243,186 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
               </Text>
               <Text style={styles.title}>{say('home.open')}</Text>
             </Pressable>
-          ) : quiet ? (
+          ) : (
             // Who looked in: something to read, with nothing to press.
-            <View style={[styles.waiting, styles.quietLine]} accessibilityRole="text">
+            <View style={[styles.waiting, styles.quietLine, styles.ringOff, styles.unringed]} accessibilityRole="text">
               <Text style={[styles.line, styles.waitingLine]} numberOfLines={1}>
                 {quiet}
               </Text>
             </View>
-          ) : (
-            // Nothing to say: the pill keeps its place at the right-hand end.
-            <View style={styles.quietLine} />
           )}
-
-          {/* Her mantelpiece. Found with the D-pad, never focused on its own. */}
-          {mantel ? (
-            <Pressable
-              onPress={press(onOpenMantel)}
-              onPressIn={pressIn}
-              onLongPress={onHold}
-              delayLongPress={HOLD_MS}
-              onPressOut={pressOut}
-              onFocus={() => reportFocus('mantel')}
-              focusable={!cardVisible}
-              hasTVPreferredFocus={!cardVisible && preferred === 'mantel'}
-              accessibilityRole="button"
-              accessibilityLabel={say('home.mantelLabel')}
-              style={({ focused: on }: { focused: boolean }) => [styles.light, on && styles.tileFocused]}
-            >
-              <Text style={styles.line} numberOfLines={1}>
-                {mantel}
-              </Text>
-            </Pressable>
-          ) : null}
         </View>
       ) : null}
+
+      {/* The pills: found with the D-pad, never focused on their own. */}
+      <View style={styles.pills}>
+        {/* Her light in the window. */}
+        {light ? (
+          <Pressable
+            onPress={press(onOpenLight)}
+            onPressIn={pressIn}
+            onLongPress={onHold}
+            delayLongPress={HOLD_MS}
+            onPressOut={pressOut}
+            onFocus={() => reportFocus('light')}
+            focusable={!cardVisible}
+            hasTVPreferredFocus={!cardVisible && preferred === 'light'}
+            accessibilityRole="button"
+            accessibilityLabel={say('home.lightLabel', { light })}
+            style={({ focused: on }: { focused: boolean }) => [styles.pill, on ? styles.ringOn : styles.ringOff]}
+          >
+            <Text style={styles.pillText} numberOfLines={1}>
+              {light}
+            </Text>
+          </Pressable>
+        ) : null}
+        {/* Her mantelpiece, whenever she has kept something. */}
+        {mantel ? (
+          <Pressable
+            onPress={press(onOpenMantel)}
+            onPressIn={pressIn}
+            onLongPress={onHold}
+            delayLongPress={HOLD_MS}
+            onPressOut={pressOut}
+            onFocus={() => reportFocus('mantel')}
+            focusable={!cardVisible}
+            hasTVPreferredFocus={!cardVisible && preferred === 'mantel'}
+            accessibilityRole="button"
+            accessibilityLabel={say('home.mantelLabel')}
+            style={({ focused: on }: { focused: boolean }) => [styles.pill, on ? styles.ringOn : styles.ringOff]}
+          >
+            <Text style={styles.pillText} numberOfLines={1}>
+              {mantel}
+            </Text>
+          </Pressable>
+        ) : null}
+
+        {/* Easier to see (seeing/seeing.ts): always here, whatever else is. */}
+        <Pressable
+          onPress={press(onOpenSeeing)}
+          onPressIn={pressIn}
+          onLongPress={onHold}
+          delayLongPress={HOLD_MS}
+          onPressOut={pressOut}
+          onFocus={() => reportFocus('seeing')}
+          focusable={!cardVisible}
+          hasTVPreferredFocus={!cardVisible && preferred === 'seeing'}
+          accessibilityRole="button"
+          accessibilityLabel={say('seeing.entryLabel')}
+          style={({ focused: on }: { focused: boolean }) => [styles.pill, on ? styles.ringOn : styles.ringOff]}
+        >
+          <Text style={styles.pillText} numberOfLines={1}>
+            {seeing}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  // 960x540dp at 1080p; 48dp/32dp keeps everything inside the TV safe area.
-  screen: {
-    flex: 1,
-    backgroundColor: safe.ground,
-    paddingHorizontal: 48,
-    paddingVertical: 32,
-    gap: 24,
-  },
-  // The question, and beside it the light: one line, so the films keep their height.
-  top: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 24,
-  },
-  question: {
-    color: safe.ink,
-    fontSize: fontSize('headline'),
-    lineHeight: fontSize('headline') * 1.25,
-  },
-  questionText: {
-    flex: 1,
-  },
-  light: {
-    borderRadius: 16,
-    borderWidth: 4,
-    borderColor: 'transparent',
-    backgroundColor: safe.raised,
-    paddingHorizontal: 16,
-    paddingVertical: 2,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 24,
-  },
-  tile: {
-    flex: 1,
-    borderRadius: 16,
-    borderWidth: 4,
-    borderColor: 'transparent',
-    backgroundColor: safe.raised,
-    overflow: 'hidden',
-  },
-  tileFocused: {
-    borderColor: safe.focus,
-  },
-  // A fixed height, not an aspect ratio: on the VVD `aspectRatio` with a
-  // percentage width came out nearly square and pushed the caption off the
-  // 540dp screen.
-  poster: {
-    width: '100%',
-    height: 200,
-  },
-  // Thirty dp less, which is what the waiting row below needs to stay inside 540dp.
-  posterWithRow: {
-    height: 170,
-  },
-  waiting: {
-    borderRadius: 16,
-    borderWidth: 4,
-    borderColor: 'transparent',
-    backgroundColor: safe.raised,
-    paddingHorizontal: 20,
-    paddingVertical: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 24,
-  },
-  waitingLine: {
-    flex: 1,
-  },
-  // The row under the films: one quiet thing on the left, and at its right-hand end the mantelpiece's pill.
-  quietRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 24,
-  },
-  quietLine: {
-    flex: 1,
-  },
-  caption: {
-    padding: 16,
-    gap: 4,
-  },
-  title: {
-    color: safe.ink,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-  line: {
-    color: safe.inkDim,
-    fontSize: fontSize('body'),
-    lineHeight: fontSize('body') * 1.4,
-  },
-});
+const makeStyles = (t: CalmTheme) => {
+  const ring = t.ring(HOME_RING_DP);
+  const heights = homeHeights(t, false);
+  const withRow = homeHeights(t, true);
+  return StyleSheet.create({
+    // 960x540dp at 1080p; 48dp/32dp keeps everything inside the TV safe area.
+    screen: {
+      flex: 1,
+      backgroundColor: t.palette.ground,
+      paddingHorizontal: HOME_SCREEN.paddingHorizontal,
+      paddingVertical: HOME_SCREEN.paddingVertical,
+      gap: HOME_SCREEN.gap,
+    },
+    // The question, on its own line.
+    top: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    question: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('headline'),
+      lineHeight: t.lineHeight('headline'),
+    },
+    questionText: {
+      flex: 1,
+    },
+    row: {
+      flexDirection: 'row',
+      gap: HOME_SCREEN.gap,
+    },
+    tile: {
+      flex: 1,
+      borderRadius: 16,
+      backgroundColor: t.palette.raised,
+      overflow: 'hidden',
+    },
+    // The focus is a ring, never a colour alone (vega-calm-ui theme.ts `ring`): thicker with higher contrast on,
+    // where everything that can be pressed is outlined at rest as well. Both take the same room.
+    ringOff: ring.rest,
+    ringOn: ring.focused,
+    // A line with nothing to press: no outline, but the same room as one.
+    unringed: {
+      borderColor: 'transparent',
+    },
+    // A fixed height, not an aspect ratio: on the VVD `aspectRatio` with a
+    // percentage width came out nearly square and pushed the caption off the
+    // 540dp screen. What is left once the words have their room (home/homeLayout.ts).
+    poster: {
+      width: '100%',
+      height: heights.poster,
+    },
+    posterWithRow: {
+      height: withRow.poster,
+    },
+    waiting: {
+      borderRadius: 16,
+      backgroundColor: t.palette.raised,
+      paddingHorizontal: QUIET_PADDING.horizontal,
+      paddingVertical: QUIET_PADDING.vertical,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: HOME_SCREEN.gap,
+    },
+    waitingLine: {
+      flex: 1,
+    },
+    // The quiet line under the films: what is waiting, or who looked in.
+    quietRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    quietLine: {
+      flex: 1,
+    },
+    // The row of pills, from the left: her light, her mantelpiece, Easier to see.
+    pills: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: HOME_SCREEN.gap,
+    },
+    pill: {
+      borderRadius: 16,
+      backgroundColor: t.palette.raised,
+      paddingHorizontal: PILL_PADDING.horizontal,
+      paddingVertical: PILL_PADDING.vertical,
+    },
+    pillText: {
+      color: t.palette.inkDim,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+    caption: {
+      padding: CAPTION_PADDING_DP,
+    },
+    title: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+    line: {
+      color: t.palette.inkDim,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+    },
+  });
+};

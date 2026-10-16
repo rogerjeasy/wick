@@ -82,7 +82,7 @@ describe('HomeScreen.tsx — nothing of it is drawn behind a card', () => {
   });
 
   it('stands on the ground colour, so the card is alone on it', () => {
-    expect(read('../HomeScreen.tsx')).toMatch(/screen: \{\s*flex: 1,\s*backgroundColor: safe\.ground,/);
+    expect(read('../HomeScreen.tsx')).toMatch(/screen: \{\s*flex: 1,\s*backgroundColor: t\.palette\.ground,/);
   });
 
   it('still remembers where the focus was while its rows are out: the memory is kept before they are left out', () => {
@@ -102,7 +102,8 @@ describe('ResidentApp.tsx — the home behind a card, in the app', () => {
   const app = code('../../ResidentApp.tsx');
 
   it('asks the one rule, with the card that is on screen', () => {
-    expect(app).toMatch(/const behind = homeBehind\(\{ card: card !== null, mantelOpen, idle \}\);/);
+    // The Easier to see card is a card like any other here: the home's rows are not drawn behind it.
+    expect(app).toMatch(/const behind = homeBehind\(\{ card: card !== null \|\| seeingShown, mantelOpen, idle \}\);/);
   });
 
   it('gives the home screen both answers, and nothing of its own making', () => {
