@@ -22,7 +22,8 @@ export const NARRATIVE_MODEL_ID =
 
 export const NARRATIVE_REGION = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1';
 
-const SYSTEM = `Write the week for a distant family member. The resident reads it first, on their own television.
+/** The writer's rules — the Narrator's, and the Sunday brief's writer's (graphs/weeklyBrief.ts). */
+export const NARRATIVE_SYSTEM_PROMPT = `Write the week for a distant family member. The resident reads it first, on their own television.
 
 Rules, all mandatory:
 - The facts given are ALL you know. Use only the numbers that appear in them, in digits or words. Never add a number, a clock time, or a count of your own.
@@ -42,7 +43,7 @@ export async function writeNarrative(
   const res = await client.send(
     new ConverseCommand({
       modelId: NARRATIVE_MODEL_ID,
-      system: [{ text: SYSTEM }],
+      system: [{ text: NARRATIVE_SYSTEM_PROMPT }],
       messages: [{ role: 'user', content: [{ text: prompt }] }],
       inferenceConfig: { maxTokens: 120, temperature: 0.3 },
     }),

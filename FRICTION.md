@@ -3,7 +3,7 @@
 Developer-experience friction encountered while building Wick on Amazon Devices,
 Ring, Alexa+ and AWS.
 
-40 entries, FL-001 to FL-044, newest first, each written when the problem was hit.
+43 entries, FL-001 to FL-047, newest first, each written when the problem was hit.
 There is no FL-020, FL-034, FL-037 or FL-039: those numbers were set aside for
 work running in parallel and not needed. The same
 problems, gathered by tool with what worked well beside them, are in
@@ -61,6 +61,141 @@ removed from the design (2026-10-02).
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-047 — A Strands TypeScript Graph cannot loop back to a node that has an edge from outside the loop
+
+*2026-10-16.*
+
+**Tool / API:**      Strands Agents SDK for TypeScript 1.18.0 (`@strands-agents/sdk`, `Graph` in
+                     `multiagent/graph.js`); structured output (`structuredOutputSchema`, zod 4)
+
+**Task attempted:**  The Sunday brief as a Graph: analyst → writer → check, with the check sending a
+                     refused draft back to the writer once, with the reason, before the suggester
+                     (services/agent/src/graphs/weeklyBrief.ts).
+
+**Steps taken:**     1. Built the obvious edges: analyst → writer, writer → check, check → writer
+                        (conditional, "retry"), check → suggester (conditional, "done").
+                     2. The run stopped after the analyst. Read `_findReady` and
+                        `_allDependenciesSatisfied`: a node runs only when every incoming edge's
+                        source has COMPLETED and every edge handler is true. The writer's incoming
+                        edges are the analyst's and the check's; the check cannot have completed
+                        before the writer's first run, so the writer never runs.
+                     3. The class comment says so ("AND semantics … Python uses OR"), and that the
+                        TS Graph supports cycles (`maxSteps`), but no example shows a cycle with an
+                        entry edge, and the graph does not warn that one can never start.
+                     4. Made the loop's entry a declared source: `sources: ['analyst']`, edges
+                        analyst → writer → check → analyst. The analyst keeps what it counted and,
+                        on its second visit, hands the writer the same facts with the reason.
+
+**Expected:**        A conditional back-edge into the writer, as in the Python SDK's
+                     `GraphBuilder` with OR semantics, or a construction-time error for a node that
+                     can never become ready.
+
+**Actual:**          The graph runs its source and finishes quietly with every other node pending:
+                     no error, no warning, a result whose status is COMPLETED.
+
+**Severity:**        Important
+
+**Workaround:**      The cycle enters through a declared source node; the retry passes back
+                     through it. Tested end to end with a scripted model (the retry path appears in
+                     the run's node order). Structured output needed no workaround: the agent
+                     node's `structuredOutput` is on its NodeResult, read in the next node.
+
+**Suggestion:**      Either an edge option for OR (`{ source, target, any: true }`), or a check at
+                     construction that every node is reachable under AND semantics, naming the
+                     node that can never start. And one example of a refine-and-retry loop in the
+                     multi-agent docs, which is the commonest loop there is.
+## FL-046 — A Strands agent built per request: interrupts, sessions and memory each assume one long-lived agent
+
+*2026-10-16.*
+
+**Tool / API:**      Strands Agents TypeScript SDK 1.18 (`@strands-agents/sdk`: `BeforeToolCallEvent.interrupt`,
+                     `SessionManager`, `MemoryManager`); `bedrock-agentcore` 0.4.5
+                     (`experimental/memory/strands` `AgentCoreMemoryStore`); AgentCore Memory namespaces
+
+**Task attempted:**  Run the family assistant as one Strands `Agent` per AgentCore invocation (it must
+                     be built with the member's own token on its `McpClient`), pausing before every
+                     write for the member's yes and resuming in the next invocation, with the
+                     conversation in a `SessionManager` and the member's words in AgentCore Memory.
+
+**Steps taken:**     1. Raised an interrupt from `BeforeToolCallEvent` for every tool whose MCP
+                        `readOnlyHint` is not `true`, and resumed with `InterruptResponseContent` in a
+                        new agent restored by the `SessionManager`. This works across processes: the
+                        pending tool call is in the snapshot (services/agent/src/agents/assistant/turn.ts).
+                     2. Asked a new question while a write was waiting: the agent throws ("Agent is in
+                        an interrupted state"). There is no public way to drop a pending interrupt.
+                        Answering "no" with `limits: { turns: 1 }` closes it without a model call, but
+                        leaves the conversation ending on a tool result, so the next question makes two
+                        user messages in a row, which Bedrock's Converse refuses.
+                     3. Restored a session: `loadSnapshot` also restores the saved system prompt,
+                        replacing the one the agent was built with, so a prompt that says what day it
+                        is says the day of the first question.
+                     4. Gave a `MemoryManager` the official `AgentCoreMemoryStore`: its default
+                        extraction cadence counts turns of one agent, so an agent that lives for one
+                        question never writes; and the namespace can only use `{actorId}`,
+                        `{sessionId}` and `{memoryStrategyId}`, so "a member in a home" has to be the
+                        actor in the session.
+
+**Expected:**        Interrupts, sessions and memory documented for an agent rebuilt on every request,
+                     which is how a server that acts with each caller's credentials must build it.
+
+**Actual:**          Each works, each needs a step the docs do not mention: decline and close the turn
+                     by hand (an assistant message pushed to keep the roles alternating), set
+                     `agent.systemPrompt` again after `initialize()`, use `InvocationTrigger` and
+                     `flush()` before answering, and make the home the AgentCore session.
+
+**Severity:**        Important
+
+**Workaround:**      All four, in turn.ts and memory.ts, each tested with a scripted model against an
+                     in-process MCP server over real Streamable HTTP.
+
+**Suggestion:**      Add `agent.cancelInterrupts()` (or let a plain prompt resume an interrupted agent
+                     by declining what is pending), let `SessionManager` leave out the system prompt
+                     (`exclude: ['systemPrompt']`), document the per-request pattern with
+                     `InvocationTrigger`, and let a namespace template take caller-supplied values.
+## FL-045 — A Step Functions Wait takes a moment, but a task's timeout only takes seconds from now
+
+*2026-10-16.*
+
+**Tool / API:**      AWS Step Functions, Amazon States Language (JSONPath): `Wait.TimestampPath`,
+                     `Task.TimeoutSecondsPath`, `arn:aws:states:::lambda:invoke.waitForTaskToken`
+
+**Task attempted:**  A visit errand (infra/errand.asl.json): wait until her reminder, then wait at the
+                     door for a ring until the end of the visit's window — an absolute moment, an hour
+                     after the time the family member gave — and say nobody came if it passes.
+
+**Steps taken:**     1. The reminder is a Wait with `TimestampPath`: an ISO 8601 moment from the
+                        execution's input. That works as written.
+                     2. The door is a task with a task token, so its end has to be its timeout. Read
+                        the Task state reference (docs.aws.amazon.com/step-functions/latest/dg/
+                        state-task.html, 2026-10-16): `TimeoutSeconds` is "a positive, non-zero
+                        integer", counted from when the task starts; `TimeoutSecondsPath` selects one
+                        from the input, "JSONPath only". There is no `TimeoutTimestampPath`.
+                     3. Looked for a way to turn the window's end into seconds in the definition. The
+                        JSONPath intrinsic functions have arithmetic (`States.MathAdd`) but nothing
+                        that reads a timestamp or the clock.
+
+**Expected:**        A task's deadline could be given the way a Wait's is: as a moment.
+
+**Actual:**          Only as seconds from the task's own start, which depends on when the steps
+                     before it ran — here, whenever the reminder was sent. JSONata could compute it,
+                     but a state is in one query language or the other, and the rest of the machine
+                     reads and places results with JSONPath.
+
+**Severity:**        Nice-to-have
+
+**Workaround:**      The seconds are counted in code: by the Wick server when the execution starts
+                     (for an errand with no reminder) and by the reminder step for one with
+                     (services/agent agents/errand/machine.ts `doorWaitSeconds`, at least 60), and
+                     the door task reads them with `TimeoutSecondsPath`. A test walks every path of
+                     the machine to hold the two to each other (errand/__tests__/asl.test.ts).
+
+**Suggestion:**      Add `TimeoutTimestamp` / `TimeoutTimestampPath` to Task states, mirroring Wait's
+                     `Timestamp` / `TimestampPath`, so a callback can be given a deadline that is a
+                     time of day; or document the JSONata expression that does it in the callback
+                     pattern's guide.
+
+---
 
 ## FL-044 — Vega's only documented toast API is a React hook, and the one place a toast is needed has no React tree
 

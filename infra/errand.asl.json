@@ -1,0 +1,218 @@
+{
+  "Comment": "A visit errand (packages/contracts errand.ts): remind her at the moment chosen, wait at the door for a ring inside the window, then tell the member how it went. Code decides every step; no model. Templated by infra/errands.tf; walked by services/agent/src/agents/errand/__tests__/asl.test.ts.",
+  "StartAt": "HasReminder",
+  "States": {
+    "HasReminder": {
+      "Type": "Choice",
+      "Comment": "The member chose a reminder: on the morning, or an hour before.",
+      "Choices": [
+        {
+          "Variable": "$.remindAt",
+          "IsPresent": true,
+          "Next": "WaitForReminder"
+        }
+      ],
+      "Default": "WaitForDoor"
+    },
+    "WaitForReminder": {
+      "Type": "Wait",
+      "TimestampPath": "$.remindAt",
+      "Next": "Remind"
+    },
+    "Remind": {
+      "Type": "Task",
+      "Comment": "A note on her television from the member, at the next natural break. Answers how long the door waits from now, or that the errand has ended (called off, or its author no longer allowed).",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${errand_step_arn}",
+        "Payload": {
+          "action": "remind",
+          "householdId.$": "$.householdId",
+          "errandId.$": "$.errandId"
+        }
+      },
+      "ResultSelector": {
+        "waitSeconds.$": "$.Payload.doorWaitSeconds",
+        "ended.$": "$.Payload.ended"
+      },
+      "ResultPath": "$.door",
+      "TimeoutSeconds": 60,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Next": "AfterRemind"
+    },
+    "AfterRemind": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.door.ended",
+          "BooleanEquals": true,
+          "Next": "Ended"
+        }
+      ],
+      "Default": "WaitForDoor"
+    },
+    "WaitForDoor": {
+      "Type": "Task",
+      "Comment": "errand-step keeps the task token on the errand; errand-door hands it back with the ring ({rangAt, cardId}) when the doorbell goes inside the window. Nothing by the end of the window: nobody came.",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${errand_step_arn}",
+        "Payload": {
+          "action": "arm",
+          "householdId.$": "$.householdId",
+          "errandId.$": "$.errandId",
+          "taskToken.$": "$$.Task.Token"
+        }
+      },
+      "TimeoutSecondsPath": "$.door.waitSeconds",
+      "ResultPath": "$.door.answer",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.Timeout"],
+          "ResultPath": null,
+          "Next": "NoShow"
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Next": "DidTheDoorRing"
+    },
+    "DidTheDoorRing": {
+      "Type": "Choice",
+      "Comment": "A token handed back without a ring: errand-step found the errand called off while it was being armed.",
+      "Choices": [
+        {
+          "Variable": "$.door.answer.rangAt",
+          "IsPresent": true,
+          "Next": "Rang"
+        }
+      ],
+      "Default": "Ended"
+    },
+    "Rang": {
+      "Type": "Task",
+      "Comment": "Someone rang around when they were expected: the errand says so, and the member is notified if they asked to be.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${errand_step_arn}",
+        "Payload": {
+          "action": "rang",
+          "householdId.$": "$.householdId",
+          "errandId.$": "$.errandId",
+          "rangAt.$": "$.door.answer.rangAt",
+          "cardId.$": "$.door.answer.cardId"
+        }
+      },
+      "ResultPath": null,
+      "TimeoutSeconds": 60,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Next": "Done"
+    },
+    "NoShow": {
+      "Type": "Task",
+      "Comment": "The window passed with no ring.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${errand_step_arn}",
+        "Payload": {
+          "action": "no_show",
+          "householdId.$": "$.householdId",
+          "errandId.$": "$.errandId"
+        }
+      },
+      "ResultPath": null,
+      "TimeoutSeconds": 60,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Next": "Done"
+    },
+    "MarkFailed": {
+      "Type": "Task",
+      "Comment": "A step failed every try: the errand says so, and the door is no longer told to expect anyone.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${errand_step_arn}",
+        "Payload": {
+          "action": "failed",
+          "householdId.$": "$.householdId",
+          "errandId.$": "$.errandId"
+        }
+      },
+      "ResultPath": null,
+      "TimeoutSeconds": 60,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 3
+        }
+      ],
+      "Next": "Failed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "ErrandFailed",
+      "Cause": "A step of the errand failed every try; the errand is marked failed."
+    },
+    "Ended": {
+      "Type": "Succeed",
+      "Comment": "Called off, or its author is no longer allowed by the resident: nothing more is done or said."
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

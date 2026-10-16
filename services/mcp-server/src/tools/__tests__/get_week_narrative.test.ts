@@ -322,3 +322,64 @@ describe('get_week_narrative with no week named (end to end through the register
     expect(send.mock.calls.some(([cmd]) => cmd.input.KeyConditionExpression)).toBe(false);
   });
 });
+
+describe('the Sunday brief’s suggestion — read by the family under the same gate as the week (INV-7)', () => {
+  const AGENTS_WEEK: WeekNarrative = {
+    ...NARRATIVE,
+    text: 'A quiet week at the door.',
+    textSource: 'agents',
+    suggestion: { action: 'send_note', reason: 'A quiet week: a note would be nice to come back to.' },
+  };
+  const register = async (week: WeekNarrative, exclusions: string[] = []) => {
+    const ddb = {
+      send: vi.fn(async (cmd: { input: { Key: { sk: { S: string } } } }) =>
+        cmd.input.Key.sk.S === 'META'
+          ? { Item: exclusions.length ? { residentExclusions: { SS: exclusions } } : undefined }
+          : { Item: { data: { S: JSON.stringify(week) } } },
+      ),
+    } as unknown as DynamoDBClient;
+    const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
+    registerGetWeekNarrative(mcpServer, ddb, allowedContext('hh-1'));
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+    const result = await client.callTool({ name: 'get_week_narrative', arguments: { isoWeek: '2026-W38' } });
+    return { result, text: (result.content as { type: string; text: string }[])[0]!.text };
+  };
+
+  it('returns the suggestion, and that the agents wrote the week, once she has read it', async () => {
+    const { result, text } = await register(AGENTS_WEEK);
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(text)).toMatchObject({ textSource: 'agents', suggestion: AGENTS_WEEK.suggestion });
+    expect(result.structuredContent).toMatchObject({ suggestion: AGENTS_WEEK.suggestion });
+  });
+
+  it('withholds the suggestion with the week while she has not read it', async () => {
+    const { residentSeenAt: _unread, ...unseen } = AGENTS_WEEK;
+    const { text } = await register(unseen);
+    expect(text).toBe(WEEK_AWAITING_RESIDENT_TEXT);
+    expect(text).not.toContain(AGENTS_WEEK.suggestion!.reason);
+  });
+
+  it('drops the suggestion when the family’s copy is rewritten for what she keeps private: it rested on facts they may not read', () => {
+    const week: WeekNarrative = {
+      ...AGENTS_WEEK,
+      timeline: [{ at: Date.parse('2026-09-15T09:00:00Z'), kind: 'visit', summary: 'Maria visited.', personId: 'maria' }],
+      suggestion: { action: 'arrange_visit', reason: 'Maria came only once this week.' },
+    };
+    const family = familyWeek(week, { ...DEFAULT_POLICY, residentExclusions: ['PRESENCE'] }, 'Europe/London');
+    expect(family.status).toBe('available');
+    expect(family.status === 'available' && family.narrative.suggestion).toBeUndefined();
+  });
+
+  it('drops a suggestion the Guardian will not let the family read, and keeps the week', () => {
+    const week: WeekNarrative = { ...AGENTS_WEEK, suggestion: { action: 'send_note', reason: 'Ask how her new medication is going.' } };
+    const family = familyWeek(week, DEFAULT_POLICY, 'Europe/London');
+    const { suggestion: _withheld, ...withoutIt } = week;
+    expect(family).toEqual({ status: 'available', narrative: withoutIt });
+  });
+
+  it('keeps the suggestion with the week as written when nothing is kept private', () => {
+    expect(familyWeek(AGENTS_WEEK, DEFAULT_POLICY, 'Europe/London')).toEqual({ status: 'available', narrative: AGENTS_WEEK });
+  });
+});

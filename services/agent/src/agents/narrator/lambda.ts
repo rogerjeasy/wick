@@ -7,91 +7,36 @@
  * clients to them and is left untested the same way door/lambda.ts's
  * handler is.
  *
- * Runs weekly (Sunday evening UTC, infra/narrator.tf) against the week
- * that's ending, not a rolling window — matches
+ * Writes the week that's ending, not a rolling window — matches
  * docs/WICK-TECHNICAL.md §5.1's "runs weekly, offline. Cost is
  * irrelevant." A mid-week "how's Mum been" question reads last week's
  * completed narrative until the current week's own Sunday run.
+ *
+ * Since the Sunday brief, the weekly rule no longer starts this function:
+ * it starts brief-dispatch, one home per message, and the agents write each
+ * week (graphs/weeklyBrief.ts). This is what a home falls back to when they
+ * cannot — `narratorDeps`, for that one home, inside the brief's worker
+ * (brief/workerLambda.ts) — and the function stays deployed so an operator
+ * can still write every home's week by hand, in one run.
  */
 import { randomUUID } from 'node:crypto';
-import { DynamoDBClient, PutItemCommand, QueryCommand, ScanCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
-import { currentIsoWeek, padTimestamp, parseTimestampFromSortKey, type WeekNarrative } from '@wick/contracts';
+import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
+import { currentIsoWeek, type WeekNarrative } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
-import { householdsWithTelevision, narrateEveryHousehold } from './everyHousehold.js';
+import { narrateEveryHousehold, type EveryHouseholdDeps } from './everyHousehold.js';
 import { familyNameForWeekCard } from './weekCard.js';
 import { lookStore, type LookSend } from '../../store/looks.js';
 import { familyOnly } from '../door/askFamily.js';
 import { writeNarrative } from './prose.js';
-import type { WeekRange } from './isoWeek.js';
 import { sendToDevice } from '../../egress.js';
+import { householdRows, scanHouseholdsWithTelevision, type PagedSend } from '../brief/loaders.js';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
 /** Who each household has allowed: the week card's second button names them (weekCard.ts). */
 const looks = lookStore((cmd) => ddb.send(cmd as never) as ReturnType<LookSend>, TABLE);
-
-/**
- * Paged: this is the week and the six before it (rhythm/baseline.ts), and
- * the timeline also holds every card the television showed. One page is
- * not a safe assumption for seven weeks of a household's life.
- */
-async function loadEvents(householdId: string, range: WeekRange) {
-  const items: Record<string, AttributeValue>[] = [];
-  let startKey: Record<string, AttributeValue> | undefined;
-  do {
-    const page = await ddb.send(new QueryCommand({
-      TableName: TABLE,
-      KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
-      ExpressionAttributeValues: {
-        ':pk': { S: `HH#${householdId}` },
-        ':from': { S: `EVT#${padTimestamp(range.startMs)}` },
-        // range.endMs is exclusive; the sentinel character sorts after any
-        // uuid suffix at that millisecond, matching get_today.ts's and
-        // did_visitor_come.ts's identical upper-bound pattern.
-        ':to': { S: `EVT#${padTimestamp(range.endMs - 1)}#￿` },
-      },
-      ...(startKey ? { ExclusiveStartKey: startKey } : {}),
-    }));
-    items.push(...(page.Items ?? []));
-    startKey = page.LastEvaluatedKey;
-  } while (startKey);
-  return items;
-}
-
-/** The oldest EVT# row: sort keys are zero-padded timestamps, so the first one is the first event. */
-async function firstEventAt(householdId: string): Promise<number | undefined> {
-  const res = await ddb.send(new QueryCommand({
-    TableName: TABLE,
-    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :evt)',
-    ExpressionAttributeValues: { ':pk': { S: `HH#${householdId}` }, ':evt': { S: 'EVT#' } },
-    ProjectionExpression: 'sk',
-    Limit: 1,
-  }));
-  const sk = res.Items?.[0]?.sk?.S;
-  return sk ? parseTimestampFromSortKey(sk) : undefined;
-}
-
-/**
- * A Scan, filtered to paired televisions. There is no index of households,
- * and this runs once a week, offline, where a full read of the table is
- * cheap; a sparse index over DEV# rows is the answer once it is not.
- */
-async function listHouseholds(): Promise<string[]> {
-  const items: Record<string, AttributeValue>[] = [];
-  let startKey: Record<string, AttributeValue> | undefined;
-  do {
-    const page = await ddb.send(new ScanCommand({
-      TableName: TABLE,
-      FilterExpression: 'begins_with(pk, :hh) AND begins_with(sk, :dev)',
-      ExpressionAttributeValues: { ':hh': { S: 'HH#' }, ':dev': { S: 'DEV#' } },
-      ProjectionExpression: 'pk, sk',
-      ...(startKey ? { ExclusiveStartKey: startKey } : {}),
-    }));
-    items.push(...(page.Items ?? []));
-    startKey = page.LastEvaluatedKey;
-  } while (startKey);
-  return householdsWithTelevision(items);
-}
+/** Paged reads (brief/loaders.ts): seven weeks of a household's life, and the whole table's televisions. */
+const paged: PagedSend = (cmd) => ddb.send(cmd as never) as ReturnType<PagedSend>;
 
 async function saveNarrative(narrative: WeekNarrative): Promise<void> {
   await ddb.send(new PutItemCommand({
@@ -104,13 +49,15 @@ async function saveNarrative(narrative: WeekNarrative): Promise<void> {
   }));
 }
 
-export const handler = async (): Promise<void> => {
-  const isoWeek = currentIsoWeek(new Date());
-
-  const run = await narrateEveryHousehold(isoWeek, {
-    listHouseholds,
-    loadEvents,
-    firstEventAt,
+/**
+ * Everything the Narrator needs but the list of households: the real table,
+ * model and egress. The weekly brief's worker uses it too — for one home,
+ * when the agents could not write its week (brief/workerLambda.ts).
+ */
+export function narratorDeps(): Omit<EveryHouseholdDeps, 'listHouseholds'> {
+  return {
+    loadEvents: (householdId, range) => householdRows(paged, TABLE, householdId).loadEvents(range),
+    firstEventAt: (householdId) => householdRows(paged, TABLE, householdId).firstEventAt(),
     writeNarrative: (facts, retryReason) => writeNarrative(facts, retryReason),
     saveNarrative,
     sendWeekCard: (card) => sendToDevice(card, DEFAULT_POLICY),
@@ -118,7 +65,13 @@ export const handler = async (): Promise<void> => {
     newCorrelationId: randomUUID,
     timeZone: process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London',
     familyNameOf: async (householdId) => familyNameForWeekCard(familyOnly(await looks.listFamily(householdId)).map((member) => member.name)),
-  });
+  };
+}
+
+export const handler = async (): Promise<void> => {
+  const isoWeek = currentIsoWeek(new Date());
+
+  const run = await narrateEveryHousehold(isoWeek, { ...narratorDeps(), listHouseholds: () => scanHouseholdsWithTelevision(paged, TABLE) });
 
   // A failed household is logged by name above and not rethrown: a thrown
   // handler makes EventBridge run the whole week again for every home.

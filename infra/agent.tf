@@ -148,6 +148,8 @@ resource "aws_lambda_function" "agent_door_event" {
       RING_TOKEN_SECRET_PREFIX = local.ring_token_secret_prefix
       AGENT_RUNTIME_ARN        = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
       AGENT_RUNTIME_VERSION    = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
+      # Every ring is said on the bus, for a visit errand waiting at the door (infra/errands.tf).
+      EVENT_BUS_NAME = aws_cloudwatch_event_bus.wick.name
     }
   }
 

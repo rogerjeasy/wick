@@ -48,6 +48,12 @@ export interface RosterEntry {
    * stillWelcome). Absent on an entry the household's operator made.
    */
   readonly addedBy?: string;
+  /**
+   * The name, as the resident allowed it, of the member who arranged this
+   * visit (an errand, errand.ts) — for the door card's "Sarah arranged this
+   * visit." Present only on an errand's entry.
+   */
+  readonly arrangedByName?: string;
 }
 
 export interface VisitorMatch {

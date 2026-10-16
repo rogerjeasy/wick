@@ -62,13 +62,13 @@ var WickTv = (() => {
 
   // packages/contracts/src/demoDoor.ts
   var DEMO_DOOR_PICTURES_URL = "https://rogerjeasy.github.io/wick/demo-door/";
-  var visitor = (key, label, eventType) => ({
+  var visitor = (key, label, eventType, picture = `${key}.jpg`) => ({
     key,
     label,
     eventType,
     ...eventType === "motion_detected" ? { subType: "human" } : {},
-    picture: `${key}.jpg`,
-    pictureUrl: `${DEMO_DOOR_PICTURES_URL}${key}.jpg`
+    picture,
+    pictureUrl: `${DEMO_DOOR_PICTURES_URL}${picture}`
   });
   var VISITORS = {
     // The demo home's regular visitor (accounts/demoHome.ts DEMO_VISITOR). The door matches her only inside her usual time.
@@ -76,7 +76,11 @@ var WickTv = (() => {
     parcel: visitor("parcel", "A parcel delivery", "button_press"),
     stranger: visitor("stranger", "Somebody she does not know", "button_press"),
     // Ring saw a person move, and the picture shows nobody: the card's headline is corrected (door/index.ts).
-    nobody: visitor("nobody", "Nobody there, only movement", "motion_detected")
+    nobody: visitor("nobody", "Nobody there, only movement", "motion_detected"),
+    // Whoever a member arranged to come (errand.ts arrange_visit), ringing now: arrange one a few minutes ahead and
+    // ring this, and the door matches them by the time as it would anyone expected. Somebody at the door with
+    // something for the house: the delivery's picture, made already, and described by the vision step as it is.
+    arranged: visitor("arranged", "The visitor you arranged", "button_press", "parcel.jpg")
   };
 
   // packages/contracts/src/live.ts
@@ -460,7 +464,14 @@ var WickTv = (() => {
       b("Watch live", "Ver en vivo"),
       // The press is the consent: the picture goes to the people she allows, for this one card (askFamily.ts).
       b("Ask {first} to look", "Pedir a {first} que mire"),
-      b("Ring the hallway chime", "Tocar timbre del pasillo")
+      b("Ring the hallway chime", "Tocar timbre del pasillo"),
+      // A visitor the family arranged (contracts errand.ts): who arranged it, under "This looks like the plumber".
+      s("{first} arranged this visit.", "{first|cap} organizó esta visita.")
+    ],
+    // Her reminder of a visit the family arranged: a note from them in Wick's own words. Who is coming is theirs, and kept.
+    "services/agent/src/agents/errand/reminder.ts": [
+      s("A reminder from {first}: {name} is coming {part} at {time}.", "Un recordatorio de {first}: {name} viene {part}, a {time|las}."),
+      s("A reminder from {first}: {name} is coming on {day} at {time}.", "Un recordatorio de {first}: {name} viene el {day} a {time|las}.")
     ],
     "services/agent/src/agents/door/actions.ts": [
       s("The hallway chime rang.", "Ha sonado el timbre del pasillo."),
@@ -635,6 +646,20 @@ var WickTv = (() => {
     }
   };
   var SPANISH = compile(Object.values(ES_CATALOGUE).flat(), spanishWords);
+
+  // packages/contracts/src/errand.ts
+  var ERRAND_LIMITS = {
+    /** Open errands one household may have at once. */
+    maxOpenPerHousehold: 10,
+    /** "the plumber", "the window cleaner", "Dave from the council". */
+    whoMaxChars: 40,
+    /** A ring this many minutes either side of the time still counts (expect_visit's window). */
+    windowMinutes: 60,
+    /** Soon enough for a judge to watch one run end to end. */
+    minLeadMs: 2 * 6e4,
+    /** Beyond this a visit is a hope, not a plan (expect_visit's limit). */
+    maxLeadMs: 60 * 24 * 36e5
+  };
 
   // apps/tv-vega/src/break/types.ts
   var CALM_POINT_WINDOW_MS = 8e3;

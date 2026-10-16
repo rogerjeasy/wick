@@ -11,7 +11,7 @@ import {
 
 describe('the stand-in doorbell (demoDoor.ts)', () => {
   it('has a fixed list of stand-in visitors, and nothing else is one', () => {
-    expect(DEMO_VISITOR_KEYS).toEqual(['carer', 'parcel', 'stranger', 'nobody']);
+    expect(DEMO_VISITOR_KEYS).toEqual(['carer', 'parcel', 'stranger', 'nobody', 'arranged']);
     for (const key of DEMO_VISITOR_KEYS) expect(isDemoVisitorKey(key)).toBe(true);
     for (const other of ['', 'Carer', 'maria', 'toString', '__proto__', 7, null, undefined, { key: 'carer' }]) {
       expect(isDemoVisitorKey(other)).toBe(false);
@@ -22,17 +22,26 @@ describe('the stand-in doorbell (demoDoor.ts)', () => {
     expect(demoVisitor('carer')).toMatchObject({ eventType: 'button_press' });
     expect(demoVisitor('parcel')).toMatchObject({ eventType: 'button_press' });
     expect(demoVisitor('stranger')).toMatchObject({ eventType: 'button_press' });
+    expect(demoVisitor('arranged')).toMatchObject({ eventType: 'button_press' });
     // Ring said a person moved; the picture shows nobody. The door agent's headline is then corrected.
     expect(demoVisitor('nobody')).toMatchObject({ eventType: 'motion_detected', subType: 'human' });
   });
 
   it('serves each picture over https, from the published docs', () => {
     expect(DEMO_DOOR_PICTURES_URL).toBe('https://rogerjeasy.github.io/wick/demo-door/');
-    for (const key of DEMO_VISITOR_KEYS) {
+    for (const key of DEMO_VISITOR_KEYS.filter((k) => k !== 'arranged')) {
       const visitor = demoVisitor(key);
       expect(visitor.picture).toBe(`${key}.jpg`);
       expect(visitor.pictureUrl).toBe(`https://rogerjeasy.github.io/wick/demo-door/${key}.jpg`);
     }
+  });
+
+  it('rings now for the visitor a member arranged (errand.ts), with a picture already made: the delivery at the door', () => {
+    expect(demoVisitor('arranged')).toMatchObject({
+      label: 'The visitor you arranged',
+      picture: 'parcel.jpg',
+      pictureUrl: 'https://rogerjeasy.github.io/wick/demo-door/parcel.jpg',
+    });
   });
 
   it('labels every visitor as a stand-in in the family app', () => {

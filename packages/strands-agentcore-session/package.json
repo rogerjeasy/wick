@@ -1,0 +1,15 @@
+{
+  "name": "@wick/strands-agentcore-session",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentCore Memory session storage for the Strands TypeScript SDK. The same code as Wick's pull request to aws/bedrock-agentcore-sdk-typescript (issues #160, #214), kept here until it is released.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "license": "Apache-2.0",
+  "author": "Roger Bavibidila",
+  "peerDependencies": {
+    "@aws-sdk/client-bedrock-agentcore": ">=3.1065.0",
+    "@strands-agents/sdk": ">=1.5.0"
+  }
+}

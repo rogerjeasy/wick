@@ -89,6 +89,18 @@ const doorExpected: Card = {
   ],
 };
 
+/** A visitor the family arranged (contracts errand.ts): the door says who it looks like, and who arranged it. */
+const doorArranged: Card = {
+  ...doorPhaseOne,
+  id: 'door-evt-4',
+  match: { personId: 'errand:err_AAAAAAAAAAAAAAAAAAAA', name: 'the plumber', basis: 'schedule', expectedToday: true, confidence: 0.5 },
+  notice: 'Sarah arranged this visit.',
+  actions: [
+    { id: DOOR_ACTIONS.watchLive, label: 'Watch live', kind: 'primary' },
+    { id: DOOR_ACTIONS.dismiss, label: 'Not now', kind: 'dismiss' },
+  ],
+};
+
 const note: Card = {
   type: 'MESSAGE',
   ...base('note-1'),
@@ -221,6 +233,14 @@ export const CARD_CASES: readonly CardCase[] = [
     // The television's own sentence around the name (words/words.ts).
     spanishWords: 'Parece ser Maria — se esperaba su visita ahora.',
     press: { label: 'Watch live', id: DOOR_ACTIONS.watchLive },
+  },
+  {
+    name: 'DOOR, a visitor the family arranged',
+    card: doorArranged,
+    spanish: inSpanish(doorArranged),
+    // The phrasebook's sentence (agent door/index.ts arrangedThisVisit); the visitor stays in the member's words.
+    spanishWords: 'Sarah organizó esta visita.',
+    press: { label: 'Not now', id: DOOR_ACTIONS.dismiss },
   },
   {
     name: 'MESSAGE',

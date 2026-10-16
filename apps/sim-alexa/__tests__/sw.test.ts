@@ -88,6 +88,32 @@ describe('the service worker — a nudge becomes a notification', () => {
     expect(options.requireInteraction).toBe(false);
   });
 
+  it('says only that there is news about a visit the member arranged — not whether anyone came, nor who', async () => {
+    for (const kind of ['errand_rang', 'errand_no_show']) {
+      const w = worker();
+
+      await w.push({ kind, who: 'the plumber', at: '10:04' });
+
+      const [, options] = w.showNotification.mock.calls[0]!;
+      expect(options.body).toBe('There is news about a visit you arranged.');
+      expect(options.tag).toBe(`wick-${kind}`);
+      expect(JSON.stringify(options)).not.toMatch(/plumber|10:04/);
+    }
+  });
+
+  it('says the week is there to read once she has read it, and not what is in it', async () => {
+    const w = worker();
+
+    await w.push({ kind: 'week_ready', text: 'A quiet week.' });
+
+    const [title, options] = w.showNotification.mock.calls[0]!;
+    expect(title).toBe('Wick');
+    expect(options.body).toBe('The week is ready for you to read.');
+    expect(options.tag).toBe('wick-week_ready');
+    expect(options.requireInteraction).toBe(false);
+    expect(JSON.stringify(options)).not.toContain('quiet');
+  });
+
   it('says nothing about the house for a request to ring, whatever the payload carries', async () => {
     const w = worker();
 

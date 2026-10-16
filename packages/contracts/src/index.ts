@@ -20,3 +20,5 @@ export * from './mantel.js';
 export * from './speech.js';
 export * from './hear.js';
 export * from './phrasebook/index.js';
+export * from './errand.js';
+export * from './brief.js';

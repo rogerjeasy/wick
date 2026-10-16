@@ -136,21 +136,12 @@ resource "aws_lambda_function" "agent_narrator_weekly" {
 # Sunday evening UTC — the week (Monday-Sunday, ISO 8601) is complete by
 # then, matching the docs/WICK.md §4.2 demo narrative's "Sunday, 10:00,
 # Sarah asks" moment landing shortly after a fresh run.
+#
+# Its target is now brief-dispatch (brief.tf): the agents write each home's
+# week, one home per message, and this Lambda's code is what a home falls
+# back to. The function stays, to be run by hand for every home at once.
 resource "aws_cloudwatch_event_rule" "narrator_weekly" {
   name                = "${local.prefix}-narrator-weekly"
-  description         = "Compute and write the week's narrative"
+  description         = "Write the week: the Sunday brief, one home per message (brief.tf)"
   schedule_expression = "cron(0 20 ? * SUN *)"
-}
-
-resource "aws_cloudwatch_event_target" "narrator_weekly" {
-  rule = aws_cloudwatch_event_rule.narrator_weekly.name
-  arn  = aws_lambda_function.agent_narrator_weekly.arn
-}
-
-resource "aws_lambda_permission" "narrator_weekly" {
-  statement_id  = "AllowExecutionFromEventBridge"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.agent_narrator_weekly.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.narrator_weekly.arn
 }

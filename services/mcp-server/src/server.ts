@@ -34,9 +34,12 @@ import { createApiRouter, type ClaimTelevision, type RingLinks } from './account
 import { createAccountDataRouter } from './accounts/accountDataRouter.js';
 import { createFamilyTelevisionRouter } from './accounts/familyTelevisionRouter.js';
 import { checkAccess, type CircleDeps } from './accounts/circle.js';
-import { seedDemoHome } from './accounts/demoHome.js';
+import { requestDemoBrief, seedDemoHome } from './accounts/demoHome.js';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { createAssistantRouter, type AssistantDeps } from './assistant/router.js';
 import type { ToolSpec } from './assistant/brain.js';
+import type { AssistantMemory } from './assistant/forget.js';
+import type { AssistantAgent } from './assistant/turn.js';
 import type { IdentityProvider } from './accounts/identity.js';
 import { grantOf } from './accounts/oauthProvider.js';
 import type { AccountStore } from './accounts/store.js';
@@ -73,6 +76,10 @@ import { registerGetReachRequest } from './tools/get_reach_request.js';
 import { registerAnswerReachRequest } from './tools/answer_reach_request.js';
 import { registerGetVisits } from './tools/get_visits.js';
 import { registerGetPictures } from './tools/get_pictures.js';
+import { registerArrangeVisit } from './tools/arrange_visit.js';
+import { registerGetErrands } from './tools/get_errands.js';
+import { registerCancelErrand } from './tools/cancel_errand.js';
+import type { ErrandMachine } from './tools/errands.js';
 import { closeWhenDraining, createLifecycle, healthRoute, type About, type Lifecycle } from './lifecycle.js';
 import { authChecked, startTiming, timingOf } from './timing.js';
 
@@ -101,8 +108,11 @@ export function createMcpServer(
   sendCard: SendCard,
   sendPatch: (patch: CardPatch, householdId: string) => Promise<void>,
   withdrawCard: (householdId: string, cardId: string) => Promise<void>,
-  /** `ownList`: answer tools/list by the SDK's own handler — only for the one server that lists them once (`listedTools`). */
-  options: { readonly ownList?: boolean } = {},
+  /**
+   * `ownList`: answer tools/list by the SDK's own handler — only for the one server that lists them once (`listedTools`).
+   * `errands`: the visit errands' state machine (tools/errands.ts); absent, arrange_visit says it cannot.
+   */
+  options: { readonly ownList?: boolean; readonly errands?: ErrandMachine | undefined } = {},
 ): McpServer {
   // INV-4: every tool's answer is read by the Guardian before it leaves (guardian.ts).
   const mcpServer = guardTools(new McpServer({ name: 'wick', version: SERVER_VERSION }), ctx.timing);
@@ -128,6 +138,9 @@ export function createMcpServer(
   registerAnswerReachRequest(mcpServer, ddb, ctx, sendCard);
   registerGetVisits(mcpServer, ddb, ctx);
   registerGetPictures(mcpServer, ddb, ctx);
+  registerArrangeVisit(mcpServer, ddb, ctx, options.errands);
+  registerGetErrands(mcpServer, ddb, ctx);
+  registerCancelErrand(mcpServer, ddb, ctx, options.errands);
   // The list is the same for every request and every person — no tool's
   // name, description or schema depends on who asks — and making it turns
   // forty-four Zod schemas into JSON Schema. So it is made once per process,
@@ -178,6 +191,12 @@ async function listToolSpecs(ddb: DynamoDBClient): Promise<ToolSpec[]> {
   return tools.map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema }));
 }
 
+/** Each tool's title, from the same list: what the family app's confirm card and plan call a call. */
+async function listToolTitles(ddb: DynamoDBClient): Promise<ReadonlyMap<string, string>> {
+  const { tools } = await listedTools(ddb);
+  return new Map(tools.map((t) => [t.name, t.title ?? t.annotations?.title ?? t.name]));
+}
+
 export interface AppDeps {
   readonly store: AccountStore;
   readonly identity: IdentityProvider;
@@ -209,6 +228,10 @@ export interface AppDeps {
   readonly demoAccountsPerHour?: number;
   /** The model behind the family app's conversation (assistant/brain.ts). Without one the app answers by its rules. */
   readonly assistant?: AssistantDeps;
+  /** The assistant as a Strands agent on AgentCore Runtime (assistant/turn.ts). Without one, /assistant/turn says 503. */
+  readonly assistantAgent?: AssistantAgent | undefined;
+  /** What the family assistant kept in AgentCore Memory (assistant/forget.ts), taken with an account. */
+  readonly assistantMemory?: AssistantMemory | undefined;
   /** Her television in a browser tab, for someone with no Fire TV to hand (apps/ops-console/tv.html). */
   readonly virtualTelevisionUrl?: string;
   /**
@@ -223,6 +246,8 @@ export interface AppDeps {
    * Wick has none.
    */
   readonly ringDemoDoor?: ((event: DemoDoorEvent) => Promise<void>) | undefined;
+  /** The visit errands' state machine (tools/errands.ts). Absent, arrange_visit says this Wick cannot arrange visits. */
+  readonly errands?: ErrandMachine | undefined;
   /**
    * Ask by voice (hear/transcribe.ts): one spoken question turned into words
    * by Amazon Transcribe. Absent, `/api/hear` says this Wick cannot hear yet.
@@ -256,6 +281,9 @@ export function securityHeaders(issuerUrl: URL): express.RequestHandler {
   };
 }
 
+/** The Sunday brief's queue (infra/brief.tf), made when a demo home first asks for its week. */
+let briefQueue: SQSClient | undefined;
+
 export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   const { ddb } = deps;
   const circle: CircleDeps = {
@@ -267,9 +295,14 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   const { router: authRouter, requireAuth } = createAuth(issuerUrl, circle, deps.identity, {
     demoAccounts: deps.demoAccounts,
     demoAccountsPerHour: deps.demoAccountsPerHour,
-    // A guest's home starts with six weeks to ask about, marked simulated (accounts/demoHome.ts).
-    seedDemoHome: (householdId) =>
-      seedDemoHome((item) => ddb.send(new PutItemCommand({ TableName: TABLE, Item: item })), householdId, circle.now(), HOUSEHOLD_TZ),
+    // A guest's home starts with six weeks to ask about, marked simulated (accounts/demoHome.ts),
+    // and its newest week is then written again by Wick's agents — asked for, never waited for.
+    seedDemoHome: async (householdId) => {
+      const now = circle.now();
+      await seedDemoHome((item) => ddb.send(new PutItemCommand({ TableName: TABLE, Item: item })), householdId, now, HOUSEHOLD_TZ);
+      const queueUrl = process.env.WICK_BRIEF_QUEUE_URL;
+      if (queueUrl) void requestDemoBrief((body) => (briefQueue ??= new SQSClient({})).send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: body })), householdId, now);
+    },
   });
 
   const app = express();
@@ -300,6 +333,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     push,
     ringLinks: deps.ringLinks,
     photos: deps.photos?.objects,
+    assistantMemory: deps.assistantMemory,
   }, requireAuth));
   app.use(createApiRouter(circle, requireAuth, {
     claimTelevision: deps.claimTelevision,
@@ -329,11 +363,14 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
 
   // The tool list is the same for everyone and for the life of the process: asked for once, on first need.
   let toolSpecs: Promise<ToolSpec[]> | undefined;
+  let toolTitles: Promise<ReadonlyMap<string, string>> | undefined;
   app.use(createAssistantRouter({
     assistant: deps.assistant,
     requireAuth,
     store: deps.store,
     toolSpecs: () => (toolSpecs ??= listToolSpecs(ddb)),
+    agent: deps.assistantAgent,
+    toolTitles: () => (toolTitles ??= listToolTitles(ddb)),
     now: circle.now,
     timeZone: HOUSEHOLD_TZ,
   }));
@@ -402,7 +439,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
         lookedIn: (allowed) =>
           recordLook(ddb, { householdId: grant.householdId, userId: grant.userId, name: allowed.membership.name }, (deps.now ?? Date.now)(), deps.sendHome ?? (async () => {})),
         ...(timing ? { timing } : {}),
-      }, deps.sendCard, deps.sendPatch, deps.withdrawCard);
+      }, deps.sendCard, deps.sendPatch, deps.withdrawCard, { errands: deps.errands });
       // No `sessionIdGenerator` given: that is what makes it stateless.
       // `enableJsonResponse`: the answer is one JSON body, written once the
       // tool has answered, rather than a one-event stream opened before it

@@ -28,7 +28,7 @@ anyone watching her.
 | Try it (no account, no hardware) | https://d2sbabcft8sm3m.cloudfront.net/tv.html (her television in a browser tab) and https://dmaz25jvryojp.cloudfront.net/ (the family app) |
 | The calm-point map | https://rogerjeasy.github.io/wick/calm-points/ |
 | Product feedback (every tool, and 15 feature requests) | [`docs/PRODUCT-FEEDBACK.md`](PRODUCT-FEEDBACK.md) |
-| Friction log (40 entries) | [`FRICTION.md`](../FRICTION.md) |
+| Friction log (43 entries) | [`FRICTION.md`](../FRICTION.md) |
 | Video | `VIDEO_URL_PLACEHOLDER` |
 
 ---
@@ -94,9 +94,23 @@ Built on those three, each with one button on her remote:
 - **The mantelpiece**: the family sends a photo; she keeps it or says thank
   you, and the family sees the same thing either way.
 - **Read to me**: the Play key reads the card on screen aloud, in her language.
+- **Visit errands**: Sarah says *"The plumber is coming Thursday at ten — let
+  Mum know."* Wick's agent shows her the plan and waits for her yes; then a
+  note waits for Margaret's natural break, the door is told whom to expect (the
+  card later says "Sarah arranged this visit"), Margaret is reminded that
+  morning, and Sarah is told when the door rang or that nobody came. It runs
+  for days as one Step Functions execution, and never claims the plumber came:
+  only that someone rang around then.
+- **The Sunday brief**: each home's week is written by agents from counted
+  facts, checked by the Guardian and a Bedrock Guardrail's grounding check,
+  and ends with one thing Sarah could do, with one button: write a note,
+  arrange a visit, or watch a film together. Margaret still sees her week
+  first.
 
-The family reaches all of it through the Wick server's 22 MCP tools, from a
-family app that stands in for Alexa+. Every tool asks again, on every call,
+The family reaches all of it through the Wick server's 25 MCP tools, from a
+family app that stands in for Alexa+, and through Wick's own agent on Amazon
+Bedrock AgentCore, which calls those same tools with the family member's own
+token and asks before every write. Every tool asks again, on every call,
 whether she still allows that person.
 
 ### What is real, and what is simulated
@@ -119,8 +133,11 @@ television.
 A Vega OS app (React Native 0.83, `react-native-kepler`, headless services,
 Content Personalization, Media Controls, W3C media) and the same source built
 for Fire OS on `react-native-tvos`. An edge of Lambda functions behind API
-Gateway and AWS IoT Core. An agent plane of Strands graphs on Amazon Bedrock
-AgentCore Runtime (Nova Lite for the door, Claude Sonnet 4.5 for the week). One
+Gateway and AWS IoT Core. An agent plane on Amazon Bedrock AgentCore Runtime:
+the door's Strands graphs (Nova Lite), the family assistant as a Strands agent
+with an MCP client, interrupts for approval and AgentCore Memory, and the
+Sunday brief as a Strands Graph (Claude Sonnet 4.5), all behind a Bedrock
+Guardrail. Visit errands on AWS Step Functions; the brief's fan-out on SQS. One
 DynamoDB table. An MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1) on
 App Runner. All of it in Terraform, deployed by GitHub Actions through OIDC.
 
@@ -188,7 +205,17 @@ sample was opened on 2026-10-14.
    there. The door card comes up at once, over the playing film and without
    pausing it, then the picture, then the vision model's sentence.
 6. **Easier to see**, on the home screen, sets larger text or higher contrast.
-7. For the family's side on a television, open
+7. **A visit errand, end to end.** In the family app, ask *"The window cleaner
+   is coming in five minutes — let Mum know"*. Wick's agent shows what it will
+   do and asks for your yes on each step; say yes. The note waits on the
+   television for a break; after the visit's time, ring the stand-in doorbell
+   and choose **The visitor you arranged**: the door card says you arranged it,
+   and the family app's errand card turns to "Someone rang at …". Ask *"Did
+   the window cleaner come?"* to see it again.
+8. **The Sunday brief.** Ask *"How has my mum been this week?"*: the week was
+   written by the agents, and its card ends with *One thing you could do*, with
+   one button.
+9. For the family's side on a television, open
    [the console's television](https://d2sbabcft8sm3m.cloudfront.net/device.html),
    press **Pair & connect**, and answer *"Whose television is it?"* with
    **Mine**.
@@ -212,28 +239,46 @@ npm run verify     # typecheck, lint, the no-mocks guard, and every test
 
 ## AWS Builder
 
-Wick is not one model call behind an API: it runs on twenty AWS services
-(counting IAM), every one defined in Terraform. A Ring press reaches a Lambda behind API
-Gateway, which verifies it and puts it on an EventBridge bus. The Door agent,
-a Strands graph on **Bedrock AgentCore Runtime** with one microVM per
-household, has **Nova Lite** describe the picture, and a deterministic
-validator decide whether that sentence may be shown. The card reaches the
-television over **AWS IoT Core** (MQTT, with a custom authorizer checking the
-television's own token) or an API Gateway WebSocket. **Claude Sonnet 4.5**
-writes the weekly paragraph from counts made in code, on an EventBridge
-schedule, so every MCP tool can answer from one **DynamoDB** read.
-**EventBridge Scheduler** holds the three minutes between one person being
-asked to ring and the next. **Rekognition** measured each film's calm points
-and checks every family photo; **Polly** reads a card aloud; **Translate**
-carries free text into her language; **Transcribe** hears a family member's
-spoken question. **S3** lifecycle rules, not application code, delete door
-imagery within a day. Per-household Ring tokens live in **Secrets Manager**,
-family accounts in **Cognito**, and CI deploys through **GitHub OIDC** with no
-AWS keys.
+Wick is not one model call behind an API. It is three agents on **Amazon
+Bedrock AgentCore**, built with **Strands**, on a pipeline of twenty-three AWS
+services, every one in Terraform.
+
+- **The family assistant** is a Strands `Agent` in **AgentCore Runtime**. It is
+  an MCP client of Wick's own server, calling its 25 tools with the family
+  member's own token, so it can do nothing the member could not. Every write
+  pauses through a **Strands interrupt** until the member says yes in the app;
+  one yes covers one call. The token is checked against the Wick server before
+  any session is loaded. Conversations, including a write waiting for a yes,
+  persist in **AgentCore Memory** through a Strands session storage Wick wrote
+  and contributed to Amazon's AgentCore TypeScript SDK (Open Source, below);
+  a user-preference strategy remembers the member's own words long-term.
+- **Visit errands** run for days as **AWS Step Functions** executions: wait for
+  the reminder time, remind her, then wait for the doorbell with a task token
+  that the door's **EventBridge** event redeems, or time out, and tell the
+  member by Web Push.
+- **The Sunday brief** is a **Strands Graph** in AgentCore Runtime: an analyst
+  (code), a writer (**Claude Sonnet 4.5** on **Amazon Bedrock**), a check (the
+  Guardian, the number check, and a **Bedrock Guardrail** with contextual
+  grounding against the counted facts), and a suggester with structured
+  output, whose one suggestion code validates. **SQS** fans it out, one home
+  per message, with a dead-letter queue and alarms.
+- **The door** is a Strands graph in AgentCore Runtime with one microVM per
+  household: **Nova Lite** describes the picture and a validator decides
+  whether that sentence may be shown. A Ring press reaches a Lambda behind
+  **API Gateway**, which verifies it and puts it on an **EventBridge** bus; the
+  card reaches the television over **AWS IoT Core** (MQTT with a custom
+  authorizer) or an API Gateway WebSocket.
+- And: **EventBridge Scheduler** (the three minutes of Hold for Sarah),
+  **Rekognition** (calm points, family photos), **Polly** (Read to me),
+  **Translate**, **Transcribe**, **DynamoDB**, **S3** and **CloudFront**,
+  **Secrets Manager** (per-household Ring tokens), **Cognito**, **App Runner**,
+  **CloudWatch** alarms with **SNS**, and **GitHub OIDC** deploys with no AWS
+  keys.
 
 The table of every service, what Wick does with it, and the files where it is
-defined is in [`docs/PRODUCT-FEEDBACK.md` → AWS services used, and how](PRODUCT-FEEDBACK.md#aws-services-used-and-how).
-The same page has the five product-feedback answers for each service.
+defined is in [`docs/PRODUCT-FEEDBACK.md` → AWS services used, and how](PRODUCT-FEEDBACK.md#aws-services-used-and-how),
+with the five product-feedback answers for each. How the agents work is in
+[`docs/WICK-TECHNICAL.md`](WICK-TECHNICAL.md) §18–§21.
 
 ---
 
@@ -242,7 +287,40 @@ The same page has the five product-feedback answers for each service.
 **GitHub username:** `rogerjeasy`
 **Project repository URL:** https://github.com/rogerjeasy/wick
 
-### Contribution 1: a new open-source library, `vega-calm-ui`
+### Contribution 1: AgentCore Memory session storage for Strands TypeScript, a pull request to Amazon's AgentCore SDK
+
+**Contribution URL:** https://github.com/aws/bedrock-agentcore-sdk-typescript/pull/287
+(branch [`rogerjeasy:feat/strands-session-storage`](https://github.com/rogerjeasy/bedrock-agentcore-sdk-typescript/tree/feat/strands-session-storage))
+
+**What we did.** Amazon's official AgentCore TypeScript SDK
+(`aws/bedrock-agentcore-sdk-typescript`) had no way to keep a Strands
+TypeScript agent's session in AgentCore Memory; Python's SDK has had
+`AgentCoreMemorySessionManager` for months, and two issues there ask for the
+TypeScript one (#160, and #214 from an AWS engineer for the AgentCore CLI's
+TypeScript template). We wrote it: `AgentCoreMemorySnapshotStorage` and
+`createAgentCoreMemorySessionStorage`, so `new SessionManager({ storage })`
+persists a Strands agent's conversation in AgentCore Memory. 60 unit tests
+(including a real Strands `SessionManager` and `Agent` restoring a
+conversation after a simulated cold start, against a fake that enforces the
+service's limits), 98 % statement coverage of the new file, an integration
+test gated on a real memory, and documentation.
+
+**How it works.** Each Strands snapshot and manifest is a set of AgentCore
+Memory `blob` events tagged with metadata (kind, location, snapshot id,
+"latest", part numbers). Reads filter on that metadata, so the storage never
+touches the conversational events other integrations write into the same
+session. Snapshots larger than one payload item are chunked and reassembled;
+a failed multi-part write is rolled back; an older "latest" is deleted once a
+newer one is written. One turn costs one `CreateEvent`, one `ListEvents` and
+one `DeleteEvent`.
+
+**Why it matters.** It unblocks every TypeScript developer building Strands
+agents on AgentCore Runtime: their agents lose their conversation on every
+cold start without it. Wick runs on it today: the family assistant's
+conversations, including a write waiting for the member's yes, live in
+AgentCore Memory through the same code (`packages/strands-agentcore-session`).
+
+### Contribution 2: a new open-source library, `vega-calm-ui`
 
 **Contribution URL:** https://github.com/rogerjeasy/vega-calm-ui (MIT)
 
@@ -280,7 +358,7 @@ is the difference between a screen they can use and one that startles them.
 We found no Vega library that makes the accessible choice the default. This
 one makes the inaccessible choice fail, in the editor and at render time.
 
-### Contribution 2: accessibility settings for Amazon's own multi-TV sample
+### Contribution 3: accessibility settings for Amazon's own multi-TV sample
 
 **Contribution URL:** https://github.com/AmazonAppDev/react-native-multi-tv-app-sample/pull/135
 (branch [`rogerjeasy:feat/accessibility-preset`](https://github.com/rogerjeasy/react-native-multi-tv-app-sample/tree/feat/accessibility-preset),

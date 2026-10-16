@@ -23,6 +23,10 @@
  *     they wrote (`sentBy`, which egress.ts keeps on a note's row and never
  *     sends to the television): the note stays the home's, written by nobody
  *     on record, and is read to nobody as theirs (tools/get_replies.ts).
+ *   - what the family assistant kept of them in each home (assistant/forget.ts):
+ *     their conversation and their own words in AgentCore Memory — and, in a
+ *     home that closes, everyone's. Forgotten before their place in the
+ *     circle goes, so a deletion that stops there can be asked for again.
  *
  * And the one rule a real product has to decide: **a home is never left
  * without the person who set it up.** Deleting the account of a home's
@@ -55,6 +59,7 @@ import type { RingLinks } from './apiRouter.js';
 import { isGuest } from './demo.js';
 import { isWaveCardId } from './familyTvWave.js';
 import { IdentityError, type IdentityProvider } from './identity.js';
+import type { AssistantMemory } from '../assistant/forget.js';
 import type { PushStore } from './push.js';
 import type { AccountStore } from './store.js';
 import { hashToken } from './tokens.js';
@@ -79,6 +84,8 @@ export interface MyDataDeps {
   readonly ringLinks?: RingLinks | undefined;
   /** The pictures' bucket. Absent where no picture can be sent, so none was. */
   readonly photos?: PhotoObjects | undefined;
+  /** What the family assistant kept in AgentCore Memory. Absent where the deployment has no assistant memory. */
+  readonly assistantMemory?: AssistantMemory | undefined;
 }
 
 /** A refusal, with the sentence the family app shows. */
@@ -262,6 +269,7 @@ async function leaveHome(deps: MyDataDeps, householdId: string, userId: string):
     });
   }
   await store.forgetAnnouncedVisits(householdId, userId);
+  await deps.assistantMemory?.forget(householdId, userId);
   for (const tv of await store.listFamilyTelevisions(householdId)) {
     if (tv.userId === userId) await store.removeFamilyTelevision(householdId, tv.deviceId, userId);
   }
@@ -281,7 +289,9 @@ async function closeHome(deps: MyDataDeps, householdId: string): Promise<void> {
   if (deps.photos) {
     for (const photo of await listPhotos(ddb, householdId)) await deps.photos.remove(householdId, photo.photoId);
   }
-  for (const member of await store.listMembers(householdId)) await store.deleteMembership(householdId, member.userId);
+  const members = await store.listMembers(householdId);
+  for (const member of members) await deps.assistantMemory?.forget(householdId, member.userId);
+  for (const member of members) await store.deleteMembership(householdId, member.userId);
 
   const pk: AttributeValue = { S: `HH#${householdId}` };
   let startKey: Item | undefined;

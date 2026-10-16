@@ -43,6 +43,7 @@ import { DEMO_DOOR_SOURCE, type RosterEntry, type VisitorMatch } from '@wick/con
 import { DEFAULT_POLICY } from '@wick/policy';
 import { randomUUID } from 'node:crypto';
 import { DynamoDBClient, PutItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
+import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { stillWelcome } from './roster.js';
 import { cachedRoster } from './rosterCache.js';
 import { buildDoorEventItem, buildPresenceItem } from './presence.js';
@@ -52,6 +53,7 @@ import { runDoorPhase2, withinDeadline } from './phase2.js';
 import { describeViaRuntime } from './describeRemote.js';
 import { routeDoorEvent, type RouteDeps, type RouteResult } from './route.js';
 import { routeDemoDoorEvent, standInPictures, type StandInBase } from './demoDoor.js';
+import { announceRings } from './announce.js';
 import { isDemoHome } from '../../store/household.js';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
@@ -128,6 +130,10 @@ async function loadRoster(householdId: string): Promise<readonly RosterEntry[]> 
 
 const fetchRoster = cachedRoster({ load: loadRoster });
 
+// Every ring is said on the Wick bus (announce.ts), for a visit errand waiting at the door (infra/errands.tf).
+const events = new EventBridgeClient({});
+const announceRing = announceRings((entries) => events.send(new PutEventsCommand({ Entries: [...entries] })), process.env.EVENT_BUS_NAME || undefined);
+
 const looks = lookStore((cmd) => ddb.send(cmd as never) as ReturnType<LookSend>, TABLE);
 const fetchFamily = cachedRoster<string>({
   load: async (householdId) => (await looks.listFamily(householdId)).map((member) => member.name),
@@ -194,6 +200,7 @@ function standInBase(): StandInBase {
     sendPatch: realSendPatchToDevice,
     describe: (householdId) => describeViaRuntime((kind, hh, payload) => invokeRuntime(agents, kind, hh, payload), householdId),
     pictures: standInPictures(STAND_IN_PICTURES),
+    announceRing,
     newId: randomUUID,
     now: Date.now,
   };
@@ -242,6 +249,7 @@ async function routeRing(detail: Record<string, unknown>): Promise<RouteResult> 
           describe,
           sendPatch: (patch) => realSendPatchToDevice(patch, householdId),
         }, event.eventType),
+      announceRing,
       now: Date.now,
     };
   };

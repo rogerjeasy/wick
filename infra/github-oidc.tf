@@ -117,6 +117,84 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["*"]
   }
 
+  # Visit errands (infra/errands.tf): the state machine, by name, and never
+  # an execution of it — CI cannot start, stop or read an errand. Without
+  # these, every apply after the first (a laptop's) fails at refresh.
+  statement {
+    sid = "ManageTheErrandMachineNeverItsExecutions"
+    actions = [
+      "states:CreateStateMachine",
+      "states:UpdateStateMachine",
+      "states:DeleteStateMachine",
+      "states:DescribeStateMachine",
+      "states:ListStateMachineVersions",
+      "states:ListTagsForResource",
+      "states:TagResource",
+      "states:UntagResource",
+    ]
+    resources = ["arn:aws:states:${local.region}:${local.account_id}:stateMachine:wick-*"]
+  }
+
+  # The deploy role manages AgentCore (the runtime, the memory and its
+  # strategy) and never reads what is in them: no member's conversation, no
+  # member's remembered words, and no invocation of the agents. Explicit, so
+  # bedrock-agentcore:* above can never grant it.
+  statement {
+    sid    = "NeverReadAMembersMemoryNorInvokeTheAgents"
+    effect = "Deny"
+    actions = [
+      "bedrock-agentcore:InvokeAgentRuntime",
+      "bedrock-agentcore:InvokeAgentRuntimeForUser",
+      "bedrock-agentcore:CreateEvent",
+      "bedrock-agentcore:GetEvent",
+      "bedrock-agentcore:ListEvents",
+      "bedrock-agentcore:DeleteEvent",
+      "bedrock-agentcore:ListActors",
+      "bedrock-agentcore:ListSessions",
+      "bedrock-agentcore:RetrieveMemoryRecords",
+      "bedrock-agentcore:ListMemoryRecords",
+      "bedrock-agentcore:GetMemoryRecord",
+      "bedrock-agentcore:DeleteMemoryRecord",
+      "bedrock-agentcore:BatchCreateMemoryRecords",
+      "bedrock-agentcore:BatchUpdateMemoryRecords",
+      "bedrock-agentcore:BatchDeleteMemoryRecords",
+      "bedrock-agentcore:StartMemoryExtractionJob",
+      "bedrock-agentcore:ListMemoryExtractionJobs",
+    ]
+    resources = ["*"]
+  }
+
+  # The agents' Bedrock Guardrail (infra/guardrail.tf): the guardrail and its
+  # published versions, and nothing that applies or lists any other.
+  statement {
+    sid = "ManageTheAgentsGuardrail"
+    actions = [
+      "bedrock:CreateGuardrail",
+      "bedrock:UpdateGuardrail",
+      "bedrock:DeleteGuardrail",
+      "bedrock:GetGuardrail",
+      "bedrock:CreateGuardrailVersion",
+      "bedrock:ListTagsForResource",
+      "bedrock:TagResource",
+      "bedrock:UntagResource",
+    ]
+    resources = ["arn:aws:bedrock:${local.region}:${local.account_id}:guardrail/*"]
+  }
+
+  # Creating a guardrail names no resource until it exists.
+  statement {
+    sid       = "CreateAGuardrail"
+    actions   = ["bedrock:CreateGuardrail", "bedrock:ListGuardrails"]
+    resources = ["*"]
+  }
+
+  # Checking a definition before it is written names no resource.
+  statement {
+    sid       = "ValidateAStateMachineDefinition"
+    actions   = ["states:ValidateStateMachineDefinition"]
+    resources = ["*"]
+  }
+
   # Which image each service runs (infra/images.tf): deploy-agent.yml writes
   # the tag it just pushed, and every apply reads it and keeps the two
   # parameters themselves. Held to /wick/images/*, so a deploy can neither
@@ -351,6 +429,8 @@ data "aws_iam_policy_document" "github_deploy" {
         "build.apprunner.amazonaws.com",
         "tasks.apprunner.amazonaws.com",
         "bedrock-agentcore.amazonaws.com",
+        # The errand state machine's role (infra/errands.tf).
+        "states.amazonaws.com",
       ]
     }
   }

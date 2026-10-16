@@ -60,7 +60,8 @@ describe('POST /assistant/next — one step of the stand-in assistant', () => {
     expect(request.tools.map((t) => t.name).sort()).toEqual([
       'add_regular_visitor', 'answer_door_request', 'answer_reach_request', 'answer_watch_together', 'did_visitor_come', 'expect_visit', 'get_door_request', 'get_light', 'get_pictures', 'get_reach_request', 'get_replies', 'get_resident_shared_view', 'get_today',
       'get_visits', 'get_watch_together', 'get_week_narrative', 'get_whats_different', 'invite_to_watch', 'join_watch_together', 'list_regular_visitors', 'send_note_to_tv', 'withdraw_watch_invitation',
-    ]);
+      'arrange_visit', 'cancel_errand', 'get_errands',
+    ].sort());
     expect(request.tools.every((t) => t.description.length > 0 && typeof t.inputSchema === 'object')).toBe(true);
     expect(request.system).toContain('Margaret');
     expect(request.system).toContain('Sarah');

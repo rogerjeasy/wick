@@ -8,6 +8,7 @@
  * Alexa+ requires sub-500ms round trips. See docs/WICK-TECHNICAL.md §5.4, §9.3.
  */
 
+import type { BriefSuggestion } from './brief.js';
 import { MAX_CARD_DETAIL_CHARS } from './card.js';
 
 /**
@@ -48,7 +49,13 @@ export interface WeekNarrative {
    * the week was written from the counted facts alone. Absent on weeks
    * written before 2026-10-01.
    */
-  readonly textSource?: 'model' | 'facts';
+  readonly textSource?: 'model' | 'facts' | 'agents';
+  /**
+   * The Sunday brief's one suggestion (brief.ts), when the week was written
+   * by the agents' graph and the suggestion passed its checks. Read by the
+   * family under the same INV-7 gate as the text.
+   */
+  readonly suggestion?: BriefSuggestion;
   readonly deltas: readonly RhythmDelta[];
   readonly timeline: readonly TimelineEntry[];
   readonly generatedAt: number;

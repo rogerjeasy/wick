@@ -164,6 +164,24 @@ export function checkNarrative(text: string, facts: WeekFacts, deltas: readonly 
   return { ok: true };
 }
 
+/**
+ * Why a draft was refused, said to the model on its second try. Shared by
+ * the Narrator (index.ts) and the Sunday brief (graphs/weeklyBrief.ts), so
+ * both ask again in the same words.
+ */
+export function refusalReason(check: Extract<NarrativeCheck, { ok: false }>): string {
+  switch (check.reason) {
+    case 'unsupported_number':
+      return `Your draft used "${check.detail}", a number that is not in the facts. Use only the numbers given.`;
+    case 'unsupported_comparison':
+      return `Your draft said "${check.detail}", which the facts do not support. Compare with last week, or with what is usual, only where the facts do.`;
+    case 'too_long':
+      return `Your draft was ${check.detail} characters. Stay under the limit.`;
+    default:
+      return 'Your draft was empty.';
+  }
+}
+
 function list(items: readonly string[]): string {
   if (items.length <= 1) return items.join('');
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;

@@ -252,6 +252,9 @@ button, input, textarea { font: inherit; color: inherit; }
 .facts dd { margin: 0; color: var(--ink-dim); font-size: var(--t-small); align-self: center; }
 /* What the assistant did to answer: the tools it called, in plain words. */
 .trace { margin: var(--s-xs) 0 0; color: var(--ink-dim); font-size: var(--t-small); }
+/* "Here is what I'll do": what Wick's agent would do, read before the first confirm card. */
+.plan ul { margin: var(--s-xs) 0 var(--s-s); padding-left: var(--s-l, 1.25rem); color: var(--ink); }
+.plan li { margin: var(--s-xs) 0; }
 .progress { margin-left: var(--s-s); color: var(--ink-dim); font-size: var(--t-small); }
 .rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-xs); }
 .row {
@@ -291,6 +294,9 @@ button, input, textarea { font: inherit; color: inherit; }
 .card.door .door-picture { max-height: 30vh; max-height: 30dvh; }
 .door-answers { display: flex; flex-direction: column; gap: var(--s-xs); }
 .door-answers .btn { text-align: left; }
+/* The Sunday brief's one thing to do, under the week's paragraph: set apart, and its one button beside it. */
+.week-suggestion { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-s) var(--s-m); padding-top: var(--s-s); border-top: 1px solid var(--line); }
+.week-suggestion .primary-text { flex: 1 1 16rem; }
 /* The answer that was given stays marked; the others are out of use. */
 .door-answers .btn[aria-pressed="true"] { opacity: 1; border-color: var(--ink-dim); }
 .door-answers .btn[aria-pressed="true"]::before { content: "✓ "; }
@@ -303,6 +309,16 @@ button, input, textarea { font: inherit; color: inherit; }
 .watch-screen[hidden] { display: none; }
 .watch-screen video { width: 100%; height: 100%; display: block; object-fit: contain; }
 .watch-status { margin: 0; font-weight: 600; }
+
+/* A visit the member arranged (errands.js): how it stands, and its steps. No red: a step that stopped is only quieter. */
+.errand-entry + .errand-entry { border-top: 1px solid var(--line); padding-top: var(--s-s); margin-top: var(--s-s); }
+.errand-who { margin: 0; font-weight: 600; }
+.errand-said { margin: var(--s-2xs) 0 var(--s-xs); }
+.errand-steps { list-style: none; margin: 0 0 var(--s-s); padding: 0; display: flex; flex-wrap: wrap; gap: var(--s-2xs) var(--s-s); font-size: var(--t-small); }
+.errand-step::before { content: '○ '; }
+.errand-step[data-state='done']::before { content: '● '; }
+.errand-step[data-state='skipped'], .errand-step[data-state='stopped'] { color: var(--ink-dim); }
+.errand-step[data-state='skipped']::before, .errand-step[data-state='stopped']::before { content: '– '; }
 .watch-question { display: flex; flex-direction: column; gap: var(--s-xs); }
 .watch-question[hidden] { display: none; }
 .watch-question p { margin: 0; }

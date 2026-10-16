@@ -20,6 +20,8 @@
  * one title, glanceable rows and nothing the sentence did not earn.
  */
 
+import { ERRAND_DECLINED_TRACE, ERRAND_SUGGESTION, confirmErrand, describeErrandCall, presentErrand, routeErrand, withNoteSent } from './errands.js';
+
 /**
  * The replies a note can be sent with, as the server keeps them
  * (services/mcp-server/src/tools/send_note_to_tv.ts REPLY_CHOICES) — here
@@ -91,6 +93,7 @@ export const SUGGESTIONS = [
   { label: 'Is anything different?', utterance: 'Is anything different?' },
   { label: 'Is the light on?', utterance: "Is the light on at Mum's?" },
   { label: 'Send a note to her television', utterance: "Put a note on Mum's television" },
+  ERRAND_SUGGESTION,
   { label: 'Has Mum replied?', utterance: 'Has Mum replied?' },
   { label: 'Did Mum ask me to look?', utterance: 'Has Mum asked me to look at the door?' },
   { label: 'Did Mum ask for me?', utterance: 'Did Mum ask for me?' },
@@ -167,6 +170,10 @@ export function routeUtterance(text, now = Date.now()) {
 
   // The doorbell is the app's own business too: connecting Ring is something the organiser does here.
   if (/\b(connect|disconnect|link|unlink)\b.*\b(doorbell|ring)\b|\bdoorbell\b.*\bconnected\b/.test(t)) return { kind: 'doorbell' };
+
+  // Visit errands (errands.js): the visits one arranged, and — with no model — not guessing at a new one.
+  const errand = routeErrand(t);
+  if (errand) return errand;
 
   // A demo home's stand-in doorbell: ringing it, or making somebody arrive. Whether this home has one is the card's to say.
   // "Did someone come to the door" is the day's list, not this.
@@ -367,6 +374,8 @@ export const STAND_IN_VISITORS = [
   { key: 'parcel', label: 'A parcel delivery' },
   { key: 'stranger', label: 'Somebody she does not know' },
   { key: 'nobody', label: 'Nobody there, only movement' },
+  // Rings now for a visit arranged with arrange_visit (errands.js): the door matches it by the time.
+  { key: 'arranged', label: 'The visitor you arranged' },
 ];
 
 /**
@@ -538,6 +547,29 @@ export function weekDays(timeline, timeZone) {
   return [...days.values()].map((day) => ({ ...day, count: things(day.entries.length) }));
 }
 
+/** The Sunday brief's actions, and the one button each puts on the week card (main.js renderWeekCard). */
+const SUGGESTION_BUTTONS = {
+  send_note: 'Write a note',
+  arrange_visit: 'Arrange a visit',
+  watch_together: 'Watch a film together',
+};
+
+/**
+ * The week's one suggestion, from the Sunday brief (get_week_narrative's
+ * `suggestion`): "One thing you could do: …" and the one button that does
+ * it — or, for "nothing", its reason alone and no button. The reason is the
+ * server's, already past the Guardian; this page only labels it. Anything
+ * it cannot read is left off the card.
+ */
+export function presentSuggestion(suggestion) {
+  if (typeof suggestion !== 'object' || suggestion === null) return undefined;
+  const { action, reason } = suggestion;
+  if (typeof reason !== 'string' || !reason.trim()) return undefined;
+  if (action === 'nothing') return { text: reason.trim() };
+  if (!Object.hasOwn(SUGGESTION_BUTTONS, action)) return undefined;
+  return { text: `One thing you could do: ${reason.trim()}`, action, label: SUGGESTION_BUTTONS[action] };
+}
+
 function presentWeek(week, formatTime, now, timeZone) {
   const items = [...week.timeline].sort(byTime).map((e) => ({ primary: e.summary, secondary: formatTime(e.at) }));
   const earlier = NOT_THIS_WEEK[week.thisWeek];
@@ -553,12 +585,14 @@ function presentWeek(week, formatTime, now, timeZone) {
       ...(d.verdict !== undefined ? [`usually about ${Math.round(d.baseline)}`] : []),
     ].join(' · '),
   }));
+  const suggestion = presentSuggestion(week.suggestion);
   return {
     say: earlier ? `${earlier} Here is the week of ${named}. ${week.text}` : week.text,
     tone: 'answer',
     card: {
       // The paragraph, then a carousel of the days it covers (main.js renderWeekCard).
       kind: 'week',
+      ...(suggestion ? { suggestion } : {}),
       title: isThisWeek || !named ? 'This week' : `Week of ${named}`,
       meta: week.isoWeek ?? '',
       text: week.text,
@@ -1282,6 +1316,10 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
     return { say: `It is on the television now: “${parsed.by} says: ${parsed.text}”`, card: null, tone: 'answer' };
   }
 
+  // Visit errands (errands.js).
+  const errand = presentErrand(toolName, parsed);
+  if (errand) return errand;
+
   // A shape this surface does not know: say so, never render a guess.
   return { say: 'I got an answer I could not read.', card: null, tone: 'error' };
 }
@@ -1343,7 +1381,7 @@ export function describeCall(toolName, args = {}) {
     case 'join_watch_together': return 'Sat down to watch';
     case 'answer_watch_together': return 'Answered on the television';
     case 'withdraw_watch_invitation': return 'Took the invitation back';
-    default: return 'Asked Wick';
+    default: return describeErrandCall(toolName) ?? 'Asked Wick';
   }
 }
 
@@ -1356,6 +1394,7 @@ const DECLINED_TRACE = {
   join_watch_together: 'Did not sit down',
   answer_watch_together: 'Did not answer',
   withdraw_watch_invitation: 'Did not take it back',
+  ...ERRAND_DECLINED_TRACE,
 };
 
 /** "Saturday 17 October, 15:00" from the date and time a visit was asked for — said in full, so a wrong day is seen before it is sent. */
@@ -1389,6 +1428,8 @@ function chosenReplies(keys) {
 }
 
 export function confirmWrite(toolName, args = {}, title) {
+  const errand = confirmErrand(toolName, args);
+  if (errand) return errand;
   if (toolName === 'expect_visit') {
     return {
       title: 'Tell the door you are coming?',
@@ -1503,7 +1544,7 @@ export function presentTurn(say, steps) {
   return {
     say: said,
     tone: refused ? done[done.length - 1].presented.tone : 'answer',
-    cards: done.map((s) => s.presented.card).filter(Boolean),
+    cards: withNoteSent(done.map((s) => s.presented.card).filter(Boolean), done.map((s) => s.name)),
     trace: steps.map((s) => (s.presented ? describeCall(s.name, s.args) : (DECLINED_TRACE[s.name] ?? 'Did not do that'))).join(' · '),
   };
 }
@@ -2409,4 +2450,68 @@ export function inviteLink(here, code) {
   url.hash = '';
   url.searchParams.set('invite', code);
   return url.toString();
+}
+
+// ---------------------------------------------------------------------------
+// The assistant as an agent on Amazon Bedrock AgentCore (POST /assistant/turn,
+// services/mcp-server/src/assistant/turn.ts). The agent makes the tool calls
+// itself, with the member's own token, and stops before any write: the app
+// shows what it would do, asks about each call on its own confirm card, and
+// sends the answers back. What the tools returned comes back with the answer,
+// so the cards are the same cards.
+// ---------------------------------------------------------------------------
+
+const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Said when the agent stops part way, after a yes: the stand-in is not asked again, so nothing is done twice. */
+export const AGENT_STOPPED_TEXT = 'I could not finish that just now. Ask me what was done before trying again.';
+
+/**
+ * The agent's answer, as the app can use it — `{ kind: 'waiting', calls, plan }`
+ * or `{ kind: 'answer', say, trace, toolTexts }` (`say` undefined: say the
+ * tools' own sentences) — or null.
+ */
+export function readAgentTurn(body) {
+  if (!isPlainObject(body)) return null;
+  const { needsApproval, plan, say, trace, toolTexts } = body;
+  if (!Array.isArray(trace) || !Array.isArray(toolTexts) || trace.length !== toolTexts.length) return null;
+  if (!trace.every((t) => isPlainObject(t) && typeof t.tool === 'string' && typeof t.ok === 'boolean')) return null;
+  if (needsApproval !== undefined) {
+    const ok = Array.isArray(needsApproval) && needsApproval.length > 0
+      && needsApproval.every((c) => isPlainObject(c) && typeof c.id === 'string' && typeof c.name === 'string' && typeof c.title === 'string');
+    if (!ok) return null;
+    return { kind: 'waiting', calls: needsApproval, plan: Array.isArray(plan) ? plan.filter((p) => typeof p === 'string') : [] };
+  }
+  if (say !== undefined && typeof say !== 'string') return null;
+  if (say === undefined && body.unsupported !== true) return null;
+  return { kind: 'answer', say, trace, toolTexts };
+}
+
+/** "Here is what I'll do", and each thing, before any yes is asked for. */
+export function presentPlan(plan) {
+  return { title: 'Here is what I’ll do', items: [...plan] };
+}
+
+/** Each call's yes or no, by the id the agent gave it. Anything but a yes is a no. */
+export function approvalsFor(calls, answers) {
+  return Object.fromEntries(calls.map((call, i) => [call.id, answers[i] === true]));
+}
+
+/**
+ * The agent's calls as the app's own steps (presentTurn): each presented by
+ * `present(name, text, args, isError)`, as a call the app made itself would
+ * be; one the member said no to is a step not taken.
+ */
+export function agentSteps(answer, present) {
+  return answer.trace.map((t, i) => ({
+    name: t.tool,
+    args: t.args,
+    presented: t.declined ? null : present(t.tool, answer.toolTexts[i] ?? '', t.args, t.ok !== true),
+  }));
+}
+
+/** Who did the work: Wick's agent, and the tools it used, each once. Empty when it used none. */
+export function agentTrace(trace) {
+  const used = [...new Set(trace.filter((t) => !t.declined).map((t) => t.tool))];
+  return used.length ? `Wick’s agent on Amazon Bedrock AgentCore used: ${used.join(', ')}` : '';
 }

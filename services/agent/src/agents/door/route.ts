@@ -8,7 +8,7 @@
  * Ring value: what is Ring's arrives through `RouteDeps`.
  */
 import type { RingDevice, RingHistoryEvent } from '@wick/ring';
-import type { QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
+import type { DoorRangDetail, QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
 import { handleDoorEvent } from './handle.js';
 import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
 import { matchVisitor } from './roster.js';
@@ -50,6 +50,12 @@ export interface RouteDeps {
   readonly noteSighting: (match: VisitorMatch | undefined, at: number) => Promise<void>;
   readonly sendToDevice: (card: QueuedCard, ringDeviceId: string) => Promise<void>;
   readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<Phase2Outcome>;
+  /**
+   * Says on the bus that the door rang (announce.ts), for a visit errand
+   * waiting for it. After the card, and best-effort: a failure is logged.
+   * Absent, nothing is said.
+   */
+  readonly announceRing?: (detail: DoorRangDetail) => Promise<void>;
   readonly now: () => number;
   /**
    * A demo home's stand-in doorbell (demoDoor.ts): the card says so, and
@@ -111,6 +117,23 @@ export async function routeRingEvent(
     },
     { sendToDevice: deps.sendToDevice },
   );
+
+  // Only a press of the bell is a ring. A person seen at the door who did not
+  // ring (motion, sub_type human) gets her card, but an errand waiting for its
+  // visitor must not be told "someone rang", nor spend its one wake-up on a
+  // passer-by before the visitor's real ring.
+  if (deps.announceRing && event.eventType === 'button_press') {
+    // After the card is on its way, and never at its cost: an errand that misses a ring says nobody came.
+    const looksLike = queued.card.type === 'DOOR' ? queued.card.match?.personId : undefined;
+    try {
+      await deps.announceRing({ householdId: deps.householdId, at: event.start, cardId: queued.id, ...(looksLike ? { matchPersonId: looksLike } : {}) });
+    } catch (err) {
+      console.error(JSON.stringify({
+        level: 'error', msg: 'door_rang_not_put', correlationId,
+        err: err instanceof Error ? err.name || err.message : String(err),
+      }));
+    }
+  }
 
   try {
     await deps.recordDoorEvent(event.start);

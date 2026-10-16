@@ -192,6 +192,19 @@ describe('the door card', () => {
   });
 });
 
+describe('a visitor the family arranged', () => {
+  it('says who it looks like, and under it who arranged the visit — in her language, the visitor in the member’s words', async () => {
+    const example = byName('DOOR, a visitor the family arranged');
+    const english = await drawCard({ card: example.card, language: 'en' });
+    expect(texts(english.root)).toContain('This looks like the plumber — expected around now.');
+    expect(texts(english.root)).toContain('Sarah arranged this visit.');
+
+    const spanish = await drawCard({ card: example.spanish, language: 'es' });
+    expect(texts(spanish.root)).toContain('Parece ser the plumber — se esperaba su visita ahora.');
+    expect(texts(spanish.root)).toContain('Sarah organizó esta visita.');
+  });
+});
+
 describe('the note from the family', () => {
   it('says who it is from in her language, shows the note, and offers her three replies', async () => {
     const example = byName('MESSAGE');
