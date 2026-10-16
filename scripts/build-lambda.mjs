@@ -70,6 +70,20 @@ const TARGETS = [
     entry: 'services/agent/src/agents/narrator/lambda.ts',
     outfile: 'services/agent/.build/narrator-weekly/index.mjs',
   },
+  {
+    // The Sunday brief: EventBridge -> one SQS message per home (infra/brief.tf).
+    // @aws-sdk/client-sqs is in the Lambda runtime's own SDK.
+    name: 'agent-brief-dispatch',
+    entry: 'services/agent/src/agents/brief/dispatchLambda.ts',
+    outfile: 'services/agent/.build/brief-dispatch/index.mjs',
+  },
+  {
+    // SQS -> AgentCore brief.weekly, or the Narrator for that home.
+    name: 'agent-brief-worker',
+    entry: 'services/agent/src/agents/brief/workerLambda.ts',
+    outfile: 'services/agent/.build/brief-worker/index.mjs',
+    bundleAll: true,
+  },
 ];
 
 for (const target of TARGETS) {
