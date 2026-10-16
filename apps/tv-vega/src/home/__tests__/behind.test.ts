@@ -10,8 +10,9 @@
  * ground colour — and come back, with the focus where it was, when it goes.
  *
  * The rule is `homeBehind` (home/behind.ts), tested here in every state the
- * app can be in; and HomeScreen.tsx is read as source, so a row drawn while
- * a card is showing fails here and not on a television.
+ * app can be in; HomeScreen.test.tsx draws the screen with a card up and
+ * finds nothing of it there; and ResidentApp.tsx is read as source below,
+ * for the answer it hands the screen.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -58,43 +59,6 @@ describe('homeBehind — what of the home screen is drawn, and whether the remot
 
   it('shows the home again the moment a key ends the idle screen — still out of reach until that key has come up', () => {
     expect(homeBehind({ card: false, mantelOpen: false, idle: IDLE.ending! })).toEqual({ rows: true, reach: false });
-  });
-});
-
-describe('HomeScreen.tsx — nothing of it is drawn behind a card', () => {
-  const screen = code('../HomeScreen.tsx');
-  const body = screen.slice(screen.indexOf('export function HomeScreen('), screen.indexOf('const styles = StyleSheet.create('));
-  const leftOut = body.indexOf('if (!drawn) return <View style={styles.screen} />;');
-
-  it('draws only its own ground while a card is showing: an empty view, and nothing in it', () => {
-    expect(leftOut).toBeGreaterThan(-1);
-  });
-
-  it('draws no row, no word and no picture before that — everything it has comes after', () => {
-    const before = body.slice(0, leftOut);
-    const after = body.slice(leftOut);
-
-    expect(before).not.toMatch(/<(Text|Image|Pressable)\b/);
-    expect(before).not.toMatch(/styles\.(top|row|quietRow|tile|light|waiting)\b/);
-    for (const row of ['styles.top', 'styles.row', 'styles.quietRow']) expect(after, row).toContain(row);
-    // One way out with rows in it, and it is the last.
-    expect(body.match(/\breturn\b[^;]*</g)).toHaveLength(2);
-  });
-
-  it('stands on the ground colour, so the card is alone on it', () => {
-    expect(read('../HomeScreen.tsx')).toMatch(/screen: \{\s*flex: 1,\s*backgroundColor: t\.palette\.ground,/);
-  });
-
-  it('still remembers where the focus was while its rows are out: the memory is kept before they are left out', () => {
-    expect(body.indexOf('const focus = React.useRef')).toBeGreaterThan(-1);
-    expect(body.indexOf('const focus = React.useRef')).toBeLessThan(leftOut);
-    // And it is told that the rows have gone out of reach before they are left out.
-    expect(body.indexOf('focus.current = reachChanged(')).toBeLessThan(leftOut);
-    expect(body.slice(leftOut)).toMatch(/hasTVPreferredFocus=\{!cardVisible && preferred === /);
-  });
-
-  it('calls no hook after the rows are left out', () => {
-    expect(body.slice(leftOut)).not.toMatch(/React\.use[A-Z]|\buse[A-Z]\w*\(/);
   });
 });
 

@@ -1,6 +1,6 @@
 /**
  * The home screen's rows, and why each pill is where it is
- * (home/homeLayout.ts; home/HomeScreen.tsx).
+ * (home/homeLayout.ts; home/HomeScreen.tsx, drawn in HomeScreen.test.tsx).
  *
  * Four rows on a 960x540dp screen: the question, the films, the quiet line
  * when there is one, and the pills — her light, her mantelpiece, Easier to
@@ -15,8 +15,6 @@
  * set at, at 0.47 of the type size a letter: what the question measures in
  * a plain sans-serif (648dp at 48pt). It is an estimate.
  */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { LANGUAGES } from '@wick/contracts';
 import { calmTheme, type CalmPreferences } from '../../../../../packages/vega-calm-ui/src/theme.js';
@@ -123,66 +121,5 @@ describe('the rows’ widths', () => {
         expect(row, `${language}, ${name(p)}`).toBeLessThanOrEqual(HOME_ROW_DP);
       }
     }
-  });
-});
-
-describe('HomeScreen.tsx — the pills, as drawn', () => {
-  const screen = readFileSync(fileURLToPath(new URL('../HomeScreen.tsx', import.meta.url)), 'utf8');
-  const titleRow = screen.slice(screen.indexOf('<View style={styles.top}>'), screen.indexOf('<View style={styles.row}>'));
-  const quietRow = screen.slice(screen.indexOf('<View style={styles.quietRow}>'), screen.indexOf('<View style={styles.pills}>'));
-  const pills = screen.slice(screen.indexOf('<View style={styles.pills}>'));
-
-  it('has the question alone in the title row, and the pills in their own row', () => {
-    expect(titleRow).toMatch(/home\.question/);
-    expect(titleRow).not.toMatch(/<Pressable|onOpenLight|onOpenMantel|onOpenSeeing/);
-    expect(quietRow).not.toMatch(/onOpenLight|onOpenMantel|onOpenSeeing/);
-    expect(pills.indexOf('press(onOpenLight)')).toBeGreaterThan(-1);
-    expect(pills.indexOf('press(onOpenLight)')).toBeLessThan(pills.indexOf('press(onOpenMantel)'));
-    expect(pills.indexOf('press(onOpenMantel)')).toBeLessThan(pills.indexOf('press(onOpenSeeing)'));
-  });
-
-  it('has the mantelpiece only when she has kept something, and Easier to see always', () => {
-    expect(pills).toMatch(/\{mantel \? \(/);
-    expect(pills).toMatch(/\{seeing\}/);
-    expect(pills.slice(pills.indexOf('Easier to see'))).not.toMatch(/\{seeing \? \(/);
-  });
-
-  it('shortens the films’ pictures for the quiet line, and for nothing else', () => {
-    expect(screen).toMatch(/const row = waiting !== undefined \|\| quiet !== undefined;/);
-    expect(screen).toMatch(/row \? styles\.posterWithRow : null/);
-    expect(screen).toMatch(/height: heights\.poster,/);
-    expect(screen).toMatch(/height: withRow\.poster,/);
-  });
-
-  it('is never where the focus starts: that is a film', () => {
-    expect(screen).toMatch(/const start = `programme:\$\{lastWatchedId \?\? programmes\[0\]\?\.id\}`;/);
-  });
-
-  it('says each pill in words to someone who cannot see it', () => {
-    expect(pills).toMatch(/accessibilityLabel=\{say\('home\.mantelLabel'\)\}/);
-    expect(pills).toMatch(/accessibilityLabel=\{say\('seeing\.entryLabel'\)\}/);
-    expect(pills).toMatch(/accessibilityLabel=\{say\('home\.lightLabel', \{ light \}\)\}/);
-  });
-
-  it('gives every button on the home screen the hold for Sarah — the pills too', () => {
-    const pressables = screen.match(/<Pressable\b[\s\S]*?>\n/g) ?? [];
-
-    expect(pressables).toHaveLength(5);
-    for (const pressable of pressables) {
-      expect(pressable).toMatch(/onLongPress=\{onHold\}/);
-      expect(pressable).toMatch(/delayLongPress=\{HOLD_MS\}/);
-      expect(pressable).toMatch(/onPressOut=\{pressOut\}/);
-      expect(pressable).toMatch(/focusable=\{!cardVisible\}/);
-    }
-  });
-
-  it('remembers where the focus was, and gives it back there when the remote is the home screen’s again', () => {
-    expect(screen).toMatch(/onFocus=\{\(\) => reportFocus\(/);
-    expect(screen).toMatch(/hasTVPreferredFocus=\{!cardVisible && preferred === /);
-  });
-
-  it('draws every ring from the theme: thicker with higher contrast on, and the same room at rest', () => {
-    expect(screen).toMatch(/const ring = t\.ring\(HOME_RING_DP\);/);
-    expect(screen.match(/on \? styles\.ringOn : styles\.ringOff/g)?.length).toBe(5);
   });
 });
