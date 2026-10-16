@@ -6,6 +6,7 @@
  *   door.action    Strands graph: gate → ring → notify (no model)        M1
  *   live.start     Strands graph: gate → start (no model)                M2
  *   live.stop      the resident pressed Back                             M2
+ *   brief.weekly   Strands graph: analyst → writer → check → suggester   the Sunday brief
  *
  * One microVM per household session (invoke.ts). The live stream itself
  * runs in the bridge Lambda, not here: this microVM has no outbound UDP and
@@ -28,6 +29,8 @@ import { cardStore, type DdbSend } from '../store/cards.js';
 import { devicesOfHousehold, ringDeviceOwners } from '../store/ringDevices.js';
 import { doorActionHandler, doorDescribeHandler, liveStartHandler, liveStopHandler } from './handlers.js';
 import { createRuntimeServer } from './server.js';
+import { BRIEF_WEEKLY_KIND, briefWeeklyHandler } from './briefHandler.js';
+import { briefWeeklyDepsFor } from './briefWiring.js';
 
 const env = (name: string, fallback?: string): string => {
   const value = process.env[name] ?? fallback;
@@ -92,6 +95,8 @@ const server = createRuntimeServer({
     })),
 
     'live.stop': liveStopHandler(live.requestStop),
+
+    [BRIEF_WEEKLY_KIND]: briefWeeklyHandler(briefWeeklyDepsFor(ddb, TABLE)),
   },
 });
 
