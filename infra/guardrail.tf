@@ -118,8 +118,11 @@ resource "aws_bedrock_guardrail_version" "wick" {
 
   # A change to the guardrail publishes a new version; the agents read the
   # version number from their environment (agentcore.tf), so they follow.
+  # The new version exists, and the agents are moved to it, before the old
+  # one is deleted: never a moment when they name a version that is gone.
   lifecycle {
-    replace_triggered_by = [aws_bedrock_guardrail.wick]
+    replace_triggered_by  = [aws_bedrock_guardrail.wick]
+    create_before_destroy = true
   }
 }
 
