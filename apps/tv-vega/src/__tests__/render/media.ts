@@ -64,6 +64,19 @@ export class VideoPlayer {
   }
 }
 
+/** The audio player Read to me speaks through (read/speechPlayer.ts): the same stand-in, for speech. */
+export class AudioPlayer extends VideoPlayer {
+  constructor(
+    readonly contentType?: string,
+    readonly usage?: string,
+  ) {
+    super();
+  }
+}
+
+export const AudioContentType = { CONTENT_TYPE_SPEECH: 'speech' } as const;
+export const AudioUsageType = { USAGE_MEDIA: 'media' } as const;
+
 export function resetMedia(): void {
   players.length = 0;
 }
