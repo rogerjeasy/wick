@@ -266,6 +266,11 @@ resource "aws_apprunner_service" "mcp_server" {
             # Where the family's pictures are kept (infra/photos.tf). Unset,
             # no picture can be sent, and a picture's card goes without one.
             PHOTOS_BUCKET = aws_s3_bucket.photos.bucket
+            # The assistant as an agent on AgentCore (infra/assistant.tf):
+            # POST /assistant/turn, and forgetting a deleted member's memory.
+            ASSISTANT_RUNTIME_ARN     = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_arn
+            ASSISTANT_RUNTIME_VERSION = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
+            AGENTCORE_MEMORY_ID       = aws_bedrockagentcore_memory.assistant.id
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
         )

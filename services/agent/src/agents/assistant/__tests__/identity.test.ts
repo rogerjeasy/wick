@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_AGENT_ID,
@@ -52,6 +53,12 @@ describe('memberMemory — where a member’s own words are remembered, in one h
   it('is the namespace the memory strategy writes to: its template, with the home as {sessionId}', () => {
     expect(MEMBER_NAMESPACE_TEMPLATE).toBe('/households/{sessionId}/members/{actorId}');
     expect(MEMBER_NAMESPACE_TEMPLATE.replace('{sessionId}', 'hh_abc').replace('{actorId}', 'usr-1')).toBe(memberNamespace('hh_abc', 'usr-1'));
+  });
+
+  it('is the template the memory strategy is deployed with (infra/assistant.tf)', () => {
+    const tf = readFileSync(new URL('../../../../../../infra/assistant.tf', import.meta.url), 'utf8');
+
+    expect(tf).toContain(`namespace_templates = ["${MEMBER_NAMESPACE_TEMPLATE}"]`);
   });
 
   it('has no place for an id AgentCore would refuse, so nothing is remembered under one', () => {
