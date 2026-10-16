@@ -73,7 +73,7 @@ that person ([`AGENTS.md`](AGENTS.md), INV-9).
 No account and no hardware are needed.
 
 1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html). It is the television and nothing else, drawn as the Vega app draws it, and it shows a six-digit code. The keyboard is the remote: the arrows move, **Enter** is OK, **Backspace** or **Esc** is Back, **Space** or **P** is Play/Pause, and **Enter** held for two seconds is Hold for Sarah. **?** shows or hides the keys.
-2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose **Try the demo**, and enter the television's code. You get a guest account and a demo home of your own, with six weeks of simulated history.
+2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose **Try the demo**, and enter the television's code. You are Sarah, Margaret's daughter, in a demo home of your own with six weeks of simulated history: no email, no password.
 3. On the television, allow yourself: the question comes up once the television has sat on its home screen for twenty seconds, as on Vega. From then on, ask the family app anything — *"How has my mum been this week?"*, *"Is the light on?"* — and answer on the television.
 4. To see the natural break, choose a film with **Enter**, then ask the family app to *"Send a note to her television"*. The note waits while the film plays. Press **Space** to pause and it comes on screen five seconds later; or let Big Buck Bunny reach 1:29, a measured calm point, where it holds the film on the cut. **Space** over the note reads it aloud (Amazon Polly); a second **Space** goes back to the film and the note waits for the next break. **Enter** answers it: after a calm point the film goes on by itself, after a pause of yours it waits for your Play.
 5. To see the door, press the **Ring the stand-in doorbell** chip and choose who is there. A demo home has no Ring doorbell, so this stands one in. The door card comes up at once, over a playing film, without pausing it — then the picture, then a sentence about it from the vision model.
@@ -99,8 +99,10 @@ the household is a demo home.
 | ![The family app on a laptop and on a phone, asked to look at the door: the picture from the stand-in doorbell, the vision model's sentence above it, and the three answers that go on her television](docs/screenshots/family-app-conversation.png) | ![The hold-for-Sarah card in Spanish: "¿Pedir a Guest que le llame?" with three buttons](docs/screenshots/hold-for-sarah-spanish-fireos.png) |
 | **The family app**, asked to look at the door: the picture, the vision model's sentence and her three answers, as a card. Laptop and phone widths, a demo guest against the deployed Wick server, 16 October 2026. | **Hold for Sarah, in Spanish.** Fire OS build on the Android TV emulator, 13 October 2026. |
 
-"Guest" is the name a demo account is given; "Margaret", "Sarah" and "Maria"
-are the demo home's fictional people.
+"Margaret", "Sarah" and "Maria" are the demo home's fictional people: the
+resident, her daughter and her carer. A demo account is Sarah. Two screenshots
+above, "Shall I tell …?" and the Spanish hold card, were taken before demo
+accounts had her name, and say "Guest".
 
 ## Why this needs Amazon
 

@@ -171,8 +171,9 @@ sample was opened on 2026-10-14.
    Play/Pause, and **Enter** held for two seconds is Hold for Sarah. **?**
    shows or hides the keys.
 2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose
-   **Try the demo**, and enter the television's code. You get a guest account
-   and a demo home of your own, with six weeks of simulated history.
+   **Try the demo**, and enter the television's code. You are Sarah, Margaret's
+   daughter, in a demo home of your own with six weeks of simulated history:
+   no email, no password.
 3. On the television, allow yourself: the question comes up once it has sat on
    its home screen for twenty seconds, as on Vega. Then ask the family app
    anything, such as *"How has my mum been this week?"* or *"Is the light
