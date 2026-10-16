@@ -9,6 +9,22 @@
  * __tests__/phrasebookCoverage.test.ts holds this file to it, byte for byte.
  */
 
+// packages/contracts/src/errand.ts
+var ERRAND_LIMITS = {
+  /** Open errands one household may have at once. */
+  maxOpenPerHousehold: 10,
+  /** "the plumber", "the window cleaner", "Dave from the council". */
+  whoMaxChars: 40,
+  /** A ring this many minutes either side of the time still counts (expect_visit's window). */
+  windowMinutes: 60,
+  /** Soon enough for a judge to watch one run end to end. */
+  minLeadMs: 2 * 6e4,
+  /** Beyond this a visit is a hope, not a plan (expect_visit's limit). */
+  maxLeadMs: 60 * 24 * 36e5
+};
+var ERRAND_REMINDER_CARD_PREFIX = "note-errand-";
+var isErrandReminderCardId = (cardId) => typeof cardId === "string" && cardId.startsWith(ERRAND_REMINDER_CARD_PREFIX);
+
 // packages/contracts/src/phrasebook/engine.ts
 var FIELD_LIMIT = 240;
 var MAX_ENGLISH_CHARS = 2e3;
@@ -303,7 +319,14 @@ var ES_CATALOGUE = {
     b("Watch live", "Ver en vivo"),
     // The press is the consent: the picture goes to the people she allows, for this one card (askFamily.ts).
     b("Ask {first} to look", "Pedir a {first} que mire"),
-    b("Ring the hallway chime", "Tocar timbre del pasillo")
+    b("Ring the hallway chime", "Tocar timbre del pasillo"),
+    // A visitor the family arranged (contracts errand.ts): who arranged it, under "This looks like the plumber".
+    s("{first} arranged this visit.", "{first|cap} organizó esta visita.")
+  ],
+  // Her reminder of a visit the family arranged: a note from them in Wick's own words. Who is coming is theirs, and kept.
+  "services/agent/src/agents/errand/reminder.ts": [
+    s("A reminder from {first}: {name} is coming {part} at {time}.", "Un recordatorio de {first}: {name} viene {part}, a {time|las}."),
+    s("A reminder from {first}: {name} is coming on {day} at {time}.", "Un recordatorio de {first}: {name} viene el {day} a {time|las}.")
   ],
   "services/agent/src/agents/door/actions.ts": [
     s("The hallway chime rang.", "Ha sonado el timbre del pasillo."),
@@ -485,7 +508,7 @@ var WAVE_CARD_PREFIX = "note-wave-";
 var HEADLINE_CARDS = ["SHARING", "CIRCLE", "TELL", "WATCH", "LIGHT", "REACH", "VISIT"];
 var isFields = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var isText = (value) => typeof value === "string" && value !== "";
-var isWave = (card) => card.type === "MESSAGE" && typeof card.id === "string" && card.id.startsWith(WAVE_CARD_PREFIX);
+var isWicksOwnNote = (card) => card.type === "MESSAGE" && typeof card.id === "string" && (card.id.startsWith(WAVE_CARD_PREFIX) || isErrandReminderCardId(card.id));
 function sayIn(language, english) {
   const book = Object.prototype.hasOwnProperty.call(BOOKS, language) ? BOOKS[language] : void 0;
   return book?.say(english);
@@ -499,7 +522,7 @@ function freeTextOf(card) {
   const fields = card;
   if (!isFields(fields)) return {};
   const only = (field) => isText(fields[field]) ? { [field]: fields[field] } : {};
-  if (fields.type === "MESSAGE") return isWave(fields) ? {} : only("transcript");
+  if (fields.type === "MESSAGE") return isWicksOwnNote(fields) ? {} : only("transcript");
   if (fields.type === "DOOR") return only("description");
   if (fields.type === "WEEK") return only("text");
   return {};
@@ -519,7 +542,7 @@ function translated(language, card, free) {
     freely("description");
   } else if (card.type === "MESSAGE") {
     if (Array.isArray(card.suggestedReplies)) out.suggestedReplies = card.suggestedReplies.map((reply) => said(language, reply));
-    if (isWave(card)) wicks("transcript");
+    if (isWicksOwnNote(card)) wicks("transcript");
     else freely("transcript");
   } else if (card.type === "WEEK") {
     freely("text");

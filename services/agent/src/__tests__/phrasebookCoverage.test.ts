@@ -22,6 +22,8 @@ import {
   type Card,
   type CardPatch,
   type DoorCard,
+  type Errand,
+  type MessageCard,
   type QueuedCard,
   type ReachCard,
   type ReachPerson,
@@ -43,6 +45,7 @@ import { buildWeekCard, familyNameForWeekCard } from '../agents/narrator/weekCar
 import { handleReachAsk } from '../agents/reach/ask.js';
 import { handleReachDue } from '../agents/reach/due.js';
 import { askAboutDifferences, buildTellCard } from '../agents/tell/ask.js';
+import { buildErrandReminder } from '../agents/errand/reminder.js';
 import { handleVisitAnswer } from '../agents/visit/answer.js';
 import { askAboutVisits } from '../agents/visit/ask.js';
 import { whatsDifferent, type DifferentInput } from '../rhythm/different.js';
@@ -93,6 +96,21 @@ describe('the door card (agents/door/index.ts)', () => {
     const card = coverage.spanish(phaseOne({ roster: [maria], family: ['Sarah'], hallwayChime: true }));
     expect(card.match?.name).toBe('Maria');
     expect(labels(card)).toEqual(['Ver en vivo', 'Tocar timbre del pasillo', 'Ahora no']);
+  });
+
+  it('for a visitor the family arranged, says who arranged it — the name and the visitor never translated', () => {
+    const plumber: RosterEntry = {
+      personId: 'errand:err_AAAAAAAAAAAAAAAAAAAA',
+      name: 'the plumber',
+      expectedOnce: { at: event.start, windowMin: 60 },
+      addedBy: 'u_sarah',
+      arrangedByName: 'Sarah Hughes',
+    };
+    const english = phaseOne({ roster: [plumber] });
+    expect(english.notice).toBe('Sarah arranged this visit.');
+    const card = coverage.spanish(english);
+    expect(card.match?.name).toBe('the plumber');
+    expect(card.notice).toBe('Sarah organizó esta visita.');
   });
 
   it('corrects the headline when the picture shows nobody, and leaves the description to be translated as free text', () => {
@@ -388,6 +406,37 @@ describe('the Week card (agents/narrator/weekCard.ts)', () => {
   it('names her family when several can see the week, when nobody can yet, or when the name would not fit', () => {
     for (const allowed of [['Sarah', 'David'], [], ['Bartholomew-Fitzgerald24']]) expect(labels(week(allowed))).toEqual(['Entendido', 'Lo que ve su familia']);
     expect(labels(week(['Anne-Marie']))[1]).toBe('Lo que ve Anne-Marie');
+  });
+});
+
+describe('a visit errand’s reminder (agents/errand/reminder.ts)', () => {
+  const errand: Errand = {
+    errandId: 'err_AAAAAAAAAAAAAAAAAAAA',
+    householdId: 'hh-1',
+    createdBy: 'u_sarah',
+    createdByName: 'Sarah Hughes',
+    who: 'the plumber',
+    at: FRIDAY + 9 * HOUR,
+    windowMinutes: 60,
+    tellMe: true,
+    status: 'planned',
+    createdAt: FRIDAY - 2 * DAY,
+  };
+  const reminder = (at: number, now: number) => cardOf(buildErrandReminder({ ...errand, at }, LONDON, now), 'MESSAGE') as MessageCard;
+
+  it('is Wick’s own sentence in her language, at any part of the day — who is coming kept in the member’s words', () => {
+    // Ten in the morning, half past two, and seven in the evening, in London.
+    expect(coverage.spanish(reminder(FRIDAY + 9 * HOUR, FRIDAY + 7 * HOUR)).transcript).toBe('Un recordatorio de Sarah: the plumber viene esta mañana, a las 10:00.');
+    expect(coverage.spanish(reminder(FRIDAY + 13.5 * HOUR, FRIDAY + 7 * HOUR)).transcript).toBe('Un recordatorio de Sarah: the plumber viene esta tarde, a las 14:30.');
+    expect(coverage.spanish(reminder(FRIDAY + 18 * HOUR, FRIDAY + 7 * HOUR)).transcript).toBe('Un recordatorio de Sarah: the plumber viene esta noche, a las 19:00.');
+  });
+
+  it('names the day when it comes the day before', () => {
+    expect(coverage.spanish(reminder(FRIDAY + DAY - HOUR / 2, FRIDAY + 22 * HOUR)).transcript).toBe('Un recordatorio de Sarah: the plumber viene el sábado a las 0:30.');
+  });
+
+  it('is answered with buttons she already knows', () => {
+    expect(coverage.spanish(reminder(FRIDAY + 9 * HOUR, FRIDAY + 7 * HOUR)).suggestedReplies).toEqual(['¡Gracias por avisarme!', 'Entendido']);
   });
 });
 

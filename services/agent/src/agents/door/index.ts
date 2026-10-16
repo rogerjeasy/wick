@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import {
   DOOR_ACTIONS,
   MAX_CARD_ACTIONS,
+  errandIdOf,
   type CardAction,
   type CardPatch,
   type DoorCard,
@@ -99,6 +100,13 @@ export interface DoorCardInput {
   readonly ringUnanswered?: boolean;
 }
 
+/**
+ * Under "This looks like the plumber", for a visitor the family arranged
+ * (contracts errand.ts): who arranged it, by the name the resident allowed.
+ * It says who said they were coming, not who is there.
+ */
+export const arrangedThisVisit = (name: string): string => `${name.trim().split(/\s+/)[0] || name} arranged this visit.`;
+
 /** The longest first name that still fits a button in 32pt type beside two others. */
 const MAX_NAME_ON_BUTTON = 12;
 
@@ -173,6 +181,8 @@ function cardIdFor(eventId: string): string {
 export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
   const { event, hallwayChime, householdId, correlationId, now, roster, family, standIn = false, ringUnanswered = false } = input;
   const match = roster ? matchVisitor(roster, event.start) : undefined;
+  // A visitor an errand expects: the entry carries the name of the member who arranged it.
+  const arrangedBy = match && errandIdOf(match.personId) ? roster?.find((person) => person.personId === match.personId)?.arrangedByName : undefined;
 
   return {
     type: 'DOOR',
@@ -183,6 +193,7 @@ export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
     line: standIn ? STAND_IN_DOOR_LINE : DOOR_LINE,
     actions: actionsFor(hallwayChime, match ? undefined : familyToAsk(family), standIn, ringUnanswered),
     ...(match ? { match } : {}),
+    ...(arrangedBy ? { notice: arrangedThisVisit(arrangedBy) } : {}),
   };
 }
 

@@ -22,7 +22,7 @@ export type Builders = 'contracts' | 'agent' | 'mcp-server' | 'edge';
  */
 export const COVERED_IN: Readonly<Record<Card['type'], readonly Builders[]>> = {
   DOOR: ['agent', 'mcp-server'],
-  MESSAGE: ['mcp-server'],
+  MESSAGE: ['mcp-server', 'agent'],
   WEEK: ['agent'],
   SHARING: ['edge'],
   CIRCLE: ['mcp-server'],
@@ -45,8 +45,11 @@ export function cardTypesInTheUnion(): string[] {
   return members.map((name) => new RegExp(`interface ${name} extends CardBase \\{\\s*readonly type: '([A-Z_]+)'`).exec(source)?.[1] ?? `?${name}`);
 }
 
-/** A wave's card is a note whose one sentence is Wick's own (mcp-server accounts/familyTvWave.ts). */
-const isWave = (card: Card): boolean => card.type === 'MESSAGE' && card.id.startsWith('note-wave-');
+/**
+ * A wave's card is a note whose one sentence is Wick's own (mcp-server accounts/familyTvWave.ts), and so is her
+ * reminder of a visit the family arranged (agent agents/errand/reminder.ts).
+ */
+const isWave = (card: Card): boolean => card.type === 'MESSAGE' && (card.id.startsWith('note-wave-') || card.id.startsWith('note-errand-'));
 
 /** Every field of a card that Wick itself wrote, by where it is. Free text and names are not among them. */
 export function wickWords(card: Card): Record<string, string> {

@@ -16,6 +16,7 @@
  * phrasebook.generated.mjs from this directory; a test holds it to it).
  */
 import type { Card, CardPatch } from '../card.js';
+import { isErrandReminderCardId } from '../errand.js';
 import type { OtherLanguage } from '../language.js';
 import type { HomeState } from '../light.js';
 import type { Phrasebook } from './engine.js';
@@ -45,7 +46,13 @@ type Fields = Record<string, unknown>;
 
 const isFields = (value: unknown): value is Fields => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isText = (value: unknown): value is string => typeof value === 'string' && value !== '';
-const isWave = (card: Fields): boolean => card.type === 'MESSAGE' && typeof card.id === 'string' && card.id.startsWith(WAVE_CARD_PREFIX);
+/**
+ * The same for her reminder of a visit the family arranged (errand.ts
+ * ERRAND_REMINDER_CARD_PREFIX, services/agent agents/errand/reminder.ts):
+ * a note from them, in Wick's own sentence.
+ */
+const isWicksOwnNote = (card: Fields): boolean =>
+  card.type === 'MESSAGE' && typeof card.id === 'string' && (card.id.startsWith(WAVE_CARD_PREFIX) || isErrandReminderCardId(card.id));
 
 /** One of Wick's own sentences in her language — or undefined when the phrasebook does not hold it. */
 export function sayIn(language: OtherLanguage, english: string): string | undefined {
@@ -67,7 +74,7 @@ export function freeTextOf(card: Card): FreeText {
   const fields: unknown = card;
   if (!isFields(fields)) return {};
   const only = (field: FreeField): FreeText => (isText(fields[field]) ? { [field]: fields[field] } : {});
-  if (fields.type === 'MESSAGE') return isWave(fields) ? {} : only('transcript');
+  if (fields.type === 'MESSAGE') return isWicksOwnNote(fields) ? {} : only('transcript');
   if (fields.type === 'DOOR') return only('description');
   if (fields.type === 'WEEK') return only('text');
   return {};
@@ -92,7 +99,7 @@ function translated(language: OtherLanguage, card: Fields, free: FreeText | unde
   } else if (card.type === 'MESSAGE') {
     // The fixed replies, one by one. What a press sends back is still which button, and the family still reads the English.
     if (Array.isArray(card.suggestedReplies)) out.suggestedReplies = card.suggestedReplies.map((reply: unknown) => said(language, reply));
-    if (isWave(card)) wicks('transcript');
+    if (isWicksOwnNote(card)) wicks('transcript');
     else freely('transcript');
   } else if (card.type === 'WEEK') {
     freely('text');
