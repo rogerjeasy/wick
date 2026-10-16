@@ -59,7 +59,7 @@ export const FEATURE_PRS: Record<keyof Features, string> = {
   securityHeaders: '#70',
   accountData: '#70',
   televisionRef: '#68',
-  browserTelevision: 'feat/browser-television',
+  browserTelevision: '#78',
 };
 
 export function featuresIn(root: string, exists: (path: string) => boolean = existsSync): Features {
