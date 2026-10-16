@@ -36,10 +36,13 @@ interface World {
 async function server(overrides: Partial<AppDeps> = {}): Promise<World> {
   const table = createMemoryTable();
   const rung: DemoDoorEvent[] = [];
-  // Starts at the real time and only moves forward from it: the OAuth bearer check and the
-  // store's expiry read the wall clock, so a fixed date made every sign-in here expire
-  // once that date was half an hour in the past.
-  const world = { clock: Date.now() };
+  // One minute into the next UTC hour, and only forward from there. Never behind the real
+  // time: the OAuth bearer check and the store's expiry read the wall clock, so a fixed
+  // date made every sign-in here expire once it was half an hour in the past. And at the
+  // start of an hour: the rings are counted per clock hour, and a suite that walks a few
+  // minutes must not cross into the next one.
+  const HOUR = 3_600_000;
+  const world = { clock: Math.ceil(Date.now() / HOUR) * HOUR + 60_000 };
   const h = await startServer({
     demoAccounts: true,
     ddb: table.ddb,
