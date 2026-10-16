@@ -45,7 +45,8 @@ export function createAuth(
     readonly seedDemoHome?: ((householdId: string) => Promise<void>) | undefined;
   } = {},
 ): Auth {
-  const oauth = createWickOAuth(circle.store, circle.now);
+  // The resource every token is bound to: this server, as its protected resource metadata names it.
+  const oauth = createWickOAuth(circle.store, circle.now, issuerUrl);
 
   const router = express.Router();
   router.use(
