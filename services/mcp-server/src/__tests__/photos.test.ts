@@ -516,7 +516,7 @@ describe('GET /api/photos — how the member’s own pictures stand', () => {
     await residentAllows(w.h, me.household.householdId, me.user.userId);
 
     expect((await send(w.h, guest, jpeg())).status).toBe(200);
-    expect(w.photoCards()[0]!.card).toMatchObject({ householdId: me.household.householdId, headline: 'A picture from Guest.' });
+    expect(w.photoCards()[0]!.card).toMatchObject({ householdId: me.household.householdId, headline: 'A picture from Sarah.' });
     expect(((await (await list(w.h, guest)).json()) as { photos: unknown[] }).photos).toHaveLength(1);
   });
 });

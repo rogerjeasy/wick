@@ -77,7 +77,7 @@ describe('the demo button — an anonymous account in one click', () => {
     const { tokens } = await demoTokens(h);
 
     expect(await me(h, tokens.access_token)).toMatchObject({
-      user: { name: 'Guest', email: '', guest: true },
+      user: { name: 'Sarah', email: '', guest: true },
       household: { name: 'Demo home', residentName: 'Margaret' },
       membership: { role: 'organiser', status: 'pending' },
     });
@@ -202,7 +202,7 @@ describe('the demo button — an anonymous account in one click', () => {
     const html = await consent.text();
     expect(html).toContain('Demo home');
     expect(html).toContain('Approve');
-    expect(html).toContain('Signed in as Guest');
+    expect(html).toContain('Signed in as Sarah');
   });
 });
 
@@ -227,7 +227,7 @@ describe('a guest is a person like any other', () => {
     const guest = await me(h, (await demoTokens(h)).tokens.access_token);
 
     expect(h.cards.map((c) => c.id)).toEqual([`circle-${guest.user.userId}`]);
-    expect(h.cards[0]!.card).toMatchObject({ householdId: guest.household.householdId, personName: 'Guest' });
+    expect(h.cards[0]!.card).toMatchObject({ householdId: guest.household.householdId, personName: 'Sarah' });
   });
 
   it('INV-8: cannot be used to reach anybody else’s home', async () => {

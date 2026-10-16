@@ -10,7 +10,7 @@ import { CAROUSEL_INLINE, developerMode, presentChecklist, presentResult, routeU
 const at = (ms: number) => `t${ms}`;
 
 const me = (membership: { role: string; status: string }, household: Record<string, unknown> = {}) => ({
-  user: { userId: 'guest_1', name: 'Guest', guest: true },
+  user: { userId: 'guest_1', name: 'Sarah', guest: true },
   household: { householdId: 'hh_1', name: 'Demo home', residentName: 'Margaret', ...household },
   membership,
 });

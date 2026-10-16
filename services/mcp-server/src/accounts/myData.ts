@@ -353,7 +353,7 @@ function pushServiceOf(endpoint: string): string {
  * The notes in a home this person wrote: the rows whose `sentBy` is their id,
  * kept there by egress.ts when the note was sent. Never by the name on the
  * card — two people in one circle can share a name (every demo guest is
- * "Guest"), and each would be handed the other's notes and her replies to
+ * "Sarah"), and each would be handed the other's notes and her replies to
  * them. A note sent before `sentBy` was kept has no writer on record, and is
  * in nobody's export.
  */
