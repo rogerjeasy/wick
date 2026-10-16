@@ -19,6 +19,8 @@ export interface StepContext {
   readonly set: (key: string, value: unknown) => void;
   /** The text an upstream node (typically an Agent) produced. */
   readonly output: (nodeId: string) => string;
+  /** The validated structured output of an upstream Agent's latest run, if it was given a schema. */
+  readonly structured: (nodeId: string) => unknown;
 }
 
 export type Step = (ctx: StepContext) => Promise<string | void>;
@@ -50,6 +52,7 @@ function contextFor(state: MultiAgentState): StepContext {
       (state.node(nodeId)?.content ?? [])
         .map((b) => (b.type === 'textBlock' ? b.text : ''))
         .join(''),
+    structured: (nodeId) => state.node(nodeId)?.results.at(-1)?.structuredOutput,
   };
 }
 
