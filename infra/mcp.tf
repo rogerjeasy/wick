@@ -266,6 +266,8 @@ resource "aws_apprunner_service" "mcp_server" {
             # Where the family's pictures are kept (infra/photos.tf). Unset,
             # no picture can be sent, and a picture's card goes without one.
             PHOTOS_BUCKET = aws_s3_bucket.photos.bucket
+            # Visit errands' state machine (infra/errands.tf). Unset, arrange_visit says it cannot.
+            ERRAND_STATE_MACHINE_ARN = aws_sfn_state_machine.errand.arn
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
         )
