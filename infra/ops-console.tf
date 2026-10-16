@@ -1,8 +1,8 @@
 # ---------------------------------------------------------------------------
-# The ops console — apps/ops-console. Two dev/demo tools, not part of the
-# product submission itself: a production status dashboard and a
-# browser-based virtual device (replaces docs/*.md's curl/wscat sequences
-# with clicks). Same pattern as sim-alexa (infra/sim-alexa.tf): private S3
+# The ops console — apps/ops-console: a production status dashboard, a
+# browser-based virtual device for engineers (replaces docs/*.md's
+# curl/wscat sequences with clicks), and her television alone (tv.html),
+# which is where someone with no Fire TV is sent to try Wick. Same pattern as sim-alexa (infra/sim-alexa.tf): private S3
 # behind CloudFront, no server-side code of its own — everything dynamic
 # happens against the real deployed APIs (infra/status.tf, infra/pairing.tf,
 # infra/transport.tf).
@@ -128,6 +128,64 @@ resource "aws_s3_object" "ops_console_device_js" {
   source        = "${path.module}/../apps/ops-console/device.js"
   etag          = filemd5("${path.module}/../apps/ops-console/device.js")
   content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+# Her television, alone (tv.html): the screen and nothing else, drawn as the Vega app draws it, with the
+# keyboard as the remote. Its rules and its films' calm points are generated from the Vega app's source
+# (`npm run tv:build`) and served as they are; the posters are the Vega app's own, from where it bundles them.
+resource "aws_s3_object" "ops_console_tv_html" {
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "tv.html"
+  source        = "${path.module}/../apps/ops-console/tv.html"
+  etag          = filemd5("${path.module}/../apps/ops-console/tv.html")
+  content_type  = "text/html; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "ops_console_tv_css" {
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "tv.css"
+  source        = "${path.module}/../apps/ops-console/tv.css"
+  etag          = filemd5("${path.module}/../apps/ops-console/tv.css")
+  content_type  = "text/css; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "ops_console_tv_js" {
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "tv.js"
+  source        = "${path.module}/../apps/ops-console/tv.js"
+  etag          = filemd5("${path.module}/../apps/ops-console/tv.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "ops_console_tv_engine_js" {
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "tv-engine.generated.js"
+  source        = "${path.module}/../apps/ops-console/tv-engine.generated.js"
+  etag          = filemd5("${path.module}/../apps/ops-console/tv-engine.generated.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "ops_console_tv_catalog_json" {
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "tv-catalog.json"
+  source        = "${path.module}/../apps/ops-console/tv-catalog.json"
+  etag          = filemd5("${path.module}/../apps/ops-console/tv-catalog.json")
+  content_type  = "application/json; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "ops_console_tv_posters" {
+  for_each      = fileset("${path.module}/../apps/tv-vega/assets/image", "*.jpg")
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "posters/${each.value}"
+  source        = "${path.module}/../apps/tv-vega/assets/image/${each.value}"
+  etag          = filemd5("${path.module}/../apps/tv-vega/assets/image/${each.value}")
+  content_type  = "image/jpeg"
   cache_control = "no-cache"
 }
 
