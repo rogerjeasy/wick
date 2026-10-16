@@ -183,11 +183,21 @@ The rules it keeps:
   and no badge, and no colour is set. Fire OS's own *Do Not Interrupt* still
   silences it: that is hers to choose. The service's own notification, which
   Android requires of a foreground service, is the lowest importance there is.
-- **It does not outlive the card.** It goes when Wick comes forward, when the
-  card is taken back (answered on another television, or withdrawn), and at
-  the moment the app itself lets a door card go — five minutes, the card's
-  own end — so it never says someone is at the door once that is no longer
-  true.
+- **It does not outlive the card, or the home.** It goes when Wick comes
+  forward, when the card is taken back (answered on another television, or
+  withdrawn), and at the moment the app itself lets a door card go — five
+  minutes, the card's own end — so it never says someone is at the door once
+  that is no longer true. The service looks every five seconds at the token
+  the app keeps: when there is none (the television was disconnected, or its
+  token let go) it lets the connection go, takes down every notification it
+  put up and stops; when it is another television's or another home's (paired
+  again), it does the same and takes the connection up again with the new
+  token. A refusal from the pairing service (not paired, revoked) ends it the
+  same way.
+- **The picture costs little.** At most 4 MB is read (refused up front when
+  the server says more), and it is decoded no larger than 1920x1080, sampled
+  down on both sides; anything odd and the notification goes up without it
+  (`DoorPicture.kt`, tested in `android/app/src/test`).
 - **She is asked once.** On Android 13 and later the system asks whether Wick
   may post notifications, once, the first time the resident's Wick is on
   screen. Fire OS 7 and 8 are Android 9 and 11, and never ask.
@@ -248,7 +258,12 @@ television, with the phone's home screen in front:
   front of both put up nothing on either;
 - on the TV emulator, the service ended by itself on a television that was
   not paired, and after the television was disconnected and paired again into
-  another home, the next ring there put the notification up.
+  another home, the next ring there put the notification up;
+- with a door notification up and the home then closed, the moment Wick came
+  on screen and forgot its token the service stopped and every Wick
+  notification was gone. Until Wick is next on screen the old home's last
+  notification stays up to its five minutes; nothing new reaches it, as the
+  closed home sends nothing.
 
 **What was not seen:** any of it on Fire OS. A phone's system UI is not a
 Fire TV's. How it looks on a Fire TV — the heads-up at the bottom of the
