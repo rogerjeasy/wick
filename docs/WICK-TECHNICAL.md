@@ -405,7 +405,7 @@ Phase 1 ─▶ DoorCard{ "Someone's at the front door.", actions }           —
 Phase 2 ─▶ CardPatch{ picture }  then  CardPatch{ description }            — as each is ready
 ```
 
-Phase 1 has no picture because Ring has no live-capture call: `media/image/download` fetches a *recorded* frame and took 3.15 s end to end when measured (SP-2, FL-005). The description is cancelled at **2.5 s** (`DESCRIBE_TIMEOUT_MS`, `door/describe.ts`): a description that arrives after that is worse than none, and the card stays as it was. Time from press to card on a television has not been measured end to end.
+Phase 1 has no picture because Ring has no live-capture call: `media/image/download` fetches a *recorded* frame and took 3.15 s end to end when measured (SP-2, FL-005). The description is cancelled at **2.5 s** (`DESCRIBE_TIMEOUT_MS`, `door/describe.ts`): a description that arrives after that is worse than none, and the card stays as it was. From the demo home's stand-in doorbell to the television, measured 16 October 2026: the card in 2.3 s, its picture in 2.7 s (§9.1). A real Ring press has not been measured end to end.
 
 **Description constraints**, in the prompt and in an output validator (`judgeDescribeReply`): present tense, one sentence, short; observable facts only; never a name unless matched from the household's own roster; on low confidence, nothing.
 
@@ -570,16 +570,21 @@ It also catches more than it should, and fails closed when it does: "a man on cr
 | Ring the hallway chime (M1) | `POST /v1/devices/{chimeId}/media/audio/playback` — the app's own audio slot, on a device whose `audio.supported_actions` ∋ `chime.play` |
 | Multi-module cameras | append `?component_id=N` |
 
-**Webhook receiver — the whole design is the 5-second budget** (`services/edge-ring/lambda/webhook.mjs`):
+**Webhook receiver — the whole design is the 5-second budget** (`services/edge-ring/lambda/webhook-receiver.mjs`, wired by `webhook.mjs`; tested in `__tests__/webhook.test.ts`):
 
 ```
 API Gateway HTTP API → Lambda:
-  1. Verify HMAC-SHA256 signature          (constant-time compare)
-  2. Idempotency: conditional PutItem on IDEM#<request_id>, TTL 24h
-  3. PutEvents → EventBridge bus "wick" (source wick.ring)
-  4. return 200
-  ── nothing else. No Ring calls, no model calls.
+  1. Verify X-Signature: sha256=<hex HMAC-SHA256 of the raw body>   (constant-time compare)  else 401
+  2. Read Ring's v1.1 envelope: meta.request_id, meta.time, data.type                        else 400
+  3. Refuse a body Ring sent > 5 min ago or > 1 min ahead (meta.time)                        → 400
+  4. Idempotency: conditional PutItem on IDEM#<meta.request_id>, TTL 24h                     duplicate → 200
+  5. PutEvents → EventBridge bus "wick" (source wick.ring), the flat detail the Door agent reads
+  6. return 200
+  ── nothing else. No Ring calls, no model calls. A key, table or bus failure is 500, so Ring retries;
+     a failed PutEvents releases its idempotency claim, so the retry is taken.
 ```
+
+What Ring documents and Wick follows (developer.amazon.com/docs/ring/api-documentation.html, "Notifications"): the header is `X-Signature`, the value `sha256=` and a hex digest keyed with the partner's HMAC signing key over the raw body bytes; the envelope is `meta.{version, time, request_id, account_id}` and `data.{id, type, attributes.{source, source_type, timestamp, sub_type, component_ids}}`; 4xx is never retried, 5xx and timeouts are retried at 1 s, 5 s, 30 s, 2 min, 10 min and 1 h, then dead-lettered for 72 hours. Ring signs nothing but the body and documents no replay window, so the window is on `meta.time`, which the signature covers; whether a retry is stamped afresh is not documented (FL-041). The receiver reads the envelope into `request_id`, `event_type`, `sub_type`, `device_id` (`attributes.source`), `occurred_at` (`attributes.timestamp`), `account_id` and `ring_event_id` for the Door agent (`door/parseEvent.ts`). Until 2026-10-16 it read a flat body of those names and guessed the header; a real Ring delivery would have been refused. None of this has been seen against a real Ring delivery: the Playground sends none (FL-027).
 
 A ring takes its household from the doorbell: the Door agent reads which household holds that device from `RINGDEV#<deviceId>`, and a device nobody holds reaches no television (INV-8). An operator hands a device to a household with `scripts/assign-ring-device.ts`.
 
@@ -587,7 +592,7 @@ A ring takes its household from the doorbell: the Door agent reads which househo
 
 **What Ring's Playground gives** (the only Ring simulator): a simulated camera behind the real Partner API, real OAuth, real recorded frames and real WHEP live view. It has no chime (FL-019), sends no doorbell or motion webhook (FL-027), and its token lasts 30 minutes with no refresh (FL-010). `npm run ring:check` says whether a household's link can reach the camera before any recording.
 
-**Known gaps** (in `FRICTION.md`): no two-way audio, siren or light endpoints; no event replay or dead-letter queue on Ring's side; no sandbox that emits events on demand.
+**Known gaps** (in `FRICTION.md`): no two-way audio, siren or light endpoints; no replay protection for a webhook beyond the body's own `meta.time` (FL-041); a dead-lettered event is replayed only by asking Ring's integration representative; no sandbox that emits events on demand.
 
 ### 7.2 (removed)
 
@@ -711,11 +716,12 @@ What has been measured, and what has not.
 | Segment | What is known |
 |---|---|
 | Ring press → webhook | Not measured: the Playground sends no webhook (FL-027). |
-| Webhook: verify, idempotency, put | Does no network call but one conditional write and one `PutEvents`. Not instrumented. |
+| Webhook: verify, idempotency, put | Does no network call but one conditional write and one `PutEvents`. Not instrumented. Not part of the stand-in measurement below. |
 | Ring recorded frame | **3.15 s** end to end, n = 3, 2026-09-15 (SP-2, FL-005). This is why Phase 1 ships with no picture. |
 | Nova Lite description | **Cancelled at 2.5 s** (`DESCRIBE_TIMEOUT_MS`). A late description is worse than none. |
 | Live view | The bridge writes one-second HLS segments; the first picture follows the press by several seconds. Ring allows 30 s on a battery doorbell, 60 s on a wired one. |
-| Press → card on a television | **Not measured end to end.** "Within a few seconds" in the README is what was seen on the simulators, not a figure. |
+| Stand-in ring → card on a television | **Measured 16 October 2026, five rings, `npm run latency:door`**, from a laptop in Europe against the deployed stack: from the `POST /api/demo/doorbell` request being sent to the door card arriving on a virtual television's edge WebSocket, **median 2.31 s, max 2.56 s** (5 of 5); to the picture patched onto it, **median 2.70 s, max 3.01 s** (5 of 5); to the vision model's sentence, **median 2.86 s, max 4.76 s** (4 of 5 — one ring got no sentence). The server answered the ring itself in median 0.81 s. Rings 4 and 5 put the card up in about 1.0 s, rings 1–3 in 2.3–2.6 s; why is not established. This is the stand-in path: the Wick server invokes the Door agent Lambda directly, and its picture is a published file, not Ring's recorded frame. |
+| Ring press → card on a television | **Not measured end to end.** It adds Ring → API Gateway → the webhook Lambda → EventBridge before the agent, and Ring's 3.15 s frame call before the picture. Neither is in the stand-in numbers, and nothing here estimates them. |
 
 ### 9.2 The television app
 
@@ -754,7 +760,7 @@ Alexa+ asks for a round trip under 500 ms ✅ V. No tool calls a model, and the 
 | A television that loses its secret | Storage cleared or the app reinstalled: its next refresh is refused (`401 proof_required`), it forgets its token and shows the pairing screen with a code. The organiser enters it; it is a new television, and the old entry is disconnected by hand. |
 | Locking a television out from outside | A request without the secret is refused before anything on the row is written. Mints from the id alone are counted in a share of their own, so they cannot use up the share a television proving itself is counted in. Adversarial tests: `edge-device/lambda/__tests__/pair-refresh.test.ts` (TAKEOVER, LOCKOUT). |
 | Logs | No device id in any log line, enforced by a test that reads every logger call (`scripts/__tests__/no-device-id-in-logs.test.ts`). |
-| Forged Ring webhook | HMAC-SHA256 verify, constant-time; reject unknown `device_id`; idempotency on `request_id`. |
+| Forged Ring webhook | `X-Signature` HMAC-SHA256 over the raw body, constant-time, else 401; a signed body Ring sent over five minutes ago (or a minute ahead) is refused, so a captured body cannot be replayed once its `request_id` row has gone (FL-041); idempotency on `meta.request_id`. The webhook does not check the device: it puts every signed event on the bus, and the Door agent drops a `device_id` no household holds (`RINGDEV#`, INV-8). |
 | Prompt injection via a family note or a visitor's clothing/signage | Guardian runs **after** every generation, deterministically, on typed classes. A model that is talked into emitting a health fact still cannot get it past the policy table. This is the main reason the Guardian is rules-first. |
 | Family over-reach | Policy table + resident exclusions; exclusions can only narrow (§6.2). |
 | Data exfil via KB retrieval | Retrieval-time `FactClass` filtering, before the prompt (§8.4). |
@@ -964,13 +970,15 @@ Media     POST /v1/devices/{id}/media/video/download            (MP4)
 Chime     POST /v1/devices/{id}/media/audio/playback            (body: audio_ref)
 History   GET  /v1/history/devices/{id}/events
 Multi-cam append ?component_id=N
-Webhooks  HMAC-SHA256 signed · ACK 200 within 5s · idempotency via request_id
+Webhooks  X-Signature: sha256=<hex HMAC-SHA256 of raw body> · ACK 200 within 5s
+          v1.1: meta.{time,request_id,account_id} · data.{type,attributes.{source,timestamp,sub_type}}
+          idempotency via meta.request_id · 4xx not retried · 5xx retried 1s..1h, DLQ 72h
           motion_detected(sub_type) · button_press · device_added/removed
           device_online/offline · app_integration_added/removed
           subscription_activated/deactivated
 Limits    100 rps · X-RateLimit-* · Retry-After
 CORS      Server-to-server only. Browser and TV origins are blocked.
-Absent    two-way audio · siren · lights · locks · event replay · event sandbox
+Absent    two-way audio · siren · lights · locks · signed webhook timestamp · event sandbox
 ```
 
 ## APPENDIX C (removed)

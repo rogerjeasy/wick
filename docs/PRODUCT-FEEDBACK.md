@@ -305,8 +305,10 @@ Developer Playground (released 2026-05-28).
 #### Which developer tools, apis and SDKs did you use and for what?
 
 - **Webhooks** (`button_press`, `motion_detected`): put the door card on the
-  television. Verified with HMAC-SHA256 and made idempotent on `request_id`,
-  inside Ring's five seconds (`services/edge-ring/lambda/webhook.mjs`).
+  television. Verified with HMAC-SHA256 (`X-Signature`, over the raw body),
+  refused when Ring sent them over five minutes ago, and made idempotent on
+  `meta.request_id`, inside Ring's five seconds
+  (`services/edge-ring/lambda/webhook-receiver.mjs`).
 - **`POST /v1/devices/{id}/media/image/download`**: the still on the door card
   (`services/connectors/ring/src/media.ts`).
 - **WHEP live view**: Watch live, bridged to HLS in a Lambda for the
@@ -344,6 +346,14 @@ Developer Playground (released 2026-05-28).
   payload with the real HMAC key and post it to our real webhook
   (`scripts/visit-sighting.sh`, `scripts/test-ring-webhook.sh`). Demo homes
   have a stand-in doorbell of Wick's own, labelled as one.
+- **A webhook's signature covers the body and nothing else** (FL-041). There
+  is no signed timestamp and no documented replay window, so a captured body
+  is good forever once its `request_id` is forgotten. We refuse a body whose
+  `meta.time` is over five minutes old, but the docs do not say whether a
+  retry or a dead-letter replay is stamped afresh, so that window may refuse
+  Ring's own late retries. With no test webhook from the Playground, our
+  receiver read the wrong envelope and header for a month before a close read
+  of the docs caught it (2026-10-16).
 - **Linking: four silent failures in a row.**
   - "1/10 accounts connected" in the console means an allowlist, not a token,
     and none of our three URLs was ever called (FL-002, Critical).
@@ -489,9 +499,11 @@ Strands' `BedrockModel`.
 
 - **The Converse API** gave one call shape for Nova and Claude, with images, so
   swapping models is one id.
-- **Nova Lite is fast and cheap enough to describe every door event.** With
-  the still, the sentence reaches the card about ten seconds after the press in
-  our simulator tests, after the card itself is already on screen (README).
+- **Nova Lite is fast and cheap enough to describe every door event.** From
+  the demo's stand-in doorbell, the sentence reached the card 2.9 s after the
+  ring (median of four; 4.8 s at most), after the card itself (2.3 s) and its
+  picture (2.7 s) — five rings, 16 October 2026, `npm run latency:door`. One
+  of the five got no sentence.
 - **Cross-region inference profiles**, once the IAM shape was right: grant
   `InvokeModel` on both the profile ARN and the foundation-model ARN in any
   region (`infra/narrator.tf`). One Terraform local now feeds both the

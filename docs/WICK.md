@@ -394,7 +394,7 @@ Every candidate feature was scored on six dimensions. The ranking is not "what's
 | **Risk** | **High** — see Limitation L1 (surfacing a card over active playback) |
 | **Depends on** | Ring event webhooks, Ring snapshot retrieval, a vision model for the description, the Fire TV app being the active application |
 
-**Status.** Built. The card comes first with a generic sentence; the picture and the vision model's sentence are added when ready, and a sentence later than 2.5 s is dropped. On Vega, if another app is in front, a system toast says someone is at the door, with a button that brings Wick forward. The door card does not pause the film. Press-to-card time has not been measured end to end. Ring's simulator sends no doorbell event, so demo homes have a stand-in doorbell.
+**Status.** Built. The card comes first with a generic sentence; the picture and the vision model's sentence are added when ready, and a sentence later than 2.5 s is dropped. On Vega, if another app is in front, a system toast says someone is at the door, with a button that brings Wick forward. The door card does not pause the film. From the demo's stand-in doorbell the card came in 2.3 s and its picture in 2.7 s (medians of five rings, 16 October 2026); a real Ring press has not been measured end to end. Ring's simulator sends no doorbell event, so demo homes have a stand-in doorbell.
 
 **The hard part is not the card. It is the description.** "Motion detected" is worthless. "A man in a delivery uniform holding a parcel" is the product. Budget real time for getting these sentences right — short, factual, present tense, never speculative about intent.
 

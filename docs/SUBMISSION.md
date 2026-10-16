@@ -46,10 +46,13 @@ with the remote's D-pad and OK.
 
 ### What it does
 
-**The door.** A Ring doorbell press puts a card on her television within a few
+**The door.** A Ring doorbell press puts a card on her television within
 seconds. A still from the doorbell, and one plain sentence from a vision model
-about who is there, are added when they are ready (about ten seconds in our
-simulator tests). If the model is unsure, it says nothing. If she is in another
+about who is there, are added when they are ready. Measured on 16 October 2026
+from the demo's stand-in doorbell (five rings, `npm run latency:door`), the
+card came in 2.3 s, the picture in 2.7 s and the sentence in 2.9 s (medians;
+4.8 s at most, and one ring had no sentence). That path skips Ring's own hop
+to Wick's webhook, which has not been measured. If the model is unsure, it says nothing. If she is in another
 app, Wick's background service puts a system toast over it ("Someone's at the
 front door.") with one button that brings Wick forward. One button on the card
 opens the doorbell camera live, and Back returns to the card.
