@@ -176,7 +176,8 @@ export function refusalReason(check: Extract<NarrativeCheck, { ok: false }>): st
     case 'unsupported_comparison':
       return `Your draft said "${check.detail}", which the facts do not support. Compare with last week, or with what is usual, only where the facts do.`;
     case 'too_long':
-      return `Your draft was ${check.detail} characters. Stay under the limit.`;
+      // The number and the overshoot: "stay under the limit" alone left the second draft as long as the first.
+      return `Your draft was ${check.detail} characters, ${Number(check.detail) - MAX_NARRATIVE_CHARS} over the limit of ${MAX_NARRATIVE_CHARS}. Cut a clause or a sentence.`;
     default:
       return 'Your draft was empty.';
   }
