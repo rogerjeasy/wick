@@ -3,8 +3,9 @@
 Developer-experience friction encountered while building Wick on Amazon Devices,
 Ring, Alexa+ and AWS.
 
-32 entries, FL-001 to FL-033, newest first, each written when the problem was hit.
-There is no FL-020: the number was taken and the entry never written. The same
+37 entries, FL-001 to FL-041, newest first, each written when the problem was hit.
+There is no FL-020, FL-034, FL-037 or FL-039: those numbers were set aside for
+work running in parallel and not needed. The same
 problems, gathered by tool with what worked well beside them, are in
 [docs/PRODUCT-FEEDBACK.md](docs/PRODUCT-FEEDBACK.md).
 

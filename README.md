@@ -41,11 +41,11 @@ and asks them to install nothing, learn nothing, wear nothing and change nothing
 | **The Family** | A distant daughter asks Alexa+ *"how's Mum been this week?"* and gets a truthful, unsensational narrative. (Here she asks a simulated Alexa+ surface; the MCP server behind it is the real one — see [what is real, and what is simulated](#what-is-real-and-what-is-simulated).) Notes go back the other way — at the end of an episode, never mid-scene — and the resident replies with one button. |
 | **The Rhythm** | Wick learns what a normal week looks like in this house, so it can stay silent when nothing is wrong — and so the weekly narrative can say *"that's up from last week"* and mean it. |
 
-### Eleven things built on those three
+### Twelve things built on those three
 
-Each of these runs today on the deployed stack. Nine are something the
-resident does with one button, on their own television. One is the same app in
-the family member's living room. And one is the language all of it is said in.
+Each of these runs today. Ten are something the resident does with one button,
+on their own television. One is the same app in the family member's living
+room. And one is the language all of it is said in.
 
 | | What happens | What it never does |
 |---|---|---|

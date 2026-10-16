@@ -47,7 +47,7 @@ An agent sits behind all three. It watches the door, learns the household's rhyt
 
 **What this submission is:** every device surface is an official simulator or a stand-in — the Vega Virtual Device, the Fire OS build on the Android TV emulator, Ring's Developer Playground, a simulated Alexa+ surface — and the household is a demo home with six weeks of simulated, marked history. There is no real resident. Everything between those ends is deployed and real: the AWS stack, the MCP server, the agents and the models, the policy engine, accounts and pairing.
 
-**What it does today:** the three pillars below, and eleven things built on them — *Ask Sarah to look*, *Shall I tell Sarah?*, calm points, watch together, the light in the window, hold for Sarah, the visit witnessed, Sarah's television, the television speaking her language, the mantelpiece and read to me. Part 3.5 lists them; the README describes each one and what it never does.
+**What it does today:** the three pillars below, and twelve things built on them — *Ask Sarah to look*, *Shall I tell Sarah?*, calm points, watch together, the light in the window, hold for Sarah, the visit witnessed, Sarah's television, the television speaking her language, the mantelpiece, read to me, and easier to see. Part 3.5 lists them; the README describes each one and what it never does.
 
 **The one sentence for the video:** *"Past 75, Americans spend more than four hours a day in front of this screen. It has never once looked back."* (BLS American Time Use Survey 2025: 4.43 hours a day watching TV at 75 and over — Part 1.2.)
 
@@ -325,7 +325,7 @@ Setup is performed once, by Sarah: she makes an account in the family app, enter
 
 ## 3.5 What exists today
 
-The three pillars are built, and eleven things on top of them. Each runs on the deployed stack; the README describes each one and, beside it, what it never does.
+The three pillars are built, and twelve things on top of them. Each runs on the deployed stack; the README describes each one and, beside it, what it never does.
 
 | | What it is | Where it came from in this plan |
 |---|---|---|
