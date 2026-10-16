@@ -140,6 +140,153 @@ removed from the design (2026-10-02).
 
 ---
 
+## FL-036 — The Android TV emulator draws no notification of a third-party app: not as a heads-up, not in its notifications panel
+
+*2026-10-16.*
+
+**Tool / API:**      Android TV emulator, system image `android-34/android-tv/arm64-v8a`
+                     (the one the hackathon FAQ names in place of a Fire TV), its launcher's
+                     notifications panel (`com.google.android.tvrecommendations` 6.3.1) /
+                     `NotificationManager`, `NotificationCompat` (AndroidX Core)
+
+**Task attempted:**  See Wick's door notification on the screen while another app is in
+                     front (FL-035), and press it, on the only stand-in for a Fire TV there is.
+
+**Steps taken:**     1. Built and installed the Fire OS APK with the door service, paired it to a
+                        demo home, put Android TV Settings in front of Wick, rang the demo home's
+                        stand-in doorbell (`POST /api/demo/doorbell`).
+                     2. `dumpsys notification --noredact`: the notification is there, on channel
+                        `wick_door`, importance 4 (HIGH), priority 1, `BigPictureStyle`, the
+                        title "Someone's at the front door (stand-in doorbell).", then — a few
+                        seconds later — the vision model's sentence and an 832x474 picture.
+                     3. Screen captures once a second for eight seconds after the ring: not a
+                        pixel changed. No heads-up.
+                     4. Opened the system's notifications panel (`cmd statusbar
+                        expand-notifications`): it lists Google's own notices and nothing of
+                        Wick's.
+                     5. Added Android's own television mark to the notification
+                        (`Notification.TvExtender`'s extras, `android.tv.EXTENSIONS` with
+                        `FLAG_AVAILABLE_ON_TV`; the class itself is a system API) and rang again:
+                        the extras were on the notification and the panel still did not list it.
+                        Taken out again.
+
+**Expected:**        The emulator the FAQ names behaves like a television for the one thing a
+                     television app most needs to test outside itself — a notification — or a
+                     written note says it does not.
+
+**Actual:**          Nothing a third-party app posts is drawn anywhere on this image. Android
+                     takes the notification, keeps it, updates it and times it out exactly as
+                     asked, and shows none of it. Fire TV's documentation says the opposite of
+                     Fire OS — a high-priority notification is a heads-up at the bottom of the
+                     screen and stays in the Notification Center — so on the emulator there is
+                     no way to see what the resident would see, nor to press it.
+
+**Severity:**        Important — the door outside Wick on Fire OS is checked on the emulator only
+                     through `dumpsys`; what it looks like on a Fire TV, and that pressing it
+                     brings Wick forward, is not seen.
+
+**Workaround:**      Checked what can be checked without a drawing: the foreground service and its
+                     type, the notification's every field through `dumpsys`, that it is updated
+                     with the picture and the sentence, that it goes when Wick comes forward, at
+                     its card's end and when the card is answered on another television, and
+                     that the intent it carries brings Wick forward to the card (sent by hand
+                     with `am start`). Then ran the same APK on an Android *phone* emulator
+                     (API 34, Google APIs) paired into the same home: there the heads-up and the
+                     picture are drawn and pressing *Open Wick* brings Wick to the card. A
+                     phone's system UI is not a Fire TV's, so this shows the notification is
+                     right, not what a Fire TV draws.
+
+**Suggestion:**      1. A Fire OS emulator image (FL-025), or at least a Fire TV system UI for the
+                        Android TV emulator that draws heads-up notifications and the Notification
+                        Center as a Fire TV does.
+                     2. Until then, one sentence on the Fire TV notifications page saying the
+                        Android TV emulator does not draw third-party notifications, so nobody
+                        spends an afternoon proving it.
+
+---
+
+## FL-035 — Fire TV's notification guidance says "no heads-up while another app is in front" in a blog post, says nothing of foreground services, and a doorbell is exactly the case it rules out
+
+*2026-10-16.*
+
+**Tool / API:**      Fire OS 7 / 8 (Android 9 / 11) Android notifications, as described in
+                     developer.amazon.com/docs/fire-tv/notifications.html and the Appstore blog
+                     post "Amazon Device Messaging (ADM) and local notifications on Fire TV"
+                     (Kevin Tsang, 2021-07-21); Android foreground services (`specialUse`,
+                     Android 14), `POST_NOTIFICATIONS` (Android 13)
+
+**Task attempted:**  Say "Someone's at the front door." on a Fire TV while another app is in
+                     front, as Wick does on Vega with a system toast (FL-022): the only thing in
+                     Wick that may interrupt anything.
+
+**Steps taken:**     1. Read the Fire TV notifications page. It says heads-up notifications
+                        "appear at the bottom of the screen and fade away after a few seconds",
+                        that "you must set the notification as a high priority", that "heads-up
+                        notifications are limited in height to normal layouts only (there are no
+                        expanded layouts)", that a large image is "the tile image in the
+                        notification card" at 16:9, and that "Users can also select Do Not
+                        Interrupt to suppress heads-up notifications". It says nothing about
+                        whether an app may post one over another app.
+                     2. Found that rule only in the blog post: "your app should not send a
+                        Heads-Up notification when another app is in the foreground", and
+                        "Build your notification mechanism in order to verify if another app is
+                        in the foreground".
+                     3. Looked for what Fire OS does with the ongoing notification Android
+                        requires of a foreground service — whether it lands in the Notification
+                        Center, and whether it lights the bell on Settings — and for any word on
+                        foreground services on Fire TV at all. Found neither.
+                     4. Built it anyway (`apps/tv-fireos/android/.../door`): a `specialUse`
+                        foreground service holding the door's background connection, one
+                        high-priority notification per door card, no sound, no vibration, no
+                        light, no badge, taken down when Wick comes forward, when the card is
+                        taken back and at the card's own five minutes.
+
+**Expected:**        The rule on the documentation page, with the exception every television
+                     platform makes: a doorbell, a call, an alarm — something happening now that
+                     the person would want to be told over a film. And a sentence on what a
+                     foreground service's notification does on a Fire TV.
+
+**Actual:**          The rule is in a blog post and has no exception. A doorbell is exactly the
+                     case it rules out: the whole point is that another app is in front. Fire
+                     TV's own Ring integration puts the doorbell's picture over any app, so the
+                     platform plainly thinks a doorbell may interrupt; a third-party app has
+                     nothing written to stand on. Whether Fire OS shows the service's ongoing
+                     notification in the Notification Center, with the bell, is not said, and
+                     with no Fire TV and no Fire OS emulator (FL-025, FL-036) it could not be
+                     looked at.
+
+**Severity:**        Important — the feature is built against the blog's advice, on purpose, for
+                     one kind of card, and how it looks on a Fire TV is unseen.
+
+**Workaround:**      Wick departs from the advice for the door only, and says so
+                     (`apps/tv-fireos/src/door/doorAlert.ts`): a note from the family, a week, a
+                     question, anything DEFERRED never posts anything outside Wick. The door's
+                     notification is high priority (a heads-up), carries no sound, and Fire OS's
+                     Do Not Interrupt still silences it — that is her choice. The service's own
+                     notification is the lowest importance there is, with no badge. On Android 13
+                     and later she is asked once, by the system, whether Wick may notify; Fire OS
+                     7 and 8 grant it at install.
+                     One thing found on the way, which is React Native's and not Amazon's: in
+                     React Native 0.83's new architecture no package registers
+                     `HeadlessJsTaskSupport`, so `AppRegistry` never tells Android a Headless JS
+                     task has ended, and a service waiting for that (as `HeadlessJsTaskService`
+                     does) never stops. Seen on the emulator; Wick's task says so through its
+                     own module instead.
+
+**Suggestion:**      1. Move the foreground rule onto the notifications page and give it the
+                        exception: "unless the notification is time-critical for the user — a
+                        doorbell, an incoming call, an alarm — in which case use
+                        `CATEGORY_CALL`/`CATEGORY_ALARM`/a named category" (and name one for a
+                        doorbell).
+                     2. Say what a foreground service's notification does on Fire TV: whether it
+                        is listed in the Notification Center, whether it lights the bell on
+                        Settings, and whether a `specialUse` service is accepted in Appstore
+                        review.
+                     3. Say whether `BigPictureStyle` is drawn anywhere on Fire TV (the page says
+                        there are no expanded layouts) and which field is the "tile image".
+
+---
+
 ## FL-032 — Speech to text from a browser through App Runner has to be one buffered POST: App Runner has no WebSockets, says so only in a closed GitHub issue, and documents no request-body limit
 
 **Tool / API:**      AWS App Runner (an ECR image service, us-east-1) /
