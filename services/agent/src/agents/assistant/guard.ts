@@ -20,12 +20,15 @@
  * cannot be asked refuses too: a reply nobody checked is not said.
  */
 import { checkWithGuardrail, type GuardrailRef, type GuardrailSend } from '../brief/guardrail.js';
+import { readableForGrounding } from './grounding.js';
 import type { AssistantTurnDeps } from './turn.js';
 
 export function guardReplyWith(send: GuardrailSend, ref: GuardrailRef): NonNullable<AssistantTurnDeps['guardReply']> {
-  return async (say, { question, toolTexts }) => {
+  return async (say, { question, toolTexts, timeZone }) => {
     try {
-      const check = await checkWithGuardrail(send, ref, { source: toolTexts, query: question ?? '', content: say, withoutFacts: 'topics_only' });
+      // The facts as the Guardrail can read them: moments and weeks written out (grounding.ts).
+      const source = timeZone ? toolTexts.map((text) => readableForGrounding(text, timeZone)) : toolTexts;
+      const check = await checkWithGuardrail(send, ref, { source, query: question ?? '', content: say, withoutFacts: 'topics_only' });
       // Why, never what: the reason names a policy, not the words it refused.
       if (!check.ok) console.log(JSON.stringify({ level: 'warn', msg: 'assistant_guardrail_refused', why: check.reason }));
       return check.ok;
