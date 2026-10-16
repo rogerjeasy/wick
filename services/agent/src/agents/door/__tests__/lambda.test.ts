@@ -42,6 +42,49 @@ function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
   };
 }
 
+describe('routeRingEvent — the door says it rang (door.rang)', () => {
+  it('puts the ring on the bus after the card is on its way: when, which card, and who it looked like', async () => {
+    const order: string[] = [];
+    const plumber: RosterEntry = { personId: 'errand:err_AAAAAAAAAAAAAAAAAAAA', name: 'the plumber', expectedOnce: { at: detail.occurred_at, windowMin: 60 }, addedBy: 'u_sarah', arrangedByName: 'Sarah' };
+    const deps = baseDeps({
+      listRoster: vi.fn(async () => [plumber]),
+      sendToDevice: vi.fn(async () => void order.push('card')),
+      announceRing: vi.fn(async () => void order.push('door.rang')),
+    });
+
+    expect(await routeRingEvent(detail, deps)).toBe('sent');
+
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0]!;
+    expect(order).toEqual(['card', 'door.rang']);
+    expect(deps.announceRing).toHaveBeenCalledWith({ householdId: 'hh-1', at: detail.occurred_at, cardId: sent.id, matchPersonId: plumber.personId });
+  });
+
+  it('says it rang with nobody matched, too', async () => {
+    const deps = baseDeps({ announceRing: vi.fn(async () => {}) });
+    await routeRingEvent(detail, deps);
+    expect(vi.mocked(deps.announceRing!).mock.calls[0]![0]).not.toHaveProperty('matchPersonId');
+  });
+
+  it('never lets a failed put cost the card, the timeline or the picture', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const deps = baseDeps({ announceRing: vi.fn(async () => { throw new Error('bus down'); }) });
+
+    expect(await routeRingEvent(detail, deps)).toBe('sent');
+
+    expect(deps.sendToDevice).toHaveBeenCalledTimes(1);
+    expect(deps.recordDoorEvent).toHaveBeenCalledTimes(1);
+    expect(deps.runPhase2).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls.flat().join(' ')).toContain('door_rang_not_put');
+    error.mockRestore();
+  });
+
+  it('does not say it rang for an event that is not a ring', async () => {
+    const deps = baseDeps({ announceRing: vi.fn(async () => {}) });
+    await routeRingEvent({ ...detail, event_type: 'subscription_activated' }, deps);
+    expect(deps.announceRing).not.toHaveBeenCalled();
+  });
+});
+
 describe('routeRingEvent', () => {
   it('asks the household-level question for the chime button, not the doorbell', async () => {
     const deps = baseDeps({ hasHallwayChime: vi.fn(async () => true) });

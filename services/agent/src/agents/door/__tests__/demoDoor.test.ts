@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { DEMO_VISITOR_KEYS, demoVisitor, type CardPatch, type QueuedCard, type RosterEntry, type Visit } from '@wick/contracts';
+import { DEMO_VISITOR_KEYS, demoVisitor, type CardPatch, type DoorRangDetail, type QueuedCard, type RosterEntry, type Visit } from '@wick/contracts';
 
 // Ring's clients, made to fail loudly if anything here so much as touches them.
 vi.mock('@wick/ring', async (original) => {
@@ -41,6 +41,7 @@ interface World {
   readonly cards: QueuedCard[];
   readonly patches: CardPatch[];
   readonly described: Uint8Array[];
+  readonly announced: DoorRangDetail[];
 }
 
 function world(over: { roster?: readonly RosterEntry[]; family?: readonly string[]; now?: number } = {}): World {
@@ -50,6 +51,7 @@ function world(over: { roster?: readonly RosterEntry[]; family?: readonly string
   const cards: QueuedCard[] = [];
   const patches: CardPatch[] = [];
   const described: Uint8Array[] = [];
+  const announced: DoorRangDetail[] = [];
   const now = over.now ?? NOW;
   const base: StandInBase = {
     put: async (item) => void puts.push(item),
@@ -71,11 +73,12 @@ function world(over: { roster?: readonly RosterEntry[]; family?: readonly string
         described.push(Buffer.from(String(payload.frame), 'base64'));
         return { candidate: { description: 'A woman in a blue tunic holding a bag at the door.', confidence: 0.9, personVisible: true }, reason: 'ok', elapsedMs: 900 };
       }, householdId),
+    announceRing: async (rang) => void announced.push(rang),
     pictures: standInPictures(PICTURES),
     newId: () => `id-${puts.length}`,
     now: () => now,
   };
-  return { base, puts, rhythm, opened, cards, patches, described };
+  return { base, puts, rhythm, opened, cards, patches, described, announced };
 }
 
 const event = (over: Record<string, unknown> = {}) => ({
@@ -103,6 +106,24 @@ describe('routeDemoDoorEvent — somebody at a demo home’s door', () => {
     expect(card).toMatchObject({ type: 'DOOR', householdId: 'hh-demo', correlationId: 'corr-demo-1', line: "Someone's at the front door (stand-in doorbell)." });
     expect(card.actions.map((a) => a.id)).toEqual(['ask_family', 'dismiss']);
     expect(card.actions[0]!.label).toBe('Ask Guest to look');
+  });
+
+  it('says on the bus that it rang, as a real doorbell does, so an arranged visit is told', async () => {
+    const w = world();
+
+    await routeDemoDoorEvent(event(), { isDemoHome: demoHome, base: w.base });
+
+    expect(w.announced).toEqual([{ householdId: 'hh-demo', at: NOW - 1500, cardId: w.cards[0]!.id }]);
+  });
+
+  it('rings for the visitor the member arranged: the door card says who it looks like, and who arranged it', async () => {
+    const plumber: RosterEntry = { personId: 'errand:err_AAAAAAAAAAAAAAAAAAAA', name: 'the plumber', expectedOnce: { at: NOW + 5 * 60_000, windowMin: 60 }, addedBy: 'u_guest', arrangedByName: 'Guest' };
+    const w = world({ roster: [plumber] });
+
+    expect(await routeDemoDoorEvent(event({ visitor: 'arranged' }), { isDemoHome: demoHome, base: w.base })).toBe('sent');
+
+    expect(w.cards[0]!.card).toMatchObject({ match: { personId: plumber.personId, name: 'the plumber' }, notice: 'Guest arranged this visit.' });
+    expect(w.announced).toEqual([{ householdId: 'hh-demo', at: NOW - 1500, cardId: w.cards[0]!.id, matchPersonId: plumber.personId }]);
   });
 
   it('never constructs or calls anything of Ring’s', async () => {

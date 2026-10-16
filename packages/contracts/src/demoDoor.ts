@@ -28,7 +28,7 @@ export const DEMO_DOOR_DETAIL_TYPE = 'demo.doorbell';
 /** Where the stand-in pictures are published (docs/demo-door, GitHub Pages). */
 export const DEMO_DOOR_PICTURES_URL = 'https://rogerjeasy.github.io/wick/demo-door/';
 
-export const DEMO_VISITOR_KEYS = ['carer', 'parcel', 'stranger', 'nobody'] as const;
+export const DEMO_VISITOR_KEYS = ['carer', 'parcel', 'stranger', 'nobody', 'arranged'] as const;
 export type DemoVisitorKey = (typeof DEMO_VISITOR_KEYS)[number];
 
 export interface DemoVisitor {
@@ -43,13 +43,13 @@ export interface DemoVisitor {
   readonly pictureUrl: string;
 }
 
-const visitor = (key: DemoVisitorKey, label: string, eventType: DemoVisitor['eventType']): DemoVisitor => ({
+const visitor = (key: DemoVisitorKey, label: string, eventType: DemoVisitor['eventType'], picture = `${key}.jpg`): DemoVisitor => ({
   key,
   label,
   eventType,
   ...(eventType === 'motion_detected' ? { subType: 'human' as const } : {}),
-  picture: `${key}.jpg`,
-  pictureUrl: `${DEMO_DOOR_PICTURES_URL}${key}.jpg`,
+  picture,
+  pictureUrl: `${DEMO_DOOR_PICTURES_URL}${picture}`,
 });
 
 const VISITORS: Readonly<Record<DemoVisitorKey, DemoVisitor>> = {
@@ -59,6 +59,10 @@ const VISITORS: Readonly<Record<DemoVisitorKey, DemoVisitor>> = {
   stranger: visitor('stranger', 'Somebody she does not know', 'button_press'),
   // Ring saw a person move, and the picture shows nobody: the card's headline is corrected (door/index.ts).
   nobody: visitor('nobody', 'Nobody there, only movement', 'motion_detected'),
+  // Whoever a member arranged to come (errand.ts arrange_visit), ringing now: arrange one a few minutes ahead and
+  // ring this, and the door matches them by the time as it would anyone expected. Somebody at the door with
+  // something for the house: the delivery's picture, made already, and described by the vision step as it is.
+  arranged: visitor('arranged', 'The visitor you arranged', 'button_press', 'parcel.jpg'),
 };
 
 export const isDemoVisitorKey = (value: unknown): value is DemoVisitorKey =>

@@ -26,7 +26,7 @@
 import { readFile } from 'node:fs/promises';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import type { RingDevice } from '@wick/ring';
-import { demoDoorEventOf, demoVisitor, type CardPatch, type DemoVisitor, type QueuedCard, type RosterEntry } from '@wick/contracts';
+import { demoDoorEventOf, demoVisitor, type CardPatch, type DemoVisitor, type DoorRangDetail, type QueuedCard, type RosterEntry } from '@wick/contracts';
 import { buildDoorEventItem, buildPresenceItem } from './presence.js';
 import { runDoorPhase2 } from './phase2.js';
 import { routeRingEvent, type RouteDeps, type RouteResult } from './route.js';
@@ -66,6 +66,8 @@ export interface StandInBase {
   /** The household's describe step: the same AgentCore graph a real ring's picture goes to (describeRemote.ts). */
   readonly describe: (householdId: string) => (bytes: Uint8Array) => Promise<DescribeResult>;
   readonly pictures: (visitor: DemoVisitor) => Promise<Uint8Array>;
+  /** The door says on the bus that it rang (announce.ts), as a real doorbell does: an arranged visit hears it. */
+  readonly announceRing?: (detail: DoorRangDetail) => Promise<void>;
   readonly newId: () => string;
   readonly now: () => number;
 }
@@ -104,6 +106,7 @@ export function standInRouteDeps(householdId: string, visitor: DemoVisitor, base
         describe,
         sendPatch: (patch) => base.sendPatch(patch, householdId),
       }, event.eventType, { standIn: true }),
+    ...(base.announceRing ? { announceRing: base.announceRing } : {}),
     now: base.now,
   };
 }

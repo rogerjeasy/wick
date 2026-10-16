@@ -367,6 +367,8 @@ export const STAND_IN_VISITORS = [
   { key: 'parcel', label: 'A parcel delivery' },
   { key: 'stranger', label: 'Somebody she does not know' },
   { key: 'nobody', label: 'Nobody there, only movement' },
+  // Rings now for a visit arranged with arrange_visit (errands.js): the door matches it by the time.
+  { key: 'arranged', label: 'The visitor you arranged' },
 ];
 
 /**
