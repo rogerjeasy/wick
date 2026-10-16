@@ -3,7 +3,7 @@
  * television" (packages/contracts/src/familyTelevision.ts).
  *
  * The same floor as the resident's home screen (home/HomeScreen.tsx,
- * docs/WICK.md Part 5): 32pt and up, 7:1 contrast, D-pad and OK only, three
+ * docs/WICK.md §7): 32pt and up, 7:1 contrast, D-pad and OK only, three
  * choices at most, no red, nothing that moves on its own. Focus is a ring,
  * never colour alone — the only things that take focus here are the
  * buttons of the one card in front, and those are CalmCard's.

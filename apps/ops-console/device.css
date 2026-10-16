@@ -2,7 +2,7 @@
  * Virtual device page — layout + the TV screen mockup.
  *
  * The mockup borrows Wick's actual on-device design principles
- * (docs/WICK.md Part 5): large type, high contrast, calm, no red, no
+ * (docs/WICK.md §7): large type, high contrast, calm, no red, no
  * badges, no counters, one button reachable at a time. It's a stand-in for
  * apps/tv-vega's real rendering, not a pixel-accurate reproduction — the
  * point is to prove the right *content* arrives, not to duplicate the Vega

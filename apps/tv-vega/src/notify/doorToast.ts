@@ -10,7 +10,7 @@
  *
  * DOOR cards only. A note from family is DEFERRED: it waits for a natural
  * break and never interrupts, and a toast over somebody else's programme
- * would be an interruption (docs/WICK.md Part 5).
+ * would be an interruption (docs/WICK.md §7).
  *
  * Two things here are this file's own words — "Open Wick" on the button,
  * and the line under the title when the door agent has not yet said who is

@@ -6,7 +6,7 @@
  * (card_shown, card_action — which buttons they pressed) is never the
  * family's to see, and is left out entirely; it used to be reported verbatim
  * ("The resident chose \"watch_live\" on a card."), a raw log, against the
- * trust model's "rhythm as narrative, never as raw logs" (docs/WICK.md §6.2).
+ * trust model's "rhythm as narrative, never as raw logs" (docs/WICK.md §8.2).
  *
  * A class the resident keeps private is left out too, timestamps and all: a
  * refusal per event still told the family exactly when someone came. It is

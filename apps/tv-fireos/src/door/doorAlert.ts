@@ -10,7 +10,7 @@
  *
  * DOOR cards only. A note from the family is DEFERRED: it waits for a
  * natural break and never interrupts, and a notification over somebody
- * else's programme would be an interruption (docs/WICK.md Part 5). Amazon
+ * else's programme would be an interruption (docs/WICK.md §7). Amazon
  * asks apps not to put up a heads-up while another app is in front; the
  * door is the one exception Wick makes, and the only one (FRICTION.md
  * FL-035).

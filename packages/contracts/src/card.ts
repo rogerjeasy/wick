@@ -4,7 +4,7 @@
  * INV-5: there are exactly two urgency classes. Do not add a third. The moment a
  * third exists, the Natural-Break Engine's guarantee stops being checkable.
  *
- * See docs/WICK.md Part 5 (design principles), docs/WICK-TECHNICAL.md §3.4.
+ * See docs/WICK.md §7 (design principles), docs/WICK-TECHNICAL.md §3.4.
  */
 
 export type Urgency = 'DOOR' | 'DEFERRED';

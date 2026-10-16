@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="docs/WICK.md">Product definition</a> ·
+  <a href="docs/WICK.md">Product overview</a> ·
   <a href="docs/WICK-TECHNICAL.md">Technical document</a> ·
   <a href="docs/SETUP.md">Setup</a> ·
   <a href="FRICTION.md">Friction log</a> ·
@@ -159,7 +159,7 @@ Privacy is the product, not a compliance section.
 - **No camera looks inside the home.** Ring is used at the front door only.
 - **She sees everything the family sees**, on her own television, and can remove it.
 - **Health, money, relationships and location never reach the family.** A deterministic content gate, the Guardian, checks every string before a family member reads it, and property tests run it through the real tool paths.
-- **No mood detection, no wellness scores, no fall detection, no chatbot on the television.** The reasons are in [docs/WICK.md](docs/WICK.md) §4.6.
+- **No mood detection, no wellness scores, no fall detection, no chatbot on the television.** The reasons are in [docs/WICK.md](docs/WICK.md) §6.
 
 ## What is real, and what is simulated
 

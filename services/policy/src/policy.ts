@@ -1,7 +1,7 @@
 import type { PolicyTable, HouseholdPolicy } from './types.js';
 
 /**
- * The default disclosure table — docs/WICK.md §6.2, WICK-TECHNICAL.md §6.2.
+ * The default disclosure table — docs/WICK.md §8.2, WICK-TECHNICAL.md §6.2.
  *
  * Changing a row here changes a promise made to a resident on screen and in the
  * README. Do not edit without updating both.

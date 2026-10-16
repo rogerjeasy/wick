@@ -1,6 +1,6 @@
 /**
  * A note from the family, and Margaret's reply — one press, twice. M3.
- * See docs/WICK.md §4.3 (M3), §3.3 (the demo narrative).
+ * See docs/WICK.md §5.2 (M3), §4.2 (the demo narrative).
  *
  * card.audioRef and card.fromPhotoRef are part of the full M3 spec but unused
  * by the only producer today — send_note_to_tv (§7.3) sets only `transcript`,

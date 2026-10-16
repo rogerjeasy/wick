@@ -1,6 +1,6 @@
 /**
  * MCP tool: get_whats_different — D1, "Something's Different" (docs/WICK.md
- * §4.4), as the family reads it: only what the resident chose to tell.
+ * §5.3), as the family reads it: only what the resident chose to tell.
  *
  * Wick notices when a day is unlike this household's own usual
  * (services/agent rhythm/different.ts). It used to say so to whoever in the

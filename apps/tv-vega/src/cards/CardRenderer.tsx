@@ -1,7 +1,7 @@
 /**
  * The single renderer for every card type.
  *
- * Non-negotiable, from docs/WICK.md Part 5 — enforced by @wick/vega-calm-ui:
+ * Non-negotiable, from docs/WICK.md §7 — enforced by @wick/vega-calm-ui:
  *   - minimum 32pt type, contrast >= 7:1
  *   - at most 3 actions, reachable with D-pad + OK only, no text entry
  *   - never auto-dismiss, never a timer (Principle 9)

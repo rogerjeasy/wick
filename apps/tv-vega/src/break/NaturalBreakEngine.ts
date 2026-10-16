@@ -11,7 +11,7 @@
  * INV-5: a DEFERRED card never renders during IN_SCENE. There are exactly two
  * urgency classes; do not add a third.
  *
- * See docs/WICK-TECHNICAL.md §3.4, docs/WICK.md Part 5 (Principles 2, 5, 8, 9).
+ * See docs/WICK-TECHNICAL.md §3.4, docs/WICK.md §7 (Principles 2, 5, 8, 9).
  */
 import { DOOR_CARD_TTL_MS, MAX_CARD_SHOWS, type QueuedCard } from '@wick/contracts';
 import {

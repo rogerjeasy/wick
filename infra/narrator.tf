@@ -134,7 +134,7 @@ resource "aws_lambda_function" "agent_narrator_weekly" {
 }
 
 # Sunday evening UTC — the week (Monday-Sunday, ISO 8601) is complete by
-# then, matching the docs/WICK.md §3.3 demo narrative's "Sunday, 10:00,
+# then, matching the docs/WICK.md §4.2 demo narrative's "Sunday, 10:00,
 # Sarah asks" moment landing shortly after a fresh run.
 resource "aws_cloudwatch_event_rule" "narrator_weekly" {
   name                = "${local.prefix}-narrator-weekly"
