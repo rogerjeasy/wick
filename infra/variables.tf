@@ -123,3 +123,14 @@ variable "ring_webhook_reserved_concurrency" {
     error_message = "ring_webhook_reserved_concurrency must be null or at least 1. Zero would refuse every webhook."
   }
 }
+
+variable "monthly_budget_usd" {
+  description = "The account's monthly spend, in US dollars, above which var.alarm_email is told (infra/budget.tf): at 80% actual and 100% forecast. Nothing is switched off."
+  type        = number
+  default     = 150
+
+  validation {
+    condition     = var.monthly_budget_usd > 0
+    error_message = "monthly_budget_usd must be more than zero."
+  }
+}
