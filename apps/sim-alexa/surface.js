@@ -557,7 +557,7 @@ const SUGGESTION_BUTTONS = {
 /**
  * The week's one suggestion, from the Sunday brief (get_week_narrative's
  * `suggestion`): "One thing you could do: …" and the one button that does
- * it — or, for "nothing", its reason alone and no button. The reason is the
+ * it — or, for "nothing", nothing at all. The reason is the
  * server's, already past the Guardian; this page only labels it. Anything
  * it cannot read is left off the card.
  */
@@ -565,7 +565,8 @@ export function presentSuggestion(suggestion) {
   if (typeof suggestion !== 'object' || suggestion === null) return undefined;
   const { action, reason } = suggestion;
   if (typeof reason !== 'string' || !reason.trim()) return undefined;
-  if (action === 'nothing') return { text: reason.trim() };
+  // "Nothing" adds nothing to a week the card has just told: its reason only says the week again, so it is left off.
+  if (action === 'nothing') return undefined;
   if (!Object.hasOwn(SUGGESTION_BUTTONS, action)) return undefined;
   return { text: `One thing you could do: ${reason.trim()}`, action, label: SUGGESTION_BUTTONS[action] };
 }
