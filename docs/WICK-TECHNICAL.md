@@ -194,11 +194,11 @@ flowchart LR
 | Alarms | CloudWatch alarms to SNS; dead-letter queue on the door path | `alarms.tf` |
 | CI to AWS | GitHub OIDC and a deploy role; no static keys | `github-oidc.tf` |
 
-Counted from the Terraform: 22 Lambda functions, 1 AgentCore runtime, 1 App Runner service, 1 DynamoDB table, 5 S3 buckets, 4 CloudFront distributions, 2 API Gateway APIs and 1 IoT authorizer.
+Counted from the Terraform: 26 Lambda functions, 1 AgentCore runtime, 1 AgentCore memory, 1 Step Functions state machine, 3 SQS queues (the brief's queue and two dead-letter queues), 1 Bedrock Guardrail, 1 App Runner service, 1 DynamoDB table, 5 S3 buckets, 4 CloudFront distributions, 2 API Gateway APIs and 1 IoT authorizer.
 
 ### 1.4 The agents
 
-Each lives in `services/agent/src/agents/`. Only two call a model.
+Each lives in `services/agent/src/agents/` (the Sunday brief's graph in `services/agent/src/graphs/`). Four call a model: the door, the Sunday brief, the narrator it falls back to, and the family assistant.
 
 | Agent | Trigger | Does | Model |
 |---|---|---|---|
@@ -207,9 +207,12 @@ Each lives in `services/agent/src/agents/`. Only two call a model.
 | **Tell** | An unusual day found in the rhythm | Asks her *"Shall I tell Sarah?"*; only *Tell* makes it readable | none |
 | **Visit** | Door sightings of a regular visitor | Asks *"Is this right?"*; only her *Yes* confirms | none |
 | **Reach** | Her press on *"Ask Sarah to ring you?"* | Asks one person, then the next after three minutes | none |
+| **Family assistant** | A family member's question in the family app | A Strands agent in AgentCore Runtime: calls Wick's own MCP tools with the member's token, asks before every write, keeps the conversation in AgentCore Memory (§18) | **Claude Sonnet 4.5** |
+| **Visit errand** | `arrange_visit` | One Step Functions execution: reminds her, waits for the doorbell, tells the member (§19) | none |
+| **Sunday brief** | Every Sunday, one SQS message per home | A Strands Graph: analyst, writer, check, suggester; the narrator above is its fallback (§21) | **Claude Sonnet 4.5** |
 | **Guardian** | Every answer to the family | Allows or withholds, by class and by content (§6) | none |
 
-The family app's assistant runs in the Wick server and uses Claude Sonnet 4.5 to choose which family tool answers a question. It only ever words what a tool returned.
+The family assistant falls back to the Wick server's earlier assistant (`/assistant/next`, Claude Sonnet 4.5 choosing which tool answers) when the AgentCore runtime cannot answer. Either way it only words what a tool returned.
 
 ---
 
@@ -447,7 +450,7 @@ AgentCore Runtime runs one container with four Strands graphs (`services/agent/s
 |---|---|---|
 | Door picture to one sentence | Nova Lite | Fast and cheap; it describes, it does not reason |
 | Weekly narrative | Claude Sonnet 4.5 | Prose quality is the product; runs once a week |
-| Family app: which tool answers | Claude Sonnet 4.5 | Choosing among 22 tools; it only words what a tool returned |
+| Family app: which tool answers | Claude Sonnet 4.5 | Choosing among 25 tools; it only words what a tool returned |
 | Guardian | none | Rules only |
 
 ### 5.2 Door agent
@@ -666,12 +669,13 @@ sequenceDiagram
     App-->>Sarah: the week as a card
 ```
 
-**The 22 tools.**
+**The 25 tools.**
 
 | Area | Tools |
 |---|---|
 | The week and today | `get_week_narrative`, `get_today`, `get_resident_shared_view`, `get_whats_different`, `get_light` |
 | Visitors | `did_visitor_come`, `get_visits`, `list_regular_visitors`, `add_regular_visitor`, `expect_visit` |
+| Visit errands | `arrange_visit`, `get_errands`, `cancel_errand` |
 | Notes | `send_note_to_tv`, `get_replies` |
 | The door | `get_door_request`, `answer_door_request` |
 | Being asked to ring | `get_reach_request`, `answer_reach_request` |

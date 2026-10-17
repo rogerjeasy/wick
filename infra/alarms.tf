@@ -142,7 +142,7 @@ resource "aws_cloudwatch_metric_alarm" "dead_letters" {
 # One error is worth a page here: none of these fail in normal use (a refusal
 # is an answer, not an error), and over the week before this file was written
 # every one of them reported zero. A throttle means the account's concurrency
-# quota (10) was reached and something waited or was dropped.
+# quota (1,000) was reached and something waited or was dropped.
 
 locals {
   alarmed_functions = {

@@ -179,8 +179,8 @@ on alarm and on recovery.
 
 | Alarm | Fires when |
 |---|---|
-| `<function>-errors` | Any of the 22 Lambdas throws or times out, once in 5 minutes |
-| `<function>-throttles` | Any of the 22 Lambdas is throttled (the account quota is 1,000) |
+| `<function>-errors` | Any of the 26 Lambdas throws or times out, once in 5 minutes |
+| `<function>-throttles` | Any of the 26 Lambdas is throttled (the account quota is 1,000) |
 | `wick-dead-letters-not-empty` | A door event or a press failed every try (below) |
 | `wick-narrator-week-not-written` | The weekly narrative failed for a household (a `narrative_household_failed` log line) |
 | `wick-narrator-run-not-started` | EventBridge could not start the weekly run |
