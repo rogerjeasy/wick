@@ -35,9 +35,11 @@ export interface ToolContext {
   readonly timing?: PhaseTimer;
   /**
    * The household's own people, by name: its regular visitors and the
-   * members of its circle. The gate sets them aside before it reads an
-   * answer it would otherwise withhold, so a surname is not taken for a fact
-   * ("Anna Cash"; guardian.ts guardTools). Absent, nobody is.
+   * members of its circle. When an answer would otherwise be withheld, the
+   * gate reads it again with a string that is exactly one of their names,
+   * or its id, cleared as a name, so a surname is not taken for a fact
+   * ("Anna Cash"; guardian.ts guardTools, policy's clearForFamily). Never
+   * inside a sentence. Absent, nobody is.
    */
   people?(): Promise<readonly string[]>;
 }

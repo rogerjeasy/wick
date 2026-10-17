@@ -146,8 +146,9 @@ const WITHHELD_ANSWER = { content: [{ type: 'text' as const, text: SOMETHING_WEN
 
 /**
  * A tool's answer, read string by string: itself, or the answer a failure
- * gets. `people`: the household's own people by name, set aside before the
- * lexicon reads (policy's setPeopleAside), so "Anna Cash" is not money.
+ * gets. `people`: the household's own people by name; a string that is
+ * exactly one of their names, or its id, is cleared as a name (policy's
+ * clearForFamily), so "Anna Cash" is not money. Never inside a sentence.
  */
 export function guardToolAnswer<R extends object>(tool: string, result: R, people: readonly string[] = []): R | typeof WITHHELD_ANSWER {
   const uncleared = unclearedIn(result, people);

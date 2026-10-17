@@ -80,53 +80,35 @@ export function normalise(text: string): string | undefined {
 }
 
 /**
- * A person, set aside before the lexicon reads a sentence, so that a
- * surname is not taken for a fact: "Anna Cash" is not money, and "Mrs
- * Banks" is not her bank. Only the household's own people are set aside,
- * by the names Wick holds for them (a regular visitor, a member of the
- * circle), and by the id made from that name ("anna-cash"). A caller passes
- * them (`people`). Three rules keep this from becoming a way round:
- *   - a name is set aside only if it is itself a person's name
- *     (clearNameForFamily): a member who calls themselves "Pension" or
- *     "Cancer" sets nothing aside;
- *   - it is found in the text as the lexicon reads it (normalise), so the
- *     two can never disagree about what the text says;
- *   - a title or a capitalised phrase in a sentence is never taken for a
- *     person on its own: a model could write "Mrs" before anything, and
- *     "Universal Credit" is capitalised too.
- * The words around a person are read as ever.
+ * A person whose name is also a word: "Anna Cash" is not money, and "Mrs
+ * Banks" is not her bank. The household's own people (a regular visitor, a
+ * member of the circle) are passed by the caller (`people`), and a string
+ * that IS one of their names, or the id made from it ("anna-cash"), is
+ * cleared as a name. Nothing is ever set aside inside a sentence: a name
+ * is matched only as the whole string, and only a name that passes
+ * clearNameForFamily counts, so a member who calls themselves "Pension" or
+ * "Council Tax" clears nothing but their own name, and not even that.
  */
-const SOMEONE = 'someone';
-
 /** The id a name is filed under: "Mary-Jo O'Neil" is "mary-jo-o-neil" (add_regular_visitor personIdFor). */
 const idOf = (name: string): string =>
   name.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
-/** Over normalised text, which holds only a-z, 0-9, spaces and plain punctuation. */
-const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-function setPeopleAside(plain: string, people: readonly string[]): string {
-  let out = plain;
-  for (const person of people) {
-    if (!clearNameForFamily(person)) continue;
-    for (const form of new Set([normalise(person.trim()), idOf(person)])) {
-      if (form === undefined || form.length < 2) continue;
-      out = out.replace(new RegExp(`(?<![a-z0-9])${escapeRegExp(form)}(?![a-z0-9])`, 'g'), SOMEONE);
-    }
-  }
-  return out;
+function isOneOf(text: string, people: readonly string[]): boolean {
+  const read = normalise(text.trim());
+  if (read === undefined) return false;
+  return people.some((person) => clearNameForFamily(person) && (read === normalise(person.trim()) || read === idOf(person)));
 }
 
 export interface ClearOptions {
-  /** The household's own people, by name: set aside before the lexicon reads the text (setPeopleAside). */
+  /** The household's own people, by name: a string that is exactly one of them is cleared as a name (isOneOf). */
   readonly people?: readonly string[];
 }
 
 /** Which protected classes a string is about, by the lexicon — or that it cannot be read. */
 export function classify(text: string, options: ClearOptions = {}): Reading {
-  const read = normalise(text);
-  if (read === undefined) return { readable: false };
-  const plain = options.people?.length ? setPeopleAside(read, options.people) : read;
+  const plain = normalise(text);
+  if (plain === undefined) return { readable: false };
+  if (options.people?.length && isOneOf(text, options.people)) return { readable: true, classes: [] };
   const classes = new Set<ListedClass>();
   for (const marker of LEXICON) {
     if (marker.pattern.test(plain)) classes.add(marker.class);
@@ -160,24 +142,33 @@ export function clearForFamily(text: string, policy: HouseholdPolicy = DEFAULT_P
 /** A title before a surname, as a name is typed ("Mrs Banks"). Not "Dr": that is a fact about her health. */
 const TITLES: ReadonlySet<string> = new Set(['Mr', 'Mrs', 'Ms', 'Miss', 'Mx']);
 
+/**
+ * Surnames that are also words in the lexicon. Only these are read as a
+ * surname, and only after a first name or a title: a list, not a guess, so
+ * "Council Tax", "Universal Credit" and "Anna Pension" are still refused.
+ */
+const SURNAMES_THAT_ARE_WORDS: ReadonlySet<string> = new Set(['cash', 'banks', 'bank', 'money', 'pounds']);
+
 /** Words a name can start with that are not a first name: "the nurse", "Her Solicitor". */
 const NOT_A_FIRST_NAME: ReadonlySet<string> = new Set(['the', 'a', 'an', 'her', 'his', 'my', 'our', 'their', 'your', 'mum', 'dad', 'mums', "mum's", "dad's"]);
 
 /**
  * Whether a name typed for a person (a regular visitor) may be kept and
- * shown to the family. The words after a first name are a surname, set aside
- * like a title's ("Anna Cash", "Tom Banks"); the first word is read as any
- * word is, so "Dr Patel", "Benefits Officer", "the nurse" and "Her
- * Solicitor" are still refused.
+ * shown to the family. A known surname that is also a word (Cash, Banks,
+ * Money) is read as a surname when it follows a first name or a title;
+ * every other word is read as any word is, so "Dr Patel", "Benefits
+ * Officer", "the nurse" and "Her Solicitor" are still refused.
  */
 export function clearNameForFamily(name: string, policy: HouseholdPolicy = DEFAULT_POLICY): boolean {
   const words = name.trim().split(/\s+/);
-  const titled = words.length > 1 && TITLES.has(words[0]!.replace(/\.$/, ''));
-  const first = titled ? '' : (words[0] ?? '');
-  const rest = words.slice(1);
-  const asAName =
-    rest.length > 0 && rest.every((w) => /^[A-Z]/.test(w)) && (titled || (/^[A-Z]/.test(first) && !NOT_A_FIRST_NAME.has(first.toLowerCase())))
-      ? [first || SOMEONE, ...rest.map(() => SOMEONE)].join(' ')
-      : name;
-  return clearForFamily(asAName, policy).cleared;
+  const first = words[0] ?? '';
+  const startsAsAName = words.length > 1 && /^[A-Z]/.test(first) && !NOT_A_FIRST_NAME.has(first.toLowerCase());
+  const read = words
+    .map((word, i) => {
+      if (i === 0 && TITLES.has(word.replace(/\.$/, ''))) return 'someone';
+      if (i > 0 && startsAsAName && /^[A-Z]/.test(word) && SURNAMES_THAT_ARE_WORDS.has(word.toLowerCase())) return 'someone';
+      return word;
+    })
+    .join(' ');
+  return clearForFamily(read, policy).cleared;
 }
