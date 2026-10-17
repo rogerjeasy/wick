@@ -277,12 +277,10 @@ resource "aws_lambda_function" "webhook" {
   timeout     = 5
   memory_size = 256
 
-  # Reserved so a downstream problem can never starve the ACK path — but only
-  # once the account can afford it. Its total Lambda concurrency quota is 10
-  # (new-account default; mature accounts get 1000), and any reservation
-  # would drop unreserved below the service minimum of 10. Null (the
-  # default) reserves nothing; set var.ring_webhook_reserved_concurrency
-  # (20 was the intent) once the quota is raised.
+  # Reserved so a downstream problem can never starve the ACK path: 20 of the
+  # account's 1,000 (var.ring_webhook_reserved_concurrency). An account still
+  # at the new-account quota of 10 sets it to null, since AWS refuses a
+  # reservation that leaves fewer than 10 unreserved.
   reserved_concurrent_executions = var.ring_webhook_reserved_concurrency
 
   environment {
