@@ -38,6 +38,7 @@ import {
   type CircleErrorCode,
 } from './circle.js';
 import { isGuest } from './demo.js';
+import type { HomeClosed } from './myData.js';
 import { DemoDoorRefusal, ringDemoDoorbell, type DemoDoorbellDeps } from './demoDoorbell.js';
 import { LanguageRefusal, askForLanguage, readLanguage, takeBackLanguageQuestion, type LanguageDeps } from './language.js';
 import { grantOf } from './oauthProvider.js';
@@ -224,6 +225,18 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
       store.getHousehold(grant.householdId),
       store.getMembership(grant.householdId, grant.userId),
     ]);
+    if (!household) {
+      // She stopped Wick from her own television (myData.ts closeHomeAtHerWord): said plainly, for as long as it is kept.
+      const closed = await store.getRecord<HomeClosed>('HOME_CLOSED', grant.householdId);
+      if (closed) {
+        res.status(410).json({
+          error: 'home_closed',
+          residentName: closed.residentName,
+          message: `${closed.residentName} has stopped Wick. The home is closed, and everything Wick kept about it has been deleted. Nothing more can be asked or sent.`,
+        });
+        return;
+      }
+    }
     if (!user || !household || !membership) throw new CircleError('not_a_member');
     res.json({
       user: { userId: user.userId, name: user.name, email: user.email, guest: isGuest(user.userId) },

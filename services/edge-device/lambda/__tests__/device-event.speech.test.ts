@@ -348,7 +348,7 @@ describe('a card that is on her screen without being stored', () => {
 
     const { Text } = tv.synthesize!.mock.calls[0]![0];
     expect(Text.startsWith('<speak>Your light is on.<break time="600ms"/>Sarah can see that your day has begun')).toBe(true);
-    expect(Text.endsWith('Leave it on.<break time="600ms"/>Put it out for today.</speak>')).toBe(true);
+    expect(Text.endsWith('Leave it on.<break time="600ms"/>Put it out for today.<break time="600ms"/>What your family sees.</speak>')).toBe(true);
     expect(tv.controls).toEqual([{ t: 'speech', cardId: 'light', url: expect.any(String) }]);
     // And still nothing is stored for it.
     expect(aws.rows.has(`${HH}|CARD#light`)).toBe(false);

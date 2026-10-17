@@ -260,7 +260,17 @@ export async function deleteAccount(deps: MyDataDeps, asker: Asker, request: Del
  * Everyone in her circle loses their place in it; their accounts are theirs
  * and stay.
  */
+/** How long her family's app can still say the home was closed, and by whom. Only her name is kept, and nothing of the home. */
+export const HOME_CLOSED_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** What a family member's app is told once she has closed the home (apiRouter.ts GET /api/me). */
+export interface HomeClosed {
+  readonly residentName: string;
+  readonly at: number;
+}
+
 export async function closeHomeAtHerWord(deps: MyDataDeps, householdId: string): Promise<void> {
+  const residentName = (await deps.store.getHousehold(householdId))?.residentName;
   if (deps.ringLinks) {
     let answer;
     try {
@@ -271,6 +281,10 @@ export async function closeHomeAtHerWord(deps: MyDataDeps, householdId: string):
     if (!answer?.ok) throw new AccountRefusal(502, 'doorbell_unavailable', 'The doorbell could not be disconnected just now, so nothing was deleted. Try again in a moment.');
   }
   await closeHome(deps, householdId);
+  // So that the people who were in her circle are told what happened, not "something went wrong".
+  const at = deps.now();
+  const closed: HomeClosed = { residentName: residentName ?? 'The person at home', at };
+  await deps.store.putRecord('HOME_CLOSED', householdId, closed, at + HOME_CLOSED_KEPT_MS);
 }
 
 /** Their place in a home somebody else set up: their row, the visits they announced, a television of their own, and their id on their notes. */

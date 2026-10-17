@@ -132,7 +132,7 @@ describe('the Light card (light.mjs)', () => {
       headline: 'Su luz está encendida.',
       detail: 'Sarah puede ver que su día ha empezado, y nada más: ni cuándo, ni lo que usted ve.',
     });
-    expect(labels(card)).toEqual(['Dejarla encendida', 'Apagarla por hoy']);
+    expect(labels(card)).toEqual(['Dejarla encendida', 'Apagarla por hoy', 'Lo que ve su familia']);
   });
 
   it('out for today, in words that do not say why', () => {
@@ -141,7 +141,7 @@ describe('the Light card (light.mjs)', () => {
       headline: 'Su luz está apagada por hoy.',
       detail: 'Sarah no puede saber si usted la apagó o si todavía no se ha encendido. Mañana se enciende de nuevo.',
     });
-    expect(labels(card)).toEqual(['Dejarla apagada', 'Encenderla de nuevo']);
+    expect(labels(card)).toEqual(['Dejarla apagada', 'Encenderla de nuevo', 'Lo que ve su familia']);
   });
 
   it('speaks of her family when several can see it, and never counts a neighbour among them', () => {
@@ -181,7 +181,7 @@ describe('the Light card (light.mjs)', () => {
 
   it('a press on the card in her language is the press it always was', () => {
     const on = lightCard([member('u_sarah', 'Sarah'), meta]);
-    expect(on.actions.map((a) => a.id)).toEqual([LIGHT_ACTIONS.ok, LIGHT_ACTIONS.putOut]);
+    expect(on.actions.map((a) => a.id)).toEqual([LIGHT_ACTIONS.ok, LIGHT_ACTIONS.putOut, LIGHT_ACTIONS.sharing]);
     expect(lightPress(on.id, on.actions[1]!.id)).toBe(LIGHT_ACTIONS.putOut);
     const out = lightCard([light(NOW - HOUR), member('u_sarah', 'Sarah'), meta]);
     expect(lightPress(out.id, out.actions[1]!.id)).toBe(LIGHT_ACTIONS.lightAgain);

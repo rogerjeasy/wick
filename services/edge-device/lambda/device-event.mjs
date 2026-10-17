@@ -371,6 +371,9 @@ export async function handleDeviceEvent({ householdId, deviceId, unproven = fals
 
       if (deviceEvent.action === 'sharing' && WEEK_CARD_ID.test(deviceEvent.cardId)) {
         await showSharing({ sendCard, householdId, page: 0, respondsTo: deviceEvent.cardId });
+      } else if (deviceEvent.action === 'sharing' && deviceEvent.cardId === LIGHT_CARD_ID) {
+        // From her Light card, at any time. Not over it: the Light card is not kept, so Done goes home.
+        await showSharing({ sendCard, householdId, page: 0 });
       } else if (deviceEvent.cardId === SHARING_CARD_ID) {
         // What is shared decides whether there is a light at all: a change is told to every home screen.
         if (await advanceSharing({ sendCard, householdId, action: deviceEvent.action })) await tellEveryHome({ sendControl, householdId, deviceId });

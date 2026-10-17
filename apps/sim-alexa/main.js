@@ -331,7 +331,41 @@ async function authorizedFetch(path, init = {}) {
     signedOut('Signed out. Link Wick again.');
     throw new Error('Wick needs linking again.');
   }
+  // Refused as no longer in the circle: perhaps she has stopped Wick. GET /api/me says so in words (410 home_closed).
+  if ((res.status === 403 || res.status === 404) && path !== '/api/me') void checkHomeClosed();
   return res;
+}
+
+/** Set once she has closed the home: nothing more is asked of the server, and nothing more is offered. */
+let homeClosed = false;
+
+/** Asks whether the home was closed by her, and if so says so. Asked once at a time. */
+let checkingClosed = false;
+async function checkHomeClosed() {
+  if (homeClosed || checkingClosed) return;
+  checkingClosed = true;
+  try {
+    await api('/api/me');
+  } catch (err) {
+    if (err.code === 'home_closed') showHomeClosed(err.message);
+  } finally {
+    checkingClosed = false;
+  }
+}
+
+/**
+ * She stopped Wick, on her own television (services/mcp-server
+ * accounts/residentTelevision.ts). Said in the server's words, once, and the
+ * questions and the field are put away: there is nobody left to ask about.
+ * Sign out stays, to start again.
+ */
+function showHomeClosed(message) {
+  if (homeClosed) return;
+  homeClosed = true;
+  for (const node of document.querySelectorAll('.chip, #ask-input, #ask-send, #ask-voice')) node.disabled = true;
+  $('chips').replaceChildren();
+  setStatus('Home closed', 'idle');
+  assistantSays({ say: message, card: null });
 }
 
 /** /api: JSON in, JSON out. A refusal's own words become the error's message. */
@@ -3200,6 +3234,8 @@ function prefillAsk(example) {
 
 function showSuggestions(listing = shownListing) {
   shownListing = listing;
+  // A home she has closed has nothing left to ask about.
+  if (homeClosed) return;
   // As enabled as the field beside them: redrawing must not open what sign-in has not.
   const enabled = !$('ask-input').disabled;
   $('chips').replaceChildren(...suggestionsFor(listing, me).map((suggestion) => {
@@ -3724,6 +3760,7 @@ fitToWhatIsSeen();
     await welcome();
     if (ringCompletion) await finishRingSignIn(ringCompletion);
   } catch (err) {
-    if (link) assistantSays({ say: err.message, tone: 'error' });
+    if (err.code === 'home_closed') showHomeClosed(err.message);
+    else if (link) assistantSays({ say: err.message, tone: 'error' });
   }
 })();

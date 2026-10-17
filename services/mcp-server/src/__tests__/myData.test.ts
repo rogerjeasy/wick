@@ -402,6 +402,12 @@ describe('deleting an account', () => {
     // Their accounts are theirs: only the home is gone.
     expect(await w.h.store.getUser(sarah.userId)).toBeDefined();
     expect(await w.h.store.getUser(tom.userId)).toBeDefined();
+    // Her family's app is told what happened, in words, not that something went wrong.
+    for (const who of [sarah, tom]) {
+      const me = await call(w.h, who, '/api/me');
+      expect(me.status).toBe(410);
+      expect(await me.json()).toMatchObject({ error: 'home_closed', residentName: 'Margaret', message: expect.stringContaining('Margaret has stopped Wick.') });
+    }
     // And a television already disconnected can close nothing again.
     expect((await stop({ confirm: 'stop' })).status).toBe(401);
   });

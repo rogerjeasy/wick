@@ -567,6 +567,7 @@ var WickTv = (() => {
       s("{first} can see that your day has begun, and nothing more: not when, and not what you watch.", "{first|cap} puede ver que su día ha empezado, y nada más: ni cuándo, ni lo que usted ve."),
       b("Leave it on", "Dejarla encendida"),
       b("Put it out for today", "Apagarla por hoy"),
+      b("What your family sees", "Lo que ve su familia"),
       s("Your light is out for today.", "Su luz está apagada por hoy."),
       s("{first} cannot tell whether you put it out or it has not been lit yet.", "{first|cap} no puede saber si usted la apagó o si todavía no se ha encendido."),
       s("It lights again tomorrow.", "Mañana se enciende de nuevo."),
