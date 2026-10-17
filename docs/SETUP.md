@@ -148,6 +148,17 @@ vega device running-apps
 vega device start-log-stream
 ```
 
+**Keeping the simulator on the latest main.** `npm run vvd:follow` asks
+GitHub for main's newest commit. When its CI has passed and the simulator
+does not run it yet, it builds the Vega app from that commit in a checkout of
+its own (`~/.wick/vvd-follow/repo`; yours is never touched), starts the
+simulator if it has stopped, and installs and launches it. A macOS
+notification says when it has. `npm run vvd:follow:watch` does that every
+five minutes as a LaunchAgent; `npm run vvd:follow:stop` turns it off. The log
+is `~/.wick/vvd-follow/follow.log`. It needs `gh` signed in and the Vega SDK.
+The Vega simulator is told from an Android TV emulator attached beside it by
+its OS release (`VVD_SERIAL` names it if that ever fails).
+
 Two things the simulator does differently from a Fire TV, both in
 [`FRICTION.md`](../FRICTION.md): it keeps nothing on disk between launches
 (FL-013), so the app pairs itself again through `POST /pair/refresh`; and it
