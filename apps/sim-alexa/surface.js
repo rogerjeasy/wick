@@ -2487,6 +2487,15 @@ export function readAgentTurn(body) {
   return { kind: 'answer', say, trace, toolTexts };
 }
 
+/**
+ * An answer the agent could not give: no sentence of its own (its reply was
+ * refused, or there was none) and nothing a tool returned to say instead.
+ * Shown as it is, it is an empty reply; the stand-in is asked instead.
+ */
+export function answeredNothing(answer) {
+  return answer?.kind === 'answer' && !answer.say && answer.toolTexts.length === 0;
+}
+
 /** "Here is what I'll do", and each thing, before any yes is asked for. */
 export function presentPlan(plan) {
   return { title: 'Here is what I’ll do', items: [...plan] };

@@ -19,6 +19,13 @@ describe('the assistant’s rules, one set for both assistants', () => {
     expect(assistantPrompt(WHO, NOW, TZ)).toMatch(/If a day or the time is missing, ask for it; never guess one/);
   });
 
+  it('names the films by title when it asks which one, and never their length: a number from no tool is refused', () => {
+    // Live, "Ask Mum to watch a film with me" got an answer the number check refused, and the app said nothing.
+    const prompt = assistantPrompt(WHO, NOW, TZ);
+    expect(prompt).toMatch(/The films are Big Buck Bunny, Sintel and Tears of Steel/);
+    expect(prompt).toMatch(/never how long they are/);
+  });
+
   it('works a relative time out from now, instead of asking for one it was given', () => {
     // Live, "the window cleaner is coming in five minutes" was answered with "what day, and what time exactly?".
     expect(assistantPrompt(WHO, NOW, TZ)).toMatch(/"in five minutes".*are a day and a time: work them out from now/);

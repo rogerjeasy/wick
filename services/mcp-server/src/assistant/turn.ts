@@ -151,7 +151,13 @@ export function answerFor(answer: AgentAnswer, titles: ReadonlyMap<string, strin
     ...(answer.asked ? [{ role: 'user' as const, text: answer.asked }] : []),
     { role: 'tool', results: toolTexts.map((text, i) => ({ id: `t${i}`, name: trace[i]!.tool, text })) },
   ];
-  if (answer.say !== undefined && checkReply(answer.say, turns, now, timeZone).ok) return { say: answer.say.trim(), trace, toolTexts };
+  if (answer.say !== undefined) {
+    const check = checkReply(answer.say, turns, now, timeZone);
+    if (check.ok) return { say: answer.say.trim(), trace, toolTexts };
+    // Which check refused it, never the words: a number with nothing under it, a protected class, or its length.
+    const named = ['empty', 'too long', 'protected'].includes(check.detail);
+    console.warn(JSON.stringify({ level: 'warn', msg: 'assistant_reply_unsupported', why: named ? check.detail : 'invented_number', ...(named ? {} : { number: check.detail }) }));
+  }
   return { unsupported: true, trace, toolTexts };
 }
 
