@@ -372,3 +372,61 @@ describe('POST /pair/claim — the television’s proof, its name for the family
     expect(await removeReplaced({ send: async () => ({}), table: 'wick', householdId: 'hh_1', deviceId: 'tv-old', proofHash: OLD_HASH })).toBe('removed');
   });
 });
+
+describe('POST /pair/claim — the simulator, whose one id every Vega Virtual Device shares', () => {
+  /** A table where the owner claim on wick-tv fails only while another home holds it. */
+  function simulatorWorld(ownerMeta: Item | undefined, owner = 'hh_old') {
+    const items: Record<string, Item> = {
+      [keyOf(accessTokenKey(TOKEN))]: tokenItem(),
+      'HH#hh_1|MEM#u_sarah': member('organiser', 'pending'),
+      'PAIR#123456|META': { ...pairingCode, deviceId: { S: 'wick-tv' } },
+      'DEV#wick-tv|META': { householdId: { S: owner }, claimedAt: { N: '1' } },
+      [`HH#${owner}|DEV#wick-tv`]: { deviceId: { S: 'wick-tv' } },
+      ...(ownerMeta ? { [`HH#${owner}|META`]: ownerMeta } : {}),
+    };
+    const writes: { kind: string; key: string; condition?: string }[] = [];
+    const send = async (command: { constructor: { name: string }; input: Record<string, unknown> }) => {
+      const input = command.input as { Key?: Item; Item?: Item; ConditionExpression?: string; ExpressionAttributeValues?: Record<string, { S?: string }> };
+      const key = keyOf((input.Key ?? input.Item)!);
+      if (command instanceof GetItemCommand) return { Item: items[key] };
+      if (key === 'DEV#wick-tv|META' && command instanceof PutItemCommand) {
+        const held = items[key]?.householdId?.S;
+        const mine = input.ExpressionAttributeValues?.[':hh']?.S;
+        const ok = input.ConditionExpression?.includes('attribute_not_exists') ? !held || held === mine : held === input.ExpressionAttributeValues?.[':old']?.S;
+        if (!ok) throw Object.assign(new Error('condition'), { name: 'ConditionalCheckFailedException' });
+        items[key] = input.Item!;
+      }
+      writes.push({ kind: command.constructor.name, key, ...(input.ConditionExpression ? { condition: input.ConditionExpression } : {}) });
+      return {};
+    };
+    return { writes, items, handler: createHandler({ send, privateKey: async () => privateKey, now: () => NOW, table: 'wick' }) };
+  }
+
+  it('takes the simulator from a demo home: a judge on a new Vega Virtual Device is never told it is in another home', async () => {
+    const w = simulatorWorld({ simulated: { BOOL: true } });
+
+    const res = await w.handler(event({ code: '123456' }));
+
+    expect(res.statusCode).toBe(200);
+    expect(w.items['DEV#wick-tv|META']!.householdId!.S).toBe('hh_1');
+    // The demo home it leaves no longer has it.
+    expect(w.writes).toContainEqual(expect.objectContaining({ kind: 'DeleteItemCommand', key: 'HH#hh_old|DEV#wick-tv' }));
+    expect(w.writes.some((x) => x.key === 'HH#hh_1|DEV#wick-tv')).toBe(true);
+  });
+
+  it('never takes it from a home that is not a demo home', async () => {
+    for (const meta of [{ simulated: { BOOL: false } }, {} as Item, undefined]) {
+      const w = simulatorWorld(meta);
+      const res = await w.handler(event({ code: '123456' }));
+      expect(res.body).toBe('television_in_another_home');
+      expect(w.items['DEV#wick-tv|META']!.householdId!.S).toBe('hh_old');
+      expect(w.writes.filter((x) => x.kind !== 'GetItemCommand')).toEqual([]);
+    }
+  });
+
+  it('never moves any other television, demo home or not', async () => {
+    const { handler, writes } = world({ 'HH#hh_old|META': { simulated: { BOOL: true } } }, ['DEV#tv-1|META']);
+    expect((await handler(event({ code: '123456' }))).body).toBe('television_in_another_home');
+    expect(writes).toEqual([]);
+  });
+});

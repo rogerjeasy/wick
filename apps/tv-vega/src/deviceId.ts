@@ -12,9 +12,12 @@
  * in the television's own storage. Where storage cannot keep anything, which
  * is every Vega Virtual Device (FRICTION.md FL-013), there is no way to be
  * both stable and unique, and stable wins: the simulator uses one fixed id.
- * Two simulators therefore cannot be paired to two households at once — the
- * second is told the television belongs to another home — which is the safe
- * failure.
+ * Two simulators therefore cannot be paired to two households at once. A
+ * real home's simulator is never taken from it — the second is told the
+ * television belongs to another home, the safe failure — but one held by a
+ * demo home is taken by the next pairing (edge-device pair-claim.mjs
+ * takeSimulatorFromDemoHome), so a judge's simulator is never refused
+ * because another was paired to another demo home first.
  *
  * THE SECRET is what makes the id worth nothing on its own (AGENTS.md
  * INV-1). An id is not hidden: it was shown to family members, and it was

@@ -114,9 +114,9 @@ variable "alarm_email" {
 }
 
 variable "ring_webhook_reserved_concurrency" {
-  description = "Concurrency kept for the Ring webhook alone, so a busy agent plane can never starve Ring's five-second acknowledgement. Null, the default, reserves none: this account's whole Lambda quota is 10, and AWS refuses any reservation that leaves fewer than 10 unreserved. Set it (20 was the intent) once the quota has been raised."
+  description = "Concurrency kept for the Ring webhook alone, so a busy agent plane can never starve Ring's five-second acknowledgement. 20, on an account whose Lambda quota is 1,000 (raised from the new-account 10 on 2026-10-14). Null reserves none: on an account still at 10, AWS refuses any reservation that leaves fewer than 10 unreserved."
   type        = number
-  default     = null
+  default     = 20
 
   validation {
     condition     = var.ring_webhook_reserved_concurrency == null || try(var.ring_webhook_reserved_concurrency >= 1, false)

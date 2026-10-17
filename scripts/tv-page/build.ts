@@ -79,6 +79,7 @@ export { pressSettle, PRESS_SETTLE_MS } from './apps/tv-vega/src/press/settle.ts
 export { okHold, HOLD_MS } from './apps/tv-vega/src/watch/hold.ts';
 export { playIsTheCards, playGoesTo, seekTarget, SEEK_STEP_MS } from './apps/tv-vega/src/watch/remoteKeys.ts';
 export { PlaybackRecorder, toPlaybackDeviceEvent } from './apps/tv-vega/src/watch/playbackRecorder.ts';
+export { FilmPositions } from './apps/tv-vega/src/watch/resume.ts';
 export { deriveSnapshot } from './apps/tv-vega/src/player/PlayerService.ts';
 export { waitingLine, backClosesOpened } from './apps/tv-vega/src/home/waiting.ts';
 export { asking } from './apps/tv-vega/src/home/asked.ts';

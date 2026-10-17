@@ -80,14 +80,16 @@ function easierSay(key, values = {}) {
 /* --- Kept on this device ------------------------------------------------- */
 
 /*
- * Two things this page keeps in the browser, and nothing about her: how she
- * likes the screen ("Easier to see"), and that the legend of the keys has
- * been seen. localStorage, because both belong to this device and not to a
+ * Three things this page keeps in the browser, and nothing about her: how
+ * she likes the screen ("Easier to see"), that the legend of the keys has
+ * been seen, and where each film was left. localStorage, because both belong to this device and not to a
  * tab; every reach for it is wrapped, because a browser may refuse it — and
  * then the page simply starts as it would the first time.
  */
 const SEEING_KEY = 'wick_tv_easier_to_see';
 const KEYS_SEEN_KEY = 'wick_tv_keys_seen';
+/** Where each film was left (watch/resume.ts): a place in a film, nothing about her. */
+const FILM_POSITIONS_KEY = 'wick_tv_film_positions';
 
 function deviceStorage() {
   try {
@@ -96,6 +98,11 @@ function deviceStorage() {
     return null;
   }
 }
+
+const filmPositions = new TV.FilmPositions({
+  read: () => deviceStorage()?.getItem(FILM_POSITIONS_KEY) ?? null,
+  write: (text) => deviceStorage()?.setItem(FILM_POSITIONS_KEY, text),
+});
 
 function recall(key) {
   try {
@@ -320,6 +327,15 @@ function filmStarted(started) {
     last: null,
   };
   const mine = watching;
+  // Where she left it, if she did (watch/resume.ts): not 0:00 again. Once the browser knows the film.
+  const from = filmPositions.startAt(programme.id);
+  if (from > 0) {
+    const seek = () => {
+      if (watching === mine) started.video.currentTime = from / 1000;
+    };
+    if (started.video.readyState >= 1) seek();
+    else started.video.addEventListener('loadedmetadata', seek, { once: true });
+  }
   const changed = () => {
     if (watching !== mine) return;
     sample();
@@ -350,6 +366,8 @@ function filmStopped(was) {
     const stopped = { ...mine.last, state: 'STOPPED' };
     if (mine.recorder.shouldRecord(stopped)) send(TV.toPlaybackDeviceEvent(stopped, Date.now()));
   }
+  // Where it was left, for the next time she chooses it; a film watched to the credits starts again.
+  if (mine.last) filmPositions.stopped(mine.programme.id, mine.last.positionMs, mine.programme.durationMs ?? 0, mine.programme.creditsPositionMs);
   lastWatchedId = mine.programme.id;
   watching = null;
   breaks.setPlayback(undefined, Date.now());

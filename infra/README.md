@@ -108,7 +108,7 @@ Every variable has a default. Variables worth setting on purpose: `alarm_email`
 (see below), `ring_operator_link` (off; turn on only while linking the
 operator's own Ring account), `ring_playground_link` and `demo_accounts` (on
 for the hackathon, off for a deployment with real doorbells and real people),
-`ring_webhook_reserved_concurrency` (once the Lambda quota is raised).
+`ring_webhook_reserved_concurrency` (20; null on an account still at the new-account Lambda quota of 10).
 
 ## What CI applies, and what it cannot
 
@@ -180,7 +180,7 @@ on alarm and on recovery.
 | Alarm | Fires when |
 |---|---|
 | `<function>-errors` | Any of the 22 Lambdas throws or times out, once in 5 minutes |
-| `<function>-throttles` | Any of the 22 Lambdas is throttled (the account quota is 10) |
+| `<function>-throttles` | Any of the 22 Lambdas is throttled (the account quota is 1,000) |
 | `wick-dead-letters-not-empty` | A door event or a press failed every try (below) |
 | `wick-narrator-week-not-written` | The weekly narrative failed for a household (a `narrative_household_failed` log line) |
 | `wick-narrator-run-not-started` | EventBridge could not start the weekly run |
@@ -277,11 +277,11 @@ the table.** `prevent_destroy` stops this Terraform; DynamoDB's own deletion
 protection stops the console, the CLI and anything else too. The table also
 has point-in-time recovery. Removing either is a conscious, reviewable edit.
 
-**No reserved concurrency on the webhook, yet.** The intent is to keep a busy
-agent plane from starving Ring's five-second acknowledgement, but this
-account's Lambda quota is 10, and AWS refuses a reservation that leaves fewer
-than 10 unreserved. `ring_webhook_reserved_concurrency` is null until the
-quota is raised; then set it (20 was the intent).
+**Reserved concurrency on the webhook.** 20 of the account's 1,000 are kept
+for the Ring webhook alone, so a busy agent plane can never starve Ring's
+five-second acknowledgement. The quota was raised from the new-account 10 on
+2026-10-14; an account still at 10 sets `ring_webhook_reserved_concurrency` to
+null, since AWS refuses a reservation that leaves fewer than 10 unreserved.
 
 **Timeouts inside timeouts.** Every call to Ring gives up after 5 seconds,
 and every call to the agent plane after 20 (8 for the door's sentence), so a

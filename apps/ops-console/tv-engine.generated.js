@@ -31,6 +31,7 @@ var WickTv = (() => {
   __export(tv_engine_exports, {
     BreakController: () => BreakController,
     CALM_POINT_WINDOW_MS: () => CALM_POINT_WINDOW_MS,
+    FilmPositions: () => FilmPositions,
     HOLD_MS: () => HOLD_MS,
     PAUSE_IS_BREAK_MS: () => PAUSE_IS_BREAK_MS,
     PRESS_SETTLE_MS: () => PRESS_SETTLE_MS,
@@ -992,6 +993,47 @@ var WickTv = (() => {
       at
     };
   }
+
+  // apps/tv-vega/src/watch/resume.ts
+  var RESUME_AFTER_MS = 6e4;
+  var WATCHED_BEFORE_END_MS = 2 * 6e4;
+  function keptPosition(positionMs, durationMs, creditsPositionMs) {
+    if (!Number.isFinite(positionMs) || positionMs < RESUME_AFTER_MS) return void 0;
+    if (creditsPositionMs !== void 0 && positionMs >= creditsPositionMs) return void 0;
+    if (creditsPositionMs === void 0 && durationMs > 0 && positionMs >= durationMs - WATCHED_BEFORE_END_MS) return void 0;
+    return Math.round(positionMs);
+  }
+  var FilmPositions = class {
+    #store;
+    #places = /* @__PURE__ */ new Map();
+    constructor(store) {
+      this.#store = store;
+      try {
+        const raw = store?.read();
+        const kept = raw ? JSON.parse(raw) : void 0;
+        if (kept && typeof kept === "object") {
+          for (const [id, ms] of Object.entries(kept)) {
+            if (typeof ms === "number" && Number.isFinite(ms) && ms > 0) this.#places.set(id, ms);
+          }
+        }
+      } catch {
+      }
+    }
+    /** Where this film goes on from: its kept place, or 0. */
+    startAt(programmeId) {
+      return this.#places.get(programmeId) ?? 0;
+    }
+    /** The film was left at `positionMs`: kept, or forgotten if it was watched or barely begun. */
+    stopped(programmeId, positionMs, durationMs, creditsPositionMs) {
+      const kept = keptPosition(positionMs, durationMs, creditsPositionMs);
+      if (kept === void 0) this.#places.delete(programmeId);
+      else this.#places.set(programmeId, kept);
+      try {
+        this.#store?.write(JSON.stringify(Object.fromEntries(this.#places)));
+      } catch {
+      }
+    }
+  };
 
   // apps/tv-vega/src/player/PlayerService.ts
   var HAVE_FUTURE_DATA = 3;
