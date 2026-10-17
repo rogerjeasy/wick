@@ -633,6 +633,23 @@ async function askStanding() {
   if (standing === mine && said === 'not_connected') televisionGone();
 }
 
+/** She stops Wick from this television (apps/tv-vega/src/pairing/stop.ts): the Wick server closes her home. */
+async function stopWick() {
+  const television = rememberedTelevision();
+  if (!television || television.kind !== RESIDENT_KIND) return;
+  try {
+    const res = await fetch(`${WICK_SERVER_URL}/tv/stop`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${television.jwt}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: 'stop' }),
+    });
+    if (res.ok) televisionGone();
+    else console.warn('stop_wick_refused', res.status);
+  } catch {
+    console.warn('stop_wick_failed');
+  }
+}
+
 /** The pairing service says this television is no longer in a home: the page stops being it, and says so. */
 function televisionGone() {
   stopStanding();
@@ -1338,6 +1355,12 @@ function renderCard(queuedCard) {
       // What the button answers, for a remote that presses it by another key (tv.js: Back on the card her hold brought).
       pill.dataset.action = action.id;
       pill.addEventListener('click', () => {
+        // "Yes, delete everything": she stops Wick. The television asks the Wick server itself (pairing/stop.ts on
+        // Vega), and once her home is closed it is no longer in one. Refused or unreachable, the page stays.
+        if (card.type === 'SHARING' && action.id === 'stop_yes') {
+          void stopWick();
+          return;
+        }
         send({ t: 'card_action', cardId: card.id, action: action.id, at: Date.now() });
         const finished = finishesCard(card, action.id);
         tvPage.pressed?.(card, action.id, finished);
