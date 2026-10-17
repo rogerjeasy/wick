@@ -339,18 +339,20 @@ async function authorizedFetch(path, init = {}) {
 /** Set once she has closed the home: nothing more is asked of the server, and nothing more is offered. */
 let homeClosed = false;
 
-/** Asks whether the home was closed by her, and if so says so. Asked once at a time. */
-let checkingClosed = false;
-async function checkHomeClosed() {
-  if (homeClosed || checkingClosed) return;
-  checkingClosed = true;
-  try {
-    await api('/api/me');
-  } catch (err) {
-    if (err.code === 'home_closed') showHomeClosed(err.message);
-  } finally {
-    checkingClosed = false;
-  }
+/** Asks whether the home was closed by her, and if so says so. One asking at a time, which every caller waits for. */
+let checkingClosed = null;
+function checkHomeClosed() {
+  if (homeClosed) return Promise.resolve();
+  checkingClosed ??= (async () => {
+    try {
+      await api('/api/me');
+    } catch (err) {
+      if (err.code === 'home_closed') showHomeClosed(err.message);
+    } finally {
+      checkingClosed = null;
+    }
+  })();
+  return checkingClosed;
 }
 
 /**
@@ -364,6 +366,7 @@ function showHomeClosed(message) {
   homeClosed = true;
   for (const node of document.querySelectorAll('.chip, #ask-input, #ask-send, #ask-voice')) node.disabled = true;
   $('chips').replaceChildren();
+  $('light').hidden = true;
   setStatus('Home closed', 'idle');
   assistantSays({ say: message, card: null });
 }
@@ -937,7 +940,8 @@ async function assistantStep() {
   if (res.status === 503) noAssistant = true;
   if (!res.ok) return null;
   const step = await res.json();
-  if (step?.refused === 'not_a_member') void checkHomeClosed();
+  // Asked before the answer is drawn: once the home is known to be closed, the refusal is not said at all.
+  if (step?.refused === 'not_a_member') await checkHomeClosed();
   return step;
 }
 
@@ -1047,7 +1051,8 @@ async function agentTurn(body) {
     if (!res.ok) return null;
     const answer = await res.json();
     // Refused as no longer in the circle: perhaps she has stopped Wick (checkHomeClosed asks GET /api/me).
-    if (answer?.refused === 'not_a_member') void checkHomeClosed();
+    // Asked before the answer is drawn: once the home is known to be closed, the refusal is not said at all.
+    if (answer?.refused === 'not_a_member') await checkHomeClosed();
     return readAgentTurn(answer);
   } catch {
     return null;
@@ -1078,6 +1083,11 @@ function showPlan(turn, plan) {
 async function converseWithAgent(text) {
   const turn = addThinking();
   let answer = await agentTurn({ question: text });
+  // She has closed the home: showHomeClosed has said so, and this turn says nothing more.
+  if (homeClosed) {
+    turn.remove();
+    return true;
+  }
   const asked = answer !== null;
   if (!asked) {
     turn.remove();
@@ -1152,6 +1162,10 @@ async function converse(text) {
       }
       // Tools have already answered: say what they said.
       return finish(undefined);
+    }
+    if (homeClosed) {
+      turn.remove();
+      return true;
     }
     if (step.done) return finish(step.say);
 
@@ -1658,7 +1672,8 @@ function renderLightCard(card) {
 /** The corner of the page: lit, not lit, or — with nothing to show — nothing at all. */
 function showLightInCorner(shown) {
   const corner = $('light');
-  if (!shown || !me) {
+  // A home she has closed has no light to show.
+  if (!shown || !me || homeClosed) {
     corner.hidden = true;
     return;
   }
