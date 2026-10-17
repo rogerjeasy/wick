@@ -91,7 +91,8 @@ describe('pairing — the code, large, and one sentence on where to enter it', (
 
     expect(tv.says()).toEqual(['Set up Wick', '123 456', 'In the Wick family app, choose “Connect a television” and enter this code.', 'https://family.example/?pair=123456']);
     expect(tv.keysPanel.hidden).toBe(false);
-    expect(tv.keysPanel.classList.contains('at-foot')).toBe(true);
+    // Under the screen, never over it: the screen is made smaller to leave it room.
+    expect(tv.page.document.getElementById('stage').classList.contains('keys-shown')).toBe(true);
   });
 
   it('says so calmly when the home cannot be reached, and tries again by itself', async () => {
@@ -500,6 +501,16 @@ describe('Easier to see — larger text and higher contrast, kept on this device
 });
 
 describe('the legend of the keys — the first time, and on the pairing screen; put away by hand only', () => {
+  it('gives the remote its focus back when "Got it" is clicked with a mouse', async () => {
+    const tv = await atHome();
+    const close = tv.page.document.getElementById('tv-keys-close');
+    close.focus();
+    close.click();
+    const at = tv.page.document.activeElement;
+    expect(at).not.toBe(close);
+    expect(tv.page.document.getElementById('tv-screen').contains(at)).toBe(true);
+  });
+
   it('is shown the first time, stays until put away, and is not shown by itself again', async () => {
     const tv = await atHome();
     expect(tv.keysPanel.hidden).toBe(false);

@@ -239,9 +239,44 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
   }
 
   const ttl = { N: String(Math.floor((now + DEMO_HISTORY_TTL_MS) / 1000)) };
+  const films = demoFilmItems(householdId, thisMonday);
   const roster: Item = { pk, sk: { S: `PER#${DEMO_VISITOR.personId}` }, data: { S: JSON.stringify(DEMO_VISITOR) } };
   // The demo home's own expiry, on every row: a visit's row would otherwise keep its thirteen months (store/visits.ts).
-  return [roster, ...events, ...weeks, ...visits].map((item) => ({ ...item, ttl }));
+  return [roster, ...events, ...weeks, ...visits, ...films].map((item) => ({ ...item, ttl }));
+}
+
+/** The demo home's television, as the rhythm rows name it. */
+export const DEMO_TELEVISION = 'demo-television';
+
+/** When, last week, a film was played: Wednesday evening and Saturday afternoon (day from Monday, hour). */
+const FILM_TIMES: readonly { readonly day: number; readonly hour: number }[] = [
+  { day: 2, hour: 19 },
+  { day: 5, hour: 15 },
+];
+
+const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+/**
+ * Last week, a film was played on her television: the rhythm rows the
+ * television's PLAYING writes (edge-device device-event.mjs
+ * tvActivityKey), simulated like the rest. Only the Sunday brief reads them
+ * (agents/brief/facts.ts watchedFilms), and they are what lets its
+ * suggester offer "Watch a film together" — so the demo's week can end
+ * with one thing to do, as a real week of films would.
+ */
+function demoFilmItems(householdId: string, thisMonday: number): Item[] {
+  return FILM_TIMES.map(({ day, hour }) => {
+    const at = thisMonday - WEEK + day * DAY + hour * HOUR;
+    const d = new Date(at);
+    const bucket = `${DOW[d.getUTCDay()]}-${String(d.getUTCHours()).padStart(2, '0')}`;
+    return {
+      pk: { S: `HH#${householdId}` },
+      sk: { S: `RHYTHM#tv_activity#${DEMO_TELEVISION}#power_on#${bucket}` },
+      count: { N: '1' },
+      lastSeenAt: { N: String(at) },
+      simulated: { BOOL: true },
+    };
+  });
 }
 
 const WRITES_AT_ONCE = 10;

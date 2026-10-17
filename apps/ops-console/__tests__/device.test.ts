@@ -758,14 +758,13 @@ describe('the browser television’s own words (the television’s are apps/tv-v
       empty: 'No card currently shown.',
       lightOn: 'Light on',
       lightOut: 'Light out',
-      door: 'Someone is at the door',
       doorPicture: 'Door camera still',
       message: 'Message from {name}',
       messageUnheard: 'Tap to hear the message',
       week: 'Your week — {week}',
       circle: 'Your family circle',
       sharing: 'What your family sees',
-      tell: 'Something is different today',
+      tell: 'Something is different',
       watch: 'Watching together',
       light: 'Your light in the window',
       reach: 'You held OK',
@@ -1098,7 +1097,7 @@ describe('the browser television — the two languages of the question, a paragr
 
     tv.card(queuedCard({ id: 'tell-1', type: 'TELL', headline: 'Shall I tell Sarah?', detail }));
 
-    expect(tv.says()).toEqual(['Something is different today', 'Shall I tell Sarah?', detail]);
+    expect(tv.says()).toEqual(['Something is different', 'Shall I tell Sarah?', detail]);
   });
 });
 
@@ -1255,10 +1254,10 @@ describe('the browser television — its own words follow the language while the
     },
     {
       name: 'the door’s card: its label, what its picture is called, and its mark',
-      keys: [['door'], ['doorPicture'], ['readHint']],
+      keys: [['doorPicture'], ['readHint']],
       on: (tv) => tv.card(queuedCard({ id: 'door-1', type: 'DOOR', line: 'Someone is at the front door.', imageRef: 'https://ring.example/still.jpg' }, 'DOOR')),
-      en: { says: ['Someone is at the door', 'Someone is at the front door.'], pictures: ['Door camera still'], marks: [HINT.en] },
-      es: { says: ['Hay alguien en la puerta', 'Someone is at the front door.'], pictures: ['Imagen fija de la cámara de la puerta'], marks: [HINT.es] },
+      en: { says: ['Someone is at the front door.'], pictures: ['Door camera still'], marks: [HINT.en] },
+      es: { says: ['Someone is at the front door.'], pictures: ['Imagen fija de la cámara de la puerta'], marks: [HINT.es] },
     },
     {
       name: 'a note not yet heard: its label and the line in place of its words',

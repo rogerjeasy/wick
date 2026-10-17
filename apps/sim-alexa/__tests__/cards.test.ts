@@ -210,8 +210,8 @@ describe('the week card’s one suggestion — the Sunday brief’s “One thing
     expect(withSuggestion('watch_together', 'A film was played this week.')).toMatchObject({ action: 'watch_together', label: 'Watch a film together' });
   });
 
-  it('shows “nothing” as its reason alone, with no button: there is nothing to press', () => {
-    expect(withSuggestion('nothing', 'A usual week: nothing needs doing.')).toEqual({ text: 'A usual week: nothing needs doing.' });
+  it('shows nothing for “nothing”: its reason would only say the week again', () => {
+    expect(withSuggestion('nothing', 'A usual week: nothing needs doing.')).toBeUndefined();
   });
 
   it('shows no suggestion for a week without one, or one it cannot read', () => {
