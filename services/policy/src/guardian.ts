@@ -79,9 +79,47 @@ export function normalise(text: string): string | undefined {
   return UNREADABLE.test(folded) ? undefined : folded;
 }
 
+/**
+ * A person, set aside before the lexicon reads a sentence, so that a
+ * surname is not taken for a fact: "Mrs Banks" is not her bank, and
+ * "Anna Cash" is not money. Only what is certainly a person is set aside:
+ *   - a title and the capitalised word after it ("Mrs Banks", "Mr. Cash"),
+ *     read before the text is lower-cased, so "mrs banks" is not a title;
+ *   - the household's own people, by the names Wick holds for them (a
+ *     regular visitor, a member of the circle), and by the id made from that
+ *     name ("anna-cash"). A caller passes them (`people`).
+ * Never a capitalised phrase on its own: "Universal Credit" and "Council
+ * Tax" are capitalised too. The words around a person are read as ever.
+ */
+const TITLE_AND_SURNAME = /\b(?:Mrs|Mr|Ms|Miss|Mx)\.?\s+[A-Z][A-Za-z'-]*/g;
+const SOMEONE = 'someone';
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** The id a name is filed under: "Mary-Jo O'Neil" is "mary-jo-o-neil" (add_regular_visitor personIdFor). */
+const idOf = (name: string): string =>
+  name.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+function setPeopleAside(text: string, people: readonly string[]): string {
+  let out = text.replace(TITLE_AND_SURNAME, SOMEONE);
+  for (const person of people) {
+    const name = person.trim();
+    if (name.length < 2) continue;
+    for (const form of new Set([name, idOf(name)])) {
+      if (form.length < 2) continue;
+      out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(form)}(?![\\p{L}\\p{N}])`, 'giu'), SOMEONE);
+    }
+  }
+  return out;
+}
+
+export interface ClearOptions {
+  /** The household's own people, by name: set aside before the lexicon reads the text (setPeopleAside). */
+  readonly people?: readonly string[];
+}
+
 /** Which protected classes a string is about, by the lexicon — or that it cannot be read. */
-export function classify(text: string): Reading {
-  const plain = normalise(text);
+export function classify(text: string, options: ClearOptions = {}): Reading {
+  const plain = normalise(setPeopleAside(text, options.people ?? []));
   if (plain === undefined) return { readable: false };
   const classes = new Set<ListedClass>();
   for (const marker of LEXICON) {
@@ -106,9 +144,29 @@ export type Clearance =
  * the policy cannot change the answer, and a caller that has not read the
  * household's policy loses nothing by passing none.
  */
-export function clearForFamily(text: string, policy: HouseholdPolicy = DEFAULT_POLICY): Clearance {
-  const reading = classify(text);
+export function clearForFamily(text: string, policy: HouseholdPolicy = DEFAULT_POLICY, options: ClearOptions = {}): Clearance {
+  const reading = classify(text, options);
   if (!reading.readable) return { cleared: false, classes: [] };
   const refused = reading.classes.filter((c) => !evaluate({ class: c, content: text, sourceIds: [] }, 'FAMILY', policy).allow);
   return refused.length === 0 ? { cleared: true, text } : { cleared: false, classes: refused };
+}
+
+/** Words a name can start with that are not a first name: "the nurse", "Her Solicitor". */
+const NOT_A_FIRST_NAME: ReadonlySet<string> = new Set(['the', 'a', 'an', 'her', 'his', 'my', 'our', 'their', 'your', 'mum', 'dad', 'mums', "mum's", "dad's"]);
+
+/**
+ * Whether a name typed for a person (a regular visitor) may be kept and
+ * shown to the family. The words after a first name are a surname, set aside
+ * like a title's ("Anna Cash", "Tom Banks"); the first word is read as any
+ * word is, so "Dr Patel", "Benefits Officer", "the nurse" and "Her
+ * Solicitor" are still refused.
+ */
+export function clearNameForFamily(name: string, policy: HouseholdPolicy = DEFAULT_POLICY): boolean {
+  const words = name.trim().split(/\s+/);
+  const first = words[0] ?? '';
+  const surnameAside =
+    words.length > 1 && /^[A-Z]/.test(first) && !NOT_A_FIRST_NAME.has(first.toLowerCase()) && words.slice(1).every((w) => /^[A-Z]/.test(w))
+      ? [first, ...words.slice(1).map(() => SOMEONE)].join(' ')
+      : name;
+  return clearForFamily(surnameAside, policy).cleared;
 }

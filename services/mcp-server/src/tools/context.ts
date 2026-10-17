@@ -33,6 +33,13 @@ export interface ToolContext {
   lookedIn?(allowed: Extract<Access, { ok: true }>): Promise<void>;
   /** This request's timing (timing.ts): the gate and the handler are timed here. Absent, nothing is. */
   readonly timing?: PhaseTimer;
+  /**
+   * The household's own people, by name: its regular visitors and the
+   * members of its circle. The gate sets them aside before it reads an
+   * answer it would otherwise withhold, so a surname is not taken for a fact
+   * ("Anna Cash"; guardian.ts guardTools). Absent, nobody is.
+   */
+  people?(): Promise<readonly string[]>;
 }
 
 export type Allowed = Extract<Access, { ok: true }>;
