@@ -167,6 +167,9 @@ id = "/com.amazon.kepler.headless_task_manager_1@IHeadlessTaskManager_2"
 [[needs.module]]
 id = "/com.amazon.kepler.kepler_content_personalization_1@IKeplerContentPersonalization_3"
 
+# Not used by Wick itself: Content Personalization depends on the EPG
+# provider package, and `vega build` adds this module back to the manifest
+# whenever it is missing (verified 2026-10-17, SDK 0.24.12044).
 [[needs.module]]
 id = "/com.amazon.kepler.kepler_epg_provider_1@IKeplerEpgProvider_9"
 
