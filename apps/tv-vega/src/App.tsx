@@ -26,6 +26,7 @@ import * as React from 'react';
 import type { DeviceToken } from '@wick/contracts';
 import { View } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
+import { useReportFullyDrawn } from '@amazon-devices/kepler-performance-api';
 import { PairingFlow } from './pairing/PairingFlow.js';
 import { PairingScreen } from './pairing/PairingScreen.js';
 import { connectTelevision, type Connecting } from './pairing/connect.js';
@@ -119,6 +120,17 @@ function Television(): React.JSX.Element {
         : undefined,
     [ready, pairing, handleSignedOut],
   );
+
+  // Vega's fully-drawn marker (kepler-performance-api), once: the first screen she can act on — the pairing
+  // code, or her television — is on. Without it the platform's KPI tool cannot measure launch to fully drawn.
+  const reportFullyDrawn = useReportFullyDrawn();
+  const drawn = React.useRef(false);
+  const usable = screen?.kind === 'ready' || (screen?.kind === 'pairing' && screen.info !== undefined);
+  React.useEffect(() => {
+    if (!usable || drawn.current) return;
+    drawn.current = true;
+    reportFullyDrawn();
+  }, [usable, reportFullyDrawn]);
 
   if (!screen) return <View style={{ flex: 1 }} />;
   // exactOptionalPropertyTypes forbids passing `info={undefined}` explicitly —

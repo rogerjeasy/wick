@@ -201,6 +201,7 @@ describe('App.tsx — the one branch', () => {
   it("imports the pairing flow, the two apps and the decision between them — and nothing of the resident's itself", () => {
     expect(direct('App.tsx')).toEqual([
       '@amazon-devices/kepler-file-system',
+      '@amazon-devices/kepler-performance-api',
       '@amazon-devices/react-native-kepler',
       'ResidentApp.tsx',
       'config.ts',

@@ -73,10 +73,11 @@ const sources = sharedSources().map((file) => ({ file, text: readFileSync(file, 
 describe('what Fire OS swaps for the Vega app', () => {
   const amazon = Object.keys(table.MODULES).filter((name) => name.startsWith('@amazon-devices/'));
 
-  it('stands in for the four Amazon packages the on-screen app uses', () => {
+  it('stands in for the five Amazon packages the on-screen app uses', () => {
     expect(amazon.sort()).toEqual([
       '@amazon-devices/kepler-file-system',
       '@amazon-devices/kepler-media-controls',
+      '@amazon-devices/kepler-performance-api',
       '@amazon-devices/react-native-kepler',
       '@amazon-devices/react-native-w3cmedia',
     ]);

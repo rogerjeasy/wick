@@ -27,6 +27,7 @@ module.exports = {
     '@amazon-devices/react-native-w3cmedia': here('src/adapters/w3cmedia.tsx'),
     '@amazon-devices/kepler-file-system': here('src/adapters/fileSystem.ts'),
     '@amazon-devices/kepler-media-controls': here('src/adapters/mediaControls.ts'),
+    '@amazon-devices/kepler-performance-api': here('src/adapters/performance.ts'),
     '@wick/contracts': path.join(repoRoot, 'packages/contracts/src/index.ts'),
     '@wick/vega-calm-ui': path.join(repoRoot, 'packages/vega-calm-ui/src/index.ts'),
   },
