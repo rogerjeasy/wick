@@ -114,7 +114,9 @@ export type RecordKind =
   | 'SESSION'
   | 'INV'
   /** A deletion under way: the person's password was checked, and their Cognito user may already be gone (accounts/myData.ts). */
-  | 'DELETING';
+  | 'DELETING'
+  /** A home the resident closed from her own television, kept a while so her family is told so in words (myData.ts closeHomeAtHerWord). */
+  | 'HOME_CLOSED';
 
 /**
  * A keyed record somebody holds — a token, a sign-in, an invitation — found
