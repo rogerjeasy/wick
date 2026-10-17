@@ -64,8 +64,12 @@ describe('every family-bound answer passes the gate', () => {
     const routes = sourceFiles().filter((path) => /\.(get|post|put|patch|delete|all|use)\(\s*['"`]\/tv\//.test(readFileSync(path, 'utf8')));
     const television = readFileSync(join(SRC, 'accounts/familyTelevision.ts'), 'utf8');
 
-    expect(routes.map((path) => relative(SRC, path))).toEqual(['accounts/familyTelevisionRouter.ts']);
-    expect(readFileSync(routes[0]!, 'utf8')).toMatch(/const television = createFamilyTelevision\(deps\)/);
+    // And /tv/stop, which answers the resident's own television, never a family member's, with nothing of hers:
+    // `{ stopped: true }` or an error code (accounts/residentTelevision.ts). It reads no household's facts.
+    expect(routes.map((path) => relative(SRC, path)).sort()).toEqual(['accounts/familyTelevisionRouter.ts', 'accounts/residentTelevisionRouter.ts']);
+    expect(readFileSync(join(SRC, 'accounts/familyTelevisionRouter.ts'), 'utf8')).toMatch(/const television = createFamilyTelevision\(deps\)/);
+    const stop = readFileSync(join(SRC, 'accounts/residentTelevision.ts'), 'utf8');
+    expect(stop).not.toMatch(/from '\.\.\/tools\/|loadHouseholdPolicy|get_week_narrative/);
     expect(television).toMatch(/return guardTelevision<FamilyTelevisionEndpoints>\(\{/);
   });
 

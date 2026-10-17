@@ -33,6 +33,8 @@ import { createAuth } from './auth.js';
 import { createApiRouter, type ClaimTelevision, type RingLinks } from './accounts/apiRouter.js';
 import { createAccountDataRouter } from './accounts/accountDataRouter.js';
 import { createFamilyTelevisionRouter } from './accounts/familyTelevisionRouter.js';
+import { createResidentTelevisionRouter } from './accounts/residentTelevisionRouter.js';
+import { closeHomeAtHerWord, type MyDataDeps } from './accounts/myData.js';
 import { checkAccess, type CircleDeps } from './accounts/circle.js';
 import { requestDemoBrief, seedDemoHome } from './accounts/demoHome.js';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
@@ -325,7 +327,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   const push = createPushStore(ddb, process.env.TABLE_NAME ?? 'wick');
   // A person's own data: the file of it, and their account's deletion (accounts/myData.ts). Before the
   // rest of /api, so the one sign-in check is this router's.
-  app.use(createAccountDataRouter({
+  const myData: MyDataDeps = {
     store: deps.store,
     ddb,
     identity: deps.identity,
@@ -334,7 +336,10 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     ringLinks: deps.ringLinks,
     photos: deps.photos?.objects,
     assistantMemory: deps.assistantMemory,
-  }, requireAuth));
+  };
+  app.use(createAccountDataRouter(myData, requireAuth));
+  // The resident stops Wick from her own television: her home closed as its organiser's deletion closes it.
+  app.use(createResidentTelevisionRouter({ ddb, now: circle.now, closeHome: (householdId) => closeHomeAtHerWord(myData, householdId) }));
   app.use(createApiRouter(circle, requireAuth, {
     claimTelevision: deps.claimTelevision,
     ringLinks: deps.ringLinks,

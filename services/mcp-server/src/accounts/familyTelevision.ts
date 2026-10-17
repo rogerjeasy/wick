@@ -229,7 +229,7 @@ export type TvReply<T> =
   | { readonly status: 200; readonly body: T }
   | { readonly status: 400 | 401 | 403; readonly body: TvRefusal; readonly reason?: TvRefusalReason };
 
-type Refused = Extract<TvReply<never>, { body: TvRefusal }>;
+export type Refused = Extract<TvReply<never>, { body: TvRefusal }>;
 
 type Caller = TvCaller;
 
@@ -303,32 +303,18 @@ function pairingKey(ddb: DynamoDBClient, now: () => number): () => Promise<KeyOb
   };
 }
 
-export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevisionEndpoints {
-  const { ddb, store, now } = deps;
+/**
+ * The claims of a token this server can vouch for, or why not. Mirrors
+ * edge-device jwt.mjs's verifyJwt, and is stricter where that is loose:
+ * the header must say RS256 (so neither `none` nor an HMAC keyed with the
+ * public key is ever considered), and a token must say when it expires.
+ */
+export function deviceTokenVerifier(
+  ddb: DynamoDBClient,
+  now: () => number,
+): (authorization: string | undefined) => Promise<{ readonly claims: Record<string, unknown> } | Refused> {
   const publicKey = pairingKey(ddb, now);
-
-  /**
-   * When each television last asked for its home screen. In this process's
-   * memory and nowhere else: nothing is written for it, a restart forgets
-   * it, and a second instance would not share it — each of which costs at
-   * most one notice over an app that is already showing the same thing.
-   * One instance serves the deployment (infra/mcp.tf).
-   */
-  const lastHomeAt = new Map<string, number>();
-  const screenOf = (who: Caller): string => `${who.householdId}/${who.deviceId}`;
-  const noteOnScreen = (who: Caller): void => remember(lastHomeAt, screenOf(who), now());
-  const isOnScreen = (who: Caller): boolean => {
-    const at = lastHomeAt.get(screenOf(who));
-    return at !== undefined && now() - at < ON_SCREEN_FOR_MS;
-  };
-
-  /**
-   * The claims of a token this server can vouch for, or why not. Mirrors
-   * edge-device jwt.mjs's verifyJwt, and is stricter where that is loose:
-   * the header must say RS256 (so neither `none` nor an HMAC keyed with the
-   * public key is ever considered), and a token must say when it expires.
-   */
-  async function verifiedClaims(authorization: string | undefined): Promise<{ readonly claims: Record<string, unknown> } | Refused> {
+  return async function verifiedClaims(authorization) {
     if (!authorization) return refuse(401, 'invalid_token', 'no_token');
     const parts = authorization.length <= MAX_AUTHORIZATION_CHARS ? BEARER.exec(authorization) : null;
     if (!parts) return refuse(401, 'invalid_token', 'malformed_token');
@@ -356,7 +342,27 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
     if (!claims || typeof exp !== 'number' || !Number.isFinite(exp)) return refuse(401, 'invalid_token', 'malformed_token');
     if (now() >= exp * 1000) return refuse(401, 'token_expired', 'expired');
     return { claims };
-  }
+  };
+}
+
+export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevisionEndpoints {
+  const { ddb, store, now } = deps;
+  const verifiedClaims = deviceTokenVerifier(ddb, now);
+
+  /**
+   * When each television last asked for its home screen. In this process's
+   * memory and nowhere else: nothing is written for it, a restart forgets
+   * it, and a second instance would not share it — each of which costs at
+   * most one notice over an app that is already showing the same thing.
+   * One instance serves the deployment (infra/mcp.tf).
+   */
+  const lastHomeAt = new Map<string, number>();
+  const screenOf = (who: Caller): string => `${who.householdId}/${who.deviceId}`;
+  const noteOnScreen = (who: Caller): void => remember(lastHomeAt, screenOf(who), now());
+  const isOnScreen = (who: Caller): boolean => {
+    const at = lastHomeAt.get(screenOf(who));
+    return at !== undefined && now() - at < ON_SCREEN_FOR_MS;
+  };
 
   /**
    * `forWaiting`: the route is `/tv/waiting`, the one thing the television's
