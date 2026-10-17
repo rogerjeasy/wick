@@ -201,8 +201,8 @@ choosing what to watch.
 She picks a reply and presses OK. Eleven seconds, one button. Two minutes later,
 Sarah's phone shows the reply.
 
-**19:31.** The doorbell rings during a programme. A card appears in the lower
-third without pausing or covering anything:
+**19:31.** The doorbell rings during a programme. A card rises over the lower
+half of the screen, without pausing or silencing anything:
 
 > **Someone's at the front door.** *(a still from the doorbell)*
 > *A man in a delivery uniform, holding a parcel.*
@@ -586,13 +586,18 @@ There's no Fire TV hardware, Ring doorbell or real resident in this project.
 | Door card to its picture | 2.7 s median |
 | The family line on an open connection | 230–241 ms p95, against Alexa+'s 500 ms target |
 | The family line on a new connection | 0.7–1.1 s, because App Runner closes idle connections |
-| Automated tests | 6,426, all passing, with the television's screens rendered |
+| Automated tests | About 6,500, all passing, with the television's screens rendered |
+| Launch to fully drawn, Vega | 722 ms mean over 10 cold starts, on the Vega Virtual Device |
+| Memory on her home screen, Vega | 64 MiB PSS, on the Vega Virtual Device |
 
 ### 13.3 Limitations
 
-- **Over other apps.** A Vega app can't draw over another app's video. Wick plays
-  the films itself, so it's usually in front. When it isn't, only the door
-  reaches her, as a system toast on Vega or a notification on Fire OS.
+- **Over other apps.** No app can draw over another app on Vega or Fire OS, so
+  Wick's cards appear only while Wick is on screen. When she is watching
+  something else, only the door interrupts: a system toast on Vega, a heads-up
+  on Fire OS. A note waits. On Fire OS it waits quietly in the Notification
+  Center, never over her programme; on Vega it waits in Wick. Either way it is
+  on her screen the moment she opens Wick.
 - **Alexa+ is partner-only and US-only.** The server is ready the day access
   opens, with no changes.
 - **Ring's API has no two-way talk.** She can't speak to a visitor from her

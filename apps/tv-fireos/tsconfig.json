@@ -12,6 +12,7 @@
       "@amazon-devices/react-native-w3cmedia": ["src/adapters/w3cmedia.tsx"],
       "@amazon-devices/kepler-file-system": ["src/adapters/fileSystem.ts"],
       "@amazon-devices/kepler-media-controls": ["src/adapters/mediaControls.ts"],
+      "@amazon-devices/kepler-performance-api": ["src/adapters/performance.ts"],
       "@amazon-devices/*": ["src/adapters/unavailable.ts"],
       "@wick/contracts": ["../../packages/contracts/src/index.ts"],
       "@wick/vega-calm-ui": ["../../packages/vega-calm-ui/src/index.ts"],

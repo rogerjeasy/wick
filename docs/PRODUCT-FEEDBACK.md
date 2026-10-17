@@ -8,7 +8,7 @@ Ring's Developer Playground, and Alexa+ is a simulated surface in front of a
 real MCP server. Everything in between runs on AWS in `us-east-1`.
 
 Below, each tool gets the five answers Devpost asks for. The evidence is in
-[`FRICTION.md`](../FRICTION.md): 44 entries, each written when the problem
+[`FRICTION.md`](../FRICTION.md): 45 entries, each written when the problem
 happened, cited here as FL-0xx. Feature requests, with a priority for each, are
 at the end.
 

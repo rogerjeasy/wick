@@ -3,7 +3,7 @@
 Developer-experience friction encountered while building Wick on Amazon Devices,
 Ring, Alexa+ and AWS.
 
-44 entries, FL-001 to FL-048, newest first, each written when the problem was hit.
+45 entries, FL-001 to FL-049, newest first, each written when the problem was hit.
 There is no FL-020, FL-034, FL-037 or FL-039: those numbers were set aside for
 work running in parallel and not needed. The same
 problems, gathered by tool with what worked well beside them, are in
@@ -61,6 +61,47 @@ removed from the design (2026-10-02).
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-049 — Amazon Device Messaging is the documented way to reach a Fire TV app from a server, on Fire OS and on Vega, and Wick does not use it yet
+
+*2026-10-17.*
+
+**Tool / API:**      Amazon Device Messaging (ADM): Fire OS (developer.amazon.com/docs/fire-tv/notifications.html,
+                     Appstore blog "Amazon Device Messaging (ADM) and local notifications on Fire TV")
+                     and Vega (`@amazon-devices/kepler-amazon-device-messaging`, Vega API reference 0.24)
+
+**Task attempted:**  Choose how Wick's server reaches a television while another app is in front: the door
+                     card, a note waiting, a card taken back.
+
+**Steps taken:**     1. Read the Fire TV notifications page and the ADM blog post: ADM "is required to push
+                        messages from your back-end to Amazon Fire OS devices".
+                     2. Read the Vega API reference for `kepler-amazon-device-messaging`: a headless task with
+                        the component id `<package>.amazon-device-messaging-receiver`, the ADM privilege in
+                        the manifest, a registration id from `AmazonDeviceMessagingServer`.
+                     3. Compared it with what Wick already had working on both platforms: one background
+                        WebSocket held by a service the app starts (Vega, FL-022) or a foreground service
+                        (Fire OS, FL-035), which the server writes to only while the app is not on screen.
+
+**Expected:**        One push service for both platforms that could be tried without a device: a way to send
+                     a test message to the Vega Virtual Device or an emulator, and a word on whether ADM wakes
+                     a headless task on the simulator.
+
+**Actual:**          ADM needs the app registered in the Amazon Developer Console with a security profile, and
+                     the server needs Login with Amazon client credentials to send. Neither page says whether
+                     ADM reaches the Vega Virtual Device or an Android TV emulator, and there was no Fire TV
+                     to try it on (FL-009). Six days before the deadline, a second channel that could not be
+                     seen working was a worse risk than the one already measured.
+
+**Severity:**        Nice-to-have
+
+**Workaround:**      The background WebSocket, on both platforms. It keeps a connection open behind another
+                     app, which ADM would not need, and it is the part of Wick that ADM would replace first.
+
+**Suggestion:**      Say on the ADM pages, for both Fire OS and Vega, whether a message reaches the Vega Virtual
+                     Device and the Android TV emulator, and give a console button that sends a test message to
+                     a registration id. Without a device, that is the only way to build on ADM with confidence.
+
+---
 
 ## FL-048 — A Bedrock Guardrail on Converse reads the user's question too, and its grounding threshold has to be measured on your own text
 
