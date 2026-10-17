@@ -3202,7 +3202,8 @@ function answerByRules(text) {
 
 /** The chips and the text field, off while a question is being answered. */
 function setAsking(enabled) {
-  for (const control of document.querySelectorAll('.chip, #ask-input, #ask-send, #ask-voice')) control.disabled = !enabled;
+  // A home she has closed stays closed: the end of the question that found it out does not open the field again.
+  for (const control of document.querySelectorAll('.chip, #ask-input, #ask-send, #ask-voice')) control.disabled = !enabled || homeClosed;
 }
 
 async function handleUtterance(text) {
