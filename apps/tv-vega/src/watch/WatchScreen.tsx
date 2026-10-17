@@ -44,6 +44,7 @@ import type { Programme } from '../catalog/catalog.js';
 import { words } from '../words/words.js';
 import { PlayerService, type PlayerSnapshot } from '../player/PlayerService.js';
 import { PlaybackRecorder } from './playbackRecorder.js';
+import { FilmPositions } from './resume.js';
 import { isOkKey, okHold, type OkHold } from './hold.js';
 import { seekTarget, watchCommand, type ReadCommand } from './remoteKeys.js';
 import { startFilmSession, type FilmSession } from './mediaControls.js';
@@ -98,6 +99,9 @@ export interface WatchScreenProps {
 }
 
 type Status = 'opening' | 'playing' | 'paused' | 'failed';
+
+/** Where she left each film (resume.ts), for as long as the app runs: the next time she chooses it, it goes on from there. */
+const filmPositions = new FilmPositions();
 
 export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
   const { programme } = props;
@@ -154,6 +158,9 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       latest.current.onPlayer?.(p);
       setPlayer(p);
       await p.play();
+      // Where she left it, if she did: not 0:00 again.
+      const from = filmPositions.startAt(programme.id);
+      if (from > 0) p.currentTime = from / 1000;
     })().catch(() => {
       if (!cancelled) setStatus('failed');
     });
@@ -164,6 +171,8 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       session?.end();
       playerRef.current = null;
       latest.current.onPlayer?.(null);
+      // Where it was left, for the next time she chooses it; a film watched to the credits starts again.
+      if (last) filmPositions.stopped(programme.id, last.positionMs, programme.durationMs, programme.creditsPositionMs);
       // Leaving is a stop, wherever the programme had got to.
       if (last && last.state !== 'STOPPED') {
         const stopped: PlayerSnapshot = { ...last, state: 'STOPPED' };

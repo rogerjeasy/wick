@@ -32,6 +32,15 @@ describe('WatchScreen.tsx — her film is the media session', () => {
   });
 });
 
+describe('WatchScreen.tsx — a film goes on from where she stopped it (watch/resume.ts)', () => {
+  const screen = code('../WatchScreen.tsx');
+
+  it('starts the film at its kept place once it plays, and keeps where it was left as it is let go', () => {
+    expect(screen).toMatch(/const from = filmPositions\.startAt\(programme\.id\);\s*if \(from > 0\) p\.currentTime = from \/ 1000;/);
+    expect(screen).toMatch(/if \(last\) filmPositions\.stopped\(programme\.id, last\.positionMs, programme\.durationMs, programme\.creditsPositionMs\);/);
+  });
+});
+
 describe('ResidentApp.tsx — what a command says to a reading', () => {
   const app = code('../../ResidentApp.tsx');
 

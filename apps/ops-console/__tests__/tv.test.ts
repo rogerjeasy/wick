@@ -394,6 +394,34 @@ describe('nextFocus — where an arrow goes', () => {
   });
 });
 
+describe('a film goes on from where she left it — watch/resume.ts, kept on this device', () => {
+  const MIN = 60_000;
+
+  it('starts again where she stopped it, not at 0:00, and keeps the place on this device', async () => {
+    const tv = await atHome();
+    const first = await watching(tv);
+    at(tv, first, 4 * MIN);
+    tv.press('Escape');
+    expect(JSON.parse(tv.device.get('wick_tv_film_positions')!)).toEqual({ [BUNNY.id]: 4 * MIN });
+
+    const again = await watching(tv);
+    expect(again.currentTime).toBe(240);
+  });
+
+  it('comes back as it was left, on this device', async () => {
+    const tv = await atHome({ stored: { wick_tv_film_positions: JSON.stringify({ [BUNNY.id]: 3 * MIN }) } });
+    expect((await watching(tv)).currentTime).toBe(180);
+  });
+
+  it('starts from the beginning a film she watched to the credits, or had barely begun', async () => {
+    const tv = await atHome();
+    const first = await watching(tv);
+    at(tv, first, BUNNY.creditsPositionMs! + 1000);
+    tv.press('Escape');
+    expect((await watching(tv)).currentTime).toBe(0);
+  });
+});
+
 describe('Easier to see — larger text and higher contrast, kept on this device', () => {
   async function opened(opts: Parameters<typeof tvPage>[0] = {}) {
     const tv = await atHome(opts);
