@@ -385,7 +385,7 @@ describe('deleting an account', () => {
     putPicture(w.table, sarah.householdId, 'p-1', tom.userId, false);
 
     // The test's clock is the real one: the token is signed to be good now.
-    const her = deviceToken({ deviceId: 'her-tv', householdId: sarah.householdId }, { exp: Math.floor(Date.now() / 1000) + 3600 });
+    const her = deviceToken({ deviceId: 'her-tv', householdId: sarah.householdId, proof: 'pairing' }, { exp: Math.floor(Date.now() / 1000) + 3600 });
     const stop = (body: unknown) =>
       fetch(`${w.h.base}/tv/stop`, { method: 'POST', headers: { authorization: `Bearer ${her}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 

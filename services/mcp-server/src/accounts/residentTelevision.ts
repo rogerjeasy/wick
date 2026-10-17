@@ -18,6 +18,14 @@
  *
  * The body must say `confirm: "stop"`: a request that does not say so in
  * words closes nothing.
+ *
+ * And the token must be proven (edge-device proof.mjs, INV-1): earned by
+ * the code on the screen (`pairing`) or by the television's own secret
+ * (`secret`). A token earned by the television's id alone (`none`, as the
+ * Vega Virtual Device's refreshes are) can do much at the edge, but not
+ * this: an id is a label, not a secret, and this deletes a home. Stricter
+ * than the edge's `refusesUnproven`, which only refuses one when the row
+ * holds a proof.
  */
 import { GetItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { isFamilyTelevisionToken } from '@wick/contracts';
@@ -39,6 +47,17 @@ export type StopReply =
   | { readonly status: 200; readonly body: { readonly stopped: true } }
   | { readonly status: 400 | 401 | 403 | 502; readonly body: { readonly error: string; readonly say?: string } };
 
+/** edge-device pairing-code.mjs REFRESH_TOKEN_TTL_SEC: only pair-claim ever minted a token longer than this. */
+const REFRESH_TOKEN_TTL_SEC = 60 * 60;
+
+/** edge-device proof.mjs isUnproven, ported: a token minted without proof, or one from before the claim that lasted an hour or less. */
+export function isUnproven(claims: Record<string, unknown>): boolean {
+  if (claims.proof === 'none') return true;
+  if (claims.proof === 'pairing' || claims.proof === 'secret') return false;
+  const lifetime = Number(claims.exp) - Number(claims.iat);
+  return !(Number.isFinite(lifetime) && lifetime > REFRESH_TOKEN_TTL_SEC);
+}
+
 const text = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 128;
 
 export function createResidentTelevision(deps: ResidentTelevisionDeps): { stop(authorization: string | undefined, body: unknown): Promise<StopReply> } {
@@ -54,6 +73,7 @@ export function createResidentTelevision(deps: ResidentTelevisionDeps): { stop(a
       if (isFamilyTelevisionToken(claims) || 'scope' in claims || 'kind' in claims) return { status: 403, body: { error: 'not_her_television' } };
       const { householdId, deviceId } = claims;
       if (!text(householdId) || !text(deviceId)) return { status: 401, body: { error: 'invalid_token' } };
+      if (isUnproven(claims)) return { status: 403, body: { error: 'proof_required' } };
 
       if ((body as { confirm?: unknown } | null)?.confirm !== STOP_CONFIRMATION) return { status: 400, body: { error: 'not_confirmed' } };
 

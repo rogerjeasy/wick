@@ -9,7 +9,7 @@ import { createResidentTelevision } from '../residentTelevision.js';
 import { AccountRefusal } from '../myData.js';
 import { NOW, SARAHS_TV, STRANGER, bearer, putPublicKey, token } from './familyTvWorld.js';
 
-const HER_TV = { deviceId: 'wick-tv', householdId: 'hh-1' };
+const HER_TV = { deviceId: 'wick-tv', householdId: 'hh-1', proof: 'pairing' };
 const CONFIRMED = { confirm: 'stop' };
 
 function setUp(options: { connected?: boolean; denylisted?: boolean; closeHome?: (householdId: string) => Promise<void> } = {}) {
@@ -56,6 +56,22 @@ describe('POST /tv/stop — she stops Wick from her own television', () => {
 
     expect((await tv.stop(bearer(token({ ...HER_TV, scope: 'waiting' })), CONFIRMED)).status).toBe(403);
     expect(closeHome).not.toHaveBeenCalled();
+  });
+
+  it('refuses a token earned by the television’s id alone: an id is a label, and this deletes a home', async () => {
+    const { tv, closeHome } = setUp();
+
+    expect(await tv.stop(bearer(token({ ...HER_TV, proof: 'none' })), CONFIRMED)).toMatchObject({ status: 403, body: { error: 'proof_required' } });
+    // One from before the claim existed, an hour long: a refresh's, so unproven.
+    const { proof: _proof, ...unclaimed } = HER_TV;
+    expect((await tv.stop(bearer(token(unclaimed, { exp: Math.floor(NOW / 1000) + 3000 })), CONFIRMED)).status).toBe(403);
+    expect(closeHome).not.toHaveBeenCalled();
+  });
+
+  it('takes a token earned by the television’s secret, and one from before the claim that lasted thirty days', async () => {
+    expect((await setUp().tv.stop(bearer(token({ ...HER_TV, proof: 'secret' })), CONFIRMED)).status).toBe(200);
+    const { proof: _proof, ...unclaimed } = HER_TV;
+    expect((await setUp().tv.stop(bearer(token(unclaimed)), CONFIRMED)).status).toBe(200);
   });
 
   it('refuses a token the pairing key did not sign, and none at all', async () => {
