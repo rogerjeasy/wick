@@ -855,14 +855,13 @@ const TV_WORDS = {
     empty: 'No card currently shown.',
     lightOn: 'Light on',
     lightOut: 'Light out',
-    door: 'Someone is at the door',
     doorPicture: 'Door camera still',
     message: 'Message from {name}',
     messageUnheard: 'Tap to hear the message',
     week: 'Your week — {week}',
     circle: 'Your family circle',
     sharing: 'What your family sees',
-    tell: 'Something is different today',
+    tell: 'Something is different',
     watch: 'Watching together',
     light: 'Your light in the window',
     reach: 'You held OK',
@@ -889,14 +888,13 @@ const TV_WORDS = {
     empty: 'No hay ninguna tarjeta en pantalla.',
     lightOn: 'Luz encendida',
     lightOut: 'Luz apagada',
-    door: 'Hay alguien en la puerta',
     doorPicture: 'Imagen fija de la cámara de la puerta',
     message: 'Mensaje de {name}',
     messageUnheard: 'Toque para oír el mensaje',
     week: 'Su semana — {week}',
     circle: 'Su círculo familiar',
     sharing: 'Lo que ve su familia',
-    tell: 'Hoy hay algo distinto',
+    tell: 'Hay algo distinto',
     watch: 'Una película en compañía',
     light: 'Su luz en la ventana',
     reach: 'Mantuvo presionado OK',
@@ -1256,7 +1254,7 @@ function renderCard(queuedCard) {
   wrapper.appendChild(mark);
 
   if (card.type === 'DOOR') {
-    wrapper.appendChild(el('div', 'kicker', tvSay('door')));
+    // No kicker: the line is the headline, as on Vega's DoorCard, so it is not said twice.
     wrapper.appendChild(el('div', 'headline', card.line));
     if (card.imageRef) {
       // How tall it may be is the stylesheet's (.tv-still): a share of the screen, less at each smaller size.

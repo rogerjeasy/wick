@@ -821,7 +821,7 @@ function showKeys() {
   }
   const shown = keysForced ?? (pairing || !keysDismissed);
   keysPanel.hidden = !shown;
-  keysPanel.classList.toggle('at-foot', pairing);
+  document.getElementById('stage').classList.toggle('keys-shown', shown);
 }
 
 function dismissKeys() {
@@ -829,6 +829,9 @@ function dismissKeys() {
   keysForced = false;
   keep(KEYS_SEEN_KEY, '1');
   showKeys();
+  // "Got it" pressed with a mouse took the focus off her screen with it: the remote's ring goes back where it was.
+  const at = document.activeElement;
+  if (!at || at === document.body || !tvScreen.contains(at)) focusDefault(focusMemory[screenKey()]);
 }
 
 function toggleKeys() {

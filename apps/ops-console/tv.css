@@ -335,10 +335,12 @@ body {
   content: '\25B6';
 }
 
-/* The door (DoorCard.tsx): the picture beside the words, never above the headline. */
+/* The door (DoorCard.tsx): the picture beside the words, never above the headline. Compact, as on Vega: the headline
+   at body size and a 256 by 144 frame, so the film keeps the top of the screen. */
 .tv-card.urgency-door {
+  padding: calc(24 * var(--dp));
   display: grid;
-  grid-template-columns: minmax(0, 38%) minmax(0, 1fr);
+  grid-template-columns: calc(256 * var(--dp)) minmax(0, 1fr);
   column-gap: calc(24 * var(--dp));
   row-gap: calc(8 * var(--dp));
   align-content: start;
@@ -352,13 +354,19 @@ body {
   grid-column: 1;
   grid-row: 1 / span 4;
   width: 100%;
-  max-height: calc(220 * var(--dp));
+  max-height: calc(144 * var(--dp));
   object-fit: contain;
   border-radius: calc(8 * var(--dp));
 }
 
 .tv-card.urgency-door > .actions {
   grid-column: 1 / -1;
+}
+
+.tv-card.urgency-door .headline {
+  font-size: var(--body);
+  line-height: 1.4;
+  font-weight: 700;
 }
 
 /* A picture from the family: whole, never cropped. */
@@ -607,15 +615,21 @@ body {
 
 /* --- The keys (tv.html) ------------------------------------------------------ */
 
-/* For whoever is trying this page, not part of her television: a remote has no legend. A strip along the top of the
-   screen, clear of a card's buttons, which are at the foot — and along the foot on the pairing screen, whose words
-   start at the top. Put away by hand only. */
+/* For whoever is trying this page, not part of her television: a remote has no legend. So it is never drawn over the
+   television: it sits under the screen, and while it shows, the screen is made smaller to leave room for it.
+   Put away by hand only. */
+.stage {
+  display: flex;
+  flex-direction: column;
+}
+
+.stage.keys-shown {
+  width: min(100vw, calc((100vh - 13vh) * 16 / 9));
+}
+
 .tv-keys {
-  position: absolute;
-  left: calc(16 * 100cqw / 960);
-  right: calc(16 * 100cqw / 960);
-  top: calc(12 * 100cqw / 960);
-  z-index: 2;
+  position: static;
+  margin-top: calc(8 * 100cqw / 960);
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -628,11 +642,6 @@ body {
   font-family: 'Amazon Ember', 'Helvetica Neue', Roboto, 'Segoe UI', system-ui, sans-serif;
   font-size: max(11px, calc(13.5 * 100cqw / 960));
   line-height: 1.3;
-}
-
-.tv-keys.at-foot {
-  top: auto;
-  bottom: calc(12 * 100cqw / 960);
 }
 
 .tv-keys-title {
