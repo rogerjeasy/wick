@@ -4,16 +4,28 @@ import { clearForFamily, clearNameForFamily } from '../guardian.js';
 const cleared = (text: string, people?: readonly string[]) => clearForFamily(text, undefined, people ? { people } : {}).cleared;
 
 describe('a person whose name is also a word — the Guardian does not take a surname for a fact', () => {
-  it('passes a title and a surname: Mrs Banks is a person, not her bank', () => {
-    expect(cleared('Mrs Banks came at ten.')).toBe(true);
-    expect(cleared('Mr. Cash rang the bell.')).toBe(true);
-    expect(cleared('Ms Money is coming on Tuesday.')).toBe(true);
+  it('passes a person the household holds by a title and a surname: Mrs Banks is a person, not her bank', () => {
+    expect(cleared('Mrs Banks came at ten.', ['Mrs Banks'])).toBe(true);
+    expect(cleared('Mr Cash rang the bell.', ['Mr Cash'])).toBe(true);
   });
 
-  it('still refuses the money itself, and a title in lower case is not a title', () => {
+  it('never takes a title in a sentence as a person on its own: a model could write "Mrs" before anything', () => {
+    expect(cleared('Mrs Banks came at ten.')).toBe(false);
+    expect(cleared('Ms Cancer is coming on Tuesday.')).toBe(false);
     expect(cleared('Her bank rang about the pension.')).toBe(false);
-    expect(cleared('She took out cash.')).toBe(false);
-    expect(cleared('mrs banks')).toBe(false);
+  });
+
+  it('sets aside only a name that is itself a person\'s name: a member called "Pension" or "Cancer" sets nothing aside', () => {
+    expect(cleared('Her pension came.', ['Pension'])).toBe(false);
+    expect(cleared('The cancer clinic rang.', ['Cancer'])).toBe(false);
+    expect(cleared('Her pension came.', ['Pension Smith'])).toBe(false);
+    expect(cleared('The doctor came.', ['Dr Who'])).toBe(false);
+  });
+
+  it('sets a person aside in the text as the Guardian reads it, whatever its typography', () => {
+    // Full-width letters fold to ASCII before matching (normalise): the name is found in the same form.
+    expect(cleared('Ａｎｎａ Ｃａｓｈ came.', ['Anna Cash'])).toBe(true);
+    expect(cleared('ANNA CASH came.', ['Anna Cash'])).toBe(true);
   });
 
   it("sets aside the household's own people by name, and their ids", () => {
