@@ -720,7 +720,10 @@ function pressBack() {
       openedId = null;
       return look();
     }
-    if (film) return stopFilm();
+    // A card that came to her: Back is its "Not now", pressed as its button is (settle and all), or
+    // nothing. Never the film underneath, which it used to end (home/waiting.ts backOnShownCard).
+    const notNow = TV.backOnShownCard(card.card);
+    if (notNow) tvScreen.querySelector(`button[data-action="${notNow}"]`)?.click();
     return;
   }
   if (easierOpen) return closeEasier();
