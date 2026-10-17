@@ -155,6 +155,8 @@ design is in [docs/WICK-TECHNICAL.md](docs/WICK-TECHNICAL.md).
 | Measurement | Result |
 |---|---|
 | Doorbell to door card | 2.3 s median, on the stand-in doorbell (Ring's own webhook hop is extra) |
+| Launch to fully drawn, Vega | 722 ms mean, 632–807 ms, over 10 cold starts on the Vega Virtual Device (`vega exec perf kpi-visualizer`) |
+| Memory on her home screen, Vega | 64 MiB PSS, steady over a minute, on the Vega Virtual Device (`vega exec perf memory-monitor`) |
 | MCP server's own work | 18 ms p95 |
 | MCP call on an open connection | 230–241 ms p95, against Alexa+'s 500 ms target (calls that stop at the access check, so without a tool's own reads: [WICK-TECHNICAL §9.3](docs/WICK-TECHNICAL.md#93-mcp-latency)) |
 
