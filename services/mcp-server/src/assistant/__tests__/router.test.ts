@@ -116,9 +116,10 @@ describe('POST /assistant/next — one step of the stand-in assistant', () => {
     const sarah = await allowedSarah(h);
     await h.store.setMemberStatus(sarah.householdId, sarah.userId, 'removed', Date.now());
 
-    const step = (await (await post(h, sarah.tokens.access_token, QUESTION)).json()) as { say: string };
+    const step = (await (await post(h, sarah.tokens.access_token, QUESTION)).json()) as { say: string; refused?: string };
 
     expect(step.say).toBeTruthy();
+    expect(step.refused).toBe('removed');
     expect(converse).not.toHaveBeenCalled();
   });
 
@@ -188,5 +189,19 @@ describe('createStepLimiter — a guest account is free, and a model is not', ()
     expect(take('one-more')).toBe(false);
     at += 24 * 60 * 60_000;
     expect(take('one-more')).toBe(true);
+  });
+});
+
+describe('a home that is gone', () => {
+  it('says why it refuses — not a member — so the app can ask whether she closed the home', async () => {
+    const converse = vi.fn<Converse>(async () => ({ text: 'Hello.', calls: [] }));
+    const h = await server({ assistant: { converse } });
+    const sarah = await allowedSarah(h);
+    await h.store.deleteMembership(sarah.householdId, sarah.userId);
+
+    const step = (await (await post(h, sarah.tokens.access_token, QUESTION)).json()) as { done: boolean; refused?: string };
+
+    expect(step).toMatchObject({ done: true, refused: 'not_a_member' });
+    expect(converse).not.toHaveBeenCalled();
   });
 });

@@ -128,7 +128,8 @@ export function createAssistantRouter(options: AssistantRouterOptions): express.
     try {
       // INV-9, asked on every step as on every tool call: the refusal is the answer, and costs no model.
       const access = await checkAccess(store, grant.householdId, grant.userId);
-      if (!access.ok) return void res.json({ done: true, say: access.say });
+      // `refused` says why, for the app to act on: no longer in the circle may mean she has closed the home.
+      if (!access.ok) return void res.json({ done: true, say: access.say, refused: access.reason });
       const { household, membership } = access;
 
       if (!mayStep(grant.userId)) {
