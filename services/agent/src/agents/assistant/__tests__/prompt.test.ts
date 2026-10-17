@@ -19,11 +19,8 @@ describe('the assistant’s rules, one set for both assistants', () => {
     expect(assistantPrompt(WHO, NOW, TZ)).toMatch(/If a day or the time is missing, ask for it; never guess one/);
   });
 
-  it('names the films by title when it asks which one, and never their length: a number from no tool is refused', () => {
-    // Live, "Ask Mum to watch a film with me" got an answer the number check refused, and the app said nothing.
-    const prompt = assistantPrompt(WHO, NOW, TZ);
-    expect(prompt).toMatch(/The films are Big Buck Bunny, Sintel and Tears of Steel/);
-    expect(prompt).toMatch(/never how long they are/);
+  it('names the films, with their lengths, when it asks which one: the number check knows the catalogue (brain.ts)', () => {
+    expect(assistantPrompt(WHO, NOW, TZ)).toMatch(/The films are Big Buck Bunny \(10 minutes\), Sintel \(15 minutes\) and Tears of Steel \(12 minutes\)\./);
   });
 
   it('works a relative time out from now, instead of asking for one it was given', () => {

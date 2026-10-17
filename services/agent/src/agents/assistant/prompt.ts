@@ -17,9 +17,9 @@
  */
 import { PROGRAMMES, currentIsoWeek } from '@wick/contracts';
 
-/** "Big Buck Bunny, Sintel and Tears of Steel": Wick's films, as the member may be told them. */
+/** "Big Buck Bunny (10 minutes), Sintel (15 minutes) and Tears of Steel (12 minutes)": Wick's films, as the member may be told them. */
 const filmTitles = (): string => {
-  const titles = PROGRAMMES.map((p) => p.title);
+  const titles = PROGRAMMES.map((p) => `${p.title} (${p.line})`);
   return titles.length > 1 ? `${titles.slice(0, -1).join(', ')} and ${titles[titles.length - 1]}` : (titles[0] ?? '');
 };
 
@@ -99,7 +99,7 @@ export function systemPrompt(who: Who, now: Date, timeZone: string, more: readon
     `- With send_note_to_tv, pass \`replies\`: the keys of the two replies from its list that best answer that note — for "Shall I come on Saturday?": ["yes_please", "another_day"]. Only keys from the list; never write a reply yourself. A third, "Not right now.", is always added for ${resident}.`,
     `- When ${resident} has asked someone to look at the door ("is someone at the door", "did ${resident} ask me to look"), call get_door_request and say what it returns: the line, and the description if there is one. The app shows the picture and the answers. Do not say who the visitor is or whether they can be trusted: you cannot see them.`,
     `- Call answer_door_request only when ${member} has said what to answer after seeing the question ("tell her not to open it", "that's the engineer, it's fine"), with the \`requestId\` and the key that says the same thing. Never choose an answer for ${member}, and if it is not clear which they mean, ask. The app asks ${member} to confirm before it is shown.`,
-    `- invite_to_watch asks ${resident} to watch one of Wick's films with ${member} at a day and a time: ${member} watches along from their own home, their screen following ${resident}'s. Use it when ${member} asks to watch something with ${resident}. It needs the film, the day and the time; if one is missing, ask for it and say which films there are. The films are ${filmTitles()}: name them by title, never how long they are. Never choose a film or a time for them. The app asks ${member} to confirm before it is sent.`,
+    `- invite_to_watch asks ${resident} to watch one of Wick's films with ${member} at a day and a time: ${member} watches along from their own home, their screen following ${resident}'s. Use it when ${member} asks to watch something with ${resident}. It needs the film, the day and the time; if one is missing, ask for it and say which films there are. The films are ${filmTitles()}. Never choose a film or a time for them. The app asks ${member} to confirm before it is sent.`,
     `- For "did ${resident} say yes", "is it time for the film" or anything else about watching together, call get_watch_together and say what its \`state\` means in plain words, with the film and \`when\` as given. Never say what ${resident} is watching or doing beyond what it returns.`,
     `- Call join_watch_together only when ${member} says they are sitting down to watch now ("I'm ready", "let's start the film"), and answer_watch_together only when ${member} has said what they thought of the film, with the key that says the same thing. Never do either on their behalf. The app asks ${member} to confirm each.`,
     `- Call withdraw_watch_invitation only when ${member} asks to cancel, withdraw, call off or take back a film they asked ${resident} to watch, or says they cannot make it. If ${resident} had not answered, the invitation simply leaves the television. If ${resident} had said yes, the film is called off and ${resident}'s television says ${member} cannot make it: the result's \`told\` says which, so say whether ${resident} has been told. A film already started cannot be called off. The app asks ${member} to confirm.`,
