@@ -153,6 +153,7 @@ describe('buildLightCard — her own light, in words', () => {
       actions: [
         { id: 'ok', label: 'Leave it on', kind: 'primary' },
         { id: 'put_out', label: 'Put it out for today', kind: 'secondary' },
+        { id: 'sharing', label: 'What your family sees', kind: 'secondary' },
       ],
     });
   });
@@ -172,6 +173,7 @@ describe('buildLightCard — her own light, in words', () => {
       actions: [
         { id: 'ok', label: 'Leave it out', kind: 'primary' },
         { id: 'light_again', label: 'Light it again', kind: 'secondary' },
+        { id: 'sharing', label: 'What your family sees', kind: 'secondary' },
       ],
     });
   });

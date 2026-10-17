@@ -30,6 +30,8 @@ export const LIGHT_ACTIONS = {
   putOut: 'put_out',
   lightAgain: 'light_again',
   ok: 'ok',
+  /** "What your family sees": the pages of what is shared, and Stop Wick at their end (edge sharing.mjs). */
+  sharing: 'sharing',
 } as const;
 
 /** What the home screen is told beside its cards. Each part is absent when there is nothing to say. */

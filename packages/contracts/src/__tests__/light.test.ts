@@ -108,7 +108,7 @@ describe('the names both sides use', () => {
     expect(LIGHT_SK).toBe('LIGHT');
     expect(LOOKIN_SK_PREFIX).toBe('LOOKIN#');
     expect(LIGHT_CARD_ID).toBe('light');
-    expect(LIGHT_ACTIONS).toEqual({ putOut: 'put_out', lightAgain: 'light_again', ok: 'ok' });
+    expect(LIGHT_ACTIONS).toEqual({ putOut: 'put_out', lightAgain: 'light_again', ok: 'ok', sharing: 'sharing' });
   });
 });
 

@@ -26,7 +26,7 @@ const isHouseholdLanguage = (value) => typeof value === 'string' && LANGUAGES.in
 export const LIGHT_SK = 'LIGHT';
 export const LOOKIN_SK_PREFIX = 'LOOKIN#';
 export const LIGHT_CARD_ID = 'light';
-export const LIGHT_ACTIONS = { putOut: 'put_out', lightAgain: 'light_again', ok: 'ok' };
+export const LIGHT_ACTIONS = { putOut: 'put_out', lightAgain: 'light_again', ok: 'ok', sharing: 'sharing' };
 
 const MEMBER_SK_PREFIX = 'MEM#';
 const META_SK = 'META';
@@ -181,6 +181,7 @@ export function buildLightCard({ householdId, items, now, timeZone }) {
         actions: [
           { id: LIGHT_ACTIONS.ok, label: 'Leave it out', kind: 'primary' },
           { id: LIGHT_ACTIONS.lightAgain, label: 'Light it again', kind: 'secondary' },
+          { id: LIGHT_ACTIONS.sharing, label: 'What your family sees', kind: 'secondary' },
         ],
       }
     : {
@@ -190,6 +191,8 @@ export function buildLightCard({ householdId, items, now, timeZone }) {
         actions: [
           { id: LIGHT_ACTIONS.ok, label: 'Leave it on', kind: 'primary' },
           { id: LIGHT_ACTIONS.putOut, label: 'Put it out for today', kind: 'secondary' },
+          // Her way, at any time, to what the family sees and to Stop Wick — not only from Sunday's week.
+          { id: LIGHT_ACTIONS.sharing, label: 'What your family sees', kind: 'secondary' },
         ],
       };
 

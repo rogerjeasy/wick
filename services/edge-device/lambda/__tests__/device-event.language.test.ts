@@ -407,3 +407,14 @@ describe('her answer to the language question', () => {
     expect(aws.events.filter((entry) => entry.DetailType === 'card.retired').map((entry) => JSON.parse(entry.Detail).cardId)).toEqual(['language-es']);
   });
 });
+
+describe('"What your family sees" from her Light card, at any time', () => {
+  it('opens the first page of what is shared, not over the Light card, which is not kept', async () => {
+    const tv = await television({ t: 'card_action', cardId: 'light', action: 'sharing', at: 1_000 });
+
+    const sharing = tv.cards.find((c) => (c as { id: string }).id === 'sharing') as { respondsTo?: string; card: { type: string; page: number } } | undefined;
+    expect(sharing).toBeDefined();
+    expect(sharing!.card).toMatchObject({ type: 'SHARING', page: 0 });
+    expect(sharing!.respondsTo).toBeUndefined();
+  });
+});

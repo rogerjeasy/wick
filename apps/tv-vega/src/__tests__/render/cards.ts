@@ -183,6 +183,7 @@ const light: Card = {
   actions: [
     { id: LIGHT_ACTIONS.ok, label: 'Leave it on', kind: 'primary' },
     { id: LIGHT_ACTIONS.putOut, label: 'Put it out for today', kind: 'secondary' },
+    { id: LIGHT_ACTIONS.sharing, label: 'What your family sees', kind: 'secondary' },
   ],
 };
 
