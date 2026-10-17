@@ -10,7 +10,11 @@
  *   - INV-8: the television is connected to that household. Nothing in the
  *     request can name another.
  *   - A television that already belongs to another household is refused
- *     (device-owner.mjs).
+ *     (device-owner.mjs) — with one exception: the simulator's shared id
+ *     (`wick-tv`, every Vega Virtual Device's, FL-013) is taken from a demo
+ *     home, so a judge's simulator is never refused because another
+ *     simulator was paired to another demo home first
+ *     (`takeSimulatorFromDemoHome`).
  *
  * With `as: 'family'` the television is connected as the signed-in member's
  * own ("Sarah's television", family-television.mjs): any member the resident
@@ -32,13 +36,13 @@
  * whole decision is tested without AWS (__tests__/pair-claim.test.ts).
  */
 import { randomBytes } from 'node:crypto';
-import { DynamoDBClient, GetItemCommand, PutItemCommand, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { DeleteItemCommand, DynamoDBClient, GetItemCommand, PutItemCommand, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { signJwt } from './jwt.mjs';
 import { isExpired, DEVICE_TOKEN_TTL_SEC } from './pairing-code.mjs';
 import { accessTokenKey, bearerToken, grantFromItem, mayConnectOwnTelevision, mayConnectTelevision, membershipKey } from './wick-auth.mjs';
 import { FAMILY_KIND, familyClaims, familyTelevisionKey, kindAskedFor, publicKeyItem } from './family-television.mjs';
-import { claimDeviceOwner, deviceOwnerKey } from './device-owner.mjs';
+import { claimDeviceOwner, deviceOwnerKey, householdOfDevice } from './device-owner.mjs';
 import { PROVEN_BY_PAIRING, SIMULATOR_DEVICE_ID, newProof, proofHashOf } from './proof.mjs';
 
 /**
@@ -102,7 +106,8 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
       await send(new PutItemCommand(claimDeviceOwner({ table, deviceId, householdId, at: now() })));
     } catch (err) {
       if (!conditionFailed(err)) throw err;
-      return { statusCode: 409, body: 'television_in_another_home' };
+      const taken = deviceId === SIMULATOR_DEVICE_ID && (await takeSimulatorFromDemoHome({ send, get, table, householdId, at: now() }));
+      if (!taken) return { statusCode: 409, body: 'television_in_another_home' };
     }
 
     const jwt = signJwt({ deviceId, householdId, ...(asFamily ? familyClaims(userId) : {}), proof: PROVEN_BY_PAIRING }, await privateKey(), { expiresInSec: DEVICE_TOKEN_TTL_SEC });
@@ -189,6 +194,47 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
 
     return { statusCode: 200, body: JSON.stringify({ ok: true, ...(asFamily ? { kind: FAMILY_KIND } : {}) }) };
   };
+}
+
+/**
+ * The simulator's id, taken from the demo home that holds it. Every Vega
+ * Virtual Device is `wick-tv` (its storage keeps nothing, so it cannot keep
+ * an id of its own: FL-013, apps/tv-vega deviceId.ts), and a television
+ * belongs to one home: without this, the first simulator paired to a demo
+ * home would refuse every other simulator for as long as that home existed.
+ *
+ * Only that id, and only from a home marked `simulated` (a demo home). A
+ * real home's television, or any other id, is never taken. The id has no
+ * secret, which is already the simulator's accepted exception (proof.mjs),
+ * so taking it widens nothing: the demo home it leaves stops having it.
+ * Conditional on the home that held it a moment ago. Logged without ids.
+ */
+export async function takeSimulatorFromDemoHome({ send, get, table, householdId, at }) {
+  const holder = householdOfDevice(await get(deviceOwnerKey(SIMULATOR_DEVICE_ID), { ConsistentRead: true }));
+  if (!holder || holder === householdId) return false;
+  const home = await get({ pk: { S: `HH#${holder}` }, sk: { S: 'META' } }, { ConsistentRead: true });
+  if (home?.simulated?.BOOL !== true) return false;
+  try {
+    await send(new PutItemCommand({
+      TableName: table,
+      Item: { ...deviceOwnerKey(SIMULATOR_DEVICE_ID), householdId: { S: householdId }, claimedAt: { N: String(at) } },
+      ConditionExpression: 'householdId = :old',
+      ExpressionAttributeValues: { ':old': { S: holder } },
+    }));
+  } catch (err) {
+    if (conditionFailed(err)) return false;
+    throw err;
+  }
+  // The demo home it leaves no longer has it, of either kind. Never the reason a pairing fails.
+  for (const key of [{ pk: { S: `HH#${holder}` }, sk: { S: `DEV#${SIMULATOR_DEVICE_ID}` } }, familyTelevisionKey(holder, SIMULATOR_DEVICE_ID)]) {
+    try {
+      await send(new DeleteItemCommand({ TableName: table, Key: key }));
+    } catch (err) {
+      console.error(JSON.stringify({ level: 'error', msg: 'simulator_row_not_removed', err: err?.name }));
+    }
+  }
+  console.log(JSON.stringify({ level: 'info', msg: 'simulator_taken_from_demo_home' }));
+  return true;
 }
 
 /**
