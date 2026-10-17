@@ -41,6 +41,7 @@ var WickTv = (() => {
     asking: () => asking,
     backAnswersReach: () => backAnswersReach,
     backClosesOpened: () => backClosesOpened,
+    backOnShownCard: () => backOnShownCard,
     deriveSnapshot: () => deriveSnapshot,
     newestReachCard: () => newestReachCard,
     okHold: () => okHold,
@@ -1259,6 +1260,9 @@ var WickTv = (() => {
   }
   function backClosesOpened(on) {
     return on.openedId !== null && on.shownId === on.openedId && !on.liveOpen;
+  }
+  function backOnShownCard(card) {
+    return card?.actions.find((action) => action.kind === "dismiss")?.id;
   }
 
   // apps/tv-vega/src/home/light.ts

@@ -98,7 +98,7 @@ import { WatchActivity } from './personalization/watchActivity.js';
 import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
 import { homeBehind } from './home/behind.js';
 import { HomeScreen } from './home/HomeScreen.js';
-import { backClosesOpened, waitingLine } from './home/waiting.js';
+import { backClosesOpened, backOnShownCard, waitingLine } from './home/waiting.js';
 import { asking } from './home/asked.js';
 import { okHeld } from './press/held.js';
 import { pressSettle } from './press/settle.js';
@@ -771,7 +771,14 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
         setSeeingOpen(false);
         return true;
       }
-      if (!backClosesOpened({ openedId: openedId.current, shownId: card?.id ?? null, liveOpen: liveFor !== null })) return false;
+      if (!backClosesOpened({ openedId: openedId.current, shownId: card?.id ?? null, liveOpen: liveFor !== null })) {
+        // A card that came to her (the door over her film, a note at a break): Back is its "Not now", or
+        // nothing, and never reaches the film underneath or leaves Wick. The door camera keeps its own Back.
+        if (!card || liveFor !== null) return false;
+        const notNow = backOnShownCard(card.card);
+        if (notNow) handleAction(card.id, notNow);
+        return true;
+      }
       // On the card her hold brought, Back is an answer: an offer or a request left half read would come back at the next break (home/reach.ts).
       const reachAnswer = backAnswersReach(card?.card);
       if (card && reachAnswer) {

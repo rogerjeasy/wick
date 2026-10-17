@@ -129,6 +129,23 @@ describe('POST /assistant/turn — the assistant as an agent on AgentCore', () =
     expect(body).toEqual({ say: 'The doorbell went 6 times today.', ...READ });
   });
 
+  it('logs which check refused the agent’s reply, never the reply', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.UTC(2026, 9, 15, 13, 20));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const invented = await server({ assistantAgent: runtime({ say: 'The doorbell went 9 times.', ...READ }).agent });
+      const sarah = await allowedSarah(invented);
+      await post(invented, sarah.tokens.access_token, { question: 'Who came?' });
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      expect(lines.map((l) => JSON.parse(l) as Record<string, unknown>)).toContainEqual({ level: 'warn', msg: 'assistant_reply_unsupported', why: 'invented_number', number: '9' });
+      expect(lines.join('\n')).not.toContain('doorbell');
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('says the tools’ own sentences instead when the agent adds a number, or says what the Guardian refuses', async () => {
     // The number check lets through numbers from the date and time (brain.ts checkReply), so the
     // clock is fixed where no part of it is 9: unfixed, this failed from 9 to 10 o'clock in London.

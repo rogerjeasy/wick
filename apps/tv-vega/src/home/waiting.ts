@@ -6,7 +6,7 @@
  * Pure: the words for each kind of card, in her language (words/words.ts),
  * and what Back does to one that was opened.
  */
-import { DEFAULT_LANGUAGE, type HouseholdLanguage, type QueuedCard } from '@wick/contracts';
+import { DEFAULT_LANGUAGE, type Card, type HouseholdLanguage, type QueuedCard } from '@wick/contracts';
 import { words } from '../words/words.js';
 
 export function waitingLine(queued: QueuedCard, language: HouseholdLanguage = DEFAULT_LANGUAGE): string {
@@ -59,4 +59,15 @@ export function waitingLine(queued: QueuedCard, language: HouseholdLanguage = DE
  */
 export function backClosesOpened(on: { readonly openedId: string | null; readonly shownId: string | null; readonly liveOpen: boolean }): boolean {
   return on.openedId !== null && on.shownId === on.openedId && !on.liveOpen;
+}
+
+/**
+ * What Back does on a card that came to her rather than one she opened —
+ * the door over her film, a note at a break. It is that card's own "Not
+ * now", pressed as its button is (and so by the same first-second settle);
+ * on a card with none, nothing. Either way Back is taken: it never falls
+ * through to the film underneath, which it used to end, nor out of Wick.
+ */
+export function backOnShownCard(card: Card | undefined): string | undefined {
+  return card?.actions.find((action) => action.kind === 'dismiss')?.id;
 }

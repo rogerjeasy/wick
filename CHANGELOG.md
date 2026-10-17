@@ -8,7 +8,7 @@ Wick's releases. The format follows
 
 The first release: Wick, complete and deployed, as submitted to Build, Ship,
 Shape (Fire TV track; AWS Builder and Open Source mini challenges). Built from
-14 September 2026 in 106 pull requests.
+14 September 2026 in about a hundred pull requests.
 
 ### The product
 

@@ -54,8 +54,10 @@ card came in 2.3 s, the picture in 2.7 s and the sentence in 2.9 s (medians;
 4.8 s at most, and one ring had no sentence). That path skips Ring's own hop
 to Wick's webhook, which has not been measured. If the model is unsure, it says nothing. If she is in another
 app, Wick's background service puts a system toast over it ("Someone's at the
-front door.") with one button that brings Wick forward. One button on the card
-opens the doorbell camera live, and Back returns to the card.
+front door.") with one button that brings Wick forward. In a home linked to
+Ring, one button on the card opens the doorbell camera live, and Back returns
+to the card. The demo's stand-in doorbell has no camera, so its card does not
+offer it: live view is shown in the video, from Ring's Developer Playground.
 
 **The family.** A daughter asks "how's Mum been this week?" and gets a short,
 truthful paragraph, written from counts the code made, never from a model's
@@ -168,8 +170,8 @@ connection (issue #47 found that cause; the server's own p95 is 18 ms).
 Wick did not exist before the hackathon. The repository was created on
 **2026-09-14**, two weeks into the submission window (which opened on
 2026-08-31). Its first commit is a scaffold of design documents, shared types
-and stubs, and all of its more than 690 commits are dated between 2026-09-14 and
-2026-10-16. Everything in it (the Vega and Fire OS apps, the AWS stack, the
+and stubs, and every one of its more than 700 commits is dated from 2026-09-14
+on. Everything in it (the Vega and Fire OS apps, the AWS stack, the
 agents, the MCP server, the family app, the friction log) was built in the
 window. The three open-source contributions below were made in the window too:
 `vega-calm-ui`'s first commit is 2026-09-14 and it was published to npm on
@@ -217,9 +219,10 @@ window. The three open-source contributions below were made in the window too:
    written by the agents, and its card ends with *One thing you could do*, with
    one button.
 9. For the family's side on a television, open
-   [the console's television](https://d2sbabcft8sm3m.cloudfront.net/device.html),
-   press **Pair & connect**, and answer *"Whose television is it?"* with
-   **Mine**.
+   [the console's television](https://d2sbabcft8sm3m.cloudfront.net/device.html)
+   and press **Pair & connect**: it shows a code. In the family app, choose
+   **Connect a television**, answer *"Whose television is it?"* with **Mine**,
+   and enter that code.
 
 ### On the Vega Virtual Device or the Android TV emulator
 
@@ -419,13 +422,13 @@ Device and says on screen what is simulated.
 |---|---|---|
 | 0:00–0:12 | **Vega Virtual Device**, full screen: Wick's home screen, a film playing | The product on the required simulator, from the first frame. Caption: "Vega Virtual Device. No hardware was used." |
 | 0:12–0:25 | Title over the film: one sentence of the idea | Built for the person being cared for, not the caregiver |
-| 0:25–0:55 | A doorbell ring → the door card over the film within seconds → the picture → the vision model's sentence → **Watch live** → Back | The door. Caption naming the source (Ring Developer Playground camera; the ring from Wick's signed stand-in, FL-027) |
+| 0:25–0:55 | A doorbell ring → the door card over the film within seconds → the picture → the vision model's sentence → **Watch live** → Back | The door. Caption naming the source (Ring Developer Playground camera, on the operator's home linked to the Playground; the ring from Wick's signed stand-in, FL-027). Judges' demo homes have no camera, so say Watch live is not in the hosted demo |
 | 0:55–1:10 | On the VVD, another app in front → the system toast "Someone's at the front door." → **Open Wick** | The background service and toast (FL-022) |
 | 1:10–1:40 | **Voice, D-pad and visual in one flow.** Family app: a note sent mid-film → it does not appear → the system's transport control reaches her film through the Vega media session (its Stop, which Wick obeys as a pause; seen on the VVD) → at that pause the note comes on screen → **Play** reads it aloud (Amazon Polly) → **OK** sends her reply → the reply in the family app. Then, for a second, the same note waiting for a measured calm point instead, holding the film on the cut | The rubric's "multi-modal UX combining voice + D-pad + visual in a single flow", said in a caption. Caption: "On a Fire TV this is 'Alexa, pause'. The simulator takes no voice, so the system's own transport control stands in for it (FL-031)." The calm-point map for a second |
 | 1:40–1:55 | Family app: "How has Mum been this week?" → the week card on the TV first, then the paragraph in the family app | INV-7: she sees her week first; the model never counts |
 | 1:55–2:10 | OK held for two seconds → "Ask Sarah to ring you?" → Yes → the family member's answer appears on her TV | Hold for Sarah |
 | 2:10–2:25 | Fire OS build on the Android TV emulator, same card; then on the VVD, **Easier to see**: Larger text, then Higher contrast, on the door card | One source, two Fire TV platforms; her television adapts to what she can see |
-| 2:25–2:45 | Architecture diagram: Vega/Fire OS ↔ IoT Core ↔ AgentCore (Strands, Nova Lite) ↔ DynamoDB ↔ MCP server ↔ family app | AWS Builder: twenty services, all Terraform |
+| 2:25–2:45 | Architecture diagram: Vega/Fire OS ↔ IoT Core ↔ AgentCore (Strands, Nova Lite) ↔ DynamoDB ↔ MCP server ↔ family app | AWS Builder: twenty-three services, all Terraform |
 | 2:45–2:55 | The repo, `FRICTION.md`, `vega-calm-ui`, PR #135 | Product feedback and Open Source |
 
 Total: 2:55. Captions say *simulated* wherever something is (the stand-in

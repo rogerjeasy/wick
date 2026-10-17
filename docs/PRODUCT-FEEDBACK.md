@@ -35,7 +35,7 @@ for JavaScript v3. CI deploys over GitHub OIDC and holds no AWS keys.
 | **Bedrock AgentCore Memory** | The family assistant's conversations, including a write waiting for the member's yes, as Strands snapshots (Wick's own session storage, also [a pull request to Amazon's AgentCore SDK](https://github.com/aws/bedrock-agentcore-sdk-typescript/pull/287), whose integration tests pass against a real memory); and the member's own words long-term, through a user-preference strategy. Deleted with the member's account. |
 | **AWS Step Functions** | A visit errand as one execution over days: wait for the reminder, remind her, wait for the doorbell on a task token the door's event redeems, or time out; then tell the member. |
 | **Amazon SQS** | The Sunday brief's fan-out: one message per home, a dead-letter queue, partial batch failures. |
-| **AWS Lambda** | 22 functions: the Ring webhook and OAuth, pairing, both television channels, the IoT authorizer, the door agent, card presses, the weekly narrator, and the live-view bridge. |
+| **AWS Lambda** | 26 functions: the Ring webhook and OAuth, pairing, both television channels, the IoT authorizer, the door agent, card presses, the weekly narrator, the live-view bridge, the Sunday brief's dispatch and worker, and the visit errand's two steps. |
 | **Amazon API Gateway** | An HTTP API for Ring, pairing and Watch live, and a WebSocket API that every television can fall back to. |
 | **AWS IoT Core** | The television's main channel, MQTT over WSS, with a custom authorizer that checks the television's own token. |
 | **Amazon EventBridge and Scheduler** | The event bus, the weekly and hourly schedules, and the three-minute wait in Hold for Sarah. |
@@ -209,7 +209,7 @@ The Playground needs "press the doorbell" and "person detected" buttons first.
 
 *MCP spec 2025-11-25, Streamable HTTP, `@modelcontextprotocol/sdk` 1.32.1.*
 
-**Used for:** the family's side. An MCP server with 22 tools, its own OAuth 2.1
+**Used for:** the family's side. An MCP server with 25 tools, its own OAuth 2.1
 (PKCE, dynamic client registration), on App Runner. A complete add-on package
 (`addon-package/`), checked in CI. A simulated Alexa+ surface (the family app),
 because the add-on toolkit is partner-only.

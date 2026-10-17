@@ -394,6 +394,30 @@ describe('nextFocus — where an arrow goes', () => {
   });
 });
 
+describe('Back on the door card over her film — it puts the card away, and never ends the film', () => {
+  it('presses the card’s Not now: the card goes, the film plays on', async () => {
+    const tv = await atHome();
+    const video = await watching(tv);
+    at(tv, video, 30_000);
+    tv.card(DOOR());
+    expect(shownType(tv)).toBe('DOOR');
+    tv.advance(PRESS_SETTLE_MS);
+    tv.press('Escape');
+    expect(shownType(tv)).toBe(null);
+    expect(tv.video()).not.toBeNull();
+    expect(tv.video()!.paused).toBe(false);
+  });
+
+  it('takes a Back pressed in the card’s first second and does nothing with it: neither the card nor the film goes', async () => {
+    const tv = await atHome();
+    await watching(tv);
+    tv.card(DOOR());
+    tv.press('Escape');
+    expect(shownType(tv)).toBe('DOOR');
+    expect(tv.video()).not.toBeNull();
+  });
+});
+
 describe('a film goes on from where she left it — watch/resume.ts, kept on this device', () => {
   const MIN = 60_000;
 

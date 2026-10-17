@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — a plain browser module, deliberately untyped (no build step).
-import { agentSteps, agentTrace, approvalsFor, presentPlan, readAgentTurn, presentTurn, describeCall } from '../surface.js';
+import { agentSteps, agentTrace, answeredNothing, approvalsFor, presentPlan, readAgentTurn, presentTurn, describeCall } from '../surface.js';
 
 const NOTE = { id: 'hook:beforeToolCall:t1:approve', name: 'send_note_to_tv', args: { message: 'The plumber comes Thursday.' }, title: 'Send a note to the television' };
 const VISIT = { id: 'hook:beforeToolCall:t2:approve', name: 'arrange_visit', args: { who: 'the plumber', day: 'thursday', time: '10:00' }, title: 'Arrange a visit' };
@@ -31,6 +31,18 @@ describe('readAgentTurn — what the agent’s answer is', () => {
     for (const body of [null, 'x', {}, { say: 1, trace: [], toolTexts: [] }, { needsApproval: [{ name: 'x' }], trace: [], toolTexts: [] }, { say: 'a', trace: [{}], toolTexts: [] }]) {
       expect(readAgentTurn(body), JSON.stringify(body)).toBeNull();
     }
+  });
+});
+
+describe('answeredNothing — an answer with no sentence and no tool result', () => {
+  it('is an answer the agent could not give: no words of its own, and nothing it looked up', () => {
+    expect(answeredNothing(readAgentTurn({ unsupported: true, trace: [], toolTexts: [] }))).toBe(true);
+  });
+
+  it('is not an answer with a sentence, or with what the tools returned, or calls waiting for a yes', () => {
+    expect(answeredNothing(readAgentTurn({ say: 'Which film?', trace: [], toolTexts: [] }))).toBe(false);
+    expect(answeredNothing(readAgentTurn({ unsupported: true, trace: [{ tool: 'get_today', ok: true }], toolTexts: ['Nothing today.'] }))).toBe(false);
+    expect(answeredNothing(null)).toBe(false);
   });
 });
 
@@ -101,6 +113,11 @@ describe('the conversation in main.js', () => {
   it('falls back only when nothing was done: a failure after a yes is said, not asked again of the stand-in', () => {
     expect(main).toMatch(/if \(!asked\) \{\n {4}turn\.remove\(\);\n {4}return false;\n {2}\}/);
     expect(main).toMatch(/AGENT_STOPPED_TEXT/);
+  });
+
+  it('asks the stand-in when the agent had nothing to say and did nothing, before any yes: never an empty reply', () => {
+    // Live, "Ask Mum to watch a film with me" came back {unsupported, no tools}, and the app showed nothing.
+    expect(main).toMatch(/if \(!approvedAny && answeredNothing\(answer\)\) \{\n {4}turn\.remove\(\);\n {4}return false;\n {2}\}/);
   });
 
   it('says which agent did the work', () => {

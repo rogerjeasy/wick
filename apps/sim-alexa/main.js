@@ -59,6 +59,7 @@ import {
   watchToAnnounce,
   AGENT_STOPPED_TEXT,
   agentSteps,
+  answeredNothing,
   agentTrace,
   approvalsFor,
   presentPlan,
@@ -1041,6 +1042,8 @@ async function converseWithAgent(text) {
     turn.remove();
     return false;
   }
+  // Whether anything waited for a yes: after one, the stand-in is never asked to do it again.
+  const approvedAny = answer?.kind === 'waiting';
   for (let i = 0; answer?.kind === 'waiting' && i < MAX_STEPS; i += 1) {
     showPlan(turn, presentPlan(answer.plan));
     const answers = [];
@@ -1048,6 +1051,11 @@ async function converseWithAgent(text) {
     turn.querySelector('.plan')?.remove();
     showProgress(turn, 'Working on it…');
     answer = await agentTurn({ resume: { approved: approvalsFor(answer.calls, answers) } });
+  }
+  // Nothing said and nothing done (a reply the checks refused): the stand-in answers, never an empty turn.
+  if (!approvedAny && answeredNothing(answer)) {
+    turn.remove();
+    return false;
   }
   rememberTurns({ role: 'user', text });
   if (answer?.kind !== 'answer') {

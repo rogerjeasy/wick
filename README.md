@@ -79,7 +79,7 @@ No account and no hardware are needed.
 2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose **Try the demo** and enter the code shown on the television. You are Sarah, in a demo home with six weeks of simulated history.
 3. On the television, press **Allow Sarah** when it appears, about twenty seconds after pairing. Then ask the family app anything, for example *"How has my mum been this week?"*
 4. Start a film, then ask the family app to *send a note to her television*. The note waits. Pause, or let Big Buck Bunny reach its calm point at 1:29, and it appears. **Space** reads it aloud; **Enter** replies.
-5. Press **Ring the stand-in doorbell** in the family app. The door card appears at once, over the film.
+5. Press **Ring the stand-in doorbell** in the family app and choose who is there. The door card appears at once, over the film, then the picture and one sentence about it. **Esc** (Back) or *Not now* puts it away; the film plays on. The stand-in doorbell rings at most once every 20 seconds.
 
 The same flow runs on the Vega Virtual Device and on the Fire OS build in the
 Android TV emulator ([docs/SETUP.md](docs/SETUP.md)).
@@ -156,7 +156,7 @@ design is in [docs/WICK-TECHNICAL.md](docs/WICK-TECHNICAL.md).
 |---|---|
 | Doorbell to door card | 2.3 s median, on the stand-in doorbell (Ring's own webhook hop is extra) |
 | MCP server's own work | 18 ms p95 |
-| MCP call on an open connection | 230–241 ms p95, against Alexa+'s 500 ms target |
+| MCP call on an open connection | 230–241 ms p95, against Alexa+'s 500 ms target (calls that stop at the access check, so without a tool's own reads: [WICK-TECHNICAL §9.3](docs/WICK-TECHNICAL.md#93-mcp-latency)) |
 
 New connections are slower because App Runner closes idle connections
 ([#47](https://github.com/rogerjeasy/wick/issues/47)).

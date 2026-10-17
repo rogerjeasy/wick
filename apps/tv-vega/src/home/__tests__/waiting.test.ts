@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Card, QueuedCard } from '@wick/contracts';
-import { backClosesOpened, waitingLine } from '../waiting.js';
+import { backClosesOpened, backOnShownCard, waitingLine } from '../waiting.js';
 
 const base = { id: 'c1', householdId: 'hh-1', correlationId: 'c', createdAt: 0, actions: [] } as const;
 const queued = (card: Card): QueuedCard => ({ id: card.id, urgency: 'DEFERRED', card, queuedAt: 0, shownCount: 2 });
@@ -101,5 +101,19 @@ describe('waitingLine — a picture that has waited through two breaks', () => {
   it('says who it is from, in her language — and nothing of the picture', () => {
     expect(waitingLine(queued(photo))).toBe('A picture from Sarah is waiting.');
     expect(waitingLine(queued(photo), 'es')).toBe('Hay una foto de Sarah esperando.');
+  });
+});
+
+describe('backOnShownCard — Back on a card that came to her, during a film or on the home screen', () => {
+  const card = (actions: { id: string; kind: 'primary' | 'secondary' | 'dismiss' }[]) =>
+    ({ type: 'DOOR', id: 'door-1', householdId: 'hh', correlationId: 'c', createdAt: 0, actions: actions.map((a) => ({ ...a, label: a.id })) }) as never;
+
+  it("is the card's own 'Not now': Back puts it away as that button does, and never ends her film", () => {
+    expect(backOnShownCard(card([{ id: 'ask', kind: 'primary' }, { id: 'not-now', kind: 'dismiss' }]))).toBe('not-now');
+  });
+
+  it('does nothing on a card without one: Back is taken, so it cannot reach the film or leave Wick', () => {
+    expect(backOnShownCard(card([{ id: 'yes', kind: 'primary' }]))).toBeUndefined();
+    expect(backOnShownCard(undefined)).toBeUndefined();
   });
 });
