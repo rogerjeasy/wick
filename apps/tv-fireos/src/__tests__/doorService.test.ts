@@ -121,7 +121,7 @@ describe('the door service on Fire OS', () => {
     expect(channel.asked).toEqual([{ config: { websocket: { url: 'wss://ws.example', role: 'background' } }, token: resident }]);
   });
 
-  it('puts up a notification for a door card, and nothing for a note', async () => {
+  it('puts up a heads-up for a door card, and only a quiet one for a note', async () => {
     const channel = standInChannel();
     const alerts = recordingAlerts();
     held = holdDoor({ fs: await pairedAs(resident), config: CONFIG, createChannel: channel.createChannel, fetchImpl: noNetwork, alerts });
@@ -137,7 +137,11 @@ describe('the door service on Fire OS', () => {
     channel.card(doorCard());
     await settle();
 
-    expect(alerts.shown).toEqual([expect.objectContaining({ cardId: 'door-1', title: "Someone's at the front door.", text: 'Open Wick to see who it is.' })]);
+    expect(alerts.shown).toHaveLength(2);
+    expect(alerts.shown).toContainEqual(expect.objectContaining({ cardId: 'note-1', title: 'A note from Sarah is waiting.', quiet: true }));
+    const door = alerts.shown.find((a) => a.cardId === 'door-1');
+    expect(door).toMatchObject({ title: "Someone's at the front door.", text: 'Open Wick to see who it is.' });
+    expect(door?.quiet).toBeUndefined();
   });
 
   it('says it again, once, with the picture and what the vision model saw when they come', async () => {

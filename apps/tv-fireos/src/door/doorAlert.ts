@@ -8,12 +8,18 @@
  * one button, and choosing it, or the notification itself, brings Wick
  * forward to the card that is waiting there.
  *
- * DOOR cards only. A note from the family is DEFERRED: it waits for a
- * natural break and never interrupts, and a notification over somebody
- * else's programme would be an interruption (docs/WICK.md §7). Amazon
- * asks apps not to put up a heads-up while another app is in front; the
- * door is the one exception Wick makes, and the only one (FRICTION.md
+ A heads-up for DOOR cards only. A note from the family is DEFERRED: it
+ * waits for a natural break and never interrupts, and a heads-up over
+ * somebody else's programme would be an interruption (docs/WICK.md §7).
+ * Amazon asks apps not to put up a heads-up while another app is in front;
+ * the door is the one exception Wick makes, and the only one (FRICTION.md
  * FL-035).
+ *
+ * A note gets a quiet notification instead (`quiet`, noteAlert): low
+ * priority, so Fire TV never shows it over her programme and only keeps it
+ * in its Notification Center, where she finds it when she looks. It says
+ * whose note is waiting and nothing of what it says, and goes when Wick
+ * comes forward and shows the note itself.
  *
  * The same rule as the Vega toast (apps/tv-vega/src/notify/doorToast.ts),
  * with one difference: the service that posts this one runs in the app's
@@ -42,6 +48,8 @@ export interface DoorAlert {
    * shown counting.
    */
   readonly endsInMs: number;
+  /** Never a heads-up: kept in the Notification Center only (noteAlert). */
+  readonly quiet?: true;
 }
 
 /**
@@ -67,6 +75,35 @@ export function doorAlert(queued: QueuedCard, language: HouseholdLanguage, now: 
     openLabel: say('doorAlert.open'),
     endsInMs,
   };
+}
+
+/** How long a quiet note notification stays, where its card says no end of its own: a day. */
+export const NOTE_ALERT_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The quiet notification for a note that came while another app was in
+ * front, or nothing for any other card. Whose it is and where to find it,
+ * never the note's words: those are hers to read on her own screen.
+ */
+export function noteAlert(queued: QueuedCard, language: HouseholdLanguage, now: number): DoorAlert | undefined {
+  const card = queued.card;
+  if (card.type !== 'MESSAGE') return undefined;
+  const endsInMs = queued.expiresAt === undefined ? NOTE_ALERT_MS : queued.expiresAt - now;
+  if (endsInMs <= 0) return undefined;
+  const say = words(language);
+  return {
+    cardId: queued.id,
+    title: say('waiting.note', { name: card.fromName }),
+    text: say('doorAlert.noteWhere'),
+    openLabel: say('doorAlert.open'),
+    endsInMs,
+    quiet: true,
+  };
+}
+
+/** What is said, outside Wick, of a card that came while another app was in front: the door's heads-up, a note's quiet notification, or nothing. */
+export function outsideAlert(queued: QueuedCard, language: HouseholdLanguage, now: number): DoorAlert | undefined {
+  return doorAlert(queued, language, now) ?? noteAlert(queued, language, now);
 }
 
 /** Android's own number for Android 13, from which posting a notification is the person's to allow. */

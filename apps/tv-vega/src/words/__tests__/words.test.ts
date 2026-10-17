@@ -40,6 +40,7 @@ const DOOR_ALERT_WORDS = {
   'doorAlert.open': 'Open Wick',
   'doorAlert.who': 'Open Wick to see who it is.',
   'doorAlert.listening': 'Wick will tell you when someone is at the door.',
+  'doorAlert.noteWhere': 'It will be on the screen when you open Wick.',
 } as const;
 
 /** Easier to see (seeing/seeing.ts): the pill, and its card's headline, line and three buttons. */

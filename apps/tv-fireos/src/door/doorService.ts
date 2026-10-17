@@ -9,8 +9,8 @@
  * `role=background`, transport/startCardChannel.ts), which the server sends
  * to only while the app itself has no connection — that is, while Wick is
  * not on screen (edge-device connection-slot.mjs, agent egress.ts). All it
- * does with a card is say so: a notification for a door card
- * (door/doorAlert.ts), said again once when the door agent's picture and
+ * does with a card is say so: a notification for a door card, and a quiet
+ * one for a note that only the Notification Center keeps (door/doorAlert.ts), said again once when the door agent's picture and
  * description come, and taken down when the card is taken back.
  *
  * Three things are different from Vega, because on Android the service is
@@ -46,7 +46,7 @@ import { televisionMode } from '../../../tv-vega/src/family/mode.js';
 import { holdCardChannel, type ChannelFactory, type RunningCardChannel } from '../../../tv-vega/src/transport/startCardChannel.js';
 import { createDeviceChannel } from '../../../tv-vega/src/transport/createDeviceChannel.js';
 import type { DeviceConfig } from '../../../tv-vega/src/config.js';
-import { doorAlert, type DoorAlert } from './doorAlert.js';
+import { outsideAlert, type DoorAlert } from './doorAlert.js';
 
 /**
  * Where the app's store keeps her language (apps/tv-vega/src/headless/
@@ -170,7 +170,7 @@ export function holdDoor(deps: DoorServiceDeps): DoorHold {
   // The card is stored on the server, and is on screen the next time Wick is.
   const show = (card: QueuedCard): void => {
     void (async () => {
-      const alert = doorAlert(card, await rememberedLanguage(deps.fs), now());
+      const alert = outsideAlert(card, await rememberedLanguage(deps.fs), now());
       // Looked at again after the language is read: a hold let go in between posts nothing.
       if (!alert || over) return;
       shown.add(alert.cardId);

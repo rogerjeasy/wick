@@ -20,6 +20,10 @@ import com.wick.tv.R
  *   is in front. High priority, which is what makes Fire OS show it as a
  *   heads-up at the bottom of the screen. It is the only thing Wick ever
  *   puts in front of another app (src/door/doorAlert.ts says when).
+ * - A note waiting (`wick_waiting`): a note from the family that came
+ *   while another app was in front. Low importance: never a heads-up, so
+ *   Fire TV only keeps it in its Notification Center (FL-035). Whose note,
+ *   never its words.
  * - Listening (`wick_listening`): the quiet notification Android requires
  *   of a foreground service. Lowest importance: never a heads-up, never a
  *   sound.
@@ -30,6 +34,7 @@ import com.wick.tv.R
 object DoorNotifications {
   const val DOOR_CHANNEL = "wick_door"
   const val LISTENING_CHANNEL = "wick_listening"
+  const val WAITING_CHANNEL = "wick_waiting"
   const val LISTENING_ID = 1
   /** Every door notification has this id; its card's id is its tag. */
   const val DOOR_ID = 2
@@ -53,7 +58,15 @@ object DoorNotifications {
           enableLights(false)
           setShowBadge(false)
         }
-    manager.createNotificationChannels(listOf(door, listening))
+    val waiting =
+        NotificationChannel(WAITING_CHANNEL, "A note is waiting", NotificationManager.IMPORTANCE_LOW).apply {
+          description = "A note from the family that came while another app was on the screen. Never shown over it."
+          setSound(null, null)
+          enableVibration(false)
+          enableLights(false)
+          setShowBadge(false)
+        }
+    manager.createNotificationChannels(listOf(door, listening, waiting))
   }
 
   /** Brings Wick forward. MainActivity is singleTask, so the Wick already running comes to the front, with the card. */
@@ -86,12 +99,13 @@ object DoorNotifications {
     if (!manager.areNotificationsEnabled()) return
     val open = openWick(context, alert.cardId.hashCode())
     val builder =
-        NotificationCompat.Builder(context, DOOR_CHANNEL)
+        NotificationCompat.Builder(context, if (alert.quiet) WAITING_CHANNEL else DOOR_CHANNEL)
             .setSmallIcon(R.drawable.ic_wick_notification)
             .setContentTitle(alert.title)
             .setContentText(alert.text)
             // Fire TV: high priority is a heads-up ("Urgent"), and an Urgent notification's Menu button says the action.
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            // A note is low: kept in the Notification Center, never put over her programme.
+            .setPriority(if (alert.quiet) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
             .setDefaults(0)
             .setSound(null)
             .setVibrate(null)
@@ -143,4 +157,6 @@ data class DoorAlert(
     val pictureUrl: String?,
     val openLabel: String,
     val endsInMs: Long,
+    /** A note waiting: never a heads-up. */
+    val quiet: Boolean = false,
 )
