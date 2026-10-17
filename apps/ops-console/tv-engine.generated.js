@@ -1133,6 +1133,8 @@ var WickTv = (() => {
     "doorAlert.who": "Open Wick to see who it is.",
     /** The quiet notification Android asks for while the door is listened for behind another app. */
     "doorAlert.listening": "Wick will tell you when someone is at the door.",
+    /** Under "A note from … is waiting." in the quiet notification for a note that came while another app was in front. */
+    "doorAlert.noteWhere": "It will be on the screen when you open Wick.",
     // Easier to see (seeing/seeing.ts): the pill on the home screen, and the card it opens. Each button says
     // how its setting stands, as a whole sentence for each — never "on" put after a word.
     "seeing.entry": "Easier to see",
@@ -1203,6 +1205,7 @@ var WickTv = (() => {
     "doorAlert.open": "Abrir Wick",
     "doorAlert.who": "Abra Wick para ver quién es.",
     "doorAlert.listening": "Wick le avisará cuando alguien llame a la puerta.",
+    "doorAlert.noteWhere": "Estará en la pantalla cuando abra Wick.",
     // "Sí" and "no" after the colon, so nothing has to agree with "letra" or "contraste".
     "seeing.entry": "Más fácil de ver",
     "seeing.entryLabel": "Más fácil de ver. Presione OK para letra más grande o más contraste.",

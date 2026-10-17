@@ -47,6 +47,12 @@ far away. Maria is her carer. *Try the demo* makes you Sarah.
 | **The family** | Sarah asks Alexa+ *"How's Mum been this week?"* and gets a short, honest answer. Notes go to Margaret's television and wait for a natural break; she replies with one button. |
 | **The rhythm** | Wick learns what a normal week looks like in this house, so it stays quiet when nothing is wrong and can say *"that's up from last week"* and mean it. |
 
+**When she is watching another app.** No app can draw over another on Vega or Fire OS, so Wick's cards appear
+only while Wick is on screen. The door still reaches her over anything: a system toast on Vega, a heads-up on
+Fire OS. A note never interrupts. On Fire OS it waits quietly in the Notification Center, never over her
+programme (Amazon asks apps not to put up a heads-up while another app is in front, [FL-035](FRICTION.md)). Vega
+has no quiet place to leave it, so it waits in Wick. Either way it is on her screen the moment she opens Wick.
+
 ### Fourteen features on top
 
 | Feature | What she sees | What it never does |

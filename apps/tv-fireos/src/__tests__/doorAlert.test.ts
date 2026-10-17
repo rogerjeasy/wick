@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DOOR_CARD_TTL_MS, type QueuedCard } from '@wick/contracts';
-import { doorAlert, shouldAskToNotify } from '../door/doorAlert.js';
+import { NOTE_ALERT_MS, doorAlert, noteAlert, outsideAlert, shouldAskToNotify } from '../door/doorAlert.js';
 
 const NOW = 1_800_000_000_000;
 
@@ -108,5 +108,35 @@ describe('asking her once whether Wick may put up notifications', () => {
   it('never asks again: not when she has allowed it, and not when she has said no', () => {
     expect(shouldAskToNotify({ sdk: 34, granted: true, askedBefore: false })).toBe(false);
     expect(shouldAskToNotify({ sdk: 34, granted: false, askedBefore: true })).toBe(false);
+  });
+});
+
+describe('a note that came while another app was in front', () => {
+  it('is said quietly — never a heads-up — with whose it is and where to find it, never its words', () => {
+    const alert = noteAlert(note, 'en', NOW)!;
+    expect(alert).toEqual({
+      cardId: 'note-1',
+      title: 'A note from Sarah is waiting.',
+      text: 'It will be on the screen when you open Wick.',
+      openLabel: 'Open Wick',
+      endsInMs: NOTE_ALERT_MS,
+      quiet: true,
+    });
+    expect(JSON.stringify(alert)).not.toContain('See you Sunday');
+  });
+
+  it('is in her language', () => {
+    expect(noteAlert(note, 'es', NOW)).toMatchObject({ title: 'Hay una nota de Sarah esperando.', text: 'Estará en la pantalla cuando abra Wick.', openLabel: 'Abrir Wick' });
+  });
+
+  it('goes with its card, and says nothing of a card already gone', () => {
+    expect(noteAlert({ ...note, expiresAt: NOW + 60_000 }, 'en', NOW)?.endsInMs).toBe(60_000);
+    expect(noteAlert({ ...note, expiresAt: NOW - 1 }, 'en', NOW)).toBeUndefined();
+  });
+
+  it('leaves the door its heads-up, and says nothing of any other card', () => {
+    expect(outsideAlert(door(), 'en', NOW)?.quiet).toBeUndefined();
+    expect(outsideAlert(note, 'en', NOW)?.quiet).toBe(true);
+    expect(outsideAlert({ ...note, card: { ...note.card, type: 'WEEK' } as never }, 'en', NOW)).toBeUndefined();
   });
 });

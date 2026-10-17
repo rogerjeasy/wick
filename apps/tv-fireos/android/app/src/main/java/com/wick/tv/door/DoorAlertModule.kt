@@ -49,6 +49,7 @@ class DoorAlertModule(private val context: ReactApplicationContext) : ReactConte
               pictureUrl = if (alert.hasKey("pictureUrl")) alert.getString("pictureUrl") else null,
               openLabel = alert.getString("openLabel")!!,
               endsInMs = alert.getDouble("endsInMs").toLong(),
+              quiet = alert.hasKey("quiet") && alert.getBoolean("quiet"),
           )
         } catch (malformed: Exception) {
           promise.reject("door_alert_malformed", malformed)
