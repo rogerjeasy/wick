@@ -28,6 +28,7 @@
  * tested without one. bedrock.ts is the real one.
  */
 import { localWhen, systemPrompt, todayLine, type Who } from '@wick/agent';
+import { PROGRAMMES } from '@wick/contracts';
 import { familyText } from '../guardian.js';
 
 // The rules and the day the model is told are the agent's too (services/agent/src/agents/assistant/prompt.ts): one set for both assistants.
@@ -271,7 +272,9 @@ export function checkReply(text: string, turns: readonly Turn[], now: Date, time
   if (reply.length > MAX_REPLY_CHARS) return { ok: false, detail: 'too long' };
   if (!familyText(reply, 'assistant.reply')) return { ok: false, detail: 'protected' };
 
-  const evidence = new Set(numbersIn(todayLine(now, timeZone)));
+  // Today's date, and the films' lengths ("Sintel, 15 minutes"): Wick's catalogue, which the agent is shown in
+  // invite_to_watch, and not a fact about her. Live, a "which film?" that gave them was refused, and went silent.
+  const evidence = new Set([...numbersIn(todayLine(now, timeZone)), ...PROGRAMMES.flatMap((film) => numbersIn(film.line))]);
   for (const turn of turns) {
     if (turn.role === 'user') numbersIn(turn.text).forEach((n) => evidence.add(n));
     if (turn.role === 'tool') for (const r of turn.results) numbersIn(shownResult(r.text, timeZone)).forEach((n) => evidence.add(n));

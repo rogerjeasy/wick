@@ -201,6 +201,16 @@ describe('systemPrompt', () => {
   });
 });
 
+describe('checkReply — a film\'s length is Wick\'s catalogue, not a fact about her', () => {
+  it('lets the agent say how long the films are when it asks which one: live, "Sintel, 15 minutes" was refused and the reply went silent', () => {
+    expect(checkReply('Which film: Big Buck Bunny (10 minutes), Sintel (15 minutes) or Tears of Steel (12 minutes)?', [], NOW, TZ)).toEqual({ ok: true });
+  });
+
+  it('still refuses any other number with nothing under it', () => {
+    expect(checkReply('Sintel is 16 minutes long.', [], NOW, TZ)).toEqual({ ok: false, detail: '16' });
+  });
+});
+
 describe('checkReply — the model chooses the words, and cannot add a number', () => {
   const turns: Turn[] = [
     asked('Did anyone come on the 12th?'),
