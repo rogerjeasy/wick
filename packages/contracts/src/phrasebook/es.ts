@@ -272,6 +272,21 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
     b('Keep this private', 'Mantener en privado'),
     b('Next', 'Siguiente'),
     b('Done', 'Listo'),
+    s('Stop Wick.', 'Detener Wick.'),
+    s(
+      'Wick stops, and everything it keeps about your home is deleted.',
+      'Wick se detiene, y se borra todo lo que guarda sobre su casa.',
+    ),
+    s(
+      'Everyone in your family circle is disconnected, and this television shows a new code.',
+      'Todas las personas de su círculo familiar quedan desconectadas, y este televisor muestra un código nuevo.',
+    ),
+    s('Delete everything Wick keeps about your home?', '¿Borrar todo lo que Wick guarda sobre su casa?'),
+    s('This cannot be undone.', 'No se puede deshacer.'),
+    s('Nobody in your family circle will see anything from Wick again.', 'Nadie de su círculo familiar volverá a ver nada de Wick.'),
+    b('Stop Wick', 'Detener Wick'),
+    b('Keep Wick', 'Mantener Wick'),
+    b('Yes, delete everything', 'Sí, borrar todo'),
   ],
 
   // The question at the credits.

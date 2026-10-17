@@ -73,8 +73,8 @@ export interface WeekCard extends CardBase {
  */
 export interface SharingCard extends CardBase {
   readonly type: 'SHARING';
-  /** The policy class this page controls. */
-  readonly factClass: import('./fact.js').FactClass;
+  /** The policy class this page controls. Absent on the last two pages: Stop Wick, and its "Are you sure?". */
+  readonly factClass?: import('./fact.js').FactClass;
   readonly page: number;
   readonly pages: number;
   readonly headline: string;
@@ -269,6 +269,12 @@ export const SHARING_ACTIONS = {
   toggle: 'toggle',
   next: 'next',
   done: 'done',
+  /** The last page: Stop Wick. Leads to the page that asks if she is sure. */
+  stop: 'stop',
+  /** "Yes, delete everything": her television asks the Wick server itself (POST /tv/stop). */
+  stopYes: 'stop_yes',
+  /** "Keep Wick": back to the Stop Wick page, nothing changed. Not `keep`: that is the mantelpiece's "Keep it". */
+  keepWick: 'keep_wick',
 } as const;
 
 export const SHARING_CARD_ID = 'sharing';
