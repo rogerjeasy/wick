@@ -8,13 +8,20 @@
  * the live policy and pushes it back over the same connection, replacing
  * the card in place.
  *
- * The television can change exactly one thing: the resident's own
+ * Through this card the television can change exactly one thing: the resident's own
  * exclusions, held as a `residentExclusions` string set on the household's
  * META item (ADD / DELETE, so no read-modify-write of the policy document).
  * services/mcp-server's loadHouseholdPolicy merges that set into the policy.
  * Exclusions can only narrow what the family sees (services/policy), so the
  * worst a stolen or confused television can do is make the household more
  * private.
+ *
+ * The last page is Stop Wick, and the page after it asks if she is sure.
+ * Her "Yes, delete everything" is not done here: her television asks the
+ * Wick server itself, with its own token (services/mcp-server
+ * accounts/residentTelevision.ts), which closes the whole home. A stolen
+ * television could do that too — after two pages and a confirmation on the
+ * screen, and nothing worse than what the home's organiser can do.
  *
  * This plain .mjs Lambda can't import TS, so the policy facts it needs are
  * inlined below, each with a pointer to its source — keep them in step.
@@ -91,7 +98,12 @@ export function buildSharingCard({ householdId, page, policyJson, exclusions, fa
   const classes = visibleClasses(policyJson);
   if (classes.length === 0) return undefined;
 
-  const index = ((page % classes.length) + classes.length) % classes.length;
+  // After the pages of what is shared: Stop Wick (classes.length), and the page that asks if she is sure (one more),
+  // which only Stop Wick leads to. Next goes round the pages of what is shared and Stop Wick, never to "Are you sure?".
+  const stopPage = classes.length;
+  if (page === stopPage + 1) return stopCard({ householdId, page, pages: stopPage + 1, now, respondsTo, sure: true });
+  const index = ((page % (stopPage + 1)) + stopPage + 1) % (stopPage + 1);
+  if (index === stopPage) return stopCard({ householdId, page: index, pages: stopPage + 1, now, respondsTo, sure: false });
   const factClass = classes[index];
   const item = ITEMS.find((i) => i.factClass === factClass);
   const isPrivate = exclusions.includes(factClass);
@@ -111,7 +123,7 @@ export function buildSharingCard({ householdId, page, policyJson, exclusions, fa
       createdAt: now,
       factClass,
       page: index,
-      pages: classes.length,
+      pages: classes.length + 1,
       headline: item.headline,
       detail: `${index + 1} of ${classes.length}. ${status} ${NEVER_LINE}`,
       actions: [
@@ -124,15 +136,61 @@ export function buildSharingCard({ householdId, page, policyJson, exclusions, fa
 }
 
 /**
+ * The last page, Stop Wick, and the page after it that asks if she is sure.
+ * The first button of a page is where the remote's focus starts, so it is
+ * never the one that deletes: Next on the first, Keep Wick on the second.
+ * "Yes, delete everything" is done by her television itself (the Wick
+ * server's POST /tv/stop, with its own device token): nothing here deletes
+ * anything.
+ */
+function stopCard({ householdId, page, pages, now, respondsTo, sure }) {
+  return {
+    id: SHARING_CARD_ID,
+    urgency: 'DEFERRED',
+    queuedAt: now,
+    shownCount: 0,
+    ...(respondsTo ? { respondsTo } : {}),
+    card: {
+      type: 'SHARING',
+      id: SHARING_CARD_ID,
+      householdId,
+      correlationId: SHARING_CARD_ID,
+      createdAt: now,
+      page,
+      pages,
+      headline: sure ? 'Delete everything Wick keeps about your home?' : 'Stop Wick.',
+      detail: sure
+        ? 'This cannot be undone. Nobody in your family circle will see anything from Wick again.'
+        : 'Wick stops, and everything it keeps about your home is deleted. Everyone in your family circle is disconnected, and this television shows a new code.',
+      actions: sure
+        ? [
+            { id: 'keep_wick', label: 'Keep Wick', kind: 'primary' },
+            { id: 'stop_yes', label: 'Yes, delete everything', kind: 'secondary' },
+          ]
+        : [
+            { id: 'next', label: 'Next', kind: 'secondary' },
+            { id: 'done', label: 'Done', kind: 'secondary' },
+            { id: 'stop', label: 'Stop Wick', kind: 'secondary' },
+          ],
+    },
+  };
+}
+
+/**
  * What a press on the stored sharing card does: the page to show next, and
  * the exclusion to set, if any. Undefined for Done (route.mjs retires the
- * card) and anything else.
+ * card), for "Yes, delete everything" (her television does that itself) and
+ * anything else.
  */
 export function sharingStep(storedQueued, action, exclusions) {
   const card = storedQueued?.card;
   if (card?.type !== 'SHARING') return undefined;
-  if (action === 'next') return { page: card.page + 1 };
-  if (action === 'toggle') {
+  // Stop Wick, and Keep Wick back to it: the pages after the last one that is shared (buildSharingCard).
+  if (action === 'stop' && card.factClass === undefined) return { page: card.page + 1 };
+  if (action === 'keep_wick' && card.factClass === undefined) return { page: card.page - 1 };
+  // Next on Stop Wick goes round to the first page, never on to "Are you sure?".
+  if (action === 'next') return { page: card.factClass === undefined ? 0 : card.page + 1 };
+  if (action === 'toggle' && card.factClass !== undefined) {
     return { page: card.page, set: { factClass: card.factClass, keepPrivate: !exclusions.includes(card.factClass) } };
   }
   return undefined;

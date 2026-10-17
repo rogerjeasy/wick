@@ -572,3 +572,52 @@ describe('tv.js — what it never does', () => {
     expect(TV_SOURCE.match(/setInterval\(/g)).toHaveLength(1);
   });
 });
+
+describe('she stops Wick from this television', () => {
+  const SURE = queued({
+    id: 'sharing',
+    type: 'SHARING',
+    page: 5,
+    pages: 5,
+    headline: 'Delete everything Wick keeps about your home?',
+    detail: 'This cannot be undone.',
+    actions: [
+      { id: 'keep_wick', label: 'Keep Wick', kind: 'primary' },
+      { id: 'stop_yes', label: 'Yes, delete everything', kind: 'secondary' },
+    ],
+  });
+
+  async function onTheQuestion() {
+    const tv = await atHome();
+    tv.card(SURE);
+    tv.advance(SETTLED_AFTER_MS);
+    expect(shownType(tv)).toBe('SHARING');
+    tv.advance(PRESS_SETTLE_MS);
+    tv.press('ArrowRight');
+    tv.press('Enter');
+    return tv;
+  }
+
+  it('asks the Wick server itself, in words, and sends no card action for it', async () => {
+    const tv = await onTheQuestion();
+
+    const stop = tv.asked.find((a) => a.url.endsWith('/tv/stop'))!;
+    expect(stop).toBeDefined();
+    expect(stop.method).toBe('POST');
+    expect(stop.body).toEqual({ confirm: 'stop' });
+    expect(tv.sentOf('card_action')).toEqual([]);
+  });
+
+  it('is no longer this home’s television once her home is closed, and stays on the question if it was not', async () => {
+    const refused = await onTheQuestion();
+    refused.asked.find((a) => a.url.endsWith('/tv/stop'))!.answer(502, { error: 'doorbell_unavailable' });
+    await refused.settle();
+    expect(shownType(refused)).toBe('SHARING');
+    expect(refused.tab.get('wick_virtual_television')).toBeDefined();
+
+    const stopped = await onTheQuestion();
+    stopped.asked.find((a) => a.url.endsWith('/tv/stop'))!.answer(200, { stopped: true });
+    await stopped.settle();
+    expect(stopped.tab.get('wick_virtual_television')).toBeUndefined();
+  });
+});

@@ -87,6 +87,7 @@ import { announce, useCalmStyles, useScreenReaderEnabled, type CalmTheme } from 
 import { speechTextOf } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
+import { askToStop, stopsWick } from './pairing/stop.js';
 import { LiveView } from './live/LiveView.js';
 import { BreakController } from './break/BreakController.js';
 import { followScreen } from './break/followScreen.js';
@@ -709,6 +710,15 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
         setTogether(film.together ?? null);
         setWatching(programme);
       }
+      // "Yes, delete everything": she stops Wick. Her television asks the Wick server itself; once her home is
+      // closed it shows a new code, as a disconnected one does. Refused or unreachable, the page stays to try again.
+      if (card && card.id === cardId && stopsWick(card.card, actionId)) {
+        void askToStop(fetch, config.wickServerUrl, inUse.jwt).then((stopped) => {
+          if (stopped === 'stopped') standing?.onGone();
+          else console.warn('stop_wick_not_done', stopped);
+        });
+        return;
+      }
       // Any answer on the card her hold brought ends the little while in which the newest one is brought forward.
       if (card && card.id === cardId && card.card.type === 'REACH') reachAsked.done();
       if (card && card.id === cardId && removesCard(card.card, actionId)) {
@@ -721,7 +731,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       // one, since FL-014 (holdCardChannel above).
       void store.enqueueOutbound({ t: 'card_action', cardId, action: actionId, at: Date.now() });
     },
-    [store, card, guard, breakController, reachAsked, settle],
+    [store, card, guard, breakController, reachAsked, settle, config, inUse, standing],
   );
 
   // A press on the Easier to see card: held to the card's one second and the hold's thumb like any card's, then

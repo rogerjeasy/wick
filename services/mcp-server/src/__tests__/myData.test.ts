@@ -24,6 +24,7 @@ import {
   type Tokens,
 } from './harness.js';
 import { createMemoryTable, type MemoryTable } from './memoryTable.js';
+import { putPublicKey, token as deviceToken } from '../accounts/__tests__/familyTvWorld.js';
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -373,6 +374,36 @@ describe('deleting an account', () => {
     // Tom keeps his account, and the home he was in is simply not there for him any more.
     expect(await w.h.store.getUser(tom.userId)).toBeDefined();
     expect((await call(w.h, tom, '/api/me')).status).toBe(404);
+  });
+
+  it('closes the home when Margaret stops Wick from her own television, and Sarah keeps her account', async () => {
+    const w = await world();
+    const { sarah, tom } = await sarahAndTom(w);
+    putPublicKey(w.table);
+    w.h.store.addTelevision(sarah.householdId, { deviceId: 'her-tv', connected: true });
+    w.table.put({ pk: { S: `HH#${sarah.householdId}` }, sk: { S: 'DEV#her-tv' } });
+    putPicture(w.table, sarah.householdId, 'p-1', tom.userId, false);
+
+    // The test's clock is the real one: the token is signed to be good now.
+    const her = deviceToken({ deviceId: 'her-tv', householdId: sarah.householdId, proof: 'pairing' }, { exp: Math.floor(Date.now() / 1000) + 3600 });
+    const stop = (body: unknown) =>
+      fetch(`${w.h.base}/tv/stop`, { method: 'POST', headers: { authorization: `Bearer ${her}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+    expect((await stop({})).status).toBe(400);
+    expect(await w.h.store.getHousehold(sarah.householdId)).toBeDefined();
+
+    const res = await stop({ confirm: 'stop' });
+    expect(res.status).toBe(200);
+    expect(w.disconnected).toEqual([sarah.householdId]);
+    expect(w.removedPictures).toEqual([`${sarah.householdId}/p-1`]);
+    expect(w.table.rows(`HH#${sarah.householdId}`)).toEqual([]);
+    expect(await w.h.store.getHousehold(sarah.householdId)).toBeUndefined();
+    expect(await w.h.store.listMembers(sarah.householdId)).toEqual([]);
+    // Their accounts are theirs: only the home is gone.
+    expect(await w.h.store.getUser(sarah.userId)).toBeDefined();
+    expect(await w.h.store.getUser(tom.userId)).toBeDefined();
+    // And a television already disconnected can close nothing again.
+    expect((await stop({ confirm: 'stop' })).status).toBe(401);
   });
 
   it('deletes nothing when the doorbell cannot be disconnected', async () => {

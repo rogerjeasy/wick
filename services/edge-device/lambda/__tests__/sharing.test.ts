@@ -70,7 +70,7 @@ describe('buildSharingCard — one thing Sarah can see, in plain words', () => {
         createdAt: NOW,
         factClass: 'DOOR_EVENT',
         page: 0,
-        pages: 4,
+        pages: 5,
         headline: 'When someone comes to your front door.',
         detail: `1 of 4. Sarah can see this. ${NEVER}`,
         actions: [
@@ -89,10 +89,32 @@ describe('buildSharingCard — one thing Sarah can see, in plain words', () => {
     expect(card.actions[0]).toEqual({ id: 'toggle', label: 'Share it again', kind: 'primary' });
   });
 
-  it('wraps past the last page, and fits the card body', () => {
+  it('ends on Stop Wick, whose first button is Next, never the one that deletes', () => {
     const card = build(4).card;
-    expect(card.page).toBe(0);
+    expect(card).toMatchObject({ page: 4, pages: 5, headline: 'Stop Wick.' });
+    expect(card.factClass).toBeUndefined();
+    expect(card.actions.map((a: { id: string }) => a.id)).toEqual(['next', 'done', 'stop']);
     expect(card.detail.length).toBeLessThanOrEqual(240);
+  });
+
+  it('asks if she is sure, with Keep Wick first, only after Stop Wick', () => {
+    const card = build(5).card;
+    expect(card).toMatchObject({ page: 5, headline: 'Delete everything Wick keeps about your home?' });
+    expect(card.actions.map((a: { id: string }) => a.id)).toEqual(['keep_wick', 'stop_yes']);
+    expect(card.detail.length).toBeLessThanOrEqual(240);
+  });
+
+  it('goes round: Next on the last thing shared is Stop Wick, Next on Stop Wick is the first page', () => {
+    const last = build(3);
+    expect(sharingStep(last, 'next', [])).toEqual({ page: 4 });
+    const stop = build(4);
+    expect(sharingStep(stop, 'next', [])).toEqual({ page: 0 });
+    expect(sharingStep(stop, 'stop', [])).toEqual({ page: 5 });
+    expect(sharingStep(stop, 'toggle', [])).toBeUndefined();
+    const sure = build(5);
+    expect(sharingStep(sure, 'keep_wick', [])).toEqual({ page: 4 });
+    // "Yes, delete everything" is her television's to do (POST /tv/stop): nothing here changes for it.
+    expect(sharingStep(sure, 'stop_yes', [])).toBeUndefined();
   });
 
   it('says "your family" when the household has not named anyone', () => {

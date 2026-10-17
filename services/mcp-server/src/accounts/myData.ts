@@ -253,6 +253,26 @@ export async function deleteAccount(deps: MyDataDeps, asker: Asker, request: Del
   await store.deleteRecord('DELETING', userId);
 }
 
+/**
+ * The resident stops Wick, from her own television (residentTelevision.ts):
+ * her home closed exactly as its organiser's deletion closes it. The
+ * doorbell first, and if it cannot be disconnected nothing is deleted.
+ * Everyone in her circle loses their place in it; their accounts are theirs
+ * and stay.
+ */
+export async function closeHomeAtHerWord(deps: MyDataDeps, householdId: string): Promise<void> {
+  if (deps.ringLinks) {
+    let answer;
+    try {
+      answer = await deps.ringLinks.disconnect(householdId);
+    } catch {
+      answer = undefined;
+    }
+    if (!answer?.ok) throw new AccountRefusal(502, 'doorbell_unavailable', 'The doorbell could not be disconnected just now, so nothing was deleted. Try again in a moment.');
+  }
+  await closeHome(deps, householdId);
+}
+
 /** Their place in a home somebody else set up: their row, the visits they announced, a television of their own, and their id on their notes. */
 async function leaveHome(deps: MyDataDeps, householdId: string, userId: string): Promise<void> {
   const { store, ddb } = deps;
