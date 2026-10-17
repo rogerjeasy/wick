@@ -8,8 +8,6 @@ import { parsePattern } from '@wick/agent';
 import { VISITOR_NAME_NOT_SHARED_TEXT, collidesWith, personIdFor, regularPattern, registerAddRegularVisitor, visitorName } from '../add_regular_visitor.js';
 import { allowedContext } from './toolContext.js';
 
-/** A Wednesday in October: London is an hour ahead of UTC. */
-const OCTOBER = new Date(Date.UTC(2026, 9, 14, 15));
 /** A Wednesday in January: London is on UTC. */
 const JANUARY = new Date(Date.UTC(2027, 0, 13, 15));
 
@@ -37,27 +35,27 @@ describe('personIdFor', () => {
 });
 
 describe('regularPattern', () => {
-  it("stores the household's nine o'clock as the door agent reads it, in UTC", () => {
-    expect(regularPattern(['friday', 'tuesday'], '09:00', 'Europe/London', OCTOBER)).toBe('TUE,FRI 08:00±30m');
-    expect(regularPattern(['tuesday', 'friday'], '09:00', 'Europe/London', JANUARY)).toBe('TUE,FRI 09:00±30m');
+  it("keeps the household's nine o'clock as nine o'clock, in summer and in winter: the door reads it on the household clock", () => {
+    // Saved in October (summer time) or January, the pattern is the same; it used to be 08:00 in UTC
+    // in October, an hour out once the clocks went back (issue #84).
+    expect(regularPattern(['friday', 'tuesday'], '09:00')).toBe('TUE,FRI 09:00±30m');
   });
 
   it('says the days Monday first, once each', () => {
-    expect(regularPattern(['sunday', 'monday', 'sunday'], '10:30', 'Europe/London', JANUARY)).toBe('MON,SUN 10:30±30m');
+    expect(regularPattern(['sunday', 'monday', 'sunday'], '10:30')).toBe('MON,SUN 10:30±30m');
   });
 
-  it('takes the day with the time when UTC is on the other side of midnight', () => {
-    // Half past midnight on a Tuesday in London in summer time is Monday evening in UTC.
-    expect(regularPattern(['tuesday'], '00:30', 'Europe/London', OCTOBER)).toBe('MON 23:30±30m');
+  it('keeps a time just after midnight on the day it was given', () => {
+    expect(regularPattern(['tuesday'], '00:30')).toBe('TUE 00:30±30m');
   });
 
   it('is a pattern every reader of the roster can read', () => {
-    expect(parsePattern(regularPattern(['tuesday', 'friday'], '09:00', 'Europe/London', JANUARY))).toEqual({ days: [2, 5], minuteOfDay: 540, windowMin: 30 });
+    expect(parsePattern(regularPattern(['tuesday', 'friday'], '09:00'))).toEqual({ days: [2, 5], minuteOfDay: 540, windowMin: 30 });
   });
 
   it('gives nothing for a time that is not one', () => {
-    expect(regularPattern(['tuesday'], 'nine-ish', 'Europe/London', OCTOBER)).toBeUndefined();
-    expect(regularPattern(['tuesday'], '25:00', 'Europe/London', OCTOBER)).toBeUndefined();
+    expect(regularPattern(['tuesday'], 'nine-ish')).toBeUndefined();
+    expect(regularPattern(['tuesday'], '25:00')).toBeUndefined();
   });
 });
 
@@ -197,6 +195,13 @@ describe('add_regular_visitor', () => {
       expect(await call(ddb, { ...MARIA, name })).toBe(VISITOR_NAME_NOT_SHARED_TEXT);
     }
     expect(transactions).toEqual([]);
+  });
+
+  it('takes a person whose surname is also a word: Anna Cash is not money, and Mrs Banks is not her bank', async () => {
+    for (const name of ['Anna Cash', 'Mrs Banks']) {
+      const { ddb } = table();
+      expect(JSON.parse(await call(ddb, { ...MARIA, name }))).toMatchObject({ added: true, name });
+    }
   });
 
   it('refuses a name that is not one, and a time that is not one, and writes nothing', async () => {

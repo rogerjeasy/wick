@@ -19,10 +19,10 @@
  * from the family is not having it curated by them either: the tool
  * refuses, exactly as list_regular_visitors does.
  *
- * The time is given in the household's own clock and stored as the door
- * agent matches it, in UTC (services/agent/src/agents/door/roster.ts), at
- * the offset in force today. After the clocks change a regular time is an
- * hour out until it is said again.
+ * The time is given in the household's own clock and stored as it was
+ * given: the door agent reads every pattern on the household's clock
+ * (services/agent/src/agents/door/roster.ts), so nine o'clock stays nine
+ * o'clock when the clocks change (issue #84).
  *
  * The door's "this looks like Maria" is only a schedule, and this tool is
  * how a schedule gets written — so what it writes is kept narrow:
@@ -73,13 +73,10 @@ import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './
 import { parsePattern, stillWelcome } from '@wick/agent';
 import { describePattern } from './list_regular_visitors.js';
 import { answerSchema, WRITES, data, say } from './result.js';
-import { familyText } from '../guardian.js';
-import { localToUtc } from './when.js';
+import { familyName } from '../guardian.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
-const DAY_MS = 86_400_000;
 /** A ring this long either side of the usual time still looks like them. */
 export const REGULAR_WINDOW_MIN = 30;
 /** A roster is a handful of people the resident knows, not a contact list. */
@@ -124,22 +121,16 @@ export function personIdFor(name: string): string {
 }
 
 /**
- * The pattern the door agent reads: "TUE,FRI 08:00±60m", in UTC. `time` is
- * HH:MM on the household's clock; a time that falls on the other side of
- * midnight in UTC takes its days with it.
+ * The pattern the door agent reads: "TUE,FRI 09:00±30m", on the household's
+ * own clock, as the time was given. `time` is HH:MM.
  */
-export function regularPattern(days: readonly DayName[], time: string, timeZone: string, now: Date): string | undefined {
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
-  const at = localToUtc(today, time, timeZone);
-  if (at === undefined) return undefined;
-  const utc = new Date(at);
-  const dayShift = Math.round((Date.UTC(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate()) - Date.parse(`${today}T00:00:00Z`)) / DAY_MS);
-  const codes = [...new Set(days.map((d) => (DAY_NAMES.indexOf(d) + dayShift + 7) % 7))]
+export function regularPattern(days: readonly DayName[], time: string): string | undefined {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return undefined;
+  const codes = [...new Set(days.map((d) => DAY_NAMES.indexOf(d)))]
     // Monday first, as a week is said.
     .sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7))
     .map((i) => DAY_CODES[i]!);
-  const hhmm = `${String(utc.getUTCHours()).padStart(2, '0')}:${String(utc.getUTCMinutes()).padStart(2, '0')}`;
-  return `${codes.join(',')} ${hhmm}±${REGULAR_WINDOW_MIN}m`;
+  return `${codes.join(',')} ${time}±${REGULAR_WINDOW_MIN}m`;
 }
 
 const WEEKDAYS = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'] as const;
@@ -247,8 +238,8 @@ export function registerAddRegularVisitor(
       // `member-…` is how an announced visit is filed (contracts memberPersonId): never a name's key.
       if (!name || !personId || personId.startsWith('member-')) return say(VISITOR_BAD_NAME_TEXT);
       // INV-4: a name is read back to the family by every visitor tool, so it is cleared here, once, before it is kept.
-      if (!familyText(name, 'visitor.name')) return say(VISITOR_NAME_NOT_SHARED_TEXT);
-      const expectedPattern = regularPattern(asked.days, asked.time, HOUSEHOLD_TZ, now());
+      if (!familyName(name, 'visitor.name')) return say(VISITOR_NAME_NOT_SHARED_TEXT);
+      const expectedPattern = regularPattern(asked.days, asked.time);
       if (!expectedPattern) return say(VISITOR_BAD_TIME_TEXT);
 
       const { live, dead, stored, version } = await loadRegulars(ddb, ctx.householdId);
