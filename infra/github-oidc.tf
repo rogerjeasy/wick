@@ -293,6 +293,22 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["arn:aws:sns:${local.region}:${local.account_id}:wick-*"]
   }
 
+  # The account's monthly budget (infra/budget.tf), by name: made, changed,
+  # read and tagged, and nothing else of the account's billing. CreateBudget
+  # and DeleteBudget are authorised as ModifyBudget. Without this, every
+  # apply after budget.tf merged failed at its creation (2026-10-17).
+  statement {
+    sid = "ManageTheBudgetNothingElseOfBilling"
+    actions = [
+      "budgets:ModifyBudget",
+      "budgets:ViewBudget",
+      "budgets:ListTagsForResource",
+      "budgets:TagResource",
+      "budgets:UntagResource",
+    ]
+    resources = ["arn:aws:budgets::${local.account_id}:budget/wick-*"]
+  }
+
   statement {
     sid = "ManageTheDeadLetterQueueNeverItsMessages"
     actions = [
