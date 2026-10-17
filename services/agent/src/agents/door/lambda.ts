@@ -103,6 +103,8 @@ const doorAgents = (): RuntimeTarget => ({ ...agentCoreTarget(), timeoutMs: DESC
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
+/** The household's clock (infra/agent.tf): a regular visitor's "09:00" is read on it. */
+const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 // S6. Same table, same client — see rhythm/records.ts's header for why this
 // is DynamoDB rather than Timestream.
 const rhythmWriter = createRhythmWriter(ddb, TABLE);
@@ -203,6 +205,7 @@ function standInBase(): StandInBase {
     announceRing,
     newId: randomUUID,
     now: Date.now,
+    timeZone: HOUSEHOLD_TZ,
   };
 }
 
@@ -251,6 +254,7 @@ async function routeRing(detail: Record<string, unknown>): Promise<RouteResult> 
         }, event.eventType),
       announceRing,
       now: Date.now,
+      timeZone: HOUSEHOLD_TZ,
     };
   };
 

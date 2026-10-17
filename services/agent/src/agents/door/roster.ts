@@ -18,12 +18,10 @@
  * exactly the "confident guessing" docs/WICK.md Principle 11 forbids.
  */
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { userIdOfMemberPerson, type RosterEntry, type VisitorMatch } from '@wick/contracts';
+import { localDayCode, localMinuteOfDay, userIdOfMemberPerson, type RosterEntry, type VisitorMatch } from '@wick/contracts';
 
 /** Deliberately modest: a schedule match is weaker evidence than a direct observation. */
 export const SCHEDULE_MATCH_CONFIDENCE = 0.5;
-
-const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
 
 interface ParsedPattern {
   readonly days: readonly string[];
@@ -32,7 +30,11 @@ interface ParsedPattern {
   readonly windowMin: number;
 }
 
-/** "TUE,FRI 09:00±30m" — the same shape did_visitor_come.ts's roster already uses. */
+/**
+ * "TUE,FRI 09:00±30m" — the same shape did_visitor_come.ts's roster already
+ * uses, on the household's own clock: nine o'clock is nine o'clock in summer
+ * and in winter (contracts clock.ts).
+ */
 function parsePattern(pattern: string): ParsedPattern | undefined {
   const [dayPart, timePart] = pattern.trim().split(/\s+/);
   if (!dayPart || !timePart) return undefined;
@@ -52,11 +54,14 @@ function parsePattern(pattern: string): ParsedPattern | undefined {
  * or nobody, which is the common and correct answer. The first roster entry
  * that fits wins; two people scheduled at overlapping times is a household
  * curation problem, not something to adjudicate here.
+ *
+ * The moment is read where the house is (`timeZone`), never in UTC: read in
+ * UTC, a stranger at 09:59 in London summer time was taken for the 09:00±30m
+ * carer (issue #84).
  */
-export function matchVisitor(roster: readonly RosterEntry[], at: number): VisitorMatch | undefined {
-  const date = new Date(at);
-  const todayCode = DAY_CODES[date.getUTCDay()]!;
-  const minutesOfDay = date.getUTCHours() * 60 + date.getUTCMinutes();
+export function matchVisitor(roster: readonly RosterEntry[], at: number, timeZone: string): VisitorMatch | undefined {
+  const todayCode = localDayCode(at, timeZone);
+  const minutesOfDay = localMinuteOfDay(at, timeZone);
 
   const matched = (person: RosterEntry): VisitorMatch => ({
     personId: person.personId,

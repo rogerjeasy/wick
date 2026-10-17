@@ -85,6 +85,7 @@ async function main() {
       householdId: 'demo-household',
       correlationId,
       now: Date.now(),
+      timeZone: process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London',
     }),
   );
   console.log(`   ${ms(tCard)}  (local — no network, no model)\n`);

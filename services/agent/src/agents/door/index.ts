@@ -78,6 +78,8 @@ export interface DoorCardInput {
   readonly householdId: string;
   readonly correlationId: string;
   readonly now: number;
+  /** The household's clock: a regular visitor's "09:00" is read on it (roster.ts matchVisitor). */
+  readonly timeZone: string;
   /** M4. Omitted (not just empty) is the common case — most households haven't curated one yet. */
   readonly roster?: readonly RosterEntry[];
   /**
@@ -179,8 +181,8 @@ function cardIdFor(eventId: string): string {
  * (INV-6: idempotent and correlated).
  */
 export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
-  const { event, hallwayChime, householdId, correlationId, now, roster, family, standIn = false, ringUnanswered = false } = input;
-  const match = roster ? matchVisitor(roster, event.start) : undefined;
+  const { event, hallwayChime, householdId, correlationId, now, timeZone, roster, family, standIn = false, ringUnanswered = false } = input;
+  const match = roster ? matchVisitor(roster, event.start, timeZone) : undefined;
   // A visitor an errand expects: the entry carries the name of the member who arranged it.
   const arrangedBy = match && errandIdOf(match.personId) ? roster?.find((person) => person.personId === match.personId)?.arrangedByName : undefined;
 

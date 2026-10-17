@@ -20,7 +20,11 @@ import { expectedToday } from './did_visitor_come.js';
 import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { answerSchema, READS, data, say } from './result.js';
+
 import { z } from 'zod';
+
+/** The household's clock: "expected today" is today where the house is (issue #84). */
+const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 const DAY_MS = 86_400_000;
@@ -100,7 +104,7 @@ export async function loadVisitors(ddb: DynamoDBClient, householdId: string, now
         personId: p.personId,
         name: p.name,
         ...(usualDays ? { usualDays } : {}),
-        expectedToday: expectedToday(p.expectedPattern, now),
+        expectedToday: expectedToday(p.expectedPattern, now, HOUSEHOLD_TZ),
         ...(lastVisitAt !== undefined ? { lastVisitAt } : {}),
       };
     });

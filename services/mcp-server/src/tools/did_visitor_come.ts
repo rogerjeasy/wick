@@ -18,7 +18,7 @@
  */
 import { z } from 'zod';
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk, type RosterEntry } from '@wick/contracts';
+import { localDayCode, padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk, type RosterEntry } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
@@ -35,13 +35,10 @@ export interface VisitorCheckResult {
   readonly expectedToday: boolean;
 }
 
-const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
-
-export function expectedToday(pattern: string | undefined, now: Date): boolean {
+/** Whether the pattern's days include the day `now` is where the house is (`timeZone`; issue #84). */
+export function expectedToday(pattern: string | undefined, now: Date, timeZone: string): boolean {
   if (!pattern) return false;
-  // getUTCDay() is always 0-6, so this index always hits — the `!` just
-  // routes around noUncheckedIndexedAccess, which can't see that bound.
-  const todayCode = DAY_CODES[now.getUTCDay()]!;
+  const todayCode = localDayCode(now.getTime(), timeZone);
   const days = pattern.split(' ')[0]?.split(',') ?? [];
   return days.includes(todayCode);
 }
@@ -87,7 +84,8 @@ export async function checkVisitor(
     visited: Boolean(visit),
     ...(visit ? { at: parseTsFromSk(visit.sk?.S ?? '') } : {}),
     name: roster.name,
-    expectedToday: expectedToday(roster.expectedPattern, now),
+    // `now` is the start of the day asked, a calendar date (when.ts): its weekday is read as that date.
+    expectedToday: expectedToday(roster.expectedPattern, now, 'UTC'),
   };
 }
 

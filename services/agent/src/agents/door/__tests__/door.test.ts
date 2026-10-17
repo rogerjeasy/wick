@@ -39,7 +39,7 @@ const build = (hallwayChime: boolean) =>
     device,
     hallwayChime,
     householdId: 'hh-1',
-    correlationId: 'corr-abc',
+    correlationId: 'corr-abc', timeZone: 'UTC',
     now: 1789455094000,
   });
 
@@ -95,7 +95,7 @@ describe('buildPhaseOneCard', () => {
       device,
       hallwayChime: true,
       householdId: 'hh-1',
-      correlationId: 'corr-abc',
+      correlationId: 'corr-abc', timeZone: 'UTC',
       now: 1789455094000,
     });
     expect(other.id).not.toBe(build(true).id);
@@ -117,7 +117,7 @@ describe('buildPhaseOneCard — M4 Known Visitors', () => {
       device,
       hallwayChime: true,
       householdId: 'hh-1',
-      correlationId: 'corr-abc',
+      correlationId: 'corr-abc', timeZone: 'UTC',
       now: 1789455094000,
       roster: [maria],
     });
@@ -131,7 +131,7 @@ describe('buildPhaseOneCard — M4 Known Visitors', () => {
       device,
       hallwayChime: true,
       householdId: 'hh-1',
-      correlationId: 'corr-abc',
+      correlationId: 'corr-abc', timeZone: 'UTC',
       now: 1789455094000,
       roster: [maria],
     });
@@ -147,7 +147,7 @@ describe('buildPhaseOneCard — asking the family to look', () => {
       device,
       hallwayChime: over.hallwayChime ?? false,
       householdId: 'hh-1',
-      correlationId: 'corr-abc',
+      correlationId: 'corr-abc', timeZone: 'UTC',
       now: 1789455094000,
       family,
       ...(over.roster ? { roster: over.roster } : {}),
@@ -329,7 +329,7 @@ describe('a stand-in doorbell (a demo home: contracts demoDoor.ts)', () => {
       device,
       hallwayChime: true,
       householdId: 'hh-demo',
-      correlationId: 'corr-demo',
+      correlationId: 'corr-demo', timeZone: 'UTC',
       now: 1789455094000,
       standIn: true,
       ...over,

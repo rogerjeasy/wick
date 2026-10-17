@@ -77,6 +77,7 @@ function world(over: { roster?: readonly RosterEntry[]; family?: readonly string
     pictures: standInPictures(PICTURES),
     newId: () => `id-${puts.length}`,
     now: () => now,
+    timeZone: 'Europe/London',
   };
   return { base, puts, rhythm, opened, cards, patches, described, announced };
 }
@@ -151,7 +152,7 @@ describe('routeDemoDoorEvent — somebody at a demo home’s door', () => {
 
   it('marks every row it writes simulated: the door event, the rhythm counts, a presence and a visit', async () => {
     const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' };
-    const tuesdayMorning = Date.UTC(2026, 9, 13, 9, 5);
+    const tuesdayMorning = Date.UTC(2026, 9, 13, 8, 5); // 09:05 in London (summer time)
     const w = world({ roster: [maria], now: tuesdayMorning + 1000 });
 
     expect(await routeDemoDoorEvent(event({ visitor: 'carer', occurredAt: tuesdayMorning }), { isDemoHome: demoHome, base: w.base })).toBe('sent');
