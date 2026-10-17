@@ -305,3 +305,19 @@ describe('the demo home — its newest week is written again by the agents (the 
     warn.mockRestore();
   });
 });
+
+describe('demoHomeItems — last week, a film was played', () => {
+  it('writes the television rows the Sunday brief reads, inside last week, so "Watch a film together" can be offered', () => {
+    const films = items.filter((i) => i.sk!.S!.startsWith('RHYTHM#tv_activity#'));
+    expect(films.length).toBeGreaterThan(0);
+    const lastWeek = isoWeekRange(newestDemoWeek(NOW));
+    for (const film of films) {
+      expect(film.sk!.S).toMatch(/^RHYTHM#tv_activity#[^#]+#power_on#(SUN|MON|TUE|WED|THU|FRI|SAT)-\d{2}$/);
+      const at = Number(film.lastSeenAt!.N);
+      expect(at).toBeGreaterThanOrEqual(lastWeek.startMs);
+      expect(at).toBeLessThan(lastWeek.endMs);
+      expect(film.simulated).toEqual({ BOOL: true });
+      expect(film.ttl).toBeDefined();
+    }
+  });
+});
