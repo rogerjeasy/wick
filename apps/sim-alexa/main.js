@@ -935,7 +935,10 @@ async function assistantStep() {
     body: JSON.stringify({ turns: conversation }),
   });
   if (res.status === 503) noAssistant = true;
-  return res.ok ? res.json() : null;
+  if (!res.ok) return null;
+  const step = await res.json();
+  if (step?.refused === 'not_a_member') void checkHomeClosed();
+  return step;
 }
 
 function showProgress(turn, text) {
@@ -1041,7 +1044,11 @@ async function agentTurn(body) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    return res.ok ? readAgentTurn(await res.json()) : null;
+    if (!res.ok) return null;
+    const answer = await res.json();
+    // Refused as no longer in the circle: perhaps she has stopped Wick (checkHomeClosed asks GET /api/me).
+    if (answer?.refused === 'not_a_member') void checkHomeClosed();
+    return readAgentTurn(answer);
   } catch {
     return null;
   }

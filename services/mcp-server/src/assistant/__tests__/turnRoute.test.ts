@@ -114,8 +114,10 @@ describe('POST /assistant/turn — the assistant as an agent on AgentCore', () =
     const res = await post(h, waiting.tokens.access_token, { question: 'Hello' });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { say: string; trace: unknown[] };
+    const body = (await res.json()) as { say: string; trace: unknown[]; refused?: string };
     expect(body.say).toContain('hasn’t allowed this yet');
+    // Why, for the app: waiting is not "no longer in the circle", so the app does not ask whether the home is closed.
+    expect(body.refused).toBe('waiting');
     expect(body.trace).toEqual([]);
     expect(r.invoke).not.toHaveBeenCalled();
   });

@@ -184,7 +184,8 @@ export function turnRoute(deps: TurnRouteDeps): (req: Request, res: Response) =>
     try {
       // INV-9, asked on every turn as on every tool call: the refusal is the answer, and costs no model.
       const access = await checkAccess(deps.store, grant.householdId, grant.userId);
-      if (!access.ok) return void res.json({ say: access.say, trace: [], toolTexts: [] });
+      // `refused` says why, for the app to act on: no longer in the circle may mean she has closed the home.
+      if (!access.ok) return void res.json({ say: access.say, trace: [], toolTexts: [], refused: access.reason });
       const { household, membership } = access;
 
       if (!deps.mayStep(grant.userId, TURN_COST)) {
