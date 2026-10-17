@@ -414,27 +414,36 @@ also records which platform reports which setting.
 
 **URL:** `VIDEO_URL_PLACEHOLDER`
 
-The rules: under three minutes, and it must show the project running on a Fire
-TV device or the Fire TV/Vega simulator. The shot list opens on the Vega Virtual
-Device and says on screen what is simulated.
+The rules: under three minutes, in English, public on YouTube or Vimeo, and it
+must show the project running on a Fire TV device or the Fire TV/Vega
+simulator. Judges need not watch past three minutes.
 
-| Time | Shot | What it shows |
-|---|---|---|
-| 0:00–0:12 | **Vega Virtual Device**, full screen: Wick's home screen, a film playing | The product on the required simulator, from the first frame. Caption: "Vega Virtual Device. No hardware was used." |
-| 0:12–0:25 | Title over the film: one sentence of the idea | Built for the person being cared for, not the caregiver |
-| 0:25–0:55 | A doorbell ring → the door card over the film within seconds → the picture → the vision model's sentence → **Watch live** → Back | The door. Caption naming the source (Ring Developer Playground camera, on the operator's home linked to the Playground; the ring from Wick's signed stand-in, FL-027). Judges' demo homes have no camera, so say Watch live is not in the hosted demo |
-| 0:55–1:10 | On the VVD, another app in front → the system toast "Someone's at the front door." → **Open Wick** | The background service and toast (FL-022) |
-| 1:10–1:40 | **Voice, D-pad and visual in one flow.** Family app: a note sent mid-film → it does not appear → the system's transport control reaches her film through the Vega media session (its Stop, which Wick obeys as a pause; seen on the VVD) → at that pause the note comes on screen → **Play** reads it aloud (Amazon Polly) → **OK** sends her reply → the reply in the family app. Then, for a second, the same note waiting for a measured calm point instead, holding the film on the cut | The rubric's "multi-modal UX combining voice + D-pad + visual in a single flow", said in a caption. Caption: "On a Fire TV this is 'Alexa, pause'. The simulator takes no voice, so the system's own transport control stands in for it (FL-031)." The calm-point map for a second |
-| 1:40–1:55 | Family app: "How has Mum been this week?" → the week card on the TV first, then the paragraph in the family app | INV-7: she sees her week first; the model never counts |
-| 1:55–2:10 | OK held for two seconds → "Ask Sarah to ring you?" → Yes → the family member's answer appears on her TV | Hold for Sarah |
-| 2:10–2:25 | Fire OS build on the Android TV emulator, same card; then on the VVD, **Easier to see**: Larger text, then Higher contrast, on the door card | One source, two Fire TV platforms; her television adapts to what she can see |
-| 2:25–2:45 | Architecture diagram: Vega/Fire OS ↔ IoT Core ↔ AgentCore (Strands, Nova Lite) ↔ DynamoDB ↔ MCP server ↔ family app | AWS Builder: twenty-three services, all Terraform |
-| 2:45–2:55 | The repo, `FRICTION.md`, `vega-calm-ui`, PR #135 | Product feedback and Open Source |
+**One story, Margaret first.** Not a tour of features: one evening at her
+house, told from her armchair, with Sarah's side cut in only when Margaret
+hands something to her. The Vega Virtual Device is in the first frame.
 
-Total: 2:55. Captions say *simulated* wherever something is (the stand-in
-doorbell, the demo home's history, the Alexa+ surface).
+| Time | Shot | What it shows | Caption on screen |
+|---|---|---|---|
+| 0:00–0:10 | **Vega Virtual Device**, full screen: Wick's home screen, then Big Buck Bunny starting | Her television, on the required simulator, from the first frame | "Vega Virtual Device · demo home, simulated history · no hardware" |
+| 0:10–0:20 | The film playing. Voice: "Margaret is 78 and lives alone. Care technology is built for her daughter's phone. Wick is built for her." | The idea, in one sentence | "Big Buck Bunny © Blender Foundation, CC BY 3.0" (kept while any film is on screen) |
+| 0:20–0:55 | A ring at the door → the door card over the film, which keeps playing → the picture → the sentence → **Ask Sarah to look** → cut to Sarah's family app: the same picture, three answers → Sarah picks *"Please don't open the door. I'll ring you now."* → back on the VVD, it appears under Sarah's name | The door, and the one moment Margaret chooses to bring Sarah in | "Stand-in doorbell (Ring's Developer Playground sends no webhooks, FL-027) · vision: Amazon Nova Lite" |
+| 0:55–1:25 | Sarah asks the family app to send a note → the agent shows the note and asks for her yes → back on the VVD, the film plays on and nothing appears → at 1:29 in the film, a quiet cut: the film holds, the note comes up → **Play** reads it aloud → **OK** sends her reply → Sarah's app shows it | Notes wait for a natural break: a calm point measured in the film itself | "Calm point measured with Amazon Rekognition and ffmpeg · read aloud by Amazon Polly" |
+| 1:25–1:55 | On the VVD: *"Shall I tell Sarah? Maria usually comes on Friday mornings. There was no visit on Friday."* → Margaret presses **Tell Sarah** → Sarah asks *"Is everything alright at Mum's?"* → *"Margaret asked Wick to tell you: …"* | Nothing about her reaches the family unless she says so | "If she keeps it to herself, Sarah sees exactly what she would see if nothing had happened." |
+| 1:55–2:15 | Another app in front on the VVD → the system toast *"Someone's at the front door."* → **Open Wick** → the card. Three seconds of the Fire OS build on the Android TV emulator: the same card | Outside Wick, only the door interrupts. One source, both Fire TV platforms | "A note never interrupts another app: it waits, quietly, until she opens Wick." |
+| 2:15–2:35 | The architecture diagram, built up in three steps: television ↔ IoT Core / WebSocket; Ring webhook → Lambda → AgentCore (Strands, Nova Lite); family app → MCP server (25 tools) → the same agents | How it works, in twenty seconds | "Bedrock AgentCore · Strands · Guardrail · Step Functions · all Terraform" |
+| 2:35–2:50 | A single line of montage, about one second each: Hold for Sarah, Watch together, the visit witnessed, her language, Easier to see. Close on her home screen | Everything else, once | "Wick. For the person being cared for." |
 
----
+Total: 2:50. Rules for the edit:
+
+- Every shot of a film keeps its attribution on screen. Before recording,
+  confirm at office hours #2 (Monday 19 October, 09:00 PT) that CC BY Blender
+  films with attribution are acceptable.
+- No Alexa+ logo (forum topic 45450). The family app is "a simulated Alexa+
+  surface", in those words.
+- Every simulated thing is labelled where it appears: the stand-in doorbell,
+  the demo home's history, the family app.
+- Voice-over in English, plain, at the pace of the cards. Let the door card
+  and the calm point sit on screen long enough to read.
 
 ## Built with
 
