@@ -22,6 +22,7 @@ const detail = {
 function baseDeps(overrides: Partial<RouteDeps> = {}): RouteDeps {
   return {
     householdId: 'hh-1',
+    timeZone: 'UTC',
     findDevice: vi.fn(async () => device),
     hasHallwayChime: vi.fn(async () => false),
     listRoster: vi.fn(async () => []),

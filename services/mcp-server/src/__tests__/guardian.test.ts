@@ -116,6 +116,31 @@ describe('a tool answer the gate cannot clear', () => {
   });
 });
 
+describe("the household's own people, whose names are also words (Anna Cash, Mrs Banks)", () => {
+  const visitor = data({ visitors: [{ personId: 'anna-cash', name: 'Anna Cash' }] });
+
+  it('passes a person the household holds by name, and her id, but nothing else said around her', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(guardToolAnswer('t', visitor)).toMatchObject({ isError: true });
+    expect(guardToolAnswer('t', visitor, ['Anna Cash'])).toEqual(visitor);
+    expect(guardToolAnswer('t', say('Anna Cash brought the pension.'), ['Anna Cash'])).toMatchObject({ isError: true });
+    vi.restoreAllMocks();
+  });
+
+  it('asks who the household is only when an answer would otherwise be withheld', async () => {
+    const people = vi.fn(async () => ['Anna Cash']);
+    const server = guardTools(new McpServer({ name: 'test', version: '0.1.0' }), undefined, people);
+    server.registerTool('visitors', { description: 'x' }, async () => visitor);
+    server.registerTool('plain', { description: 'x' }, async () => say('Maria came on Tuesday.'));
+    const client = await connect(server);
+
+    expect((await client.callTool({ name: 'plain', arguments: {} })).content).toEqual(say('Maria came on Tuesday.').content);
+    expect(people).not.toHaveBeenCalled();
+    expect((await client.callTool({ name: 'visitors', arguments: {} })).structuredContent).toEqual(visitor.structuredContent);
+    expect(people).toHaveBeenCalledTimes(1);
+  });
+});
+
 /** The door card's question, as get_door_request answers it through the real server. */
 async function doorRequest(table: MemoryTable): Promise<unknown> {
   const client = await connect(createMcpServer(table.ddb, allowedContext('hh-1'), nowhere, nowhere, nowhere));

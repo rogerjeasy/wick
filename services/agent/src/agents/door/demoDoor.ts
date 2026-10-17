@@ -70,6 +70,8 @@ export interface StandInBase {
   readonly announceRing?: (detail: DoorRangDetail) => Promise<void>;
   readonly newId: () => string;
   readonly now: () => number;
+  /** The household's clock: the stand-in carer is matched on it, as a real visitor is. */
+  readonly timeZone: string;
 }
 
 /** Reads a stand-in visitor's picture from a directory: docs/demo-door, copied beside the bundle (scripts/build-lambda.mjs). */
@@ -84,6 +86,7 @@ export function standInRouteDeps(householdId: string, visitor: DemoVisitor, base
   return {
     householdId,
     standIn: true,
+    timeZone: base.timeZone,
     findDevice: async (deviceId) => (deviceId === STAND_IN_DEVICE_ID ? STAND_IN_DEVICE : undefined),
     hasHallwayChime: async () => false,
     listRoster: () => base.listRoster(householdId),

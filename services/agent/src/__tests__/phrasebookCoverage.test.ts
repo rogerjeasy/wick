@@ -70,7 +70,7 @@ describe('the door card (agents/door/index.ts)', () => {
   const device: RingDevice = { id: 'ava1.ring.device.ABNJQ', name: 'Front Door', online: true, capabilities: { motion: true, image: true, chime: false } };
   const event: RingHistoryEvent = { id: 'ava1.ring.history.event.XWRR', deviceId: device.id, start: FRIDAY + 9 * HOUR, end: FRIDAY + 9 * HOUR + 11_000, eventType: 'ding', detections: [] };
   const phaseOne = (over: { hallwayChime?: boolean; family?: readonly string[]; roster?: readonly RosterEntry[] } = {}): DoorCard =>
-    buildPhaseOneCard({ event, device, hallwayChime: over.hallwayChime ?? false, householdId: 'hh-1', correlationId: 'corr-1', now: NOW, ...(over.family ? { family: over.family } : {}), ...(over.roster ? { roster: over.roster } : {}) });
+    buildPhaseOneCard({ event, device, hallwayChime: over.hallwayChime ?? false, householdId: 'hh-1', correlationId: 'corr-1', timeZone: 'UTC', now: NOW, ...(over.family ? { family: over.family } : {}), ...(over.roster ? { roster: over.roster } : {}) });
 
   it('says someone is at the door, and offers to ask the one person she allows', () => {
     const card = coverage.spanish(phaseOne({ family: ['Sarah Hughes'], hallwayChime: true }));
@@ -125,7 +125,7 @@ describe('the door card (agents/door/index.ts)', () => {
   });
 
   it('from a demo home’s stand-in doorbell, says so in her language too, with nothing that needs a real doorbell', () => {
-    const standIn = buildPhaseOneCard({ event, device, hallwayChime: true, householdId: 'hh-demo', correlationId: 'corr-1', now: NOW, family: ['Sarah'], standIn: true });
+    const standIn = buildPhaseOneCard({ event, device, hallwayChime: true, householdId: 'hh-demo', correlationId: 'corr-1', timeZone: 'UTC', now: NOW, family: ['Sarah'], standIn: true });
     const card = coverage.spanish(standIn);
     expect(card.line).toBe('Hay alguien en la puerta de entrada (timbre simulado).');
     expect(labels(card)).toEqual(['Pedir a Sarah que mire', 'Ahora no']);

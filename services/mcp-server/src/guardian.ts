@@ -37,7 +37,7 @@
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { FactClass } from '@wick/contracts';
-import { clearForFamily } from '@wick/policy';
+import { clearForFamily, clearNameForFamily } from '@wick/policy';
 import { SOMETHING_WENT_WRONG_TEXT } from './tools/errors.js';
 import { FACT_CLASS_WORDS } from './tools/get_resident_shared_view.js';
 import { timed, type PhaseTimer } from './timing.js';
@@ -78,6 +78,18 @@ export function familyText(text: string, where: string): string | undefined {
   return undefined;
 }
 
+/**
+ * A name typed for a person (a regular visitor), for the family: itself when
+ * the gate clears it as a name, undefined when not. The words after a first
+ * name are a surname ("Anna Cash"); policy's clearNameForFamily.
+ */
+export function familyName(name: string, where: string): string | undefined {
+  if (clearNameForFamily(name)) return name;
+  const clearance = clearForFamily(name);
+  logWithheld(where, { at: '$', classes: clearance.cleared ? [] : clearance.classes });
+  return undefined;
+}
+
 /** Whether a string may be shown to the family. For a rule that needs only the answer, without the log. */
 export const clears = (text: string): boolean => clearForFamily(text).cleared;
 
@@ -85,15 +97,15 @@ export const clears = (text: string): boolean => clearForFamily(text).cleared;
  * The first string in `value` the gate cannot clear, or undefined when
  * every one clears. `own`: strings that are the reader's own words, exactly.
  */
-export function firstUncleared(value: unknown, own: ReadonlySet<string> = NOTHING, at = '$'): Uncleared | undefined {
+export function firstUncleared(value: unknown, own: ReadonlySet<string> = NOTHING, at = '$', people: readonly string[] = []): Uncleared | undefined {
   if (typeof value === 'string') {
     if (own.has(value) || CLASS_NAMES.has(value)) return undefined;
-    const clearance = clearForFamily(value);
+    const clearance = clearForFamily(value, undefined, { people });
     return clearance.cleared ? undefined : { at, classes: clearance.classes };
   }
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i += 1) {
-      const found = firstUncleared(value[i], own, `${at}[${i}]`);
+      const found = firstUncleared(value[i], own, `${at}[${i}]`, people);
       if (found) return found;
     }
     return undefined;
@@ -101,7 +113,7 @@ export function firstUncleared(value: unknown, own: ReadonlySet<string> = NOTHIN
   if (typeof value === 'object' && value !== null) {
     for (const [key, inner] of Object.entries(value)) {
       if (NOT_WORDS.has(key) && typeof inner === 'string') continue;
-      const found = firstUncleared(inner, own, `${at}.${key}`);
+      const found = firstUncleared(inner, own, `${at}.${key}`, people);
       if (found) return found;
     }
   }
@@ -132,13 +144,26 @@ interface ToolAnswer {
 
 const WITHHELD_ANSWER = { content: [{ type: 'text' as const, text: SOMETHING_WENT_WRONG_TEXT }], isError: true as const };
 
-/** A tool's answer, read string by string: itself, or the answer a failure gets. */
-export function guardToolAnswer<R extends object>(tool: string, result: R): R | typeof WITHHELD_ANSWER {
-  const answer = result as R & ToolAnswer & Marked;
+/**
+ * A tool's answer, read string by string: itself, or the answer a failure
+ * gets. `people`: the household's own people by name; a string that is
+ * exactly one of their names, or its id, is cleared as a name (policy's
+ * clearForFamily), so "Anna Cash" is not money. Never inside a sentence.
+ */
+export function guardToolAnswer<R extends object>(tool: string, result: R, people: readonly string[] = []): R | typeof WITHHELD_ANSWER {
+  const uncleared = unclearedIn(result, people);
+  if (!uncleared) return result;
+  logWithheld(tool, uncleared);
+  return WITHHELD_ANSWER;
+}
+
+/** The first string in a tool's answer the gate cannot clear, or undefined. */
+function unclearedIn(result: object, people: readonly string[]): Uncleared | undefined {
+  const answer = result as ToolAnswer & Marked;
   const own = answer[READERS_OWN] ?? NOTHING;
   const structured = answer.structuredContent;
 
-  let uncleared = structured === undefined ? undefined : firstUncleared(structured, own, '$.structuredContent');
+  let uncleared = structured === undefined ? undefined : firstUncleared(structured, own, '$.structuredContent', people);
   const content = answer.content ?? [];
   for (let i = 0; i < content.length && !uncleared; i += 1) {
     const item = content[i]!;
@@ -149,12 +174,9 @@ export function guardToolAnswer<R extends object>(tool: string, result: R): R | 
     }
     // The same answer as text, for a client that reads only text (tools/result.ts `data`): read once, above.
     if (structured !== undefined && item.text === JSON.stringify(structured)) continue;
-    uncleared = firstUncleared(item.text, own, `$.content[${i}].text`);
+    uncleared = firstUncleared(item.text, own, `$.content[${i}].text`, people);
   }
-
-  if (!uncleared) return result;
-  logWithheld(tool, uncleared);
-  return WITHHELD_ANSWER;
+  return uncleared;
 }
 
 /** The part of a Zod schema the gate needs: whether a value is one. */
@@ -194,7 +216,7 @@ export function toolsBehindTheGate(server: McpServer): ReadonlySet<string> {
  * tool's answer passed through the gate. `registerTool` is the only way to
  * add one; the SDK's older `tool()` is refused, so it cannot be a way round.
  */
-export function guardTools(server: McpServer, timer?: PhaseTimer): McpServer {
+export function guardTools(server: McpServer, timer?: PhaseTimer, people?: () => Promise<readonly string[]>): McpServer {
   const names = new Set<string>();
   guardedTools.set(server, names);
   const register = server.registerTool.bind(server) as (name: string, config: unknown, callback: (...args: unknown[]) => unknown) => unknown;
@@ -205,7 +227,11 @@ export function guardTools(server: McpServer, timer?: PhaseTimer): McpServer {
     return register(name, config, async (...args: unknown[]) => {
       const result = await callback(...args);
       if (typeof result !== 'object' || result === null) return result;
-      return timed(timer, 'guard', async () => keptToSchema(name, guardToolAnswer(name, result), output));
+      return timed(timer, 'guard', async () => {
+        // The household's people are asked for only when an answer would otherwise be withheld.
+        const known = people && unclearedIn(result, []) ? await people().catch(() => []) : [];
+        return keptToSchema(name, guardToolAnswer(name, result, known), output);
+      });
     });
   };
   Object.assign(server, {

@@ -150,6 +150,8 @@ resource "aws_lambda_function" "agent_door_event" {
       AGENT_RUNTIME_VERSION    = aws_bedrockagentcore_agent_runtime.agents.agent_runtime_version
       # Every ring is said on the bus, for a visit errand waiting at the door (infra/errands.tf).
       EVENT_BUS_NAME = aws_cloudwatch_event_bus.wick.name
+      # A regular visitor's "09:00" is on the household's clock (door/roster.ts, issue #84).
+      WICK_HOUSEHOLD_TZ = var.household_time_zone
     }
   }
 

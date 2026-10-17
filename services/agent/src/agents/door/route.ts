@@ -57,6 +57,8 @@ export interface RouteDeps {
    */
   readonly announceRing?: (detail: DoorRangDetail) => Promise<void>;
   readonly now: () => number;
+  /** The household's clock: a regular visitor's "09:00" is read on it (roster.ts matchVisitor). */
+  readonly timeZone: string;
   /**
    * A demo home's stand-in doorbell (demoDoor.ts): the card says so, and
    * offers no live view and no chime (index.ts). Absent for every real one.
@@ -111,7 +113,7 @@ export async function routeRingEvent(
 
   const queued = await handleDoorEvent(
     {
-      event, device, hallwayChime, householdId: deps.householdId, correlationId, now: deps.now(), roster, family,
+      event, device, hallwayChime, householdId: deps.householdId, correlationId, now: deps.now(), timeZone: deps.timeZone, roster, family,
       ...(deps.standIn ? { standIn: true } : {}),
       ...(ringUnanswered ? { ringUnanswered: true } : {}),
     },
@@ -159,7 +161,7 @@ export async function routeRingEvent(
     }));
   }
 
-  const match = matchVisitor(roster, event.start);
+  const match = matchVisitor(roster, event.start, deps.timeZone);
   if (match) {
     try {
       await deps.recordPresence(match, event.start);

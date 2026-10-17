@@ -18,7 +18,7 @@
  */
 import { z } from 'zod';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { RosterEntry } from '@wick/contracts';
+import { localDayCode, type RosterEntry } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
@@ -44,7 +44,6 @@ export const EXPECT_VISIT_BAD_TIME_TEXT = 'I need a day and a time for that, lik
 export const EXPECT_VISIT_PAST_TEXT = 'That time has already passed. Which day and time did you mean?';
 export const EXPECT_VISIT_TOO_FAR_TEXT = 'That is more than two months away. Tell me nearer the time and I will let the door know.';
 
-const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
 
 export interface ExpectedVisitAnswer {
   readonly expected: true;
@@ -101,7 +100,7 @@ export function registerExpectVisit(
       // gated exactly as list_regular_visitors and did_visitor_come gate it.
       // A resident who keeps that private still lets this member announce
       // their own visit; they are just not told who else is due.
-      const dayCode = DAY_CODES[new Date(at).getUTCDay()]!;
+      const dayCode = localDayCode(at, HOUSEHOLD_TZ);
       const namesShared = isSharedWithFamily('PRESENCE', await loadHouseholdPolicy(ddb, ctx.householdId));
       const alsoExpectedThatDay = namesShared
         ? (await loadRoster(ddb, ctx.householdId))

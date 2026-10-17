@@ -24,7 +24,7 @@ const input = {
   device,
   hallwayChime: false,
   householdId: 'hh-1',
-  correlationId: 'corr-abc',
+  correlationId: 'corr-abc', timeZone: 'UTC',
   now: 1789455094000,
 };
 

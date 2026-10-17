@@ -4,8 +4,20 @@ import { DEFAULT_POLICY } from '@wick/policy';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { checkVisitor, registerDidVisitorCome } from '../did_visitor_come.js';
+import { checkVisitor, expectedToday, registerDidVisitorCome } from '../did_visitor_come.js';
 import { allowedContext } from './toolContext.js';
+
+describe('expectedToday — on the household clock (issue #84)', () => {
+  it('reads the day where the house is: 23:30 UTC on a Monday is Tuesday in London in summer', () => {
+    const lateMonday = new Date(Date.UTC(2026, 9, 12, 23, 30));
+    expect(expectedToday('TUE 09:00±30m', lateMonday, 'Europe/London')).toBe(true);
+    expect(expectedToday('MON 09:00±30m', lateMonday, 'Europe/London')).toBe(false);
+  });
+
+  it('is false with no pattern', () => {
+    expect(expectedToday(undefined, new Date(), 'Europe/London')).toBe(false);
+  });
+});
 
 describe('checkVisitor', () => {
   it('reports a visit found within the roster schedule', async () => {
