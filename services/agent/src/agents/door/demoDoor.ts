@@ -70,8 +70,8 @@ export interface StandInBase {
   readonly announceRing?: (detail: DoorRangDetail) => Promise<void>;
   readonly newId: () => string;
   readonly now: () => number;
-  /** The household's clock: the stand-in carer is matched on it, as a real visitor is. */
-  readonly timeZone: string;
+  /** The household's clock (store/household.ts loadHouseholdTimeZone): the stand-in carer is matched on it, as a real visitor is. */
+  readonly timeZoneOf: (householdId: string) => Promise<string>;
 }
 
 /** Reads a stand-in visitor's picture from a directory: docs/demo-door, copied beside the bundle (scripts/build-lambda.mjs). */
@@ -80,13 +80,13 @@ export function standInPictures(directory: URL): (visitor: DemoVisitor) => Promi
 }
 
 /** The door path's dependencies for one stand-in ring: Ring's parts stood in, every row marked simulated. */
-export function standInRouteDeps(householdId: string, visitor: DemoVisitor, base: StandInBase): RouteDeps {
+export function standInRouteDeps(householdId: string, visitor: DemoVisitor, base: StandInBase, timeZone: string): RouteDeps {
   const marked = { simulated: true } as const;
   const describe = base.describe(householdId);
   return {
     householdId,
     standIn: true,
-    timeZone: base.timeZone,
+    timeZone,
     findDevice: async (deviceId) => (deviceId === STAND_IN_DEVICE_ID ? STAND_IN_DEVICE : undefined),
     hasHallwayChime: async () => false,
     listRoster: () => base.listRoster(householdId),
@@ -139,5 +139,5 @@ export async function routeDemoDoorEvent(detail: unknown, routing: DemoRouting):
     occurred_at: ring.occurredAt,
     correlationId: ring.correlationId,
   };
-  return routeRingEvent(ringShaped, standInRouteDeps(ring.householdId, visitor, routing.base));
+  return routeRingEvent(ringShaped, standInRouteDeps(ring.householdId, visitor, routing.base, await routing.base.timeZoneOf(ring.householdId)));
 }

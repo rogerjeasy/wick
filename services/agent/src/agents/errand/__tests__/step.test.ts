@@ -67,7 +67,7 @@ function setup(start: HeldErrand | 'none' = base, options: { allowed?: boolean; 
     sendCard: async (card) => void cards.push(card),
     nudge: async (userIds, kind) => void nudges.push({ userIds, kind }),
     handBack: async (token, output) => void handedBack.push({ token, output }),
-    timeZone: TZ,
+    timeZoneOf: async () => TZ,
     now: () => options.now ?? EIGHT,
   };
   return { deps, cards, nudges, handedBack, ...errands };

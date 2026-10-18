@@ -23,7 +23,8 @@ export interface EveryHouseholdDeps {
   readonly sendWeekCard: (card: QueuedCard) => Promise<void>;
   readonly now: () => number;
   readonly newCorrelationId: () => string;
-  readonly timeZone: string;
+  /** Each home's own clock (store/household.ts loadHouseholdTimeZone): its week is counted in it. */
+  readonly timeZoneOf: (householdId: string) => Promise<string>;
   /**
    * The household's family member as the resident knows them, for the week
    * card's "What … sees" button (weekCard.ts familyNameForWeekCard) — asked
@@ -69,7 +70,7 @@ export async function narrateEveryHousehold(isoWeek: string, deps: EveryHousehol
         firstEventAt: () => deps.firstEventAt(householdId),
         writeNarrative: deps.writeNarrative,
         now: deps.now,
-        timeZone: deps.timeZone,
+        timeZone: await deps.timeZoneOf(householdId),
       });
       await deps.saveNarrative(narrative);
 

@@ -207,7 +207,7 @@ export async function routeRingEvent(
 export interface HouseholdRouting {
   /** The household that holds this Ring device (store/ringDevices.ts). */
   readonly householdOf: (ringDeviceId: string) => Promise<string | undefined>;
-  readonly depsFor: (householdId: string) => RouteDeps;
+  readonly depsFor: (householdId: string) => RouteDeps | Promise<RouteDeps>;
 }
 
 /**
@@ -228,5 +228,5 @@ export async function routeDoorEvent(detail: Record<string, unknown>, routing: H
   const householdId = await routing.householdOf(deviceId);
   if (!householdId) return 'unclaimed_device';
 
-  return routeRingEvent(detail, routing.depsFor(householdId));
+  return routeRingEvent(detail, await routing.depsFor(householdId));
 }

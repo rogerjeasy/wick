@@ -77,7 +77,7 @@ function world(over: { roster?: readonly RosterEntry[]; family?: readonly string
     pictures: standInPictures(PICTURES),
     newId: () => `id-${puts.length}`,
     now: () => now,
-    timeZone: 'Europe/London',
+    timeZoneOf: async () => 'Europe/London',
   };
   return { base, puts, rhythm, opened, cards, patches, described, announced };
 }

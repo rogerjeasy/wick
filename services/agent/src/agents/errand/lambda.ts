@@ -19,12 +19,11 @@ import { errandStore, type ErrandSend } from '../../store/errands.js';
 import { memberAllowed, type AllowedSend } from './allowed.js';
 import { handleDoorRang } from './door.js';
 import { handleErrandStep } from './step.js';
+import { loadHouseholdTimeZone } from '../../store/household.js';
 
 const ddb = new DynamoDBClient({});
 const sfn = new SFNClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
-/** Where "this morning at ten" is this morning at ten. The same default as the Wick server's. */
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 const errands = errandStore((command) => ddb.send(command as never) as ReturnType<ErrandSend>, TABLE);
 const handBack = async (taskToken: string, output: object): Promise<void> => {
@@ -39,7 +38,8 @@ export const stepHandler = (event: unknown): Promise<Record<string, unknown>> =>
     sendCard: (card) => sendToDevice(card, DEFAULT_POLICY),
     nudge: async (userIds, kind) => void (await nudgeFamily(userIds, kind)),
     handBack,
-    timeZone: HOUSEHOLD_TZ,
+    // Where "this morning at ten" is this morning at ten: each home's own clock.
+    timeZoneOf: (householdId) => loadHouseholdTimeZone(ddb, TABLE, householdId),
     now: Date.now,
   });
 

@@ -54,7 +54,7 @@ import { describeViaRuntime } from './describeRemote.js';
 import { routeDoorEvent, type RouteDeps, type RouteResult } from './route.js';
 import { routeDemoDoorEvent, standInPictures, type StandInBase } from './demoDoor.js';
 import { announceRings } from './announce.js';
-import { isDemoHome } from '../../store/household.js';
+import { isDemoHome, loadHouseholdTimeZone } from '../../store/household.js';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
 import { createRhythmWriter } from '../../rhythm/writeClient.js';
@@ -103,8 +103,6 @@ const doorAgents = (): RuntimeTarget => ({ ...agentCoreTarget(), timeoutMs: DESC
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
-/** The household's clock (infra/agent.tf): a regular visitor's "09:00" is read on it. */
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 // S6. Same table, same client — see rhythm/records.ts's header for why this
 // is DynamoDB rather than Timestream.
 const rhythmWriter = createRhythmWriter(ddb, TABLE);
@@ -205,7 +203,8 @@ function standInBase(): StandInBase {
     announceRing,
     newId: randomUUID,
     now: Date.now,
-    timeZone: HOUSEHOLD_TZ,
+    // Each home's own clock: a regular visitor's "09:00" is read on it.
+    timeZoneOf: (householdId) => loadHouseholdTimeZone(ddb, TABLE, householdId),
   };
 }
 
@@ -221,7 +220,7 @@ export const handler = async (evt: EventBridgeEnvelope): Promise<void> => {
 async function routeRing(detail: Record<string, unknown>): Promise<RouteResult> {
   const agents = (runtime ??= doorAgents());
 
-  const depsFor = (householdId: string): RouteDeps => {
+  const depsFor = async (householdId: string): Promise<RouteDeps> => {
     // This household's own Ring link, and the devices it can see. A doorbell's
     // household was already settled from the doorbell (routeDoorEvent), so
     // the picture and the chime are asked for with that home's credential and
@@ -254,7 +253,8 @@ async function routeRing(detail: Record<string, unknown>): Promise<RouteResult> 
         }, event.eventType),
       announceRing,
       now: Date.now,
-      timeZone: HOUSEHOLD_TZ,
+      // This home's own clock: a regular visitor's "09:00" is read on it.
+      timeZone: await loadHouseholdTimeZone(ddb, TABLE, householdId),
     };
   };
 

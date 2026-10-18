@@ -29,7 +29,7 @@
  * Pure: no AWS, no model. Every sentence is written here. A model never
  * counts (§5.4), and it never decides what is unusual either.
  */
-import type { FactClass, RosterEntry, TimelineEntry } from '@wick/contracts';
+import { fromLocalWallClock, localWallClock, type FactClass, type RosterEntry, type TimelineEntry } from '@wick/contracts';
 import { BASELINE_WEEKS, MIN_BASELINE_WEEKS, deltaFor } from './baseline.js';
 
 const DAY_MS = 86_400_000;
@@ -91,8 +91,8 @@ export interface DifferentAnswer {
   readonly differences: readonly Difference[];
 }
 
-const utcDayStart = (at: number): number => Math.floor(at / DAY_MS) * DAY_MS;
-const weekday = (dayStart: number): number => new Date(dayStart).getUTCDay();
+/** 0 for a Sunday: the weekday of a midnight on the house's wall clock (localWallClock). */
+const weekday = (dayWall: number): number => new Date(dayWall).getUTCDay();
 
 function partOfDay(hour: number): string {
   if (hour >= 5 && hour < 12) return 'mornings';
@@ -117,8 +117,11 @@ export function parsePattern(pattern: string | undefined): WeeklyPattern | undef
 }
 
 function missedVisits(input: DifferentInput): Difference[] {
-  const { entries, roster, now, observedSince } = input;
-  const today = utcDayStart(now);
+  const { entries, roster, now, observedSince, timeZone } = input;
+  // Her days are the house's own: midnight to midnight where she lives, on its wall clock
+  // (packages/contracts clock.ts). Read in UTC, a carer due at nine in Seattle was "missed" at half past four.
+  const todayWall = localWallClock(now, timeZone) - (localWallClock(now, timeZone) % DAY_MS);
+  const moment = (wall: number): number => fromLocalWallClock(wall, timeZone);
   const out: Difference[] = [];
 
   for (const person of roster) {
@@ -129,16 +132,17 @@ function missedVisits(input: DifferentInput): Difference[] {
     // The latest of their days whose window, and the grace after it, is over.
     let daysAgo = -1;
     for (let d = 0; d < 7; d += 1) {
-      const day = today - d * DAY_MS;
-      if (!pattern.days.includes(weekday(day))) continue;
-      const over = day + (pattern.minuteOfDay + pattern.windowMin) * 60_000 + VISIT_GRACE_MS;
+      const dayWall = todayWall - d * DAY_MS;
+      if (!pattern.days.includes(weekday(dayWall))) continue;
+      const over = moment(dayWall + (pattern.minuteOfDay + pattern.windowMin) * 60_000) + VISIT_GRACE_MS;
       if (over <= now) {
         daysAgo = d;
         break;
       }
     }
     if (daysAgo < 0) continue;
-    const day = today - daysAgo * DAY_MS;
+    const dayWall = todayWall - daysAgo * DAY_MS;
+    const day = moment(dayWall);
 
     const visits = entries.filter((e) => e.kind === 'visit' && e.personId === person.personId).map((e) => e.at);
     // Came that day, or since: late is not missing.
@@ -147,13 +151,15 @@ function missedVisits(input: DifferentInput): Difference[] {
     // A habit, not a schedule: they came on this weekday at least three times before.
     let cameBefore = 0;
     for (let k = 1; k <= BASELINE_WEEKS; k += 1) {
-      const prior = day - k * WEEK_MS;
+      const priorWall = dayWall - k * WEEK_MS;
+      const prior = moment(priorWall);
       if (observedSince === undefined || observedSince > prior) break;
-      if (visits.some((at) => at >= prior && at < prior + DAY_MS)) cameBefore += 1;
+      const priorEnd = moment(priorWall + DAY_MS);
+      if (visits.some((at) => at >= prior && at < priorEnd)) cameBefore += 1;
     }
     if (cameBefore < MIN_BASELINE_WEEKS) continue;
 
-    const dayName = DAY_NAMES[weekday(day)]!;
+    const dayName = DAY_NAMES[weekday(dayWall)]!;
     const usual = `${person.name} usually comes on ${dayName} ${partOfDay(Math.floor(pattern.minuteOfDay / 60))}.`;
     const absent = daysAgo === 0 ? 'There has been no visit today.' : daysAgo === 1 ? 'There was no visit yesterday.' : `There was no visit on ${dayName}.`;
     out.push({
@@ -161,7 +167,7 @@ function missedVisits(input: DifferentInput): Difference[] {
       factClass: 'PRESENCE',
       sentence: `${usual} ${absent}`,
       lasting: `${usual} There was no visit on ${dayName}.`,
-      at: day + pattern.minuteOfDay * 60_000,
+      at: moment(dayWall + pattern.minuteOfDay * 60_000),
       personId: person.personId,
     });
   }
@@ -207,14 +213,16 @@ function doorAtNight(input: DifferentInput, weeksObserved: number): Difference[]
 
 function doorToday(input: DifferentInput): Difference[] {
   const { entries, now, observedSince, timeZone } = input;
-  const today = utcDayStart(now);
+  // Today is the house's own day, from its midnight (packages/contracts clock.ts).
+  const todayWall = localWallClock(now, timeZone) - (localWallClock(now, timeZone) % DAY_MS);
+  const today = fromLocalWallClock(todayWall, timeZone);
   const elapsed = now - today;
   const doorTimes = entries.filter((e) => e.kind === 'door').map((e) => e.at);
   const countIn = (from: number): number => doorTimes.filter((at) => at >= from && at < from + elapsed).length;
 
   const priorWeeks: number[] = [];
   for (let k = 1; k <= BASELINE_WEEKS; k += 1) {
-    const prior = today - k * WEEK_MS;
+    const prior = fromLocalWallClock(todayWall - k * WEEK_MS, timeZone);
     if (observedSince === undefined || observedSince > prior) break;
     priorWeeks.push(countIn(prior));
   }
@@ -222,7 +230,7 @@ function doorToday(input: DifferentInput): Difference[] {
   const delta = deltaFor({ metric: 'door', label: 'the front door', thisWeek: callers, priorWeeks });
   if (delta.verdict !== 'more' && delta.verdict !== 'fewer') return [];
 
-  const dayName = DAY_NAMES[weekday(today)]!;
+  const dayName = DAY_NAMES[weekday(todayWall)]!;
   const about = `on a ${dayName} there are usually about ${Math.round(delta.baseline)}.`;
   const usual = `By this time ${about}`;
   // Said later, "by this time" means nothing: the hour it was noticed is part of the fact.

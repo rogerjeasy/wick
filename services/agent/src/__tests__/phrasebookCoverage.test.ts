@@ -269,8 +269,9 @@ describe('"Shall I tell Sarah?" (agents/tell/ask.ts, with the detector’s own s
         const day = FRIDAY + d * DAY;
         const usual = [1, 2, 3, 4, 5, 6].flatMap((k) => [0, 1, 2].map((i) => door(day - k * WEEK + i * 10 * MIN)));
         const now = day + hour * HOUR + 30 * MIN;
-        const quiet = await asked(input({ entries: usual, now, observedSince: day - 8 * WEEK }));
-        const busy = await asked(input({ entries: [...usual, ...Array.from({ length: 9 }, (_, i) => door(day + 20 * MIN + i * MIN))], now, observedSince: day - 8 * WEEK }));
+        // These days are written in UTC, and so is this house: its day starts at the midnight written here.
+        const quiet = await asked(input({ entries: usual, now, observedSince: day - 8 * WEEK, timeZone: 'UTC' }));
+        const busy = await asked(input({ entries: [...usual, ...Array.from({ length: 9 }, (_, i) => door(day + 20 * MIN + i * MIN))], now, observedSince: day - 8 * WEEK, timeZone: 'UTC' }));
         // Each is one difference or more (the night has its own); every one of them is in Spanish, which `asked` has checked.
         expect(quiet.length + busy.length, `${d} ${hour}`).toBeGreaterThanOrEqual(2);
       }
