@@ -205,8 +205,9 @@ window. The three open-source contributions below were made in the window too:
    the cut while the note is shown. **Space** over the note reads it aloud;
    **Enter** answers it, and from a calm point the film goes on by itself.
 5. The door: press the **Ring the stand-in doorbell** chip and choose who is
-   there. The door card comes up at once, over the playing film and without
-   pausing it, then the picture, then the vision model's sentence.
+   there. The door card comes up at once and the film waits under it, then
+   the picture, then the vision model's sentence. *Not now* (or **Esc**) puts
+   it away and the film goes on.
 6. **Easier to see**, on the home screen, sets larger text or higher contrast.
 7. **A visit errand, end to end.** In the family app, ask *"The window cleaner
    is coming in five minutes — let Mum know"*. Wick's agent shows what it will
@@ -427,7 +428,7 @@ hands something to her. The Vega Virtual Device is in the first frame.
 |---|---|---|---|
 | 0:00–0:10 | **Vega Virtual Device**, full screen: Wick's home screen, then Big Buck Bunny starting | Her television, on the required simulator, from the first frame | "Vega Virtual Device · demo home, simulated history · no hardware" |
 | 0:10–0:20 | The film playing. Voice: "Margaret is 78 and lives alone. Care technology is built for her daughter's phone. Wick is built for her." | The idea, in one sentence | "Big Buck Bunny © Blender Foundation, CC BY 3.0" (kept while any film is on screen) |
-| 0:20–0:55 | A ring at the door → the door card over the film, which keeps playing → the picture → the sentence → **Ask Sarah to look** → cut to Sarah's family app: the same picture, three answers → Sarah picks *"Please don't open the door. I'll ring you now."* → back on the VVD, it appears under Sarah's name | The door, and the one moment Margaret chooses to bring Sarah in | "Stand-in doorbell (Ring's Developer Playground sends no webhooks, FL-027) · vision: Amazon Nova Lite" |
+| 0:20–0:55 | A ring at the door → the door card over the film, which waits for her → the picture → the sentence → **Ask Sarah to look** → cut to Sarah's family app: the same picture, three answers → Sarah picks *"Please don't open the door. I'll ring you now."* → back on the VVD, it appears under Sarah's name | The door, and the one moment Margaret chooses to bring Sarah in | "Stand-in doorbell (Ring's Developer Playground sends no webhooks, FL-027) · vision: Amazon Nova Lite" |
 | 0:55–1:25 | Sarah asks the family app to send a note → the agent shows the note and asks for her yes → back on the VVD, the film plays on and nothing appears → at 1:29 in the film, a quiet cut: the film holds, the note comes up → **Play** reads it aloud → **OK** sends her reply → Sarah's app shows it | Notes wait for a natural break: a calm point measured in the film itself | "Calm point measured with Amazon Rekognition and ffmpeg · read aloud by Amazon Polly" |
 | 1:25–1:55 | On the VVD: *"Shall I tell Sarah? Maria usually comes on Friday mornings. There was no visit on Friday."* → Margaret presses **Tell Sarah** → Sarah asks *"Is everything alright at Mum's?"* → *"Margaret asked Wick to tell you: …"* | Nothing about her reaches the family unless she says so | "If she keeps it to herself, Sarah sees exactly what she would see if nothing had happened." |
 | 1:55–2:15 | Another app in front on the VVD → the system toast *"Someone's at the front door."* → **Open Wick** → the card. Three seconds of the Fire OS build on the Android TV emulator: the same card | Outside Wick, only the door interrupts. One source, both Fire TV platforms | "A note never interrupts another app: it waits, quietly, until she opens Wick." |
