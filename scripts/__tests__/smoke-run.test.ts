@@ -16,7 +16,7 @@ const HEADERS = {
  * (security headers, sign-out, export, deletion). Tokens are revocable and
  * refreshable, as on main today.
  */
-function stack(withPr70: boolean) {
+function stack(withPr70: boolean, statusPublic = true) {
   const live = new Set<string>();
   const asked: string[] = [];
   let issued = 0;
@@ -33,7 +33,10 @@ function stack(withPr70: boolean) {
     const method = init?.method ?? 'GET';
     asked.push(`${method} ${pathname}`);
     if (origin !== SERVER) {
-      if (pathname === '/status') return Response.json({ checks: [{ id: 'mcpServer', status: 'ok' }], summary: { healthy: true } });
+      if (pathname === '/status') {
+        return statusPublic ? Response.json({ checks: [{ id: 'mcpServer', status: 'ok' }], summary: { healthy: true } }) : new Response('{"message":"Not Found"}', { status: 404 });
+      }
+      if (pathname === '/' && origin === 'https://tv.wick.test') return new Response(statusPublic ? '<title>Wick — Ops Console</title>' : '<title>Wick — her television</title><script src="tv.js"></script>', { headers: withPr70 ? HEADERS : {} });
       return new Response('<html>', { headers: withPr70 ? HEADERS : {} });
     }
     switch (`${method} ${pathname}`) {
@@ -91,16 +94,16 @@ function stack(withPr70: boolean) {
   return { fetch, asked };
 }
 
-async function run(withPr70: boolean, features: Partial<Features> = {}) {
+async function run(withPr70: boolean, features: Partial<Features> = {}, statusPublic = true) {
   const results: CheckResult[] = [];
-  const { fetch, asked } = stack(withPr70);
+  const { fetch, asked } = stack(withPr70, statusPublic);
   const failures = await runSmoke(
     {
       familyApp: 'https://app.wick.test',
       virtualTv: 'https://tv.wick.test',
       server: SERVER,
       status: 'https://edge.wick.test/status',
-      features: { securityHeaders: false, accountData: false, televisionRef: false, browserTelevision: false, ...features },
+      features: { securityHeaders: false, accountData: false, televisionRef: false, browserTelevision: false, statusPrivate: false, ...features },
       expectedTools: 2,
     },
     fetch,
@@ -127,6 +130,17 @@ describe('runSmoke', () => {
     for (const name of ['GET /api/account/export', 'GET /account/sign-out', 'sign-out revokes', 'DELETE /api/account']) expect(outcome(name)).toBe('pass');
     expect(asked.filter((a) => a.startsWith('DELETE'))).toEqual(['DELETE /api/account']);
     expect(asked.at(-1)).toBe('GET /api/me');
+  });
+
+  it("once production's health is the operator's (#124): /status answers nobody, and the site opens on her television", async () => {
+    const closed = await run(false, { statusPrivate: true }, false);
+    expect(closed.outcome('status API is not public')).toBe('pass');
+    expect(closed.outcome('front page')).toBe('pass');
+    expect(closed.failures).toBe(0);
+
+    const stillOpen = await run(false, { statusPrivate: true }, true);
+    expect(stillOpen.outcome('status API is not public')).toBe('fail');
+    expect(stillOpen.outcome('front page')).toBe('fail');
   });
 
   it('fails what the checkout says is deployed but the stack does not have', async () => {

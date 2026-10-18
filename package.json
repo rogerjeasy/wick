@@ -24,6 +24,7 @@
     "demo:door": "vite-node -c vitest.config.ts scripts/door-card-demo.ts",
     "addon:check": "vite-node -c vitest.config.ts scripts/addon-check.ts --",
     "smoke:live": "vite-node -c vitest.config.ts scripts/smoke-live.ts",
+    "ops:status": "vite-node -c vitest.config.ts scripts/ops-status.ts",
     "latency:door": "vite-node -c vitest.config.ts scripts/door-latency.ts --",
     "latency:mcp": "vite-node -c vitest.config.ts scripts/mcp-latency.ts --",
     "vvd:follow": "vite-node -c vitest.config.ts scripts/vvd-follow/run.ts",
