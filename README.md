@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <strong><a href="https://rogerjeasy.github.io/wick/media/wick-demo-1080.mp4">Watch the film (1:28)</a></strong> ·
   <strong><a href="https://dmaz25jvryojp.cloudfront.net/">Try the family app</a></strong> ·
   <a href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">Her television in a browser tab</a> ·
   <a href="https://rogerjeasy.github.io/wick/calm-points/">The calm-point map</a>
@@ -38,6 +39,14 @@ answered with one button on the remote she already holds.
 
 **The people in the demo.** Margaret lives alone. Sarah, her daughter, lives
 far away. Maria is her carer. *Try the demo* makes you Sarah.
+
+<p align="center">
+  <a href="https://rogerjeasy.github.io/wick/media/wick-demo-1080.mp4">
+    <img src="docs/media/wick-demo-readme.jpg" width="900" alt="Wick in 88 seconds: on the left Sarah's family app, on the right Margaret's Vega television with a door card over her film showing the doorbell's picture, a one-sentence description, and the buttons Ask Sarah to look and Not now. Click to play the film.">
+  </a>
+  <br>
+  <sub>Recorded live in one take. Click to play with sound, or watch it with captions on the <a href="https://rogerjeasy.github.io/wick/">project page</a>.</sub>
+</p>
 
 ## What it does
 
@@ -117,28 +126,12 @@ and an assistant the family already uses. Only Amazon has all three.
 
 ## Architecture
 
-```
-   Margaret's house                                               Sarah, anywhere
- ┌────────────┐  MQTT (IoT Core)  ┌──────────────────────────┐  MCP   ┌────────────────┐
- │ Fire TV    │◀─ or WebSocket ──▶│ Edge: API Gateway,       │◀─────▶│ Family app     │
- │ Vega app / │                   │ IoT Core, Lambda         │ HTTPS │ (stands in for │
- │ Fire OS    │                   │ Wick server: App Runner  │       │  Alexa+)       │
- └────────────┘                   │ ──────────────────────── │       └────────────────┘
- ┌────────────┐                   │ Agent plane: Lambda +    │
- │ Ring       │──── webhook ─────▶│ AgentCore (Strands)      │
- │ + Chime    │◀───── REST ───────│ Door · Narrator · Tell · │
- └────────────┘                   │ Visit · Reach            │
-                                  │ Assistant agent (MCP     │
-                                  │ client, interrupts)      │
-                                  │ Sunday brief (Graph)     │
-                                  │ Errands: Step Functions  │
-                                  │ GUARDIAN + Guardrail     │
-                                  │ ──────────────────────── │
-                                  │ Memory: DynamoDB, S3,    │
-                                  │ AgentCore Memory,        │
-                                  │ Secrets Manager          │
-                                  └──────────────────────────┘
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/architecture-dark.png">
+  <img src="docs/architecture/architecture-light.png" alt="Wick's architecture. Margaret's home: her Fire TV (Vega app or Fire OS build) talks to the edge over AWS IoT Core MQTT or an API Gateway WebSocket; the Ring doorbell sends a signed webhook to API Gateway HTTP. The edge puts events on EventBridge for 26 Lambda functions and one Bedrock AgentCore runtime with three Strands agents (the door graph on Nova Lite, the family assistant, the Sunday brief graph), with Step Functions for visit errands, SQS, EventBridge Scheduler and a Bedrock Guardrail; the agents fetch Ring's frame, live view and chime and send cards out to the television. Sarah's family app, the Alexa+ add-on and her own Fire TV reach the Wick server on App Runner over MCP with OAuth 2.1, through the Guardian. Memory is DynamoDB, S3 and CloudFront, AgentCore Memory and Secrets Manager; models are Amazon Bedrock plus Rekognition, Polly, Translate and Transcribe.">
+</picture>
+
+<sub>Drawn from <a href="docs/architecture/architecture.html"><code>docs/architecture/architecture.html</code></a>; every box is in <code>apps/</code>, <code>services/</code> or <code>infra/</code>, and the counts are Terraform's. <code>scripts/architecture/render.sh</code> draws it again.</sub>
 
 The television renders and never decides. The edge authenticates and answers
 Ring within its five-second budget. The agents do the reasoning. The full
