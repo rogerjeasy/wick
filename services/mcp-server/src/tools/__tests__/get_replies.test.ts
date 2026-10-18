@@ -10,7 +10,7 @@ import { guardTools } from '../../guardian.js';
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = 1_790_900_000_000;
 
-const note = (id: string, sentAt: number, reply?: { text: string; at: number }, sentBy: string | undefined = 'u_sarah') => ({
+const note = (id: string, sentAt: number, reply?: { text: string; at: number }, sentBy: string | undefined = 'u_sarah', seenAt?: number) => ({
   pk: { S: 'HH#hh-1' },
   sk: { S: `CARD#note-${id}` },
   ...(sentBy ? { sentBy: { S: sentBy } } : {}),
@@ -22,6 +22,7 @@ const note = (id: string, sentAt: number, reply?: { text: string; at: number }, 
     }),
   },
   ...(reply ? { replyText: { S: reply.text }, repliedAt: { N: String(reply.at) } } : {}),
+  ...(seenAt !== undefined ? { seenAt: { N: String(seenAt) } } : {}),
 });
 
 const ddbReturning = (items: unknown[]) => {
@@ -47,8 +48,8 @@ describe('loadNoteReplies', () => {
     ]);
 
     expect(await loadNoteReplies(ddb, 'hh-1', 'u_sarah', NOW)).toEqual([
-      { from: 'Sarah', message: 'Note b', sentAt: NOW - 3_600_000, reply: null },
-      { from: 'Sarah', message: 'Note a', sentAt: NOW - 2 * DAY, reply: { text: 'Call soon', at: NOW - DAY } },
+      { from: 'Sarah', message: 'Note b', sentAt: NOW - 3_600_000, reply: null, seen: false },
+      { from: 'Sarah', message: 'Note a', sentAt: NOW - 2 * DAY, reply: { text: 'Call soon', at: NOW - DAY }, seen: true },
     ]);
   });
 
@@ -63,7 +64,7 @@ describe('loadNoteReplies', () => {
 
     const notes = await loadNoteReplies(ddb, 'hh-1', 'u_sarah', NOW);
 
-    expect(notes).toEqual([{ from: 'Sarah', message: 'Note 1', sentAt: NOW - 2 * DAY, reply: null }]);
+    expect(notes).toEqual([{ from: 'Sarah', message: 'Note 1', sentAt: NOW - 2 * DAY, reply: null, seen: false }]);
   });
 
   it('gives the words of a note only to the person who wrote it: everyone else sees who, when and her reply', async () => {
@@ -75,10 +76,25 @@ describe('loadNoteReplies', () => {
     ]);
 
     expect(await loadNoteReplies(ddb, 'hh-1', 'u_tom', NOW)).toEqual([
-      { from: 'Sarah', message: null, sentAt: NOW - DAY, reply: { text: "I'm fine, thank you.", at: NOW - 60_000 } },
-      { from: 'Sarah', message: 'Note toms', sentAt: NOW - 2 * DAY, reply: { text: "I'm fine, thank you.", at: NOW - DAY } },
-      { from: 'Sarah', message: null, sentAt: NOW - 3 * DAY, reply: null },
+      { from: 'Sarah', message: null, sentAt: NOW - DAY, reply: { text: "I'm fine, thank you.", at: NOW - 60_000 }, seen: true },
+      { from: 'Sarah', message: 'Note toms', sentAt: NOW - 2 * DAY, reply: { text: "I'm fine, thank you.", at: NOW - DAY }, seen: true },
+      { from: 'Sarah', message: null, sentAt: NOW - 3 * DAY, reply: null, seen: false },
     ]);
+  });
+
+  it('says whether she has seen each note — once she has answered it, or put it away for later — and never when', async () => {
+    const { ddb } = ddbReturning([
+      note('later', NOW - DAY, undefined, 'u_sarah', NOW - 60_000),
+      note('waiting', NOW - 2 * DAY),
+    ]);
+
+    const notes = await loadNoteReplies(ddb, 'hh-1', 'u_sarah', NOW);
+
+    expect(notes.map((n) => [n.message, n.reply, n.seen])).toEqual([
+      ['Note later', null, true],
+      ['Note waiting', null, false],
+    ]);
+    expect(JSON.stringify(notes)).not.toContain(String(NOW - 60_000));
   });
 
   it('keeps the answer short: at most five notes', async () => {
@@ -100,7 +116,7 @@ describe('get_replies (end to end through the registered tool)', () => {
     };
 
     expect(JSON.parse(await connect([note('a', NOW - DAY, { text: 'Thanks', at: NOW - 60_000 })]))).toEqual({
-      notes: [{ from: 'Sarah', message: 'Note a', sentAt: NOW - DAY, reply: { text: 'Thanks', at: NOW - 60_000 } }],
+      notes: [{ from: 'Sarah', message: 'Note a', sentAt: NOW - DAY, reply: { text: 'Thanks', at: NOW - 60_000 }, seen: true }],
     });
     expect(await connect([])).toBe('No notes have been sent to the television this week.');
   });

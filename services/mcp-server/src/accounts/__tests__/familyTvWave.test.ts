@@ -393,7 +393,7 @@ describe('a wave is not a note', () => {
     await herPress(w, sent, 0, NOW + MIN);
     const answered = await loadNoteReplies(w.table.ddb, 'hh-1', 'u_sarah', NOW + 2 * MIN);
 
-    const onlyTheNote = [{ from: 'Sarah Hughes', message: 'Lunch on Sunday?', sentAt: NOW - HOUR, reply: null }];
+    const onlyTheNote = [{ from: 'Sarah Hughes', message: 'Lunch on Sunday?', sentAt: NOW - HOUR, reply: null, seen: false }];
     expect(unanswered).toEqual(onlyTheNote);
     expect(answered).toEqual(onlyTheNote);
   });
