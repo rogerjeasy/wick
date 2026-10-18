@@ -306,7 +306,7 @@ stateDiagram-v2
 
 Wick going behind another app is told to the engine each time it happens, and coming back starts the twenty settled seconds again (`break/followScreen.ts`, on `AppState` through `useOnScreen`). The edge hears `app_lifecycle` `fg` and `bg` with it. On the Vega simulator the app is mounted afresh when it comes back, so this matters most in the seconds before Vega stops a backgrounded app's JavaScript, and on Fire OS, where it can keep running for the door's Headless JS task.
 3. A card shown mid-film, at a calm point or in a pause, holds the film on the cut until it is answered. At the credits nothing is held.
-4. A card ignored twice waits on the home screen instead of returning.
+4. A card ignored twice waits on the home screen instead of returning. Back on a note puts it there at once (`later`, `home/waiting.ts`): a note's three buttons are replies, so Back is never one of them. The server stamps the note `seenAt` with its two showings (`note-reply.mjs`), so no television brings it back, and the family is told she has seen it, never when (`get_replies`).
 
 **Calm points are measured, never guessed.** `scripts/calm-points` runs Amazon Rekognition segment detection and ffmpeg silence detection over each film and keeps cuts that fall in a quiet stretch. `npm run calm:build` writes `catalog/calmPoints.ts`; nobody edits it by hand. [The published map](https://rogerjeasy.github.io/wick/calm-points/).
 

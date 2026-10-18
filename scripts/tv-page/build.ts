@@ -81,7 +81,7 @@ export { playIsTheCards, playGoesTo, seekTarget, SEEK_STEP_MS } from './apps/tv-
 export { PlaybackRecorder, toPlaybackDeviceEvent } from './apps/tv-vega/src/watch/playbackRecorder.ts';
 export { FilmPositions } from './apps/tv-vega/src/watch/resume.ts';
 export { deriveSnapshot } from './apps/tv-vega/src/player/PlayerService.ts';
-export { waitingLine, backClosesOpened, backOnShownCard } from './apps/tv-vega/src/home/waiting.ts';
+export { waitingLine, backClosesOpened, backOnShownCard, putAway, putsAway } from './apps/tv-vega/src/home/waiting.ts';
 export { asking } from './apps/tv-vega/src/home/asked.ts';
 export { unaskedLightCards } from './apps/tv-vega/src/home/light.ts';
 export { newestReachCard, reachOffersToPutAway, backAnswersReach } from './apps/tv-vega/src/home/reach.ts';

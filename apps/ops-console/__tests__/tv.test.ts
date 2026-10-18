@@ -419,6 +419,35 @@ describe('Back on the door card over her film — it puts the card away, and nev
   });
 });
 
+describe('Back on a note — "later": she reaches her films, and it waits on her home screen', () => {
+  it('puts the note away to the home screen’s line, sends "later" and no reply, and does not bring it back by itself', async () => {
+    const tv = await atHome();
+    tv.card(NOTE);
+    tv.advance(SETTLED_AFTER_MS);
+    expect(shownType(tv)).toBe('MESSAGE');
+
+    tv.advance(PRESS_SETTLE_MS);
+    tv.press('Escape');
+
+    expect(shownType(tv)).toBe(null);
+    expect(tv.says()).toContain('A note from Sarah is waiting.');
+    expect(tv.sentOf('card_action')).toEqual([{ t: 'card_action', cardId: 'note-1', action: 'later' }]);
+
+    tv.advance(SETTLED_AFTER_MS * 2);
+    expect(shownType(tv)).toBe(null);
+  });
+
+  it('takes a Back pressed in the note’s first second and does nothing with it', async () => {
+    const tv = await atHome();
+    tv.card(NOTE);
+    tv.advance(SETTLED_AFTER_MS);
+    tv.press('Escape');
+
+    expect(shownType(tv)).toBe('MESSAGE');
+    expect(tv.sentOf('card_action')).toEqual([]);
+  });
+});
+
 describe('a film goes on from where she left it — watch/resume.ts, kept on this device', () => {
   const MIN = 60_000;
 

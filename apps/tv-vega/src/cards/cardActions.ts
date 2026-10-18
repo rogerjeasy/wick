@@ -31,8 +31,12 @@
  * says so, and it is shown again by the ordinary rules — nothing here
  * remembers that it was answered (ResidentApp tells the break engine the
  * showing is over, BreakController.answered).
+ *
+ * A note is finished by any of its replies. Back on it is not one: it puts
+ * the note aside to the home screen's quiet line (home/waiting.ts putAway),
+ * where it waits for her answer.
  */
-import { DOOR_ACTIONS, REACH_ACTIONS, SHARING_ACTIONS, WATCH_ACTIONS, WEEK_ACTIONS, type Card } from '@wick/contracts';
+import { DOOR_ACTIONS, NOTE_ACTIONS, REACH_ACTIONS, SHARING_ACTIONS, WATCH_ACTIONS, WEEK_ACTIONS, type Card } from '@wick/contracts';
 import type { Together } from '../watch/togetherReporter.js';
 
 export function removesCard(card: Card, actionId: string): boolean {
@@ -49,6 +53,8 @@ export function removesCard(card: Card, actionId: string): boolean {
       return true;
     case 'PHOTO':
       return true;
+    case 'MESSAGE':
+      return actionId !== NOTE_ACTIONS.later;
     default:
       return true;
   }

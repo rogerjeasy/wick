@@ -723,12 +723,28 @@ function pressBack() {
     // A card that came to her: Back is its "Not now", pressed as its button is (settle and all), or
     // nothing. Never the film underneath, which it used to end (home/waiting.ts backOnShownCard).
     const notNow = TV.backOnShownCard(card.card);
+    // On a note, which has no such button, "later": it goes to her home screen's quiet line, unanswered.
+    if (notNow && TV.putsAway(card.card, notNow)) return putNoteAway(card, notNow);
     if (notNow) tvScreen.querySelector(`button[data-action="${notNow}"]`)?.click();
     return;
   }
   if (easierOpen) return closeEasier();
   if (mantelView) return closeMantel();
   if (film) return stopFilm();
+}
+
+/**
+ * "Later" on a note, as the Vega app does it (ResidentApp.tsx handleAction): held to the card's one second like
+ * any press, told to the server, and the note kept as one that has had its two showings (home/waiting.ts
+ * putAway), so it waits on the home screen and is not brought to her again by itself.
+ */
+function putNoteAway(queued, action) {
+  if (!settle.acts(Date.now())) return;
+  send({ t: 'card_action', cardId: queued.card.id, action, at: Date.now() });
+  keptCards = keptCards.map((q) => (q.card.id === queued.card.id ? TV.putAway(q) : q));
+  showingFrom.delete(queued.card.id);
+  breaks.answered(queued.card.id);
+  look();
 }
 
 function seek(direction) {

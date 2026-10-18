@@ -272,6 +272,18 @@ describe('presentResult — notes and replies', () => {
     const raw = JSON.stringify({ notes: [{ from: 'Sarah', message: 'Call me.', sentAt: 100, reply: null }] });
     expect(presentResult('get_replies', raw, {}, at).say).toBe('Not yet. Your note is on the television, waiting.');
   });
+
+  it('says she has seen it when she put the newest note away for later, and marks each note seen or not', () => {
+    const raw = JSON.stringify({
+      notes: [
+        { from: 'Sarah', message: 'Lunch on Sunday?', sentAt: 900, reply: null, seen: true },
+        { from: 'Sarah', message: 'Call me.', sentAt: 100, reply: null, seen: false },
+      ],
+    });
+    const r = presentResult('get_replies', raw, {}, at);
+    expect(r.say).toBe('Not yet. She has seen your note, and it is waiting on her television for her answer.');
+    expect(r.card.items.map((item: { replyMeta: string }) => item.replyMeta)).toEqual(['Seen, no reply yet', 'No reply yet']);
+  });
 });
 
 describe('presentResult — what the family can see', () => {

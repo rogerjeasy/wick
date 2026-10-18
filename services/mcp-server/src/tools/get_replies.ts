@@ -49,6 +49,13 @@ export interface NoteReply {
   readonly message: string | null;
   readonly sentAt: number;
   readonly reply: { readonly text: string; readonly at: number } | null;
+  /**
+   * Whether she has seen it: answered it, or put it aside with Back to wait
+   * on her home screen (edge-device note-reply.mjs markNoteSeen). Written
+   * only at a press of hers, as a picture's is (photos/rows.ts), and never
+   * when: a note that came on screen while she was not looking is not seen.
+   */
+  readonly seen: boolean;
 }
 
 /** `reader`: the userId of the family member asking. Only their own notes come back with their words. */
@@ -76,6 +83,7 @@ export async function loadNoteReplies(ddb: DynamoDBClient, householdId: string, 
       message: item.sentBy?.S === reader ? queued.card.transcript ?? null : null,
       sentAt: queued.queuedAt,
       reply: text !== undefined && at !== undefined ? { text, at: Number(at) } : null,
+      seen: item.seenAt?.N !== undefined || at !== undefined,
     });
   }
 
@@ -89,6 +97,7 @@ const OUTPUT = answerSchema({
     message: z.string().nullable().describe('The note’s words, for the person who wrote them; null for everyone else.'),
     sentAt: z.number(),
     reply: z.strictObject({ text: z.string(), at: z.number() }).nullable().describe('The resident’s reply, or null if there is none yet.'),
+    seen: z.boolean().describe('Whether the resident has seen the note: answered it, or put it aside on her television for later. Never when.'),
   })).describe('Newest first.'),
 });
 
@@ -98,7 +107,8 @@ export function registerGetReplies(mcpServer: McpServer, ddb: DynamoDBClient, ct
     {
       title: 'Replies from the television',
       description:
-        "Returns this week's notes sent to the household television, newest first: who sent each and when, and the resident's one-button reply, or null if they haven't replied yet. " +
+        "Returns this week's notes sent to the household television, newest first: who sent each and when, the resident's one-button reply, or null if they haven't replied yet, " +
+        'and `seen`: whether they have seen the note — answered it, or put it aside for later. Say only that, never when. ' +
         "`message` is the note's words for a note the person asking wrote themselves, and null for everyone else's: a note is between the person who wrote it and the resident.",
       inputSchema: {},
       outputSchema: OUTPUT,

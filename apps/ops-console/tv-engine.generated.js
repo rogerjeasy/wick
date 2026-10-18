@@ -50,6 +50,8 @@ var WickTv = (() => {
     playIsTheCards: () => playIsTheCards,
     pressSettle: () => pressSettle,
     programmeLine: () => programmeLine,
+    putAway: () => putAway,
+    putsAway: () => putsAway,
     reachOffersToPutAway: () => reachOffersToPutAway,
     seekTarget: () => seekTarget,
     toPlaybackDeviceEvent: () => toPlaybackDeviceEvent,
@@ -59,6 +61,9 @@ var WickTv = (() => {
   });
 
   // packages/contracts/src/card.ts
+  var NOTE_ACTIONS = {
+    later: "later"
+  };
   var MAX_CARD_SHOWS = 2;
   var DOOR_CARD_TTL_MS = 5 * 60 * 1e3;
 
@@ -1281,7 +1286,14 @@ var WickTv = (() => {
     return on.openedId !== null && on.shownId === on.openedId && !on.liveOpen;
   }
   function backOnShownCard(card) {
+    if (card?.type === "MESSAGE") return NOTE_ACTIONS.later;
     return card?.actions.find((action) => action.kind === "dismiss")?.id;
+  }
+  function putsAway(card, actionId) {
+    return card.type === "MESSAGE" && actionId === NOTE_ACTIONS.later;
+  }
+  function putAway(queued) {
+    return { ...queued, shownCount: Math.max(queued.shownCount, MAX_CARD_SHOWS) };
   }
 
   // apps/tv-vega/src/home/light.ts

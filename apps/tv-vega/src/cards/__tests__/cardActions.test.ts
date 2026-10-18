@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Card } from '@wick/contracts';
+import { NOTE_ACTIONS, type Card } from '@wick/contracts';
 import { opensLiveView, removesCard, startsFilm } from '../cardActions.js';
 
 const door = { type: 'DOOR', id: 'd', householdId: 'h', correlationId: 'c', createdAt: 0, line: 'x', actions: [] } as Card;
@@ -30,6 +30,13 @@ describe('removesCard', () => {
 
   it('removes a door card on Not now', () => {
     expect(removesCard(door, 'dismiss')).toBe(true);
+  });
+
+  it('keeps a note she put away with Back: it waits on the home screen until she answers it', () => {
+    const note = { type: 'MESSAGE', id: 'note-1', householdId: 'h', correlationId: 'c', createdAt: 0, fromName: 'Sarah', suggestedReplies: ['Thank you!'], actions: [] } as Card;
+
+    expect(removesCard(note, NOTE_ACTIONS.later)).toBe(false);
+    expect(removesCard(note, 'reply_0')).toBe(true);
   });
 
   it('removes the Week card on OK', () => {
