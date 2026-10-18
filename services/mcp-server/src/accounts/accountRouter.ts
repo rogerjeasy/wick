@@ -18,7 +18,7 @@ import { isTimeZone } from '@wick/contracts';
 import cors from 'cors';
 import express, { type Request, type Response } from 'express';
 import { acceptInvitation, CircleError, createHousehold, describeInvitation, invitationNeedsAnswer, type CircleDeps } from './circle.js';
-import { createDemoLimiter, DEMO_HOME_NAME, DEMO_RESIDENT_NAME, isGuest, newGuest } from './demo.js';
+import { createDemoLimiter, DEMO_HOME_NAME, DEMO_RESIDENT_NAME, isGuest, newDemoSessionKey, newGuest } from './demo.js';
 import { IdentityError, type Identity, type IdentityErrorCode, type IdentityProvider } from './identity.js';
 import type { PendingAuthorization, WickOAuth } from './oauthProvider.js';
 import {
@@ -108,8 +108,9 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     res.redirect(303, `/account?tx=${encodeURIComponent(tx)}${home ? `&home=${encodeURIComponent(home)}` : ''}`);
 
   /**
-   * One click, one guest: an account Wick names itself and a demo home of
-   * their own, waiting for its resident like any other (demo.ts). Returns
+   * One click, one demo session: a new key, an account Wick names by it and
+   * a demo home of their own that records it, waiting for its resident like
+   * any other (demo.ts). Nothing of an earlier session is reused. Returns
    * undefined, having said so, when the hour's guests have all been made.
    */
   const startDemo = async (res: Response, tx: string, timeZone: string | undefined): Promise<{ guest: Identity; householdId: string } | undefined> => {
@@ -117,10 +118,12 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
       html(res, demoBusyPage(tx), 429);
       return undefined;
     }
-    const guest = newGuest(circle.newId());
+    const demoSession = newDemoSessionKey();
+    const guest = newGuest(demoSession);
     await store.putUser({ ...guest, createdAt: now() });
     // Where the guest is: a demo home's six weeks are lived on the clock of the person looking at them.
-    const household = await createHousehold(circle, guest, { residentName: DEMO_RESIDENT_NAME, name: DEMO_HOME_NAME, simulated: true, timeZone });
+    const household = await createHousehold(circle, guest, { residentName: DEMO_RESIDENT_NAME, name: DEMO_HOME_NAME, simulated: true, timeZone, demoSession });
+    console.info(JSON.stringify({ level: 'info', msg: 'demo_session_started', householdId: household.householdId }));
     // An empty demo home is a poorer demo, not a failed one: the guest is made either way.
     await deps.seedDemoHome?.(household.householdId, zoneOf(household)).catch((err: unknown) => {
       console.warn(JSON.stringify({ level: 'warn', msg: 'demo_home_not_seeded', householdId: household.householdId, error: (err as Error).name || String(err) }));
@@ -215,19 +218,13 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
 
     // The app's demo button. It acts only for a browser nobody is signed in
     // on, or one a guest is: a real account is never approved without its
-    // owner pressing Approve.
+    // owner pressing Approve. Every press is a new demo session — a browser
+    // still holding a guest from before gets a new guest and a new home, and
+    // its session cookie is replaced by the new guest's (demo.ts).
     if (demo && pending.demo && (!user || isGuest(user.userId))) {
-      let guest = user;
-      let householdId: string | undefined;
-      if (!guest) {
-        const started = await startDemo(res, tx, pending.timeZone);
-        if (!started) return;
-        ({ guest, householdId } = started);
-      } else {
-        householdId = (await store.listMemberships(guest.userId)).find((m) => m.status !== 'removed')?.householdId;
-      }
-      if (householdId) return res.redirect(302, await oauth.approve(tx, pending, guest.userId, householdId));
-      return renderSignedIn(res, tx, pending, guest);
+      const started = await startDemo(res, tx, pending.timeZone);
+      if (!started) return;
+      return res.redirect(302, await oauth.approve(tx, pending, started.guest.userId, started.householdId));
     }
 
     if (user) return renderSignedIn(res, tx, pending, user, { newHome: view === 'new-home', home });

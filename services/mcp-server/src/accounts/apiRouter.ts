@@ -37,7 +37,7 @@ import {
   type CircleDeps,
   type CircleErrorCode,
 } from './circle.js';
-import { isGuest } from './demo.js';
+import { demoSessionLabel, isGuest } from './demo.js';
 import type { HomeClosed } from './myData.js';
 import { DemoDoorRefusal, ringDemoDoorbell, type DemoDoorbellDeps } from './demoDoorbell.js';
 import { LanguageRefusal, askForLanguage, readLanguage, takeBackLanguageQuestion, type LanguageDeps } from './language.js';
@@ -247,6 +247,8 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
         timeZone: zoneOf(household),
         // A demo home's history is written, not lived: the app says so (demoHome.ts).
         ...(household.simulated ? { simulated: true } : {}),
+        // Which demo session this is, as the app names it: one a press of "Try the demo" (demo.ts).
+        ...(household.simulated && household.demoSession ? { demoSession: demoSessionLabel(household.demoSession) } : {}),
       },
       membership: { role: membership.role, status: membership.status },
       ...(virtualTelevisionUrl ? { virtualTelevisionUrl } : {}),
