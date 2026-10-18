@@ -38,6 +38,13 @@ export interface DoorCard extends CardBase {
   readonly match?: import('./door.js').VisitorMatch;
   /** One plain sentence about something the resident just did (M1: whether the chime rang). */
   readonly notice?: string;
+  /**
+   * A demo home's stand-in doorbell rang, not a Ring doorbell (demoDoor.ts).
+   * The television says so in a small label of its own, never inside the
+   * sentence she reads: "Someone's at the front door." is the same words a
+   * real ring brings.
+   */
+  readonly standIn?: true;
 }
 
 export interface MessageCard extends CardBase {
@@ -258,6 +265,22 @@ export const DOOR_ACTIONS = {
   askFamily: 'ask_family',
   dismiss: 'dismiss',
 } as const;
+/** What the door card's dismiss button says once someone she asked has answered: she is thanking them, not putting off a visitor. */
+export const DOOR_ANSWERED_DISMISS_LABEL = 'Thank you';
+
+/**
+ * The door card's buttons once a family member has answered "Ask Sarah to
+ * look". Their answer is on the card ("Sarah says: …"); asking again is not
+ * offered, and the button that puts the card away says "Thank you" instead
+ * of "Not now" — "Not now" under an answer reads as turning the answer down.
+ * Every other button stays as it was.
+ */
+export function doorActionsAfterAnswer(actions: readonly CardAction[]): CardAction[] {
+  return actions
+    .filter((a) => a.id !== DOOR_ACTIONS.askFamily)
+    .map((a) => (a.id === DOOR_ACTIONS.dismiss ? { ...a, label: DOOR_ANSWERED_DISMISS_LABEL } : a));
+}
+
 /** The Week card's actions. `seen` is the only one that releases the week (INV-7). */
 export const WEEK_ACTIONS = {
   seen: 'seen',
