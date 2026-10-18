@@ -178,6 +178,15 @@ describe('ResidentApp, drawn whole', () => {
     expect(events).toContainEqual(expect.objectContaining({ t: 'card_action', cardId: 'door-evt-1', action: DOOR_ACTIONS.dismiss }));
   });
 
+  it('says a demo home’s stand-in doorbell in a quiet line of its own, never in the sentence she reads', async () => {
+    const { root } = await launch();
+    await deliver({ ...door, id: 'door-evt-2', card: { ...door.card, id: 'door-evt-2', correlationId: 'door-evt-2', standIn: true } } as QueuedCard);
+    await wait(1_000);
+
+    expect(headers(root).map(textOf)).toEqual(["Someone's at the front door."]);
+    expect(shows(root, 'Stand-in doorbell, for the demo')).toBe(true);
+  });
+
   it('draws nothing of the home behind the Easier to see card either: it is a card like any other', async () => {
     const { root } = await launch();
     await wait(1_000);
@@ -220,8 +229,14 @@ describe('ResidentApp, drawn whole', () => {
     // The film stays in view under it: only the home screen is left out behind a card.
     expect(root.findAll((n) => n.props.testID === 'film').length).toBe(1);
     expect(film.props?.cardVisible).toBe(true);
+    // And it waits for her: she may get up to answer the door. Nothing of hers has put the card away yet.
+    expect(film.props?.held).toBe(true);
+    expect((film.props?.putAwayByHer as () => boolean)()).toBe(false);
     await wait(1_000);
     await pressOk(button(root, 'Not now'));
+    // She put it away herself: the film goes on.
+    expect(film.props?.held).toBe(false);
+    expect((film.props?.putAwayByHer as () => boolean)()).toBe(true);
     await filmAt(40_000);
     await wait(1_000);
     expect(shows(root, 'A message from Sarah.')).toBe(false);

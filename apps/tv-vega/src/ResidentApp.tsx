@@ -139,6 +139,14 @@ const QUEUE_POLL_MS = 1000;
  */
 const LANGUAGE_RECALL_WAIT_MS = 1000;
 
+/**
+ * How recently she must have answered a card for the film it held to go on
+ * by itself when it goes. Her press puts the card away within a moment; a
+ * door card that went by itself, while she was at the door, did not follow a
+ * press of hers, and the film stays paused for her to come back to.
+ */
+const PUT_AWAY_WITHIN_MS = 10_000;
+
 export interface ResidentAppProps {
   /** The resident's television's token: one that names no kind. */
   readonly token: DeviceToken;
@@ -207,6 +215,9 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const idleFailed = React.useRef<{ readonly receivedAt: number | undefined; readonly ids: readonly string[] }>({ receivedAt: undefined, ids: [] });
   /** The last key press, or the last moment the home screen was not quiet: what the few idle minutes are counted from. */
   const lastActiveAt = React.useRef(Date.now());
+  /** When she last answered a card on screen: whether a film held under it goes on by itself when it goes. */
+  const answeredAt = React.useRef(0);
+  const putAwayByHer = React.useCallback(() => Date.now() - answeredAt.current <= PUT_AWAY_WITHIN_MS, []);
   /**
    * Her press on the light on the home screen. The card that answers it is
    * opened as soon as it comes — waited for from when her question leaves
@@ -703,6 +714,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       if (blocksHome(idleNow.current)) return;
       // Pressed in the card's first second: begun before she could have read it. Nothing happens, and the next press works.
       if (!settle.acts(Date.now())) return;
+      // She answered a card herself: a film the card was holding may go on when it goes (WatchScreen putAwayByHer).
+      answeredAt.current = Date.now();
       if (card && card.id === cardId && opensLiveView(card.card, actionId)) setLiveFor(cardId);
       const film = card && card.id === cardId ? startsFilm(card.card, actionId, Date.now()) : undefined;
       const programme = film ? programmeById(film.programmeId) : undefined;
@@ -828,6 +841,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           onReadCommand={handleMediaRead}
           onPlayer={handleFilmPlayer}
           held={holdsFilm}
+          putAwayByHer={putAwayByHer}
           suspended={liveFor !== null}
           companion={together && together.programmeId === watching.id ? together.withName : undefined}
           onHold={handleHold}

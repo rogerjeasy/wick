@@ -24,10 +24,10 @@
  * and neither pauses nor resumes the programme here. Over a note that holds
  * the programme that is the first Play only — the next is the programme's
  * again, as Play there always was: the programme goes on and the note is
- * put away. The door's card holds nothing, and the programme plays on under
- * its reading — turned down for it by the app, which is told which player
- * this screen has (`onPlayer`) and puts the sound back when the reading is
- * over.
+ * put away. The door's card holds the programme as a note does; a reading
+ * over a film that is not held is turned down for it by the app, which is
+ * told which player this screen has (`onPlayer`) and puts the sound back
+ * when the reading is over.
  *
  * The platform's media controls reach the film too: "Alexa, pause", the
  * system's transport controls (mediaControls.ts). Each is decided by the
@@ -80,9 +80,16 @@ export interface WatchScreenProps {
   /**
    * A card that waited for a calm point, or for a pause, is on screen: the
    * programme waits on the cut while it is read, and goes on when it has
-   * gone (break/NaturalBreakEngine.ts holdsProgramme). Never for the door.
+   * gone (break/NaturalBreakEngine.ts holdsProgramme). The door's card holds it too.
    */
   readonly held: boolean;
+  /**
+   * Whether the card that held the programme was put away by her, just now:
+   * only then does the programme go on by itself. A door card that went by
+   * itself while she was at the door leaves the film paused where it was.
+   * Absent: the programme goes on whenever the card goes, as it always did.
+   */
+  readonly putAwayByHer?: (() => boolean) | undefined;
   /** Something else has the screen (the door camera, live): hold the programme. */
   readonly suspended: boolean;
   /**
@@ -247,8 +254,9 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
     }
   }, [suspended]);
 
-  // A note in the middle of a programme: the film waits while it is read.
-  // If the resident had paused it themselves, it stays paused afterwards.
+  // A note in the middle of a programme, or the door: the film waits while the card is up.
+  // If the resident had paused it themselves, it stays paused afterwards — and so it does
+  // if the card went without her (putAwayByHer): she may still be at the door.
   const { held } = props;
   const resumeAfterCard = React.useRef(false);
   React.useEffect(() => {
@@ -259,7 +267,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       p.pause();
     } else if (resumeAfterCard.current) {
       resumeAfterCard.current = false;
-      void p.play();
+      if (latest.current.putAwayByHer?.() ?? true) void p.play();
     }
   }, [held]);
 

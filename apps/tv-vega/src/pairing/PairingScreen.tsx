@@ -8,7 +8,8 @@
  * resident's television, or any member the resident has allowed, for a
  * television of their own. Which of the two this television becomes is
  * chosen there, not here — so the sentence below names no button, and is
- * true of both. The link opens that app with the code filled in.
+ * true of both. The link opens that app with the code filled in, and the
+ * QR code beside the words is that link, for a phone's camera (QrCode.tsx).
  *
  * Always in English, whatever language a household later chooses: there is
  * no household yet, and a television learns its home's language only from
@@ -23,6 +24,10 @@ import { useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import { words } from '../words/words.js';
 import type { PairingStartResponse } from './PairingFlow.js';
 import { STILL_TRYING } from './connect.js';
+import { QrCode } from './QrCode.js';
+
+/** How wide the code is on a 960x540dp screen, quiet zone and all: a phone reads it from the sofa. */
+const QR_SIZE = 216;
 
 export interface PairingScreenProps {
   readonly info?: PairingStartResponse;
@@ -43,11 +48,17 @@ export function PairingScreen({ info, trying }: PairingScreenProps): React.JSX.E
     <View style={styles.root}>
       <Text style={styles.headline}>{say('pairing.title')}</Text>
       {info ? (
-        <>
-          <Text style={styles.code}>{info.code}</Text>
-          <Text style={styles.body}>{say('pairing.instructions')}</Text>
-          <Text style={styles.link}>{info.url}</Text>
-        </>
+        <View style={styles.row}>
+          <View style={styles.words}>
+            <Text style={styles.code}>{info.code}</Text>
+            <Text style={styles.body}>{say('pairing.instructions')}</Text>
+            <Text style={styles.link}>{info.url}</Text>
+          </View>
+          <View style={styles.qr}>
+            <QrCode text={info.url} size={QR_SIZE} label={say('pairing.scanLabel')} />
+            <Text style={styles.scan}>{say('pairing.scan')}</Text>
+          </View>
+        </View>
       ) : (
         <>
           <Text style={styles.body}>{say('pairing.gettingCode')}</Text>
@@ -63,6 +74,10 @@ const makeStyles = (t: CalmTheme) =>
     root: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.palette.ground },
     headline: { fontSize: t.fontSize('headline'), color: t.palette.ink, marginBottom: 24 },
     code: { fontSize: t.fontSize('display'), color: t.palette.accent, letterSpacing: 8, marginBottom: 16 },
-    body: { fontSize: t.fontSize('body'), color: t.palette.inkDim, textAlign: 'center', paddingHorizontal: 96, marginBottom: 16 },
+    body: { fontSize: t.fontSize('body'), color: t.palette.inkDim, textAlign: 'center', paddingHorizontal: 24, marginBottom: 16 },
     link: { fontSize: t.fontSize('body'), color: t.palette.inkDim },
+    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 48 },
+    words: { flex: 1, alignItems: 'center' },
+    qr: { alignItems: 'center', marginLeft: 32 },
+    scan: { fontSize: t.fontSize('body'), color: t.palette.inkDim, marginTop: 12, maxWidth: QR_SIZE + 64, textAlign: 'center' },
   });

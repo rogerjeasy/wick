@@ -60,10 +60,15 @@ const en = {
   'door.pictureLabel': 'Picture from the front door camera',
   'door.looksLikeExpected': 'This looks like {name} — expected around now.',
   'door.looksLike': 'This looks like {name}.',
+  // A demo home's stand-in doorbell (DoorCard.standIn): said beside her sentence, never inside it.
+  'door.standIn': 'Stand-in doorbell, for the demo',
 
   // The pairing screen. Shown in English always — see the header.
   'pairing.title': 'Set up Wick',
   'pairing.instructions': 'Enter this code in the Wick family app. There you say whose television this is.',
+  // Under the QR code beside the code (pairing/QrCode.tsx), and what a screen reader calls it.
+  'pairing.scan': 'Or point a phone at this.',
+  'pairing.scanLabel': 'A code for a phone camera. It opens the Wick family app with this code filled in.',
   'pairing.gettingCode': 'Getting a code…',
   /** Under "Getting a code…" while the pairing service cannot be reached (pairing/connect.ts). The family screen's own words, word for word. */
   'pairing.stillTrying': 'Wick cannot reach the home just now.',
@@ -165,9 +170,12 @@ const es: Readonly<Record<WordKey, string>> = {
   // "Su visita", so the sentence need not agree with whoever is named.
   'door.looksLikeExpected': 'Parece ser {name} — se esperaba su visita ahora.',
   'door.looksLike': 'Parece ser {name}.',
+  'door.standIn': 'Timbre simulado, para la demostración',
 
   'pairing.title': 'Configurar Wick',
   'pairing.instructions': 'Escriba este código en la app familiar de Wick. Allí se indica de quién es este televisor.',
+  'pairing.scan': 'O apunte un teléfono hacia aquí.',
+  'pairing.scanLabel': 'Un código para la cámara de un teléfono. Abre la app familiar de Wick con este código ya escrito.',
   'pairing.gettingCode': 'Pidiendo un código…',
   'pairing.stillTrying': 'Wick no puede comunicarse con la casa ahora.',
 

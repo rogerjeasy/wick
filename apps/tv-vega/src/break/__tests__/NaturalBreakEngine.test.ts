@@ -140,8 +140,14 @@ describe('holdsProgramme — when the film waits for a card', () => {
     expect(holdsProgramme(card('DEFERRED'), at(181_000))).toBe(true);
   });
 
-  it('never holds for the door: someone at the door does not stop the programme', () => {
-    expect(holdsProgramme(card('DOOR'), at(181_000))).toBe(false);
+  it('holds for the door: she may get up to answer it, and a film that played on would be missed', () => {
+    expect(holdsProgramme(card('DOOR'), at(181_000))).toBe(true);
+    // Anywhere in the story, not only at a calm point: the door may come in the middle of a scene.
+    expect(holdsProgramme(card('DOOR'), at(42_000))).toBe(true);
+  });
+
+  it('does not hold for the door at the credits either: the story is over', () => {
+    expect(holdsProgramme(card('DOOR'), at(800_000))).toBe(false);
   });
 
   it('does not hold at the credits: the story is over, and nothing is missed', () => {

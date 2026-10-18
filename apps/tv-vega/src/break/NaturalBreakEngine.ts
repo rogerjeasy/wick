@@ -68,11 +68,15 @@ export function classify(input: EngineInput): BreakState {
  * interruption Wick exists to avoid. So the film is held on the cut and
  * goes on when the card has gone (watch/WatchScreen.tsx).
  *
- * Never for the door. Someone at the door does not stop the programme
- * (Principle 5): that card is drawn over it, and says so.
+ * The door holds it too. The door is the one card that may come in the
+ * middle of a scene, and it is the one most likely to make her get up: a
+ * film that plays on while she is at the door is a film she has missed. It
+ * goes on when she puts the card away herself; a door card that goes by
+ * itself while she is out of the room leaves the film where she left it
+ * (WatchScreen.tsx `putAwayByHer`).
  */
 export function holdsProgramme(card: QueuedCard | undefined, playback: PlaybackSnapshot | undefined): boolean {
-  if (!card || card.urgency === 'DOOR') return false;
+  if (!card) return false;
   if (!playback || playback.state === 'STOPPED') return false;
   return playback.positionMs < (playback.creditsPositionMs ?? playback.durationMs);
 }
