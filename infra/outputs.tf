@@ -105,9 +105,9 @@ output "ops_console_distribution_id" {
   value       = aws_cloudfront_distribution.ops_console.id
 }
 
-output "status_api_url" {
-  description = "GET /status — raw JSON, for curl or a browser tab."
-  value       = "${aws_apigatewayv2_api.edge.api_endpoint}/status"
+output "status_function_name" {
+  description = "The health report's Lambda, invoked by `npm run ops:status` with the operator's own credentials. It has no public route."
+  value       = aws_lambda_function.status.function_name
 }
 
 output "sim_alexa_distribution_id" {
