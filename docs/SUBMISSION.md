@@ -122,7 +122,7 @@ the **Vega Virtual Device** and an **Android TV emulator** running the Fire OS
 build, plus a browser-tab television for anyone with neither. The doorbell is
 **Ring's Developer Playground** (a simulated camera behind Ring's real Partner
 API). The Playground sends no doorbell webhooks, so a demo home has a stand-in
-doorbell of Wick's own, rung from the family app, whose four visitors are
+doorbell of Wick's own, rung from the family app, whose five visitors are
 generated pictures of nobody real. **Alexa+** is a simulated surface, because
 the add-on toolkit is open to select partners only. The demo home's six weeks
 of history are simulated and marked as such everywhere. Everything in between
@@ -219,10 +219,11 @@ window. The three open-source contributions below were made in the window too:
    written by the agents, and its card ends with *One thing you could do*, with
    one button.
 9. For the family's side on a television, open
-   [the console's television](https://d2sbabcft8sm3m.cloudfront.net/device.html)
-   and press **Pair & connect**: it shows a code. In the family app, choose
+   [a television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html)
+   again, in a new tab: it shows a code of its own. In the family app, choose
    **Connect a television**, answer *"Whose television is it?"* with **Mine**,
-   and enter that code.
+   and enter that code. That tab is now Sarah's television, and shows only
+   what Sarah may already see.
 
 ### On the Vega Virtual Device or the Android TV emulator
 

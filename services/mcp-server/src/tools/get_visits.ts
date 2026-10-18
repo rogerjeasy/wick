@@ -42,10 +42,9 @@ import { gated, type ToolContext } from './context.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, READS, data, say } from './result.js';
+import { zoneOf } from '../accounts/types.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
-/** Where the house is: the same default as the card she is asked on (services/agent agents/door/actionLambda.ts). */
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 const DAY_MS = 86_400_000;
 export const DEFAULT_VISIT_DAYS = 7;
@@ -175,7 +174,7 @@ export function registerGetVisits(mcpServer: McpServer, ddb: DynamoDBClient, ctx
 
       const noted = await visitsOf(ddb).recent(ctx.householdId, now() - days * DAY_MS);
       const theirs = (personId === undefined ? noted : noted.filter((visit) => visit.personId === personId)).sort((a, b) => b.arrivedAt - a.arrivedAt);
-      const visits = theirs.map((visit) => forFamily(visit, HOUSEHOLD_TZ));
+      const visits = theirs.map((visit) => forFamily(visit, zoneOf(allowed.household)));
       const residentName = allowed.household.residentName;
 
       const answer: VisitsForFamily = {

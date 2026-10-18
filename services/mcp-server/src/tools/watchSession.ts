@@ -40,8 +40,6 @@ import {
 } from '@wick/contracts';
 
 export const TABLE = process.env.TABLE_NAME ?? 'wick';
-/** Where "three o'clock" is three o'clock. The same default as the Narrator's. */
-export const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 /**
  * Where the family member's player fetches the films from: the same origin
@@ -279,7 +277,7 @@ const ANSWERS = (Object.entries(WATCH_ANSWERS) as [WatchAnswer, string][]).map((
  * is the resident as that person knows them: it is how the answers are
  * told apart in words.
  */
-export function describeWatch(session: WatchSession, now: number, residentName: string, timeZone: string = HOUSEHOLD_TZ): WatchView {
+export function describeWatch(session: WatchSession, now: number, residentName: string, timeZone: string): WatchView {
   const base = { sessionId: session.sessionId, film: session.programmeTitle, startsAt: session.startsAt, when: whenInWords(session.startsAt, timeZone) };
   const open = now < session.closesAt;
   const programme = programmeById(session.programmeId);

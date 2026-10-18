@@ -56,7 +56,7 @@ import {
 } from '@wick/contracts';
 import { CircleError, accessOf, cleanName, requireOrganiser } from './circle.js';
 import type { AccountStore } from './store.js';
-import type { AskedLanguage, Household } from './types.js';
+import { zoneOf, type AskedLanguage, type Household } from './types.js';
 
 export interface LanguageDeps {
   readonly store: AccountStore;
@@ -65,12 +65,7 @@ export interface LanguageDeps {
   /** egress.ts's takeBackFromDevices — how a card its sender withdrew leaves the television (INV-2). */
   readonly withdrawCard: (householdId: string, cardId: string) => Promise<void>;
   readonly now: () => number;
-  /** The households' IANA time zone: a day is named as it is at the house. Absent, the deployment's default. */
-  readonly timeZone?: string | undefined;
 }
-
-/** The same default as server.ts and the tools: one zone for the deployment. */
-const DEFAULT_TIME_ZONE = 'Europe/London';
 
 /** Who is asking: the person and the household their access token names (INV-8). Never anything from a request. */
 export interface LanguageActor {
@@ -176,7 +171,7 @@ const weekdayOf = (at: number, timeZone: string): string => new Intl.DateTimeFor
  * Undefined once the week has passed, and for a no to the language her
  * television has since come to speak.
  */
-export function standingNo(household: Household, now: number, timeZone: string = DEFAULT_TIME_ZONE): StandingNo | undefined {
+export function standingNo(household: Household, now: number, timeZone: string = zoneOf(household)): StandingNo | undefined {
   const no = household.languageDeclined;
   if (!no || no.language === spokenBy(household)) return undefined;
   const askAgainAt = no.at + LANGUAGE_ASK_AGAIN_AFTER_MS;
@@ -225,7 +220,7 @@ function partOfDayInWords(at: number, now: number, timeZone: string): string {
  * Undefined once the day has passed, and for the language her television
  * has since come to speak.
  */
-export function standingTakeBack(household: Household, now: number, timeZone: string = DEFAULT_TIME_ZONE): StandingTakeBack | undefined {
+export function standingTakeBack(household: Household, now: number, timeZone: string = zoneOf(household)): StandingTakeBack | undefined {
   const taken = household.languageTakenBack;
   if (!taken || taken.language === spokenBy(household)) return undefined;
   const askAgainAt = taken.at + LANGUAGE_ASK_AFTER_TAKING_BACK_MS;
@@ -241,9 +236,9 @@ export function standingTakeBack(household: Household, now: number, timeZone: st
 }
 
 /** Both waits as they stand now, for the organiser. */
-const standingFor = (household: Household, deps: Pick<LanguageDeps, 'now' | 'timeZone'>): Standing => ({
-  declined: standingNo(household, deps.now(), deps.timeZone),
-  takenBack: standingTakeBack(household, deps.now(), deps.timeZone),
+const standingFor = (household: Household, deps: Pick<LanguageDeps, 'now'>): Standing => ({
+  declined: standingNo(household, deps.now()),
+  takenBack: standingTakeBack(household, deps.now()),
 });
 
 /** The name the card says: the organiser's first name, as their membership has it. The contract fits it to the card. */
@@ -289,7 +284,7 @@ async function householdNow(deps: Pick<LanguageDeps, 'store'>, actor: LanguageAc
  * whether their question took, as they see the television connect. Not for
  * a neighbour, who is asked two things and shown nothing.
  */
-export async function readLanguage(deps: Pick<LanguageDeps, 'store' | 'now' | 'timeZone'>, actor: LanguageActor): Promise<LanguageView> {
+export async function readLanguage(deps: Pick<LanguageDeps, 'store' | 'now'>, actor: LanguageActor): Promise<LanguageView> {
   const [membership, household] = await Promise.all([
     deps.store.getMembership(actor.householdId, actor.userId),
     deps.store.getHousehold(actor.householdId, { consistent: true }),

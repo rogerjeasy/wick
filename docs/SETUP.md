@@ -32,7 +32,7 @@ second, not the rest.
 
 No account and no hardware. The README's [Try it](../README.md#try-it) has the
 steps: open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose
-**Try the demo**, open [a television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/device.html),
+**Try the demo**, open [a television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html),
 pair it, allow yourself on it, and ask.
 
 ---

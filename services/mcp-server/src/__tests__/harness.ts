@@ -238,7 +238,7 @@ export async function linkNewOrganiser(h: Harness, person: Person = SARAH, resid
   const client = await registerClient(h.base);
   const tx = await beginAuthorize(browser, client);
   await signUp(browser, tx, person);
-  await browser.post('/account/household', { tx, residentName });
+  await browser.post('/account/household', { tx, residentName, timeZone: 'Europe/London' });
   const user = await signedInUserId(h, person);
   const [membership] = await h.store.listMemberships(user);
   const code = await approve(browser, tx, membership!.householdId);

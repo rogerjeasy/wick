@@ -205,6 +205,15 @@ describe('a visitor the family arranged', () => {
   });
 });
 
+describe('"Shall I tell Sarah?"', () => {
+  it('starts on "Keep it to myself": silence is the default, and telling is one deliberate move away', async () => {
+    const drawn = await drawCard({ card: byName('TELL').card, language: 'en' });
+
+    expect(buttons(drawn.root).map((b) => b.props.accessibilityLabel)).toEqual(['Keep it to myself', 'Tell Sarah']);
+    expect(preferred(drawn.root)).toEqual([named(buttons(drawn.root)[0]!)]);
+  });
+});
+
 describe('the note from the family', () => {
   it('says who it is from in her language, shows the note, and offers her three replies', async () => {
     const example = byName('MESSAGE');

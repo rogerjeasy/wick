@@ -47,7 +47,8 @@ export interface ErrandStepDeps {
   readonly nudge: (userIds: readonly string[], kind: PushKind) => Promise<void>;
   /** Step Functions' SendTaskSuccess: the door step hands its own token back when there is nothing to wait for. */
   readonly handBack: (taskToken: string, output: object) => Promise<void>;
-  readonly timeZone: string;
+  /** Each home's own clock (store/household.ts loadHouseholdTimeZone): "this morning at ten" is said in it. */
+  readonly timeZoneOf: (householdId: string) => Promise<string>;
   readonly now: () => number;
 }
 
@@ -112,7 +113,7 @@ export async function handleErrandStep(raw: unknown, deps: ErrandStepDeps): Prom
       const now = deps.now();
       // A retry after the card went finds her reminded, and does not send it again.
       if (errand.status === 'planned') {
-        await deps.sendCard(buildErrandReminder(errand, deps.timeZone, now));
+        await deps.sendCard(buildErrandReminder(errand, await deps.timeZoneOf(householdId), now));
         await deps.errands.move(householdId, errandId, ['planned'], 'reminded', { remindedAt: now });
       }
       return { ended: false, doorWaitSeconds: doorWaitSeconds(windowEndOf(errand), now) };

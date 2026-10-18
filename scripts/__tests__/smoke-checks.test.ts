@@ -149,7 +149,7 @@ describe('her television, alone, on the virtual television’s site', () => {
 describe('which features the checkout holds', () => {
   it('turns a check on by the file its pull request adds', () => {
     const present = new Set([`/repo/${FEATURE_MARKERS.securityHeaders}`]);
-    expect(featuresIn('/repo', (path) => present.has(path))).toEqual({ securityHeaders: true, accountData: false, televisionRef: false, browserTelevision: false });
+    expect(featuresIn('/repo', (path) => present.has(path))).toEqual({ securityHeaders: true, accountData: false, televisionRef: false, browserTelevision: false, statusPrivate: false });
   });
 });
 

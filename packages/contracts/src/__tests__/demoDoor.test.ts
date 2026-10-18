@@ -29,18 +29,18 @@ describe('the stand-in doorbell (demoDoor.ts)', () => {
 
   it('serves each picture over https, from the published docs', () => {
     expect(DEMO_DOOR_PICTURES_URL).toBe('https://rogerjeasy.github.io/wick/demo-door/');
-    for (const key of DEMO_VISITOR_KEYS.filter((k) => k !== 'arranged')) {
+    for (const key of DEMO_VISITOR_KEYS) {
       const visitor = demoVisitor(key);
       expect(visitor.picture).toBe(`${key}.jpg`);
       expect(visitor.pictureUrl).toBe(`https://rogerjeasy.github.io/wick/demo-door/${key}.jpg`);
     }
   });
 
-  it('rings now for the visitor a member arranged (errand.ts), with a picture already made: the delivery at the door', () => {
+  it('rings now for the visitor a member arranged (errand.ts), with a picture of its own: a tradesman, not the delivery', () => {
     expect(demoVisitor('arranged')).toMatchObject({
       label: 'The visitor you arranged',
-      picture: 'parcel.jpg',
-      pictureUrl: 'https://rogerjeasy.github.io/wick/demo-door/parcel.jpg',
+      picture: 'arranged.jpg',
+      pictureUrl: 'https://rogerjeasy.github.io/wick/demo-door/arranged.jpg',
     });
   });
 

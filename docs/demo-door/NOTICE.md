@@ -1,6 +1,6 @@
 # The stand-in doorbell's pictures
 
-These four pictures are what a demo home's stand-in doorbell shows
+These five pictures are what a demo home's stand-in doorbell shows
 (`packages/contracts/src/demoDoor.ts`). They are not photographs. Nobody in
 them is a real person, and no house in them is a real house.
 
@@ -16,11 +16,12 @@ end of its life.
 | `parcel.jpg` | a parcel delivery | 4102 |
 | `stranger.jpg` | somebody she does not know | 4203 |
 | `nobody.jpg` | nobody: only movement | 4104 |
+| `arranged.jpg` | the visitor a family member arranged (made 2026-10-18) | 4106 |
 
 Aspect ratio 16:9, output JPEG. Every prompt began with the frame below, and
 ended with the sentence in the second table.
 
-`carer`, `parcel` and `nobody`:
+`carer`, `parcel`, `nobody` and `arranged`:
 
 > Photo from a video doorbell camera mounted beside a front door, very
 > wide-angle fisheye lens with barrel distortion, looking straight out at the
@@ -43,8 +44,9 @@ ended with the sentence in the second table.
 | `parcel.jpg` | A delivery driver stands on the doorstep facing the door, wearing a plain dark green jacket with no markings, holding a plain unmarked brown cardboard parcel in both hands. |
 | `stranger.jpg` | A middle-aged man stands on the doorstep about a metre from the camera, facing it, wearing a plain grey raincoat, holding a plain clipboard. |
 | `nobody.jpg` | Nobody is there: an empty doorstep, a doormat and a potted plant beside the door, the garden path empty. |
+| `arranged.jpg` | A tradesman in his fifties stands on the doorstep facing the door, wearing plain navy work overalls with no markings, holding a plain grey metal toolbox in one hand. |
 
-Negative prompt, for `carer`, `parcel` and `nobody`:
+Negative prompt, for `carer`, `parcel` and `nobody` (for `arranged`, the same with "emblem, patch, shopping bag" added):
 
 > text, words, letters, numbers, timestamp, logo, brand, badge, watermark,
 > signage, uniform logo, cartoon, illustration, painting, close-up portrait

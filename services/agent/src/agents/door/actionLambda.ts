@@ -29,7 +29,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { CreateScheduleCommand, SchedulerClient } from '@aws-sdk/client-scheduler';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_LANGUAGE, DOOR_ACTIONS, PUSH_KINDS, isHouseholdLanguage, reachKindOf, readHomeState, tellAnswerOf, visitAnswerOf, type HomeState, type HouseholdLanguage } from '@wick/contracts';
+import { DEFAULT_HOUSEHOLD_TIME_ZONE, DEFAULT_LANGUAGE, DOOR_ACTIONS, PUSH_KINDS, isHouseholdLanguage, reachKindOf, readHomeState, tellAnswerOf, visitAnswerOf, type HomeState, type HouseholdLanguage } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { nudgeFamily, sendHomeToDevices, sendPatchToDevice, sendToDevice, sendWaitingCardsInLanguage, withdrawFromDevices } from '../../egress.js';
 import { loadShareableDifferences } from '../../rhythm/loadDifferent.js';
@@ -46,7 +46,7 @@ import { reachStore, type ReachSend } from '../../store/reaches.js';
 import { askAboutVisits } from '../visit/ask.js';
 import { handleVisitAnswer, type VisitAnswerResult } from '../visit/answer.js';
 import { visitStore, type VisitSend } from '../../store/visits.js';
-import { isSharedWithFamily, loadHouseholdPolicy } from '../../store/household.js';
+import { isSharedWithFamily, loadHouseholdPolicy, loadHouseholdTimeZone } from '../../store/household.js';
 import { buildTellCard } from '../tell/ask.js';
 import { familyToAsk } from './index.js';
 import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtime/invoke.js';
@@ -202,7 +202,7 @@ function tellAnswer(detail: Record<string, unknown>): Promise<TellAnswerResult> 
 function askResident(householdId: string): Promise<readonly string[]> {
   const store = tells();
   return askAboutDifferences(householdId, {
-    loadDifferences: (hh) => loadShareableDifferences(ddb, TABLE, hh, Date.now(), process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London'),
+    loadDifferences: async (hh) => loadShareableDifferences(ddb, TABLE, hh, Date.now(), await loadHouseholdTimeZone(ddb, TABLE, hh)),
     listFamily: listFamilyOnly,
     claimOnce: store.claimOnce,
     release: store.release,
@@ -264,21 +264,24 @@ function reachDue(detail: Record<string, unknown>): Promise<ReachDueResult> {
 }
 
 const visits = () => visitStore((cmd) => ddb.send(cmd as never) as ReturnType<VisitSend>, TABLE);
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
-
-function askVisits(householdId: string): Promise<readonly string[]> {
+async function askVisits(householdId: string): Promise<readonly string[]> {
   const store = visits();
+  // Where the house is: the times on the card are its own.
+  const timeZone = await loadHouseholdTimeZone(ddb, TABLE, householdId);
   return askAboutVisits(householdId, {
     recent: store.recent,
     claimAsk: store.claimAsk,
     releaseAsk: store.releaseAsk,
     sendCard: (card) => sendToDevice(card, DEFAULT_POLICY),
     now: Date.now,
-    timeZone: HOUSEHOLD_TZ,
+    timeZone,
   });
 }
 
-function visitAnswer(detail: Record<string, unknown>): Promise<VisitAnswerResult> {
+async function visitAnswer(detail: Record<string, unknown>): Promise<VisitAnswerResult> {
+  // The household is the press's own, put there by the edge from the television's token (INV-8).
+  const householdId = typeof detail.householdId === 'string' ? detail.householdId : undefined;
+  const timeZone = householdId ? await loadHouseholdTimeZone(ddb, TABLE, householdId) : DEFAULT_HOUSEHOLD_TIME_ZONE;
   return handleVisitAnswer(detail, {
     answer: visits().answer,
     withdraw: (householdId, cardId) => withdrawFromDevices(cardId, householdId),
@@ -304,7 +307,7 @@ function visitAnswer(detail: Record<string, unknown>): Promise<VisitAnswerResult
       return claimed;
     },
     now: Date.now,
-    timeZone: HOUSEHOLD_TZ,
+    timeZone,
   });
 }
 

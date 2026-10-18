@@ -498,9 +498,8 @@ resource "aws_apigatewayv2_api" "edge" {
   description   = "Ring account linking and event ingress"
   protocol_type = "HTTP"
 
-  # Browser-facing routes on this API: GET /status (apps/ops-console's
-  # dashboard) and POST /pair/start, POST /pair/claim, GET /pair/status
-  # (apps/ops-console's virtual device — infra/pairing.tf). Everything else
+  # Browser-facing routes on this API: POST /pair/start, POST /pair/claim,
+  # GET /pair/status (the browser television — infra/pairing.tf). Everything else
   # here is server-to-server (Ring) and never reads a CORS header — API
   # Gateway HTTP APIs apply cors_configuration API-wide, so this is scoped
   # to the methods those browser routes actually use, not a blanket allow.
@@ -549,8 +548,9 @@ locals {
     "POST /ring/token"    = aws_lambda_function.token
     "GET /ring/link"      = aws_lambda_function.link
     "GET /ring/authorize" = aws_lambda_function.authorize
-    # apps/ops-console's dashboard data source. See infra/status.tf.
-    "GET /status" = aws_lambda_function.status
+    # No GET /status: production's health is the operator's, not the
+    # internet's. `npm run ops:status` invokes that Lambda with the
+    # operator's own credentials (infra/status.tf).
   }
 }
 

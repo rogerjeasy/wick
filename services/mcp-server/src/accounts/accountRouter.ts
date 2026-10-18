@@ -14,6 +14,7 @@
  * Only Approve issues a code, and only for a household the signed-in
  * person belongs to (INV-8).
  */
+import { isTimeZone } from '@wick/contracts';
 import cors from 'cors';
 import express, { type Request, type Response } from 'express';
 import { acceptInvitation, CircleError, createHousehold, describeInvitation, invitationNeedsAnswer, type CircleDeps } from './circle.js';
@@ -36,6 +37,7 @@ import {
   type ConsentHousehold,
 } from './pages.js';
 import { hashToken, randomToken } from './tokens.js';
+import { zoneOf } from './types.js';
 
 const SESSION_COOKIE = 'wick_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -66,7 +68,7 @@ export interface AccountRouterDeps {
   /** How many guests an hour (demo.ts DEMO_ACCOUNTS_PER_HOUR unless set). */
   readonly demoAccountsPerHour?: number | undefined;
   /** Writes a new demo home its simulated history (demoHome.ts). Never called for any other home. */
-  readonly seedDemoHome?: ((householdId: string) => Promise<void>) | undefined;
+  readonly seedDemoHome?: ((householdId: string, timeZone: string) => Promise<void>) | undefined;
 }
 
 function readCookie(req: Request, name: string): string | undefined {
@@ -110,16 +112,17 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
    * their own, waiting for its resident like any other (demo.ts). Returns
    * undefined, having said so, when the hour's guests have all been made.
    */
-  const startDemo = async (res: Response, tx: string): Promise<{ guest: Identity; householdId: string } | undefined> => {
+  const startDemo = async (res: Response, tx: string, timeZone: string | undefined): Promise<{ guest: Identity; householdId: string } | undefined> => {
     if (!demoLimiter.take()) {
       html(res, demoBusyPage(tx), 429);
       return undefined;
     }
     const guest = newGuest(circle.newId());
     await store.putUser({ ...guest, createdAt: now() });
-    const household = await createHousehold(circle, guest, { residentName: DEMO_RESIDENT_NAME, name: DEMO_HOME_NAME, simulated: true });
+    // Where the guest is: a demo home's six weeks are lived on the clock of the person looking at them.
+    const household = await createHousehold(circle, guest, { residentName: DEMO_RESIDENT_NAME, name: DEMO_HOME_NAME, simulated: true, timeZone });
     // An empty demo home is a poorer demo, not a failed one: the guest is made either way.
-    await deps.seedDemoHome?.(household.householdId).catch((err: unknown) => {
+    await deps.seedDemoHome?.(household.householdId, zoneOf(household)).catch((err: unknown) => {
       console.warn(JSON.stringify({ level: 'warn', msg: 'demo_home_not_seeded', householdId: household.householdId, error: (err as Error).name || String(err) }));
     });
     await setSession(res, guest);
@@ -183,7 +186,7 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
       if (direct && direct.status !== 'removed') memberships.push(direct);
     }
     if (memberships.length === 0 || opts.newHome) {
-      return html(res, householdPage({ tx, userName: user.name, canGoBack: memberships.length > 0, error: opts.error }));
+      return html(res, householdPage({ tx, userName: user.name, canGoBack: memberships.length > 0, timeZone: pending.timeZone, error: opts.error }));
     }
 
     const households: ConsentHousehold[] = [];
@@ -217,7 +220,7 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
       let guest = user;
       let householdId: string | undefined;
       if (!guest) {
-        const started = await startDemo(res, tx);
+        const started = await startDemo(res, tx, pending.timeZone);
         if (!started) return;
         ({ guest, householdId } = started);
       } else {
@@ -242,8 +245,9 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
   router.post('/account/demo', async (req, res) => {
     if (!demo) return html(res, refusedPage('There is no demo here. Sign in, or create an account.'), 404);
     const tx = field(req, 'tx');
-    if (!(await pendingFor(res, tx))) return;
-    const started = await startDemo(res, tx);
+    const pending = await pendingFor(res, tx);
+    if (!pending) return;
+    const started = await startDemo(res, tx, pending.timeZone);
     if (started) back(res, tx, started.householdId);
   });
 
@@ -379,7 +383,12 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
     const user = await currentUser(req);
     if (!user) return back(res, tx);
     try {
-      const household = await createHousehold(circle, user, { residentName: field(req, 'residentName') });
+      // Where the house is: the page offers this browser's zone, and the person setting it up corrects it.
+      const timeZone = field(req, 'timeZone').trim() || pending.timeZone;
+      if (!isTimeZone(timeZone)) {
+        return renderSignedIn(res, tx, pending, user, { newHome: true, error: 'Choose the time zone where they live, such as America/New_York.' });
+      }
+      const household = await createHousehold(circle, user, { residentName: field(req, 'residentName'), timeZone });
       back(res, tx, household.householdId);
     } catch (err) {
       if (err instanceof CircleError && err.code === 'name_required') {

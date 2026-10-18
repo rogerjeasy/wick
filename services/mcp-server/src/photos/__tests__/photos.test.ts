@@ -69,7 +69,8 @@ async function setup(options: { television?: boolean; timeZone?: string } = {}) 
   } as unknown as DynamoDBClient;
 
   const store = createMemoryStore(() => NOW);
-  await store.createHousehold({ householdId: HH, name: 'Mum’s house', residentName: 'Margaret', createdBy: 'u_sarah', createdAt: 1 });
+  // Where the house is: the household's own zone, as it was given when the home was set up.
+  await store.createHousehold({ householdId: HH, name: 'Mum’s house', residentName: 'Margaret', createdBy: 'u_sarah', createdAt: 1, timeZone: options.timeZone ?? 'Europe/London' });
   await store.putMembership(member());
   await store.putMembership(member({ userId: 'u_tom', name: 'Tom', role: 'family' }));
   await store.createHousehold({ householdId: 'hh_2', name: 'Edith’s home', residentName: 'Edith', createdBy: 'u_priya', createdAt: 1 });
@@ -102,7 +103,6 @@ async function setup(options: { television?: boolean; timeZone?: string } = {}) 
     withdrawCard: async (householdId, cardId) => void withdrawn.push({ householdId, cardId }),
     now: () => world.clock,
     newId: () => `made${++world.ids}`,
-    timeZone: options.timeZone ?? 'Europe/London',
   };
 
   const rows = (householdId = HH): Item[] => table.rows(`HH#${householdId}`);

@@ -17,7 +17,6 @@ import { UpdateItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb
 import { LOOKIN_SK_PREFIX, endOfLocalDay, lookedInWords, type HomeState } from '@wick/contracts';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 /** How often one person's asking is noted afresh. */
 export const LOOK_EVERY_MS = 10 * 60_000;
@@ -31,7 +30,7 @@ const firstName = (name: string): string => name.trim().split(/\s+/)[0] || 'Some
 
 export async function recordLook(
   ddb: DynamoDBClient,
-  who: { readonly householdId: string; readonly userId: string; readonly name: string },
+  who: { readonly householdId: string; readonly userId: string; readonly name: string; readonly timeZone: string },
   now: number,
   sendHome: SendHome,
 ): Promise<void> {
@@ -58,7 +57,7 @@ export async function recordLook(
 
   try {
     // With the end of today where the house is: the television shows the line until then, whatever its own clock says.
-    await sendHome(who.householdId, { lookedIn: { name, at: now, line: lookedInWords(name, now, HOUSEHOLD_TZ), until: endOfLocalDay(now, HOUSEHOLD_TZ) } });
+    await sendHome(who.householdId, { lookedIn: { name, at: now, line: lookedInWords(name, now, who.timeZone), until: endOfLocalDay(now, who.timeZone) } });
   } catch (err) {
     // A television that is off is told when it next connects (the edge's reconcile reads the same row).
     console.error(JSON.stringify({ level: 'error', msg: 'look_not_told', err: err instanceof Error ? err.name : 'unknown' }));

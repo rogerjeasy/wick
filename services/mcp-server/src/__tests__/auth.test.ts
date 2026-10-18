@@ -184,10 +184,40 @@ describe('a new organiser', () => {
     const first = await browser.get(`/account?tx=${tx}`);
     expect(await first.text()).toContain('Who is this for?');
 
-    const consent = await browser.follow(await browser.post('/account/household', { tx, residentName: 'Margaret' }));
+    const consent = await browser.follow(await browser.post('/account/household', { tx, residentName: 'Margaret', timeZone: 'Europe/London' }));
     const html = await consent.text();
     expect(html).toContain('Margaret’s home');
     expect(html).toContain('Approve');
+  });
+
+  it("offers the browser's own time zone for the home, keeps the one they choose, and refuses one that is not a zone", async () => {
+    const h = await server();
+    const browser = new Browser(h.base);
+    const tx = await beginAuthorize(browser, await registerClient(h.base), { time_zone: 'America/Los_Angeles' });
+    await signUp(browser, tx, SARAH);
+
+    // Where they live, not where the person setting it up is: filled in from this browser, to be corrected.
+    const page = await (await browser.get(`/account?tx=${tx}`)).text();
+    expect(page).toContain('name="timeZone" value="America/Los_Angeles"');
+
+    const refused = await (await browser.post('/account/household', { tx, residentName: 'Margaret', timeZone: 'Atlantis/Lost' })).text();
+    expect(refused).toContain('Choose the time zone where they live');
+    expect(await h.store.listMemberships((await h.deps.identity.signIn(SARAH)).userId)).toEqual([]);
+
+    await browser.post('/account/household', { tx, residentName: 'Margaret', timeZone: 'America/New_York' });
+    const [membership] = await h.store.listMemberships((await h.deps.identity.signIn(SARAH)).userId);
+    expect((await h.store.getHousehold(membership!.householdId))?.timeZone).toBe('America/New_York');
+  });
+
+  it('takes no time zone from an /authorize that names something else', async () => {
+    const h = await server();
+    const browser = new Browser(h.base);
+    const tx = await beginAuthorize(browser, await registerClient(h.base), { time_zone: '"><script>x</script>' });
+    await signUp(browser, tx, SARAH);
+
+    const page = await (await browser.get(`/account?tx=${tx}`)).text();
+    expect(page).toContain('name="timeZone" value=""');
+    expect(page).not.toContain('<script>x</script>');
   });
 
   it('ends with a token that says who they are and which household it is for', async () => {
@@ -234,7 +264,7 @@ describe('INV-8: the household comes from the token, and the token from a member
     const client = await registerClient(h.base);
     const tx = await beginAuthorize(browser, client);
     await signUp(browser, tx, SARAH);
-    await browser.post('/account/household', { tx, residentName: 'Margaret' });
+    await browser.post('/account/household', { tx, residentName: 'Margaret', timeZone: 'Europe/London' });
     const [membership] = await h.store.listMemberships((await h.deps.identity.signIn(SARAH)).userId);
     const code = await approve(browser, tx, membership!.householdId);
 
@@ -248,7 +278,7 @@ describe('INV-8: the household comes from the token, and the token from a member
     const client = await registerClient(h.base);
     const tx = await beginAuthorize(browser, client);
     await signUp(browser, tx, SARAH);
-    await browser.post('/account/household', { tx, residentName: 'Margaret' });
+    await browser.post('/account/household', { tx, residentName: 'Margaret', timeZone: 'Europe/London' });
     const [membership] = await h.store.listMemberships((await h.deps.identity.signIn(SARAH)).userId);
 
     const res = await browser.post('/account/approve', { tx, householdId: membership!.householdId });
@@ -377,7 +407,7 @@ describe('the index that lists a person’s homes is allowed to lag', () => {
     const tx = await beginAuthorize(browser, await registerClient(h.base));
     await signUp(browser, tx, SARAH);
 
-    const page = await browser.follow(await browser.post('/account/household', { tx, residentName: 'Margaret' }));
+    const page = await browser.follow(await browser.post('/account/household', { tx, residentName: 'Margaret', timeZone: 'Europe/London' }));
 
     const html = await page.text();
     expect(html).not.toContain('Who is this for?');

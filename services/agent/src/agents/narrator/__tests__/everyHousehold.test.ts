@@ -33,7 +33,7 @@ function run(over: Partial<EveryHouseholdDeps>): Run {
       sendWeekCard: async (card) => { cards.push(card); },
       now: () => AFTER_W38,
       newCorrelationId: () => 'corr-1',
-      timeZone: 'Europe/London',
+      timeZoneOf: async () => 'Europe/London',
       ...over,
     },
   };

@@ -27,6 +27,8 @@ import {
   televisionPageVerdict,
   skip,
   statusVerdict,
+  statusIsPrivateVerdict,
+  frontPageVerdict,
   toolCountVerdict,
   type CheckResult,
   type Features,
@@ -74,10 +76,20 @@ export async function runSmoke(config: SmokeConfig, fetch: Fetch, say: (result: 
     return televisionPageVerdict(url, res.status, res.headers, config.features.browserTelevision, config.features.securityHeaders);
   });
 
-  await attempt('status API', async () => {
-    const res = await fetch(config.status);
-    return res.status === 200 ? statusVerdict(await res.json()) : fail('status API', `answered ${res.status}`);
-  });
+  if (config.features.statusPrivate) {
+    // Production's health is the operator's: the route answers nobody, and the site opens on her television.
+    await attempt('status API is not public', async () => statusIsPrivateVerdict((await fetch(config.status)).status));
+    await attempt('front page', async () => {
+      const url = `${config.virtualTv}/`;
+      const res = await fetch(url);
+      return frontPageVerdict(url, res.status, await res.text());
+    });
+  } else {
+    await attempt('status API', async () => {
+      const res = await fetch(config.status);
+      return res.status === 200 ? statusVerdict(await res.json()) : fail('status API', `answered ${res.status}`);
+    });
+  }
 
   const endpoint = `${config.server}/mcp`;
   await attempt('protected resource metadata', async () => {

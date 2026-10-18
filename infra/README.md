@@ -18,7 +18,7 @@ scripts below and never pass through Terraform.
 | `main.tf` | Caller identity, naming locals (`wick`, or `wick-home` for the `home` environment) |
 | `core.tf` | The memory plane: the DynamoDB table, the EventBridge bus and its catch-all log, the media bucket (INV-3), the Ring secrets |
 | `edge.tf` | The edge HTTP API and the Ring Lambdas: webhook, token, link, authorize, hourly refresh, a household's own link |
-| `status.tf` | `GET /status`, the ops console's health page |
+| `status.tf` | The health report's Lambda, with no public route: operators run `npm run ops:status` |
 | `pairing.tf` | Television pairing (`/pair/*`) and the device-token signing key |
 | `transport.tf` | The televisions' WebSocket API and its three Lambdas |
 | `iot.tf` | The televisions' MQTT channel: IoT Core custom authorizer and two topic rules |
@@ -35,7 +35,7 @@ scripts below and never pass through Terraform.
 | `speech.tf` | Read to me (Amazon Polly) |
 | `programmes.tf` | The bucket and CloudFront the films play from |
 | `sim-alexa.tf` | The family app (static files on S3 + CloudFront) |
-| `ops-console.tf` | The status dashboard and the virtual television (S3 + CloudFront) |
+| `ops-console.tf` | Her television in a browser tab, and the engineers' virtual device (S3 + CloudFront) |
 | `alarms.tf` | What pages someone: the SNS topic, every alarm, the dead-letter queue, the platform log groups' retention |
 | `github-oidc.tf` | CI's deploy role, assumed by OIDC (no AWS keys in GitHub) |
 | `outputs.tf` | The URLs the Ring console needs, and the rest a person or a script reads |
@@ -229,8 +229,8 @@ The door path, from Ring's webhook to her television:
 the same way and a failed step must still be taken); `live-bridge` is never
 retried, because a live view is for now.
 
-The queue keeps a message 14 days, encrypted (SSE-SQS). The ops console's
-status page shows how many are waiting. To read them, from a laptop:
+The queue keeps a message 14 days, encrypted (SSE-SQS). `npm run ops:status`
+shows how many are waiting. To read them, from a laptop:
 
 ```bash
 aws sqs receive-message --max-number-of-messages 10 \

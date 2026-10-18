@@ -211,13 +211,13 @@ describe('"Shall I tell Sarah?" (agents/tell/ask.ts, with the detector’s own s
       headline: '¿Se lo digo a Sarah?',
       detail: 'Maria suele venir los viernes por la mañana. El viernes no hubo visita.',
     });
-    expect(labels(card!)).toEqual(['Decírselo a Sarah', 'Me lo guardo']);
+    expect(labels(card!)).toEqual(['Me lo guardo', 'Decírselo a Sarah']);
   });
 
   it('speaks of "the family" when several people would be told', async () => {
     const [card] = await asked(input({ entries: [door(FRIDAY + 70 * MIN)], now: FRIDAY + 8 * HOUR }), ['Sarah', 'David']);
     expect(card!.headline).toBe('¿Se lo digo a la familia?');
-    expect(labels(card!)).toEqual(['Decírselo a la familia', 'Me lo guardo']);
+    expect(labels(card!)).toEqual(['Me lo guardo', 'Decírselo a la familia']);
   });
 
   it('a regular visitor who did not come: every weekday, and every part of the day the detector names', async () => {
@@ -269,8 +269,9 @@ describe('"Shall I tell Sarah?" (agents/tell/ask.ts, with the detector’s own s
         const day = FRIDAY + d * DAY;
         const usual = [1, 2, 3, 4, 5, 6].flatMap((k) => [0, 1, 2].map((i) => door(day - k * WEEK + i * 10 * MIN)));
         const now = day + hour * HOUR + 30 * MIN;
-        const quiet = await asked(input({ entries: usual, now, observedSince: day - 8 * WEEK }));
-        const busy = await asked(input({ entries: [...usual, ...Array.from({ length: 9 }, (_, i) => door(day + 20 * MIN + i * MIN))], now, observedSince: day - 8 * WEEK }));
+        // These days are written in UTC, and so is this house: its day starts at the midnight written here.
+        const quiet = await asked(input({ entries: usual, now, observedSince: day - 8 * WEEK, timeZone: 'UTC' }));
+        const busy = await asked(input({ entries: [...usual, ...Array.from({ length: 9 }, (_, i) => door(day + 20 * MIN + i * MIN))], now, observedSince: day - 8 * WEEK, timeZone: 'UTC' }));
         // Each is one difference or more (the night has its own); every one of them is in Spanish, which `asked` has checked.
         expect(quiet.length + busy.length, `${d} ${hour}`).toBeGreaterThanOrEqual(2);
       }
@@ -323,7 +324,7 @@ describe('the visit, witnessed (agents/visit/ask.ts, answer.ts)', () => {
   it('her "No" becomes a question of the same kind, showing the very sentence that would be told', async () => {
     const card = await disputed(maria, 'Sarah');
     expect(card).toMatchObject({ headline: '¿Se lo digo a Sarah?', detail: 'Wick anotó que Maria estuvo aquí el martes de 9:02 a 9:47. Eso no es correcto.' });
-    expect(labels(card)).toEqual(['Decírselo a Sarah', 'Me lo guardo']);
+    expect(labels(card)).toEqual(['Me lo guardo', 'Decírselo a Sarah']);
     expect((await disputed(neverSeenLeaving, 'the family')).detail).toBe('Wick anotó que Maria vino el martes a las 9:02. Eso no es correcto.');
   });
 });

@@ -19,6 +19,7 @@ import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { READS, answerSchema, data, say } from './result.js';
 import { ERRAND_VIEW, errandView, errandsOf, isOverBefore } from './errands.js';
+import { zoneOf } from '../accounts/types.js';
 
 const RECENT_MS = 7 * 86_400_000;
 
@@ -48,7 +49,7 @@ export function registerGetErrands(mcpServer: McpServer, ddb: DynamoDBClient, ct
         .filter((errand) => errand.createdBy === ctx.userId)
         .filter((errand) => isErrandOpen(errand.status) || !isOverBefore(errand, since));
       if (mine.length === 0) return say(NO_ERRANDS_TEXT);
-      return data({ errands: mine.map((errand) => errandView(errand, allowed.household.residentName)) });
+      return data({ errands: mine.map((errand) => errandView(errand, allowed.household.residentName, zoneOf(allowed.household))) });
     })),
   );
 }

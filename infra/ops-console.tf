@@ -1,8 +1,9 @@
 # ---------------------------------------------------------------------------
-# The ops console — apps/ops-console: a production status dashboard, a
-# browser-based virtual device for engineers (replaces docs/*.md's
-# curl/wscat sequences with clicks), and her television alone (tv.html),
-# which is where someone with no Fire TV is sent to try Wick. Same pattern as sim-alexa (infra/sim-alexa.tf): private S3
+# Her television in a browser tab (apps/ops-console/tv.html), which is where
+# someone with no Fire TV is sent to try Wick, and is the site's front page;
+# beside it, a browser-based virtual device for engineers (device.html,
+# replacing docs/*.md's curl/wscat sequences with clicks). Production's
+# health report is not here: it is the operator's (`npm run ops:status`). Same pattern as sim-alexa (infra/sim-alexa.tf): private S3
 # behind CloudFront, no server-side code of its own — everything dynamic
 # happens against the real deployed APIs (infra/status.tf, infra/pairing.tf,
 # infra/transport.tf).
@@ -31,14 +32,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "ops_console" {
 }
 
 locals {
-  # Both placeholder substitutions live here, once, rather than duplicated
+  # The placeholder substitutions live here, once, rather than duplicated
   # per aws_s3_object resource below.
-  ops_console_status_js = replace(
-    file("${path.module}/../apps/ops-console/status.js"),
-    "STATUS_API_BASE_URL_PLACEHOLDER",
-    aws_apigatewayv2_api.edge.api_endpoint,
-  )
-
   # The browser television itself (tv-core.js), which both pages that are a television load: device.html, the
   # console, and tv.html, the resident's television and nothing else.
   ops_console_tv_core_js = replace(
@@ -67,15 +62,6 @@ locals {
 # and a virtual television that had been opened before went on running last
 # week's script: it was sent a card it had since been taught and said it did
 # not recognise it.
-resource "aws_s3_object" "ops_console_index" {
-  bucket        = aws_s3_bucket.ops_console.id
-  key           = "index.html"
-  source        = "${path.module}/../apps/ops-console/index.html"
-  etag          = filemd5("${path.module}/../apps/ops-console/index.html")
-  content_type  = "text/html; charset=utf-8"
-  cache_control = "no-cache"
-}
-
 resource "aws_s3_object" "ops_console_device_html" {
   bucket        = aws_s3_bucket.ops_console.id
   key           = "device.html"
@@ -100,15 +86,6 @@ resource "aws_s3_object" "ops_console_device_css" {
   source        = "${path.module}/../apps/ops-console/device.css"
   etag          = filemd5("${path.module}/../apps/ops-console/device.css")
   content_type  = "text/css; charset=utf-8"
-  cache_control = "no-cache"
-}
-
-resource "aws_s3_object" "ops_console_status_js" {
-  bucket        = aws_s3_bucket.ops_console.id
-  key           = "status.js"
-  content       = local.ops_console_status_js
-  etag          = md5(local.ops_console_status_js)
-  content_type  = "application/javascript; charset=utf-8"
   cache_control = "no-cache"
 }
 
@@ -256,8 +233,8 @@ resource "aws_cloudfront_origin_access_control" "ops_console" {
 
 resource "aws_cloudfront_distribution" "ops_console" {
   enabled             = true
-  default_root_object = "index.html"
-  comment             = "Wick — ops console (status dashboard + virtual device)"
+  default_root_object = "tv.html"
+  comment             = "Wick — her television in a browser tab (+ engineers' virtual device)"
 
   origin {
     domain_name              = aws_s3_bucket.ops_console.bucket_regional_domain_name

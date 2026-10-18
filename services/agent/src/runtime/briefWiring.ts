@@ -21,14 +21,13 @@ import { familyOnly } from '../agents/door/askFamily.js';
 import { NARRATIVE_REGION } from '../agents/narrator/prose.js';
 import { buildWeekCard, familyNameForWeekCard } from '../agents/narrator/weekCard.js';
 import { briefModel, runWeeklyBriefGraph } from '../graphs/weeklyBrief.js';
-import { loadHouseholdPolicy } from '../store/household.js';
+import { loadHouseholdPolicy, loadHouseholdTimeZone } from '../store/household.js';
 import { lookStore, type LookSend } from '../store/looks.js';
 import type { BriefHandlerDeps } from './briefHandler.js';
 
 export function briefWeeklyDepsFor(ddb: DynamoDBClient, table: string): (householdId: string) => BriefHandlerDeps {
   const bedrock = new BedrockRuntimeClient({ region: NARRATIVE_REGION });
   const guardrailRef = guardrailFromEnv();
-  const timeZone = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
   const paged: PagedSend = (cmd) => ddb.send(cmd as never) as ReturnType<PagedSend>;
   const weeks = weekStore((cmd) => ddb.send(cmd as never) as ReturnType<WeekSend>, table);
   const looks = lookStore((cmd) => ddb.send(cmd as never) as ReturnType<LookSend>, table);
@@ -44,7 +43,7 @@ export function briefWeeklyDepsFor(ddb: DynamoDBClient, table: string): (househo
     return {
       weeks,
       sendWeekCard,
-      run: (input) => runWeeklyBriefGraph(input, {
+      run: async (input) => runWeeklyBriefGraph(input, {
         writerModel: briefModel(120),
         suggesterModel: briefModel(300),
         loadEvents: rows.loadEvents,
@@ -57,7 +56,8 @@ export function briefWeeklyDepsFor(ddb: DynamoDBClient, table: string): (househo
         saveWeek: weeks.save,
         sendWeekCard,
         now: Date.now,
-        timeZone,
+        // This home's own clock: its week is counted, and its days named, in it.
+        timeZone: await loadHouseholdTimeZone(ddb, table, householdId),
       }),
     };
   };

@@ -484,7 +484,7 @@ describe('GET /tv/seat', () => {
     await hers(w.table).isAsked(OPENS + 20 * MIN);
     w.clock = OPENS + 21 * MIN;
     await press(w, 'loved_it');
-    const toolsSentence = (): string | undefined => describeWatch(session(w.table)!, w.clock, 'Margaret').answersInWords;
+    const toolsSentence = (): string | undefined => describeWatch(session(w.table)!, w.clock, 'Margaret', 'Europe/London').answersInWords;
 
     expect(toolsSentence()).toBe(`You said: “${WATCH_ANSWERS.loved_it}” Margaret has not answered yet.`);
     expect((await seatOf(w)).seat!.line).toBe(toolsSentence());
@@ -510,7 +510,7 @@ describe('GET /tv/seat', () => {
     expect(seat!.answers).toHaveLength(3);
     expect(seat!.line).not.toContain(WATCH_ANSWERS.not_for_me);
     // The one place her answer is: the field get_watch_together itself carries at this moment.
-    expect(describeWatch(session(w.table)!, w.clock, 'Margaret').theirAnswer).toBe(WATCH_ANSWERS.not_for_me);
+    expect(describeWatch(session(w.table)!, w.clock, 'Margaret', 'Europe/London').theirAnswer).toBe(WATCH_ANSWERS.not_for_me);
     expect(seat!.theirAnswer).toBe(WATCH_ANSWERS.not_for_me);
   });
 

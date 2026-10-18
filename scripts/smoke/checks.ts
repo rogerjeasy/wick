@@ -46,6 +46,8 @@ export interface Features {
   readonly televisionRef: boolean;
   /** Her television, alone, on the virtual television's site (apps/ops-console/tv.html). */
   readonly browserTelevision: boolean;
+  /** #124: production's health report is the operator's (scripts/ops-status.ts), with no public route. */
+  readonly statusPrivate: boolean;
 }
 
 export const FEATURE_MARKERS: Record<keyof Features, string> = {
@@ -53,6 +55,7 @@ export const FEATURE_MARKERS: Record<keyof Features, string> = {
   accountData: 'services/mcp-server/src/accounts/accountDataRouter.ts',
   televisionRef: 'services/edge-device/lambda/proof.mjs',
   browserTelevision: 'apps/ops-console/tv.html',
+  statusPrivate: 'scripts/ops-status.ts',
 };
 
 export const FEATURE_PRS: Record<keyof Features, string> = {
@@ -60,6 +63,7 @@ export const FEATURE_PRS: Record<keyof Features, string> = {
   accountData: '#70',
   televisionRef: '#68',
   browserTelevision: '#78',
+  statusPrivate: '#124',
 };
 
 export function featuresIn(root: string, exists: (path: string) => boolean = existsSync): Features {
@@ -68,6 +72,7 @@ export function featuresIn(root: string, exists: (path: string) => boolean = exi
     accountData: exists(join(root, FEATURE_MARKERS.accountData)),
     televisionRef: exists(join(root, FEATURE_MARKERS.televisionRef)),
     browserTelevision: exists(join(root, FEATURE_MARKERS.browserTelevision)),
+    statusPrivate: exists(join(root, FEATURE_MARKERS.statusPrivate)),
   };
 }
 
@@ -150,6 +155,24 @@ interface StatusRow {
   readonly id?: unknown;
   readonly status?: unknown;
   readonly detail?: unknown;
+}
+
+/**
+ * GET /status once production's health is the operator's (#124): it must
+ * answer nobody. API Gateway says 404 for a route it does not have.
+ */
+export function statusIsPrivateVerdict(status: number): CheckResult {
+  const name = 'status API is not public';
+  if (status === 200) return fail(name, 'GET /status still answers anyone: which household is the operator\'s, its Ring token\'s age and the table\'s rows are public');
+  return status === 404 || status === 403 ? pass(name, `answered ${status}: there is no public route`) : fail(name, `answered ${status}; 404 is expected`);
+}
+
+/** The virtual television's site, asked for its front page: her television, not a console. */
+export function frontPageVerdict(url: string, status: number, body: string): CheckResult {
+  const name = `front page ${url}`;
+  if (status !== 200) return fail(name, `answered ${status}`);
+  if (/Ops Console|Production health/i.test(body)) return fail(name, 'is the operations console');
+  return /tv\.js|her television/i.test(body) ? pass(name, 'is her television') : fail(name, 'is not her television');
 }
 
 export function statusVerdict(body: unknown): CheckResult {

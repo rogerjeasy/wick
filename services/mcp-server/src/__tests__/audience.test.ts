@@ -37,7 +37,7 @@ async function link(h: Harness, extra: Record<string, string> = {}, tokenExtra: 
   const client = await registerClient(h.base);
   const tx = await beginAuthorize(browser, client, extra);
   await signUp(browser, tx, SARAH);
-  await browser.post('/account/household', { tx, residentName: 'Margaret' });
+  await browser.post('/account/household', { tx, residentName: 'Margaret', timeZone: 'Europe/London' });
   const userId = (await h.deps.identity.signIn({ email: SARAH.email, password: SARAH.password })).userId;
   const [membership] = await h.store.listMemberships(userId);
   const code = await approve(browser, tx, membership!.householdId);

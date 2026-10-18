@@ -30,6 +30,7 @@ import { familyOnly } from '../door/askFamily.js';
 import { writeNarrative } from './prose.js';
 import { sendToDevice } from '../../egress.js';
 import { householdRows, scanHouseholdsWithTelevision, type PagedSend } from '../brief/loaders.js';
+import { loadHouseholdTimeZone } from '../../store/household.js';
 
 const ddb = new DynamoDBClient({});
 const TABLE = process.env.TABLE_NAME ?? '';
@@ -63,7 +64,7 @@ export function narratorDeps(): Omit<EveryHouseholdDeps, 'listHouseholds'> {
     sendWeekCard: (card) => sendToDevice(card, DEFAULT_POLICY),
     now: Date.now,
     newCorrelationId: randomUUID,
-    timeZone: process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London',
+    timeZoneOf: (householdId) => loadHouseholdTimeZone(ddb, TABLE, householdId),
     familyNameOf: async (householdId) => familyNameForWeekCard(familyOnly(await looks.listFamily(householdId)).map((member) => member.name)),
   };
 }

@@ -17,8 +17,6 @@ import { errandStore, windowEndOf, type ErrandExecutionInput, type ErrandSend, t
 import { ERRAND_STATUSES, clockTime } from '@wick/contracts';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
-/** Where "ten o'clock" is ten o'clock. The same default as expect_visit's. */
-export const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 export const ERRANDS_UNAVAILABLE_TEXT = 'This Wick cannot arrange visits yet.';
 export const ARRANGE_BAD_WHO_TEXT = 'I need who is coming, in a few words, like the plumber.';
@@ -131,7 +129,7 @@ export interface ErrandView {
 }
 
 /** An errand as its author is shown it: named fields only, so nothing the operator keeps can slip in. */
-export function errandView(errand: HeldErrand, residentName: string, timeZone: string = HOUSEHOLD_TZ): ErrandView {
+export function errandView(errand: HeldErrand, residentName: string, timeZone: string): ErrandView {
   return {
     errandId: errand.errandId,
     who: errand.who,

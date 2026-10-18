@@ -154,13 +154,12 @@ import {
 import { cardIn, homeIn, patchIn } from './phrasebook.generated.mjs';
 import { buildReachAskCard, firstToAsk, latestReach, reachUnderWayId, storedCardKey } from './reach.mjs';
 import { answerReading, reachOfferId, readableCard, readingAddress, readingClaim } from './speech.mjs';
+import { timeZoneOfRows } from './household-zone.mjs';
 
 const ddb = new DynamoDBClient({});
 const events = new EventBridgeClient({});
 const TABLE = process.env.TABLE_NAME;
 const BUS = process.env.EVENT_BUS_NAME;
-/** Where the house is: what "today" means for the light in the window (light.mjs). */
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ || 'Europe/London';
 /** Where the family's pictures are kept (infra/photos.tf). Without it a picture's card goes without its picture. */
 const PHOTOS_BUCKET = process.env.PHOTOS_BUCKET;
 /** Where a reading is kept for its day, under `tts/` (infra/core.tf, infra/speech.tf). Without it nothing is read aloud. */
@@ -720,7 +719,8 @@ async function loadHomeRows(householdId, { consistent = false } = {}) {
 async function tellHome({ sendControl, householdId, consistent = false }) {
   try {
     const items = await loadHomeRows(householdId, { consistent });
-    const home = homeState({ items, now: Date.now(), timeZone: HOUSEHOLD_TZ });
+    // Where the house is: what "today" means for the light in the window (household-zone.mjs).
+    const home = homeState({ items, now: Date.now(), timeZone: timeZoneOfRows(items) });
     // `whole`: this is all of it, so a light she has since made private is not left showing.
     await sendControl({ t: 'home', home, whole: true });
     return home;
@@ -753,7 +753,7 @@ async function tellEveryHome({ sendControl, householdId, deviceId, consistent = 
 async function showLight({ sendCard, householdId }) {
   try {
     const items = await loadHomeRows(householdId);
-    const queued = buildLightCard({ householdId, items, now: Date.now(), timeZone: HOUSEHOLD_TZ });
+    const queued = buildLightCard({ householdId, items, now: Date.now(), timeZone: timeZoneOfRows(items) });
     if (queued) await sendCard(queued, { rows: items });
   } catch (err) {
     console.error('light_show_failed', { householdId, err: err?.name });
@@ -1049,7 +1049,7 @@ async function cardOnHerScreen(householdId, cardId, now) {
   }
   if (cardId === LIGHT_CARD_ID) {
     const rows = await loadHomeRows(householdId);
-    const queued = buildLightCard({ householdId, items: rows, now, timeZone: HOUSEHOLD_TZ });
+    const queued = buildLightCard({ householdId, items: rows, now, timeZone: timeZoneOfRows(rows) });
     return queued ? { queued, from: { rows } } : undefined;
   }
   const reachId = reachOfferId(cardId);

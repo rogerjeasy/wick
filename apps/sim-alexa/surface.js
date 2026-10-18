@@ -44,6 +44,20 @@ export const REPLY_CHOICES = {
 };
 
 /**
+ * The third reply beside two chosen ones, as the server adds it
+ * (send_note_to_tv.ts thirdReply): "Not right now." when either answers a
+ * question or a plan, otherwise the first kind word not already chosen. A
+ * test holds the two equal for every pair.
+ */
+const ANSWERING_REPLIES = ['yes_please', 'yes_fine', 'love_to', 'another_day', 'a_bit_later', 'no_thank_you'];
+const KIND_REPLIES = ['thank_you', 'lovely', 'you_too'];
+export function thirdReply(keys) {
+  if (keys.some((key) => ANSWERING_REPLIES.includes(key))) return 'Not right now.';
+  const spare = KIND_REPLIES.find((key) => !keys.includes(key));
+  return spare ? REPLY_CHOICES[spare] : 'Not right now.';
+}
+
+/**
  * What can be answered when the resident asks someone to look at the door.
  * The server's own list (packages/contracts door.ts), copied because this
  * page has no build step, and held equal to it by a test. Only these are
@@ -443,6 +457,16 @@ const CLASS_LABELS = {
   VERBATIM: 'What was said, word for word',
 };
 
+/** This browser's own IANA time zone, or undefined where it cannot say. */
+export function browserTimeZone() {
+  try {
+    const zone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof zone === 'string' && zone ? zone : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * A moment, as it was at the house. Someone asking from another country is
  * asking what time the carer came to their mother's door, not what time it
@@ -554,12 +578,24 @@ const SUGGESTION_BUTTONS = {
   watch_together: 'Watch a film together',
 };
 
+/** Each action said as the thing to do: the week card's own words, so the line is always an action. */
+const SUGGESTION_DOING = {
+  send_note: 'write her a note',
+  arrange_visit: 'arrange a visit',
+  watch_together: 'watch a film together',
+};
+
 /**
  * The week's one suggestion, from the Sunday brief (get_week_narrative's
- * `suggestion`): "One thing you could do: …" and the one button that does
- * it — or, for "nothing", nothing at all. The reason is the
- * server's, already past the Guardian; this page only labels it. Anything
- * it cannot read is left off the card.
+ * `suggestion`): "One thing you could do: watch a film together." in this
+ * page's own words, the brief's reason under it, and the one button that
+ * does it — or, for "nothing", nothing at all.
+ *
+ * The action is said here, never taken from the reason: the reason says why
+ * ("A film was played on the television this week."), and put after "One
+ * thing you could do:" it read as if the film were the thing to do. The
+ * reason is the server's, already past the Guardian; this page only labels
+ * it. Anything it cannot read is left off the card.
  */
 export function presentSuggestion(suggestion) {
   if (typeof suggestion !== 'object' || suggestion === null) return undefined;
@@ -568,7 +604,7 @@ export function presentSuggestion(suggestion) {
   // "Nothing" adds nothing to a week the card has just told: its reason only says the week again, so it is left off.
   if (action === 'nothing') return undefined;
   if (!Object.hasOwn(SUGGESTION_BUTTONS, action)) return undefined;
-  return { text: `One thing you could do: ${reason.trim()}`, action, label: SUGGESTION_BUTTONS[action] };
+  return { text: `One thing you could do: ${SUGGESTION_DOING[action]}.`, why: reason.trim(), action, label: SUGGESTION_BUTTONS[action] };
 }
 
 function presentWeek(week, formatTime, now, timeZone) {
@@ -1427,8 +1463,8 @@ const otherFields = (args, shown) =>
 /** The sentences for two keys from the list, or null when that is not what was passed. */
 function chosenReplies(keys) {
   if (!Array.isArray(keys)) return null;
-  const texts = [...new Set(keys)].filter((k) => typeof k === 'string' && Object.hasOwn(REPLY_CHOICES, k)).map((k) => REPLY_CHOICES[k]);
-  return texts.length >= 2 ? texts.slice(0, 2) : null;
+  const chosen = [...new Set(keys)].filter((k) => typeof k === 'string' && Object.hasOwn(REPLY_CHOICES, k)).slice(0, 2);
+  return chosen.length === 2 ? [...chosen.map((k) => REPLY_CHOICES[k]), thirdReply(chosen)] : null;
 }
 
 export function confirmWrite(toolName, args = {}, title) {
@@ -1462,7 +1498,7 @@ export function confirmWrite(toolName, args = {}, title) {
         ['Message', String(args.message ?? '')],
         // What the resident will be offered to answer with: seen before it is
         // sent. Two keys from the list, or the server uses its standing three.
-        ...(chosenReplies(args.replies) ? [['Replies offered', [...chosenReplies(args.replies), 'Not right now.'].join(' · ')]] : []),
+        ...(chosenReplies(args.replies) ? [['Replies offered', chosenReplies(args.replies).join(' · ')]] : []),
         ...otherFields(args, ['message', 'replies']),
       ],
       confirmLabel: 'Send',

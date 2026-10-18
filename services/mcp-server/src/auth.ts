@@ -42,7 +42,7 @@ export function createAuth(
   options: {
     readonly demoAccounts?: boolean | undefined;
     readonly demoAccountsPerHour?: number | undefined;
-    readonly seedDemoHome?: ((householdId: string) => Promise<void>) | undefined;
+    readonly seedDemoHome?: ((householdId: string, timeZone: string) => Promise<void>) | undefined;
   } = {},
 ): Auth {
   // The resource every token is bound to: this server, as its protected resource metadata names it.

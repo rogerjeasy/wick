@@ -369,7 +369,7 @@ describe('who looked in (tools/lookIn.ts)', () => {
       ['José', NOW + 10 * HOUR, 'José ha preguntado por usted esta noche.'],
     ];
     for (const [name, at, spanish] of looks) {
-      await recordLook(createMemoryTable().ddb, { householdId: 'hh-1', userId: 'u_1', name }, at, async (_household, home) => void said.push(home));
+      await recordLook(createMemoryTable().ddb, { householdId: 'hh-1', userId: 'u_1', name, timeZone: 'Europe/London' }, at, async (_household, home) => void said.push(home));
       const english = said.at(-1)!;
       const home = homeIn('es', english);
       expect(home.lookedIn?.line).toBe(spanish);

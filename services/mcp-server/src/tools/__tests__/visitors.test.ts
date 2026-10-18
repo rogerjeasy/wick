@@ -39,7 +39,7 @@ describe('loadVisitors — who comes to this house, in words', () => {
     visit(table, Date.UTC(2026, 9, 9, 9, 5), MARIA);
     visit(table, Date.UTC(2026, 9, 13, 8, 55), MARIA);
 
-    expect(await loadVisitors(table.ddb, HH, NOW)).toEqual({
+    expect(await loadVisitors(table.ddb, HH, NOW, 'Europe/London')).toEqual({
       visitors: [{ personId: 'maria', name: 'Maria', usualDays: 'Tuesday and Friday mornings', expectedToday: true, lastVisitAt: Date.UTC(2026, 9, 13, 8, 55) }],
       expected: [],
     });
@@ -49,7 +49,7 @@ describe('loadVisitors — who comes to this house, in words', () => {
     const table = createMemoryTable();
     person(table, 'PER#maria', MARIA);
 
-    const [maria] = (await loadVisitors(table.ddb, HH, new Date(Date.UTC(2026, 9, 14, 12)))).visitors;
+    const [maria] = (await loadVisitors(table.ddb, HH, new Date(Date.UTC(2026, 9, 14, 12)), 'Europe/London')).visitors;
 
     expect(maria).toEqual({ personId: 'maria', name: 'Maria', usualDays: 'Tuesday and Friday mornings', expectedToday: false });
   });
@@ -63,7 +63,7 @@ describe('loadVisitors — who comes to this house, in words', () => {
     table.put({ pk: { S: `HH#${HH}` }, sk: { S: 'MEM#u_sarah' }, status: { S: 'allowed' } });
     table.put({ pk: { S: `HH#${HH}` }, sk: { S: 'MEM#u_tom' }, status: { S: 'allowed' } });
 
-    expect(await loadVisitors(table.ddb, HH, NOW)).toEqual({ visitors: [], expected: [{ name: 'Sarah', at }] });
+    expect(await loadVisitors(table.ddb, HH, NOW, 'Europe/London')).toEqual({ visitors: [], expected: [{ name: 'Sarah', at }] });
   });
 
   it('never lists a visit announced by someone who has since been removed from the circle', async () => {
@@ -71,7 +71,7 @@ describe('loadVisitors — who comes to this house, in words', () => {
     person(table, 'PER#member-u_tom#2026-10-17', { personId: 'member-u_tom', name: 'Tom', expectedOnce: { at: Date.UTC(2026, 9, 17, 14), windowMin: 60 } });
     table.put({ pk: { S: `HH#${HH}` }, sk: { S: 'MEM#u_tom' }, status: { S: 'removed' } });
 
-    expect((await loadVisitors(table.ddb, HH, NOW)).expected).toEqual([]);
+    expect((await loadVisitors(table.ddb, HH, NOW, 'Europe/London')).expected).toEqual([]);
   });
 });
 
@@ -237,6 +237,61 @@ describe('resolveDay — the day somebody means, worked out here and never by a 
     expect(day({ date: '2026-10-06', day: 'friday' })).toMatchObject({ date: '2026-10-06', inWords: 'Tuesday 6 October 2026' });
     expect(day({ day: 'someday' })).toBeUndefined();
     expect(day({ date: 'last week' })).toBeUndefined();
+  });
+});
+
+describe("resolveDay — a day is the house's own", () => {
+  // 03:00 UTC on Wednesday 14 October is still Tuesday evening in Los Angeles.
+  const lateTuesdayInLosAngeles = new Date(Date.UTC(2026, 9, 14, 3));
+
+  it('is today where the house is, from its own midnight', () => {
+    expect(resolveDay({}, lateTuesdayInLosAngeles, 'America/Los_Angeles')).toEqual({
+      start: Date.UTC(2026, 9, 13, 7),
+      date: '2026-10-13',
+      inWords: 'Tuesday 13 October 2026',
+    });
+    expect(resolveDay({}, lateTuesdayInLosAngeles, 'UTC')).toMatchObject({ date: '2026-10-14' });
+  });
+
+  it('counts yesterday and the weekdays back from that day', () => {
+    expect(resolveDay({ day: 'yesterday' }, lateTuesdayInLosAngeles, 'America/Los_Angeles')).toMatchObject({ date: '2026-10-12', start: Date.UTC(2026, 9, 12, 7) });
+    expect(resolveDay({ day: 'friday' }, lateTuesdayInLosAngeles, 'America/Los_Angeles')).toMatchObject({ date: '2026-10-09' });
+  });
+});
+
+describe('the day tools answer for the day where the house is', () => {
+  const LA = 'America/Los_Angeles';
+  // 02:00 UTC on Wednesday 14 October: seven in the evening on Tuesday in Los Angeles.
+  const EVENING_IN_LA = new Date(Date.UTC(2026, 9, 14, 2));
+
+  it('get_today, asked on a Los Angeles evening, is that Tuesday there: its morning in, the next UTC day out', async () => {
+    const table = createMemoryTable();
+    // 09:00 on Tuesday there (16:00 UTC), and 18:30 there (01:30 UTC on Wednesday).
+    table.put({ pk: { S: `HH#${HH}` }, sk: { S: `EVT#${padTimestamp(Date.UTC(2026, 9, 13, 16))}#a` }, type: { S: 'door' } });
+    table.put({ pk: { S: `HH#${HH}` }, sk: { S: `EVT#${padTimestamp(Date.UTC(2026, 9, 14, 1, 30))}#b` }, type: { S: 'door' } });
+    // 23:30 on Monday there (06:30 UTC on Tuesday): the day before.
+    table.put({ pk: { S: `HH#${HH}` }, sk: { S: `EVT#${padTimestamp(Date.UTC(2026, 9, 13, 6, 30))}#c` }, type: { S: 'door' } });
+    const client = await connect(table, (s) => registerGetToday(s, table.ddb, allowedContext(HH, { timeZone: LA }), () => EVENING_IN_LA));
+
+    const result = await client.callTool({ name: 'get_today', arguments: {} });
+
+    expect(result.structuredContent).toMatchObject({
+      date: '2026-10-13',
+      dayInWords: 'Tuesday 13 October 2026',
+      events: [{ at: Date.UTC(2026, 9, 13, 16) }, { at: Date.UTC(2026, 9, 14, 1, 30) }],
+    });
+  });
+
+  it("did_visitor_come reads her usual days where the house is: a Friday-morning visit in Los Angeles is Friday's", async () => {
+    const table = createMemoryTable();
+    person(table, 'PER#maria', MARIA);
+    // 09:05 on Friday 9 October in Los Angeles is 16:05 UTC.
+    visit(table, Date.UTC(2026, 9, 9, 16, 5), MARIA);
+    const client = await connect(table, (s) => registerDidVisitorCome(s, table.ddb, allowedContext(HH, { timeZone: LA }), () => EVENING_IN_LA));
+
+    const friday = await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria', day: 'friday' } });
+
+    expect(friday.structuredContent).toMatchObject({ visited: true, at: Date.UTC(2026, 9, 9, 16, 5), expectedToday: true, date: '2026-10-09' });
   });
 });
 

@@ -36,7 +36,7 @@ async function tool(items: Item[], ctx: ToolContext = allowedContext('hh-1')) {
     },
   } as unknown as DynamoDBClient;
   const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
-  registerGetPictures(mcpServer, ddb, ctx, () => NOW, 'Europe/London');
+  registerGetPictures(mcpServer, ddb, ctx, () => NOW);
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.1.0' });
   await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);

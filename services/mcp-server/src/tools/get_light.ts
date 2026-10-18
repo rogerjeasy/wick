@@ -28,9 +28,9 @@ import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, READS, data, say } from './result.js';
 import { z } from 'zod';
+import { zoneOf } from '../accounts/types.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 export interface LightForFamily {
   readonly lit: boolean;
@@ -50,13 +50,13 @@ async function activeAts(ddb: DynamoDBClient, householdId: string): Promise<numb
   return (res.Items ?? []).map((item) => Number(item.activeSignalAt?.N)).filter(Number.isFinite);
 }
 
-export async function loadLight(ddb: DynamoDBClient, householdId: string, now: number, residentName: string): Promise<LightForFamily> {
+export async function loadLight(ddb: DynamoDBClient, householdId: string, now: number, residentName: string, timeZone: string): Promise<LightForFamily> {
   const [ats, light] = await Promise.all([
     activeAts(ddb, householdId),
     ddb.send(new GetItemCommand({ TableName: TABLE, Key: { pk: { S: `HH#${householdId}` }, sk: { S: LIGHT_SK } } })),
   ]);
   const outAt = Number(light.Item?.outAt?.N);
-  const lit = isLit({ activeAts: ats, ...(Number.isFinite(outAt) ? { outAt } : {}), now, timeZone: HOUSEHOLD_TZ });
+  const lit = isLit({ activeAts: ats, ...(Number.isFinite(outAt) ? { outAt } : {}), now, timeZone });
   return {
     lit,
     summary: lit
@@ -95,7 +95,7 @@ export function registerGetLight(
     withFriendlyErrors(gated(ctx, async (allowed) => {
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
       if (!isSharedWithFamily('RHYTHM', policy)) return say(FAMILY_REFUSAL_TEXT);
-      return data(await loadLight(ddb, ctx.householdId, now(), allowed.household.residentName));
+      return data(await loadLight(ddb, ctx.householdId, now(), allowed.household.residentName, zoneOf(allowed.household)));
     }, { looksIn: true })),
   );
 }

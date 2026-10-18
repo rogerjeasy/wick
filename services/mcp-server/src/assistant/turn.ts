@@ -33,6 +33,7 @@ import { assistantSessionId } from '@wick/agent';
 import { checkAccess } from '../accounts/circle.js';
 import { grantOf } from '../accounts/oauthProvider.js';
 import type { AccountStore } from '../accounts/store.js';
+import { zoneOf } from '../accounts/types.js';
 import { checkReply, type Turn, type Who } from './brain.js';
 
 /** What the runtime is sent (services/agent/src/agents/assistant/turn.ts readTurnRequest). */
@@ -169,7 +170,6 @@ export interface TurnRouteDeps {
   /** The assistant's allowance (router.ts createStepLimiter), shared with /assistant/next. */
   readonly mayStep: (userId: string, cost: number) => boolean;
   readonly now: () => number;
-  readonly timeZone: string;
 }
 
 export function turnRoute(deps: TurnRouteDeps): (req: Request, res: Response) => Promise<void> {
@@ -198,14 +198,15 @@ export function turnRoute(deps: TurnRouteDeps): (req: Request, res: Response) =>
         memberId: grant.userId,
         memberToken: req.auth.token,
         who: { memberName: membership.name, residentName: household.residentName, householdName: household.name, simulated: household.simulated === true },
-        timeZone: deps.timeZone,
+        // Where the house is: the agent says every time on its clock.
+        timeZone: zoneOf(household),
         ...body,
       };
       const raw = await deps.agent.invoke(assistantSessionId(grant.householdId, grant.userId), payload);
       const titles = await deps.toolTitles();
       const answer = readAgentAnswer(raw, titles);
       if (!answer) throw Object.assign(new Error('not a turn'), { name: 'AgentAnswerRefused' });
-      res.json(answerFor(answer, titles, new Date(deps.now()), deps.timeZone));
+      res.json(answerFor(answer, titles, new Date(deps.now()), zoneOf(household)));
     } catch (err) {
       // The name only: the payload held the token, and a runtime's error names accounts and resources.
       console.error(JSON.stringify({ level: 'error', msg: 'assistant_turn_failed', error: (err as Error).name || 'Error' }));

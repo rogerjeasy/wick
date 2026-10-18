@@ -114,6 +114,7 @@ import { action, type TvCaller } from './familyTvTypes.js';
 import { watchCard, watchSeat } from './familyTvWatch.js';
 import { WAVE_ID, loadWave, markWaveSeen, sendWave, waveBackCard, waveButton } from './familyTvWave.js';
 import { WEEK_ID, markWeekRead, readableWeek, weekCard } from './familyTvWeek.js';
+import { zoneOf } from './types.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -415,11 +416,11 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
     if (!isSharedWithFamily('RHYTHM', policy)) return undefined;
 
     const [light] = await Promise.all([
-      loadLight(ddb, who.householdId, at, who.household.residentName),
+      loadLight(ddb, who.householdId, at, who.household.residentName, zoneOf(who.household)),
       // Asking after her is something she is told (tools/lookIn.ts) — once
       // every little while however often a television asks: recordLook's own
       // condition. Never the reason an answer fails, as in `gated`.
-      recordLook(ddb, { householdId: who.householdId, userId: who.userId, name: who.membership.name }, at, deps.sendHome ?? (async () => {}))
+      recordLook(ddb, { householdId: who.householdId, userId: who.userId, name: who.membership.name, timeZone: zoneOf(who.household) }, at, deps.sendHome ?? (async () => {}))
         .catch((err: unknown) => console.error(JSON.stringify({ level: 'error', msg: 'look_not_noted', err: err instanceof Error ? err.name : 'unknown' }))),
     ]);
     return { lit: light.lit, line: light.summary };
@@ -507,7 +508,7 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
     const policy = loadHouseholdPolicy(ddb, who.householdId);
     const [light, week, door, reach, film, wave] = await Promise.all([
       policy.then((shared) => lightFor(who, at, shared)),
-      policy.then((shared) => readableWeek(shared, () => latestWeek(who, at))),
+      policy.then((shared) => readableWeek(shared, () => latestWeek(who, at), zoneOf(who.household))),
       doorCard(who, at, true),
       reachCard(who, at, true),
       filmCard(who, at),
@@ -570,7 +571,7 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
     // Looked up afresh, not from what is kept: a press is decided on how things stand. And what is kept goes.
     weekLookups.delete(screenOf(who));
     const at = now();
-    const week = await readableWeek(await loadHouseholdPolicy(ddb, who.householdId), () => loadLatestWeek(ddb, who.householdId, currentIsoWeek(new Date(at))));
+    const week = await readableWeek(await loadHouseholdPolicy(ddb, who.householdId), () => loadLatestWeek(ddb, who.householdId, currentIsoWeek(new Date(at))), zoneOf(who.household));
     if (week?.isoWeek !== isoWeek) return said(false, 'That week is not here to read.');
     if (!(await markWeekRead(ddb, who, isoWeek))) return said(false, 'This television is no longer connected.');
     return said(true, `You have read ${who.household.residentName}’s week.`);
@@ -601,7 +602,7 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
 
       case 'watch': {
         if (!isWatchSessionId(card.requestId)) return BAD_CARD;
-        const watcher = { householdId: who.householdId, userId: who.userId, residentName: who.household.residentName };
+        const watcher = { householdId: who.householdId, userId: who.userId, residentName: who.household.residentName, timeZone: zoneOf(who.household) };
         if (chosen === FAMILY_TV_PRESSES.sit) {
           const sat = await sitDownToWatch(ddb, watcher, card.requestId, deps.sendCard, now());
           if (!sat.sat) return said(false, sat.say);

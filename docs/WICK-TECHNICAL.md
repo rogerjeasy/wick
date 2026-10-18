@@ -228,7 +228,7 @@ wick/
 │   ├── tv-vega/       the Vega OS app (React Native for Vega)
 │   ├── tv-fireos/     the same source on Fire OS, through four adapters
 │   ├── sim-alexa/     the family app, a simulated Alexa+ surface
-│   └── ops-console/   her television in a browser tab (tv.html) and the engineers' console
+│   └── ops-console/   her television in a browser tab (tv.html) and the engineers' virtual device
 ├── services/
 │   ├── edge-ring/     Ring webhook, link, token, refresh, status
 │   ├── edge-device/   pairing, both television channels, presses
@@ -722,7 +722,7 @@ erDiagram
 
 | Entity | PK | SK | Notes |
 |---|---|---|---|
-| Household | `HH#<id>` | `META` | language, policy, `simulated` for a demo home |
+| Household | `HH#<id>` | `META` | language, policy, `timeZone`, `simulated` for a demo home |
 | Her television | `HH#<id>` | `DEV#<deviceId>` | channel, last seen |
 | A family member's television | `HH#<id>` | `FTV#<deviceId>` | the member's id; never counted with `DEV#` |
 | Membership | `HH#<id>` | `MEM#<userId>` | role; `pending` until she allows (INV-9) |
@@ -736,6 +736,8 @@ erDiagram
 | Pairing code | `PAIR#<code>` | `META` | 15-minute TTL |
 | Ring device holder | `RINGDEV#<deviceId>` | … | which home a doorbell belongs to |
 | Webhook idempotency | `IDEM#<requestId>` | `META` | 24-hour TTL |
+
+**Where the house is.** Each home keeps its own IANA time zone (`timeZone` on `META`, `packages/contracts/src/clock.ts`). It is given when the home is set up: the family app sends its browser's zone with `/authorize`, the set-up page fills it in to be corrected ("Their time zone"), and a demo home is lived on the guest's own clock. Every day, "this morning", visit time, light and week of a home is read in it, on the server, the agents and the edge. A home set up before homes had one is read in `Europe/London`.
 
 ### 8.2 The Rhythm
 
@@ -831,7 +833,7 @@ Every slow call opened a new connection: App Runner's front end closes idle conn
 - **Logs** in CloudWatch with retention set in Terraform. No request bodies, no device ids, no spoken words.
 - **Alarms** (`alarms.tf`) on every Lambda's errors and throttles, the door path's dead-letter queue, the narrator, App Runner and both APIs, sent to an SNS topic that emails the address in the `ALARM_EMAIL` repository secret.
 - **Live smoke test** (`npm run smoke:live`) after every deploy and nightly: health, security headers, OAuth metadata, a fresh guest, every tool listed, account export and deletion.
-- **Status page** for the engineers' console. Custom metrics and dashboards are not built (§17).
+- **Health report** for operators only (`npm run ops:status`, the status Lambda invoked with their own AWS credentials): it names the operator's household and the age of its Ring token, so it has no public route. Custom metrics and dashboards are not built (§17).
 
 ---
 

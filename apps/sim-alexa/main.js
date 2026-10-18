@@ -64,6 +64,7 @@ import {
   approvalsFor,
   presentPlan,
   readAgentTurn,
+  browserTimeZone,
 } from './surface.js';
 import { ARRANGE_NEEDS_ASSISTANT, errandNews } from './errands.js';
 import {
@@ -211,6 +212,9 @@ async function connect({ demo = false } = {}) {
     const invite = sessionStorage.getItem('wick_invite');
     if (invite) authorizeUrl.searchParams.set('invite', invite);
     if (demo) authorizeUrl.searchParams.set('demo', '1');
+    // Where this browser is: a demo home is lived on it, and setting up a home starts from it (packages/contracts clock.ts).
+    const zone = browserTimeZone();
+    if (zone) authorizeUrl.searchParams.set('time_zone', zone);
     window.location.href = authorizeUrl.toString();
   } catch (err) {
     // Silence is indistinguishable from "nothing happened", which is a lie —
@@ -740,7 +744,11 @@ function renderWeekCard(card, said) {
  */
 function renderWeekSuggestion(suggestion) {
   const box = el('div', 'week-suggestion');
-  box.appendChild(el('p', 'primary-text', suggestion.text));
+  const words = el('div', 'week-suggestion-words');
+  words.appendChild(el('p', 'primary-text', suggestion.text));
+  // Why, in the brief's own sentence: under the action, never in its place.
+  if (suggestion.why) words.appendChild(el('p', 'secondary-text', suggestion.why));
+  box.appendChild(words);
   if (!suggestion.action) return box;
   const button = el('button', 'btn', suggestion.label);
   button.type = 'button';
@@ -1378,6 +1386,13 @@ if ('serviceWorker' in navigator) {
  * a nudge, or coming back to the page, looks at once.
  */
 const REACH_EVERY_LOOKS = 2;
+/**
+ * A visit still to come is looked at every fourth turn (twenty seconds):
+ * the door may have rung for it. The nudge says so at once where this
+ * browser allowed nudges; where it did not, this is how the card turns to
+ * "Someone rang" by itself.
+ */
+const ERRANDS_EVERY_LOOKS = 4;
 
 function watchTheDoor() {
   if (doorWatch !== null) clearInterval(doorWatch);
@@ -1386,6 +1401,7 @@ function watchTheDoor() {
     void lookForDoorQuestion();
     looks += 1;
     if (looks % REACH_EVERY_LOOKS === 0) void lookForReach();
+    if (looks % ERRANDS_EVERY_LOOKS === 0 && errandsToCome.size > 0 && !document.hidden) void lookAtErrands();
   }, DOOR_WATCH_MS);
   void lookForDoorQuestion();
   void lookForReach();
@@ -1804,9 +1820,15 @@ function renderInvitationCard(card) {
 
 /** The errands last shown as finished, so a nudge announces each ending once (errands.js errandNews). */
 const errandSeen = new Map();
+/** The visits on this page still to come: while there is one, the door watch looks at them too (watchTheDoor). */
+const errandsToCome = new Set();
 
 function renderErrandEntry(entry) {
   const section = el('section', 'errand-entry');
+  // Which visit this is, so news of it is drawn here, on the card already on the page (lookAtErrands).
+  section.dataset.errand = entry.errandId;
+  if (entry.cancellable) errandsToCome.add(entry.errandId);
+  else errandsToCome.delete(entry.errandId);
   if (entry.who) section.appendChild(el('p', 'errand-who', `${entry.who}, ${entry.when}`));
   const said = el('p', 'errand-said', entry.said);
   said.setAttribute('aria-live', 'polite');
@@ -1860,7 +1882,12 @@ async function callOffErrand(section, entry, button) {
   }
 }
 
-/** A nudge said a visit has an answer: look, and say it once (errands.js errandNews). */
+/**
+ * A visit has an answer — a nudge said so, or the door watch found it:
+ * look, and say it once (errands.js errandNews). A card for that visit
+ * already on the page turns to the answer where it is; a new card is added
+ * only when there is none.
+ */
 async function lookAtErrands() {
   if (!me || answering) return;
   try {
@@ -1869,9 +1896,17 @@ async function lookAtErrands() {
     const news = errandNews(result.content?.[0]?.text ?? '', errandSeen);
     if (!news) return;
     errandSeen.set(news.errandId, news.status);
-    assistantSays(presentResult('get_errands', JSON.stringify({ errands: [news.view] }), {}, formatTime));
+    const presented = presentResult('get_errands', JSON.stringify({ errands: [news.view] }), {}, formatTime);
+    const entry = presented.card?.kind === 'errand' ? presented.card.errands[0] : undefined;
+    const onThePage = [...document.querySelectorAll('.errand-entry')].filter((section) => section.dataset.errand === news.errandId);
+    if (entry && onThePage.length > 0) {
+      for (const section of onThePage) section.replaceWith(renderErrandEntry(entry));
+      return;
+    }
+    errandsToCome.delete(news.errandId);
+    assistantSays(presented);
   } catch {
-    // A look that failed is tried again at the next nudge; nothing is said about it.
+    // A look that failed is tried again at the next nudge, or the next look; nothing is said about it.
   }
 }
 

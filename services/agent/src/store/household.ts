@@ -9,7 +9,16 @@
  * the same two questions, so that there is one answer to each.
  */
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DEFAULT_LANGUAGE, HOUSEHOLD_LANGUAGE_ATTRS, isHouseholdLanguage, type FactClass, type HouseholdLanguage, type RosterEntry } from '@wick/contracts';
+import {
+  DEFAULT_LANGUAGE,
+  HOUSEHOLD_LANGUAGE_ATTRS,
+  HOUSEHOLD_TIME_ZONE_ATTR,
+  isHouseholdLanguage,
+  timeZoneOfMeta,
+  type FactClass,
+  type HouseholdLanguage,
+  type RosterEntry,
+} from '@wick/contracts';
 import { DEFAULT_POLICY, evaluate, type HouseholdPolicy } from '@wick/policy';
 import { stillWelcome } from '../agents/door/roster.js';
 
@@ -57,6 +66,40 @@ export async function loadHouseholdLanguage(
   }));
   const language = res.Item?.[HOUSEHOLD_LANGUAGE_ATTRS.language]?.S;
   return isHouseholdLanguage(language) ? language : DEFAULT_LANGUAGE;
+}
+
+/** How long a household's zone is kept once read: it is given when the home is set up and does not move. */
+export const TIME_ZONE_KEPT_MS = 10 * 60_000;
+const zones = new Map<string, { readonly zone: string; readonly until: number }>();
+
+/**
+ * Where the house is (packages/contracts clock.ts): `timeZone` on this same
+ * META item, or the default for a home set up before homes had one. One
+ * GetItem of that one attribute, kept for a few minutes per process: a door
+ * card, a week and a reminder each ask it, and it does not change under them.
+ */
+export async function loadHouseholdTimeZone(
+  ddb: Pick<DynamoDBClient, 'send'>,
+  table: string,
+  householdId: string,
+  now: number = Date.now(),
+): Promise<string> {
+  const kept = zones.get(householdId);
+  if (kept && kept.until > now) return kept.zone;
+  const res = await ddb.send(new GetItemCommand({
+    TableName: table,
+    Key: { pk: { S: `HH#${householdId}` }, sk: { S: 'META' } },
+    ProjectionExpression: '#zone',
+    ExpressionAttributeNames: { '#zone': HOUSEHOLD_TIME_ZONE_ATTR },
+  }));
+  const zone = timeZoneOfMeta(res.Item as Parameters<typeof timeZoneOfMeta>[0]);
+  zones.set(householdId, { zone, until: now + TIME_ZONE_KEPT_MS });
+  return zone;
+}
+
+/** For tests: what has been kept is forgotten. */
+export function forgetTimeZones(): void {
+  zones.clear();
 }
 
 /**

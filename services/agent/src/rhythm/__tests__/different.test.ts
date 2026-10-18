@@ -33,7 +33,30 @@ const input = (over: Partial<DifferentInput>): DifferentInput => ({
   ...over,
 });
 
+const houseInput = input;
+
 describe('a regular visitor who did not come', () => {
+  // These times are written in UTC, and so is this house: nine o'clock here is nine o'clock there.
+  const input = (over: Partial<DifferentInput>): DifferentInput => houseInput({ timeZone: 'UTC', ...over });
+
+  it('counts her days where the house is: a carer due at nine in Los Angeles is not missed at half past four in the morning', () => {
+    // Nine o'clock on a Los Angeles Friday is 16:00 UTC (PDT); she has come on Tuesdays and Fridays at five past nine there.
+    const la = (day: number, hour: number, minute = 0): number => at(day, hour + 7, minute);
+    const entries: TimelineEntry[] = [];
+    for (let k = 1; k <= 6; k += 1) entries.push(visit(la(FRIDAY - k * WEEK, 9, 5)), visit(la(FRIDAY - 3 * DAY - k * WEEK, 9, 5)));
+    entries.push(visit(la(FRIDAY - 3 * DAY, 9, 5)));
+    const inLosAngeles = (now: number) => whatsDifferent(input({ entries, now, timeZone: 'America/Los_Angeles' })).differences;
+
+    // 11:30 UTC is 04:30 on Friday morning in Los Angeles: her day has not come round yet.
+    expect(inLosAngeles(at(FRIDAY, 11, 30))).toEqual([]);
+    // 11:00 there, inside the grace: late, not missing.
+    expect(inLosAngeles(la(FRIDAY, 11))).toEqual([]);
+    // 14:00 there: her time and two hours more have gone by.
+    expect(inLosAngeles(la(FRIDAY, 14))).toEqual([
+      expect.objectContaining({ kind: 'missed_visit', sentence: 'Maria usually comes on Friday mornings. There has been no visit today.', at: la(FRIDAY, 9) }),
+    ]);
+  });
+
   it('is said, plainly, once their time and two hours more have gone by', () => {
     const answer = whatsDifferent(input({ entries: mariaCame(6) }));
 
