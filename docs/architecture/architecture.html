@@ -1,0 +1,288 @@
+<!doctype html>
+<!--
+  Wick's architecture, as deployed: the source of architecture-light.png and
+  architecture-dark.png, which the README shows. Every box is something in
+  apps/, services/ or infra/*.tf; the counts are Terraform's.
+
+  To draw the pictures again after a change:
+    scripts/architecture/render.sh
+  (Chrome headless, at twice the size, once per theme: ?theme=light|dark.)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wick architecture</title>
+<style>
+  :root {
+    --ground: #FBF8F2; --panel: #FFFFFF; --ink: #1E1B16; --dim: #5E574C; --line: #8A8174;
+    --edge: #E3DDD2; --amber: #B97A12; --amber-soft: #FBEFD8; --aws: #232F3E; --aws-soft: #EEF1F5;
+    --ring: #1C6FB8; --ring-soft: #E5F0FA; --family: #2E7D5B; --family-soft: #E4F3EC; --gate: #A23B2A; --gate-soft: #F8E6E2;
+  }
+  :root[data-theme="dark"] {
+    --ground: #12100E; --panel: #1C1915; --ink: #F4F1EA; --dim: #B9B1A3; --line: #8C8478;
+    --edge: #39332B; --amber: #E8B75D; --amber-soft: #2E2416; --aws: #C9D3DF; --aws-soft: #1D232B;
+    --ring: #6FB2EE; --ring-soft: #16222E; --family: #6CC79D; --family-soft: #15261F; --gate: #EE8D7A; --gate-soft: #2E1C18;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--ground); }
+  body { font: 15px/1.35 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; color: var(--ink); }
+  #canvas { position: relative; width: 1600px; height: 1000px; padding: 28px 32px; }
+  h1 { margin: 0; font-size: 26px; letter-spacing: .2px; }
+  .lede { margin: 4px 0 0; color: var(--dim); font-size: 15px; }
+  .zone { position: absolute; border: 1.5px solid var(--edge); border-radius: 14px; background: var(--panel); padding: 30px 14px 14px; }
+  .zone > .label { position: absolute; top: 9px; left: 14px; font-size: 12.5px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--dim); }
+  .zone.home { background: var(--amber-soft); border-color: var(--amber); }
+  .zone.home > .label { color: var(--amber); }
+  .zone.family { background: var(--family-soft); border-color: var(--family); }
+  .zone.family > .label { color: var(--family); }
+  .zone.aws { background: var(--aws-soft); border-color: var(--aws); border-style: dashed; }
+  .zone.aws > .label { color: var(--aws); }
+  .box { position: absolute; border-radius: 10px; border: 1.5px solid var(--edge); background: var(--panel); padding: 9px 11px; }
+  .box b { display: block; font-size: 15px; margin-bottom: 2px; }
+  .box span { display: block; color: var(--dim); font-size: 12.5px; }
+  .box.tv { border-color: var(--amber); }
+  .box.ring { border-color: var(--ring); background: var(--ring-soft); }
+  .box.ring b { color: var(--ring); }
+  .box.fam { border-color: var(--family); }
+  .box.gate { border-color: var(--gate); background: var(--gate-soft); }
+  .box.gate b { color: var(--gate); }
+  .box.model { border-color: var(--amber); }
+  .chips { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .chips i { font-style: normal; font-size: 11.5px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--edge); color: var(--dim); background: var(--ground); }
+  svg#wires { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+  .wire { fill: none; stroke: var(--line); stroke-width: 1.8; }
+  .wire.hot { stroke: var(--amber); stroke-width: 2.2; }
+  .wire.ringw { stroke: var(--ring); stroke-width: 2.2; }
+  .wire.famw { stroke: var(--family); stroke-width: 2.2; }
+  .tag { font-size: 12px; fill: var(--ink); }
+  .tagbg { fill: var(--ground); stroke: var(--edge); }
+  .foot { position: absolute; left: 32px; right: 32px; bottom: 18px; display: flex; justify-content: space-between; color: var(--dim); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div id="canvas">
+  <h1>Wick — how it fits together</h1>
+  <p class="lede">The television shows, the cloud thinks, and the family reads through a gate. One AWS account, <code>us-east-1</code>, all in Terraform.</p>
+
+  <!-- Margaret's home -->
+  <div class="zone home" style="left:32px; top:100px; width:300px; height:650px"><div class="label">Margaret's home</div></div>
+  <div class="box tv" id="tv" style="left:48px; top:136px; width:268px">
+    <b>Her Fire TV · Vega OS</b>
+    <span>React Native for Vega</span>
+    <div class="chips"><i>headless card service</i><i>system toast over other apps</i><i>w3cmedia player</i><i>media controls: “Alexa, pause”</i><i>Content Personalization</i><i>natural-break engine</i></div>
+  </div>
+  <div class="box tv" id="fireos" style="left:48px; top:350px; width:268px">
+    <b>The same app on Fire OS</b>
+    <span>foreground service for the door · MediaSession</span>
+  </div>
+  <div class="box" id="remote" style="left:48px; top:440px; width:268px">
+    <b>Margaret, with her remote</b>
+    <span>One button answers every card. No camera or microphone in the room.</span>
+  </div>
+  <div class="box ring" id="ring" style="left:48px; top:572px; width:268px">
+    <b>Ring doorbell + Chime</b>
+    <span>Ring Partner API · OAuth account link · Developer Playground; a labelled stand-in doorbell in demo homes</span>
+  </div>
+
+  <!-- AWS -->
+  <div class="zone aws" style="left:372px; top:100px; width:900px; height:842px"><div class="label">Wick on AWS</div></div>
+
+  <div class="zone" style="left:392px; top:136px; width:250px; height:364px"><div class="label">Edge</div></div>
+  <div class="box" id="iot" style="left:406px; top:170px; width:222px">
+    <b>AWS IoT Core</b>
+    <span>MQTT over WSS · custom authorizer on the device token</span>
+  </div>
+  <div class="box" id="ws" style="left:406px; top:262px; width:222px">
+    <b>API Gateway WebSocket</b>
+    <span>the second television channel</span>
+  </div>
+  <div class="box ring" id="http" style="left:406px; top:336px; width:222px">
+    <b>API Gateway HTTP</b>
+    <span>Ring webhook (HMAC, ack &lt; 5 s) · pairing · Ring link</span>
+  </div>
+  <div class="box" id="bus" style="left:406px; top:428px; width:222px">
+    <b>EventBridge</b>
+    <span>bus <code>wick</code> · schedules</span>
+  </div>
+
+  <div class="zone" style="left:662px; top:136px; width:590px; height:364px"><div class="label">Agent plane</div></div>
+  <div class="box" id="lambdas" style="left:676px; top:170px; width:200px">
+    <b>26 Lambda functions</b>
+    <span>door event · card action · narrator · live-view bridge (WHEP → HLS) · egress: cards to every television</span>
+  </div>
+  <div class="box model" id="agentcore" style="left:892px; top:170px; width:346px">
+    <b>Bedrock AgentCore Runtime · Strands</b>
+    <span>one runtime, three agents, one session a household</span>
+    <div class="chips"><i>Door graph · Nova Lite</i><i>Family assistant · calls the MCP tools · asks before writing</i><i>Sunday brief · Strands Graph</i></div>
+  </div>
+  <div class="box" id="sfn" style="left:716px; top:318px; width:160px">
+    <b>Step Functions</b>
+    <span>a visit errand, for days, as one execution</span>
+  </div>
+  <div class="box" id="sqs" style="left:892px; top:318px; width:166px">
+    <b>SQS</b>
+    <span>the Sunday brief, one home a message</span>
+  </div>
+  <div class="box" id="sched" style="left:1072px; top:318px; width:166px">
+    <b>EventBridge Scheduler</b>
+    <span>Hold for Sarah: the next person after 3 min</span>
+  </div>
+  <div class="box gate" id="guardrail" style="left:892px; top:428px; width:346px">
+    <b>Bedrock Guardrail</b>
+    <span>denied topics, PII, grounding against counted facts</span>
+  </div>
+
+  <div class="zone" style="left:392px; top:530px; width:540px; height:238px"><div class="label">Wick server · App Runner</div></div>
+  <div class="box fam" id="mcp" style="left:406px; top:564px; width:300px">
+    <b>MCP server · 25 tools</b>
+    <span>spec 2025-11-25 · Streamable HTTP · OAuth 2.1 (PKCE, dynamic registration) · family API · one demo session a press</span>
+  </div>
+  <div class="box gate" id="guardian" style="left:722px; top:564px; width:196px">
+    <b>Guardian</b>
+    <span>deterministic gate on every string a family member reads</span>
+  </div>
+  <div class="box" id="cognito" style="left:406px; top:676px; width:300px">
+    <b>Amazon Cognito</b>
+    <span>family accounts</span>
+  </div>
+
+  <div class="zone" style="left:952px; top:530px; width:300px; height:238px"><div class="label">Models and AI services</div></div>
+  <div class="box model" id="bedrock" style="left:966px; top:564px; width:272px">
+    <b>Amazon Bedrock</b>
+    <span>Nova Lite: one sentence about the door's picture · Claude Sonnet 4.5: the assistant, the Sunday brief</span>
+  </div>
+  <div class="box" id="ai" style="left:966px; top:666px; width:272px">
+    <b>Rekognition · Polly · Translate · Transcribe</b>
+    <span>calm points · Read to me · her language · Ask by voice</span>
+  </div>
+
+  <div class="zone" style="left:392px; top:788px; width:860px; height:136px"><div class="label">Memory</div></div>
+  <div class="box" id="ddb" style="left:406px; top:818px; width:230px">
+    <b>DynamoDB</b>
+    <span>one table: timeline, rhythm, weeks, cards, circle, demo sessions</span>
+  </div>
+  <div class="box" id="s3" style="left:652px; top:818px; width:230px">
+    <b>S3 + CloudFront</b>
+    <span>door frames (one day), pictures, films, the family app, her browser television</span>
+  </div>
+  <div class="box" id="amem" style="left:898px; top:818px; width:170px">
+    <b>AgentCore Memory</b>
+    <span>the assistant's conversations</span>
+  </div>
+  <div class="box" id="secrets" style="left:1084px; top:818px; width:154px">
+    <b>Secrets Manager</b>
+    <span>each home's Ring tokens</span>
+  </div>
+
+  <!-- The family -->
+  <div class="zone family" style="left:1312px; top:100px; width:256px; height:650px"><div class="label">Sarah, anywhere</div></div>
+  <div class="box fam" id="familyapp" style="left:1328px; top:136px; width:224px">
+    <b>Family app</b>
+    <span>stands in for Alexa+ (partner-only): ask, send a note, answer the door</span>
+  </div>
+  <div class="box fam" id="alexa" style="left:1328px; top:262px; width:224px">
+    <b>Alexa+ add-on</b>
+    <span>the same MCP server, ready for the add-on surface</span>
+  </div>
+  <div class="box fam" id="sarahtv" style="left:1328px; top:372px; width:224px">
+    <b>Sarah's own Fire TV</b>
+    <span>her light, door requests, the week, films together: only what she may see</span>
+  </div>
+  <div class="box" id="push" style="left:1328px; top:600px; width:224px">
+    <b>Web push</b>
+    <span>“You have been asked to look at the door.” A kind, never the content.</span>
+  </div>
+
+  <svg id="wires"></svg>
+
+  <div class="foot">
+    <span>Delivered by Terraform and GitHub Actions over OIDC, no long-lived keys · CloudWatch alarms → SNS · AWS Budgets</span>
+    <span>github.com/rogerjeasy/wick</span>
+  </div>
+</div>
+
+<script>
+  const theme = new URLSearchParams(location.search).get('theme');
+  if (theme) document.documentElement.dataset.theme = theme;
+
+  const svg = document.getElementById('wires');
+  const NS = 'http://www.w3.org/2000/svg';
+  const canvas = document.getElementById('canvas').getBoundingClientRect();
+  const box = (id) => {
+    const r = document.getElementById(id).getBoundingClientRect();
+    return { l: r.left - canvas.left, r: r.right - canvas.left, t: r.top - canvas.top, b: r.bottom - canvas.top, cx: (r.left + r.right) / 2 - canvas.left, cy: (r.top + r.bottom) / 2 - canvas.top };
+  };
+  const at = (b, side, f = 0.5) => ({
+    l: [b.l, b.t + (b.b - b.t) * f], r: [b.r, b.t + (b.b - b.t) * f],
+    t: [b.l + (b.r - b.l) * f, b.t], b: [b.l + (b.r - b.l) * f, b.b],
+  })[side];
+
+  const defs = document.createElementNS(NS, 'defs');
+  for (const [name, color] of [['plain', 'var(--line)'], ['hot', 'var(--amber)'], ['ringw', 'var(--ring)'], ['famw', 'var(--family)']]) {
+    const m = document.createElementNS(NS, 'marker');
+    m.setAttribute('id', `arrow-${name}`); m.setAttribute('viewBox', '0 0 10 10'); m.setAttribute('refX', '9'); m.setAttribute('refY', '5');
+    m.setAttribute('markerWidth', '7'); m.setAttribute('markerHeight', '7'); m.setAttribute('orient', 'auto-start-reverse');
+    const p = document.createElementNS(NS, 'path'); p.setAttribute('d', 'M0,0 L10,5 L0,10 z'); p.setAttribute('style', `fill:${color}`);
+    m.appendChild(p); defs.appendChild(m);
+  }
+  svg.appendChild(defs);
+
+  /** A wire from point a to point b through optional corners, arrowheads at the ends asked for, and a label. */
+  function wire(points, { kind = 'plain', start = false, end = true, label, labelAt = 0.5, dx = 0, dy = 0 } = {}) {
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', points.map((p, i) => `${i ? 'L' : 'M'}${p[0]},${p[1]}`).join(' '));
+    path.setAttribute('class', `wire ${kind === 'plain' ? '' : kind}`);
+    if (end) path.setAttribute('marker-end', `url(#arrow-${kind})`);
+    if (start) path.setAttribute('marker-start', `url(#arrow-${kind})`);
+    svg.appendChild(path);
+    if (label) {
+      const total = path.getTotalLength();
+      const p = path.getPointAtLength(total * labelAt);
+      const g = document.createElementNS(NS, 'g');
+      const lines = label.split('\n');
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('class', 'tag'); t.setAttribute('text-anchor', 'middle');
+      lines.forEach((line, i) => {
+        const s = document.createElementNS(NS, 'tspan');
+        s.setAttribute('x', p.x + dx); s.setAttribute('y', p.y + dy + 4 + (i - (lines.length - 1) / 2) * 15);
+        s.textContent = line; t.appendChild(s);
+      });
+      g.appendChild(t); svg.appendChild(g);
+      const bb = t.getBBox();
+      const bg = document.createElementNS(NS, 'rect');
+      bg.setAttribute('x', bb.x - 6); bg.setAttribute('y', bb.y - 3); bg.setAttribute('width', bb.width + 12); bg.setAttribute('height', bb.height + 6);
+      bg.setAttribute('rx', 6); bg.setAttribute('class', 'tagbg');
+      g.insertBefore(bg, t);
+    }
+  }
+
+  const tv = box('tv'), iot = box('iot'), ws = box('ws'), ring = box('ring'), http = box('http'), bus = box('bus');
+  const lambdas = box('lambdas'), agentcore = box('agentcore'), mcp = box('mcp'), guardian = box('guardian');
+  const familyapp = box('familyapp'), alexa = box('alexa'), sarahtv = box('sarahtv'), ddb = box('ddb');
+  const GAP = 515; // the channel between the planes above and the Wick server below
+
+  // Her television and its two channels.
+  wire([at(tv, 'r', 0.22), [356, at(tv, 'r', 0.22)[1]], [356, iot.cy], at(iot, 'l')], { kind: 'hot', start: true, label: 'cards, presses,\nplayback', labelAt: 0.12, dy: 22 });
+  wire([at(tv, 'r', 0.78), [372, at(tv, 'r', 0.78)[1]], [372, ws.cy], at(ws, 'l')], { kind: 'hot', start: true });
+  // The doorbell rings in.
+  wire([at(ring, 'r', 0.25), [348, at(ring, 'r', 0.25)[1]], [348, http.cy + 10], [http.l, http.cy + 10]], { kind: 'ringw', label: 'signed webhook', labelAt: 0.12, dy: -14 });
+  // Edge onto the bus, the bus to the agents.
+  wire([at(iot, 'b'), at(ws, 't')], { end: false });
+  wire([at(http, 'b'), at(bus, 't')]);
+  wire([at(bus, 'r'), [654, bus.cy], [654, lambdas.b - 22], [lambdas.l, lambdas.b - 22]], { label: 'events', labelAt: 0.45, dx: 0, dy: 0 });
+  wire([at(lambdas, 'r', 0.35), [agentcore.l, at(lambdas, 'r', 0.35)[1]]]);
+  // Cards out to her television.
+  wire([[lambdas.l, iot.cy], at(iot, 'r')], { kind: 'hot', label: 'cards out', labelAt: 0.5, dy: -14 });
+  // Ring's frame, live view and chime, fetched by the agents.
+  wire([[lambdas.l + 18, lambdas.b], [lambdas.l + 18, GAP], [364, GAP], [364, ring.cy + 18], [ring.r, ring.cy + 18]], { kind: 'ringw', label: 'frame · live view (WHEP) · chime', labelAt: 0.3, dy: 0 });
+  // The family reads through the gate.
+  wire([at(familyapp, 'l', 0.55), [1290, at(familyapp, 'l', 0.55)[1]], [1290, GAP], [guardian.cx, GAP], at(guardian, 't')], { kind: 'famw', start: true, label: 'MCP over HTTPS · OAuth 2.1', labelAt: 0.66, dy: 0 });
+  wire([at(alexa, 'l'), [1290, alexa.cy]], { kind: 'famw', end: false });
+  wire([at(sarahtv, 'l'), [1290, sarahtv.cy]], { kind: 'famw', end: false });
+  wire([at(guardian, 'l', 0.5), at(mcp, 'r', 0.5)], { kind: 'famw', end: false });
+  // Everything is kept in one table.
+  wire([at(mcp, 'b', 0.5), [mcp.cx, ddb.t - 10], [ddb.cx, ddb.t - 10], at(ddb, 't')], { start: true });
+</script>
+
+</body>
+</html>
