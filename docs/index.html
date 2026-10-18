@@ -23,6 +23,7 @@
     --display:"Fraunces",Georgia,"Times New Roman",serif;
     --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     --shadow:0 30px 80px -30px rgba(0,0,0,.75);
+    --film-ground:#100F0D; --peek:170px;
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
@@ -52,24 +53,57 @@
   .btn svg{width:18px;height:18px}
   .btn.sm{min-height:38px;padding:0 16px;font-size:.88rem}
 
-  /* Hero */
-  .hero{position:relative;padding:88px 0 72px;overflow:hidden}
-  .hero::before{content:"";position:absolute;inset:-20% -10% auto auto;width:780px;height:780px;background:radial-gradient(circle,rgba(232,183,93,.16),transparent 62%);pointer-events:none}
-  .hero .wrap{position:relative;display:grid;grid-template-columns:1.02fr 1fr;gap:64px;align-items:center}
+  /* Hero: the film, edge to edge */
+  .hero{position:relative;padding:0 0 88px;overflow:hidden}
+  .stage{position:relative;background:var(--film-ground);display:flex;justify-content:center}
+  .stage::after{content:"";position:absolute;inset:auto 0 0 0;height:1px;background:var(--line)}
+  .film{position:relative;width:min(100%,max(560px,calc((100svh - 64px - var(--peek)) * 16 / 9)));aspect-ratio:16/9;background:var(--film-ground)}
+  .film video{display:block;width:100%;height:100%;object-fit:contain;background:var(--film-ground)}
+  .film video::cue{font:500 1.05rem/1.4 var(--sans);background:rgba(10,9,8,.86);color:#fff}
+  .film:fullscreen{width:100%;height:100%;aspect-ratio:auto;background:#000}
+  .film:fullscreen video{background:#000}
+  .film-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:transparent;z-index:1}
+  .film-progress i{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(0);background:var(--accent);opacity:.9}
+  .film-start{position:absolute;inset:0;display:none;place-items:end center;padding-bottom:9%;border:0;background:rgba(16,15,13,.35);cursor:pointer;color:var(--ink)}
+  .film-start span{display:inline-flex;align-items:center;gap:14px;padding:16px 28px 16px 18px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font:600 1.05rem var(--sans);box-shadow:0 18px 50px -12px rgba(0,0,0,.7)}
+  .film-start svg{width:30px;height:30px}
+  .film.still .film-start{display:grid}
+
+  .film-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:14px}
+  .film-controls{display:flex;align-items:center;gap:8px}
+  .film-meta{margin:0;font-size:.86rem;color:var(--ink-faint);display:flex;align-items:center;gap:8px;text-align:right}
+  .film-meta i{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+  .ctl{display:inline-grid;place-items:center;width:44px;height:44px;border-radius:50%;border:1px solid var(--line-2);background:transparent;color:var(--ink-dim);cursor:pointer;transition:color .2s,border-color .2s,background .2s}
+  .ctl:hover{color:var(--ink);border-color:var(--ink-faint)}
+  .ctl svg{width:18px;height:18px}
+  .ctl[aria-pressed="true"]{color:var(--accent);border-color:rgba(232,183,93,.55);background:var(--accent-soft)}
+  .ctl .cc{font:700 .72rem var(--sans);letter-spacing:.04em}
+  .btn.sound{min-height:44px;font-size:.92rem}
+  .btn.sound .dur{color:var(--ink-faint);font-weight:500;font-variant-numeric:tabular-nums}
+  .btn.sound[aria-pressed="true"]{border-color:rgba(232,183,93,.55);color:var(--accent)}
+  .ctl .when-paused,.ctl[aria-pressed="true"] .when-playing{display:none}
+  .ctl[aria-pressed="true"] .when-paused{display:block}
+
+  .cta-row{display:flex;flex-wrap:wrap;gap:12px}
+  .hero-cta .cta-row{justify-content:center;gap:14px}
+  .hero-cta{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:26px}
+  .hero-cta .btn{min-height:54px;padding:0 30px;font-size:1.02rem}
+  .hero-note{margin:16px 0 0;font-size:.9rem;color:var(--ink-faint)}
+
+  /* The statement under the film */
+  .statement{padding:24px 0 0}
+  .statement-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:72px;align-items:end;padding-top:72px;border-top:1px solid var(--line)}
   .eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
   .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
-  h1{font-family:var(--display);font-weight:600;font-size:clamp(2.5rem,5.2vw,4.1rem);line-height:1.04;letter-spacing:-.025em;margin:18px 0 22px}
+  h1{font-family:var(--display);font-weight:600;font-size:clamp(2.6rem,5.6vw,4.6rem);line-height:1.02;letter-spacing:-.028em;margin:18px 0 0;text-wrap:balance}
   h1 em{font-style:normal;color:var(--accent)}
-  .lede{font-size:1.15rem;color:var(--ink-dim);max-width:34rem;margin:0 0 32px}
-  .cta-row{display:flex;flex-wrap:wrap;gap:12px}
-  .hero-note{margin-top:22px;font-size:.86rem;color:var(--ink-faint)}
-
-  /* Television frame */
-  .tv{position:relative}
-  .tv-screen{border-radius:14px;padding:10px;background:linear-gradient(180deg,#2A2621,#1A1714);box-shadow:var(--shadow),0 0 0 1px #34302A inset}
-  .tv-screen img,.tv-screen video{border-radius:6px;aspect-ratio:16/9;object-fit:cover;width:100%;height:auto;display:block;background:#0B0A09}
-  .live-badge{position:absolute;top:22px;left:22px;display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;background:rgba(18,16,14,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);font-size:.74rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-dim);border:1px solid var(--line-2)}
-  .live-badge i{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  .lede{font-size:1.2rem;line-height:1.6;color:var(--ink-dim);margin:0;text-wrap:pretty}
+  .lede b{color:var(--ink);font-weight:600}
+  .three{list-style:none;margin:56px 0 0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  .three li{display:flex;gap:16px;align-items:flex-start;padding:24px;border-radius:var(--radius);background:var(--raised);border:1px solid var(--line)}
+  .three .icon{margin:0;flex:none}
+  .three b{display:block;font-weight:600;margin-bottom:4px}
+  .three span{color:var(--ink-dim);font-size:.94rem;line-height:1.55}
 
   /* Two screens */
   .duo{display:grid;grid-template-columns:.9fr 1.1fr;gap:56px;align-items:center}
@@ -213,11 +247,12 @@
   /* Reveal (only when scripts run, and never under reduced motion) */
   .js .reveal{opacity:0;transform:translateY(14px);transition:opacity .5s ease-out,transform .5s ease-out}
   .js .reveal.in{opacity:1;transform:none}
-  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.js .reveal{opacity:1;transform:none;transition:none}.pillar,.doc,.btn{transition:none}}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.film-progress{display:none}.js .reveal{opacity:1;transform:none;transition:none}.pillar,.doc,.btn{transition:none}}
 
   /* Responsive */
   @media (max-width:1024px){
-    .hero .wrap{grid-template-columns:1fr;gap:48px}
+    .statement-grid{grid-template-columns:1fr;gap:28px;align-items:start}
+    .three{grid-template-columns:1fr}
     .why{grid-template-columns:1fr;gap:32px}
     .duo{grid-template-columns:1fr;gap:36px}
     .flow{grid-template-columns:1fr}
@@ -238,7 +273,15 @@
   @media (max-width:560px){
     .features,.docs{grid-template-columns:1fr}
     .nav-cta .btn:not(.primary){display:none}
-    .hero{padding:56px 0 52px}
+    .hero{padding-bottom:56px}
+    .film-bar{flex-wrap:wrap}
+    .film-meta{text-align:left}
+    .hero-cta .btn{width:100%;justify-content:center}
+    .hero-cta .cta-row{width:100%;flex-direction:column}
+    .film-controls{gap:6px;width:100%}
+    .btn.sound{flex:1;justify-content:center;padding:0 14px}
+    .btn.sound .dur{display:none}
+    .statement-grid{padding-top:52px}
     .panel,.pillar,.arch,.step{padding:24px}
     .compare{font-size:.84rem}
     .compare th,.compare td{padding:11px 8px}
@@ -270,34 +313,68 @@
 
 <main id="main">
 
-  <section class="hero" id="top">
-    <div class="wrap">
-      <div>
-        <span class="eyebrow"><span class="dot" aria-hidden="true"></span>Fire TV · Ring · Alexa+</span>
-        <h1>Care that lives on the screen <em>she already watches.</em></h1>
-        <p class="lede">Wick turns an older person's television into a calm companion: who is at the door, a note from her daughter, the shape of her week. She answers with one button, and she decides what her family sees.</p>
-        <div class="cta-row">
-          <a class="btn primary" href="https://dmaz25jvryojp.cloudfront.net/">
-            Try the demo
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-          </a>
-          <a class="btn" href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="13" rx="2"/><path d="M17 2l-5 5-5-5"/></svg>
-            Open her television
-          </a>
-        </div>
-        <p class="hero-note">No account and no hardware needed. You will be Sarah, her daughter, in a demo home.</p>
+  <section class="hero" id="top" aria-label="Wick, in a minute and a half">
+    <div class="stage">
+      <div class="film" id="film">
+        <video id="film-video" muted loop playsinline preload="auto" poster="media/wick-demo-poster.jpg" width="1920" height="1080"
+               aria-label="Wick, recorded live in one take: Sarah pairs Margaret's Vega television from the family app, Margaret allows her with one press, the door comes over her film with a picture, a note waits for a quiet cut in the film, and the door reaches her outside Wick and on Fire OS.">
+          <source src="media/wick-demo-720.mp4" type="video/mp4" media="(max-width: 900px)">
+          <source src="media/wick-demo-1080.mp4" type="video/mp4">
+          <track kind="captions" src="media/wick-demo.en.vtt" srclang="en" label="English">
+        </video>
+        <button class="film-start" type="button" id="film-start" aria-label="Play the film with sound, 1 minute 28">
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4z" fill="currentColor"/></svg>Watch the film · 1:28</span>
+        </button>
+        <div class="film-progress" aria-hidden="true"><i id="film-progress"></i></div>
       </div>
-      <div class="tv reveal">
-        <div class="tv-screen" style="position:relative">
-          <video class="autoplay" muted loop playsinline preload="auto" poster="screenshots/note-at-calm-point-fireos.png" width="1280" height="720" aria-label="Her television in a browser, recorded on the live system: a film plays, Sarah's note waits for her pause, she replies with one press, and then someone at the door appears over the film">
-            <source src="media/her-television.mp4" type="video/mp4">
-          </video>
-          <span class="live-badge"><i aria-hidden="true"></i>Recorded live</span>
-        </div>
-        <div class="tv-stand" aria-hidden="true"></div>
-        <p class="tv-caption">A note waits for her pause, she answers with one press, and the door always comes straight through.</p>
+    </div>
+
+    <div class="wrap film-bar">
+      <div class="film-controls" role="group" aria-label="Film">
+        <button class="btn sound" type="button" id="film-sound" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7M19 5a10 10 0 010 14"/></svg>
+          <span id="film-sound-label">Watch with sound</span><span class="dur">1:28</span>
+        </button>
+        <button class="ctl" type="button" id="film-pause" aria-pressed="false" aria-label="Pause the film">
+          <span class="when-playing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg></span>
+          <span class="when-paused"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="currentColor"/></svg></span>
+        </button>
+        <button class="ctl" type="button" id="film-cc" aria-pressed="false" aria-label="Captions of the narration"><span class="cc" aria-hidden="true">CC</span></button>
+        <button class="ctl" type="button" id="film-full" aria-label="Watch full screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       </div>
+      <p class="film-meta"><i aria-hidden="true"></i>Recorded live in one take, on simulators. No hardware.</p>
+    </div>
+
+    <div class="wrap hero-cta">
+      <div class="cta-row">
+        <a class="btn primary" href="https://dmaz25jvryojp.cloudfront.net/">
+          Try the demo
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="btn" href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="13" rx="2"/><path d="M17 2l-5 5-5-5"/></svg>
+          Open her television
+        </a>
+      </div>
+      <p class="hero-note">No account and no hardware needed. You will be Sarah, her daughter, in a demo home.</p>
+    </div>
+
+    <div class="wrap statement">
+      <div class="statement-grid">
+        <div>
+          <span class="eyebrow"><span class="dot" aria-hidden="true"></span>Fire TV · Ring · Alexa+</span>
+          <h1>Care that lives on the screen <em>she already watches.</em></h1>
+        </div>
+        <p class="lede">Wick turns an older person's television into a calm companion: who is at the door, a note from her daughter, the shape of her week. <b>She answers with one button, and she decides what her family sees.</b></p>
+      </div>
+      <ul class="three">
+        <li><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21V4a1 1 0 011-1h10a1 1 0 011 1v17"/><path d="M3 21h18"/><circle cx="14.5" cy="12.5" r=".9" fill="currentColor"/></svg></span>
+          <div><b>Who is at the door</b><span>A picture and one plain sentence, over whatever she is watching.</span></div></li>
+        <li><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H8l-5 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>
+          <div><b>A note from her daughter</b><span>It waits for a natural break, and she replies with one press.</span></div></li>
+        <li><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M7.5 14h2M11 14h2M14.5 14h2M7.5 17.5h2"/></svg></span>
+          <div><b>The shape of her week</b><span>Told from counted facts, and only what she agrees to share.</span></div></li>
+      </ul>
     </div>
   </section>
 
@@ -598,6 +675,75 @@
 </footer>
 
 <script>
+  // The film at the top: a silent loop while it is on screen, the narrated cut from the start on request.
+  (function () {
+    var box = document.getElementById('film'), v = document.getElementById('film-video');
+    if (!box || !v) return;
+    var sound = document.getElementById('film-sound'), soundLabel = document.getElementById('film-sound-label');
+    var dur = sound.querySelector('.dur'), pause = document.getElementById('film-pause');
+    var cc = document.getElementById('film-cc'), full = document.getElementById('film-full');
+    var start = document.getElementById('film-start'), bar = document.getElementById('film-progress');
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var heard = false, userPaused = still, inView = true;
+    var track = v.textTracks && v.textTracks[0];
+    if (track) track.mode = 'hidden';
+
+    function clock(t) { t = Math.max(0, Math.round(t)); return Math.floor(t / 60) + ':' + ('0' + t % 60).slice(-2); }
+    function showPaused(p) {
+      pause.setAttribute('aria-pressed', p ? 'true' : 'false');
+      pause.setAttribute('aria-label', p ? 'Play the film' : 'Pause the film');
+      box.classList.toggle('still', p && !heard);
+    }
+    function play() { var r = v.play(); if (r && r.catch) r.catch(function () { showPaused(true); }); }
+    function withSound() {
+      if (!heard) { heard = true; v.currentTime = 0; v.loop = false; }
+      v.muted = false; userPaused = false;
+      sound.setAttribute('aria-pressed', 'true'); soundLabel.textContent = 'Sound on';
+      box.classList.remove('still'); play();
+    }
+    function silent() {
+      v.muted = true; sound.setAttribute('aria-pressed', 'false'); soundLabel.textContent = heard ? 'Sound off' : 'Watch with sound';
+    }
+
+    sound.addEventListener('click', function () { (v.muted || v.paused) ? withSound() : silent(); });
+    start.addEventListener('click', withSound);
+    pause.addEventListener('click', function () {
+      if (v.paused) { userPaused = false; play(); } else { userPaused = true; v.pause(); }
+    });
+    cc.addEventListener('click', function () {
+      var on = cc.getAttribute('aria-pressed') !== 'true';
+      cc.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (track) track.mode = on ? 'showing' : 'hidden';
+    });
+    full.addEventListener('click', function () {
+      if (document.fullscreenElement) return document.exitFullscreen();
+      if (box.requestFullscreen) box.requestFullscreen();
+      else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+    });
+    v.addEventListener('play', function () { showPaused(false); });
+    v.addEventListener('pause', function () { showPaused(true); });
+    v.addEventListener('ended', function () {
+      // The narrated cut is over: back to the quiet loop, ready to be heard again.
+      heard = false; v.loop = true; silent(); soundLabel.textContent = 'Watch again with sound'; v.currentTime = 0;
+      if (!still && inView) play();
+    });
+    v.addEventListener('timeupdate', function () {
+      if (heard && v.duration) dur.textContent = clock(v.duration - v.currentTime);
+      else dur.textContent = '1:28';
+    });
+    (function tick() {
+      if (v.duration) bar.style.transform = 'scaleX(' + (v.currentTime / v.duration) + ')';
+      requestAnimationFrame(tick);
+    })();
+
+    if (still) { v.preload = 'metadata'; showPaused(true); return; }
+    if (!('IntersectionObserver' in window)) { play(); return; }
+    new IntersectionObserver(function (entries) {
+      inView = entries[0].isIntersecting;
+      if (inView && !userPaused) play();
+      else if (!inView && v.muted && !v.paused) v.pause();   // a film being listened to keeps playing
+    }, { threshold: 0.2 }).observe(box);
+  })();
   (function () {
     var videos = document.querySelectorAll('video.autoplay');
     var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
