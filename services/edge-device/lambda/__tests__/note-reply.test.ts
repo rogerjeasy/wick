@@ -3,6 +3,8 @@ import {
   replyIndex,
   replyText,
   markNoteReplied,
+  markNoteSeen,
+  putsNoteAway,
   // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 } from '../note-reply.mjs';
 
@@ -46,5 +48,28 @@ describe('markNoteReplied — the first reply is the reply', () => {
     expect(input.UpdateExpression).toBe('SET replyText = if_not_exists(replyText, :text), repliedAt = if_not_exists(repliedAt, :at)');
     expect(input.ConditionExpression).toBe('attribute_exists(pk)');
     expect(input.ExpressionAttributeValues).toEqual({ ':text': { S: 'Thank you' }, ':at': { N: '1700' } });
+  });
+});
+
+describe('putsNoteAway — Back on a note: "later", which is not a reply', () => {
+  it('is said of "later" on a note, and of nothing else', () => {
+    expect(putsNoteAway('note-abc', 'later')).toBe(true);
+    expect(putsNoteAway('note-abc', 'reply_2')).toBe(false);
+    expect(putsNoteAway('door-abc', 'later')).toBe(false);
+    expect(putsNoteAway('note-abc', undefined)).toBe(false);
+  });
+});
+
+describe('markNoteSeen — a note she put away has been seen, and waits on her home screen', () => {
+  it('stamps when she first saw it, and its two showings, so no television brings it to her again', () => {
+    const input = markNoteSeen({ table: 'wick', householdId: 'margaret', cardId: 'note-1', at: 1_700 });
+
+    expect(input.Key).toEqual({ pk: { S: 'HH#margaret' }, sk: { S: 'CARD#note-1' } });
+    expect(input.UpdateExpression).toBe('SET seenAt = if_not_exists(seenAt, :at), shown = :showings');
+    expect(input.ExpressionAttributeValues).toEqual({ ':at': { N: '1700' }, ':showings': { N: '2' } });
+  });
+
+  it('never creates a note the server did not send', () => {
+    expect(markNoteSeen({ table: 'wick', householdId: 'margaret', cardId: 'note-made-up', at: 1 }).ConditionExpression).toBe('attribute_exists(pk)');
   });
 });

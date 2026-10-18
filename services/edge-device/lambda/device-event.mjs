@@ -54,7 +54,8 @@
  * circle.mjs.
  *
  * M3: a `reply_<n>` on a family note (`note-<uuid>`) records the reply on
- * the note's CARD# item, in the words Wick offered — note-reply.mjs.
+ * the note's CARD# item, in the words Wick offered — note-reply.mjs. Its
+ * `later` (Back) records only that she has seen it, and leaves it open.
  *
  * Watch together: a press on one of a session's cards (`watch-<kind>-<id>`)
  * is the resident's yes, her "Start the film" or her answer at the credits,
@@ -122,7 +123,7 @@ import { deviceBindingKey, isServed } from './device-standing.mjs';
 import { refusesUnproven } from './proof.mjs';
 import { circleDecision, membershipDecisionUpdate } from './circle.mjs';
 import { announcesRetirement, buildCardActionEntry, buildCardRetiredEntry, buildWeekSeenEntry, shouldPublish } from './card-action-event.mjs';
-import { markNoteReplied, replyIndex, replyText } from './note-reply.mjs';
+import { markNoteReplied, markNoteSeen, putsNoteAway, replyIndex, replyText } from './note-reply.mjs';
 import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate, watchPress } from './watch-together.mjs';
 import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
@@ -354,6 +355,7 @@ export async function handleDeviceEvent({ householdId, deviceId, unproven = fals
 
       const index = replyIndex(deviceEvent.cardId, deviceEvent.action);
       if (index !== undefined) await recordNoteReply(householdId, deviceEvent.cardId, index, deviceEvent.at);
+      if (putsNoteAway(deviceEvent.cardId, deviceEvent.action)) await recordNoteSeen(householdId, deviceEvent.cardId, deviceEvent.at);
 
       const light = lightPress(deviceEvent.cardId, deviceEvent.action);
       if (light) await changeLight({ sendControl, householdId, deviceId, press: light });
@@ -540,6 +542,20 @@ async function recordNoteReply(householdId, cardId, index, at) {
     console.log(JSON.stringify({ level: 'info', msg: 'note_replied', cardId, index }));
   } catch (err) {
     console.error('note_reply_write_failed', { householdId, cardId, err: err?.name });
+  }
+}
+
+/**
+ * A note she put away with Back (note-reply.mjs markNoteSeen). Logged, never
+ * thrown: the press is already on the timeline, and a failed stamp only
+ * means the family is not yet told she has seen it.
+ */
+async function recordNoteSeen(householdId, cardId, at) {
+  try {
+    await ddb.send(new UpdateItemCommand(markNoteSeen({ table: TABLE, householdId, cardId, at })));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return; // not a note the server sent
+    console.error('note_seen_write_failed', { householdId, cardId, err: err?.name });
   }
 }
 

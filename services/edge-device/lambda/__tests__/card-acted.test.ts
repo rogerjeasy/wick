@@ -80,6 +80,10 @@ describe('retiresCard — which presses finish a card server-side', () => {
     expect(retiresCard('hallway_chime')).toBe(false);
     expect(retiresCard('watch_live')).toBe(false);
   });
+
+  it('does not retire a note she put away with Back: it waits on her home screen for her answer', () => {
+    expect(retiresCard('later')).toBe(false);
+  });
 });
 
 describe('markCardShown — the server counts the showings a card gets', () => {

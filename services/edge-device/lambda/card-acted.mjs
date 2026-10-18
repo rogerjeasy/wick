@@ -137,8 +137,10 @@ export function finishedSince(replayedIds, itemsNow, now) {
  * release nothing, but would hide the week before the resident pressed OK.
  * And "Yes, ask Sarah" and "Just say hello" on the card her hold brought
  * (reach.mjs): who was asked is written onto that same card a moment later.
+ * And "later", Back on a note (note-reply.mjs): put aside, not answered, it
+ * waits on her home screen for her answer.
  */
-const KEEPS_CARD = new Set(['hallway_chime', 'ask_family', 'watch_live', 'sharing', 'toggle', 'next', 'stop', 'keep_wick', 'ring_me', 'say_hello']);
+const KEEPS_CARD = new Set(['hallway_chime', 'ask_family', 'watch_live', 'sharing', 'toggle', 'next', 'stop', 'keep_wick', 'ring_me', 'say_hello', 'later']);
 
 /** Whether a card_action finishes its card server-side (stamps actedAt). */
 export function retiresCard(action) {
