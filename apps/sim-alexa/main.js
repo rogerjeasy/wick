@@ -3223,7 +3223,8 @@ async function welcome() {
   me = await api('/api/me');
   formatTime = timeFormatter(me.household.timeZone);
   // A demo home says what it is wherever it is named: its history was written, not lived.
-  setStatus(`${me.user.name} · ${me.household.name}${me.household.simulated ? ' · simulated history' : ''}`, 'connected');
+  // And which demo session: every "Try the demo" is a home of its own, named by its key (accounts/demo.ts).
+  setStatus(`${me.user.name} · ${me.household.name}${me.household.demoSession ? ` ${me.household.demoSession}` : ''}${me.household.simulated ? ' · simulated history' : ''}`, 'connected');
   // A demo home's chips include its stand-in doorbell.
   showSuggestions();
   // Only the organiser, or someone already allowed, may know about the
