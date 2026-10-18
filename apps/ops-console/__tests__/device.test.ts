@@ -1260,6 +1260,13 @@ describe('the browser television — its own words follow the language while the
       es: { says: ['Someone is at the front door.'], pictures: ['Imagen fija de la cámara de la puerta'], marks: [HINT.es] },
     },
     {
+      name: 'a stand-in doorbell’s card: its small label above her sentence, never inside it',
+      keys: [['standIn'], ['readHint']],
+      on: (tv) => tv.card(queuedCard({ id: 'door-2', type: 'DOOR', line: "Someone's at the front door.", standIn: true }, 'DOOR')),
+      en: { says: ['Stand-in doorbell, for the demo', "Someone's at the front door."], marks: [HINT.en] },
+      es: { says: ['Timbre simulado, para la demostración', "Someone's at the front door."], marks: [HINT.es] },
+    },
+    {
       name: 'a note not yet heard: its label and the line in place of its words',
       keys: [['message', { name: 'Sarah' }], ['messageUnheard'], ['readHint']],
       on: (tv) => tv.card(queuedCard({ id: 'note-2', type: 'MESSAGE', fromName: 'Sarah', suggestedReplies: [] })),

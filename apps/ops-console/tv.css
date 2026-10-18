@@ -419,6 +419,41 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* The code and its words on the left, the link as a QR code on the right (QrCode.tsx): black on the lightest ink,
+   which a phone's camera reads, with its quiet zone drawn in. */
+.tv-card.tv-pairing {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: calc(32 * var(--dp));
+}
+
+.tv-pairing-words {
+  flex: 1;
+  min-width: 0;
+}
+
+.tv-pairing-qr {
+  flex: none;
+  width: calc(216 * var(--dp));
+  text-align: center;
+}
+
+.tv-qr {
+  display: block;
+  width: 100%;
+  height: auto;
+  fill: #000;
+}
+
+.tv-qr .tv-qr-ground {
+  fill: var(--ink);
+}
+
+.tv-pairing-qr .body-text {
+  color: var(--ink-dim);
+  margin-top: calc(12 * var(--dp));
+}
+
 .tv-mantel .tv-photo img {
   max-height: calc(300 * var(--dp));
 }

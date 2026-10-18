@@ -873,6 +873,7 @@ const TV_WORDS = {
     lightOn: 'Light on',
     lightOut: 'Light out',
     doorPicture: 'Door camera still',
+    standIn: 'Stand-in doorbell, for the demo',
     message: 'Message from {name}',
     messageUnheard: 'Tap to hear the message',
     week: 'Your week — {week}',
@@ -906,6 +907,7 @@ const TV_WORDS = {
     lightOn: 'Luz encendida',
     lightOut: 'Luz apagada',
     doorPicture: 'Imagen fija de la cámara de la puerta',
+    standIn: 'Timbre simulado, para la demostración',
     message: 'Mensaje de {name}',
     messageUnheard: 'Toque para oír el mensaje',
     week: 'Su semana — {week}',
@@ -1234,20 +1236,73 @@ function renderMantel() {
   show(wrapper);
 }
 
-/** The unpaired screen: the code, and where to enter it (PairingScreen.tsx). */
+/** The unpaired screen: the code, where to enter it, and the link as a QR code beside them (PairingScreen.tsx, QrCode.tsx). */
 function renderPairingCode(code, url) {
   const wrapper = el('div', 'tv-card urgency-deferred tv-pairing');
-  wrapper.appendChild(el('div', 'kicker', 'Set up Wick'));
-  wrapper.appendChild(el('div', 'headline', `${code.slice(0, 3)} ${code.slice(3)}`));
-  wrapper.appendChild(el('div', 'body-text', 'In the Wick family app, choose “Connect a television” and enter this code.'));
+  const words = el('div', 'tv-pairing-words');
+  words.appendChild(el('div', 'kicker', 'Set up Wick'));
+  words.appendChild(el('div', 'headline', `${code.slice(0, 3)} ${code.slice(3)}`));
+  words.appendChild(el('div', 'body-text', 'In the Wick family app, choose “Connect a television” and enter this code.'));
   if (url) {
     const link = el('a', 'body-text', url);
     link.href = url;
     link.target = '_blank';
     link.rel = 'noopener';
-    wrapper.appendChild(link);
+    words.appendChild(link);
   }
+  wrapper.appendChild(words);
+  const qr = url ? qrFigure(url) : null;
+  if (qr) wrapper.appendChild(qr);
   show(wrapper);
+}
+
+/** The light modules a reader needs round a QR code, as on the television (QrCode.tsx QUIET_ZONE_MODULES). */
+const QR_QUIET_ZONE = 4;
+
+/**
+ * The pairing link as a QR code, drawn by the television's own encoder (packages/contracts qr.ts, in the
+ * generated engine): black runs on a light ground, as one SVG, with what to do with it under it. Nothing for a
+ * link too long to carry.
+ */
+function qrFigure(url) {
+  // A code that cannot be drawn costs nothing but the code: the address beside it still pairs the television.
+  try {
+    return drawQr(url);
+  } catch {
+    return null;
+  }
+}
+
+function drawQr(url) {
+  const modules = typeof WickTv !== 'undefined' && WickTv.qrModules ? WickTv.qrModules(url) : undefined;
+  if (!modules) return null;
+  const NS = 'http://www.w3.org/2000/svg';
+  const across = modules.length + 2 * QR_QUIET_ZONE;
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${across} ${across}`);
+  svg.setAttribute('class', 'tv-qr');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'A code for a phone camera. It opens the Wick family app with this code filled in.');
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  const ground = document.createElementNS(NS, 'rect');
+  ground.setAttribute('width', String(across));
+  ground.setAttribute('height', String(across));
+  ground.setAttribute('class', 'tv-qr-ground');
+  svg.appendChild(ground);
+  WickTv.qrRuns(modules).forEach((row, y) => {
+    for (const [x, length] of row) {
+      const run = document.createElementNS(NS, 'rect');
+      run.setAttribute('x', String(x + QR_QUIET_ZONE));
+      run.setAttribute('y', String(y + QR_QUIET_ZONE));
+      run.setAttribute('width', String(length));
+      run.setAttribute('height', '1');
+      svg.appendChild(run);
+    }
+  });
+  const figure = el('div', 'tv-pairing-qr');
+  figure.appendChild(svg);
+  figure.appendChild(el('div', 'body-text', 'Or point a phone at this.'));
+  return figure;
 }
 
 /** The Reach card's two buttons that ask (packages/contracts reach.ts REACH_ACTIONS): after either, the card stays. */
@@ -1271,7 +1326,9 @@ function renderCard(queuedCard) {
   wrapper.appendChild(mark);
 
   if (card.type === 'DOOR') {
-    // No kicker: the line is the headline, as on Vega's DoorCard, so it is not said twice.
+    // No kicker of the line: it is the headline, as on Vega's DoorCard, so it is not said twice. A demo home's
+    // stand-in doorbell has a small label of its own above it, never words inside her sentence (DoorCard.standIn).
+    if (card.standIn) wrapper.appendChild(el('div', 'kicker', tvSay('standIn')));
     wrapper.appendChild(el('div', 'headline', card.line));
     if (card.imageRef) {
       // How tall it may be is the stylesheet's (.tv-still): a share of the screen, less at each smaller size.

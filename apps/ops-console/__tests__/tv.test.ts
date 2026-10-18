@@ -90,7 +90,11 @@ describe('pairing — the code, large, and one sentence on where to enter it', (
     start.answer(200, { code: '123456', url: 'https://family.example/?pair=123456' });
     await tv.settle();
 
-    expect(tv.says()).toEqual(['Set up Wick', '123 456', 'In the Wick family app, choose “Connect a television” and enter this code.', 'https://family.example/?pair=123456']);
+    expect(tv.says()).toEqual(['Set up Wick', '123 456', 'In the Wick family app, choose “Connect a television” and enter this code.', 'https://family.example/?pair=123456', 'Or point a phone at this.']);
+    // The link as a QR code beside the words: one light ground, and the dark modules in runs (packages/contracts qr.ts).
+    const qr = tv.screen.all().find((n) => n.tagName === 'svg');
+    expect(qr?.getAttribute('aria-label')).toBe('A code for a phone camera. It opens the Wick family app with this code filled in.');
+    expect(qr!.children.filter((n) => n.tagName === 'rect').length).toBeGreaterThan(100);
     expect(tv.keysPanel.hidden).toBe(false);
     // Under the screen, never over it: the screen is made smaller to leave it room.
     expect(tv.page.document.getElementById('stage').classList.contains('keys-shown')).toBe(true);
@@ -211,16 +215,42 @@ describe('the natural break — the Vega app’s own engine, on a film that play
     expect(tv.sentOf('card_shown')).toEqual([]);
   });
 
-  it('brings the door at once, over the playing film, and never holds the film for it', async () => {
+  it('brings the door at once, over the playing film, and holds the film for it: she may get up to answer it', async () => {
     const tv = await atHome();
     const video = await watching(tv);
     tv.card(NOTE);
     tv.card(DOOR());
 
     expect(shownType(tv)).toBe('DOOR');
-    expect(video.paused).toBe(false);
+    expect(video.paused).toBe(true);
     tv.advance(3000);
+    expect(video.paused).toBe(true);
+  });
+
+  it('plays the film on when she puts the door card away herself', async () => {
+    const tv = await atHome();
+    const video = await watching(tv);
+    tv.card(DOOR());
+    expect(video.paused).toBe(true);
+
+    tv.advance(PRESS_SETTLE_MS);
+    tv.press('Escape');
+    expect(tv.sentOf('card_action')).toEqual([{ t: 'card_action', cardId: 'door-1', action: 'dismiss' }]);
+    tv.advance(1000);
+    expect(shownType(tv)).toBe(null);
     expect(video.paused).toBe(false);
+  });
+
+  it('leaves the film paused when the door card goes by itself, while she is at the door', async () => {
+    const tv = await atHome();
+    const video = await watching(tv);
+    tv.card(DOOR());
+    expect(video.paused).toBe(true);
+
+    // Five minutes and more: the card's own clock runs out, and nobody pressed anything.
+    tv.advance(5 * 60_000 + 2000);
+    expect(shownType(tv)).toBe(null);
+    expect(video.paused).toBe(true);
   });
 
   it('shows the note at a pause of hers, and the film stays paused after it is answered', async () => {
