@@ -16,6 +16,7 @@ import {
   presentResult,
   presentTurn,
   presentWelcome,
+  presentOpening,
   routeUtterance,
   serverFor,
   suggestionsFor,
@@ -60,6 +61,8 @@ import {
   presentStandInDoorbell,
 } from '../surface.js';
 import { DEMO_VISITOR_KEYS, demoVisitor } from '../../../packages/contracts/src/demoDoor.js';
+import { saidOnHerClock as serverSaidOnHerClock } from '../../../packages/contracts/src/clock.js';
+import { saidOnHerClock } from '../surface.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { REPLY_CHOICES as SERVER_REPLY_CHOICES, offeredReplies as serverOfferedReplies } from '../../../services/mcp-server/src/tools/send_note_to_tv.js';
@@ -179,8 +182,17 @@ describe('presentResult — the week', () => {
   it('says a simulated week is simulated, on the card that shows it', () => {
     const r = presentResult('get_week_narrative', JSON.stringify({ ...JSON.parse(week), simulated: true }), {}, at);
 
-    expect(r.card.footnote).toBe('Simulated: this is a demo home, and nobody lived this week.');
+    // Not the current week: nobody lived *that* week.
+    expect(r.card.footnote).toBe('Simulated: this is a demo home, and nobody lived that week.');
     expect(presentResult('get_week_narrative', week, {}, at).card.footnote).not.toMatch(/Simulated/);
+  });
+
+  it('counts an earlier week as "that week", never "this week", under its "Week of" heading', () => {
+    const counted = { ...JSON.parse(week), deltas: [{ metric: 'door', label: 'the front door', thisWeek: 6, lastWeek: 7, baseline: 6, zScore: 0, baselineWeeks: 6, verdict: 'usual' }] };
+    const r = presentResult('get_week_narrative', JSON.stringify({ ...counted, thisWeek: 'not_written' }), {}, at);
+
+    expect(r.card.title).toBe('Week of 28 September');
+    expect(r.card.facts).toEqual([{ label: 'The front door', value: '6 that week · 7 the week before · usually about 6' }]);
   });
 
   it('says the server\'s own sentence when the week is withheld, with no card', () => {
@@ -440,6 +452,20 @@ const me = (role: string, status: string) => ({
   user: { userId: 'u_sarah', name: 'Sarah', email: 'sarah@example.com' },
   household: { householdId: 'hh_1', name: 'Margaret’s home', residentName: 'Margaret' },
   membership: { role, status },
+});
+
+describe('presentOpening — said while the welcome is fetched, never a blank page', () => {
+  it('says a demo home is being made, and that it takes a few seconds', () => {
+    expect(presentOpening('demo')).toEqual({
+      say: 'Making your demo home: a guest account, and six weeks of simulated history to ask about. This takes a few seconds.',
+      tone: 'waiting',
+    });
+  });
+
+  it('says only that Wick is opening otherwise', () => {
+    expect(presentOpening('link')).toEqual({ say: 'Opening Wick…', tone: 'waiting' });
+    expect(presentOpening(null)).toEqual({ say: 'Opening Wick…', tone: 'waiting' });
+  });
 });
 
 describe('presentWelcome — the first thing said after linking', () => {
@@ -1214,6 +1240,13 @@ describe('a question from the front door', () => {
       answers: ANSWERS,
       footnote: 'Your answer goes on the television at once, under your name.',
     });
+  });
+
+  it('says a stand-in doorbell in the card\'s small line, never in its title', () => {
+    const r = presentResult('get_door_request', waiting({ standIn: true }), {}, at);
+
+    expect(r.card.title).toBe("Someone's at the front door.");
+    expect(r.card.meta).toBe('Stand-in doorbell, for the demo · asked t1000');
   });
 
   it('says so when the picture has not arrived yet, and draws none', () => {
@@ -3076,5 +3109,22 @@ describe('the stand-in doorbell of a demo home (contracts demoDoor.ts)', () => {
     expect(main).toMatch(/api\('\/api\/demo\/doorbell', \{ method: 'POST'/);
     expect(main).toMatch(/'idempotency-key': newPhotoKey\(/);
     expect(requestLimitFor('/api/demo/doorbell', 'POST')).toBe(REQUEST_LIMITS_MS.api);
+  });
+});
+
+describe('saidOnHerClock — the note as her television will show it', () => {
+  const notes = [
+    "I'll come round on Saturday at 14:00. Shall I bring the cake?",
+    'Dinner at 19:30', 'The nurse comes at 08:15.', 'Back by 00:00', 'Ring at 00:30',
+    'See you at 7:30', 'Lunch at 12:15', 'At 2 pm', 'At 14:00 pm', 'It costs £2.50', 'Nothing to change here',
+  ];
+
+  it('says the same as the server, for every note', () => {
+    for (const note of notes) expect(saidOnHerClock(note), note).toBe(serverSaidOnHerClock(note));
+  });
+
+  it('shows the note on the confirm card as it will reach her: 2 pm, not 14:00', () => {
+    const plan = confirmWrite('send_note_to_tv', { message: "I'll come round on Saturday at 14:00. Shall I bring the cake?" });
+    expect(plan.fields[0]).toEqual(['Message', "I'll come round on Saturday at 2 pm. Shall I bring the cake?"]);
   });
 });
