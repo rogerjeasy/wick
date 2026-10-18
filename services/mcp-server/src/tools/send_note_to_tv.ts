@@ -24,8 +24,13 @@
  * words a caller wrote would be words put in the resident's mouth.
  *
  *   - Two keys from the list, or the standing three are used instead.
- *   - The third is always "Not right now.": whatever the other two say,
- *     the resident can decline.
+ *   - The third is the way out when the note asks her something: "Shall I
+ *     come on Saturday?" can always be answered "Not right now.". A note
+ *     that only tells her something ("I'll ring you at six") asks nothing
+ *     to decline, and "Not right now." to it reads as a refusal of a
+ *     kindness, so its third is one more kind word (thirdReply). Back on
+ *     the television puts any note aside unanswered (contracts card.ts
+ *     NOTE_ACTIONS.later).
  *   - Exactly one set is ever stored and shown, so what was pressed is
  *     what the family is told.
  *
@@ -76,6 +81,22 @@ export type ReplyChoice = keyof typeof REPLY_CHOICES;
 
 const isChoice = (key: unknown): key is ReplyChoice => typeof key === 'string' && Object.hasOwn(REPLY_CHOICES, key);
 
+/** Replies that answer a question or a plan — and so need, beside them, a way to say no. */
+export const ANSWERING_REPLIES: readonly ReplyChoice[] = ['yes_please', 'yes_fine', 'love_to', 'another_day', 'a_bit_later', 'no_thank_you'];
+/** The kind words a note that only tells her something is given as its third, in this order. */
+export const KIND_REPLIES: readonly ReplyChoice[] = ['thank_you', 'lovely', 'you_too'];
+
+/**
+ * The third reply beside two chosen ones: the way out when either answers
+ * a question, otherwise the first kind word not already there. Of three
+ * kind words two can be chosen at most, so one is always left.
+ */
+export function thirdReply(chosen: readonly ReplyChoice[]): string {
+  if (chosen.some((key) => ANSWERING_REPLIES.includes(key))) return DECLINE_REPLY;
+  const spare = KIND_REPLIES.find((key) => !chosen.includes(key));
+  return spare ? REPLY_CHOICES[spare] : DECLINE_REPLY;
+}
+
 /**
  * The three replies a note is sent with: the two chosen for it and the way
  * out, or the standing three. Anything that is not a key from the list —
@@ -85,7 +106,7 @@ const isChoice = (key: unknown): key is ReplyChoice => typeof key === 'string' &
 export function offeredReplies(chosen: readonly unknown[] | undefined): readonly string[] {
   if (!Array.isArray(chosen)) return [...STANDING_REPLIES];
   const keys = [...new Set(chosen.filter(isChoice))].slice(0, 2);
-  return keys.length === 2 ? [REPLY_CHOICES[keys[0]!], REPLY_CHOICES[keys[1]!], DECLINE_REPLY] : [...STANDING_REPLIES];
+  return keys.length === 2 ? [REPLY_CHOICES[keys[0]!], REPLY_CHOICES[keys[1]!], thirdReply(keys)] : [...STANDING_REPLIES];
 }
 
 export interface BuildMessageCardInput {
@@ -145,6 +166,22 @@ export const SAME_NOTE_WINDOW_MS = 2 * 60 * 1000;
 /** How long a client's own idempotency key holds. */
 export const IDEMPOTENCY_KEY_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const NOTE_ON_ITS_WAY_TEXT = 'That note is already on its way to the television.';
+export const NOTE_SAYS_WHEN_TEXT =
+  'A note waits for a quiet moment on her television, so it may be read some time after it is sent. Say the time instead, such as "at 11:15" or "this afternoon at three", not "in five minutes".';
+
+const COUNT = '(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|forty-five|fifty|sixty|a few|a couple of|several|\\d+)';
+/** "in five minutes", "in an hour", "in half an hour", "in a minute": a time counted from when the note was written. */
+const FROM_NOW = new RegExp(`\\bin\\s+(?:${COUNT}\\s*(?:-\\s*)?(?:min(?:ute)?s?|hours?|hrs?)|half\\s+an?\\s+hour|an?\\s+(?:minute|moment|sec(?:ond)?))\\b|\\bany\\s+(?:minute|moment)\\s+now\\b`, 'i');
+
+/**
+ * Whether a note counts its time from the moment it was written. A note
+ * waits for a natural break — the end of a programme, a pause, a calm point
+ * — so "in five minutes" may be read an hour later and be wrong by then. The
+ * clock time stays true: the caller is asked for it instead.
+ */
+export function saysWhenFromNow(message: string): boolean {
+  return FROM_NOW.test(message);
+}
 export const KEY_ALREADY_USED_TEXT = 'That idempotency key was already used for a different note, so this one was not sent.';
 
 /** What a sent note's answer keeps, to give a retry: its id and its buttons, never its words. */
@@ -169,8 +206,10 @@ export function registerSendNoteToTv(
         'Puts a note on the household television, in the name of the family member who is signed in. The resident answers with one of three buttons. ' +
         'Pass `replies`: the keys of the two replies from this list that best answer this particular note — ' +
         `${Object.entries(REPLY_CHOICES).map(([key, text]) => `${key} ("${text}")`).join(', ')}. ` +
-        `A third, "${DECLINE_REPLY}", is always added. Without two keys from the list the standing three are used. Replies cannot be written, only chosen. ` +
+        `A third is added: "${DECLINE_REPLY}" when either reply answers a question or a plan (${ANSWERING_REPLIES.join(', ')}), otherwise one more kind word. ` +
+        'Without two keys from the list the standing three are used. Replies cannot be written, only chosen. ' +
         'The answer says which replies were offered (`replies`). ' +
+        'The note waits for a natural break, so say any time in it as a clock time ("at 11:15"), never counted from now ("in five minutes"): such a note is refused. ' +
         'Sending the same note again within two minutes does not send it twice: the answer is the first one, with `repeated`. ' +
         'A client that retries may pass `idempotencyKey`, the same for every try of one note.',
       inputSchema: {
@@ -185,6 +224,8 @@ export function registerSendNoteToTv(
     // card, so it is the name of the person the resident allowed — a note
     // cannot be made to say it came from somebody else.
     withFriendlyErrors(gated(ctx, async (allowed, { message, replies, idempotencyKey }: { message: string; replies?: string[] | undefined; idempotencyKey?: string | undefined }) => {
+      // Read when it is read, not when it is sent: a time counted from now would be wrong by then.
+      if (saysWhenFromNow(message)) return say(NOTE_SAYS_WHEN_TEXT);
       const fromName = allowed.membership.name;
       const asked = callKey({ message, replies });
       // INV-6: a retried call, or the same note sent again at once, is one note.

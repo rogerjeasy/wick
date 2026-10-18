@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { DECLINE_REPLY, KEY_ALREADY_USED_TEXT, REPLY_CHOICES, SAME_NOTE_WINDOW_MS, STANDING_REPLIES, buildMessageCard, offeredReplies, registerSendNoteToTv } from '../send_note_to_tv.js';
+import { DECLINE_REPLY, KEY_ALREADY_USED_TEXT, NOTE_SAYS_WHEN_TEXT, REPLY_CHOICES, SAME_NOTE_WINDOW_MS, STANDING_REPLIES, buildMessageCard, offeredReplies, registerSendNoteToTv, saysWhenFromNow } from '../send_note_to_tv.js';
 import { allowedContext } from './toolContext.js';
 import { createMemoryTable } from '../../__tests__/memoryTable.js';
 
@@ -34,8 +34,25 @@ describe('buildMessageCard', () => {
 });
 
 describe('offeredReplies — what the resident is given to answer with', () => {
-  it('takes two replies chosen for the note, and always adds the way out', () => {
+  it('takes two replies chosen for a note that asks her something, and adds the way out', () => {
     expect(offeredReplies(['yes_please', 'another_day'])).toEqual(['Yes, please do.', 'Another day would be better.', DECLINE_REPLY]);
+    expect(offeredReplies(['thank_you', 'yes_fine'])).toEqual(['Thank you!', "Yes, that's fine.", DECLINE_REPLY]);
+  });
+
+  it('gives a note that only tells her something one more kind word, never "Not right now." to a kindness', () => {
+    // "I'll ring you at six tonight, love Sarah."
+    expect(offeredReplies(['thank_you', 'lovely'])).toEqual(['Thank you!', "That's lovely to hear.", 'Thinking of you too.']);
+    expect(offeredReplies(['im_fine', 'thank_you'])).toEqual(["I'm fine, thank you.", 'Thank you!', "That's lovely to hear."]);
+    expect(offeredReplies(['call_soon', 'please_call'])).toEqual(["I'll call you soon.", 'Please call me.', 'Thank you!']);
+  });
+
+  it('never offers the same reply twice', () => {
+    const keys = Object.keys(REPLY_CHOICES);
+    for (const a of keys) for (const b of keys) {
+      if (a === b) continue;
+      const offered = offeredReplies([a, b]);
+      expect(new Set(offered).size, `${a} ${b}`).toBe(3);
+    }
   });
 
   it('uses the standing three when nothing was chosen', () => {
@@ -254,5 +271,47 @@ describe('send_note_to_tv sends a note once, however often it is asked (INV-6)',
     const rows = JSON.stringify(sarah.table.rows('HH#hh-9'));
     expect(rows).toContain('ONCE#send_note_to_tv#');
     expect(rows).not.toContain('Lunch on Sunday');
+  });
+});
+
+describe('a note says its time as a clock time — it is read when it is read, not when it is sent', () => {
+  it('knows a time counted from now', () => {
+    for (const note of [
+      'The window cleaner is coming in five minutes.',
+      'I will be there in 20 mins',
+      'Back in an hour!',
+      'Dinner in half an hour',
+      'The plumber will ring in a couple of hours.',
+      'Ready in a minute',
+      'Coming in 10-minutes',
+      'She will be with you any minute now.',
+    ]) expect(saysWhenFromNow(note), note).toBe(true);
+  });
+
+  it('lets a clock time, a day, or ordinary words through', () => {
+    for (const note of [
+      "I'll ring you at six tonight, love Sarah",
+      'The window cleaner is coming today at 11:15.',
+      'See you on Saturday morning',
+      "I'm in a bit of a rush today, more later",
+      'In an emergency, ring me.',
+      'We are in Minehead this week',
+      'Thinking of you in hospital-free sunshine',
+    ]) expect(saysWhenFromNow(note), note).toBe(false);
+  });
+
+  it('is refused with the reason, and nothing reaches her television', async () => {
+    const sent: unknown[] = [];
+    const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
+    registerSendNoteToTv(mcpServer, createMemoryTable().ddb, allowedContext('hh-1'), async (card) => void sent.push(card));
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = await client.callTool({ name: 'send_note_to_tv', arguments: { message: 'The window cleaner is coming in five minutes.' } });
+
+    expect((result.content as { text: string }[])[0]!.text).toBe(NOTE_SAYS_WHEN_TEXT);
+    expect(sent).toEqual([]);
+    await client.close();
   });
 });

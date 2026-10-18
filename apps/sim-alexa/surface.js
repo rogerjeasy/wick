@@ -44,6 +44,20 @@ export const REPLY_CHOICES = {
 };
 
 /**
+ * The third reply beside two chosen ones, as the server adds it
+ * (send_note_to_tv.ts thirdReply): "Not right now." when either answers a
+ * question or a plan, otherwise the first kind word not already chosen. A
+ * test holds the two equal for every pair.
+ */
+const ANSWERING_REPLIES = ['yes_please', 'yes_fine', 'love_to', 'another_day', 'a_bit_later', 'no_thank_you'];
+const KIND_REPLIES = ['thank_you', 'lovely', 'you_too'];
+export function thirdReply(keys) {
+  if (keys.some((key) => ANSWERING_REPLIES.includes(key))) return 'Not right now.';
+  const spare = KIND_REPLIES.find((key) => !keys.includes(key));
+  return spare ? REPLY_CHOICES[spare] : 'Not right now.';
+}
+
+/**
  * What can be answered when the resident asks someone to look at the door.
  * The server's own list (packages/contracts door.ts), copied because this
  * page has no build step, and held equal to it by a test. Only these are
@@ -1449,8 +1463,8 @@ const otherFields = (args, shown) =>
 /** The sentences for two keys from the list, or null when that is not what was passed. */
 function chosenReplies(keys) {
   if (!Array.isArray(keys)) return null;
-  const texts = [...new Set(keys)].filter((k) => typeof k === 'string' && Object.hasOwn(REPLY_CHOICES, k)).map((k) => REPLY_CHOICES[k]);
-  return texts.length >= 2 ? texts.slice(0, 2) : null;
+  const chosen = [...new Set(keys)].filter((k) => typeof k === 'string' && Object.hasOwn(REPLY_CHOICES, k)).slice(0, 2);
+  return chosen.length === 2 ? [...chosen.map((k) => REPLY_CHOICES[k]), thirdReply(chosen)] : null;
 }
 
 export function confirmWrite(toolName, args = {}, title) {
@@ -1484,7 +1498,7 @@ export function confirmWrite(toolName, args = {}, title) {
         ['Message', String(args.message ?? '')],
         // What the resident will be offered to answer with: seen before it is
         // sent. Two keys from the list, or the server uses its standing three.
-        ...(chosenReplies(args.replies) ? [['Replies offered', [...chosenReplies(args.replies), 'Not right now.'].join(' · ')]] : []),
+        ...(chosenReplies(args.replies) ? [['Replies offered', chosenReplies(args.replies).join(' · ')]] : []),
         ...otherFields(args, ['message', 'replies']),
       ],
       confirmLabel: 'Send',

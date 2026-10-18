@@ -62,7 +62,7 @@ import {
 import { DEMO_VISITOR_KEYS, demoVisitor } from '../../../packages/contracts/src/demoDoor.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { REPLY_CHOICES as SERVER_REPLY_CHOICES } from '../../../services/mcp-server/src/tools/send_note_to_tv.js';
+import { REPLY_CHOICES as SERVER_REPLY_CHOICES, offeredReplies as serverOfferedReplies } from '../../../services/mcp-server/src/tools/send_note_to_tv.js';
 import { DOOR_ANSWERS as CONTRACT_DOOR_ANSWERS } from '../../../packages/contracts/src/door.js';
 import { REACH_ANSWERS as CONTRACT_REACH_ANSWERS } from '../../../packages/contracts/src/reach.js';
 import { PROGRAMMES } from '../../../packages/contracts/src/programmes.js';
@@ -636,6 +636,16 @@ describe('a note, and what it can be answered with', () => {
 
   it('knows the same replies the server does, word for word', () => {
     expect(REPLY_CHOICES).toEqual(SERVER_REPLY_CHOICES);
+  });
+
+  it('shows, before a note is sent, the very three the server will offer, for every pair of replies', () => {
+    const keys = Object.keys(REPLY_CHOICES);
+    for (const a of keys) for (const b of keys) {
+      if (a === b) continue;
+      const asked = confirmWrite('send_note_to_tv', { message: 'Hello', replies: [a, b] });
+      const shown = asked.fields.find(([label]: [string]) => label === 'Replies offered')?.[1];
+      expect(shown, `${a} ${b}`).toBe(serverOfferedReplies([a, b]).join(' · '));
+    }
   });
 
   it('says afterwards what the server really offered', () => {
