@@ -47,6 +47,8 @@ export type DoorRequest =
       readonly line: string;
       readonly description?: string;
       readonly pictureUrl?: string;
+      /** A demo home's stand-in doorbell, not a Ring doorbell: the family app labels it so (DoorCard.standIn). */
+      readonly standIn?: true;
       readonly answers: readonly { readonly key: string; readonly text: string }[];
     })
   | (Asked & { readonly state: 'answered'; readonly answer: { readonly by: string; readonly text: string; readonly at: number } })
@@ -99,6 +101,7 @@ export async function describeLook(ddb: DynamoDBClient, householdId: string, row
     line,
     ...(description ? { description } : {}),
     ...(imageRef ? { pictureUrl: imageRef } : {}),
+    ...(queued.card.standIn ? { standIn: true as const } : {}),
     answers: ANSWERS,
   };
 }
@@ -123,6 +126,7 @@ const OUTPUT = answerSchema({
   line: z.string().optional().describe('"waiting": the door card’s line.'),
   description: z.string().optional().describe('"waiting": what the picture shows, when Wick is sure.'),
   pictureUrl: z.string().optional(),
+  standIn: z.literal(true).optional().describe('"waiting": a demo home’s stand-in doorbell rang, not a Ring doorbell, and its picture is made up.'),
   answers: z.array(z.strictObject({ key: z.string(), text: z.string() })).optional().describe('"waiting": what can be answered.'),
   answer: z.strictObject({ by: z.string(), text: z.string(), at: z.number() }).optional().describe('"answered": who answered, and what.'),
 });

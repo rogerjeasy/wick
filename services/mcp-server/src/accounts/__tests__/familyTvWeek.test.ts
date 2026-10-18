@@ -8,7 +8,7 @@ import { DeleteItemCommand } from '@aws-sdk/client-dynamodb';
 import { FAMILY_TV_OWN_ACTIONS, FAMILY_TV_PRESSES, MAX_CARD_DETAIL_CHARS, familyTvCardId, type TimelineEntry, type WeekNarrative } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
 import type { MemoryTable } from '../../__tests__/memoryTable.js';
-import { familyWeek } from '../../tools/get_week_narrative.js';
+import { familyWeek, spokenFromThen } from '../../tools/get_week_narrative.js';
 import { WEEK_LOOKUP_KEPT_MS } from '../familyTelevision.js';
 import { WEEK_MAX_PAGES, WEEK_PAGE_CHARS, pagesOf, weekPages } from '../familyTvWeek.js';
 import { MIN, NOW, PICTURE, bearer, homeOf, householdRequests, keepsRhythmPrivate, litToday, putDoorCard, putFamilyTv, putLook, token, world, type World } from './familyTvWorld.js';
@@ -321,7 +321,9 @@ describe('GET /tv/home — her week', () => {
     const card = await weekCardOf(w);
 
     expect(copy.status).toBe('available');
-    expect(card!.pages).toEqual([copy.status === 'available' ? copy.narrative.text : '', 'Wednesday 7 October\n11:00 — Someone at the door']);
+    // Last week, said as one: "once that week", never "once this week" (get_week_narrative.ts spokenFromThen).
+    expect(card!.pages).toEqual([copy.status === 'available' ? spokenFromThen(copy.narrative.text) : '', 'Wednesday 7 October\n11:00 — Someone at the door']);
+    expect(card?.pages?.join(' ')).toMatch(/once that week/);
     expect(JSON.stringify(card)).not.toContain('Maria');
   });
 

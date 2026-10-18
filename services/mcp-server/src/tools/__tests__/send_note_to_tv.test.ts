@@ -300,6 +300,21 @@ describe('a note says its time as a clock time — it is read when it is read, n
     ]) expect(saysWhenFromNow(note), note).toBe(false);
   });
 
+  it('says a 24-hour time as she says it, on the card and in the answer', async () => {
+    const sent: { card: { transcript?: string } }[] = [];
+    const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
+    registerSendNoteToTv(mcpServer, createMemoryTable().ddb, allowedContext('hh-1'), async (card) => void sent.push(card as never));
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = await client.callTool({ name: 'send_note_to_tv', arguments: { message: "I'll come round on Saturday at 14:00. Shall I bring the cake?" } });
+
+    expect(sent[0]!.card.transcript).toBe("I'll come round on Saturday at 2 pm. Shall I bring the cake?");
+    expect(JSON.parse((result.content as { text: string }[])[0]!.text)).toMatchObject({ message: "I'll come round on Saturday at 2 pm. Shall I bring the cake?" });
+    await client.close();
+  });
+
   it('is refused with the reason, and nothing reaches her television', async () => {
     const sent: unknown[] = [];
     const mcpServer = new McpServer({ name: 'test', version: '0.1.0' });
