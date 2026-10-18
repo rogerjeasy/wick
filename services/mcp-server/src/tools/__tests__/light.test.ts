@@ -109,7 +109,7 @@ describe('get_light — the light in the window', () => {
 });
 
 describe('recordLook — who looked in', () => {
-  const who = { householdId: 'hh-1', userId: 'u_sarah', name: 'Sarah Hughes' };
+  const who = { householdId: 'hh-1', userId: 'u_sarah', name: 'Sarah Hughes', timeZone: 'Europe/London' };
 
   it('keeps who it was and when, and tells her television, by first name', async () => {
     const table = createMemoryTable();

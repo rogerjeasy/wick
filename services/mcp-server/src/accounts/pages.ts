@@ -171,7 +171,7 @@ function signedInAs(tx: string, name: string): string {
 <form method="post" action="/account/sign-out">${hidden('tx', tx)}<button class="quiet" type="submit">Sign out</button></form></div>`;
 }
 
-export function householdPage(p: { tx: string; userName: string; canGoBack: boolean } & PageMessage): string {
+export function householdPage(p: { tx: string; userName: string; canGoBack: boolean; timeZone?: string | undefined } & PageMessage): string {
   return layout('Set up a home', `
 <h1>Who is this for?</h1>
 <p class="lead">Wick is set up around one person at home. Tell us what you call them.</p>
@@ -180,6 +180,8 @@ ${message('error', p.error)}
   ${hidden('tx', p.tx)}
   <label>Their name <input type="text" name="residentName" placeholder="Margaret" maxlength="40" required autofocus></label>
   <p class="hint">Use the name they go by. It appears in what Wick tells you: “Margaret hasn’t allowed this yet.”</p>
+  <label>Their time zone <input type="text" name="timeZone" value="${esc(p.timeZone ?? '')}" placeholder="America/New_York" maxlength="64" required autocomplete="off" spellcheck="false"></label>
+  <p class="hint">Where they live, not where you are. Their days, visits and week are kept on this clock. This browser’s is filled in.</p>
   <button type="submit">Continue</button>
 </form>
 <ul class="plain" style="margin-top:1.25rem">

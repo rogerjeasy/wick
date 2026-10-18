@@ -84,6 +84,7 @@ import { registerCancelErrand } from './tools/cancel_errand.js';
 import type { ErrandMachine } from './tools/errands.js';
 import { closeWhenDraining, createLifecycle, healthRoute, type About, type Lifecycle } from './lifecycle.js';
 import { authChecked, startTiming, timingOf } from './timing.js';
+import { zoneOf } from './accounts/types.js';
 
 /**
  * A fresh `McpServer` for exactly one session's lifetime.
@@ -99,8 +100,6 @@ import { authChecked, startTiming, timingOf } from './timing.js';
  * simpleStreamableHttp.js's `getServer()`, called once per `initialize`.
  */
 const TABLE = process.env.TABLE_NAME ?? 'wick';
-/** The same default as the Narrator's and get_week_narrative.ts's. */
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 /** What this server tells an MCP client it is, and what `/health` says is running. */
 export const SERVER_VERSION = '0.2.0';
 
@@ -299,9 +298,9 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     demoAccountsPerHour: deps.demoAccountsPerHour,
     // A guest's home starts with six weeks to ask about, marked simulated (accounts/demoHome.ts),
     // and its newest week is then written again by Wick's agents — asked for, never waited for.
-    seedDemoHome: async (householdId) => {
+    seedDemoHome: async (householdId, timeZone) => {
       const now = circle.now();
-      await seedDemoHome((item) => ddb.send(new PutItemCommand({ TableName: TABLE, Item: item })), householdId, now, HOUSEHOLD_TZ);
+      await seedDemoHome((item) => ddb.send(new PutItemCommand({ TableName: TABLE, Item: item })), householdId, now, timeZone);
       const queueUrl = process.env.WICK_BRIEF_QUEUE_URL;
       if (queueUrl) void requestDemoBrief((body) => (briefQueue ??= new SQSClient({})).send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: body })), householdId, now);
     },
@@ -344,7 +343,6 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     claimTelevision: deps.claimTelevision,
     ringLinks: deps.ringLinks,
     virtualTelevisionUrl: deps.virtualTelevisionUrl,
-    timeZone: HOUSEHOLD_TZ,
     push,
     // The language of her television (accounts/language.ts): a question the organiser can take back again.
     withdrawCard: deps.withdrawCard,
@@ -358,7 +356,6 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
       withdrawCard: deps.withdrawCard,
       now: circle.now,
       newId: circle.newId,
-      timeZone: HOUSEHOLD_TZ,
     }),
     // Somebody at a demo home's door, for the Door agent's own path (accounts/demoDoorbell.ts).
     demoDoorbell: { ddb, store: deps.store, ring: deps.ringDemoDoor, now: circle.now, newId: circle.newId },
@@ -377,7 +374,6 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     agent: deps.assistantAgent,
     toolTitles: () => (toolTitles ??= listToolTitles(ddb)),
     now: circle.now,
-    timeZone: HOUSEHOLD_TZ,
   }));
 
   // A family member's own television (accounts/familyTelevision.ts): what
@@ -442,7 +438,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
         access: () => checkAccess(deps.store, grant.householdId, grant.userId),
         // The light in the window: asking after the resident is something the resident is told.
         lookedIn: (allowed) =>
-          recordLook(ddb, { householdId: grant.householdId, userId: grant.userId, name: allowed.membership.name }, (deps.now ?? Date.now)(), deps.sendHome ?? (async () => {})),
+          recordLook(ddb, { householdId: grant.householdId, userId: grant.userId, name: allowed.membership.name, timeZone: zoneOf(allowed.household) }, (deps.now ?? Date.now)(), deps.sendHome ?? (async () => {})),
         ...(timing ? { timing } : {}),
         // Her regular visitors and her circle, by name: read only when an answer would otherwise be withheld.
         people: async () => [

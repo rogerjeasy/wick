@@ -83,7 +83,8 @@ async function setup(options: { television?: boolean; sarah?: Partial<Membership
     clearLanguageQuestion: dynamo.clearLanguageQuestion,
   };
 
-  await store.createHousehold(HOME);
+  // Where the house is: the household's own zone, as it was given when the home was set up.
+  await store.createHousehold({ ...HOME, ...(options.timeZone ? { timeZone: options.timeZone } : {}) });
   await store.putMembership(member(options.sarah));
   await store.putMembership(member({ userId: 'u_tom', name: 'Tom', role: 'family' }));
   if (options.television !== false) memory.addTelevision(HH, { deviceId: 'tv-1', pairedAt: 5, connected: true });
@@ -106,7 +107,6 @@ async function setup(options: { television?: boolean; sarah?: Partial<Membership
       withdrawn.push({ householdId, cardId });
     },
     now: () => world.clock,
-    timeZone: options.timeZone ?? 'Europe/London',
   };
 
   const meta = (): Item => table.rows(`HH#${HH}`).find((row) => row.sk?.S === 'META')!;

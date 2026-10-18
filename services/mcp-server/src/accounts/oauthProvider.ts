@@ -32,6 +32,7 @@ import { InvalidGrantError, InvalidTargetError, InvalidTokenError } from '@model
 import { checkResourceAllowed } from '@modelcontextprotocol/sdk/shared/auth-utils.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { isTimeZone } from '@wick/contracts';
 import type { AccountStore } from './store.js';
 import { hashToken, randomId, randomToken } from './tokens.js';
 
@@ -54,6 +55,12 @@ export interface PendingAuthorization {
   readonly invite?: string;
   /** The app's demo button (?demo=1). Honoured only where the deployment allows it (accounts/demo.ts). */
   readonly demo?: boolean;
+  /**
+   * The time zone of the browser that asked (?time_zone=), when it is one:
+   * where a home set up from here is first said to be (packages/contracts
+   * clock.ts). The set-up page shows it, to be corrected.
+   */
+  readonly timeZone?: string;
 }
 
 /** Who a token is for. INV-8: this is the only source of a request's household. */
@@ -148,9 +155,10 @@ export function createWickOAuth(store: AccountStore, now: () => number = Date.no
       // RFC 8707: a token is never begun for another server.
       const bound = boundTo(params.resource);
       const tx = randomId();
-      const body = res.req.body as { invite?: unknown; demo?: unknown } | undefined;
+      const body = res.req.body as { invite?: unknown; demo?: unknown; time_zone?: unknown } | undefined;
       const invite = res.req.query.invite ?? body?.invite;
       const demo = (res.req.query.demo ?? body?.demo) === '1';
+      const timeZone = res.req.query.time_zone ?? body?.time_zone;
       const pending: PendingAuthorization = {
         clientId: client.client_id,
         codeChallenge: params.codeChallenge,
@@ -160,6 +168,7 @@ export function createWickOAuth(store: AccountStore, now: () => number = Date.no
         resource: bound,
         ...(typeof invite === 'string' && invite ? { invite } : {}),
         ...(demo ? { demo: true } : {}),
+        ...(isTimeZone(timeZone) ? { timeZone } : {}),
       };
       await store.putRecord('OAUTH#PENDING', tx, pending, now() + PENDING_TTL_MS);
       // Relative: the pages are on this origin, whatever scheme the proxy in

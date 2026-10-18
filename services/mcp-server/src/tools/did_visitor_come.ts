@@ -24,7 +24,8 @@ import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, READS, data, say } from './result.js';
-import { DAY_ARGUMENT, resolveRecentDay } from './when.js';
+import { DAY_ARGUMENT, localDayBounds, resolveRecentDay } from './when.js';
+import { zoneOf } from '../accounts/types.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -48,6 +49,7 @@ export async function checkVisitor(
   householdId: string,
   personId: string,
   now: Date,
+  timeZone = 'UTC',
 ): Promise<VisitorCheckResult> {
   const rosterRes = await ddb.send(new GetItemCommand({
     TableName: TABLE,
@@ -57,11 +59,13 @@ export async function checkVisitor(
   if (!raw) return { visited: false, name: undefined, expectedToday: false };
   const roster = JSON.parse(raw) as RosterEntry;
 
-  const startOfDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  // The day where the house is, from its midnight to the next.
+  const bounds = localDayBounds(now.getTime(), timeZone);
+  const startOfDay = bounds.start;
   // Upper bound is exclusive of the next day's midnight — same off-by-one fix
   // as get_today.ts's identical BETWEEN range (an event at exactly
   // 00:00:00.000 tomorrow must not double-count into today's results).
-  const endOfDay = startOfDay + 86_400_000 - 1;
+  const endOfDay = bounds.end - 1;
 
   const evtRes = await ddb.send(new QueryCommand({
     TableName: TABLE,
@@ -84,8 +88,8 @@ export async function checkVisitor(
     visited: Boolean(visit),
     ...(visit ? { at: parseTsFromSk(visit.sk?.S ?? '') } : {}),
     name: roster.name,
-    // `now` is the start of the day asked, a calendar date (when.ts): its weekday is read as that date.
-    expectedToday: expectedToday(roster.expectedPattern, now, 'UTC'),
+    // `now` is the start of the day asked, where the house is (when.ts): its weekday is read there.
+    expectedToday: expectedToday(roster.expectedPattern, now, timeZone),
   };
 }
 
@@ -121,7 +125,7 @@ export function registerDidVisitorCome(
       outputSchema: OUTPUT,
       annotations: READS,
     },
-    withFriendlyErrors(gated(ctx, async (_allowed, { personId, day, date }: { personId: string; day?: string | undefined; date?: string | undefined }) => {
+    withFriendlyErrors(gated(ctx, async (allowed, { personId, day, date }: { personId: string; day?: string | undefined; date?: string | undefined }) => {
       // Mirrors get_resident_shared_view.ts's disclosure check: if PRESENCE
       // isn't shared with FAMILY under the household's policy, the whole
       // answer is withheld rather than silently answered anyway (§6.4).
@@ -130,9 +134,10 @@ export function registerDidVisitorCome(
         return say(FAMILY_REFUSAL_TEXT);
       }
       // The same days get_today answers for, by the same rule (when.ts).
-      const resolved = resolveRecentDay({ day, date }, now());
+      const timeZone = zoneOf(allowed.household);
+      const resolved = resolveRecentDay({ day, date }, now(), timeZone);
       if (!resolved.ok) return say(resolved.say);
-      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date(resolved.day.start));
+      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date(resolved.day.start), timeZone);
       return data({ ...result, date: resolved.day.date, dayInWords: resolved.day.inWords });
     })),
   );

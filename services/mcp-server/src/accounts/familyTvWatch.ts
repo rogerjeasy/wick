@@ -20,6 +20,7 @@
 import { FAMILY_TV_OWN_ACTIONS, FAMILY_TV_PRESSES, WATCH_QUESTION, familyTvCardId, type CardAction, type FamilyTvCard, type FamilyTvSeat } from '@wick/contracts';
 import { describeWatch, type WatchSession } from '../tools/watchSession.js';
 import { action, type TvCaller } from './familyTvTypes.js';
+import { zoneOf } from './types.js';
 
 const LATER: CardAction = { id: FAMILY_TV_OWN_ACTIONS.later, label: 'Not now', kind: 'dismiss' };
 /** Sent to the server: sitting down, as join_watch_together does. */
@@ -35,8 +36,8 @@ export interface WatchCardFound {
   readonly settled: boolean;
 }
 
-function cardFor(resident: string, session: WatchSession, now: number): WatchCardFound | undefined {
-  const view = describeWatch(session, now, resident);
+function cardFor(resident: string, session: WatchSession, now: number, timeZone: string): WatchCardFound | undefined {
+  const view = describeWatch(session, now, resident, timeZone);
   const id = familyTvCardId('watch', view.sessionId);
   const card = (headline: string, actions: readonly CardAction[], detail?: string): FamilyTvCard => ({ id, kind: 'watch', headline, ...(detail ? { detail } : {}), actions });
 
@@ -72,14 +73,14 @@ function cardFor(resident: string, session: WatchSession, now: number): WatchCar
  * when.
  */
 export function watchCard(who: TvCaller, sessions: readonly WatchSession[], now: number): WatchCardFound | undefined {
-  const found = sessions.map((session) => cardFor(who.household.residentName, session, now)).filter((card): card is WatchCardFound => card !== undefined);
+  const found = sessions.map((session) => cardFor(who.household.residentName, session, now, zoneOf(who.household))).filter((card): card is WatchCardFound => card !== undefined);
   return found.find((entry) => entry.card.actions.length > 0) ?? found[0];
 }
 
-function seatFor(resident: string, session: WatchSession, now: number): FamilyTvSeat | undefined {
+function seatFor(resident: string, session: WatchSession, now: number, timeZone: string): FamilyTvSeat | undefined {
   // The seat is for somebody who has sat down, and for no longer than the invitation's own window.
   if (session.joinedAt === undefined || now >= session.closesAt) return undefined;
-  const view = describeWatch(session, now, resident);
+  const view = describeWatch(session, now, resident, timeZone);
   const base = { cardId: familyTvCardId('watch', view.sessionId), film: view.film };
   // Exactly as the view has them: there only while the rule in watch.ts allows.
   const following = { ...(view.stream ? { stream: view.stream } : {}), ...(view.playback ? { playback: view.playback } : {}) };
@@ -118,7 +119,7 @@ function seatFor(resident: string, session: WatchSession, now: number): FamilyTv
 /** The seat beside her film, for the newest of this member's sessions that has one. */
 export function watchSeat(who: TvCaller, sessions: readonly WatchSession[], now: number): FamilyTvSeat | undefined {
   for (const session of sessions) {
-    const seat = seatFor(who.household.residentName, session, now);
+    const seat = seatFor(who.household.residentName, session, now, zoneOf(who.household));
     if (seat) return seat;
   }
   return undefined;

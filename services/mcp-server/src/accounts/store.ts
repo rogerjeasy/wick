@@ -26,6 +26,8 @@ import {
   DEFAULT_LANGUAGE,
   FAMILY_TV_SK_PREFIX,
   HOUSEHOLD_LANGUAGE_ATTRS,
+  HOUSEHOLD_TIME_ZONE_ATTR,
+  isTimeZone,
   LANGUAGE_ASK_AFTER_TAKING_BACK_MS,
   LANGUAGE_ASK_AGAIN_AFTER_MS,
   isHouseholdLanguage,
@@ -302,15 +304,16 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         await send(new UpdateItemCommand({
           TableName: table,
           Key: { pk: householdPk(household.householdId), sk: { S: 'META' } },
-          UpdateExpression: `SET #name = :name, residentName = :resident, createdBy = :by, createdAt = :at${household.simulated ? ', simulated = :simulated' : ''}`,
+          UpdateExpression: `SET #name = :name, residentName = :resident, createdBy = :by, createdAt = :at${household.simulated ? ', simulated = :simulated' : ''}${household.timeZone ? ', #zone = :zone' : ''}`,
           ConditionExpression: 'attribute_not_exists(createdBy)',
-          ExpressionAttributeNames: { '#name': 'name' },
+          ExpressionAttributeNames: { '#name': 'name', ...(household.timeZone ? { '#zone': HOUSEHOLD_TIME_ZONE_ATTR } : {}) },
           ExpressionAttributeValues: {
             ':name': { S: household.name },
             ':resident': { S: household.residentName },
             ':by': { S: household.createdBy },
             ':at': num(household.createdAt),
             ...(household.simulated ? { ':simulated': { BOOL: true } } : {}),
+            ...(household.timeZone ? { ':zone': { S: household.timeZone } } : {}),
           },
         }));
       } catch (err) {
@@ -334,6 +337,7 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         createdBy: item.createdBy.S,
         createdAt: Number(item.createdAt?.N ?? 0),
         ...(item.simulated?.BOOL ? { simulated: true } : {}),
+        ...(isTimeZone(item[HOUSEHOLD_TIME_ZONE_ATTR]?.S) ? { timeZone: item[HOUSEHOLD_TIME_ZONE_ATTR].S } : {}),
         ...languageFromItem(item),
       };
     },

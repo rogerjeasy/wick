@@ -65,6 +65,7 @@
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { VISIT_SETTLED_MS, currentIsoWeek, padTimestamp, parseTimestampFromSortKey, type RosterEntry, type WeekNarrative } from '@wick/contracts';
 import { VISIT_GRACE_MS, briefMessage, factsWeekNarrative, isoWeekRange, parsePattern, visitItem } from '@wick/agent';
+import { wallClockAsUtc, wallClockToMoment } from '../tools/when.js';
 
 type Item = Record<string, AttributeValue>;
 
@@ -78,7 +79,7 @@ export const DEMO_HISTORY_WEEKS = 6;
  */
 const FIRST_WEEK_AGO = DEMO_HISTORY_WEEKS + 1;
 
-/** The demo home's regular visitor. Times are UTC, as the Door agent matches them (door/roster.ts). */
+/** The demo home's regular visitor. Times are the house's own, as the Door agent matches them (door/roster.ts). */
 export const DEMO_VISITOR: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' };
 
 /** How far back the demo home's visits are on record, as visits the resident confirmed (packages/contracts visit.ts). */
@@ -162,9 +163,17 @@ function confirmedVisitItem(householdId: string, visitor: RosterEntry, arrivedAt
   return visitItem({ householdId, personId: visitor.personId, name: visitor.name, arrivedAt, leftAt, askedAt, answer: 'confirmed', answeredAt, simulated: true });
 }
 
+/**
+ * The week is laid out on the house's own clock: `thisMonday` is Monday's
+ * midnight written as if it were UTC, and every time from it is turned into
+ * the moment it is where the house is (when.ts wallClockToMoment). So Maria
+ * comes at nine in the morning in Seattle as in London, never at two.
+ */
+const onTheHouseClock = (wallClock: number, timeZone: string): number => wallClockToMoment(wallClock, timeZone);
+
 /** When Maria is due in a given week: the start of her window on that slot's day, without the jitter. */
-const dueAt = (thisMonday: number, weeksAgo: number, slot: Slot, minuteOfDay: number): number =>
-  thisMonday - weeksAgo * WEEK + slot.day * DAY + minuteOfDay * MINUTE;
+const dueAt = (thisMonday: number, weeksAgo: number, slot: Slot, minuteOfDay: number, timeZone: string): number =>
+  onTheHouseClock(thisMonday - weeksAgo * WEEK + slot.day * DAY + minuteOfDay * MINUTE, timeZone);
 
 /**
  * The morning Maria did not come: the latest one that is over by the rule
@@ -177,14 +186,14 @@ const dueAt = (thisMonday: number, weeksAgo: number, slot: Slot, minuteOfDay: nu
  * different in it until Tuesday's grace ran out, and a guest who arrived
  * then was never asked "Shall I tell …?" at all.
  */
-function missedVisitDueAt(thisMonday: number, now: number): number | undefined {
+function missedVisitDueAt(thisMonday: number, now: number, timeZone: string): number | undefined {
   const pattern = parsePattern(DEMO_VISITOR.expectedPattern);
   if (!pattern) return undefined;
   let missed: number | undefined;
   for (const weeksAgo of [1, 0]) {
     for (const slot of WEEK_PATTERN) {
       if (!slot.visitor) continue;
-      const due = dueAt(thisMonday, weeksAgo, slot, pattern.minuteOfDay);
+      const due = dueAt(thisMonday, weeksAgo, slot, pattern.minuteOfDay, timeZone);
       if (due + pattern.windowMin * MINUTE + VISIT_GRACE_MS <= now) missed = due;
     }
   }
@@ -199,10 +208,11 @@ function missedVisitDueAt(thisMonday: number, now: number): number | undefined {
  */
 export function demoHomeItems(householdId: string, now: number, timeZone: string): Item[] {
   const pk = { S: `HH#${householdId}` };
-  const thisMonday = isoWeekRange(currentIsoWeek(new Date(now))).startMs;
+  // This week's Monday where the house is, on its wall clock (onTheHouseClock).
+  const thisMonday = isoWeekRange(currentIsoWeek(new Date(wallClockAsUtc(now, timeZone)))).startMs;
 
   const visitorMinuteOfDay = parsePattern(DEMO_VISITOR.expectedPattern)?.minuteOfDay ?? 0;
-  const missed = missedVisitDueAt(thisMonday, now);
+  const missed = missedVisitDueAt(thisMonday, now, timeZone);
 
   const events: Item[] = [];
   const visits: Item[] = [];
@@ -213,8 +223,8 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
       // The morning she missed, and any since: she has not come again yet.
       // A visit after it would make "she did not come" untrue — the detector
       // counts coming late, or on a later day, as having come.
-      if (slot.visitor && missed !== undefined && dueAt(thisMonday, weeksAgo, slot, visitorMinuteOfDay) >= missed) return;
-      const at = thisMonday - weeksAgo * WEEK + slot.day * DAY + slot.hour * HOUR + (slot.minute + jitterMinutes(weeksAgo, index)) * MINUTE;
+      if (slot.visitor && missed !== undefined && dueAt(thisMonday, weeksAgo, slot, visitorMinuteOfDay, timeZone) >= missed) return;
+      const at = onTheHouseClock(thisMonday - weeksAgo * WEEK + slot.day * DAY + slot.hour * HOUR + (slot.minute + jitterMinutes(weeksAgo, index)) * MINUTE, timeZone);
       if (at > now) return;
       events.push(...eventItems(householdId, at, `${weeksAgo}-${index}`, slot.visitor));
       // The visit, witnessed: a visit she made lately is one the resident has confirmed.
@@ -239,7 +249,7 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
   }
 
   const ttl = { N: String(Math.floor((now + DEMO_HISTORY_TTL_MS) / 1000)) };
-  const films = demoFilmItems(householdId, thisMonday);
+  const films = demoFilmItems(householdId, thisMonday, timeZone);
   const roster: Item = { pk, sk: { S: `PER#${DEMO_VISITOR.personId}` }, data: { S: JSON.stringify(DEMO_VISITOR) } };
   // The demo home's own expiry, on every row: a visit's row would otherwise keep its thirteen months (store/visits.ts).
   return [roster, ...events, ...weeks, ...visits, ...films].map((item) => ({ ...item, ttl }));
@@ -264,9 +274,10 @@ const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
  * suggester offer "Watch a film together" — so the demo's week can end
  * with one thing to do, as a real week of films would.
  */
-function demoFilmItems(householdId: string, thisMonday: number): Item[] {
+function demoFilmItems(householdId: string, thisMonday: number, timeZone: string): Item[] {
   return FILM_TIMES.map(({ day, hour }) => {
-    const at = thisMonday - WEEK + day * DAY + hour * HOUR;
+    const at = onTheHouseClock(thisMonday - WEEK + day * DAY + hour * HOUR, timeZone);
+    // Bucketed in UTC, as the television's own rows are (edge-device device-event.mjs tvActivityKey).
     const d = new Date(at);
     const bucket = `${DOW[d.getUTCDay()]}-${String(d.getUTCHours()).padStart(2, '0')}`;
     return {

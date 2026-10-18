@@ -24,6 +24,7 @@ import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, READS, data, say } from './result.js';
 import { NOTHING_ASKED, describeWatch, mySession, mySessions, WATCH_VIEW } from './watchSession.js';
+import { zoneOf } from '../accounts/types.js';
 
 /** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
 const OUTPUT = answerSchema(WATCH_VIEW);
@@ -53,7 +54,7 @@ export function registerGetWatchTogether(mcpServer: McpServer, ddb: DynamoDBClie
         ? (await mySessions(ddb, ctx.householdId, ctx.userId))[0]
         : await mySession(ddb, ctx.householdId, ctx.userId, sessionId);
       const residentName = allowed.household.residentName;
-      return session ? data(describeWatch(session, now(), residentName)) : say(NOTHING_ASKED(residentName));
+      return session ? data(describeWatch(session, now(), residentName, zoneOf(allowed.household))) : say(NOTHING_ASKED(residentName));
     })),
   );
 }

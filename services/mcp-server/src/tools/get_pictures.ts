@@ -25,7 +25,8 @@ import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, READS, data, say } from './result.js';
 import { z } from 'zod';
-import { HOUSEHOLD_TZ, whenInWords } from './watchSession.js';
+import { whenInWords } from './watchSession.js';
+import { zoneOf } from '../accounts/types.js';
 
 const NUMBER_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 const inWords = (n: number): string => NUMBER_WORDS[n] ?? String(n);
@@ -44,7 +45,7 @@ const OUTPUT = answerSchema({
   pictures: z.array(z.strictObject({ sent: z.string(), sentAt: z.number(), seen: z.boolean(), say: z.string() })).describe('Newest first.'),
 });
 
-export function registerGetPictures(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext, now: () => number = Date.now, timeZone: string = HOUSEHOLD_TZ): void {
+export function registerGetPictures(mcpServer: McpServer, ddb: DynamoDBClient, ctx: ToolContext, now: () => number = Date.now): void {
   mcpServer.registerTool(
     'get_pictures',
     {
@@ -64,7 +65,7 @@ export function registerGetPictures(mcpServer: McpServer, ddb: DynamoDBClient, c
       if (pictures.length === 0) return say(`You have not sent a picture to ${resident}’s television this week.`);
       return data({
         summary: summaryOf(pictures.length, pictures.filter((picture) => picture.seen).length, resident),
-        pictures: pictures.map((picture) => ({ sent: whenInWords(picture.sentAt, timeZone), sentAt: picture.sentAt, seen: picture.seen, say: picture.say })),
+        pictures: pictures.map((picture) => ({ sent: whenInWords(picture.sentAt, zoneOf(allowed.household)), sentAt: picture.sentAt, seen: picture.seen, say: picture.say })),
       });
     })),
   );

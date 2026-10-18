@@ -101,6 +101,25 @@ describe('the demo button — an anonymous account in one click', () => {
     expect(rows.filter((sk) => sk.startsWith('VISIT#')).length).toBeGreaterThan(0);
   });
 
+  it("lives on the clock of the browser that asked: a guest in Los Angeles is shown a home in Los Angeles", async () => {
+    const h = await server();
+    const browser = new Browser(h.base);
+    const client = await registerClient(h.base);
+    const tx = await beginAuthorize(browser, client, { demo: '1', time_zone: 'America/Los_Angeles' });
+    const res = await browser.get(`/account?tx=${tx}`);
+    const code = new URL(res.headers.get('location')!).searchParams.get('code')!;
+    const tokens = (await (await exchangeCode(h.base, client, code)).json()) as Tokens;
+
+    expect((await me(h, tokens.access_token)).household.timeZone).toBe('America/Los_Angeles');
+  });
+
+  it('is a home in England when the browser said nothing of where it is', async () => {
+    const h = await server();
+    const { tokens } = await demoTokens(h);
+
+    expect((await me(h, tokens.access_token)).household.timeZone).toBe('Europe/London');
+  });
+
   it('lets the guest, once Margaret has allowed them, ask about a week that is there to ask about', async () => {
     const table = createMemoryTable();
     const h = await server({ demoAccounts: true, ddb: table.ddb });

@@ -43,6 +43,7 @@ import { DemoDoorRefusal, ringDemoDoorbell, type DemoDoorbellDeps } from './demo
 import { LanguageRefusal, askForLanguage, readLanguage, takeBackLanguageQuestion, type LanguageDeps } from './language.js';
 import { grantOf } from './oauthProvider.js';
 import { parseSubscription, type PushStore } from './push.js';
+import { zoneOf } from './types.js';
 import type { PhotoRoutes } from '../photos/routes.js';
 
 const CIRCLE_ERRORS: Readonly<Record<CircleErrorCode, { status: number; message: string }>> = {
@@ -172,8 +173,6 @@ export interface ApiOptions {
   readonly virtualTelevisionUrl?: string | undefined;
   /** The browsers that asked to be told (accounts/push.ts). Absent: nothing is offered. */
   readonly push?: PushStore | undefined;
-  /** The households' IANA time zone (one for the deployment, as the Narrator's). */
-  readonly timeZone?: string | undefined;
   /**
    * egress.ts's takeBackFromDevices (INV-2): how a question about the
    * television's language leaves her television when the organiser takes it
@@ -191,7 +190,7 @@ export interface ApiOptions {
 
 export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHandler, options: ApiOptions = {}): express.Router {
   const { store } = circle;
-  const { claimTelevision, ringLinks, virtualTelevisionUrl, timeZone, push, withdrawCard, photos, demoDoorbell, hear } = options;
+  const { claimTelevision, ringLinks, virtualTelevisionUrl, push, withdrawCard, photos, demoDoorbell, hear } = options;
   const router = express.Router();
   // Any origin: nothing here uses a cookie, and a token is only ever sent by
   // the page that holds it.
@@ -245,7 +244,7 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
         name: household.name,
         residentName: household.residentName,
         // Where the house is, so the app shows a time as it was there.
-        ...(timeZone ? { timeZone } : {}),
+        timeZone: zoneOf(household),
         // A demo home's history is written, not lived: the app says so (demoHome.ts).
         ...(household.simulated ? { simulated: true } : {}),
       },
@@ -379,10 +378,10 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
       }
     });
 
-  router.get('/api/language', languageRoute((grant) => readLanguage({ store, now: circle.now, timeZone }, grant)));
+  router.get('/api/language', languageRoute((grant) => readLanguage({ store, now: circle.now }, grant)));
 
   if (withdrawCard) {
-    const language: LanguageDeps = { store, sendCard: circle.sendCard, withdrawCard, now: circle.now, timeZone };
+    const language: LanguageDeps = { store, sendCard: circle.sendCard, withdrawCard, now: circle.now };
 
     router.post('/api/language', languageRoute(async (grant, req) => {
       // The language, and nothing else: who is asking, and for which home, are the token's.

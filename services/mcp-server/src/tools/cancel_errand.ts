@@ -19,6 +19,7 @@ import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, data, say } from './result.js';
 import { ERRAND_VIEW, errandView, errandsOf, type ErrandMachine } from './errands.js';
+import { zoneOf } from '../accounts/types.js';
 
 export const ERRAND_NOT_FOUND_TEXT = 'I cannot find a visit you arranged by that. Ask me which visits you have arranged.';
 export const ERRAND_ALREADY_OVER_TEXT = 'That visit is over, so there is nothing left to call off.';
@@ -48,15 +49,16 @@ export function registerCancelErrand(mcpServer: McpServer, ddb: DynamoDBClient, 
     },
     withFriendlyErrors(gated(ctx, async (allowed, { errandId }: { errandId: string }) => {
       const residentName = allowed.household.residentName;
+      const timeZone = zoneOf(allowed.household);
       const held = await errands.get(ctx.householdId, errandId);
       if (!held || held.createdBy !== ctx.userId) return say(ERRAND_NOT_FOUND_TEXT);
-      if (held.status === 'cancelled') return data({ cancelled: true, errand: errandView(held, residentName) });
+      if (held.status === 'cancelled') return data({ cancelled: true, errand: errandView(held, residentName, timeZone) });
       if (!isErrandOpen(held.status)) return say(ERRAND_ALREADY_OVER_TEXT);
 
       if (!(await errands.move(ctx.householdId, errandId, ['planned', 'reminded', 'waiting'], 'cancelled', {}, { forgetToken: true }))) {
         // A step moved it on in the meantime: answer for how it stands now.
         const now = await errands.get(ctx.householdId, errandId);
-        if (now?.status === 'cancelled') return data({ cancelled: true, errand: errandView(now, residentName) });
+        if (now?.status === 'cancelled') return data({ cancelled: true, errand: errandView(now, residentName, timeZone) });
         return say(ERRAND_ALREADY_OVER_TEXT);
       }
       await errands.forgetRoster(ctx.householdId, errandId);
@@ -65,7 +67,7 @@ export function registerCancelErrand(mcpServer: McpServer, ddb: DynamoDBClient, 
         await machine.stop(held.executionArn).catch((err: unknown) =>
           console.error(JSON.stringify({ level: 'error', msg: 'errand_not_stopped', errandId, err: err instanceof Error ? err.name : 'unknown' })));
       }
-      return data({ cancelled: true, errand: errandView({ ...held, status: 'cancelled' }, residentName) });
+      return data({ cancelled: true, errand: errandView({ ...held, status: 'cancelled' }, residentName, timeZone) });
     })),
   );
 }

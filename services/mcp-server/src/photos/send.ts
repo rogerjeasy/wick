@@ -52,7 +52,7 @@ import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { MAX_PHOTOS_A_DAY, isPhotoId, looksLikeJpeg, photoCardId, photoCardWords, type QueuedCard } from '@wick/contracts';
 import { accessOf, cleanName } from '../accounts/circle.js';
 import type { AccountStore } from '../accounts/store.js';
-import type { Household, Membership } from '../accounts/types.js';
+import { zoneOf, type Household, type Membership } from '../accounts/types.js';
 import type { Moderation } from './moderation.js';
 import type { PhotoObjects } from './objects.js';
 import { claimPhoto, getPhoto, listPhotos, releasePhoto } from './rows.js';
@@ -73,12 +73,8 @@ export interface PhotoDeps {
   readonly now: () => number;
   /** A fresh, unguessable, URL-safe id. */
   readonly newId: () => string;
-  /** The households' IANA time zone: a day is counted as it is at the house. Absent, the deployment's default. */
-  readonly timeZone?: string | undefined;
 }
 
-/** The same default as server.ts and the tools: one zone for the deployment. */
-const DEFAULT_TIME_ZONE = 'Europe/London';
 
 /** Who is sending: the person and the household their access token names (INV-8). Never anything from a request. */
 export interface PhotoActor {
@@ -193,7 +189,7 @@ export async function sendPhoto(deps: PhotoDeps, actor: PhotoActor, bytes: Uint8
   const { membership, household } = await allowedSender(deps, actor);
   photosAvailable(deps);
   const resident = household.residentName;
-  const timeZone = deps.timeZone ?? DEFAULT_TIME_ZONE;
+  const timeZone = zoneOf(household);
   const sent = (photoId: string): PhotoSent => ({
     sent: true,
     photoId,

@@ -5,7 +5,7 @@
  * has no account at all (packages/contracts/src/circle.ts). A membership
  * joins the two, and carries the resident's answer.
  */
-import type { CircleRole, HouseholdLanguage, MemberStatus } from '@wick/contracts';
+import { DEFAULT_HOUSEHOLD_TIME_ZONE, type CircleRole, type HouseholdLanguage, type MemberStatus } from '@wick/contracts';
 
 export interface User {
   readonly userId: string;
@@ -29,6 +29,12 @@ export interface Household {
    */
   readonly simulated?: boolean;
   /**
+   * Where the house is: its IANA time zone (packages/contracts clock.ts).
+   * Given when the home is set up. Absent on a home set up before homes had
+   * one; read it through `zoneOf`, never directly.
+   */
+  readonly timeZone?: string;
+  /**
    * The language the resident's television speaks (packages/contracts
    * language.ts). Absent: English. Read here and never written from here —
    * only her own press on the television changes it.
@@ -50,6 +56,9 @@ export interface Household {
    */
   readonly languageTakenBack?: { readonly language: HouseholdLanguage; readonly at: number };
 }
+
+/** The zone a household's days are read in: its own, or the default for a home that was given none. */
+export const zoneOf = (household: Pick<Household, 'timeZone'>): string => household.timeZone ?? DEFAULT_HOUSEHOLD_TIME_ZONE;
 
 /** A question about the television's language, as it is kept beside the household. */
 export interface AskedLanguage {

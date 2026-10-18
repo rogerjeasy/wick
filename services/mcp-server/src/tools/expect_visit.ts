@@ -27,10 +27,9 @@ import { loadRoster } from './list_regular_visitors.js';
 import { announcedVisitSk, memberPersonId } from '../accounts/announcedVisits.js';
 import { answerSchema, WRITES, data, say } from './result.js';
 import { localToUtc } from './when.js';
+import { zoneOf } from '../accounts/types.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
-/** Where "three o'clock" is three o'clock. The same default as the Narrator's. */
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 const DAY_MS = 86_400_000;
 /** A ring this long either side of the time given still looks like them: people are early, and late. */
@@ -85,7 +84,8 @@ export function registerExpectVisit(
       annotations: WRITES,
     },
     withFriendlyErrors(gated(ctx, async (allowed, { date, time }: { date: string; time: string }) => {
-      const at = localToUtc(date, time, HOUSEHOLD_TZ);
+      const timeZone = zoneOf(allowed.household);
+      const at = localToUtc(date, time, timeZone);
       if (at === undefined) return say(EXPECT_VISIT_BAD_TIME_TEXT);
       const nowMs = now().getTime();
       if (at < nowMs) return say(EXPECT_VISIT_PAST_TEXT);
@@ -100,7 +100,7 @@ export function registerExpectVisit(
       // gated exactly as list_regular_visitors and did_visitor_come gate it.
       // A resident who keeps that private still lets this member announce
       // their own visit; they are just not told who else is due.
-      const dayCode = localDayCode(at, HOUSEHOLD_TZ);
+      const dayCode = localDayCode(at, timeZone);
       const namesShared = isSharedWithFamily('PRESENCE', await loadHouseholdPolicy(ddb, ctx.householdId));
       const alsoExpectedThatDay = namesShared
         ? (await loadRoster(ddb, ctx.householdId))

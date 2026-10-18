@@ -38,6 +38,7 @@ import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, WRITES, data, say } from './result.js';
 import { NOTHING_ASKED, TABLE, describeWatch, mySession, mySessions, sessionKey, watchCard, type WatchSession } from './watchSession.js';
+import { zoneOf } from '../accounts/types.js';
 
 /** How often her press can win the write before this stops looking again. Once is enough: a session moves one way. */
 const LOOKS = 3;
@@ -102,7 +103,7 @@ export function registerWithdrawWatchInvitation(
 
       let session: WatchSession | undefined = first;
       for (let look = 0; look < LOOKS && session; look += 1, session = await mySession(ddb, ctx.householdId, ctx.userId, first.sessionId)) {
-        const view = describeWatch(session, at, residentName);
+        const view = describeWatch(session, at, residentName, zoneOf(allowed.household));
         const done = (told: boolean) => data({ withdrawn: true, told, sessionId: view.sessionId, film: view.film, when: view.when });
 
         if (view.state === 'declined') return say(`${residentName} has already said not this time. There is nothing to take back.`);

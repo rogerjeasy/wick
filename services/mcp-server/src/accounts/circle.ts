@@ -16,6 +16,7 @@ import {
   CIRCLE_ACTIONS,
   MAX_CARD_DETAIL_CHARS,
   circleCardId,
+  isTimeZone,
   type CircleRole,
   type MemberStatus,
   type QueuedCard,
@@ -137,7 +138,7 @@ async function askResident(deps: CircleDeps, household: Household, membership: M
 export function createHousehold(
   deps: CircleDeps,
   person: Identity,
-  input: { readonly residentName: string; readonly name?: string | undefined; readonly simulated?: boolean },
+  input: { readonly residentName: string; readonly name?: string | undefined; readonly simulated?: boolean; readonly timeZone?: string | undefined },
 ): Promise<Household> {
   return establishHousehold(deps, person, { ...input, householdId: `hh_${deps.newId()}` });
 }
@@ -161,7 +162,13 @@ export function adoptHousehold(
 async function establishHousehold(
   deps: CircleDeps,
   person: Identity,
-  input: { readonly householdId: string; readonly residentName: string; readonly name?: string | undefined; readonly simulated?: boolean },
+  input: {
+    readonly householdId: string;
+    readonly residentName: string;
+    readonly name?: string | undefined;
+    readonly simulated?: boolean;
+    readonly timeZone?: string | undefined;
+  },
 ): Promise<Household> {
   const residentName = cleanName(input.residentName);
   if (!residentName) throw new CircleError('name_required');
@@ -174,6 +181,8 @@ async function establishHousehold(
     createdBy: person.userId,
     createdAt: now,
     ...(input.simulated ? { simulated: true } : {}),
+    // A zone nobody can read is not kept: the home is read in the default, as one set up before homes had a zone.
+    ...(isTimeZone(input.timeZone) ? { timeZone: input.timeZone } : {}),
   };
   await deps.store.createHousehold(household);
   await askResident(deps, household, {

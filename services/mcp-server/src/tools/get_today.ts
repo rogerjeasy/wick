@@ -29,7 +29,8 @@ import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, READS, data, say } from './result.js';
-import { DAY_ARGUMENT, resolveRecentDay } from './when.js';
+import { DAY_ARGUMENT, localDayBounds, resolveRecentDay } from './when.js';
+import { zoneOf } from '../accounts/types.js';
 
 export { DAY_NOT_A_DATE_TEXT, DAY_NOT_YET_TEXT, DAY_TOO_OLD_TEXT } from './when.js';
 import { z } from 'zod';
@@ -78,11 +79,14 @@ export async function loadTodayEvents(
   householdId: string,
   now: Date,
   policy: HouseholdPolicy = DEFAULT_POLICY,
+  timeZone = 'UTC',
 ): Promise<TodayAnswer> {
-  const startOfDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  // The day where the house is, from its midnight to the next.
+  const bounds = localDayBounds(now.getTime(), timeZone);
+  const startOfDay = bounds.start;
   // Upper bound is exclusive of the next day's midnight: an event at exactly
   // 00:00:00.000 tomorrow must appear in tomorrow's results only, not both.
-  const endOfDay = startOfDay + 86_400_000 - 1;
+  const endOfDay = bounds.end - 1;
 
   const res = await ddb.send(new QueryCommand({
     TableName: TABLE,
@@ -147,12 +151,13 @@ export function registerGetToday(
       outputSchema: OUTPUT,
       annotations: READS,
     },
-    withFriendlyErrors(gated(ctx, async (_allowed, asked: { date?: string | undefined; day?: string | undefined }) => {
-      const resolved = resolveRecentDay(asked, now());
+    withFriendlyErrors(gated(ctx, async (allowed, asked: { date?: string | undefined; day?: string | undefined }) => {
+      const timeZone = zoneOf(allowed.household);
+      const resolved = resolveRecentDay(asked, now(), timeZone);
       if (!resolved.ok) return say(resolved.say);
 
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
-      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(resolved.day.start), policy);
+      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(resolved.day.start), policy, timeZone);
       return data({ date: resolved.day.date, dayInWords: resolved.day.inWords, ...answer });
     }, { looksIn: true })),
   );

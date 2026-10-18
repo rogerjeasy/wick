@@ -31,6 +31,7 @@ import { checkAccess } from '../accounts/circle.js';
 import { isGuest } from '../accounts/demo.js';
 import { grantOf } from '../accounts/oauthProvider.js';
 import type { AccountStore } from '../accounts/store.js';
+import { zoneOf } from '../accounts/types.js';
 import { nextStep, readTurns, type Converse, type ToolSpec } from './brain.js';
 import { turnRoute, type AssistantAgent } from './turn.js';
 
@@ -54,7 +55,6 @@ export interface AssistantRouterOptions {
   /** Each of this server's tools' name and title, for what waits for a member's yes. */
   readonly toolTitles?: () => Promise<ReadonlyMap<string, string>>;
   readonly now: () => number;
-  readonly timeZone: string;
 }
 
 const WINDOW_MS = 10 * 60_000;
@@ -114,7 +114,7 @@ export function createStepLimiter(now: () => number): (userId: string, cost?: nu
 }
 
 export function createAssistantRouter(options: AssistantRouterOptions): express.Router {
-  const { assistant, store, toolSpecs, now, timeZone } = options;
+  const { assistant, store, toolSpecs, now } = options;
   const mayStep = createStepLimiter(now);
   const router = express.Router();
   // Any origin, as /api: no cookie is used, and a token is only sent by the page that holds it.
@@ -145,7 +145,8 @@ export function createAssistantRouter(options: AssistantRouterOptions): express.
         tools,
         who: { memberName: membership.name, residentName: household.residentName, householdName: household.name, simulated: household.simulated === true },
         now: new Date(now()),
-        timeZone,
+        // Where the house is: every time the assistant says is said on its clock.
+        timeZone: zoneOf(household),
       }, turns);
       res.json(step);
     } catch (err) {
@@ -161,7 +162,6 @@ export function createAssistantRouter(options: AssistantRouterOptions): express.
     toolTitles: options.toolTitles ?? (async () => new Map((await toolSpecs()).map((t) => [t.name, t.name]))),
     mayStep,
     now,
-    timeZone,
   }));
 
   return router;

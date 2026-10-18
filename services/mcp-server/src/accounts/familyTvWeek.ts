@@ -22,10 +22,10 @@ import type { HouseholdPolicy } from '@wick/policy';
 import { familyCopyOfLatest, type LatestWeekResult } from '../tools/get_week_narrative.js';
 import { isSharedWithFamily } from '../tools/get_resident_shared_view.js';
 import type { TvCaller } from './familyTvTypes.js';
+import { zoneOf } from './types.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 /** Where the house is: which day a moment fell on, and what the clock said. The same default as the Narrator's. */
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 /**
  * The most a page carries: a card's worth (contracts card.ts
@@ -150,7 +150,7 @@ function pagesOfDay(day: Day): string[] {
  * when the days would run over, whole days are kept from the start of the
  * week and the rest are left out, with nothing said that is not so.
  */
-export function weekPages(week: Pick<WeekNarrative, 'text' | 'timeline'>, timeZone: string = HOUSEHOLD_TZ): string[] {
+export function weekPages(week: Pick<WeekNarrative, 'text' | 'timeline'>, timeZone: string): string[] {
   const pages = pagesOf(week.text).slice(0, WEEK_MAX_PAGES);
   for (const day of daysOf(week.timeline ?? [], timeZone)) {
     const more = pagesOfDay(day);
@@ -167,9 +167,9 @@ export function weekPages(week: Pick<WeekNarrative, 'text' | 'timeline'>, timeZo
  * What she shares is applied here, to whatever `latest` hands over, so it
  * holds as it stands now even when the lookup was made a moment ago.
  */
-export async function readableWeek(policy: HouseholdPolicy, latest: () => Promise<LatestWeekResult>): Promise<WeekNarrative | undefined> {
+export async function readableWeek(policy: HouseholdPolicy, latest: () => Promise<LatestWeekResult>, timeZone: string): Promise<WeekNarrative | undefined> {
   if (!isSharedWithFamily('RHYTHM', policy)) return undefined;
-  const family = familyCopyOfLatest(await latest(), policy);
+  const family = familyCopyOfLatest(await latest(), policy, timeZone);
   return family.status === 'available' ? family.narrative : undefined;
 }
 
@@ -177,7 +177,7 @@ export async function readableWeek(policy: HouseholdPolicy, latest: () => Promis
 export function weekCard(who: TvCaller, week: WeekNarrative | undefined): FamilyTvCard | undefined {
   if (!week || !WEEK_ID.test(week.isoWeek)) return undefined;
   if (who.weekRead !== undefined && week.isoWeek <= who.weekRead) return undefined;
-  const pages = weekPages(week);
+  const pages = weekPages(week, zoneOf(who.household));
   if (pages.length === 0) return undefined;
   return {
     id: familyTvCardId('week', week.isoWeek),

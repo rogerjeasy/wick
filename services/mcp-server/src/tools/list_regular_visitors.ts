@@ -22,9 +22,8 @@ import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './
 import { answerSchema, READS, data, say } from './result.js';
 
 import { z } from 'zod';
+import { zoneOf } from '../accounts/types.js';
 
-/** The household's clock: "expected today" is today where the house is (issue #84). */
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 const DAY_MS = 86_400_000;
@@ -73,7 +72,7 @@ export function describePattern(pattern: string | undefined): string | undefined
  */
 export const loadRoster = (ddb: DynamoDBClient, householdId: string): Promise<RosterEntry[]> => loadRosterFrom(ddb, TABLE, householdId);
 
-export async function loadVisitors(ddb: DynamoDBClient, householdId: string, now: Date): Promise<VisitorsAnswer> {
+export async function loadVisitors(ddb: DynamoDBClient, householdId: string, now: Date, timeZone: string): Promise<VisitorsAnswer> {
   const roster = await loadRoster(ddb, householdId);
 
   const visits = await ddb.send(new QueryCommand({
@@ -104,7 +103,7 @@ export async function loadVisitors(ddb: DynamoDBClient, householdId: string, now
         personId: p.personId,
         name: p.name,
         ...(usualDays ? { usualDays } : {}),
-        expectedToday: expectedToday(p.expectedPattern, now, HOUSEHOLD_TZ),
+        expectedToday: expectedToday(p.expectedPattern, now, timeZone),
         ...(lastVisitAt !== undefined ? { lastVisitAt } : {}),
       };
     });
@@ -148,10 +147,10 @@ export function registerListRegularVisitors(
       outputSchema: OUTPUT,
       annotations: READS,
     },
-    withFriendlyErrors(gated(ctx, async () => {
+    withFriendlyErrors(gated(ctx, async (allowed) => {
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
       if (!isSharedWithFamily('PRESENCE', policy)) return say(FAMILY_REFUSAL_TEXT);
-      return data(await loadVisitors(ddb, ctx.householdId, now()));
+      return data(await loadVisitors(ddb, ctx.householdId, now(), zoneOf(allowed.household)));
     })),
   );
 }

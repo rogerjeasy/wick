@@ -22,6 +22,7 @@ import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, WRITES, data, say } from './result.js';
 import { CANCELLED_TEXT, NOTHING_ASKED, TABLE, WITHDRAWN_TEXT, describeWatch, mySession, sessionKey, watchCard, type WatchView, WATCH_VIEW } from './watchSession.js';
+import { zoneOf } from '../accounts/types.js';
 
 /**
  * What became of sitting down: the session as it now stands — `already`
@@ -41,17 +42,17 @@ export type SitDownOutcome =
  */
 export async function sitDownToWatch(
   ddb: DynamoDBClient,
-  who: { readonly householdId: string; readonly userId: string; readonly residentName: string },
+  who: { readonly householdId: string; readonly userId: string; readonly residentName: string; readonly timeZone: string },
   sessionId: string,
   sendCard: (card: QueuedCard) => Promise<void>,
   at: number,
 ): Promise<SitDownOutcome> {
-  const { householdId, userId, residentName } = who;
+  const { householdId, userId, residentName, timeZone } = who;
   const no = (say: string): SitDownOutcome => ({ sat: false, say });
   const session = await mySession(ddb, householdId, userId, sessionId);
   if (!session) return no(NOTHING_ASKED(residentName));
 
-  const view = describeWatch(session, at, residentName);
+  const view = describeWatch(session, at, residentName, timeZone);
   if (view.state === 'invited') return no(`${residentName} hasn't answered the invitation yet. It is on the television.`);
   if (view.state === 'declined') return no(`${residentName} said not this time.`);
   if (view.state === 'withdrawn') return no(WITHDRAWN_TEXT);
@@ -76,7 +77,7 @@ export async function sitDownToWatch(
     if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
     // Sat down a moment ago, from another window: the television has been told.
     const settled = await mySession(ddb, householdId, userId, sessionId);
-    return settled ? { sat: true, already: true, view: describeWatch(settled, at, residentName) } : no(NOTHING_ASKED(residentName));
+    return settled ? { sat: true, already: true, view: describeWatch(settled, at, residentName, timeZone) } : no(NOTHING_ASKED(residentName));
   }
 
   const by = session.invitedByName;
@@ -95,7 +96,7 @@ export async function sitDownToWatch(
     starts: { programmeId: session.programmeId, followedUntil: session.closesAt },
   }));
 
-  return { sat: true, already: false, view: describeWatch({ ...session, joinedAt: at }, at, residentName) };
+  return { sat: true, already: false, view: describeWatch({ ...session, joinedAt: at }, at, residentName, timeZone) };
 }
 
 /** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
@@ -126,7 +127,7 @@ export function registerJoinWatchTogether(
     withFriendlyErrors(gated(ctx, async (allowed, { sessionId }: { sessionId: string }) => {
       const outcome = await sitDownToWatch(
         ddb,
-        { householdId: ctx.householdId, userId: ctx.userId, residentName: allowed.household.residentName },
+        { householdId: ctx.householdId, userId: ctx.userId, residentName: allowed.household.residentName, timeZone: zoneOf(allowed.household) },
         sessionId,
         sendCard,
         now(),

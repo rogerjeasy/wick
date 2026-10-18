@@ -47,11 +47,11 @@ import {
   ARRANGE_WHO_NOT_SHARED_TEXT,
   ERRAND_VIEW,
   ERRANDS_UNAVAILABLE_TEXT,
-  HOUSEHOLD_TZ,
   errandView,
   errandsOf,
   type ErrandMachine,
 } from './errands.js';
+import { zoneOf } from '../accounts/types.js';
 
 export const ARRANGE_ON_ITS_WAY_TEXT = 'That visit is already being arranged.';
 export const ARRANGE_KEY_ALREADY_USED_TEXT = 'That idempotency key was already used for a different visit, so this one was not arranged.';
@@ -116,7 +116,8 @@ export function registerArrangeVisit(
       if (who.length === 0 || who.length > ERRAND_LIMITS.whoMaxChars) return say(ARRANGE_BAD_WHO_TEXT);
       if (!familyText(who, 'errand.who')) return say(ARRANGE_WHO_NOT_SHARED_TEXT);
 
-      const at = localToUtc(args.date, args.time, HOUSEHOLD_TZ);
+      const timeZone = zoneOf(allowed.household);
+      const at = localToUtc(args.date, args.time, timeZone);
       if (at === undefined) return say(EXPECT_VISIT_BAD_TIME_TEXT);
       const asked = now();
       if (at < asked) return say(EXPECT_VISIT_PAST_TEXT);
@@ -142,7 +143,7 @@ export function registerArrangeVisit(
         if (args.idempotencyKey !== undefined && !claim.sameCall) return say(ARRANGE_KEY_ALREADY_USED_TEXT);
         const first = claim.answer ? await errands.get(ctx.householdId, claim.answer.errandId) : undefined;
         if (!first) return say(ARRANGE_ON_ITS_WAY_TEXT);
-        return data({ arranged: true, errand: errandView(first, residentName), repeated: true });
+        return data({ arranged: true, errand: errandView(first, residentName, timeZone), repeated: true });
       }
 
       try {
@@ -152,7 +153,7 @@ export function registerArrangeVisit(
           return say(ARRANGE_TOO_MANY_TEXT);
         }
 
-        const remindAt = remindAtFor(reminder, at, HOUSEHOLD_TZ, asked);
+        const remindAt = remindAtFor(reminder, at, timeZone, asked);
         const errand: Errand = {
           errandId: newErrandId(),
           householdId: ctx.householdId,
@@ -184,7 +185,7 @@ export function registerArrangeVisit(
         await claim.keep({ errandId: errand.errandId }).catch((err: unknown) =>
           console.error(JSON.stringify({ level: 'error', msg: 'once_not_kept', tool: 'arrange_visit', err: err instanceof Error ? err.name : 'unknown' })));
         console.log(JSON.stringify({ level: 'info', msg: 'errand_arranged', errandId: errand.errandId, reminder, tellMe }));
-        return data({ arranged: true, errand: errandView(errand, residentName) });
+        return data({ arranged: true, errand: errandView(errand, residentName, timeZone) });
       } catch (err) {
         // Not arranged, so a retry must be able to arrange it.
         await claim.release().catch(() => {});

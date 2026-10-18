@@ -32,7 +32,8 @@ import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, WRITES, data, say } from './result.js';
 import { localToUtc } from './when.js';
-import { HOUSEHOLD_TZ, TABLE, describeWatch, firstName, invitationItem, isOpen, latestKey, mySession, watchCard, whenInWords, type WatchSession, type WatchView } from './watchSession.js';
+import { TABLE, describeWatch, firstName, invitationItem, isOpen, latestKey, mySession, watchCard, whenInWords, type WatchSession, type WatchView } from './watchSession.js';
+import { zoneOf } from '../accounts/types.js';
 
 const DAY_MS = 86_400_000;
 /** "Now" said a few minutes ago is still now. */
@@ -84,7 +85,8 @@ export function registerInviteToWatch(
     },
     withFriendlyErrors(gated(ctx, async (allowed, { programme, date, time }: { programme: string; date: string; time: string }) => {
       const film = programmeById(programme);
-      const startsAt = localToUtc(date, time, HOUSEHOLD_TZ);
+      const timeZone = zoneOf(allowed.household);
+      const startsAt = localToUtc(date, time, timeZone);
       if (!film || startsAt === undefined) return say(INVITE_BAD_TIME_TEXT);
       const at = now();
       if (startsAt < at - JUST_NOW_MS) return say(INVITE_PAST_TEXT);
@@ -97,7 +99,7 @@ export function registerInviteToWatch(
         const guard = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: guardKey, ConsistentRead: true }));
         const seen = guard.Item?.sessionId?.S;
         const session = seen ? await mySession(ddb, ctx.householdId, ctx.userId, seen) : undefined;
-        const view = session ? describeWatch(session, at, residentName) : undefined;
+        const view = session ? describeWatch(session, at, residentName, timeZone) : undefined;
         return { seen, open: view && isOpen(view.state) ? view : undefined };
       };
       const alreadyAsked = (open: WatchView): string => {
@@ -144,7 +146,7 @@ export function registerInviteToWatch(
       }
 
       const by = session.invitedByName;
-      const when = whenInWords(startsAt, HOUSEHOLD_TZ);
+      const when = whenInWords(startsAt, timeZone);
       await sendCard(watchCard({
         kind: 'invite',
         householdId: ctx.householdId,

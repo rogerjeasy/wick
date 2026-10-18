@@ -28,10 +28,9 @@ import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
 import { answerSchema, READS, data, say } from './result.js';
 import { clears } from '../guardian.js';
+import { zoneOf } from '../accounts/types.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
-/** The household's time zone, for rewriting a week with part of it private. Same default as the Narrator's. */
-const HOUSEHOLD_TZ = process.env.WICK_HOUSEHOLD_TZ ?? 'Europe/London';
 
 export type WeekNarrativeResult =
   | { readonly status: 'available'; readonly narrative: WeekNarrative }
@@ -179,9 +178,10 @@ export async function loadLatestFamilyWeek(
   householdId: string,
   currentWeek: string,
   policy: () => Promise<HouseholdPolicy>,
+  timeZone: string,
 ): Promise<FamilyLatestWeek> {
   const latest = await loadLatestWeek(ddb, householdId, currentWeek);
-  return latest.status === 'available' ? familyCopyOfLatest(latest, await policy()) : latest;
+  return latest.status === 'available' ? familyCopyOfLatest(latest, await policy(), timeZone) : latest;
 }
 
 /**
@@ -190,9 +190,9 @@ export async function loadLatestFamilyWeek(
  * (a television asking every few seconds) still applies her choices as they
  * stand on every asking, never as they stood.
  */
-export function familyCopyOfLatest(latest: LatestWeekResult, policy: HouseholdPolicy): FamilyLatestWeek {
+export function familyCopyOfLatest(latest: LatestWeekResult, policy: HouseholdPolicy, timeZone: string): FamilyLatestWeek {
   if (latest.status !== 'available') return latest;
-  const family = familyWeek(latest.narrative, policy, HOUSEHOLD_TZ);
+  const family = familyWeek(latest.narrative, policy, timeZone);
   if (family.status === 'private') return { status: 'private' };
   return { status: 'available', narrative: family.narrative, ...(latest.thisWeek ? { thisWeek: latest.thisWeek } : {}) };
 }
@@ -280,15 +280,16 @@ export function registerGetWeekNarrative(
       outputSchema: OUTPUT,
       annotations: READS,
     },
-    withFriendlyErrors(gated(ctx, async (_allowed, { isoWeek }: { isoWeek?: string | undefined }) => {
+    withFriendlyErrors(gated(ctx, async (allowed, { isoWeek }: { isoWeek?: string | undefined }) => {
+      const timeZone = zoneOf(allowed.household);
       const currentWeek = currentIsoWeek(now());
       const policy = (): Promise<HouseholdPolicy> => loadHouseholdPolicy(ddb, ctx.householdId);
       let result: FamilyLatestWeek;
       if (isoWeek) {
         const named = await loadWeekNarrative(ddb, ctx.householdId, isoWeek);
-        result = named.status === 'available' ? familyWeek(named.narrative, await policy(), HOUSEHOLD_TZ) : named;
+        result = named.status === 'available' ? familyWeek(named.narrative, await policy(), timeZone) : named;
       } else {
-        result = await loadLatestFamilyWeek(ddb, ctx.householdId, currentWeek, policy);
+        result = await loadLatestFamilyWeek(ddb, ctx.householdId, currentWeek, policy, timeZone);
       }
 
       if (result.status === 'awaiting_resident') return say(WEEK_AWAITING_RESIDENT_TEXT);

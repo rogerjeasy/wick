@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { MAX_NARRATIVE_CHARS, VISIT_ASK_WITHIN_MS, VISIT_SETTLED_MS, VISIT_SK_PREFIX, currentIsoWeek, parseTimestampFromSortKey, readyToAsk, type RosterEntry, type Visit, type WeekNarrative } from '@wick/contracts';
+import { MAX_NARRATIVE_CHARS, VISIT_ASK_WITHIN_MS, localWallClock, VISIT_SETTLED_MS, VISIT_SK_PREFIX, currentIsoWeek, parseTimestampFromSortKey, readyToAsk, type RosterEntry, type Visit, type WeekNarrative } from '@wick/contracts';
 import { factsWeekNarrative, isoWeekRange, toTimelineEntry, visitFromItem, whatsDifferent } from '@wick/agent';
 import { DEMO_HISTORY_TTL_MS, DEMO_HISTORY_WEEKS, DEMO_VISITOR, DEMO_VISIT_RECORD_DAYS, demoHomeItems, newestDemoWeek, requestDemoBrief, seedDemoHome } from '../demoHome.js';
 
@@ -53,13 +53,31 @@ describe('the demo home — a history to ask about, from the first minute', () =
     // Two visits in every whole week. This week's Tuesday is the one she missed (see below).
     expect(visits).toHaveLength(FIRST_WEEK * 2);
     for (const visit of visits) {
-      const when = new Date(at(visit));
+      // On the house's own clock: nine in the morning in London, summer or winter.
+      const when = new Date(localWallClock(at(visit), 'Europe/London'));
       expect(visit.personId!.S).toBe('maria');
       expect(visit.personName!.S).toBe('Maria');
       expect([2, 5]).toContain(when.getUTCDay());
       expect(Math.abs(when.getUTCHours() * 60 + when.getUTCMinutes() - 9 * 60)).toBeLessThanOrEqual(30);
       // A visit is also someone at the door, as the Door agent records it.
       expect(events.some((e) => e.type!.S === 'door' && at(e) === at(visit))).toBe(true);
+    }
+  });
+
+  it('is lived on the clock of the guest who made it: in Los Angeles, Maria comes at nine in the morning there, never in the night', () => {
+    const la = demoHomeItems(HH, NOW, 'America/Los_Angeles');
+    const visits = la.filter((i) => i.type?.S === 'presence');
+
+    expect(visits.length).toBeGreaterThan(10);
+    for (const visit of visits) {
+      const when = new Date(localWallClock(at(visit), 'America/Los_Angeles'));
+      expect([2, 5]).toContain(when.getUTCDay());
+      expect(Math.abs(when.getUTCHours() * 60 + when.getUTCMinutes() - 9 * 60)).toBeLessThanOrEqual(30);
+    }
+    // Nothing in the night: the door's "someone came in the night" is never set off by the history itself.
+    for (const event of la.filter((i) => i.sk!.S!.startsWith('EVT#'))) {
+      const hour = new Date(localWallClock(at(event), 'America/Los_Angeles')).getUTCHours();
+      expect(hour >= 8 && hour < 20, `${new Date(at(event)).toISOString()}`).toBe(true);
     }
   });
 
@@ -186,6 +204,19 @@ describe('the demo home — one thing in it is different', () => {
       const found = different(made).differences.map((d) => d.kind);
 
       expect(found, `made ${new Date(made).toISOString()}`).toEqual(['missed_visit']);
+    }
+  });
+
+  it('is exactly one thing in a demo home made in Los Angeles too, whatever the hour there', () => {
+    const inLosAngeles = (now: number) => {
+      const made = demoHomeItems(HH, now, 'America/Los_Angeles');
+      const entries = made.flatMap((i) => toTimelineEntry(i) ?? []);
+      const roster = made.filter((i) => i.sk!.S!.startsWith('PER#')).map((i) => JSON.parse(i.data!.S!) as RosterEntry);
+      return whatsDifferent({ entries, roster, now, observedSince: Math.min(...entries.map((e) => e.at)), timeZone: 'America/Los_Angeles' });
+    };
+    for (let hour = 0; hour < 7 * 24; hour += 1) {
+      const made = W42.startMs + hour * 3_600_000 + 5 * 60_000;
+      expect(inLosAngeles(made).differences.map((d) => d.kind), `made ${new Date(made).toISOString()}`).toEqual(['missed_visit']);
     }
   });
 
