@@ -1218,7 +1218,9 @@ function presentReplies(parsed, formatTime) {
     ? 'No notes have been sent to the television this week.'
     : newest.reply
       ? `Yes. To “${newest.message ?? 'your note'}” the reply was: “${newest.reply.text}”`
-      : 'Not yet. Your note is on the television, waiting.';
+      : newest.seen
+        ? 'Not yet. She has seen your note, and it is waiting on her television for her answer.'
+        : 'Not yet. Your note is on the television, waiting.';
   return {
     say,
     tone: 'answer',
@@ -1230,7 +1232,8 @@ function presentReplies(parsed, formatTime) {
         primary: n.message ?? '',
         secondary: `${n.from} · ${formatTime(n.sentAt)}`,
         reply: n.reply ? n.reply.text : null,
-        replyMeta: n.reply ? `Replied ${formatTime(n.reply.at)}` : 'No reply yet',
+        // Seen is only ever said, never when (get_replies.ts).
+        replyMeta: n.reply ? `Replied ${formatTime(n.reply.at)}` : n.seen ? 'Seen, no reply yet' : 'No reply yet',
       })),
     },
   };
