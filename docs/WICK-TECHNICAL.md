@@ -722,7 +722,7 @@ erDiagram
 
 | Entity | PK | SK | Notes |
 |---|---|---|---|
-| Household | `HH#<id>` | `META` | language, policy, `simulated` for a demo home |
+| Household | `HH#<id>` | `META` | language, policy, `timeZone`, `simulated` for a demo home |
 | Her television | `HH#<id>` | `DEV#<deviceId>` | channel, last seen |
 | A family member's television | `HH#<id>` | `FTV#<deviceId>` | the member's id; never counted with `DEV#` |
 | Membership | `HH#<id>` | `MEM#<userId>` | role; `pending` until she allows (INV-9) |
@@ -736,6 +736,8 @@ erDiagram
 | Pairing code | `PAIR#<code>` | `META` | 15-minute TTL |
 | Ring device holder | `RINGDEV#<deviceId>` | … | which home a doorbell belongs to |
 | Webhook idempotency | `IDEM#<requestId>` | `META` | 24-hour TTL |
+
+**Where the house is.** Each home keeps its own IANA time zone (`timeZone` on `META`, `packages/contracts/src/clock.ts`). It is given when the home is set up: the family app sends its browser's zone with `/authorize`, the set-up page fills it in to be corrected ("Their time zone"), and a demo home is lived on the guest's own clock. Every day, "this morning", visit time, light and week of a home is read in it, on the server, the agents and the edge. A home set up before homes had one is read in `Europe/London`.
 
 ### 8.2 The Rhythm
 

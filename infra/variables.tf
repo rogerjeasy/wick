@@ -64,7 +64,7 @@ variable "household_id" {
 }
 
 variable "household_time_zone" {
-  description = "The household's IANA time zone. The weekly narrative says \"Wednesday evening\" in the resident's time, not UTC (services/agent/src/agents/narrator/weekFacts.ts). Margaret lives in England."
+  description = "The time zone a home is read in when it was set up before homes had one of their own. Each home's own zone is `timeZone` on its META row (packages/contracts/src/clock.ts), given when it is set up; only the assistant agent's fallback still reads this."
   type        = string
   default     = "Europe/London"
 }
