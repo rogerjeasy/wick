@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Card, QueuedCard } from '@wick/contracts';
-import { backClosesOpened, backOnShownCard, waitingLine } from '../waiting.js';
+import { MAX_CARD_SHOWS, NOTE_ACTIONS, type Card, type QueuedCard } from '@wick/contracts';
+import { BreakController } from '../../break/BreakController.js';
+import { SETTLED_AFTER_MS } from '../../break/types.js';
+import { backClosesOpened, backOnShownCard, putAway, putsAway, waitingLine } from '../waiting.js';
 
 const base = { id: 'c1', householdId: 'hh-1', correlationId: 'c', createdAt: 0, actions: [] } as const;
 const queued = (card: Card): QueuedCard => ({ id: card.id, urgency: 'DEFERRED', card, queuedAt: 0, shownCount: 2 });
@@ -115,5 +117,41 @@ describe('backOnShownCard — Back on a card that came to her, during a film or 
   it('does nothing on a card without one: Back is taken, so it cannot reach the film or leave Wick', () => {
     expect(backOnShownCard(card([{ id: 'yes', kind: 'primary' }]))).toBeUndefined();
     expect(backOnShownCard(undefined)).toBeUndefined();
+  });
+
+  it("is a note's own \"later\": a note has no Not now button, and Back must not be a reply", () => {
+    const note: Card = { ...base, type: 'MESSAGE', fromName: 'Sarah', suggestedReplies: ['Thank you!', 'Not right now.'] };
+
+    expect(backOnShownCard(note)).toBe(NOTE_ACTIONS.later);
+  });
+});
+
+describe('putAway — a note she said "later" to', () => {
+  const note: QueuedCard = { ...queued({ ...base, type: 'MESSAGE', fromName: 'Sarah', suggestedReplies: [] }), shownCount: 0 };
+
+  it('is never brought to her again by itself, and waits on the home screen at once', () => {
+    const breaks = new BreakController();
+    breaks.setForeground(true, 0);
+    const now = SETTLED_AFTER_MS + 1_000;
+    expect(breaks.pickCard([note], now)?.id).toBe('c1');
+
+    const away = [putAway(note)];
+
+    expect(breaks.pickCard(away, now)).toBeUndefined();
+    expect(breaks.pickCard(away, now + 60 * 60 * 1000)).toBeUndefined();
+    expect(breaks.waiting(away, now)?.id).toBe('c1');
+  });
+
+  it('is only the count of its showings: the note itself is the one that came', () => {
+    const away = putAway(note);
+
+    expect(away.shownCount).toBe(MAX_CARD_SHOWS);
+    expect({ ...away, shownCount: 0 }).toEqual(note);
+  });
+
+  it('is said of a note, and of Back on it, and of nothing else', () => {
+    expect(putsAway(note.card, NOTE_ACTIONS.later)).toBe(true);
+    expect(putsAway(note.card, 'reply_2')).toBe(false);
+    expect(putsAway({ ...base, type: 'WEEK', isoWeek: '2026-W41', text: 'A quiet week.' }, NOTE_ACTIONS.later)).toBe(false);
   });
 });

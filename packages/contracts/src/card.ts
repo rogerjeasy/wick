@@ -279,6 +279,19 @@ export const SHARING_ACTIONS = {
 
 export const SHARING_CARD_ID = 'sharing';
 
+/**
+ * A family note's one action besides its replies: Back on it, "later". The
+ * note has no Not now button (its three are replies, and "Not right now."
+ * is one of them, said to the family), so Back is how she puts it aside.
+ * It waits on her home screen's quiet line until she opens it, as one that
+ * has had its two showings does, and the server keeps that it was seen
+ * (edge-device note-reply.mjs markNoteSeen): the family is told she has
+ * seen it, never when.
+ */
+export const NOTE_ACTIONS = {
+  later: 'later',
+} as const;
+
 export const MAX_CARD_SHOWS = 2;
 /**
  * How long a DOOR card stays live: long enough to get from the sofa to the

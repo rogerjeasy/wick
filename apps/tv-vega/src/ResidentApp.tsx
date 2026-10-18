@@ -99,7 +99,7 @@ import { WatchActivity } from './personalization/watchActivity.js';
 import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
 import { homeBehind } from './home/behind.js';
 import { HomeScreen } from './home/HomeScreen.js';
-import { backClosesOpened, backOnShownCard, waitingLine } from './home/waiting.js';
+import { backClosesOpened, backOnShownCard, putAway, putsAway, waitingLine } from './home/waiting.js';
 import { asking } from './home/asked.js';
 import { okHeld } from './press/held.js';
 import { pressSettle } from './press/settle.js';
@@ -725,6 +725,12 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
         // Her answer ends the showing, so the same card sent back — a picture, when her mantelpiece is full — is shown afresh.
         breakController.answered(cardId);
         void store.remove(cardId);
+        setCard(null);
+      }
+      // "Later" on a note (Back): unanswered, it goes to her home screen's quiet line, and is not brought to her again by itself.
+      if (card && card.id === cardId && putsAway(card.card, actionId)) {
+        breakController.answered(cardId);
+        void store.upsert(putAway(card));
         setCard(null);
       }
       // The outbox is drained by whichever process holds the channel — this

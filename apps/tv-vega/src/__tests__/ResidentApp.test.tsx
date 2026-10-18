@@ -19,7 +19,7 @@
  */
 import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DOOR_ACTIONS, type DeviceEvent, type DeviceToken, type QueuedCard } from '@wick/contracts';
+import { DOOR_ACTIONS, NOTE_ACTIONS, type DeviceEvent, type DeviceToken, type QueuedCard } from '@wick/contracts';
 import { act } from 'react-test-renderer';
 import { ResidentApp } from '../ResidentApp.js';
 import type { QueueStore } from '../headless/QueueStore.js';
@@ -27,7 +27,7 @@ import type { PlayerSnapshot } from '../player/PlayerService.js';
 import { CARD_SERVICE_URI } from '../headless/launchCardService.js';
 import { CATALOG } from '../catalog/catalog.js';
 import { SETTLED_AFTER_MS } from '../break/types.js';
-import { moveApp, opened, resetPlatform } from './render/platform.js';
+import { moveApp, opened, pressBack, resetPlatform } from './render/platform.js';
 import { resetFiles } from './render/files.js';
 import { resetMedia } from './render/media.js';
 import { button, buttons, headers, pressOk, render, shows, textOf, type Drawn } from './render/render.js';
@@ -251,5 +251,28 @@ describe('ResidentApp, drawn whole', () => {
     expect(await channel.store!.drainOutbound()).toContainEqual(expect.objectContaining({ t: 'app_lifecycle', state: 'fg' }));
     await wait(1_000);
     expect(headers(root).map(textOf)).toEqual(['A message from Sarah.']);
+  });
+
+  it('Back on a note at her home screen puts it away: she reaches her films, it waits on the home screen, and no reply is sent', async () => {
+    const { root } = await launch();
+    await deliver(note);
+    await wait(SETTLED_AFTER_MS + 1_000);
+    expect(headers(root).map(textOf)).toEqual(['A message from Sarah.']);
+    await channel.store!.drainOutbound();
+
+    // A second for her to read it, then Back.
+    await wait(1_000);
+    await act(async () => void pressBack());
+    await wait(1_000);
+
+    expect(headers(root).map(textOf)).toEqual(['What would you like to watch?']);
+    expect(shows(root, 'A note from Sarah is waiting.')).toBe(true);
+    const out = await channel.store!.drainOutbound();
+    expect(out).toContainEqual(expect.objectContaining({ t: 'card_action', cardId: 'note-1', action: NOTE_ACTIONS.later }));
+    expect(out.filter((event) => event.t === 'card_action' && event.action.startsWith('reply_'))).toEqual([]);
+
+    // Still settled on her home screen, and it does not come back by itself.
+    await wait(SETTLED_AFTER_MS);
+    expect(shows(root, 'I will pop round on Saturday.')).toBe(false);
   });
 });
