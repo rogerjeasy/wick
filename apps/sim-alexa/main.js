@@ -64,6 +64,7 @@ import {
   approvalsFor,
   presentPlan,
   readAgentTurn,
+  browserTimeZone,
 } from './surface.js';
 import { ARRANGE_NEEDS_ASSISTANT, errandNews } from './errands.js';
 import {
@@ -211,6 +212,9 @@ async function connect({ demo = false } = {}) {
     const invite = sessionStorage.getItem('wick_invite');
     if (invite) authorizeUrl.searchParams.set('invite', invite);
     if (demo) authorizeUrl.searchParams.set('demo', '1');
+    // Where this browser is: a demo home is lived on it, and setting up a home starts from it (packages/contracts clock.ts).
+    const zone = browserTimeZone();
+    if (zone) authorizeUrl.searchParams.set('time_zone', zone);
     window.location.href = authorizeUrl.toString();
   } catch (err) {
     // Silence is indistinguishable from "nothing happened", which is a lie —

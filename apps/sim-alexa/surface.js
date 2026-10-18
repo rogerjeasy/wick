@@ -443,6 +443,16 @@ const CLASS_LABELS = {
   VERBATIM: 'What was said, word for word',
 };
 
+/** This browser's own IANA time zone, or undefined where it cannot say. */
+export function browserTimeZone() {
+  try {
+    const zone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof zone === 'string' && zone ? zone : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * A moment, as it was at the house. Someone asking from another country is
  * asking what time the carer came to their mother's door, not what time it
