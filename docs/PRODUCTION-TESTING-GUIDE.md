@@ -21,12 +21,20 @@ tested is never simulated, only the edge device triggering it.
 > cd infra && terraform output -raw ops_console_url && cd ..
 > ```
 >
-> - **`/` (Dashboard)** — §1's entire health check, live, auto-refreshing,
->   color-coded. Same underlying `GET /status` data, no terminal required.
+> - **`/`** — her television in a browser tab (`tv.html`), the page judges
+>   are sent to.
 > - **`/device.html` (Virtual Device)** — §3's pairing + WebSocket dance,
 >   as one button. Renders real cards as they arrive, mimicking the
 >   television's own large-type calm design, and has buttons for the
 >   telemetry §3 sends by hand.
+>
+> §1's whole health check is one command, for operators only — it invokes
+> the status Lambda with your own AWS credentials; there is no public route
+> to it, because what it says about the stack is not the internet's:
+>
+> ```bash
+> AWS_PROFILE=wick-dev npm run ops:status
+> ```
 >
 > The terminal commands below still work exactly as documented — they're
 > what the UI is built on top of, and they're the better choice for
@@ -327,13 +335,13 @@ aws cloudfront create-invalidation \
 **ops-console** (edit to anything in `apps/ops-console`):
 ```bash
 terraform -chdir=infra apply \
-  -target=aws_s3_object.ops_console_index -target=aws_s3_object.ops_console_device_html \
+  -target=aws_s3_object.ops_console_device_html \
   -target=aws_s3_object.ops_console_styles_css -target=aws_s3_object.ops_console_device_css \
-  -target=aws_s3_object.ops_console_status_js -target=aws_s3_object.ops_console_device_js
+  -target=aws_s3_object.ops_console_device_js -target=aws_s3_object.ops_console_tv_core_js
 aws cloudfront create-invalidation \
   --distribution-id "$(cd infra && terraform output -raw ops_console_distribution_id)" --paths "/*"
 ```
-The two `.js` files have URLs baked in at upload time (`infra/ops-console.tf`'s
+`tv-core.js` has URLs baked in at upload time (`infra/ops-console.tf`'s
 `replace()` locals) — editing them requires re-running `terraform apply`
 even though nothing in the Terraform *config* changed, since the rendered
 `content` is a function of a live resource attribute (the API's own URL).

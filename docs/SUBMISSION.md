@@ -219,10 +219,11 @@ window. The three open-source contributions below were made in the window too:
    written by the agents, and its card ends with *One thing you could do*, with
    one button.
 9. For the family's side on a television, open
-   [the console's television](https://d2sbabcft8sm3m.cloudfront.net/device.html)
-   and press **Pair & connect**: it shows a code. In the family app, choose
+   [a television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html)
+   again, in a new tab: it shows a code of its own. In the family app, choose
    **Connect a television**, answer *"Whose television is it?"* with **Mine**,
-   and enter that code.
+   and enter that code. That tab is now Sarah's television, and shows only
+   what Sarah may already see.
 
 ### On the Vega Virtual Device or the Android TV emulator
 
