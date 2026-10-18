@@ -169,6 +169,28 @@ describe('answer_door_request (through the registered tool)', () => {
     return table;
   };
 
+  it('turns "Not now" into "Thank you" under the answer, and no longer offers to ask', async () => {
+    const table = createMemoryTable();
+    putCard(table, 'door-abc', { imageRef: PICTURE, notice: 'Sarah has been asked to look.' });
+    // The card as it was sent: the door's own buttons, with "Ask Sarah to look" and "Not now".
+    const stored = JSON.parse(table.rows('HH#hh-1').find((r) => r.sk?.S === 'CARD#door-abc')!.data!.S!);
+    stored.card.actions = [
+      { id: 'ask_family', label: 'Ask Sarah to look', kind: 'primary' },
+      { id: 'dismiss', label: 'Not now', kind: 'dismiss' },
+    ];
+    table.put({ pk: { S: 'HH#hh-1' }, sk: { S: 'CARD#door-abc' }, data: { S: JSON.stringify(stored) } });
+    putLook(table, 'door-abc', NOW - 30_000);
+    const { call, patches } = await connected(table);
+
+    await call('answer_door_request', { requestId: 'door-abc', answer: 'known' });
+
+    expect(patches[0]!.patch).toEqual({
+      cardId: 'door-abc',
+      notice: `Sarah says: ${DOOR_ANSWERS.known}`,
+      actions: [{ id: 'dismiss', label: 'Thank you', kind: 'dismiss' }],
+    });
+  });
+
   it('puts the chosen sentence on the door card, in the name of the person who chose it', async () => {
     const table = asked();
     const { call, patches } = await connected(table);

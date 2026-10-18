@@ -19,7 +19,9 @@
  *   that film's measured calm points (tv-catalog.json), or at the credits.
  *   In the middle of the film it holds the film on the cut while it is
  *   shown, and the film goes on when it has gone (NaturalBreakEngine
- *   holdsProgramme). The door never waits and never holds (INV-5).
+ *   holdsProgramme). The door never waits (INV-5), and it holds the film
+ *   too: the film goes on when she puts the card away, and stays paused if
+ *   the card went by itself while she was at the door.
  * - The keyboard as the remote: arrows move, Enter is OK, Backspace or Esc
  *   is Back, Space or P is Play/Pause, and Enter held two seconds is Hold
  *   for Sarah. A card's buttons take no press in its first second on screen,
@@ -388,9 +390,19 @@ function filmBlocked(blocked) {
 }
 
 /**
- * A note in the middle of the film: the film waits on the cut while it is
- * shown, and goes on when it has gone. If she had paused it herself, it stays
- * paused afterwards (WatchScreen.tsx `held`). Never for the door.
+ * How recently she must have answered a card for the film it held to go on by
+ * itself when it goes (ResidentApp.tsx PUT_AWAY_WITHIN_MS).
+ */
+const PUT_AWAY_WITHIN_MS = 10_000;
+/** When she last answered a card on screen (tvPage.pressed, putNoteAway). */
+let answeredAt = 0;
+
+/**
+ * A note in the middle of the film, or the door: the film waits while the
+ * card is shown, and goes on when it has gone. If she had paused it herself,
+ * it stays paused afterwards — and so it does if the card went without her
+ * press, as a door card does after its minutes while she is at the door
+ * (WatchScreen.tsx `held`, `putAwayByHer`).
  */
 function holdFilm() {
   const mine = watching;
@@ -404,7 +416,8 @@ function holdFilm() {
     mine.held = false;
     if (mine.resumeAfterCard) {
       mine.resumeAfterCard = false;
-      playOn(mine.video);
+      if (Date.now() - answeredAt <= PUT_AWAY_WITHIN_MS) playOn(mine.video);
+      else sayFilmNotice();
     }
   }
 }
@@ -740,6 +753,7 @@ function pressBack() {
  */
 function putNoteAway(queued, action) {
   if (!settle.acts(Date.now())) return;
+  answeredAt = Date.now();
   send({ t: 'card_action', cardId: queued.card.id, action, at: Date.now() });
   keptCards = keptCards.map((q) => (q.card.id === queued.card.id ? TV.putAway(q) : q));
   showingFrom.delete(queued.card.id);
@@ -935,6 +949,8 @@ useTvPage({
   filmFailed,
   filmBlocked,
   pressed(card, actionId, finished) {
+    // She answered a card herself: a film it was holding may go on when it goes (holdFilm).
+    answeredAt = Date.now();
     // Any answer on the card her hold brought ends the little while in which the newest one is brought forward.
     if (card.type === 'REACH') reachAsked.done();
     // Her answer ends the showing, so the same card sent back is shown afresh (BreakController.answered).

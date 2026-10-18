@@ -44,7 +44,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { MAX_CARD_DETAIL_CHARS, type QueuedCard } from '@wick/contracts';
+import { MAX_CARD_DETAIL_CHARS, saidOnHerClock, type QueuedCard } from '@wick/contracts';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
@@ -167,7 +167,7 @@ export const SAME_NOTE_WINDOW_MS = 2 * 60 * 1000;
 export const IDEMPOTENCY_KEY_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const NOTE_ON_ITS_WAY_TEXT = 'That note is already on its way to the television.';
 export const NOTE_SAYS_WHEN_TEXT =
-  'A note waits for a quiet moment on her television, so it may be read some time after it is sent. Say the time instead, such as "at 11:15" or "this afternoon at three", not "in five minutes".';
+  'A note waits for a quiet moment on her television, so it may be read some time after it is sent. Say the time instead, such as "at 11:15 am" or "this afternoon at three", not "in five minutes".';
 
 const COUNT = '(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|forty-five|fifty|sixty|a few|a couple of|several|\\d+)';
 /** "in five minutes", "in an hour", "in half an hour", "in a minute": a time counted from when the note was written. */
@@ -209,7 +209,7 @@ export function registerSendNoteToTv(
         `A third is added: "${DECLINE_REPLY}" when either reply answers a question or a plan (${ANSWERING_REPLIES.join(', ')}), otherwise one more kind word. ` +
         'Without two keys from the list the standing three are used. Replies cannot be written, only chosen. ' +
         'The answer says which replies were offered (`replies`). ' +
-        'The note waits for a natural break, so say any time in it as a clock time ("at 11:15"), never counted from now ("in five minutes"): such a note is refused. ' +
+        'The note waits for a natural break, so say any time in it as a clock time on a 12-hour clock ("at 2 pm", "at 11:15 am"), never counted from now ("in five minutes"): such a note is refused. A 24-hour time ("14:00") is said on her television as "2 pm". ' +
         'Sending the same note again within two minutes does not send it twice: the answer is the first one, with `repeated`. ' +
         'A client that retries may pass `idempotencyKey`, the same for every try of one note.',
       inputSchema: {
@@ -223,9 +223,11 @@ export function registerSendNoteToTv(
     // The sender is never an argument. The resident trusts the name on the
     // card, so it is the name of the person the resident allowed — a note
     // cannot be made to say it came from somebody else.
-    withFriendlyErrors(gated(ctx, async (allowed, { message, replies, idempotencyKey }: { message: string; replies?: string[] | undefined; idempotencyKey?: string | undefined }) => {
+    withFriendlyErrors(gated(ctx, async (allowed, { message: written, replies, idempotencyKey }: { message: string; replies?: string[] | undefined; idempotencyKey?: string | undefined }) => {
       // Read when it is read, not when it is sent: a time counted from now would be wrong by then.
-      if (saysWhenFromNow(message)) return say(NOTE_SAYS_WHEN_TEXT);
+      if (saysWhenFromNow(written)) return say(NOTE_SAYS_WHEN_TEXT);
+      // "14:00" is said as she says it, "2 pm"; nothing else in the note changes (contracts clock.ts).
+      const message = saidOnHerClock(written);
       const fromName = allowed.membership.name;
       const asked = callKey({ message, replies });
       // INV-6: a retried call, or the same note sent again at once, is one note.

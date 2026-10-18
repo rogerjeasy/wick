@@ -58,6 +58,39 @@ export function thirdReply(keys) {
 }
 
 /**
+ * A note's time as her television will say it: "14:00" as "2 pm", a time
+ * that could be either left as written (packages/contracts clock.ts
+ * saidOnHerClock, which the server applies to every note). Copied because
+ * this page has no build step; a test holds the two equal.
+ *
+ * @param {string} text
+ */
+export function saidOnHerClock(text) {
+  return text.replace(/\b([01]?\d|2[0-3]):([0-5]\d)\b(?!\s*(?:[ap]\.?m\b\.?))/gi, (found, h, m) => {
+    const hour = Number(h);
+    const minutes = m === '00' ? '' : `:${m}`;
+    if (hour >= 13) return `${hour - 12}${minutes} pm`;
+    if (hour === 0) return minutes ? `12${minutes} am` : 'midnight';
+    if (h.length === 2 && h.startsWith('0')) return `${hour}${minutes} am`;
+    return found;
+  });
+}
+
+/**
+ * Said at once while the page opens Wick for somebody just linked, or back
+ * on the page, until the welcome has been fetched — a few seconds on a cold
+ * server, and a blank page before this. A demo home is being made in that
+ * time, and says so.
+ *
+ * @param {string | null} kind  'demo' when "Try the demo" was pressed; anything else is an ordinary opening
+ */
+export function presentOpening(kind) {
+  return kind === 'demo'
+    ? { say: 'Making your demo home: a guest account, and six weeks of simulated history to ask about. This takes a few seconds.', tone: 'waiting' }
+    : { say: 'Opening Wick…', tone: 'waiting' };
+}
+
+/**
  * What can be answered when the resident asks someone to look at the door.
  * The server's own list (packages/contracts door.ts), copied because this
  * page has no build step, and held equal to it by a test. Only these are
@@ -613,11 +646,14 @@ function presentWeek(week, formatTime, now, timeZone) {
   const named = weekOf(week.isoWeek);
   const isThisWeek = !earlier && week.isoWeek === isoWeekOf(now);
   // The Rhythm baseline, as numbers: this week beside the one before, and a
-  // usual one where there is enough history to know what usual is.
+  // usual one where there is enough history to know what usual is. A week
+  // that is over is "that week": under "Week of 5 October", "6 this week"
+  // would say the opposite of the heading.
+  const thatWeek = isThisWeek ? 'this week' : 'that week';
   const facts = (week.deltas ?? []).map((d) => ({
     label: sentenceCase(d.label ?? d.metric),
     value: [
-      `${d.thisWeek} this week`,
+      `${d.thisWeek} ${thatWeek}`,
       ...(d.lastWeek !== undefined ? [`${d.lastWeek} the week before`] : []),
       ...(d.verdict !== undefined ? [`usually about ${Math.round(d.baseline)}`] : []),
     ].join(' · '),
@@ -638,7 +674,7 @@ function presentWeek(week, formatTime, now, timeZone) {
       items,
       empty: isThisWeek ? 'Nothing at the door this week.' : 'Nothing at the door that week.',
       footnote: week.simulated
-        ? 'Simulated: this is a demo home, and nobody lived this week.'
+        ? `Simulated: this is a demo home, and nobody lived ${thatWeek}.`
         : 'The person this is about read it first, on their own television.',
     },
   };
@@ -841,7 +877,8 @@ function presentDoorRequest(request, formatTime) {
     card: {
       kind: 'door',
       title: typeof request.line === 'string' ? request.line : 'Someone’s at the front door.',
-      meta: `Asked ${formatTime(request.askedAt)}`,
+      // A demo home's stand-in doorbell is said in the card's small line, as her television says it beside her sentence.
+      meta: request.standIn === true ? `Stand-in doorbell, for the demo · asked ${formatTime(request.askedAt)}` : `Asked ${formatTime(request.askedAt)}`,
       requestId: request.requestId,
       pictureUrl,
       description,
@@ -1239,7 +1276,8 @@ function presentNoteSent(context, sent) {
       fields: [
         // The server signs the note with the name the resident allowed.
         ['From', sent.fromName ?? ''],
-        ['Message', context.message ?? sent.message ?? ''],
+        // What the server put on her television: the time as she says it (saidOnHerClock), not as it was drafted.
+        ['Message', sent.message ?? saidOnHerClock(String(context.message ?? ''))],
         // The server's word on what was offered: it may have set aside what was drafted.
         ...(Array.isArray(sent.replies) && sent.replies.length ? [['Can be answered with', sent.replies.join(' · ')]] : []),
       ],
@@ -1495,7 +1533,8 @@ export function confirmWrite(toolName, args = {}, title) {
     return {
       title: 'Send this note to the television?',
       fields: [
-        ['Message', String(args.message ?? '')],
+        // As her television will show it: "14:00" is "2 pm" there.
+        ['Message', saidOnHerClock(String(args.message ?? ''))],
         // What the resident will be offered to answer with: seen before it is
         // sent. Two keys from the list, or the server uses its standing three.
         ...(chosenReplies(args.replies) ? [['Replies offered', chosenReplies(args.replies).join(' · ')]] : []),

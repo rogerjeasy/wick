@@ -45,6 +45,7 @@ import {
   presentResult,
   presentTurn,
   presentWelcome,
+  presentOpening,
   presentStandInDoorbell,
   standInDoorOffer,
   looksForReach,
@@ -192,7 +193,11 @@ async function registerClient(metadata) {
 async function connect({ demo = false } = {}) {
   try {
     const serverUrl = $('server-url').value.replace(/\/$/, '');
-    setStatus('Opening Wick sign-in…');
+    setStatus(demo ? 'Making your demo home…' : 'Opening Wick sign-in…');
+    // One press: the server is making the home, and a second press would make another.
+    for (const id of ['demo', 'connect']) if ($(id)) $(id).disabled = true;
+    // Back on this page, the wait for the welcome says what is being made (presentOpening).
+    sessionStorage.setItem(OPENING_KEY, demo ? 'demo' : 'link');
     const metadata = await discoverAuthServer(serverUrl);
     const client = await registerClient(metadata);
     const { verifier, challenge } = await pkcePair();
@@ -221,8 +226,20 @@ async function connect({ demo = false } = {}) {
     // the design principle this whole product is built on (see AGENTS.md).
     // A failed connect must say so, not leave the page looking unchanged.
     setStatus(`Could not open sign-in: ${err.message}`);
+    for (const id of ['demo', 'connect']) if ($(id)) $(id).disabled = false;
+    sessionStorage.removeItem(OPENING_KEY);
   }
 }
+
+/** sessionStorage's note, across the sign-in and back, of what the page is opening: 'demo' or 'link'. */
+const OPENING_KEY = 'wick_opening';
+
+// Back from the sign-in with the browser's Back button, the page is as it was left: its buttons pressable again.
+window.addEventListener('pageshow', (event) => {
+  if (!event.persisted) return;
+  for (const id of ['demo', 'connect']) if ($(id)) $(id).disabled = false;
+  sessionStorage.removeItem(OPENING_KEY);
+});
 
 /** Back from the Wick server with a code: exchange it for tokens. */
 async function completeAuthIfRedirected(code) {
@@ -2249,23 +2266,46 @@ function addConnectTelevision({ prefill, wanted } = {}) {
     if (!as) return;
     go.disabled = true;
     problem.textContent = '';
+    let answer;
     try {
       // The resident's television is asked for exactly as it always was: a code, and nothing else.
-      const answer = await api('/api/televisions', {
+      answer = await api('/api/televisions', {
         method: 'POST',
         body: JSON.stringify(as === 'family' ? { code: input.value, as: 'family' } : { code: input.value }),
       });
-      turn.remove();
-      const connected = presentConnected(as, answer, resident);
-      if (connected.say) assistantSays({ say: connected.say, tone: connected.tone });
-      // The resident's television changes what comes next (she is asked, on it); a television of one's own does not.
-      if (connected.kind === 'resident') await welcome();
-      else $('ask-input').focus();
     } catch (err) {
       problem.textContent = err.message;
       go.disabled = false;
+      return;
     }
+    // Connected. The card goes, so nothing after this may be said in it: it would be said to nobody.
+    turn.remove();
+    const connected = presentConnected(as, answer, resident);
+    if (connected.say) assistantSays({ say: connected.say, tone: connected.tone });
+    // The resident's television changes what comes next (she is asked, on it); a television of one's own does not.
+    if (connected.kind === 'resident') await afterResidentTelevision();
+    else $('ask-input').focus();
   });
+}
+
+/**
+ * Her television is connected. The checklist ticks it off at once and starts
+ * looking for her press, before anything else is asked of the server: the
+ * welcome that follows reads /api/me again, and a look that is slow or fails
+ * must not leave the page saying the television is still to connect. If the
+ * welcome cannot be had, what it would have said about the television is
+ * said from what is already known.
+ */
+async function afterResidentTelevision() {
+  if (checklist && me) {
+    checklist.televisions = Math.max(1, checklist.televisions ?? 0);
+    fillChecklist(presentChecklist(me, checklist.televisions, askedHere()));
+  }
+  try {
+    await welcome();
+  } catch {
+    if (me) assistantSays(presentWelcome(me, 1));
+  }
 }
 
 /**
@@ -3183,7 +3223,8 @@ async function welcome() {
   me = await api('/api/me');
   formatTime = timeFormatter(me.household.timeZone);
   // A demo home says what it is wherever it is named: its history was written, not lived.
-  setStatus(`${me.user.name} · ${me.household.name}${me.household.simulated ? ' · simulated history' : ''}`, 'connected');
+  // And which demo session: every "Try the demo" is a home of its own, named by its key (accounts/demo.ts).
+  setStatus(`${me.user.name} · ${me.household.name}${me.household.demoSession ? ` ${me.household.demoSession}` : ''}${me.household.simulated ? ' · simulated history' : ''}`, 'connected');
   // A demo home's chips include its stand-in doorbell.
   showSuggestions();
   // Only the organiser, or someone already allowed, may know about the
@@ -3814,11 +3855,16 @@ fitToWhatIsSeen();
   }
 
   enableToolButtons(true);
+  // Never a blank page while the welcome is fetched: a sentence that says what is happening, gone when it comes.
+  const opening = assistantSays(presentOpening(sessionStorage.getItem(OPENING_KEY)));
+  sessionStorage.removeItem(OPENING_KEY);
   try {
     await welcome();
     if (ringCompletion) await finishRingSignIn(ringCompletion);
   } catch (err) {
     if (err.code === 'home_closed') showHomeClosed(err.message);
     else if (link) assistantSays({ say: err.message, tone: 'error' });
+  } finally {
+    opening.remove();
   }
 })();

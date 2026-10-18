@@ -236,12 +236,12 @@ describe('BreakController — calm points', () => {
     expect(bc.pickCard([messageQueued()], NOW + 61_000)).toMatchObject({ id: 'm1' });
   });
 
-  it('says the film should wait for that note, and not for the door', () => {
+  it('says the film should wait for that note, and for the door', () => {
     const bc = controller();
     bc.setPlayback(snapshot(180_400), NOW + 61_000);
 
     expect(bc.holdsProgramme(messageQueued())).toBe(true);
-    expect(bc.holdsProgramme(doorQueued())).toBe(false);
+    expect(bc.holdsProgramme(doorQueued())).toBe(true);
     expect(bc.holdsProgramme(undefined)).toBe(false);
   });
 

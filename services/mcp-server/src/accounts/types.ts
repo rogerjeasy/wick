@@ -29,6 +29,12 @@ export interface Household {
    */
   readonly simulated?: boolean;
   /**
+   * The key of the demo session that made this demo home (demo.ts
+   * `newDemoSessionKey`): one home a press of "Try the demo". Only on a
+   * simulated home.
+   */
+  readonly demoSession?: string;
+  /**
    * Where the house is: its IANA time zone (packages/contracts clock.ts).
    * Given when the home is set up. Absent on a home set up before homes had
    * one; read it through `zoneOf`, never directly.

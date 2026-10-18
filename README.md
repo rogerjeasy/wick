@@ -82,10 +82,10 @@ allows that person.
 No account and no hardware are needed.
 
 1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html). The keyboard is the remote: arrows move, **Enter** is OK, **Esc** is Back, **Space** is Play/Pause, and **Enter** held for two seconds is Hold for Sarah.
-2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose **Try the demo** and enter the code shown on the television. You are Sarah, in a demo home with six weeks of simulated history.
+2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose **Try the demo** and enter the code shown on the television (or point a phone at the QR code beside it). You are Sarah, in a demo home with six weeks of simulated history. Every press of **Try the demo** is a new demo session: a fresh key, its own guest and its own home, so nothing from anyone else's session (or your own earlier one) is ever shown. The header names the session, for example *Demo home K7F2QX*.
 3. On the television, press **Allow Sarah** when it appears, about twenty seconds after pairing. Then ask the family app anything, for example *"How has my mum been this week?"*
 4. Start a film, then ask the family app to *send a note to her television*. The note waits. Pause, or let Big Buck Bunny reach its calm point at 1:29, and it appears. **Space** reads it aloud; **Enter** replies.
-5. Press **Ring the stand-in doorbell** in the family app and choose who is there. The door card appears at once, over the film, then the picture and one sentence about it. **Esc** (Back) or *Not now* puts it away; the film plays on. The stand-in doorbell rings at most once every 20 seconds.
+5. Press **Ring the stand-in doorbell** in the family app and choose who is there. The door card appears at once and the film waits under it, then the picture and one sentence about it. **Esc** (Back) or *Not now* puts it away and the film goes on; if the card goes by itself while she is at the door, the film stays paused for her. The stand-in doorbell rings at most once every 20 seconds.
 
 The same flow runs on the Vega Virtual Device and on the Fire OS build in the
 Android TV emulator ([docs/SETUP.md](docs/SETUP.md)).

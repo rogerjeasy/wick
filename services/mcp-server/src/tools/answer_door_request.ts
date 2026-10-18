@@ -18,9 +18,9 @@
  * resident reading "it's all right" and then "don't open the door": the
  * write is conditional, and whoever comes second is told what was said.
  */
-import { PutItemCommand, type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { GetItemCommand, PutItemCommand, type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { z } from 'zod';
-import { DOOR_ANSWERS, type CardPatch, type DoorAnswer } from '@wick/contracts';
+import { DOOR_ANSWERS, doorActionsAfterAnswer, type CardAction, type CardPatch, type DoorAnswer, type QueuedCard } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
@@ -94,8 +94,28 @@ export async function answerDoorRequest(
   }
 
   const text = DOOR_ANSWERS[answer];
-  await sendPatch({ cardId: request.requestId, notice: `${by} says: ${text}` }, householdId);
+  // Under the answer, the card's own buttons, with "Thank you" where "Not now" was (contracts doorActionsAfterAnswer).
+  const actions = await actionsAfterAnswer(ddb, householdId, request.requestId);
+  await sendPatch({ cardId: request.requestId, notice: `${by} says: ${text}`, ...(actions ? { actions } : {}) }, householdId);
   return { shown: true, by, text };
+}
+
+/**
+ * The door card's buttons once it has been answered, from the card as it was
+ * sent. Undefined when it cannot be read: the answer still goes on the card,
+ * under the buttons it already has.
+ */
+async function actionsAfterAnswer(ddb: DynamoDBClient, householdId: string, cardId: string): Promise<CardAction[] | undefined> {
+  try {
+    const stored = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: { pk: { S: `HH#${householdId}` }, sk: { S: `CARD#${cardId}` } } }));
+    const raw = stored.Item?.data?.S;
+    const queued = raw ? (JSON.parse(raw) as QueuedCard) : undefined;
+    const actions = queued?.card.type === 'DOOR' ? doorActionsAfterAnswer(queued.card.actions) : [];
+    // A card with no buttons left is not given an empty row: it keeps the ones it has.
+    return actions.length ? actions : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */

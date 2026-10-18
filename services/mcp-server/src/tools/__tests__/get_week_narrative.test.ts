@@ -13,6 +13,7 @@ import {
   latestReadableWeek,
   loadWeekNarrative,
   registerGetWeekNarrative,
+  spokenFromThen,
 } from '../get_week_narrative.js';
 import { allowedContext } from './toolContext.js';
 
@@ -303,6 +304,30 @@ describe('get_week_narrative with no week named (end to end through the register
     expect(JSON.parse(text)).toMatchObject({ isoWeek: '2026-W37', thisWeek: 'awaiting_resident' });
   });
 
+  it('says an earlier week as "that week": its own "this week" would contradict "here is the week of …"', async () => {
+    const said = { data: { S: JSON.stringify({
+      ...NARRATIVE,
+      isoWeek: '2026-W37',
+      text: 'Someone came to the front door 6 times this week. That is one fewer than last week.',
+      suggestion: { action: 'watch_together', reason: 'A film was played on the television this week.' },
+    }) } };
+    const { text } = await call([said]);
+
+    expect(JSON.parse(text)).toMatchObject({
+      isoWeek: '2026-W37',
+      thisWeek: 'not_written',
+      text: 'Someone came to the front door 6 times that week. That is one fewer than the week before.',
+      suggestion: { action: 'watch_together', reason: 'A film was played on the television that week.' },
+    });
+  });
+
+  it('keeps "this week" when the week returned is this one', async () => {
+    const own = { data: { S: JSON.stringify({ ...NARRATIVE, isoWeek: '2026-W38', text: 'Someone came to the front door 6 times this week.' }) } };
+    const { text } = await call([own]);
+
+    expect(JSON.parse(text).text).toBe('Someone came to the front door 6 times this week.');
+  });
+
   it('adds nothing to this week when it is the one returned', async () => {
     const { text } = await call([stored('2026-W38', true), stored('2026-W37', true)]);
 
@@ -381,5 +406,20 @@ describe('the Sunday brief’s suggestion — read by the family under the same 
 
   it('keeps the suggestion with the week as written when nothing is kept private', () => {
     expect(familyWeek(AGENTS_WEEK, DEFAULT_POLICY, 'Europe/London')).toEqual({ status: 'available', narrative: AGENTS_WEEK });
+  });
+});
+
+describe('spokenFromThen — a week\'s words about itself, once it is over', () => {
+  it('turns this, last and next week into that week, the week before and the week after, keeping a capital', () => {
+    expect(spokenFromThen('This week was quiet. More than last week, and next week Maria is away.')).toBe(
+      'That week was quiet. More than the week before, and the week after Maria is away.',
+    );
+  });
+
+  it('changes no number, name or other word', () => {
+    expect(spokenFromThen('Maria visited twice, as she usually does, and this weekend was quiet.')).toBe(
+      'Maria visited twice, as she usually does, and this weekend was quiet.',
+    );
+    expect(spokenFromThen('6 times so far this week.')).toBe('6 times that week.');
   });
 });

@@ -26,10 +26,24 @@ describe('PairingScreen', () => {
   it('shows the code, large, where to enter it, and the address — and nothing to press', async () => {
     const { root } = await pairing({ info: INFO });
 
-    expect(texts(root)).toEqual(['Set up Wick', '482913', 'Enter this code in the Wick family app. There you say whose television this is.', INFO.url]);
+    expect(texts(root)).toEqual(['Set up Wick', '482913', 'Enter this code in the Wick family app. There you say whose television this is.', INFO.url, 'Or point a phone at this.']);
     const code = all(root, 'Text').find((t) => t.children.join('') === '482913')!;
     expect(fontSize(code)).toBe(calmTheme().fontSize('display'));
     expect(buttons(root).length).toBe(0);
+  });
+
+  it('draws the address as a QR code beside the words, with a name a screen reader says', async () => {
+    const { root } = await pairing({ info: INFO });
+
+    const code = all(root, 'View').find((v) => v.props.accessibilityLabel === 'A code for a phone camera. It opens the Wick family app with this code filled in.');
+    expect(code).toBeDefined();
+    // Its modules, as runs of dark: the address is in them (packages/contracts qr.test.ts reads one back).
+    expect(code!.findAll((n) => (n.type as unknown) === 'View' && n !== code).length).toBeGreaterThan(100);
+  });
+
+  it('draws no code before there is a link to put in one', async () => {
+    const { root } = await pairing({});
+    expect(all(root, 'View').some((v) => typeof v.props.accessibilityLabel === 'string' && v.props.accessibilityLabel.startsWith('A code for a phone camera'))).toBe(false);
   });
 
   it('says it is getting a code before there is one, and promises nothing more', async () => {

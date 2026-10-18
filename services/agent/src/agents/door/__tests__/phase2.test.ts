@@ -115,7 +115,7 @@ describe('runDoorPhase2', () => {
     expect(sendPatch).toHaveBeenCalledWith(expect.objectContaining({ line: 'The doorbell rang.' }));
   });
 
-  it('corrects a stand-in doorbell’s headline in the stand-in’s own words', async () => {
+  it('corrects a stand-in doorbell’s headline in the words a real doorbell’s card uses: its label is the card’s own', async () => {
     const sendPatch = vi.fn(async (_p: CardPatch) => {});
     const nobody: DescribeResult = {
       candidate: { description: 'An empty doorstep with a potted plant.', confidence: 0.9, personVisible: false },
@@ -123,9 +123,9 @@ describe('runDoorPhase2', () => {
       elapsedMs: 800,
     };
 
-    await runDoorPhase2('card-1', { fetchImage: async () => ({ image, bytes }), describe: async () => nobody, sendPatch }, 'motion_detected', { standIn: true });
+    await runDoorPhase2('card-1', { fetchImage: async () => ({ image, bytes }), describe: async () => nobody, sendPatch }, 'motion_detected');
 
-    expect(sendPatch).toHaveBeenCalledWith(expect.objectContaining({ line: 'Movement at the front door (stand-in doorbell).' }));
+    expect(sendPatch).toHaveBeenCalledWith(expect.objectContaining({ line: 'Movement at the front door.' }));
   });
 
   describe('reports what happened, so a Phase 2 that stops early is never silent', () => {

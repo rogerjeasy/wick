@@ -124,15 +124,13 @@ describe('the door card (agents/door/index.ts)', () => {
     expect(patchIn('es', afterRing, { description: 'Tres coches en un aparcamiento.' }).description).toBe('Tres coches en un aparcamiento.');
   });
 
-  it('from a demo home’s stand-in doorbell, says so in her language too, with nothing that needs a real doorbell', () => {
+  it('from a demo home’s stand-in doorbell, says her sentence in her language, with nothing that needs a real doorbell', () => {
     const standIn = buildPhaseOneCard({ event, device, hallwayChime: true, householdId: 'hh-demo', correlationId: 'corr-1', timeZone: 'UTC', now: NOW, family: ['Sarah'], standIn: true });
     const card = coverage.spanish(standIn);
-    expect(card.line).toBe('Hay alguien en la puerta de entrada (timbre simulado).');
+    // The same sentence as a real ring: "stand-in" is the television's own label (DoorCard.tsx), in her language there.
+    expect(card.line).toBe(coverage.spanish(buildPhaseOneCard({ event, device, hallwayChime: true, householdId: 'hh-demo', correlationId: 'corr-1', timeZone: 'UTC', now: NOW, family: ['Sarah'] })).line);
+    expect(card.standIn).toBe(true);
     expect(labels(card)).toEqual(['Pedir a Sarah que mire', 'Ahora no']);
-
-    const nobody = { description: 'An empty doorstep.', confidence: 0.9, personVisible: false };
-    expect(coverage.spanishPatch(buildDescriptionPatch('door-abc', nobody, 'motion_detected', { standIn: true })!).line).toBe('Movimiento en la puerta de entrada (timbre simulado).');
-    expect(coverage.spanishPatch(buildDescriptionPatch('door-abc', nobody, 'button_press', { standIn: true })!).line).toBe('Ha sonado el timbre simulado.');
   });
 
   it('a description alone, or the picture, carries no word of Wick’s and is left exactly as it is', () => {

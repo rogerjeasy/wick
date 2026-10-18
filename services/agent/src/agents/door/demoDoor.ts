@@ -108,7 +108,7 @@ export function standInRouteDeps(householdId: string, visitor: DemoVisitor, base
         }),
         describe,
         sendPatch: (patch) => base.sendPatch(patch, householdId),
-      }, event.eventType, { standIn: true }),
+      }, event.eventType),
     ...(base.announceRing ? { announceRing: base.announceRing } : {}),
     now: base.now,
   };

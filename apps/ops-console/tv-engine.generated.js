@@ -52,6 +52,8 @@ var WickTv = (() => {
     programmeLine: () => programmeLine,
     putAway: () => putAway,
     putsAway: () => putsAway,
+    qrModules: () => qrModules,
+    qrRuns: () => qrRuns,
     reachOffersToPutAway: () => reachOffersToPutAway,
     seekTarget: () => seekTarget,
     toPlaybackDeviceEvent: () => toPlaybackDeviceEvent,
@@ -464,10 +466,6 @@ var WickTv = (() => {
       s("Someone's at the front door.", "Hay alguien en la puerta de entrada."),
       s("Movement at the front door.", "Movimiento en la puerta de entrada."),
       s("The doorbell rang.", "Ha sonado el timbre."),
-      // A demo home's stand-in doorbell (contracts demoDoor.ts): the card says what it is, in her language as well.
-      s("Someone's at the front door (stand-in doorbell).", "Hay alguien en la puerta de entrada (timbre simulado)."),
-      s("Movement at the front door (stand-in doorbell).", "Movimiento en la puerta de entrada (timbre simulado)."),
-      s("The stand-in doorbell rang.", "Ha sonado el timbre simulado."),
       b("Watch live", "Ver en vivo"),
       // The press is the consent: the picture goes to the people she allows, for this one card (askFamily.ts).
       b("Ask {first} to look", "Pedir a {first} que mire"),
@@ -684,6 +682,231 @@ var WickTv = (() => {
     maxLeadMs: 60 * 24 * 36e5
   };
 
+  // packages/contracts/src/qr.ts
+  var VERSIONS = [
+    { ecPerBlock: 10, blocks: 1, total: 26 },
+    { ecPerBlock: 16, blocks: 1, total: 44, align: 18 },
+    { ecPerBlock: 26, blocks: 1, total: 70, align: 22 },
+    { ecPerBlock: 18, blocks: 2, total: 100, align: 26 },
+    { ecPerBlock: 24, blocks: 2, total: 134, align: 30 },
+    { ecPerBlock: 16, blocks: 4, total: 172, align: 34 }
+  ];
+  var LEVEL_M = 0;
+  var dataCodewords = (v) => v.total - v.ecPerBlock * v.blocks;
+  var QR_MAX_BYTES = dataCodewords(VERSIONS[VERSIONS.length - 1]) - 2;
+  function gfMultiply(x, y) {
+    let z = 0;
+    for (let i = 7; i >= 0; i--) {
+      z = z << 1 ^ (z >>> 7) * 285;
+      z ^= (y >>> i & 1) * x;
+    }
+    return z & 255;
+  }
+  function rsDivisor(degree) {
+    const result = new Array(degree).fill(0);
+    result[degree - 1] = 1;
+    let root = 1;
+    for (let i = 0; i < degree; i++) {
+      for (let j = 0; j < degree; j++) {
+        result[j] = gfMultiply(result[j], root);
+        if (j + 1 < degree) result[j] ^= result[j + 1];
+      }
+      root = gfMultiply(root, 2);
+    }
+    return result;
+  }
+  function rsRemainder(data, degree) {
+    const divisor = rsDivisor(degree);
+    const result = new Array(degree).fill(0);
+    for (const b2 of data) {
+      const factor = b2 ^ result.shift();
+      result.push(0);
+      divisor.forEach((coef, i) => result[i] ^= gfMultiply(coef, factor));
+    }
+    return result;
+  }
+  function utf8(text) {
+    const out = [];
+    for (const ch of text) {
+      const c = ch.codePointAt(0);
+      if (c < 128) out.push(c);
+      else if (c < 2048) out.push(192 | c >> 6, 128 | c & 63);
+      else if (c < 65536) out.push(224 | c >> 12, 128 | c >> 6 & 63, 128 | c & 63);
+      else out.push(240 | c >> 18, 128 | c >> 12 & 63, 128 | c >> 6 & 63, 128 | c & 63);
+    }
+    return out;
+  }
+  function dataBytes(bytes, capacity) {
+    const bits = [];
+    const put = (value, length) => {
+      for (let i = length - 1; i >= 0; i--) bits.push(value >>> i & 1);
+    };
+    put(4, 4);
+    put(bytes.length, 8);
+    for (const b2 of bytes) put(b2, 8);
+    put(0, Math.min(4, capacity * 8 - bits.length));
+    put(0, (8 - bits.length % 8) % 8);
+    const out = [];
+    for (let i = 0; i < bits.length; i += 8) out.push(bits.slice(i, i + 8).reduce((acc, bit) => acc << 1 | bit, 0));
+    for (let pad = 236; out.length < capacity; pad ^= 236 ^ 17) out.push(pad);
+    return out;
+  }
+  function codewords(data, v) {
+    const perBlock = data.length / v.blocks;
+    const blocks = Array.from({ length: v.blocks }, (_, i) => data.slice(i * perBlock, (i + 1) * perBlock));
+    const ecc = blocks.map((block) => rsRemainder(block, v.ecPerBlock));
+    const out = [];
+    for (let i = 0; i < perBlock; i++) for (const block of blocks) out.push(block[i]);
+    for (let i = 0; i < v.ecPerBlock; i++) for (const block of ecc) out.push(block[i]);
+    return out;
+  }
+  function formatBits(mask) {
+    const data = LEVEL_M << 3 | mask;
+    let rem = data;
+    for (let i = 0; i < 10; i++) rem = rem << 1 ^ (rem >>> 9) * 1335;
+    return (data << 10 | rem & 1023) ^ 21522;
+  }
+  var MASKS = [
+    (x, y) => (x + y) % 2 === 0,
+    (_x, y) => y % 2 === 0,
+    (x) => x % 3 === 0,
+    (x, y) => (x + y) % 3 === 0,
+    (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0,
+    (x, y) => x * y % 2 + x * y % 3 === 0,
+    (x, y) => (x * y % 2 + x * y % 3) % 2 === 0,
+    (x, y) => ((x + y) % 2 + x * y % 3) % 2 === 0
+  ];
+  function blank(size) {
+    return { size, dark: Array.from({ length: size }, () => new Array(size).fill(false)), fixed: Array.from({ length: size }, () => new Array(size).fill(false)) };
+  }
+  function setFixed(s2, x, y, dark) {
+    s2.dark[y][x] = dark;
+    s2.fixed[y][x] = true;
+  }
+  function drawFixed(s2, align) {
+    const { size } = s2;
+    for (let i = 0; i < size; i++) {
+      setFixed(s2, 6, i, i % 2 === 0);
+      setFixed(s2, i, 6, i % 2 === 0);
+    }
+    for (const [cx, cy] of [[3, 3], [size - 4, 3], [3, size - 4]]) {
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          const x = cx + dx;
+          const y = cy + dy;
+          const ring = Math.max(Math.abs(dx), Math.abs(dy));
+          if (x >= 0 && x < size && y >= 0 && y < size) setFixed(s2, x, y, ring !== 2 && ring !== 4);
+        }
+      }
+    }
+    if (align !== void 0) {
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) setFixed(s2, align + dx, align + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+    }
+    drawFormat(s2, 0);
+  }
+  function drawFormat(s2, mask) {
+    const { size } = s2;
+    const bits = formatBits(mask);
+    const bit = (i) => (bits >>> i & 1) === 1;
+    for (let i = 0; i <= 5; i++) setFixed(s2, 8, i, bit(i));
+    setFixed(s2, 8, 7, bit(6));
+    setFixed(s2, 8, 8, bit(7));
+    setFixed(s2, 7, 8, bit(8));
+    for (let i = 9; i < 15; i++) setFixed(s2, 14 - i, 8, bit(i));
+    for (let i = 0; i < 8; i++) setFixed(s2, size - 1 - i, 8, bit(i));
+    for (let i = 8; i < 15; i++) setFixed(s2, 8, size - 15 + i, bit(i));
+    setFixed(s2, 8, size - 8, true);
+  }
+  function dataModuleOrder(fixed) {
+    const size = fixed.length;
+    const order = [];
+    for (let right = size - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;
+      for (let vert = 0; vert < size; vert++) {
+        for (let j = 0; j < 2; j++) {
+          const x = right - j;
+          const upward = (right + 1 & 2) === 0;
+          const y = upward ? size - 1 - vert : vert;
+          if (!fixed[y][x]) order.push([x, y]);
+        }
+      }
+    }
+    return order;
+  }
+  function placeData(s2, data) {
+    dataModuleOrder(s2.fixed).forEach(([x, y], i) => {
+      s2.dark[y][x] = i < data.length * 8 && (data[i >>> 3] >>> 7 - (i & 7) & 1) === 1;
+    });
+  }
+  function applyMask(s2, mask) {
+    const flip = MASKS[mask];
+    for (let y = 0; y < s2.size; y++) for (let x = 0; x < s2.size; x++) if (!s2.fixed[y][x] && flip(x, y)) s2.dark[y][x] = !s2.dark[y][x];
+  }
+  function penalty(dark) {
+    const size = dark.length;
+    const at = (x, y, byRow) => byRow ? dark[y][x] : dark[x][y];
+    const FINDER_LIKE = [true, false, true, true, true, false, true];
+    let score = 0;
+    for (const byRow of [true, false]) {
+      for (let y = 0; y < size; y++) {
+        let run = 1;
+        for (let x = 1; x <= size; x++) {
+          if (x < size && at(x, y, byRow) === at(x - 1, y, byRow)) run++;
+          else {
+            if (run >= 5) score += 3 + (run - 5);
+            run = 1;
+          }
+        }
+        for (let x = 0; x + 7 <= size; x++) {
+          if (!FINDER_LIKE.every((d, i) => at(x + i, y, byRow) === d)) continue;
+          const lightBefore = [1, 2, 3, 4].every((i) => x - i < 0 || !at(x - i, y, byRow));
+          const lightAfter = [0, 1, 2, 3].every((i) => x + 7 + i >= size || !at(x + 7 + i, y, byRow));
+          if (lightBefore || lightAfter) score += 40;
+        }
+      }
+    }
+    for (let y = 0; y + 1 < size; y++) {
+      for (let x = 0; x + 1 < size; x++) {
+        const d = dark[y][x];
+        if (d === dark[y][x + 1] && d === dark[y + 1][x] && d === dark[y + 1][x + 1]) score += 3;
+      }
+    }
+    const darkCount = dark.reduce((n, row) => n + row.filter(Boolean).length, 0);
+    score += Math.floor(Math.abs(darkCount * 20 - size * size * 10) / (size * size)) * 10;
+    return score;
+  }
+  function qrModules(text) {
+    const bytes = utf8(text);
+    const index = VERSIONS.findIndex((v) => bytes.length <= dataCodewords(v) - 2);
+    if (index < 0) return void 0;
+    const version = VERSIONS[index];
+    const size = 17 + 4 * (index + 1);
+    const all = codewords(dataBytes(bytes, dataCodewords(version)), version);
+    let best;
+    for (let mask = 0; mask < 8; mask++) {
+      const s2 = blank(size);
+      drawFixed(s2, version.align);
+      placeData(s2, all);
+      applyMask(s2, mask);
+      drawFormat(s2, mask);
+      const score = penalty(s2.dark);
+      if (!best || score < best.score) best = { score, dark: s2.dark };
+    }
+    return best.dark;
+  }
+  function qrRuns(modules) {
+    return modules.map((row) => {
+      const runs = [];
+      for (let x = 0; x < row.length; x++) {
+        if (!row[x]) continue;
+        const last = runs[runs.length - 1];
+        if (last && last[0] + last[1] === x) last[1]++;
+        else runs.push([x, 1]);
+      }
+      return runs;
+    });
+  }
+
   // apps/tv-vega/src/break/types.ts
   var CALM_POINT_WINDOW_MS = 8e3;
   var NEAR_BREAK_WINDOW_MS = 3e4;
@@ -714,7 +937,7 @@ var WickTv = (() => {
     return "IN_SCENE";
   }
   function holdsProgramme(card, playback) {
-    if (!card || card.urgency === "DOOR") return false;
+    if (!card) return false;
     if (!playback || playback.state === "STOPPED") return false;
     return playback.positionMs < (playback.creditsPositionMs ?? playback.durationMs);
   }
@@ -1096,9 +1319,14 @@ var WickTv = (() => {
     "door.pictureLabel": "Picture from the front door camera",
     "door.looksLikeExpected": "This looks like {name} — expected around now.",
     "door.looksLike": "This looks like {name}.",
+    // A demo home's stand-in doorbell (DoorCard.standIn): said beside her sentence, never inside it.
+    "door.standIn": "Stand-in doorbell, for the demo",
     // The pairing screen. Shown in English always — see the header.
     "pairing.title": "Set up Wick",
     "pairing.instructions": "Enter this code in the Wick family app. There you say whose television this is.",
+    // Under the QR code beside the code (pairing/QrCode.tsx), and what a screen reader calls it.
+    "pairing.scan": "Or point a phone at this.",
+    "pairing.scanLabel": "A code for a phone camera. It opens the Wick family app with this code filled in.",
     "pairing.gettingCode": "Getting a code…",
     /** Under "Getting a code…" while the pairing service cannot be reached (pairing/connect.ts). The family screen's own words, word for word. */
     "pairing.stillTrying": "Wick cannot reach the home just now.",
@@ -1188,8 +1416,11 @@ var WickTv = (() => {
     // "Su visita", so the sentence need not agree with whoever is named.
     "door.looksLikeExpected": "Parece ser {name} — se esperaba su visita ahora.",
     "door.looksLike": "Parece ser {name}.",
+    "door.standIn": "Timbre simulado, para la demostración",
     "pairing.title": "Configurar Wick",
     "pairing.instructions": "Escriba este código en la app familiar de Wick. Allí se indica de quién es este televisor.",
+    "pairing.scan": "O apunte un teléfono hacia aquí.",
+    "pairing.scanLabel": "Un código para la cámara de un teléfono. Abre la app familiar de Wick con este código ya escrito.",
     "pairing.gettingCode": "Pidiendo un código…",
     "pairing.stillTrying": "Wick no puede comunicarse con la casa ahora.",
     "watch.failed": "{title} no se puede ver ahora. Presione Atrás.",

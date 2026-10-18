@@ -159,6 +159,38 @@ export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, ti
   };
 }
 
+/** Words a week uses about itself, and what they become once it is an earlier week. Longest first. */
+const SPOKEN_FROM_THEN: readonly (readonly [RegExp, string])[] = [
+  [/\bso far this week\b/gi, 'that week'],
+  [/\bthis week\b/gi, 'that week'],
+  [/\blast week\b/gi, 'the week before'],
+  [/\bnext week\b/gi, 'the week after'],
+];
+
+/**
+ * A sentence written about its own week, said once that week is over and
+ * another has begun. The Sunday brief writes "this week", meaning the week it
+ * is about; read out on a Wednesday under "Here is the week of 5 October",
+ * "6 times this week" says the opposite of the line above it. Only those
+ * words change — no number, name or claim — so what the Guardian and the
+ * Guardrail cleared is still what is read. A capital stays a capital.
+ */
+export function spokenFromThen(text: string): string {
+  return SPOKEN_FROM_THEN.reduce(
+    (said, [words, then]) => said.replace(words, (found) => (found[0] === found[0]?.toUpperCase() ? then[0]!.toUpperCase() + then.slice(1) : then)),
+    text,
+  );
+}
+
+/** The family's copy of an earlier week, its prose and its suggestion's reason said from now (`spokenFromThen`). */
+export function asAnEarlierWeek(narrative: WeekNarrative): WeekNarrative {
+  return {
+    ...narrative,
+    text: spokenFromThen(narrative.text),
+    ...(narrative.suggestion ? { suggestion: { ...narrative.suggestion, reason: spokenFromThen(narrative.suggestion.reason) } } : {}),
+  };
+}
+
 /** What "the latest week" is for the family: the week as they may read it, or why there is none for them. */
 export type FamilyLatestWeek =
   | { readonly status: 'available'; readonly narrative: WeekNarrative; readonly thisWeek?: ThisWeekStatus }
@@ -194,7 +226,9 @@ export function familyCopyOfLatest(latest: LatestWeekResult, policy: HouseholdPo
   if (latest.status !== 'available') return latest;
   const family = familyWeek(latest.narrative, policy, timeZone);
   if (family.status === 'private') return { status: 'private' };
-  return { status: 'available', narrative: family.narrative, ...(latest.thisWeek ? { thisWeek: latest.thisWeek } : {}) };
+  // An earlier week than the current one is said as one: "that week", never "this week".
+  if (latest.thisWeek) return { status: 'available', narrative: asAnEarlierWeek(family.narrative), thisWeek: latest.thisWeek };
+  return { status: 'available', narrative: family.narrative };
 }
 
 /**
@@ -288,6 +322,8 @@ export function registerGetWeekNarrative(
       if (isoWeek) {
         const named = await loadWeekNarrative(ddb, ctx.householdId, isoWeek);
         result = named.status === 'available' ? familyWeek(named.narrative, await policy(), timeZone) : named;
+        // A week named that is over is said as one, like the latest week when it is an earlier one.
+        if (result.status === 'available' && isoWeek < currentWeek) result = { status: 'available', narrative: asAnEarlierWeek(result.narrative) };
       } else {
         result = await loadLatestFamilyWeek(ddb, ctx.householdId, currentWeek, policy, timeZone);
       }

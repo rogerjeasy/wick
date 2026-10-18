@@ -202,14 +202,14 @@ She picks a reply and presses OK. Eleven seconds, one button. Two minutes later,
 Sarah's phone shows the reply.
 
 **19:31.** The doorbell rings during a programme. A card rises over the lower
-half of the screen, without pausing or silencing anything:
+half of the screen, and the programme waits under it:
 
 > **Someone's at the front door.** *(a still from the doorbell)*
 > *A man in a delivery uniform, holding a parcel.*
 > **Watch live** · **Ring the hallway chime** · **Not now**
 
 She rings the hallway chime so the rest of the house knows, and gets up in her
-own time.
+own time. When she is back, the programme is where she left it.
 
 **Sunday, 10:00.** Sarah asks: *"How's Mum been this week?"*
 
@@ -254,7 +254,7 @@ otherwise. The IDs are used in the code and the technical document.
 
 | ID | Feature | What it does |
 |---|---|---|
-| **S1** | **The door card** | A ring puts a card on her screen with a still from the doorbell and one plain sentence about who's there. It doesn't pause, cover or make a sound. If another app is in front, Vega shows a system toast and Fire OS a notification, with a button that brings Wick forward. |
+| **S1** | **The door card** | A ring puts a card on her screen with a still from the doorbell and one plain sentence about who's there. It doesn't cover the screen or make a sound; her film waits under it until she puts it away, because she may get up to answer the door. If another app is in front, Vega shows a system toast and Fire OS a notification, with a button that brings Wick forward. |
 | **M1** | **Ring the hallway chime** | One button rings the Ring Chime once, so the house knows. Built and tested against Ring's contract, but not demonstrated: Ring's simulator has no chime, and the button only appears when a chime exists. |
 | **M2** | **Watch live** | The doorbell camera full screen on her television, about six seconds after the press, for as long as Ring allows. |
 | **M4** | **Known visitors** | The family adds regular visitors and their usual days, and the card can say *"This looks like Maria. She usually comes on Tuesdays."* |

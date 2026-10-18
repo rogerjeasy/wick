@@ -9,9 +9,6 @@ import {
   parseDescribeReply,
   NOBODY_AFTER_MOTION_LINE,
   NOBODY_AFTER_RING_LINE,
-  STAND_IN_DOOR_LINE,
-  STAND_IN_NOBODY_AFTER_MOTION_LINE,
-  STAND_IN_NOBODY_AFTER_RING_LINE,
   validateDescription,
   DESCRIPTION_MAX_WORDS,
   MIN_DESCRIPTION_CONFIDENCE,
@@ -335,9 +332,10 @@ describe('a stand-in doorbell (a demo home: contracts demoDoor.ts)', () => {
       ...over,
     });
 
-  it('says on the card itself that it is the stand-in doorbell', () => {
-    expect(standIn().line).toBe(STAND_IN_DOOR_LINE);
-    expect(STAND_IN_DOOR_LINE).toBe("Someone's at the front door (stand-in doorbell).");
+  it('says it is the stand-in doorbell in a label of its own, and her sentence in the words a real ring brings', () => {
+    expect(standIn().standIn).toBe(true);
+    expect(standIn().line).toBe(DOOR_LINE);
+    expect(standIn().line).not.toMatch(/stand-in/i);
   });
 
   it('offers no Watch live — there is no camera to watch — and no chime, even where one is said to exist', () => {
@@ -351,12 +349,14 @@ describe('a stand-in doorbell (a demo home: contracts demoDoor.ts)', () => {
     expect(standIn({ family: ['Sarah'] }).actions.map((a) => a.label)).toEqual(['Ask Sarah to look', 'Not now']);
   });
 
-  it('corrects its headline as a stand-in too, when the picture shows nobody', () => {
+  it('corrects its headline in the same words as a real doorbell, when the picture shows nobody: the label stays on the card', () => {
     const nobody = { description: 'An empty doorstep with a potted plant.', confidence: 0.9, personVisible: false };
-    expect(buildDescriptionPatch('card-1', nobody, 'motion_detected', { standIn: true })?.line).toBe(STAND_IN_NOBODY_AFTER_MOTION_LINE);
-    expect(buildDescriptionPatch('card-1', nobody, 'button_press', { standIn: true })?.line).toBe(STAND_IN_NOBODY_AFTER_RING_LINE);
-    expect(STAND_IN_NOBODY_AFTER_MOTION_LINE).toBe('Movement at the front door (stand-in doorbell).');
-    expect(STAND_IN_NOBODY_AFTER_RING_LINE).toBe('The stand-in doorbell rang.');
+    expect(buildDescriptionPatch('card-1', nobody, 'motion_detected')?.line).toBe(NOBODY_AFTER_MOTION_LINE);
+    expect(buildDescriptionPatch('card-1', nobody, 'button_press')?.line).toBe(NOBODY_AFTER_RING_LINE);
+  });
+
+  it('leaves a real doorbell’s card without the label', () => {
+    expect(build(true)).not.toHaveProperty('standIn');
   });
 
   it('leaves a real doorbell’s card exactly as it was', () => {

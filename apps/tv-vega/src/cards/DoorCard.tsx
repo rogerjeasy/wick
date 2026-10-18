@@ -20,8 +20,9 @@
  * description ever patches in — see doorDetail.ts for the priority between
  * them.
  *
- * Bottom of the screen, never full screen: it must not cover, pause or
- * silence whatever the resident is already watching.
+ * Bottom of the screen, never full screen: it must not cover or silence
+ * whatever the resident is already watching. The film waits under it, as
+ * under a note (NaturalBreakEngine.ts holdsProgramme): she may get up.
  *
  * Sized for what the television actually reports — 960x540dp at 1080p, not
  * 1920x1080. At the design system's 48pt headline / 32pt body floor, the
@@ -51,6 +52,8 @@ export interface DoorCardProps {
 const toCalmActions = (actions: readonly CardAction[]) => actions;
 
 export function DoorCardView({ card, language, onAction }: DoorCardProps): React.JSX.Element {
+  // A demo home's stand-in doorbell, said in a quiet line of its own: her sentence is the one a real ring brings.
+  const standIn = card.standIn ? words(language)('door.standIn') : undefined;
   return (
     <View style={styles.lowerThird}>
       <TwoPhaseCard
@@ -60,7 +63,7 @@ export function DoorCardView({ card, language, onAction }: DoorCardProps): React
         onAction={onAction}
         mediaSize={FRAME}
         compact
-        childWords={[card.notice]}
+        childWords={[card.notice, standIn]}
         media={
           card.imageRef ? (
             <Image
@@ -76,6 +79,7 @@ export function DoorCardView({ card, language, onAction }: DoorCardProps): React
         }
       >
         {card.notice ? <CalmText accessibilityLiveRegion="polite">{card.notice}</CalmText> : null}
+        {standIn ? <CalmText tone="dim">{standIn}</CalmText> : null}
       </TwoPhaseCard>
     </View>
   );

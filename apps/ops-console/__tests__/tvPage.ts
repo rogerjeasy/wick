@@ -349,6 +349,7 @@ export interface FakePage {
     body: El;
     getElementById(id: string): El;
     createElement(tag: string): El;
+    createElementNS(namespace: string, tag: string): El;
     addEventListener(type: string, fn: (event: FakeEvent) => void): void;
     removeEventListener(type: string, fn: (event: FakeEvent) => void): void;
   };
@@ -420,6 +421,8 @@ export function tvPage(opts: TvOptions = {}) {
       return node;
     },
     createElement: make,
+    // The pairing screen's QR code is an SVG (tv-core.js qrFigure): its elements are nodes like any other here.
+    createElementNS: (_namespace, tag) => make(tag),
     addEventListener: (type, fn) => {
       (docListeners[type] ??= []).push(fn);
     },
@@ -592,4 +595,4 @@ export const queued = (card: Record<string, unknown>, urgency = 'DEFERRED', over
 
 export const NOTE = queued({ id: 'note-1', type: 'MESSAGE', fromName: 'Sarah', transcript: 'Did the parcel arrive?', suggestedReplies: ['Yes, it did.', 'Not yet.', 'Not right now.'] });
 export const DOOR = (id = 'door-1') =>
-  queued({ id, type: 'DOOR', line: 'Someone is at the front door (stand-in doorbell).', actions: [{ id: 'dismiss', label: 'Not now', kind: 'dismiss' }] }, 'DOOR', { expiresAt: 1_800_000_000_000 + 5 * 60_000 });
+  queued({ id, type: 'DOOR', line: "Someone's at the front door.", standIn: true, actions: [{ id: 'dismiss', label: 'Not now', kind: 'dismiss' }] }, 'DOOR', { expiresAt: 1_800_000_000_000 + 5 * 60_000 });

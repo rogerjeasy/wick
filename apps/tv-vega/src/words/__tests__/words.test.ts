@@ -81,9 +81,12 @@ describe('the words table — English, exactly as the television said it before 
       'door.pictureLabel': 'Picture from the front door camera',
       'door.looksLikeExpected': 'This looks like {name} — expected around now.',
       'door.looksLike': 'This looks like {name}.',
+      'door.standIn': 'Stand-in doorbell, for the demo',
       // pairing/PairingScreen.tsx
       'pairing.title': 'Set up Wick',
       'pairing.instructions': 'Enter this code in the Wick family app. There you say whose television this is.',
+      'pairing.scan': 'Or point a phone at this.',
+      'pairing.scanLabel': 'A code for a phone camera. It opens the Wick family app with this code filled in.',
       'pairing.gettingCode': 'Getting a code…',
       // pairing/connect.ts
       'pairing.stillTrying': 'Wick cannot reach the home just now.',

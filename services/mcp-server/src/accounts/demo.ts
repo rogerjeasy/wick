@@ -21,7 +21,14 @@
  *
  * And it cannot be used to fill the table: guests are made at a bounded
  * rate, counted here.
+ *
+ * Every press of "Try the demo" is a demo session of its own: a new key
+ * (`newDemoSessionKey`), a new guest named by it, and a new demo home that
+ * records it. Nobody is ever given a home somebody else — or they themselves,
+ * earlier — was trying: a browser that still holds a guest from before starts
+ * afresh too (accountRouter.ts).
  */
+import { randomBytes } from 'node:crypto';
 import type { Identity } from './identity.js';
 
 export const GUEST_ID_PREFIX = 'guest_';
@@ -34,6 +41,23 @@ export const DEMO_HOME_NAME = 'Demo home';
 /** Generous for a hackathon's judges, far too few to be worth abusing. */
 export const DEMO_ACCOUNTS_PER_HOUR = 60;
 const HOUR_MS = 60 * 60 * 1000;
+
+/** 128 bits: no two demo sessions share a key, and none can be guessed. */
+export const DEMO_SESSION_KEY_BYTES = 16;
+
+/** The key of one demo session: it names the guest (`guest_<key>`) and is kept on the demo home it made. */
+export function newDemoSessionKey(): string {
+  return randomBytes(DEMO_SESSION_KEY_BYTES).toString('base64url');
+}
+
+/**
+ * How the family app names a demo session to the person in it: the key's
+ * first six characters, upper case ("K7F2QX"). Enough to tell two sessions
+ * apart on screen; the key itself is never needed to use one.
+ */
+export function demoSessionLabel(key: string): string {
+  return key.slice(0, 6).toUpperCase();
+}
 
 export function isGuest(userId: string): boolean {
   return userId.startsWith(GUEST_ID_PREFIX);

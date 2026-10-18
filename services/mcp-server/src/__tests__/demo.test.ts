@@ -36,7 +36,7 @@ afterEach(async () => {
 
 interface Me {
   user: { userId: string; name: string; email: string; guest: boolean };
-  household: { householdId: string; name: string; residentName: string; simulated?: boolean; timeZone?: string };
+  household: { householdId: string; name: string; residentName: string; simulated?: boolean; timeZone?: string; demoSession?: string };
   membership: { role: string; status: string };
 }
 
@@ -198,13 +198,42 @@ describe('the demo button — an anonymous account in one click', () => {
     expect(a.household.householdId).not.toBe(b.household.householdId);
   });
 
-  it('remembers the browser: clicking again returns the same guest, not a second one', async () => {
+  it('makes a new demo session on every click, even in a browser that holds a guest from before', async () => {
     const h = await server();
     const first = await demoTokens(h);
 
     const again = await demoTokens(h, first.browser);
 
-    expect((await me(h, again.tokens.access_token)).user.userId).toBe((await me(h, first.tokens.access_token)).user.userId);
+    const before = await me(h, first.tokens.access_token);
+    const after = await me(h, again.tokens.access_token);
+    expect(after.user.userId).not.toBe(before.user.userId);
+    expect(after.household.householdId).not.toBe(before.household.householdId);
+    expect(after.household.demoSession).not.toBe(before.household.demoSession);
+  });
+
+  it('names each demo session by its own key: the guest is guest_<key>, and the home says which session it is', async () => {
+    const h = await server();
+    const sessions = await Promise.all([1, 2, 3].map(async () => me(h, (await demoTokens(h)).tokens.access_token)));
+
+    for (const s of sessions) {
+      expect(s.user.userId).toMatch(/^guest_[A-Za-z0-9_-]{22}$/);
+      // The label the app shows: the key's first six characters, upper case.
+      expect(s.household.demoSession).toBe(s.user.userId.slice('guest_'.length, 'guest_'.length + 6).toUpperCase());
+    }
+    expect(new Set(sessions.map((s) => s.user.userId)).size).toBe(3);
+  });
+
+  it('nothing of one demo session reaches another: the second guest cannot read the first home', async () => {
+    const h = await server();
+    const first = await demoTokens(h);
+    const second = await demoTokens(h, first.browser);
+    const firstHome = (await me(h, first.tokens.access_token)).household.householdId;
+
+    const secondMe = await me(h, second.tokens.access_token);
+    expect(secondMe.household.householdId).not.toBe(firstHome);
+    // The second session's token is for its own home only (INV-8): asking for the first home's circle is refused.
+    const circle = await fetch(`${h.base}/api/circle?householdId=${encodeURIComponent(firstHome)}`, { headers: { authorization: `Bearer ${second.tokens.access_token}` } });
+    if (circle.ok) expect(((await circle.json()) as { household?: { householdId: string } }).household?.householdId).not.toBe(firstHome);
   });
 
   it('is offered on the sign-in page too, where it still ends with an explicit Approve', async () => {

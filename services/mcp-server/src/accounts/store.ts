@@ -304,7 +304,7 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         await send(new UpdateItemCommand({
           TableName: table,
           Key: { pk: householdPk(household.householdId), sk: { S: 'META' } },
-          UpdateExpression: `SET #name = :name, residentName = :resident, createdBy = :by, createdAt = :at${household.simulated ? ', simulated = :simulated' : ''}${household.timeZone ? ', #zone = :zone' : ''}`,
+          UpdateExpression: `SET #name = :name, residentName = :resident, createdBy = :by, createdAt = :at${household.simulated ? ', simulated = :simulated' : ''}${household.demoSession ? ', demoSession = :session' : ''}${household.timeZone ? ', #zone = :zone' : ''}`,
           ConditionExpression: 'attribute_not_exists(createdBy)',
           ExpressionAttributeNames: { '#name': 'name', ...(household.timeZone ? { '#zone': HOUSEHOLD_TIME_ZONE_ATTR } : {}) },
           ExpressionAttributeValues: {
@@ -313,6 +313,7 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
             ':by': { S: household.createdBy },
             ':at': num(household.createdAt),
             ...(household.simulated ? { ':simulated': { BOOL: true } } : {}),
+            ...(household.demoSession ? { ':session': { S: household.demoSession } } : {}),
             ...(household.timeZone ? { ':zone': { S: household.timeZone } } : {}),
           },
         }));
@@ -337,6 +338,7 @@ export function createDynamoAccountStore(send: DdbSend, table: string, now: () =
         createdBy: item.createdBy.S,
         createdAt: Number(item.createdAt?.N ?? 0),
         ...(item.simulated?.BOOL ? { simulated: true } : {}),
+        ...(item.simulated?.BOOL && item.demoSession?.S ? { demoSession: item.demoSession.S } : {}),
         ...(isTimeZone(item[HOUSEHOLD_TIME_ZONE_ATTR]?.S) ? { timeZone: item[HOUSEHOLD_TIME_ZONE_ATTR].S } : {}),
         ...languageFromItem(item),
       };
