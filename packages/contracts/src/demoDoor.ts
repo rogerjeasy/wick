@@ -60,9 +60,9 @@ const VISITORS: Readonly<Record<DemoVisitorKey, DemoVisitor>> = {
   // Ring saw a person move, and the picture shows nobody: the card's headline is corrected (door/index.ts).
   nobody: visitor('nobody', 'Nobody there, only movement', 'motion_detected'),
   // Whoever a member arranged to come (errand.ts arrange_visit), ringing now: arrange one a few minutes ahead and
-  // ring this, and the door matches them by the time as it would anyone expected. Somebody at the door with
-  // something for the house: the delivery's picture, made already, and described by the vision step as it is.
-  arranged: visitor('arranged', 'The visitor you arranged', 'button_press', 'parcel.jpg'),
+  // ring this, and the door matches them by the time as it would anyone expected. A tradesman with a toolbox,
+  // as a plumber or a window cleaner would come — not the delivery, which said a parcel had come for a visit.
+  arranged: visitor('arranged', 'The visitor you arranged', 'button_press'),
 };
 
 export const isDemoVisitorKey = (value: unknown): value is DemoVisitorKey =>
