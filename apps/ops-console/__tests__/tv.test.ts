@@ -17,6 +17,7 @@ import { PRESS_SETTLE_MS } from '../../tv-vega/src/press/settle.js';
 import { HOLD_MS } from '../../tv-vega/src/watch/hold.js';
 import { WORDS } from '../../tv-vega/src/words/words.js';
 import { contrastRatio, alarmHue } from '../../../packages/vega-calm-ui/src/constraints.js';
+import { buildTellCard } from '../../../services/agent/src/agents/tell/ask.js';
 import { palette, type as calmType } from '../../../packages/vega-calm-ui/src/tokens.js';
 
 const BUNNY = CATALOG.programmes.find((p) => p.id === 'big-buck-bunny')!;
@@ -163,6 +164,17 @@ describe('the home screen — what the Vega home shows', () => {
 
     tv.card(queued({ id: 'light-1', type: 'LIGHT', headline: 'Your light is on.', detail: 'Sarah can see it.', actions: [{ id: 'ok', label: 'All right', kind: 'primary' }] }));
     expect(shownType(tv)).toBe('LIGHT');
+  });
+});
+
+describe('"Shall I tell Sarah?" in a browser tab', () => {
+  it('starts on "Keep it to myself", as the card the agent plane builds puts it first', async () => {
+    const tv = await atHome();
+    tv.card(buildTellCard({ householdId: 'hh-1', differenceId: 'd_1', who: 'Sarah', sentence: 'There was no visit on Tuesday.', correlationId: 'c-1', now: 0 }));
+    tv.advance(SETTLED_AFTER_MS);
+
+    expect(shownType(tv)).toBe('TELL');
+    expect(tv.focused()?.textContent).toBe('Keep it to myself');
   });
 });
 

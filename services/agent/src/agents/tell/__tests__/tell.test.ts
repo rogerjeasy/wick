@@ -58,8 +58,8 @@ describe('buildTellCard', () => {
         headline: 'Shall I tell Sarah?',
         detail: 'Maria usually comes on Friday mornings. There was no visit on Friday.',
         actions: [
-          { id: 'tell_family', label: 'Tell Sarah', kind: 'primary' },
           { id: 'keep_private', label: 'Keep it to myself', kind: 'dismiss' },
+          { id: 'tell_family', label: 'Tell Sarah', kind: 'secondary' },
         ],
       },
     });
@@ -126,7 +126,7 @@ describe('askAboutDifferences — the resident is asked before anyone is told', 
     await askAboutDifferences('hh-1', d);
 
     const sent = vi.mocked(d.sendCard).mock.calls[0]![0];
-    expect(sent.card).toMatchObject({ headline: 'Shall I tell the family?', actions: [{ label: 'Tell the family' }, { label: 'Keep it to myself' }] });
+    expect(sent.card).toMatchObject({ headline: 'Shall I tell the family?', actions: [{ label: 'Keep it to myself' }, { label: 'Tell the family' }] });
   });
 
   it('asks once: a difference already asked about is never put on the television again', async () => {

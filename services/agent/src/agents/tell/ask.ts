@@ -117,10 +117,12 @@ export function buildTellCard(input: TellCardInput): QueuedCard {
       createdAt: input.now,
       headline: `Shall I tell ${input.who}?`,
       detail: input.sentence,
+      // Saying nothing comes first, where the remote starts, and is what Back does (home/waiting.ts
+      // backOnShownCard): silence is the default (docs/WICK.md §7). Telling is one deliberate move
+      // away, and is not drawn as the button to press.
       actions: [
-        { id: TELL_ACTIONS.tell, label: `Tell ${input.who}`, kind: 'primary' },
-        // The way out, and last: saying nothing is always possible.
         { id: TELL_ACTIONS.keep, label: 'Keep it to myself', kind: 'dismiss' },
+        { id: TELL_ACTIONS.tell, label: `Tell ${input.who}`, kind: 'secondary' },
       ],
     },
   };
