@@ -744,7 +744,11 @@ function renderWeekCard(card, said) {
  */
 function renderWeekSuggestion(suggestion) {
   const box = el('div', 'week-suggestion');
-  box.appendChild(el('p', 'primary-text', suggestion.text));
+  const words = el('div', 'week-suggestion-words');
+  words.appendChild(el('p', 'primary-text', suggestion.text));
+  // Why, in the brief's own sentence: under the action, never in its place.
+  if (suggestion.why) words.appendChild(el('p', 'secondary-text', suggestion.why));
+  box.appendChild(words);
   if (!suggestion.action) return box;
   const button = el('button', 'btn', suggestion.label);
   button.type = 'button';

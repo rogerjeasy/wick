@@ -199,10 +199,19 @@ describe('the week card’s one suggestion — the Sunday brief’s “One thing
 
   it('offers a note: the button opens the note composer', () => {
     expect(withSuggestion('send_note', 'A quiet week: a note would be nice to come back to.')).toEqual({
-      text: 'One thing you could do: A quiet week: a note would be nice to come back to.',
+      text: 'One thing you could do: write her a note.',
+      why: 'A quiet week: a note would be nice to come back to.',
       action: 'send_note',
       label: 'Write a note',
     });
+  });
+
+  it('says the action in its own words, and the reason under it: a reason is never read as the thing to do', () => {
+    expect(withSuggestion('watch_together', 'A film was played on the television this week.')).toMatchObject({
+      text: 'One thing you could do: watch a film together.',
+      why: 'A film was played on the television this week.',
+    });
+    expect(withSuggestion('arrange_visit', 'Maria did not visit this week.')).toMatchObject({ text: 'One thing you could do: arrange a visit.' });
   });
 
   it('offers to arrange a visit, and to watch a film together, each with its own button', () => {
@@ -224,7 +233,7 @@ describe('the week card’s one suggestion — the Sunday brief’s “One thing
 
   it('puts the words on the page as the server gave them, and adds only its own labels', () => {
     const odd = '<img src=x onerror=alert(1)>';
-    expect(withSuggestion('send_note', odd).text).toBe(`One thing you could do: ${odd}`);
+    expect(withSuggestion('send_note', odd).why).toBe(odd);
   });
 });
 

@@ -564,12 +564,24 @@ const SUGGESTION_BUTTONS = {
   watch_together: 'Watch a film together',
 };
 
+/** Each action said as the thing to do: the week card's own words, so the line is always an action. */
+const SUGGESTION_DOING = {
+  send_note: 'write her a note',
+  arrange_visit: 'arrange a visit',
+  watch_together: 'watch a film together',
+};
+
 /**
  * The week's one suggestion, from the Sunday brief (get_week_narrative's
- * `suggestion`): "One thing you could do: …" and the one button that does
- * it — or, for "nothing", nothing at all. The reason is the
- * server's, already past the Guardian; this page only labels it. Anything
- * it cannot read is left off the card.
+ * `suggestion`): "One thing you could do: watch a film together." in this
+ * page's own words, the brief's reason under it, and the one button that
+ * does it — or, for "nothing", nothing at all.
+ *
+ * The action is said here, never taken from the reason: the reason says why
+ * ("A film was played on the television this week."), and put after "One
+ * thing you could do:" it read as if the film were the thing to do. The
+ * reason is the server's, already past the Guardian; this page only labels
+ * it. Anything it cannot read is left off the card.
  */
 export function presentSuggestion(suggestion) {
   if (typeof suggestion !== 'object' || suggestion === null) return undefined;
@@ -578,7 +590,7 @@ export function presentSuggestion(suggestion) {
   // "Nothing" adds nothing to a week the card has just told: its reason only says the week again, so it is left off.
   if (action === 'nothing') return undefined;
   if (!Object.hasOwn(SUGGESTION_BUTTONS, action)) return undefined;
-  return { text: `One thing you could do: ${reason.trim()}`, action, label: SUGGESTION_BUTTONS[action] };
+  return { text: `One thing you could do: ${SUGGESTION_DOING[action]}.`, why: reason.trim(), action, label: SUGGESTION_BUTTONS[action] };
 }
 
 function presentWeek(week, formatTime, now, timeZone) {
