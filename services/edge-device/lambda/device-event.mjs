@@ -260,6 +260,20 @@ async function publishWeekSeen(detail) {
  * @param {(input: object, signal: AbortSignal) => Promise<Uint8Array>} [input.synthesize]
  *   the voice a card is read in (speech.mjs); Amazon Polly unless one is handed in
  */
+/**
+ * A television's event, timed by this edge: `at` is still required of it,
+ * but its value is replaced by the moment the edge was told. A television's
+ * own clock can be wrong — the Vega Virtual Device's ran three hours slow,
+ * and her reply to a note sent at 11:02 was told to the family as given at
+ * 07:51 — and every row it would have dated (her timeline, her answers, the
+ * week she read, her television's hours) would be filed at that time. An
+ * event reaches the edge within a second of the press, over a channel that
+ * is open, so the edge's clock is the truer one.
+ */
+export function onTheEdgeClock(deviceEvent, now) {
+  return typeof deviceEvent?.at === 'number' ? { ...deviceEvent, at: now } : deviceEvent;
+}
+
 export async function handleDeviceEvent({ householdId, deviceId, unproven = false, deviceEvent, sendCard: sendCardAsWritten, sendControl: sendControlAsWritten, synthesize = pollySynthesize }) {
   const device = await ddb.send(new GetItemCommand({
     TableName: TABLE,
@@ -269,6 +283,8 @@ export async function handleDeviceEvent({ householdId, deviceId, unproven = fals
   if (!isServed(device.Item)) return { statusCode: 403, body: 'revoked' };
   // A connection opened on a token minted without proof, for a television that has since enrolled a secret (proof.mjs).
   if (refusesUnproven(device.Item, unproven)) return { statusCode: 403, body: 'proof_required' };
+  // When it happened is this edge's clock, not the television's (onTheEdgeClock).
+  deviceEvent = onTheEdgeClock(deviceEvent, Date.now());
 
   // Everything sent below goes out in the household's language (language.mjs):
   // wrapped here, once, so every send site is covered without knowing it.

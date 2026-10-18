@@ -75,14 +75,15 @@ const HH = 'HH#hh-1';
 const put = (item: Row) => aws.rows.set(`${item.pk!.S}|${item.sk!.S}`, item);
 const week = (seenAt?: number) => ({ householdId: 'hh-1', isoWeek: '2026-W38', text: 'A quiet week.', deltas: [], timeline: [], generatedAt: 1, ...(seenAt ? { residentSeenAt: seenAt } : {}) });
 
+/** The edge is told of the press at `at`: its own clock is what dates it (device-event.mjs onTheEdgeClock). */
 const pressOk = (at: number) =>
-  handleDeviceEvent({
+  (vi.useFakeTimers({ toFake: ['Date'] }), vi.setSystemTime(at), handleDeviceEvent({
     householdId: 'hh-1',
     deviceId: 'tv-1',
     deviceEvent: { t: 'card_action', cardId: 'week-2026-W38', action: 'seen', at },
     sendCard: async () => true,
     sendControl: async () => true,
-  });
+  }));
 
 const weekSeen = () => aws.events.filter((e) => e.DetailType === 'week.seen');
 
@@ -95,7 +96,10 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe('OK on the week card', () => {
   it('marks the week read, then tells the agent plane the week can be read — the household, the week, when, and nothing she read', async () => {

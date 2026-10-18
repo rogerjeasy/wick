@@ -78,14 +78,15 @@ const { handleDeviceEvent } = await import('../device-event.mjs');
 const HH = 'HH#hh-1';
 const put = (item: Row) => aws.rows.set(`${item.pk!.S}|${item.sk!.S}`, item);
 
+/** The edge is told of the press at `at`: its own clock is what dates it (device-event.mjs onTheEdgeClock). */
 const press = (action: string, at: number) =>
-  handleDeviceEvent({
+  (vi.useFakeTimers({ toFake: ['Date'] }), vi.setSystemTime(at), handleDeviceEvent({
     householdId: 'hh-1',
     deviceId: 'tv-1',
     deviceEvent: { t: 'card_action', cardId: 'note-1', action, at },
     sendCard: async () => true,
     sendControl: async () => true,
-  });
+  }));
 
 const onTheNote = () => aws.updates.filter((u) => u.Key.sk!.S === 'CARD#note-1').map((u) => u.UpdateExpression);
 
@@ -104,7 +105,40 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe("a television's clock is not the time of her answer", () => {
+  it('dates her reply by the edge: a television three hours slow does not make a reply look given before the note', async () => {
+    const edgeNow = Date.UTC(2026, 9, 18, 15, 4);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(edgeNow);
+    await handleDeviceEvent({
+      householdId: 'hh-1',
+      deviceId: 'tv-1',
+      // The Vega Virtual Device's own clock, 3 h 12 min behind.
+      deviceEvent: { t: 'card_action', cardId: 'note-1', action: 'reply_0', at: edgeNow - (3 * 60 + 12) * 60_000 },
+      sendCard: async () => true,
+      sendControl: async () => true,
+    });
+
+    const reply = aws.updates.find((u) => u.UpdateExpression.includes('repliedAt'));
+    expect(reply?.ExpressionAttributeValues[':at']).toEqual({ N: String(edgeNow) });
+  });
+
+  it('still refuses an event that carries no time at all', async () => {
+    const answer = await handleDeviceEvent({
+      householdId: 'hh-1',
+      deviceId: 'tv-1',
+      deviceEvent: { t: 'card_action', cardId: 'note-1', action: 'reply_0' },
+      sendCard: async () => true,
+      sendControl: async () => true,
+    });
+    expect(answer).toMatchObject({ statusCode: 400 });
+  });
+});
 
 describe('Back on a note: "later"', () => {
   it('stamps the note seen, with its two showings — and does not finish it, nor record a reply', async () => {

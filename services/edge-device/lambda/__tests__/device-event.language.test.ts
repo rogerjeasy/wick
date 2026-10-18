@@ -401,7 +401,10 @@ describe('her answer to the language question', () => {
     home({ asked: 'es' });
     put({ pk: { S: HH }, sk: { S: 'CARD#language-es' }, data: { S: JSON.stringify({ id: 'language-es', urgency: 'DEFERRED', card: { type: 'LANGUAGE', id: 'language-es' }, queuedAt: 1, shownCount: 0 }) } });
 
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000);
     await press('language-es', 'yes');
+    vi.useRealTimers();
 
     expect(aws.rows.get(`${HH}|CARD#language-es`)!.actedAt).toEqual({ N: '1000' });
     expect(aws.events.filter((entry) => entry.DetailType === 'card.retired').map((entry) => JSON.parse(entry.Detail).cardId)).toEqual(['language-es']);
