@@ -43,15 +43,6 @@ export const DOOR_LINE = "Someone's at the front door.";
 export const NOBODY_AFTER_MOTION_LINE = 'Movement at the front door.';
 export const NOBODY_AFTER_RING_LINE = 'The doorbell rang.';
 
-/**
- * The same three sentences from the stand-in doorbell of a demo home
- * (packages/contracts demoDoor.ts). The card says what it is where the
- * door is named: a demo home has no Ring doorbell, and nobody is to take a
- * stand-in for a real front door.
- */
-export const STAND_IN_DOOR_LINE = "Someone's at the front door (stand-in doorbell).";
-export const STAND_IN_NOBODY_AFTER_MOTION_LINE = 'Movement at the front door (stand-in doorbell).';
-export const STAND_IN_NOBODY_AFTER_RING_LINE = 'The stand-in doorbell rang.';
 
 export const DESCRIPTION_MAX_WORDS = 14;
 
@@ -192,8 +183,10 @@ export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
     householdId,
     correlationId,
     createdAt: now,
-    line: standIn ? STAND_IN_DOOR_LINE : DOOR_LINE,
+    line: DOOR_LINE,
     actions: actionsFor(hallwayChime, match ? undefined : familyToAsk(family), standIn, ringUnanswered),
+    // A demo home's stand-in doorbell is said in a label of its own on her television, never in her sentence.
+    ...(standIn ? { standIn: true as const } : {}),
     ...(match ? { match } : {}),
     ...(arrangedBy ? { notice: arrangedThisVisit(arrangedBy) } : {}),
   };
@@ -255,7 +248,6 @@ export function buildDescriptionPatch(
   cardId: string,
   candidate: DescriptionCandidate,
   eventType?: string,
-  options: { readonly standIn?: boolean } = {},
 ): CardPatch | null {
   if (candidate.confidence < MIN_DESCRIPTION_CONFIDENCE) return null;
   if (!validateDescription(candidate.description)) return null;
@@ -265,9 +257,8 @@ export function buildDescriptionPatch(
   // line standing — a correction is a claim too.
   if (candidate.personVisible !== false) return { cardId, description };
   const pressed = eventType === 'button_press';
-  const line = options.standIn
-    ? (pressed ? STAND_IN_NOBODY_AFTER_RING_LINE : STAND_IN_NOBODY_AFTER_MOTION_LINE)
-    : (pressed ? NOBODY_AFTER_RING_LINE : NOBODY_AFTER_MOTION_LINE);
+  // The same words for a stand-in doorbell: its card carries its own label (DoorCard.standIn).
+  const line = pressed ? NOBODY_AFTER_RING_LINE : NOBODY_AFTER_MOTION_LINE;
   return { cardId, description, line };
 }
 

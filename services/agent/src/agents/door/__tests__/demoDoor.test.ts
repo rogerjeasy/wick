@@ -104,7 +104,7 @@ describe('routeDemoDoorEvent — somebody at a demo home’s door', () => {
     expect(w.cards).toHaveLength(1);
     const { card, urgency } = w.cards[0]!;
     expect(urgency).toBe('DOOR');
-    expect(card).toMatchObject({ type: 'DOOR', householdId: 'hh-demo', correlationId: 'corr-demo-1', line: "Someone's at the front door (stand-in doorbell)." });
+    expect(card).toMatchObject({ type: 'DOOR', householdId: 'hh-demo', correlationId: 'corr-demo-1', line: "Someone's at the front door.", standIn: true });
     expect(card.actions.map((a) => a.id)).toEqual(['ask_family', 'dismiss']);
     expect(card.actions[0]!.label).toBe('Ask Guest to look');
   });
@@ -188,7 +188,7 @@ describe('routeDemoDoorEvent — somebody at a demo home’s door', () => {
 
     expect(await routeDemoDoorEvent(event({ visitor: 'nobody' }), { isDemoHome: demoHome, base })).toBe('sent');
 
-    expect(w.patches.at(-1)).toMatchObject({ line: 'Movement at the front door (stand-in doorbell).' });
+    expect(w.patches.at(-1)).toMatchObject({ line: 'Movement at the front door.' });
   });
 
   it('is the same card when the same ring is delivered twice (INV-6)', async () => {

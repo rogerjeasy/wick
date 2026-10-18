@@ -68,15 +68,11 @@ export function withinDeadline<T>(work: () => Promise<T>, ms: number, reason: st
   };
 }
 
-/**
- * `eventType` picks the corrected headline when the frame shows nobody (index.ts);
- * `standIn`, that it is said as a demo home's stand-in doorbell (demoDoor.ts).
- */
+/** `eventType` picks the corrected headline when the frame shows nobody (index.ts). */
 export async function runDoorPhase2(
   cardId: string,
   deps: Phase2Deps,
   eventType?: string,
-  options: { readonly standIn?: boolean } = {},
 ): Promise<Phase2Outcome> {
   let image: RingImage;
   let bytes: Uint8Array;
@@ -91,7 +87,7 @@ export async function runDoorPhase2(
   const described = await deps.describe(bytes);
   if (!described.candidate) return { image: imageOutcome, description: 'declined', reason: described.reason };
 
-  const patch = buildDescriptionPatch(cardId, described.candidate, eventType, options);
+  const patch = buildDescriptionPatch(cardId, described.candidate, eventType);
   if (!patch) return { image: imageOutcome, description: 'rejected', reason: described.reason };
 
   const descriptionOutcome = (await trySend(deps, patch)) ? 'patched' : 'patch_failed';
