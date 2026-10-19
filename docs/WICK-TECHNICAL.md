@@ -820,6 +820,9 @@ Every slow call opened a new connection: App Runner's front end closes idle conn
 | A family member overreaching | Policy table and her exclusions; exclusions only narrow (§6.2). |
 | A replayed press | Single-use card ids, server-side counts, idempotent actions. |
 | Logs leaking ids | A test reads every logger call and fails on a device id. |
+| An anonymous visitor running up the bill | The allowances a guest spends (assistant steps, spoken questions, demo guests) are counted in the table, `LIMIT#…` rows with a window and a `ttl`, so every instance and every restart reads one count (`services/mcp-server/src/budget.ts`); App Runner may scale to `mcp_max_instances` (default 2), not 25; and when the month's actual spend passes the budget, AWS Budgets attaches a deny of Bedrock and Transcribe to the three roles that call them (`infra/budget.tf`) until someone lifts it. A table that cannot be asked allows nothing. |
+| A flood of one public route starving Ring's webhook | Each route of the edge API has its own throttle (`edge_route_limits`), the webhook's the largest, and the webhook function has reserved concurrency of its own (`infra/edge.tf`). |
+| Anyone who can merge to `main` reading a household | The deploy role holds the verbs Terraform needs on `wick*` names, and an explicit deny of item and object access, function invocation, event sending and log reading for the whole account (`infra/github-oidc.tf`; checked against 20,000 recorded CI calls and 78 allow/deny cases in the IAM policy simulator). It does **not** stop a merged change from deploying code that the functions' own roles run: that is what review and the protected branch are for. |
 
 ### 10.3 `AGENTS.md`
 

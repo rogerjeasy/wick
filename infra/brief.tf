@@ -286,8 +286,9 @@ resource "aws_lambda_event_source_mapping" "brief_worker" {
   batch_size              = 1
   function_response_types = ["ReportBatchItemFailures"]
 
-  # Two at a time: this account's Lambda concurrency quota is 10 (alarms.tf),
-  # and a Sunday evening must not starve the door.
+  # Two at a time: each home is a few Sonnet calls, and Bedrock's own rate
+  # limits are shared with the family's assistant. (This account's Lambda
+  # quota is 1,000 now; it was 10 when this was set, and two is still enough.)
   scaling_config {
     maximum_concurrency = 2
   }
