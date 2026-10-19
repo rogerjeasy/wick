@@ -3,7 +3,7 @@ script-src 'self' https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.light.min.
 style-src 'self';
 img-src 'self' data: blob: https:;
 media-src 'self' blob: ${films} ${speech};
-connect-src 'self' ${edge_api} ${websocket} ${wick_server} ${films};
+connect-src 'self' ${edge_api} ${websocket} ${iot} ${wick_server} ${films};
 worker-src blob:;
 base-uri 'none';
 form-action 'self';

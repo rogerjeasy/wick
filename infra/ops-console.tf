@@ -40,12 +40,17 @@ locals {
     replace(
       replace(
         replace(
-          file("${path.module}/../apps/ops-console/tv-core.js"),
-          "PAIRING_API_URL_PLACEHOLDER",
-          aws_apigatewayv2_api.edge.api_endpoint,
+          replace(
+            file("${path.module}/../apps/ops-console/tv-core.js"),
+            "PAIRING_API_URL_PLACEHOLDER",
+            aws_apigatewayv2_api.edge.api_endpoint,
+          ),
+          "WEBSOCKET_URL_PLACEHOLDER",
+          aws_apigatewayv2_stage.transport.invoke_url,
         ),
-        "WEBSOCKET_URL_PLACEHOLDER",
-        aws_apigatewayv2_stage.transport.invoke_url,
+        # The cards come by IoT Core first, as on the Vega app; the WebSocket above is behind it (infra/iot.tf).
+        "MQTT_WSS_URL_PLACEHOLDER",
+        "wss://${data.aws_iot_endpoint.data.endpoint_address}/mqtt?x-amz-customauthorizer-name=${aws_iot_authorizer.device.name}",
       ),
       # Watching together: the virtual television plays the same films from the same place (infra/programmes.tf).
       "PROGRAMMES_ORIGIN_PLACEHOLDER",
@@ -147,6 +152,16 @@ resource "aws_s3_object" "ops_console_tv_engine_js" {
   cache_control = "no-cache"
 }
 
+# How the page reaches home: the Vega app's own transport, IoT Core's MQTT first (scripts/tv-page/build.ts).
+resource "aws_s3_object" "ops_console_tv_channels_js" {
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "tv-channels.generated.js"
+  source        = "${path.module}/../apps/ops-console/tv-channels.generated.js"
+  etag          = filemd5("${path.module}/../apps/ops-console/tv-channels.generated.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
 resource "aws_s3_object" "ops_console_tv_catalog_json" {
   bucket        = aws_s3_bucket.ops_console.id
   key           = "tv-catalog.json"
@@ -170,7 +185,7 @@ resource "aws_s3_object" "ops_console_tv_posters" {
 # What the browser is told about these pages, on every answer: the same
 # headers as the family app's (infra/sim-alexa.tf, where each is explained),
 # with infra/csp/ops-console.csp for the policy. A television in a tab talks
-# to the edge API to pair, to its WebSocket for the cards, to the Wick server
+# to the edge API to pair, to IoT Core and its WebSocket for the cards, to the Wick server
 # for a family member's own television, and to the films; it plays Read to
 # me from the media bucket (a presigned address). It has no microphone.
 # ---------------------------------------------------------------------------
@@ -179,6 +194,8 @@ locals {
   ops_console_csp = replace(trimspace(templatefile("${path.module}/csp/ops-console.csp", {
     edge_api  = aws_apigatewayv2_api.edge.api_endpoint
     websocket = replace(aws_apigatewayv2_stage.transport.invoke_url, "/^(wss://[^/]+).*$/", "$1")
+    # IoT Core's address for the cards, tried before the WebSocket (tv-core.js).
+    iot = "wss://${data.aws_iot_endpoint.data.endpoint_address}"
     # The issuer setting, not the service's own address: the service is told this site's address
     # (WICK_VIRTUAL_TV_URL), so naming it here would make each wait for the other.
     wick_server = var.mcp_issuer_url != "" ? var.mcp_issuer_url : "https://*.awsapprunner.com"

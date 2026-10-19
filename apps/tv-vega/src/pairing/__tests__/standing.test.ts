@@ -560,6 +560,6 @@ describe('where the watch is wired', () => {
 
   it('ResidentApp.tsx tells the watch when Wick is on screen, and when its channel is in trouble', () => {
     expect(resident).toMatch(/watch\.onScreen\(onScreen\)/);
-    expect(resident).toMatch(/holdCardChannel\([^)]*questionLeft, watch\.trouble\)/);
+    expect(resident).toMatch(/holdCardChannel\([^)]*questionLeft, watch\.trouble, handleLink\)/);
   });
 });

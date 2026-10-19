@@ -39,11 +39,18 @@ vi.mock('@amazon-devices/react-native-w3cmedia', () => import('./render/media.js
 vi.mock('../home/posters.js', () => ({ POSTERS: {} }));
 
 /** The card channel, as far as the app can tell: it is handed the queue, and puts cards in it. */
-const channel = vi.hoisted(() => ({ store: undefined as QueueStore | undefined, token: undefined as string | undefined, stopped: 0 }));
+const channel = vi.hoisted(() => ({
+  store: undefined as QueueStore | undefined,
+  token: undefined as string | undefined,
+  stopped: 0,
+  /** What the channel tells the screen about being open (holdCardChannel's last argument). */
+  link: undefined as ((open: boolean) => void) | undefined,
+}));
 vi.mock('../transport/startCardChannel.js', () => ({
-  holdCardChannel: (store: QueueStore, token: { jwt: string }) => {
+  holdCardChannel: (store: QueueStore, token: { jwt: string }, _create: unknown, _config: unknown, _announce: unknown, _sent: unknown, _trouble: unknown, link?: (open: boolean) => void) => {
     channel.store = store;
     channel.token = token.jwt;
+    channel.link = link;
     return { stop: () => void (channel.stopped += 1), reconcile: () => undefined };
   },
 }));
@@ -109,6 +116,7 @@ beforeEach(() => {
   channel.store = undefined;
   channel.token = undefined;
   channel.stopped = 0;
+  channel.link = undefined;
   film.props = undefined;
 });
 afterEach(() => {
@@ -289,5 +297,75 @@ describe('ResidentApp, drawn whole', () => {
     // Still settled on her home screen, and it does not come back by itself.
     await wait(SETTLED_AFTER_MS);
     expect(shows(root, 'I will pop round on Saturday.')).toBe(false);
+  });
+
+  describe('when the connection to home goes', () => {
+    const NOT_REACHED = "Wick can't reach home just now.";
+    /** The channel reports whether it is open, once a second, as holdCardChannel does. */
+    async function connection(open: boolean, forMs: number): Promise<void> {
+      for (let at = 0; at < forMs; at += 1_000) {
+        await act(async () => channel.link!(open));
+        await wait(1_000);
+      }
+    }
+
+    it('says nothing while it is connected, or for a drop of a few seconds', async () => {
+      const { root } = await launch();
+      await connection(true, 3_000);
+      await connection(false, 5_000);
+      await connection(true, 2_000);
+      expect(shows(root, NOT_REACHED)).toBe(false);
+    });
+
+    it('says plainly that Wick cannot reach home once it has been down for a while, and stops when it is back', async () => {
+      const { root } = await launch();
+      await wait(1_000);
+      await connection(false, 25_000);
+      expect(shows(root, NOT_REACHED)).toBe(true);
+      expect(headers(root).map(textOf)).toEqual(['What would you like to watch?']);
+
+      await connection(true, 2_000);
+      expect(shows(root, NOT_REACHED)).toBe(false);
+    });
+
+    it('says it in her language', async () => {
+      const { root } = await launch();
+      await act(async () => {
+        channel.store!.setHome({ language: 'es' }, { whole: true });
+      });
+      await wait(1_000);
+      await connection(false, 25_000);
+      expect(shows(root, 'Wick no puede conectarse ahora.')).toBe(true);
+    });
+
+    it('puts it in place of a waiting note’s line, and gives the note’s line back with the connection', async () => {
+      const { root } = await launch();
+      await deliver(note);
+      await wait(SETTLED_AFTER_MS + 1_000);
+      await wait(1_000);
+      await act(async () => void pressBack()); // the note goes to the home screen's quiet line
+      await wait(1_000);
+      expect(shows(root, 'A note from Sarah is waiting.')).toBe(true);
+
+      await connection(false, 25_000);
+      expect(shows(root, NOT_REACHED)).toBe(true);
+      expect(shows(root, 'A note from Sarah is waiting.')).toBe(false);
+
+      await connection(true, 2_000);
+      expect(shows(root, 'A note from Sarah is waiting.')).toBe(true);
+      expect(shows(root, NOT_REACHED)).toBe(false);
+    });
+
+    it('does not carry the trouble of one connection over to the next: behind another app, then back', async () => {
+      const { root } = await launch();
+      await connection(false, 15_000);
+      await act(async () => moveApp('background'));
+      await wait(1_000);
+      await act(async () => moveApp('active'));
+      await wait(1_000);
+      // A new channel was made; it has been down for 5 seconds, not 20.
+      await connection(false, 5_000);
+      expect(shows(root, NOT_REACHED)).toBe(false);
+    });
   });
 });

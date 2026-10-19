@@ -16,7 +16,9 @@ import { describe, expect, it } from 'vitest';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const SOURCES = ['services', 'apps', 'packages'];
-const SKIP = /(^|\/)(node_modules|__tests__|dist|\.build|android|ios)(\/|$)/;
+// A generated bundle is not source: it is Wick's own files (scanned where they live) with the `mqtt` library's debug
+// logger, which prints nothing unless a developer switches it on. The source it is built from is read here instead.
+const SKIP = /(^|\/)(node_modules|__tests__|dist|\.build|android|ios)(\/|$)|\.generated\.js$/;
 const CODE = /\.(ts|tsx|mjs|js)$/;
 const LOGGER = /\b(console\.(log|error|warn|info|debug)|log|say)\s*\(/g;
 const NAMES_A_DEVICE = /(?<![A-Za-z])(deviceId|device_id|clientId)\b/;

@@ -25,7 +25,7 @@ import type { DeviceChannel, DeviceToken } from '@wick/contracts';
 import { createDeviceChannel, type DeviceChannelConfig } from '../transport/createDeviceChannel.js';
 import { holdCardChannel, type RunningCardChannel } from '../transport/startCardChannel.js';
 import { doorToast, postToast, type ToastContent } from '../notify/doorToast.js';
-import { QueueStore, type FileSystemLike } from './QueueStore.js';
+import { QueueStore, readOnly, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
 import { standingWatch } from '../pairing/standing.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
@@ -74,7 +74,8 @@ export async function onStartCardService(): Promise<void> {
   const config = testDeps?.config ?? loadDeviceConfig();
   const createChannel = testDeps?.createChannel ?? createDeviceChannel;
 
-  const store = new QueueStore(fs);
+  // Read-only: the app is the one writer of the card files (QueueStore.ts). This process's cards live in its memory.
+  const store = new QueueStore(readOnly(fs));
   // The app makes this television's identity and changes it; this process only reads it, for the secret a refresh is proved with (deviceId.ts).
   const pairing = new PairingFlow({ pairingApiUrl: config.pairingApiUrl }, fs, testDeps?.fetchImpl, televisionIdentity(fs));
 

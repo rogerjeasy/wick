@@ -455,7 +455,13 @@ export function tvPage(opts: TvOptions = {}) {
       sockets.push(this);
     }
     send(data: string) {
-      this.sent.push(JSON.parse(data) as Record<string, unknown>);
+      const frame = JSON.parse(data) as Record<string, unknown>;
+      // The edge answers a ping at once (edge-device route.mjs), and the channel's heartbeat counts on it. Not a thing the page sent.
+      if (frame.t === 'ping') {
+        timers.push({ fn: () => this.onmessage?.({ data: JSON.stringify({ kind: 'control', control: { t: 'pong' } }) }), due: clock.now, every: null, cleared: false });
+        return;
+      }
+      this.sent.push(frame);
     }
     close() {}
   }

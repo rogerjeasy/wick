@@ -180,7 +180,7 @@ async function loadCatalogue() {
       if (res.ok) {
         catalogue = readCatalogue(await res.json());
         homeDrawn = '';
-        if (!currentQueuedCard && !film && ws) renderEmpty();
+        if (!currentQueuedCard && !film && channelOpen()) renderEmpty();
         return;
       }
     } catch {
@@ -241,7 +241,7 @@ function countShowing(cardId) {
  * so the door is on the screen the moment it comes.
  */
 function look() {
-  if (family || !ws) return;
+  if (family || !channelOpen()) return;
   const now = Date.now();
   keptCards = keptCards.filter((q) => typeof q.expiresAt !== 'number' || q.expiresAt > now);
   // A screen she asked for — her mantelpiece, or "Easier to see" — keeps a note waiting behind it. The door comes over it.
@@ -637,7 +637,7 @@ function fitDay(screen, top, panel, day) {
 
 /** Her press on the light, or her hold: a question to the server, whose answering card is hers to see at once. */
 function askAbout(asked, event) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!channelOpen()) return;
   const at = Date.now();
   asked.asked(at);
   send({ ...event, at });
@@ -694,7 +694,7 @@ function screenKey() {
   if (easierOpen) return 'easier';
   if (mantelView) return 'mantel';
   if (film) return 'film';
-  if (!ws) return 'unpaired';
+  if (!channelOpen()) return 'unpaired';
   return 'home';
 }
 
@@ -780,7 +780,7 @@ let okDown = null;
 
 /** OK held for two seconds: Hold for Sarah, when OK is free to be held — no card has it (watch/hold.ts). */
 const okHold = TV.okHold({
-  canHold: () => !family && Boolean(ws) && currentQueuedCard === null && !easierOpen,
+  canHold: () => !family && channelOpen() && currentQueuedCard === null && !easierOpen,
   onHold: () => askAbout(reachAsked, { t: 'reach' }),
 });
 
@@ -794,7 +794,7 @@ function pressOk() {
 /** Play/Pause: the card's to read, or the film's (watch/remoteKeys.ts). */
 function pressPlay() {
   const card = currentQueuedCard;
-  const open = Boolean(ws) && ws.readyState === WebSocket.OPEN;
+  const open = channelOpen();
   const holdsFilm = Boolean(film) && breaks.holdsProgramme(card ?? undefined);
   const playReads = TV.playIsTheCards({ card: card && open ? card.card.id : undefined, holdsFilm, askedFor });
   const goes = TV.playGoesTo('playpause', { cardVisible: card !== null, playReads, reading: reading !== null });
@@ -976,7 +976,7 @@ async function pairUntilPaired() {
   pairingLoop = true;
   try {
     showUnpaired('pairing.gettingCode');
-    while (!ws && !family) {
+    while (!channel && !family) {
       if (await pairAndConnect()) break;
       showUnpaired('pairing.stillTrying');
       await sleep(5000);
@@ -986,17 +986,14 @@ async function pairUntilPaired() {
   }
 }
 
-/** The channel closed. Refused: it is paired again. Lost: it tries again, while this tab is still that television. */
+/**
+ * The channel closed. Refused (it never opened): it is paired again. Lost: the channel goes on trying by itself, and
+ * the minute's question (standing) finds out whether the home has let this television go.
+ */
 function channelClosed(opened) {
   clearInterval(tick);
   tick = null;
-  ws = null;
-  if (!opened) return void pairUntilPaired();
-  setTimeout(() => {
-    const television = rememberedTelevision();
-    if (ws || family || !television || television.kind !== 'resident') return;
-    connectWebSocket(television.jwt, television.deviceId, television.proof);
-  }, 5000);
+  if (!opened) void pairUntilPaired();
 }
 
 function channelOpened() {
@@ -1073,7 +1070,7 @@ document.addEventListener('visibilitychange', () => {
   const now = Date.now();
   // Behind another tab is behind another app: nothing is shown to nobody, and she is looking afresh when it is back.
   breaks.setForeground(!document.hidden, now);
-  if (!ws) return;
+  if (!channelOpen()) return;
   send({ t: 'app_lifecycle', state: document.hidden ? 'bg' : 'fg', at: now });
   if (!document.hidden) settle.returned(now);
 });
