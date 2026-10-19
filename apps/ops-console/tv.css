@@ -139,6 +139,38 @@ body {
   color: var(--ink);
 }
 
+/* Her day (home/herDay.ts): the greeting in place of the question, the date at the end of its row, and a quiet
+   panel of who is coming under it — closer to the greeting than the rows are to each other. */
+.home-greeting {
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.home-date {
+  flex: none;
+  white-space: nowrap;
+  color: var(--ink-dim);
+  font-size: var(--body);
+}
+
+.home-day {
+  flex: none;
+  margin-top: calc(-12 * var(--dp));
+  box-sizing: border-box;
+  border-radius: calc(16 * var(--dp));
+  background: var(--raised);
+  padding: calc(4 * var(--dp)) calc(20 * var(--dp));
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--dp));
+}
+
+.home-day-line {
+  color: var(--ink);
+  font-size: var(--body);
+  line-height: 1.4;
+}
+
 .home-pill {
   flex: none;
   box-sizing: border-box;
@@ -193,8 +225,11 @@ body {
   text-overflow: ellipsis;
 }
 
+/* A film's title is never cut: at larger text it takes two lines, as on Vega (homeLayout.ts titleLines). */
 .home-title {
   color: var(--ink);
+  white-space: normal;
+  overflow: visible;
 }
 
 .home-line {

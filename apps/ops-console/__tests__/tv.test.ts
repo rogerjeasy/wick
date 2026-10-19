@@ -171,6 +171,68 @@ describe('the home screen — what the Vega home shows', () => {
   });
 });
 
+describe('her day at the top — the greeting, the date, who is coming (home/herDay.ts)', () => {
+  /** The page's clock starts at 1_800_000_000_000: Friday 15 January 2027, 08:00 UTC — the morning in London. */
+  const start = Date.parse('2027-01-15T00:00:00Z');
+  const today = {
+    weekday: 4,
+    day: 15,
+    month: 0,
+    name: 'Margaret',
+    dayStart: start,
+    dayEnd: start + 24 * 3_600_000,
+    coming: [{ line: 'Maria usually comes today at 9 am.', until: start + 9.5 * 3_600_000 }],
+  };
+
+  it('greets her by name in place of the question, says the date, and who is coming — her light joins the pills', async () => {
+    const tv = await atHome();
+    tv.home({ light: 'on', today });
+
+    expect(tv.says()).toEqual([
+      'Good morning, Margaret.',
+      'Friday 15 January',
+      'Maria usually comes today at 9 am.',
+      ...CATALOG.programmes.flatMap((p) => [p.title, `${Math.round(p.durationMs / 60_000)} minutes`]),
+      'Light on',
+      'Easier to see',
+    ]);
+    // Read, never pressed: the focus still starts on the first film.
+    expect(tv.focused()?.dataset.key).toBe('programme:big-buck-bunny');
+  });
+
+  it('lets the line go once Maria’s time is over, with nothing pressed', async () => {
+    const tv = await atHome();
+    tv.home({ today });
+    tv.advance(1.6 * 3_600_000);
+    expect(tv.says()).not.toContain('Maria usually comes today at 9 am.');
+    expect(tv.says()[0]).toBe('Good morning, Margaret.');
+  });
+
+  it('says it in her language', async () => {
+    const tv = await atHome();
+    tv.home({ language: 'es', today: { ...today, coming: [{ line: 'Maria suele venir hoy a las 9:00.', until: today.coming[0]!.until }] } });
+    expect(tv.says().slice(0, 3)).toEqual(['Buenos días, Margaret.', 'Viernes 15 de enero', 'Maria suele venir hoy a las 9:00.']);
+  });
+
+  it('asks for her day again a little after a new card comes — a visit may just have been arranged — and not before', async () => {
+    const tv = await atHome();
+    tv.home({ today });
+    tv.advance(2_000);
+    expect(tv.sentOf('home')).toHaveLength(0);
+    tv.card(queued({ id: 'note-errand-1', type: 'MESSAGE', fromName: 'Sarah', transcript: 'The window cleaner is coming at 10:18 am today.', suggestedReplies: ['Thank you!', 'OK', 'Lovely'] }));
+    tv.advance(1_000);
+    expect(tv.sentOf('home')).toHaveLength(0);
+    tv.advance(3_000);
+    expect(tv.sentOf('home')).toHaveLength(1);
+  });
+
+  it('is the question, as it always was, from a server that says no day', async () => {
+    const tv = await atHome();
+    tv.home({ light: 'on' });
+    expect(tv.says()[0]).toBe(WORDS.en['home.question']);
+  });
+});
+
 describe('"Shall I tell Sarah?" in a browser tab', () => {
   it('starts on "Keep it to myself", as the card the agent plane builds puts it first', async () => {
     const tv = await atHome();

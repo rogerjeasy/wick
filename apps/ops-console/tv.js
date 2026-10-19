@@ -9,9 +9,11 @@
  * what makes it her television and not a page that shows cards:
  *
  * - The home screen the Vega app shows (apps/tv-vega/src/home/HomeScreen.tsx):
- *   "What would you like to watch?", her light in the window, the three
- *   films, who looked in, a card that has waited its two showings, her
- *   mantelpiece — and "Easier to see".
+ *   her day — "Good morning, Margaret.", the date, and who is coming
+ *   (home/herDay.ts) — or, from a server that says no day, "What would you
+ *   like to watch?"; her light in the window, the three films, who looked
+ *   in, a card that has waited its two showings, her mantelpiece — and
+ *   "Easier to see".
  * - Films that play here, from the films' own origin, and the natural break
  *   exactly as on Vega, because it is the Vega app's own code
  *   (tv-engine.generated.js, `npm run tv:build`): a note from the family
@@ -282,6 +284,9 @@ function look() {
   holdFilm();
   sayFilmNotice();
 
+  // Her day: asked for again when it is over, a little after a new card, and now and then (home/herDay.ts herDayAsker).
+  if (dayAsker.look({ now, today: home.today, cardIds: keptCards.map((q) => q.id), onScreen: !document.hidden })) send({ t: 'home', at: now });
+
   const state = breaks.breakState(now);
   if (state !== lastBreakState) {
     lastBreakState = state;
@@ -461,10 +466,14 @@ function sayFilmNotice() {
 /** What the home screen last drew, so a look that changes nothing draws nothing. */
 let homeDrawn = '';
 
+/** When to ask the server for her day again (home/herDay.ts). */
+const dayAsker = TV.herDayAsker();
+
 function homeSignature() {
   const now = Date.now();
   return JSON.stringify([
     tvLanguage(),
+    TV.homeDay(home.today, now, tvLanguage()) ?? null,
     catalogue.map((p) => p.id),
     home.light ? lightLabel(now) : null,
     lookedInLine(now),
@@ -482,23 +491,45 @@ function homeButton(className, key, onPress) {
   return button;
 }
 
-/** The home screen: what would you like to watch, as the Vega app shows it (HomeScreen.tsx). */
+/** Her light in the window, as a pill: OK opens the card that says who can see it. */
+function lightPill(now) {
+  const light = homeButton('home-pill', 'light', () => askAbout(lightAsked, { t: 'light' }));
+  light.textContent = lightLabel(now);
+  light.setAttribute('aria-label', say('home.lightLabel', { light: lightLabel(now) }));
+  return light;
+}
+
+/**
+ * The home screen, as the Vega app shows it (HomeScreen.tsx): her day at the
+ * top when the server says one — the greeting, the date, who is coming —
+ * and otherwise the question, as it always was.
+ */
 function renderHome() {
   if (easierOpen) return renderEasier();
   const now = Date.now();
   homeDrawn = homeSignature();
   const screen = el('div', 'tv-home');
+  const day = TV.homeDay(home.today, now, tvLanguage());
 
   const top = el('div', 'home-top');
-  top.appendChild(el('div', 'home-question', say('home.question')));
-  if (home.light) {
-    // The one button beside the question: OK opens the card that says who can see her light.
-    const light = homeButton('home-pill', 'light', () => askAbout(lightAsked, { t: 'light' }));
-    light.textContent = lightLabel(now);
-    light.setAttribute('aria-label', say('home.lightLabel', { light: lightLabel(now) }));
-    top.appendChild(light);
+  let panel = null;
+  if (day) {
+    const greeting = el('div', 'home-question home-greeting', day.greeting);
+    greeting.setAttribute('role', 'heading');
+    const date = el('div', 'home-date', day.date);
+    top.append(greeting, date);
+    // Who is coming: read, never pressed.
+    if (day.coming.length > 0) {
+      panel = el('div', 'home-day');
+      for (const line of day.coming) panel.appendChild(el('div', 'home-day-line', line));
+    }
+  } else {
+    top.appendChild(el('div', 'home-question', say('home.question')));
+    // The one button beside the question.
+    if (home.light) top.appendChild(lightPill(now));
   }
   screen.appendChild(top);
+  if (panel) screen.appendChild(panel);
 
   const row = el('div', 'home-row');
   for (const programme of catalogue) {
@@ -507,6 +538,8 @@ function renderHome() {
       startFilm({ programmeId: programme.id });
       renderEmpty();
     });
+    // Its name and how long it runs, as the Vega tile tells a screen reader — said even when the line under it gives way.
+    tile.setAttribute('aria-label', `${programme.title}. ${TV.programmeLine(programme, tvLanguage())}`);
     const poster = el('img', 'home-poster');
     poster.alt = '';
     poster.src = `posters/${programme.id}.jpg`;
@@ -537,6 +570,8 @@ function renderHome() {
   } else {
     quiet.appendChild(el('div', 'home-said'));
   }
+  // With her day at the top, her light joins the other pills: the greeting and the date have that row, as on Vega.
+  if (day && home.light) quiet.appendChild(lightPill(now));
   if (Number.isInteger(home.mantel) && home.mantel >= 1) {
     const mantelPill = homeButton('home-pill', 'mantel', openMantel);
     mantelPill.textContent = say('home.mantel');
@@ -548,6 +583,56 @@ function renderHome() {
   screen.appendChild(quiet);
 
   show(screen);
+  if (day) fitDay(screen, top, panel, day);
+}
+
+/** A film's picture shorter than this share of the screen is a sliver, not a picture (homeLayout.ts POSTER_MIN_DP of 540). */
+const POSTER_MIN_SHARE = 60 / 540;
+
+/**
+ * Her day, made to fit as the Vega app's careLayout makes it (homeLayout.ts),
+ * here by looking at what the page drew. Never a word cut, in this order:
+ * where the greeting with her name and the date do not share the row, the
+ * greeting goes without her name; where even that does not fit, the date
+ * leads the panel under it. Then the films' words must be whole: lines about
+ * who is coming go from the last until they are — the soonest never for a
+ * later one, and the date never — once how long each film runs has given
+ * way, as the Vega app never draws it. And a picture too short to be one is
+ * not shown at all.
+ */
+function fitDay(screen, top, panel, day) {
+  const greeting = top.querySelector('.home-greeting');
+  const date = top.querySelector('.home-date');
+  if (!greeting || !date || typeof top.scrollWidth !== 'number') return;
+  const overflows = () => top.scrollWidth > top.clientWidth + 1 || greeting.scrollWidth > greeting.clientWidth + 1;
+  if (overflows()) {
+    greeting.textContent = day.greetingPlain;
+    if (overflows()) {
+      date.remove();
+      greeting.textContent = day.greeting;
+      if (overflows()) greeting.textContent = day.greetingPlain;
+      const lead = el('div', 'home-day-line home-day-date', day.date);
+      if (panel) panel.prepend(lead);
+      else {
+        panel = el('div', 'home-day');
+        panel.appendChild(lead);
+        top.after(panel);
+      }
+    }
+  }
+  const tiles = [...screen.querySelectorAll('.home-tile')];
+  const filmsWhole = () => tiles.every((tile) => tile.scrollHeight <= tile.clientHeight + 1);
+  // How long each film runs is said to a screen reader in its label, and the Vega app draws only the title: it goes first.
+  if (panel && !filmsWhole()) for (const line of screen.querySelectorAll('.home-tile .home-line')) line.hidden = true;
+  while (panel && !filmsWhole()) {
+    const last = [...panel.querySelectorAll('.home-day-line')].filter((line) => !line.classList.contains('home-day-date')).pop();
+    if (!last) break;
+    last.remove();
+  }
+  if (panel && panel.children.length === 0) panel.remove();
+  const sliver = screen.clientHeight * POSTER_MIN_SHARE;
+  const posters = [...screen.querySelectorAll('.home-poster')];
+  if (posters.some((poster) => poster.clientHeight < sliver)) for (const poster of posters) poster.hidden = true;
 }
 
 /** Her press on the light, or her hold: a question to the server, whose answering card is hers to see at once. */
