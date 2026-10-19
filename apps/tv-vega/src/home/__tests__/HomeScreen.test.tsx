@@ -188,6 +188,55 @@ describe.each([
   });
 });
 
+const DAY = {
+  greeting: 'Good morning, Margaret.',
+  greetingPlain: 'Good morning.',
+  date: 'Monday 19 October',
+  coming: ['Maria usually comes tomorrow at 9 am.'],
+};
+
+describe('her day, at the top (home/herDay.ts)', () => {
+  it('greets her by name in place of the question, with the date beside it and who is coming under it', async () => {
+    const { root } = await home({ day: DAY });
+
+    expect(headers(root).map((h) => h.children.join(''))).toEqual(['Good morning, Margaret.']);
+    expect(texts(root)).toContain('Monday 19 October');
+    expect(texts(root)).toContain('Maria usually comes tomorrow at 9 am.');
+    expect(texts(root)).not.toContain('What would you like to watch?');
+    // At the floor size the films keep their pictures.
+    for (const programme of CATALOG) expect(all(tile(root, programme), 'Image')).toHaveLength(1);
+  });
+
+  it('is read, never pressed: nothing new takes the focus, and the focus still starts on the first film', async () => {
+    const { root } = await home({ day: DAY });
+    expect(buttons(root).map((b) => b.props.accessibilityLabel)).toEqual([
+      'Big Buck Bunny. 10 minutes',
+      'Sintel. 15 minutes',
+      'Tears of Steel. 12 minutes',
+      'Easier to see. Press OK for larger text or higher contrast.',
+    ]);
+    expect(preferred(root)).toEqual(['Big Buck Bunny. 10 minutes']);
+  });
+
+  it('sets every word of it at the floor or above, legible on what it is written on, in each Easier to see setting', async () => {
+    for (const preferences of [STANDARD, { largerText: true, higherContrast: false }, { largerText: false, higherContrast: true }, { largerText: true, higherContrast: true }]) {
+      const { root } = await home({ day: DAY, light: 'Light on' }, preferences);
+      const theme = calmTheme(preferences);
+      for (const text of all(root, 'Text').filter((t) => t.children.length > 0)) {
+        expect(fontSize(text), String(text.children.join(''))).toBeGreaterThanOrEqual(theme.fontSize('body'));
+        expect(contrastOf(text), String(text.children.join(''))).toBeGreaterThanOrEqual(7);
+      }
+      // The date is always somewhere.
+      expect(texts(root).some((t) => t === 'Monday 19 October')).toBe(true);
+    }
+  });
+
+  it('is as it was — the question — when the server says no day', async () => {
+    const { root } = await home({ day: undefined });
+    expect(headers(root).map((h) => h.children.join(''))).toEqual(['What would you like to watch?']);
+  });
+});
+
 describe('where the focus starts', () => {
   it('is the first film, and only there', async () => {
     const { root } = await home(WITH_EVERYTHING);

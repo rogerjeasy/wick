@@ -72,6 +72,12 @@
  * (seeing/SeeingProvider.tsx). A card from the server comes over it, and
  * it is there again when that card has gone.
  *
+ * Her day (home/herDay.ts, packages/contracts/src/today.ts). The home
+ * message says the date where the house is, her name and who is coming;
+ * the look below says it in her words once a second, so a line goes the
+ * moment its time is over, and asks the server for her day again when the
+ * one it was told has ended or a new card has come (herDayAsker).
+ *
  * The platform's screen reader (VoiceView). When it is on, each card that
  * comes on screen is announced once (read/announce.ts); her pictures never
  * fill an idle home screen — a slideshow is moving content, and the reader
@@ -101,6 +107,7 @@ import { homeBehind } from './home/behind.js';
 import { HomeScreen } from './home/HomeScreen.js';
 import { backClosesOpened, backOnShownCard, putAway, putsAway, waitingLine } from './home/waiting.js';
 import { asking } from './home/asked.js';
+import { herDayAsker, homeDay, sameHomeDay, type HomeDay } from './home/herDay.js';
 import { okHeld } from './press/held.js';
 import { pressSettle } from './press/settle.js';
 import { standingWatch } from './pairing/standing.js';
@@ -191,6 +198,10 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const [language, setLanguage] = React.useState<HouseholdLanguage | null>(null);
   /** The home, as the server last said it: for what the home screen offers beside its films. */
   const [home, setHome] = React.useState<HomeState>({});
+  /** Her day in her words, as of the last look: the greeting, the date, who is coming (home/herDay.ts). A ref too, so an unchanged day draws nothing. */
+  const [day, setDay] = React.useState<HomeDay | undefined>(undefined);
+  const dayNow = React.useRef<HomeDay | undefined>(undefined);
+  const dayAsker = React.useMemo(() => herDayAsker(), []);
   /**
    * Her mantelpiece (packages/contracts mantel.ts), as the server last
    * answered this television's asking — kept in memory only: the addresses
@@ -458,6 +469,13 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       setLight(lightLabel(home, now, language));
       // The server's sentence, already in her language.
       setLookedIn(lookedInLine(home, now));
+      // Her day: what is still worth saying now, in her words — and, when it is due, the server is asked for it again.
+      const shownDay = homeDay(home.today, now, language);
+      if (!sameHomeDay(dayNow.current, shownDay)) {
+        dayNow.current = shownDay;
+        setDay(shownDay);
+      }
+      if (dayAsker.look({ now, today: home.today, cardIds: cards.map((c) => c.id), onScreen: on.onScreen })) void store.enqueueOutbound({ t: 'home', at: now });
 
       // Her mantelpiece, and the idle screen. Everything above has already happened exactly as it would without
       // them: this only decides whether her pictures may fill a home screen that has nothing else on it.
@@ -867,6 +885,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           onOpenMantel={handleOpenMantel}
           seeing={say('seeing.entry')}
           onOpenSeeing={handleOpenSeeing}
+          day={day}
           onHold={handleHold}
           onKeyUp={handleKeyUp}
         />

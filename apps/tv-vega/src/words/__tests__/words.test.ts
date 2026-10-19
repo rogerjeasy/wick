@@ -43,6 +43,21 @@ const DOOR_ALERT_WORDS = {
   'doorAlert.noteWhere': 'It will be on the screen when you open Wick.',
 } as const;
 
+/** Her day (home/herDay.ts): the greeting at the top of the home screen, and the date beside it. */
+const HER_DAY_WORDS = {
+  'home.greetMorning': 'Good morning, {name}.',
+  'home.greetAfternoon': 'Good afternoon, {name}.',
+  'home.greetEvening': 'Good evening, {name}.',
+  'home.greetMorningPlain': 'Good morning.',
+  'home.greetAfternoonPlain': 'Good afternoon.',
+  'home.greetEveningPlain': 'Good evening.',
+  'home.date': '{weekday} {day} {month}',
+  ...Object.fromEntries(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((name, i) => [`day.${i}`, name])),
+  ...Object.fromEntries(
+    ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((name, i) => [`month.${i}`, name]),
+  ),
+};
+
 /** Easier to see (seeing/seeing.ts): the pill, and its card's headline, line and three buttons. */
 const SEEING_WORDS = {
   'seeing.entry': 'Easier to see',
@@ -111,6 +126,7 @@ describe('the words table — English, exactly as the television said it before 
       ...READ_WORDS,
       ...DOOR_ALERT_WORDS,
       ...SEEING_WORDS,
+      ...HER_DAY_WORDS,
     });
   });
 
