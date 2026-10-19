@@ -509,15 +509,29 @@ export function browserTimeZone() {
  * @param {string | undefined} timeZone  the household's IANA zone (GET /api/me); the reader's own if absent
  */
 export function timeFormatter(timeZone) {
+  // A 12-hour clock, as her television says its times ("Maria was here from 9:02 am"): one clock on both sides.
   const format = new Intl.DateTimeFormat('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true,
     ...(timeZone ? { timeZone } : {}),
   });
   return (atMs) => {
     const parts = format.formatToParts(new Date(atMs));
     const part = (type) => parts.find((p) => p.type === type)?.value ?? '';
-    return `${part('weekday')} ${part('day')} ${part('month')}, ${part('hour')}:${part('minute')}`;
+    return `${part('weekday')} ${part('day')} ${part('month')}, ${part('hour')}:${part('minute')} ${part('dayPeriod').toLowerCase()}`;
   };
+}
+
+/**
+ * "14:00" as "2:00 pm": the time a tool was given (always 24-hour, "HH:MM"),
+ * on the family app's 12-hour clock (timeFormatter). Anything else as it came.
+ *
+ * @param {string | undefined} hhmm
+ */
+export function twelveHour(hhmm) {
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(hhmm ?? ''));
+  if (!m) return hhmm ?? '';
+  const h = Number(m[1]);
+  return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? 'am' : 'pm'}`;
 }
 
 function defaultFormatTime(atMs) {
@@ -591,7 +605,7 @@ export function weekDays(timeline, timeZone) {
   const dateOf = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', ...zone });
   const weekdayOf = new Intl.DateTimeFormat('en-GB', { weekday: 'long', ...zone });
   const dayMonthOf = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', ...zone });
-  const clockOf = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...zone });
+  const clockOf = new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, ...zone });
 
   const readable = (Array.isArray(timeline) ? timeline : []).filter((e) => Number.isFinite(e?.at) && typeof e.summary === 'string');
   const days = new Map();
@@ -1479,7 +1493,7 @@ const DECLINED_TRACE = {
 function visitWhen(date, time) {
   const at = new Date(`${date}T${time}:00Z`);
   if (Number.isNaN(at.getTime())) return `${date ?? ''} ${time ?? ''}`.trim();
-  return `${at.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}, ${time}`;
+  return `${at.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}, ${twelveHour(time)}`;
 }
 
 /** Every argument not already shown, by its own name: nothing is sent that was not on the card. */

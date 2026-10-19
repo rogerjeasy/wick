@@ -115,11 +115,11 @@ describe('weekDays — the days of a week, from its timeline and nothing else', 
         dayMonth: '29 Sept',
         count: 'Two things',
         entries: [
-          { time: '09:05', text: 'Maria visited.' },
-          { time: '17:30', text: 'Someone came to the door.' },
+          { time: '9:05 am', text: 'Maria visited.' },
+          { time: '5:30 pm', text: 'Someone came to the door.' },
         ],
       },
-      { date: '2026-10-02', weekday: 'Friday', dayMonth: '2 Oct', count: 'One thing', entries: [{ time: '09:10', text: 'Maria visited.' }] },
+      { date: '2026-10-02', weekday: 'Friday', dayMonth: '2 Oct', count: 'One thing', entries: [{ time: '9:10 am', text: 'Maria visited.' }] },
     ]);
   });
 
@@ -142,7 +142,7 @@ describe('weekDays — the days of a week, from its timeline and nothing else', 
       'UTC',
     );
     expect(days).toHaveLength(1);
-    expect(days[0].entries).toEqual([{ time: '08:05', text: 'Post.' }]);
+    expect(days[0].entries).toEqual([{ time: '8:05 am', text: 'Post.' }]);
   });
 
   it('carries every string from the tool as it was, and only as text', () => {

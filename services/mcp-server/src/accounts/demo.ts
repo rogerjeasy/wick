@@ -52,11 +52,12 @@ export function newDemoSessionKey(): string {
 
 /**
  * How the family app names a demo session to the person in it: the key's
- * first six characters, upper case ("K7F2QX"). Enough to tell two sessions
- * apart on screen; the key itself is never needed to use one.
+ * first six letters and digits, upper case ("K7F2QX"). The key is base64url,
+ * so a "-" or "_" is left out: "IOGQQ-" read like a mistake. Enough to tell
+ * two sessions apart on screen; the key itself is never needed to use one.
  */
 export function demoSessionLabel(key: string): string {
-  return key.slice(0, 6).toUpperCase();
+  return key.replace(/[^A-Za-z0-9]/g, '').slice(0, 6).toUpperCase();
 }
 
 export function isGuest(userId: string): boolean {

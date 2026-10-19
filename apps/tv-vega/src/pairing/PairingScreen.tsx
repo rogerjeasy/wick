@@ -75,7 +75,8 @@ const makeStyles = (t: CalmTheme) =>
     headline: { fontSize: t.fontSize('headline'), color: t.palette.ink, marginBottom: 24 },
     code: { fontSize: t.fontSize('display'), color: t.palette.accent, letterSpacing: 8, marginBottom: 16 },
     body: { fontSize: t.fontSize('body'), color: t.palette.inkDim, textAlign: 'center', paddingHorizontal: 24, marginBottom: 16 },
-    link: { fontSize: t.fontSize('body'), color: t.palette.inkDim },
+    // Centred like the words above it: a long address wraps at its slashes, and a ragged left edge read as broken.
+    link: { fontSize: t.fontSize('body'), color: t.palette.inkDim, textAlign: 'center' },
     row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 48 },
     words: { flex: 1, alignItems: 'center' },
     qr: { alignItems: 'center', marginLeft: 32 },

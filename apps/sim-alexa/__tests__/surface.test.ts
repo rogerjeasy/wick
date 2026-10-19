@@ -62,7 +62,7 @@ import {
 } from '../surface.js';
 import { DEMO_VISITOR_KEYS, demoVisitor } from '../../../packages/contracts/src/demoDoor.js';
 import { saidOnHerClock as serverSaidOnHerClock } from '../../../packages/contracts/src/clock.js';
-import { saidOnHerClock } from '../surface.js';
+import { saidOnHerClock, twelveHour } from '../surface.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { REPLY_CHOICES as SERVER_REPLY_CHOICES, offeredReplies as serverOfferedReplies } from '../../../services/mcp-server/src/tools/send_note_to_tv.js';
@@ -795,8 +795,8 @@ describe('describeCall — what a step did, in a few words', () => {
 describe('timeFormatter — a time is the time it was at the house', () => {
   it('shows a moment in the household’s zone, whatever zone the person reading is in', () => {
     // 09:08 UTC on Friday 9 October 2026 is 10:08 in London's summer.
-    expect(timeFormatter('Europe/London')(Date.UTC(2026, 9, 9, 9, 8))).toBe('Fri 9 Oct, 10:08');
-    expect(timeFormatter('America/New_York')(Date.UTC(2026, 9, 9, 9, 8))).toBe('Fri 9 Oct, 05:08');
+    expect(timeFormatter('Europe/London')(Date.UTC(2026, 9, 9, 9, 8))).toBe('Fri 9 Oct, 10:08 am');
+    expect(timeFormatter('America/New_York')(Date.UTC(2026, 9, 9, 9, 8))).toBe('Fri 9 Oct, 5:08 am');
   });
 });
 
@@ -815,7 +815,7 @@ describe('confirmWrite — nothing is put on a television or a roster without be
     expect(needsConfirmation('expect_visit')).toBe(true);
     expect(confirmWrite('expect_visit', { date: '2026-10-17', time: '15:00' })).toMatchObject({
       title: 'Tell the door you are coming?',
-      fields: [['When', 'Saturday 17 October, 15:00']],
+      fields: [['When', 'Saturday 17 October, 3:00 pm']],
       confirmLabel: 'Tell the door',
     });
   });
@@ -849,7 +849,7 @@ describe('confirmWrite — nothing is put on a television or a roster without be
   it('shows every value a known write would send, not only the one it expects', () => {
     expect(confirmWrite('send_note_to_tv', { message: 'Hello', urgent: true }).fields).toEqual([['Message', 'Hello'], ['urgent', 'true']]);
     expect(confirmWrite('expect_visit', { date: '2026-10-17', time: '15:00', name: 'Maria' }).fields).toEqual([
-      ['When', 'Saturday 17 October, 15:00'],
+      ['When', 'Saturday 17 October, 3:00 pm'],
       ['name', 'Maria'],
     ]);
   });
@@ -1596,7 +1596,7 @@ describe('watching a film together', () => {
       const asked = confirmWrite('invite_to_watch', { programme: 'sintel', date: '2026-10-18', time: '15:00' });
 
       expect(asked.title).toBe('Ask to watch this together?');
-      expect(asked.fields).toEqual([['Film', 'Sintel'], ['When', 'Sunday 18 October, 15:00']]);
+      expect(asked.fields).toEqual([['Film', 'Sintel'], ['When', 'Sunday 18 October, 3:00 pm']]);
       expect(asked.confirmLabel).toBe('Ask');
     });
 
@@ -3126,5 +3126,12 @@ describe('saidOnHerClock — the note as her television will show it', () => {
   it('shows the note on the confirm card as it will reach her: 2 pm, not 14:00', () => {
     const plan = confirmWrite('send_note_to_tv', { message: "I'll come round on Saturday at 14:00. Shall I bring the cake?" });
     expect(plan.fields[0]).toEqual(['Message', "I'll come round on Saturday at 2 pm. Shall I bring the cake?"]);
+  });
+});
+
+describe('twelveHour — the family app says a time as her television does', () => {
+  it('turns a tool\'s 24-hour time into a 12-hour one, and leaves anything else as it came', () => {
+    expect(['14:00', '09:30', '00:15', '12:00', '23:59'].map(twelveHour)).toEqual(['2:00 pm', '9:30 am', '12:15 am', '12:00 pm', '11:59 pm']);
+    expect(twelveHour('soon')).toBe('soon');
   });
 });

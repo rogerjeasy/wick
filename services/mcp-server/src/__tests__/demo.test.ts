@@ -5,7 +5,7 @@ import { isoWeekRange } from '@wick/agent';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { createDemoLimiter, DEMO_ACCOUNTS_PER_HOUR } from '../accounts/demo.js';
+import { createDemoLimiter, DEMO_ACCOUNTS_PER_HOUR, demoSessionLabel } from '../accounts/demo.js';
 import {
   approve,
   beginAuthorize,
@@ -217,8 +217,9 @@ describe('the demo button — an anonymous account in one click', () => {
 
     for (const s of sessions) {
       expect(s.user.userId).toMatch(/^guest_[A-Za-z0-9_-]{22}$/);
-      // The label the app shows: the key's first six characters, upper case.
-      expect(s.household.demoSession).toBe(s.user.userId.slice('guest_'.length, 'guest_'.length + 6).toUpperCase());
+      // The label the app shows: the key's first six letters and digits, upper case.
+      expect(s.household.demoSession).toBe(s.user.userId.slice('guest_'.length).replace(/[^A-Za-z0-9]/g, '').slice(0, 6).toUpperCase());
+      expect(s.household.demoSession).toMatch(/^[A-Z0-9]{6}$/);
     }
     expect(new Set(sessions.map((s) => s.user.userId)).size).toBe(3);
   });
@@ -393,5 +394,12 @@ describe('the demo cannot be used to fill the table', () => {
 
     clock += 1;
     expect(limiter.take()).toBe(true);
+  });
+});
+
+describe('demoSessionLabel', () => {
+  it('is six letters and digits, never a "-" or "_" from the key', () => {
+    expect(demoSessionLabel('IOGQQ-x_9abc')).toBe('IOGQQX');
+    expect(demoSessionLabel('__-ab')).toBe('AB');
   });
 });
