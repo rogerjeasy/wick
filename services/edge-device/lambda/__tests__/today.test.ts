@@ -36,6 +36,8 @@ describe('the day itself', () => {
     expect(today).toMatchObject({ weekday: 0, day: 19, month: 9, name: 'Margaret', coming: [] });
     expect(new Date(today.dayStart).toISOString()).toBe('2026-10-18T23:00:00.000Z');
     expect(new Date(today.dayEnd).toISOString()).toBe('2026-10-19T23:00:00.000Z');
+    // Stamped with this server's clock, so a television whose clock is wrong can put the day onto its own.
+    expect(today.told).toBe(NOW);
     // And is what the contract reads: nothing of it is dropped on the bus.
     expect(readHerDay(JSON.parse(JSON.stringify(today)))).toEqual(today);
   });

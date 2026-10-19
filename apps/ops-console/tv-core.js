@@ -814,7 +814,9 @@ function handleWireMessage(msg) {
       // The light in the window, who looked in, and the language she chose: for the home screen, not a card
       // (tv-vega home/light.ts, headless/QueueStore.ts setHome).
       const before = tvLanguage();
-      home = control.whole === true ? { ...control.home } : { ...home, ...control.home };
+      // Her day, put onto this page's clock as it arrives (contracts today.ts onThisClock): a computer's clock can be out too.
+      const told = control.home?.today ? { ...control.home, today: WickTv.onThisClock(control.home.today, Date.now()) } : control.home;
+      home = control.whole === true ? { ...told } : { ...home, ...told };
       // Only the whole of a home, or a part that names a language, says what the language is.
       const saysLanguage = control.whole === true || control.home?.language !== undefined;
       const differs = tvLanguage() !== before;

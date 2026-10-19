@@ -89,6 +89,7 @@ export { overMantel } from './apps/tv-vega/src/mantel/mantel.ts';
 export { words, programmeLine } from './apps/tv-vega/src/words/words.ts';
 export { homeDay, sameHomeDay, herDayAsker } from './apps/tv-vega/src/home/herDay.ts';
 export { qrModules, qrRuns } from './packages/contracts/src/qr.ts';
+export { onThisClock } from './packages/contracts/src/today.ts';
 `;
 
 const HEADER = `/**
