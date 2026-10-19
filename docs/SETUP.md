@@ -209,6 +209,36 @@ details of each step; this is the order and what each step is for.
   [Developer Playground](https://developer.amazon.com/ring/console/playground)
   gives a simulated camera and a token that lasts 30 minutes.
 
+### 6.1.1 The Fire OS release key
+
+An emulator needs no key: the release APK is signed with a debug key and says so
+as it builds. For anything that is installed on a television and updated later,
+make one release key, once, and keep it out of the repository:
+
+```bash
+keytool -genkeypair -keystore wick-release.jks -alias wick -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=Wick, O=<you>"
+# Build with it:
+WICK_RELEASE_STORE_FILE=$PWD/wick-release.jks WICK_RELEASE_STORE_PASSWORD=… \
+WICK_RELEASE_KEY_ALIAS=wick WICK_RELEASE_KEY_PASSWORD=… WICK_REQUIRE_RELEASE_KEY=true \
+  (cd apps/tv-fireos/android && ./gradlew assembleRelease)
+"$ANDROID_HOME"/build-tools/<version>/apksigner verify --print-certs \
+  apps/tv-fireos/android/app/build/outputs/apk/release/app-release.apk   # not "Android Debug"
+```
+
+For CI, make a GitHub **environment** named `release` (Settings → Environments):
+require a reviewer, allow deployment from tags only, and put the four secrets in
+*it*, not in the repository's own: `WICK_RELEASE_KEYSTORE_BASE64` (`base64 -i
+wick-release.jks`), `WICK_RELEASE_STORE_PASSWORD`, `WICK_RELEASE_KEY_ALIAS` and
+`WICK_RELEASE_KEY_PASSWORD`. Only the `release` job of
+`.github/workflows/tv-fireos.yml` reads them, and only on a tag `v*`; every other
+build (a pull request, a push to main) holds no secret and is signed with a
+throwaway key made on the runner, so nothing a pull request changes can reach
+the release key. Pushing a tag builds the release, stops if the key is missing,
+checks the signer in the APK, and attaches it to that tag's GitHub release.
+Keep a copy of the keystore somewhere safe: a lost key means every installed
+Wick must be removed before a new build can be installed.
+
 ### 6.2 Values that name this deployment
 
 A few values in the repository name the original deployment. Change them for
