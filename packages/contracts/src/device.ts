@@ -87,6 +87,12 @@ export type DeviceEvent =
   | { readonly t: 'read'; readonly cardId: string; readonly at: number };
 
 export type ControlMessage =
+  /**
+   * The answer to a television's `ping` on the WebSocket: nothing but
+   * proof that the connection still reaches the edge. The channel takes it
+   * itself and passes it to nobody (WebSocketChannel.ts).
+   */
+  | { readonly t: 'pong' }
   | { readonly t: 'patch'; readonly patch: CardPatch }
   | { readonly t: 'revoke'; readonly cardId: string }
   | {

@@ -34,6 +34,7 @@
  * this on the Vega simulator found.
  */
 import mqttLib, { type MqttClient } from 'mqtt';
+import { readCardPayload, readControlPayload } from './wire.js';
 import type {
   ChannelState,
   ControlMessage,
@@ -73,6 +74,12 @@ const topicsFor = (deviceId: string): Topics => ({
 const DEFAULT_CONNECT_TIMEOUT_MS = 4000;
 const MIN_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
+/**
+ * Seconds between the client's own PINGREQs. A connection that stops
+ * answering is closed by the library after one and a half of these, which
+ * is what tells this channel a half-open socket is dead. The default is 60.
+ */
+const KEEPALIVE_SECONDS = 30;
 
 /** The address to connect to: the configured one, with this television's token added. */
 export function mqttUrl(wssUrl: string, jwt: string): string {
@@ -177,6 +184,7 @@ export class MqttChannel implements DeviceChannel {
       const client = this.#connect(mqttUrl(this.#config.wssUrl, token.jwt), {
         clientId: token.deviceId,
         clean: false,
+        keepalive: KEEPALIVE_SECONDS,
         reconnectPeriod: 0, // reconnecting is done here, with a fresh address each time
       });
       this.#client = client;
@@ -223,12 +231,13 @@ export class MqttChannel implements DeviceChannel {
       });
 
       client.on('message', (topic: string, payload: Buffer) => {
+        // A payload that is not what it should be is dropped (wire.ts), never thrown from a library callback.
         if (topic === topics.cards) {
-          const card = JSON.parse(payload.toString('utf8')) as QueuedCard;
-          for (const h of this.#cardHandlers) h(card);
+          const card = readCardPayload(payload);
+          if (card) for (const h of this.#cardHandlers) h(card);
         } else if (topic === topics.control) {
-          const control = JSON.parse(payload.toString('utf8')) as ControlMessage;
-          for (const h of this.#controlHandlers) h(control);
+          const control = readControlPayload(payload);
+          if (control) for (const h of this.#controlHandlers) h(control);
         }
       });
 
@@ -245,7 +254,12 @@ export class MqttChannel implements DeviceChannel {
         this.#scheduleReconnect();
       });
 
-      client.on('error', (err: Error) => fail(err));
+      client.on('error', (err: Error) => {
+        // Before the connection opens an error is the attempt's failure. After, it is this channel's to say:
+        // the library follows it with a close, which is what schedules the next connection.
+        if (settled) console.warn('mqtt_client_error', err.message);
+        fail(err);
+      });
     });
   }
 

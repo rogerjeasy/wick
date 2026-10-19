@@ -50,6 +50,14 @@ export const handler = async (event) => {
     return { statusCode: 400, body: 'bad_json' };
   }
 
+  // A television asking whether the connection still reaches us (WebSocketChannel.ts heartbeat). The
+  // answer says nothing of any home, so it is given before anything is read: a ping costs this function
+  // and nothing else, and a connection API Gateway still routes is one that was opened with a token.
+  if (deviceEvent?.t === 'ping') {
+    await webSocketSender(event, connectionId).sendControl({ t: 'pong' });
+    return { statusCode: 200, body: 'pong' };
+  }
+
   const lookup = await ddb.send(new GetItemCommand({
     TableName: TABLE,
     Key: { pk: { S: `CONN#${connectionId}` }, sk: { S: 'META' } },
