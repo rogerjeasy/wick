@@ -85,6 +85,10 @@ describe('the deploy role (infra/github-oidc.tf)', () => {
     expect(bucketDenial.resources.join(' ')).toContain('aws_s3_bucket.photos');
     // Objects only: every resource is an object path, never the bucket (see the next test for why).
     expect(bucketDenial.resources.every((r) => r.endsWith('/*'))).toBe(true);
+    // Past versions of an object are never listed, which no refresh needs.
+    const versions = denies.find((s) => s.sid === 'NeverListAPastVersionOfADoorPictureOrAFamilyPhoto')!;
+    expect(versions.actions).toEqual(['s3:ListBucketVersions']);
+    expect(versions.resources.join(' ')).toMatch(/media[\s\S]*photos/);
     const written = allows.find((s) => s.sid === 'PutTheStaticSites')!;
     expect(written.resources.join(' ')).not.toMatch(/media|photos/);
   });
@@ -93,7 +97,7 @@ describe('the deploy role (infra/github-oidc.tf)', () => {
     // s3:ListBucket is what HeadBucket asks for. Refused it, a refresh reads the bucket as deleted, plans to create
     // it again and removes its lifecycle rules, public access block and policy (seen in CI on 2026-10-19).
     const bucketReads = /^s3:(ListBucket|ListBucketVersions|GetBucket|GetLifecycleConfiguration|GetEncryptionConfiguration|GetAccelerateConfiguration|GetReplicationConfiguration)/;
-    const offenders = denies.filter((s) => s.actions.some((a) => bucketReads.test(a)) && !s.resources.every((r) => r.endsWith('/*')));
+    const offenders = denies.filter((s) => s.actions.some((a) => bucketReads.test(a) && a !== 's3:ListBucketVersions') && !s.resources.every((r) => r.endsWith('/*')));
     expect(offenders.map((s) => s.sid)).toEqual([]);
     // And the role is allowed those on the buckets it manages.
     const managed = allows.find((s) => s.actions.includes('s3:*') && s.resources.join(' ').includes('aws_s3_bucket.media'));

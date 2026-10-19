@@ -791,11 +791,21 @@ data "aws_iam_policy_document" "github_deploy_denials" {
     # Objects only, never the bucket itself. s3:ListBucket is also the permission HeadBucket needs, and
     # a Terraform refresh that is refused it reads the bucket as deleted: on 2026-10-19 that made CI plan to
     # recreate both buckets and tear down their lifecycle rules, public access block and TLS-only policy.
-    # Naming an object is all that listing would give; reading or changing one stays denied.
+    # Listing names an object (photos/<household>/<random id>.jpg, an accepted exposure: it says which homes hold
+    # pictures and how many, not who is in them); reading or changing one stays denied.
     resources = [
       "${aws_s3_bucket.media.arn}/*",
       "${aws_s3_bucket.photos.arn}/*",
     ]
+  }
+
+  # Past versions of an object are never part of what a deploy needs, and the bucket-level refresh does not ask
+  # for them, so listing them stays denied on the buckets themselves.
+  statement {
+    sid       = "NeverListAPastVersionOfADoorPictureOrAFamilyPhoto"
+    effect    = "Deny"
+    actions   = ["s3:ListBucketVersions"]
+    resources = [aws_s3_bucket.media.arn, aws_s3_bucket.photos.arn]
   }
 
   statement {
