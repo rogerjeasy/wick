@@ -128,6 +128,7 @@ import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpd
 import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
 import { LIGHT_CARD_ID, buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
+import { herDay, rosterRange } from './today.mjs';
 import { LANGUAGE_ACTIONS, inHerLanguage, languageAnswerUpdate, languageOfMeta, languagePress, languageRead } from './language.mjs';
 import {
   PHOTO_ACTIONS,
@@ -419,6 +420,9 @@ export async function handleDeviceEvent({ householdId, deviceId, unproven = fals
     const { cardId } = deviceEvent;
     if (typeof cardId !== 'string' || cardId.length === 0 || cardId.length > MAX_CARD_ID_CHARS) return { statusCode: 400, body: 'bad_device_event' };
     await readToHer({ sendControl, cardAsShown, householdLanguage, householdId, cardId, synthesize });
+  } else if (deviceEvent.t === 'home') {
+    // Her day is over, or something new has come: the home screen asks for what it says, and is told it whole.
+    await tellHome({ sendControl, householdId });
   } else if (deviceEvent.t === 'reconcile') {
     await reconcile({ sendCard, sendControl, householdId, holding: deviceEvent.holding });
     // Read as it is this instant: a television asks for what it is owed the
@@ -726,17 +730,47 @@ async function loadHomeRows(householdId, { consistent = false } = {}) {
   return items;
 }
 
+/** The household's roster (today.mjs rosterRange): who the door expects, and so who her day says is coming. */
+async function loadRosterRows(householdId, { consistent = false } = {}) {
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const page = await ddb.send(new QueryCommand({ ...rosterRange({ table: TABLE, householdId }), ...(consistent ? { ConsistentRead: true } : {}), ...(ExclusiveStartKey ? { ExclusiveStartKey } : {}) }));
+    items.push(...(page.Items ?? []));
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return items;
+}
+
 /**
- * What the home screen says beside its cards: her light, and who looked in.
- * Sent when the television asks for what it is owed, and again after she
- * changes the light. Logged, never thrown: a home screen without the line
- * is still a home screen.
+ * Her day (today.mjs), from the home's rows and its roster. A roster that
+ * cannot be read leaves her day without its lines, never the home screen
+ * without its date.
+ */
+async function readHerDay({ householdId, items, now, timeZone, consistent }) {
+  let rosterRows = [];
+  try {
+    rosterRows = await loadRosterRows(householdId, { consistent });
+  } catch (err) {
+    console.error('her_day_roster_failed', { householdId, err: err?.name });
+  }
+  return herDay({ homeRows: items, rosterRows, now, timeZone });
+}
+
+/**
+ * What the home screen says beside its cards: her light, who looked in,
+ * and her day. Sent when the television asks for what it is owed, when it
+ * asks for its home (`{ t: 'home' }`), and again after she changes the
+ * light. Logged, never thrown: a home screen without the line is still a
+ * home screen.
  */
 async function tellHome({ sendControl, householdId, consistent = false }) {
   try {
     const items = await loadHomeRows(householdId, { consistent });
-    // Where the house is: what "today" means for the light in the window (household-zone.mjs).
-    const home = homeState({ items, now: Date.now(), timeZone: timeZoneOfRows(items) });
+    // Where the house is: what "today" means for the light in the window and for her day (household-zone.mjs).
+    const now = Date.now();
+    const timeZone = timeZoneOfRows(items);
+    const home = { ...homeState({ items, now, timeZone }), today: await readHerDay({ householdId, items, now, timeZone, consistent }) };
     // `whole`: this is all of it, so a light she has since made private is not left showing.
     await sendControl({ t: 'home', home, whole: true });
     return home;

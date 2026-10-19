@@ -13,6 +13,10 @@
  * The table and the bus are in memory.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { timeZoneOfRows } from '../household-zone.mjs';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { herDay } from '../today.mjs';
 
 type Value = { S?: string; N?: string; BOOL?: boolean };
 type Row = Record<string, Value>;
@@ -147,7 +151,8 @@ describe('an ordinary reconcile — nothing changes while the cards are handed o
         { kind: 'card', card: door },
         { kind: 'card', card: a },
         { kind: 'card', card: { ...b, shownCount: 1 } },
-        { kind: 'control', control: { t: 'home', home: {}, whole: true } },
+        // Her day rides on the home (today.mjs): this household's, at this moment, with nobody on its roster.
+        { kind: 'control', control: { t: 'home', home: { today: herDay({ homeRows: [...aws.rows.values()], rosterRows: [], now: T0, timeZone: timeZoneOfRows([...aws.rows.values()]) }) }, whole: true } },
       ]),
     );
   });
