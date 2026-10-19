@@ -455,7 +455,7 @@ describe('where it is wired', () => {
   it('ResidentApp.tsx opens the channel with the token in use, and again when a fresh one is taken', () => {
     expect(resident).toMatch(/const inUse = fresh\?\.of === token \? fresh\.token : token;/);
     expect(resident).toMatch(/holdCardChannel\(store, inUse, /);
-    expect(resident).toMatch(/\}, \[inUse, onScreen, store, config, questionLeft, watch\]\);/);
+    expect(resident).toMatch(/\}, \[inUse, onScreen, store, config, questionLeft, watch, link, handleLink\]\);/);
     expect(resident).toMatch(/onFresh: \(next\) => \{[^}]*setFresh\(\{ of: token, token: next \}\)/);
   });
 
