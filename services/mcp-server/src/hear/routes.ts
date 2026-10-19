@@ -30,6 +30,7 @@ import { isGuest } from '../accounts/demo.js';
 import { grantOf } from '../accounts/oauthProvider.js';
 import type { AccountStore } from '../accounts/store.js';
 import type { Hear } from './transcribe.js';
+import type { Allowance, Budget } from '../budget.js';
 
 /** The two names the page may give its audio. Anything else is not what this route takes. */
 const AUDIO_TYPES = ['audio/l16', 'application/octet-stream'];
@@ -55,52 +56,33 @@ export const HEAR_WORDS = {
   failed: 'Wick could not hear that just now. Try again, or type it.',
 } as const;
 
-interface Budget {
-  windowStart: number;
-  windowTaken: number;
-  dayStart: number;
-  dayTaken: number;
+/**
+ * The allowances that stand in front of one hearing: this person's minute,
+ * the guests' or the accounts' ten minutes together, and their day (budget.ts,
+ * counted in the table, so they hold across every instance and restart).
+ *
+ * Guests and people with accounts are counted apart, each against the same
+ * caps, so a flood of one-click guest accounts can spend the guests' hearings
+ * but never the hearing of the person who signed up to look after their mother.
+ */
+export function hearingAllowances(userId: string): readonly Allowance[] {
+  const group = isGuest(userId) ? 'guest' : 'account';
+  return [
+    { counter: `hear#${group}#person#${userId}`, limit: HEARINGS_PER_PERSON_PER_MINUTE, windowMs: MINUTE_MS },
+    { counter: `hear#${group}#window`, limit: HEARINGS_PER_WINDOW, windowMs: WINDOW_MS },
+    { counter: `hear#${group}#day`, limit: HEARINGS_PER_DAY, windowMs: DAY_MS },
+  ];
 }
 
-/**
- * Whether one more hearing may be had now, counting it if so. Held in this
- * process, as the assistant's budgets are (assistant/router.ts): one
- * instance serves the deployment (infra/mcp.tf), and a restart forgets —
- * a looser limit, never a wrong answer.
- *
- * Each person is held to a sliding minute. Guests and people with accounts
- * are counted apart, each against the same caps, so a flood of one-click
- * guest accounts can spend the guests' hearings but never the hearing of
- * the person who signed up to look after their mother.
- */
-export function createHearingLimiter(now: () => number): (userId: string) => boolean {
-  const fresh = (): Budget => ({ windowStart: now(), windowTaken: 0, dayStart: now(), dayTaken: 0 });
-  const budgets = { guest: fresh(), account: fresh() };
-  const recent = new Map<string, number[]>();
-
-  return (userId) => {
-    const at = now();
-    const budget = isGuest(userId) ? budgets.guest : budgets.account;
-    if (at - budget.windowStart >= WINDOW_MS) {
-      budget.windowStart = at;
-      budget.windowTaken = 0;
+/** Whether one more hearing may be had now, counting it if so. A table that cannot be asked allows nothing. */
+export function createHearingLimiter(budget: Budget): (userId: string) => Promise<boolean> {
+  return async (userId) => {
+    try {
+      return await budget.take(hearingAllowances(userId));
+    } catch (err) {
+      console.error(JSON.stringify({ level: 'error', msg: 'hear_budget_unavailable', error: (err as Error).name || 'Error' }));
+      return false;
     }
-    if (at - budget.dayStart >= DAY_MS) {
-      budget.dayStart = at;
-      budget.dayTaken = 0;
-    }
-    // Only the last minute of anybody's hearings is remembered.
-    for (const [who, times] of recent) {
-      const kept = times.filter((t) => at - t < MINUTE_MS);
-      if (kept.length) recent.set(who, kept);
-      else recent.delete(who);
-    }
-    const mine = recent.get(userId) ?? [];
-    if (mine.length >= HEARINGS_PER_PERSON_PER_MINUTE || budget.windowTaken >= HEARINGS_PER_WINDOW || budget.dayTaken >= HEARINGS_PER_DAY) return false;
-    recent.set(userId, [...mine, at]);
-    budget.windowTaken += 1;
-    budget.dayTaken += 1;
-    return true;
   };
 }
 
@@ -108,6 +90,8 @@ export interface HearDeps {
   /** Absent where this Wick cannot reach Transcribe: the route then says so, in words. */
   readonly hear?: Hear | undefined;
   readonly store: AccountStore;
+  /** What an anonymous visitor may spend: counted for the whole deployment (budget.ts). */
+  readonly budget: Budget;
   readonly now: () => number;
 }
 
@@ -140,7 +124,7 @@ function rightShape(req: Request): boolean {
 
 /** POST /api/hear's handlers, in order — who is asking, what kind of thing it is, how often, the bytes, the hearing. */
 export function createHearRoute(deps: HearDeps): readonly (RequestHandler | ErrorRequestHandler)[] {
-  const mayHear = createHearingLimiter(deps.now);
+  const mayHear = createHearingLimiter(deps.budget);
 
   const whoFirst: RequestHandler = async (req, res, next) => {
     const grant = grantOf(req.auth);
@@ -164,9 +148,9 @@ export function createHearRoute(deps: HearDeps): readonly (RequestHandler | Erro
     next();
   };
 
-  const notTooOften: RequestHandler = (req, res, next) => {
+  const notTooOften: RequestHandler = async (req, res, next) => {
     const grant = grantOf(req.auth)!;
-    if (!mayHear(grant.userId)) {
+    if (!(await mayHear(grant.userId))) {
       logHearing('busy', 0);
       return refuse(res, 429, 'too_many', HEAR_WORDS.busy);
     }

@@ -6,6 +6,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { createDemoLimiter, DEMO_ACCOUNTS_PER_HOUR, demoSessionLabel } from '../accounts/demo.js';
+import { memoryBudget } from '../budget.js';
 import {
   approve,
   beginAuthorize,
@@ -380,20 +381,21 @@ describe('the demo cannot be used to fill the table', () => {
     expect((await click()).res.status).toBe(302);
   });
 
-  it('is sixty an hour on a deployment that does not say otherwise, counted exactly, in a fixed one-hour window', () => {
-    let clock = 1_790_000_000_000;
-    const limiter = createDemoLimiter(() => clock);
+  it('is sixty an hour on a deployment that does not say otherwise, counted exactly, in a fixed one-hour window', async () => {
+    // The window is the clock's hour: begin at the start of one, so "a moment before it ends" is the last millisecond.
+    let clock = Math.floor(1_790_000_000_000 / 3_600_000) * 3_600_000;
+    const limiter = createDemoLimiter(memoryBudget(() => clock));
 
-    for (let i = 0; i < DEMO_ACCOUNTS_PER_HOUR; i++) expect(limiter.take()).toBe(true);
+    for (let i = 0; i < DEMO_ACCOUNTS_PER_HOUR; i++) expect(await limiter.take()).toBe(true);
     expect(DEMO_ACCOUNTS_PER_HOUR).toBe(60);
-    expect(limiter.take()).toBe(false);
+    expect(await limiter.take()).toBe(false);
 
     // Still the same hour, a moment before it ends.
     clock += 60 * 60 * 1000 - 1;
-    expect(limiter.take()).toBe(false);
+    expect(await limiter.take()).toBe(false);
 
     clock += 1;
-    expect(limiter.take()).toBe(true);
+    expect(await limiter.take()).toBe(true);
   });
 });
 

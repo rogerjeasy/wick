@@ -168,7 +168,7 @@ export interface TurnRouteDeps {
   /** This server's own tools: each name and its title (tools/list). */
   readonly toolTitles: () => Promise<ReadonlyMap<string, string>>;
   /** The assistant's allowance (router.ts createStepLimiter), shared with /assistant/next. */
-  readonly mayStep: (userId: string, cost: number) => boolean;
+  readonly mayStep: (userId: string, cost: number) => Promise<boolean>;
   readonly now: () => number;
 }
 
@@ -188,7 +188,7 @@ export function turnRoute(deps: TurnRouteDeps): (req: Request, res: Response) =>
       if (!access.ok) return void res.json({ say: access.say, trace: [], toolTexts: [], refused: access.reason });
       const { household, membership } = access;
 
-      if (!deps.mayStep(grant.userId, TURN_COST)) {
+      if (!(await deps.mayStep(grant.userId, TURN_COST))) {
         return void res.status(429).json({ error: 'assistant_busy', message: 'That is a lot of questions. Give me a few minutes.' });
       }
 

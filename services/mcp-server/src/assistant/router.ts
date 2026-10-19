@@ -34,6 +34,7 @@ import type { AccountStore } from '../accounts/store.js';
 import { zoneOf } from '../accounts/types.js';
 import { nextStep, readTurns, type Converse, type ToolSpec } from './brain.js';
 import { turnRoute, type AssistantAgent } from './turn.js';
+import type { Allowance, Budget } from '../budget.js';
 
 export interface AssistantDeps {
   readonly converse: Converse;
@@ -54,6 +55,8 @@ export interface AssistantRouterOptions {
   readonly agent?: AssistantAgent | undefined;
   /** Each of this server's tools' name and title, for what waits for a member's yes. */
   readonly toolTitles?: () => Promise<ReadonlyMap<string, string>>;
+  /** What an anonymous visitor may spend: counted for the whole deployment (budget.ts). */
+  readonly budget: Budget;
   readonly now: () => number;
 }
 
@@ -66,56 +69,46 @@ export const STEPS_PER_WINDOW = 200;
 /** The same, in a day: the worst a day can cost is twice this many steps. */
 export const STEPS_PER_DAY = 2_000;
 
-interface Budget {
-  windowStart: number;
-  windowTaken: number;
-  dayStart: number;
-  dayTaken: number;
-  readonly people: Map<string, number>;
-}
-
 /**
- * Whether one more step may be taken now, counting it if so. Fixed windows
- * held in this process — one instance serves the deployment (infra/mcp.tf).
+ * The allowances that stand in front of one assistant step: this person's, the
+ * guests' or the accounts' together, and the day's. A step is taken only when
+ * all three have room (budget.ts), and counted in the table, so the limits
+ * hold across every instance of the server and every restart.
  *
  * Guests and people with accounts are counted apart, each against the same
  * caps. A guest account costs one click, so a flood of them can spend the
  * guests' budget; it must not also be able to silence the person who
  * signed up to look after their mother. And a spent budget silences only
  * the model: the app answers by its rules until the window turns.
- *
- * Within a budget everyone's ten minutes start together, so what is
- * remembered is never more than one window's worth of people.
  */
-export function createStepLimiter(now: () => number): (userId: string, cost?: number) => boolean {
-  const fresh = (): Budget => ({ windowStart: now(), windowTaken: 0, dayStart: now(), dayTaken: 0, people: new Map() });
-  const budgets = { guest: fresh(), account: fresh() };
+export function stepAllowances(userId: string): readonly Allowance[] {
+  const group = isGuest(userId) ? 'guest' : 'account';
+  return [
+    { counter: `assistant#${group}#person#${userId}`, limit: STEPS_PER_PERSON, windowMs: WINDOW_MS },
+    { counter: `assistant#${group}#window`, limit: STEPS_PER_WINDOW, windowMs: WINDOW_MS },
+    { counter: `assistant#${group}#day`, limit: STEPS_PER_DAY, windowMs: DAY_MS },
+  ];
+}
 
-  // `cost`: a turn of the agent (turn.ts) counts as several steps; it is taken whole or not at all.
-  return (userId, cost = 1) => {
-    const budget = isGuest(userId) ? budgets.guest : budgets.account;
-    const at = now();
-    if (at - budget.windowStart >= WINDOW_MS) {
-      budget.windowStart = at;
-      budget.windowTaken = 0;
-      budget.people.clear();
+/**
+ * Whether one more step may be taken now, counting it if so. `cost`: a turn
+ * of the agent (turn.ts) counts as several steps; it is taken whole or not
+ * at all. A table that cannot be asked allows nothing (budget.ts).
+ */
+export function createStepLimiter(budget: Budget): (userId: string, cost?: number) => Promise<boolean> {
+  return async (userId, cost = 1) => {
+    try {
+      return await budget.take(stepAllowances(userId), cost);
+    } catch (err) {
+      console.error(JSON.stringify({ level: 'error', msg: 'assistant_budget_unavailable', error: (err as Error).name || 'Error' }));
+      return false;
     }
-    if (at - budget.dayStart >= DAY_MS) {
-      budget.dayStart = at;
-      budget.dayTaken = 0;
-    }
-    const mine = budget.people.get(userId) ?? 0;
-    if (budget.dayTaken + cost > STEPS_PER_DAY || budget.windowTaken + cost > STEPS_PER_WINDOW || mine + cost > STEPS_PER_PERSON) return false;
-    budget.people.set(userId, mine + cost);
-    budget.windowTaken += cost;
-    budget.dayTaken += cost;
-    return true;
   };
 }
 
 export function createAssistantRouter(options: AssistantRouterOptions): express.Router {
   const { assistant, store, toolSpecs, now } = options;
-  const mayStep = createStepLimiter(now);
+  const mayStep = createStepLimiter(options.budget);
   const router = express.Router();
   // Any origin, as /api: no cookie is used, and a token is only sent by the page that holds it.
   router.use('/assistant', cors(), options.requireAuth());
@@ -132,7 +125,7 @@ export function createAssistantRouter(options: AssistantRouterOptions): express.
       if (!access.ok) return void res.json({ done: true, say: access.say, refused: access.reason });
       const { household, membership } = access;
 
-      if (!mayStep(grant.userId)) {
+      if (!(await mayStep(grant.userId))) {
         return void res.status(429).json({ error: 'assistant_busy', message: 'That is a lot of questions. Give me a few minutes.' });
       }
 
