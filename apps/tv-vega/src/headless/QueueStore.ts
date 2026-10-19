@@ -9,12 +9,19 @@
  * channel and was gone before the UI's next read. So the two halves now
  * degrade differently, according to who shares them:
  *
- *   - The card queue and high-water mark are memory-first. Only the process
- *     holding the channel writes them, and since FL-014 that is the same
- *     process that renders (App.tsx), reading this same instance. Disk is
- *     hydrated once and written through, so a device whose disk works still
- *     survives a restart (§3.4 rule 4) — a disk failure costs persistence
- *     across restarts, never a card in the running app.
+ *   - The card queue and high-water mark are memory-first, and have ONE
+ *     writer: the app (ResidentApp.tsx), whose instance renders them. Disk
+ *     is hydrated once and written through, so a device whose disk works
+ *     still survives a restart (§3.4 rule 4) — a disk failure costs
+ *     persistence across restarts, never a card in the running app.
+ *     The card service is a second process with a second instance, holding
+ *     the background connection while the app is behind another app. It
+ *     gets `readOnly(fs)`: what it is sent lives in its memory, for the
+ *     toast, and reaches the disk never. If it wrote too, its stale copy of
+ *     the queue plus one new door card would replace the app's file —
+ *     dismissed cards back, showing counts lost. Nothing is lost by this:
+ *     the server holds every card and replays what the app has not seen
+ *     when it connects (reconcile).
  *   - The outbox is genuinely cross-process: RhythmSyncTask runs as its own
  *     task and appends to it for the channel holder to drain. So disk stays
  *     its source of truth whenever disk works, re-read on every drain; only
@@ -58,6 +65,20 @@ export interface FileSystemLike {
   readFileAsString(path: string, encoding: string): Promise<string>;
   writeStringToFile(path: string, content: string, encoding: string): Promise<number>;
   exists(path: string): Promise<boolean>;
+}
+
+/**
+ * A view of a disk that can be read and never written: a write is taken and
+ * dropped, as if it had worked. For the second process that holds a store
+ * (see the header) — not for a disk that is merely failing, which the store
+ * already survives.
+ */
+export function readOnly(fs: FileSystemLike): FileSystemLike {
+  return {
+    exists: (path) => fs.exists(path),
+    readFileAsString: (path, encoding) => fs.readFileAsString(path, encoding),
+    writeStringToFile: async (_path, content) => content.length,
+  };
 }
 
 // Flat, directly under /data/ — see PairingFlow.ts's TOKEN_PATH comment for

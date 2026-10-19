@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { QueuedCard } from '@wick/contracts';
-import { QueueStore, type FileSystemLike } from '../QueueStore.js';
+import { QueueStore, readOnly, type FileSystemLike } from '../QueueStore.js';
 
 function fakeFs(): FileSystemLike {
   const files = new Map<string, string>();
@@ -711,3 +711,48 @@ describe('QueueStore — a television the family has disconnected forgets her ma
   });
 });
 
+
+describe('readOnly — the second process that holds a store', () => {
+  it('reads what the app wrote, and keeps what it is sent in memory', async () => {
+    const fs = fakeFs();
+    const app = new QueueStore(fs);
+    await app.upsert(doorCard('older'));
+
+    const service = new QueueStore(readOnly(fs));
+    expect((await service.readAll()).map((c) => c.id)).toEqual(['older']);
+    await service.upsert(doorCard('new'));
+    expect((await service.readAll()).map((c) => c.id)).toEqual(['older', 'new']);
+  });
+
+  it('writes nothing: the app’s queue, high-water mark and language stay as the app left them', async () => {
+    const fs = fakeFs();
+    const app = new QueueStore(fs);
+    await app.upsert(doorCard('older'));
+    const queue = await fs.readFileAsString('/data/wick-queue.json', 'utf8');
+
+    const service = new QueueStore(readOnly(fs));
+    await service.upsert(doorCard('new'));
+    await service.applyPatch({ cardId: 'new', description: 'A courier.' });
+    await service.remove('older');
+    service.setHome({ language: 'es' });
+
+    expect(await fs.readFileAsString('/data/wick-queue.json', 'utf8')).toBe(queue);
+    expect(await fs.readFileAsString('/data/wick-lastSeenCardId.json', 'utf8')).toBe('older');
+    expect(await fs.exists('/data/wick-language.json')).toBe(false);
+  });
+
+  it('does not bring back a card she dismissed: the app’s next write is the app’s own', async () => {
+    const fs = fakeFs();
+    const app = new QueueStore(fs);
+    await app.upsert(doorCard('a'));
+    await app.upsert(doorCard('b'));
+    const service = new QueueStore(readOnly(fs)); // hydrated now, with a and b
+    await service.readAll();
+
+    await app.remove('a'); // she dismisses a
+    await service.upsert(doorCard('c')); // the service is sent a door card meanwhile
+
+    const restarted = new QueueStore(fs);
+    expect((await restarted.readAll()).map((c) => c.id)).toEqual(['b']);
+  });
+});
