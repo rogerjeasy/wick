@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_COMING, dayIsOver, dayToShow, readHerDay, readHomeState, type HerDay } from '../index.js';
+import { MAX_COMING, dayIsOver, dayToShow, onThisClock, readHerDay, readHomeState, type HerDay } from '../index.js';
 
 const HOUR = 3_600_000;
 const START = Date.parse('2026-10-18T23:00:00Z');
@@ -68,5 +68,30 @@ describe('dayToShow — what the home screen says of her day now', () => {
     expect(dayIsOver(today, END)).toBe(true);
     expect(dayIsOver(today, END - 1)).toBe(false);
     expect(dayIsOver(undefined, END)).toBe(false);
+  });
+});
+
+describe('onThisClock — her day on a television whose clock is wrong', () => {
+  const told = { ...today, told: START + 19.5 * HOUR };
+
+  it('moves every moment by the gap between the clocks, so the evening is still the evening', () => {
+    // The emulator's clock ran eight hours slow: the message arrives, by its clock, at 11:30.
+    const slow = START + 11.5 * HOUR;
+    const shifted = onThisClock(told, slow)!;
+    expect(dayToShow(today, slow)?.part).toBe('morning');
+    expect(dayToShow(shifted, slow)?.part).toBe('evening');
+    expect(shifted.dayEnd - shifted.dayStart).toBe(today.dayEnd - today.dayStart);
+    expect(shifted.coming.map((c) => c.until - shifted.dayStart)).toEqual(today.coming.map((c) => c.until - today.dayStart));
+    expect(shifted.told).toBe(slow);
+  });
+
+  it('changes nothing for a clock that is right, or a day the server did not stamp', () => {
+    expect(onThisClock(told, told.told!)).toEqual(told);
+    expect(onThisClock(today, START)).toBe(today);
+    expect(onThisClock(undefined, START)).toBeUndefined();
+  });
+
+  it('keeps the stamp on the bus', () => {
+    expect(readHerDay(JSON.parse(JSON.stringify(told)))?.told).toBe(told.told);
   });
 });

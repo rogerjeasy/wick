@@ -44,6 +44,7 @@ import {
   DEFAULT_LANGUAGE,
   MAX_CARD_ACTIONS,
   isHouseholdLanguage,
+  onThisClock,
   type CardPatch,
   type DeviceEvent,
   type HomeState,
@@ -144,7 +145,9 @@ export class QueueStore {
    * that language anyway.
    */
   setHome(home: HomeState, options: { readonly whole?: boolean } = {}): { readonly languageChanged: boolean } {
-    this.#home = options.whole ? { ...home } : { ...this.#home, ...home };
+    // Her day, put onto this television's clock as it arrives (contracts today.ts onThisClock): its own may be hours out.
+    const told = home.today ? { ...home, today: onThisClock(home.today, Date.now()) } : home;
+    this.#home = options.whole ? { ...told } : { ...this.#home, ...told };
     // Only the whole of a home, or a part that names a language, says what the language is.
     if (!options.whole && home.language === undefined) return { languageChanged: false };
 

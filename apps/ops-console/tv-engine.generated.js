@@ -47,6 +47,7 @@ var WickTv = (() => {
     homeDay: () => homeDay,
     newestReachCard: () => newestReachCard,
     okHold: () => okHold,
+    onThisClock: () => onThisClock,
     overMantel: () => overMantel,
     playGoesTo: () => playGoesTo,
     playIsTheCards: () => playIsTheCards,
@@ -155,6 +156,17 @@ var WickTv = (() => {
   }
   function dayIsOver(today, now) {
     return today !== void 0 && now >= today.dayEnd;
+  }
+  function onThisClock(today, receivedAt) {
+    if (!today || today.told === void 0) return today;
+    const skew = receivedAt - today.told;
+    return {
+      ...today,
+      dayStart: today.dayStart + skew,
+      dayEnd: today.dayEnd + skew,
+      told: receivedAt,
+      coming: today.coming.map((c) => ({ ...c, until: c.until + skew }))
+    };
   }
 
   // packages/contracts/src/reach.ts

@@ -54,6 +54,13 @@ export interface HerDay {
   readonly dayStart: number;
   /** The first moment of the next day: when all of this is yesterday's, and is asked for again. */
   readonly dayEnd: number;
+  /**
+   * When the server wrote this, by its clock. A television whose own clock is
+   * wrong — the Android TV emulator's ran eight hours out, and greeted her
+   * "Good morning" in the evening — puts the whole day onto its own clock
+   * with it as the message arrives (`onThisClock`).
+   */
+  readonly told?: number;
   /** In the order they happen; at most MAX_COMING. */
   readonly coming: readonly Coming[];
 }
@@ -80,7 +87,7 @@ const isLine = (value: unknown): value is string => typeof value === 'string' &&
  */
 export function readHerDay(value: unknown): HerDay | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const { weekday, day, month, name, dayStart, dayEnd, coming } = value as Record<string, unknown>;
+  const { weekday, day, month, name, dayStart, dayEnd, told, coming } = value as Record<string, unknown>;
   if (!isWhole(weekday, 0, 6) || !isWhole(day, 1, 31) || !isWhole(month, 0, 11) || !isTime(dayStart) || !isTime(dayEnd) || dayEnd <= dayStart) return undefined;
   const lines = Array.isArray(coming) ? coming : [];
   const kept = lines
@@ -88,7 +95,7 @@ export function readHerDay(value: unknown): HerDay | undefined {
     .filter((item) => isLine(item.line) && isTime(item.until))
     .map((item) => ({ line: item.line as string, until: item.until as number }))
     .slice(0, MAX_COMING);
-  return { weekday, day, month, ...(isName(name) ? { name } : {}), dayStart, dayEnd, coming: kept };
+  return { weekday, day, month, ...(isName(name) ? { name } : {}), dayStart, dayEnd, ...(isTime(told) ? { told } : {}), coming: kept };
 }
 
 /**
@@ -110,4 +117,25 @@ export function dayToShow(today: HerDay | undefined, now: number): { readonly pa
 /** Whether the day it was told is over, so the television should ask for today's. */
 export function dayIsOver(today: HerDay | undefined, now: number): boolean {
   return today !== undefined && now >= today.dayEnd;
+}
+
+/**
+ * Her day on this television's clock: every moment in it moved by however
+ * far this clock is from the server's, measured as the message arrives
+ * (`receivedAt`, this clock; `told`, the server's). From then on the
+ * television counts with its own clock and is right — only the gap between
+ * the two clocks was wrong. A day with no `told` is left as it is.
+ */
+export function onThisClock(today: HerDay, receivedAt: number): HerDay;
+export function onThisClock(today: HerDay | undefined, receivedAt: number): HerDay | undefined;
+export function onThisClock(today: HerDay | undefined, receivedAt: number): HerDay | undefined {
+  if (!today || today.told === undefined) return today;
+  const skew = receivedAt - today.told;
+  return {
+    ...today,
+    dayStart: today.dayStart + skew,
+    dayEnd: today.dayEnd + skew,
+    told: receivedAt,
+    coming: today.coming.map((c) => ({ ...c, until: c.until + skew })),
+  };
 }

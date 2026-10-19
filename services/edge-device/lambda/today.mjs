@@ -236,6 +236,8 @@ export function herDay({ homeRows, rosterRows, now, timeZone }) {
     ...(name ? { name } : {}),
     dayStart,
     dayEnd,
+    // This server's clock, so a television whose clock is wrong can put the day onto its own (contracts onThisClock).
+    told: now,
     coming,
   };
 }
