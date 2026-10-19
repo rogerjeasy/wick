@@ -2,7 +2,8 @@
  * The browser television — what both pages that are a television load
  * first: device.html (the engineers' console, device.js) and tv.html (the
  * resident's television, nothing else on the page, tv.js). It pairs against
- * the real deployed pairing API, opens the real WebSocket transport, and
+ * the real deployed pairing API, opens the Vega app's own transport (IoT Core's
+ * MQTT first, the WebSocket API behind it: tv-channels.generated.js) and
  * renders whatever cards arrive. What is around the screen — the console's
  * badge, buttons and raw messages, or the television's remote — is each
  * page's own, and the page tells this file how to reach it (useTvPage).
@@ -50,6 +51,8 @@
 /* exported useTvPage, restoreTelevision, disconnect */
 const PAIRING_API_URL = 'PAIRING_API_URL_PLACEHOLDER';
 const WEBSOCKET_URL = 'WEBSOCKET_URL_PLACEHOLDER';
+/** IoT Core's address for the cards (infra/outputs.tf mqtt_wss_url): tried first, as on the Vega app; the WebSocket above is behind it. */
+const MQTT_WSS_URL = 'MQTT_WSS_URL_PLACEHOLDER';
 /** Where the television's films are served from (infra/programmes.tf). */
 const PROGRAMMES_ORIGIN = 'PROGRAMMES_ORIGIN_PLACEHOLDER';
 /** The Wick server (infra/mcp.tf): where a family member's own television asks for its home screen. */
@@ -117,7 +120,14 @@ function log(direction, payload) {
   tvPage.log?.(direction, payload);
 }
 
-let ws = null;
+/**
+ * The channel home: the Vega app's own transport (tv-channels.generated.js, IoT Core's MQTT first and the WebSocket
+ * behind it; or tv-engine.generated.js's WebSocket alone where there is no address for IoT Core, or no script), or null
+ * while nothing is paired. It reconnects by itself when it is lost; it is `channelOpen()` that says it is there now.
+ */
+let channel = null;
+/** What this page listens to on `channel`, so that it can stop when the channel is let go: `{ chan, deviceId, proof, attempt, up, opened, off }`. */
+let listening = null;
 /** The card on the screen, if one is. */
 let currentQueuedCard = null;
 /**
@@ -375,7 +385,7 @@ async function pairAndConnect() {
     const mine = token.kind === FAMILY_KIND;
     rememberTelevision({ kind: mine ? FAMILY_KIND : RESIDENT_KIND, jwt: token.jwt, deviceId, ...(proof ? { proof } : {}) });
     if (mine) enterFamilyView(token.jwt, deviceId);
-    else connectWebSocket(token.jwt, deviceId, proof);
+    else connectChannel(token.jwt, deviceId, proof);
     return true;
   } catch (err) {
     setConnBadge('disconnected');
@@ -459,67 +469,154 @@ function restoreTelevision() {
   if (television.kind === FAMILY_KIND) return enterFamilyView(television.jwt, television.deviceId, { restored: true });
   setConnBadge('connecting');
   setConnDetail('connecting again…');
-  connectWebSocket(television.jwt, television.deviceId, television.proof);
+  connectChannel(television.jwt, television.deviceId, television.proof);
 }
 
-/* --- WebSocket -------------------------------------------------------- */
+/* --- The channel home -------------------------------------------------- */
 
-function connectWebSocket(jwt, deviceId, proof) {
-  // A new connection is told afresh what it is owed (`reconcile`): nothing is carried over from the last.
+/** Whether the page was given an address for IoT Core (it is a placeholder in the source, and the code that replaces it is infra/ops-console.tf). */
+function mqttAddress() {
+  return MQTT_WSS_URL && !MQTT_WSS_URL.includes('PLACEHOLDER') ? MQTT_WSS_URL : undefined;
+}
+
+/** Whether a channel is open this moment: a lost one, being made again, is not. */
+function channelOpen() {
+  return channel !== null && channel.state === 'open';
+}
+
+/** The channel for this television, listened to from its first moment (`listen`), and open when this answers. */
+function channelFor(jwt, deviceId, proof) {
+  const token = { jwt, deviceId, householdId: '', expiresAt: 0 };
+  const attach = (chan) => listen(chan, deviceId, proof);
+  const mqtt = mqttAddress();
+  if (mqtt && typeof WickTvChannels !== 'undefined') {
+    return WickTvChannels.createDeviceChannel({ websocket: { url: WEBSOCKET_URL }, mqtt: { wssUrl: mqtt }, attach }, token);
+  }
+  const alone = new WickTv.WebSocketChannel({ url: WEBSOCKET_URL });
+  attach(alone);
+  return alone.connect(token).then(() => alone, (err) => {
+    alone.close();
+    throw err;
+  });
+}
+
+/**
+ * Listening to a channel from its very first moment, as `attach` gives it, so that nothing it is sent is missed. A
+ * channel that comes after one (IoT Core refused, the WebSocket tried) takes its place and the first is left.
+ */
+function listen(chan, deviceId, proof) {
+  stopListening();
+  channel = chan;
+  const mine = { chan, deviceId, proof, attempt: connectionNo, up: false, opened: false, off: [] };
+  listening = mine;
+  mine.off.push(
+    chan.onCard((card) => {
+      log('←', JSON.stringify({ kind: 'card', card }));
+      handleWireMessage({ kind: 'card', card });
+    }),
+    chan.onControl((control) => {
+      log('←', JSON.stringify({ kind: 'control', control }));
+      handleWireMessage({ kind: 'control', control });
+    }),
+    chan.onState?.((state) => channelState(mine, state)) ?? (() => undefined),
+  );
+}
+
+function stopListening() {
+  const was = listening;
+  listening = null;
+  if (was) for (const off of was.off) off();
+}
+
+/** The channel became open, the first time or again after it was lost: a new connection is told afresh what it is owed. */
+function channelUp(mine) {
+  // Cards that come with the first opening are already the new ones; only a channel made again forgets the old.
+  if (mine.opened) {
+    keptCards = [];
+    currentQueuedCard = null;
+  }
+  mine.up = true;
+  mine.opened = true;
+  openedNo = mine.attempt;
+  setConnBadge('connected');
+  // Never the id on screen: it is how a refresh is asked for, and a screenshot travels (AGENTS.md INV-1).
+  setConnDetail('paired');
+  setDisconnectDisabled(false);
+  setTelemetryEnabled(true);
+  // A new connection learns the home's language afresh, with the cards it is sent. (Asking what it is owed is the channel's own.)
+  languageKnown = false;
+  // And from now on it asks whether it is still connected: nothing else would tell it.
+  watchStanding(mine.deviceId, mine.proof);
+  tvPage.connected?.();
+}
+
+/** The channel that was open is not: a lost network, or a television taken out of its home. It asks which. */
+function channelLost() {
+  stopRead();
+  setConnBadge('disconnected');
+  setConnDetail('connection closed');
+  setDisconnectDisabled(true);
+  setPairDisabled(false);
+  setTelemetryEnabled(false);
+  askStandingSoon();
+  tvPage.closed?.(true);
+}
+
+function channelState(mine, state) {
+  if (listening !== mine) return;
+  if (state === 'open') return channelUp(mine);
+  if (state === 'connecting') return;
+  if (mine.up) {
+    mine.up = false;
+    channelLost();
+  }
+  // A channel that is let go of (disconnect, a television taken out of its home) is not coming back.
+  if (state === 'closed') {
+    stopListening();
+    if (channel === mine.chan) channel = null;
+  }
+}
+
+/** Which call of connectChannel is the latest: an answer to an earlier one is nobody's now. */
+let connectionNo = 0;
+/** The last call of connectChannel whose channel opened, even if only for a moment: its loss is the channel's to say (channelLost). */
+let openedNo = 0;
+
+function connectChannel(jwt, deviceId, proof) {
+  // A new connection is told afresh what it is owed: nothing is carried over from the last.
   keptCards = [];
   currentQueuedCard = null;
-  let opened = false;
-  ws = new WebSocket(`${WEBSOCKET_URL}?token=${encodeURIComponent(jwt)}`);
-
-  ws.onopen = () => {
-    opened = true;
-    setConnBadge('connected');
-    // Never the id on screen: it is how a refresh is asked for, and a screenshot travels (AGENTS.md INV-1).
-    setConnDetail('paired');
-    setDisconnectDisabled(false);
-    setTelemetryEnabled(true);
-    // A new connection learns the home's language afresh, with the cards it is sent.
-    languageKnown = false;
-    send({ t: 'reconcile' });
-    // And from now on it asks whether it is still connected: nothing else would tell it.
-    watchStanding(deviceId, proof);
-    tvPage.connected?.();
-  };
-
-  ws.onmessage = (event) => {
-    log('←', event.data);
-    let msg;
-    try {
-      msg = JSON.parse(event.data);
-    } catch {
-      return;
-    }
-    handleWireMessage(msg);
-  };
-
-  ws.onclose = () => {
-    stopRead();
-    // A channel that never opened is a television the server no longer takes: it is not tried again on the next reload.
-    if (!opened) forgetTelevision();
+  stopListening();
+  channel?.close();
+  channel = null;
+  const no = ++connectionNo;
+  channelFor(jwt, deviceId, proof).catch(() => {
+    // Never opened: a television the server no longer takes is not tried again on the next reload.
+    if (no !== connectionNo || openedNo === no) return;
+    stopListening();
+    channel = null;
+    forgetTelevision();
     setConnBadge('disconnected');
     setConnDetail('connection closed');
     setDisconnectDisabled(true);
     setPairDisabled(false);
     setTelemetryEnabled(false);
-    // A channel that was open and is not: a lost network, or a television taken out of its home. It asks which.
-    if (opened) askStandingSoon();
-    tvPage.closed?.(opened);
-  };
-
-  ws.onerror = () => {
-    setConnDetail('connection error — see browser console');
-  };
+    tvPage.closed?.(false);
+  });
 }
 
 function send(deviceEvent) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify(deviceEvent));
+  const chan = channel;
+  if (!chan || chan.state !== 'open') return;
   log('→', deviceEvent);
+  chan.send(deviceEvent).catch(() => undefined);
+}
+
+/** Asks the Wick edge again for what this television is owed: the cards it holds come again, in the language it has now. */
+function askAgain() {
+  if (!channelOpen()) return;
+  log('→', { t: 'reconcile' });
+  void channel.reconcile?.();
 }
 
 function disconnect() {
@@ -528,7 +625,7 @@ function disconnect() {
   forgetTelevision();
   loadedPictures.clear();
   if (family) leaveFamilyView('connection closed');
-  if (ws) ws.close();
+  channel?.close();
 }
 
 /* --- Still connected? --------------------------------------------------- */
@@ -654,15 +751,11 @@ async function stopWick() {
 function televisionGone() {
   stopStanding();
   forgetTelevision();
-  const channel = ws;
-  ws = null;
-  if (channel) {
-    // Closed here, and said here: its own closing has nothing more to say.
-    channel.onclose = null;
-    channel.onmessage = null;
-    channel.onerror = null;
-    channel.close();
-  }
+  // Let go here, and said here: its own closing has nothing more to say.
+  const gone = channel;
+  stopListening();
+  channel = null;
+  gone?.close();
   stopRead();
   keptCards = [];
   currentQueuedCard = null;
@@ -832,7 +925,7 @@ function handleWireMessage(msg) {
       // The cards the server holds for this television are asked for again, once, so they come in the language she
       // has now — the request made on connecting (tv-vega transport/startCardChannel.ts). Learning the language of
       // a home just connected to is not a change: its cards are on their way in that language already.
-      if (changed) send({ t: 'reconcile' });
+      if (changed) askAgain();
     } else if (control.t === 'mantel') {
       // Her mantelpiece, answered to this page's own asking (packages/contracts mantel.ts): only what is well
       // formed, kept in this page's memory and nowhere else — each address in it is good for an hour.
@@ -1468,7 +1561,7 @@ let reading = null;
 function toggleRead() {
   if (reading) return stopRead();
   const card = currentQueuedCard?.card;
-  if (!card || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!card || !channelOpen()) return;
   reading = { cardId: card.id, audio: null, filmWas: null, timer: null };
   const mine = reading;
   // An answer that never comes: the next P asks again, instead of "stopping" nothing.
