@@ -69,6 +69,9 @@ describe('the deploy role (infra/github-oidc.tf)', () => {
     for (const action of [
       'dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:Scan', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem',
       'dynamodb:TransactWriteItems', 'dynamodb:ExecuteStatement', 'dynamodb:ExportTableToPointInTime',
+      // PartiQL is authorised under its own names, and a stream carries every change.
+      'dynamodb:PartiQLSelect', 'dynamodb:PartiQLInsert', 'dynamodb:PartiQLUpdate', 'dynamodb:PartiQLDelete',
+      'dynamodb:GetRecords', 'dynamodb:GetShardIterator', 'dynamodb:ListStreams',
       's3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:ListBucket',
       'lambda:InvokeFunction', 'lambda:InvokeAsync', 'lambda:InvokeFunctionUrl', 'events:PutEvents',
       'logs:GetLogEvents', 'logs:FilterLogEvents', 'logs:StartQuery', 'logs:StartLiveTail',
@@ -82,6 +85,20 @@ describe('the deploy role (infra/github-oidc.tf)', () => {
     expect(bucketDenial.resources.join(' ')).toContain('aws_s3_bucket.photos');
     const written = allows.find((s) => s.sid === 'PutTheStaticSites')!;
     expect(written.resources.join(' ')).not.toMatch(/media|photos/);
+  });
+
+  it('is allowed only the table’s settings, never a verb that reaches its rows by another name', () => {
+    const table = allows.find((s) => s.sid === 'ManageTheTableNeverItsRows')!;
+    expect(table.actions.filter((a) => a.endsWith('*') && a !== 'dynamodb:Describe*')).toEqual([]);
+    expect(table.actions.some((a) => /PartiQL|Execute|GetRecords|Item|Scan|Query|CreateTable|DeleteTable|Export|Import|Restore/.test(a))).toBe(false);
+  });
+
+  it('can read the spend brake and never change it, nor hand its role to AWS Budgets', () => {
+    const touching = allows.filter((s) => s.actions.some((a) => /^budgets:(Create|Update|Delete|Execute)BudgetAction$/.test(a)));
+    expect(touching.map((s) => s.sid)).toEqual([]);
+    const policyWrites = allows.filter((s) => s.resources.join(' ').includes('spend-brake') && s.actions.some((a) => /^iam:(Create|Delete|Put|Attach|Detach|Tag|Untag)/.test(a)));
+    expect(policyWrites.map((s) => s.sid)).toEqual([]);
+    expect(source).not.toMatch(/"budgets\.amazonaws\.com"/);
   });
 
   it('cannot write its own permissions', () => {

@@ -149,6 +149,10 @@ of the data), then apply. If CI applies first, it stops at the first resource
 its old policy cannot make, part-way through and harmlessly, and the laptop
 apply finishes it.
 
+CI can read the brake and cannot change it, nor pass its role to AWS Budgets:
+a change to `budget.tf`'s brake, like one to `github-oidc.tf`, is a laptop's
+apply. (CI's own apply refreshes them and, when nothing changed, does nothing.)
+
 To lift a brake that has fired: detach `wick-spend-brake` from the roles that
 `budget.tf` names (`aws iam detach-role-policy`), or apply with
 `budget_brake=false`.

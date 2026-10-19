@@ -389,8 +389,6 @@ data "aws_iam_policy_document" "github_deploy" {
         "bedrock-agentcore.amazonaws.com",
         # The errand state machine's role (infra/errands.tf).
         "states.amazonaws.com",
-        # The role AWS Budgets assumes to attach the spend brake (infra/budget.tf).
-        "budgets.amazonaws.com",
       ]
     }
   }
@@ -504,9 +502,21 @@ data "aws_iam_policy_document" "github_deploy_stack" {
     resources = ["*"]
   }
 
+  # The table's shape, and nothing of what is in it: the verbs Terraform calls to
+  # read it back and to change its settings. Not dynamodb:* (that would also be
+  # PartiQL and stream reads), and not CreateTable or DeleteTable: a table is made
+  # and removed from a laptop, behind deletion protection.
   statement {
-    sid     = "ManageTheTableNeverItsRows"
-    actions = ["dynamodb:*"]
+    sid = "ManageTheTableNeverItsRows"
+    actions = [
+      "dynamodb:Describe*",
+      "dynamodb:ListTagsOfResource",
+      "dynamodb:UpdateTable",
+      "dynamodb:UpdateContinuousBackups",
+      "dynamodb:UpdateTimeToLive",
+      "dynamodb:TagResource",
+      "dynamodb:UntagResource",
+    ]
     resources = [
       "arn:aws:dynamodb:${local.region}:${local.account_id}:table/${local.prefix}",
       "arn:aws:dynamodb:${local.region}:${local.account_id}:table/${local.prefix}/*",
@@ -697,35 +707,25 @@ data "aws_iam_policy_document" "github_deploy_stack" {
     resources = ["*"]
   }
 
-  # The spend brake (infra/budget.tf): one managed policy, by name, and the
-  # budget action that attaches it. CI shapes both and never runs the action.
+  # The spend brake (infra/budget.tf): one managed policy and one budget action.
+  # CI can READ them, to refresh them, and never change them: what stops a bill
+  # is not a thing the code that runs on a merge should be able to switch off.
+  # Making or changing the brake is a laptop's apply, like the deploy role's
+  # own policy. Nor may CI pass the role it runs as to AWS Budgets.
   statement {
-    sid = "ManageTheSpendBrakePolicy"
+    sid = "ReadTheSpendBrake"
     actions = [
-      "iam:CreatePolicy",
-      "iam:DeletePolicy",
       "iam:GetPolicy",
       "iam:GetPolicyVersion",
       "iam:ListPolicyVersions",
-      "iam:CreatePolicyVersion",
-      "iam:DeletePolicyVersion",
-      "iam:TagPolicy",
-      "iam:UntagPolicy",
       "iam:ListPolicyTags",
-    ]
-    resources = ["arn:aws:iam::${local.account_id}:policy/${local.prefix}-spend-brake"]
-  }
-
-  statement {
-    sid = "ManageTheBudgetAction"
-    actions = [
-      "budgets:CreateBudgetAction",
-      "budgets:UpdateBudgetAction",
-      "budgets:DeleteBudgetAction",
       "budgets:DescribeBudgetAction",
       "budgets:DescribeBudgetActionsForBudget",
     ]
-    resources = ["arn:aws:budgets::${local.account_id}:budget/${local.prefix}-*"]
+    resources = [
+      "arn:aws:iam::${local.account_id}:policy/${local.prefix}-spend-brake",
+      "arn:aws:budgets::${local.account_id}:budget/${local.prefix}-*",
+    ]
   }
 }
 
@@ -755,6 +755,15 @@ data "aws_iam_policy_document" "github_deploy_denials" {
       "dynamodb:ExecuteStatement",
       "dynamodb:BatchExecuteStatement",
       "dynamodb:ExecuteTransaction",
+      # PartiQL is authorised under these, not under the three above.
+      "dynamodb:PartiQLSelect",
+      "dynamodb:PartiQLInsert",
+      "dynamodb:PartiQLUpdate",
+      "dynamodb:PartiQLDelete",
+      # A table's stream carries every change to it.
+      "dynamodb:GetRecords",
+      "dynamodb:GetShardIterator",
+      "dynamodb:ListStreams",
       "dynamodb:ExportTableToPointInTime",
       "dynamodb:RestoreTableToPointInTime",
       "dynamodb:RestoreTableFromBackup",
