@@ -221,6 +221,12 @@ export function holdCardChannel(
    * goes on trying as it always did.
    */
   onTrouble?: () => void,
+  /**
+   * Told, about every second, whether the channel is open — and at once
+   * when a connection cannot be made. For the screen: it says "Wick can't
+   * reach home" when this stays false for a while (transport/linkWatch.ts).
+   */
+  onLink?: (open: boolean) => void,
 ): RunningCardChannel {
   // What a reconcile says of this television: the last card it saw, and the ones it holds.
   const reconcileWith = {
@@ -248,6 +254,7 @@ export function holdCardChannel(
       if (stopped) return;
       console.error('card_channel_connect_failed — retrying', { retryMs }, err);
       onTrouble?.();
+      onLink?.(false);
       retryTimer = setTimeout(() => void attempt(), retryMs);
       retryMs = Math.min(retryMs * 2, FIRST_CONNECT_MAX_RETRY_MS);
       return;
@@ -258,9 +265,11 @@ export function holdCardChannel(
     }
     running = announce ? startBackgroundChannel(store, channel, announce) : startCardChannel(store, channel, onSent);
     // From here the channel reconnects by itself, and says nothing of being refused: its state is all there is to go by.
-    if (onTrouble) {
+    if (onTrouble || onLink) {
       stateWatch = setInterval(() => {
-        if (channel.state !== 'open') onTrouble();
+        const open = channel.state === 'open';
+        if (!open) onTrouble?.();
+        onLink?.(open);
       }, STATE_WATCH_MS);
     }
   };

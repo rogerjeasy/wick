@@ -31,10 +31,15 @@ import { STANDING_EVERY_MS, STANDING_MIN_GAP_MS } from '../../tv-vega/src/pairin
 import { replyActions } from '../../tv-vega/src/cards/messageActions.js';
 import { removesCard } from '../../tv-vega/src/cards/cardActions.js';
 
-/** The two scripts device.html loads, in its order: the television (tv-core.js), then the console around it. */
+/**
+ * The scripts device.html loads, in its order: the television's rules (the generated engine, whose WebSocket channel
+ * is the one used where IoT Core has no address, as here), the television (tv-core.js), then the console around it.
+ */
+const ENGINE_SOURCE = readFileSync(fileURLToPath(new URL('../tv-engine.generated.js', import.meta.url)), 'utf8');
 const CORE_SOURCE = readFileSync(fileURLToPath(new URL('../tv-core.js', import.meta.url)), 'utf8');
 const CONSOLE_SOURCE = readFileSync(fileURLToPath(new URL('../device.js', import.meta.url)), 'utf8');
 function runConsole(context: vm.Context): void {
+  vm.runInContext(ENGINE_SOURCE, context, { filename: 'tv-engine.generated.js' });
   vm.runInContext(CORE_SOURCE, context, { filename: 'tv-core.js' });
   vm.runInContext(CONSOLE_SOURCE, context, { filename: 'device.js' });
 }
@@ -586,10 +591,17 @@ function television(opts: { watched?: boolean; remembered?: Record<string, strin
       sockets.push(this);
     }
     send(data: string) {
-      this.sent.push(JSON.parse(data) as Record<string, unknown>);
+      const frame = JSON.parse(data) as Record<string, unknown>;
+      // A ping is the channel's own, and the edge answers it at once (edge-device route.mjs): not something the page sent.
+      if (frame.t === 'ping') {
+        (context.setTimeout as (fn: () => void, ms: number) => unknown)(() => this.onmessage?.({ data: JSON.stringify({ kind: 'control', control: { t: 'pong' } }) }), 0);
+        return;
+      }
+      this.sent.push(frame);
     }
     closed = 0;
     onclose?: () => void;
+    onmessage?: (event: { data: string }) => void;
     close() {
       this.closed += 1;
     }
@@ -608,7 +620,7 @@ function television(opts: { watched?: boolean; remembered?: Record<string, strin
   runConsole(context);
 
   // Paired as the resident's television, and connected — or the television the tab remembered being, restored by the page itself.
-  if (sockets.length === 0) (context.connectWebSocket as (jwt: string, deviceId: string) => void)('a.b.c', 'ops-console-test');
+  if (sockets.length === 0) (context.connectChannel as (jwt: string, deviceId: string) => void)('a.b.c', 'ops-console-test');
   const socket = sockets.at(-1)!;
   socket.onopen!();
 
@@ -3371,5 +3383,257 @@ describe('device.html — what the page says about the resident’s television',
     expect(count('On the mantelpiece, a click on the picture is OK')).toBe(1);
     expect(count('As the resident’s television,')).toBe(2);
     expect(count('class="muted remote-hint"')).toBe(4);
+  });
+});
+
+/*
+ * How the television reaches home (tv-core.js connectChannel): the Vega app's own channel, IoT Core's MQTT first and
+ * the WebSocket behind it, listened to from its first moment. The channel is a scripted one here — its own behaviour
+ * (heartbeat, backoff, guarded frames) is tested where it lives, in tv-vega/src/transport.
+ */
+describe('the browser television — the channel home', () => {
+  const MQTT = 'wss://iot.example.test/mqtt?x-amz-customauthorizer-name=wick-device';
+  const WEBSOCKET = 'wss://edge.example.test/transport';
+  const REMEMBERED = JSON.stringify({ kind: 'resident', jwt: 'the.device.token', deviceId: 'tv-9' });
+
+  type State = 'connecting' | 'open' | 'backoff' | 'closed';
+  class ScriptedChannel {
+    state: State = 'connecting';
+    sent: Array<Record<string, unknown>> = [];
+    reconciled = 0;
+    closed = 0;
+    readonly cards = new Set<(card: unknown) => void>();
+    readonly controls = new Set<(control: unknown) => void>();
+    readonly states = new Set<(state: State) => void>();
+    onCard(h: (card: unknown) => void) { this.cards.add(h); return () => this.cards.delete(h); }
+    onControl(h: (control: unknown) => void) { this.controls.add(h); return () => this.controls.delete(h); }
+    onState(h: (state: State) => void) { this.states.add(h); return () => this.states.delete(h); }
+    async send(e: Record<string, unknown>) { this.sent.push(e); }
+    async reconcile() { this.reconciled += 1; }
+    close() { this.closed += 1; this.become('closed'); }
+    become(state: State) { this.state = state; for (const h of [...this.states]) h(state); }
+    card(card: unknown) { for (const h of [...this.cards]) h(card); }
+  }
+
+  /** The page with an address for IoT Core, as it is published, and a stand-in for the generated channels script. */
+  function televisionOnChannels(opts: { refuse?: boolean; viaWebSocket?: boolean } = {}) {
+    const tab = new Map([['wick_virtual_television', REMEMBERED]]);
+    const channels: ScriptedChannel[] = [];
+    const configs: Array<{ mqtt?: { wssUrl: string }; websocket: { url: string } }> = [];
+    const tokens: Array<{ jwt: string; deviceId: string }> = [];
+    const ids = new Map<string, { textContent: string; disabled: boolean }>();
+    const element = () => ({ addEventListener() {}, removeEventListener() {}, appendChild() {}, removeChild() {}, remove() {}, setAttribute() {}, children: [], style: {}, dataset: {}, classList: { add() {}, remove() {} }, textContent: '', disabled: false });
+    const timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
+    const asked: string[] = [];
+    const WickTvChannels = {
+      createDeviceChannel: async (config: { mqtt?: { wssUrl: string }; websocket: { url: string }; attach?: (c: ScriptedChannel) => void }, token: { jwt: string; deviceId: string }) => {
+        configs.push(config);
+        tokens.push(token);
+        const channel = new ScriptedChannel();
+        channels.push(channel);
+        config.attach?.(channel);
+        if (opts.refuse) {
+          channel.become('closed');
+          throw new Error('websocket_closed_before_open');
+        }
+        return channel;
+      },
+    };
+    const context = vm.createContext({
+      document: { getElementById: (id: string) => ids.get(id) ?? (ids.set(id, element()), ids.get(id)!), createElement: element, addEventListener() {}, removeEventListener() {}, head: element(), hidden: false, activeElement: null },
+      window: { addEventListener() {} },
+      console, URL, AbortController, WickTvChannels,
+      sessionStorage: { getItem: (key: string) => tab.get(key) ?? null, setItem: (key: string, value: string) => void tab.set(key, value), removeItem: (key: string) => void tab.delete(key) },
+      get localStorage() { throw new Error('the page reached for localStorage'); },
+      WebSocket: class { static OPEN = 1; readyState = 0; send() {} close() {} },
+      setTimeout: (fn: () => void, ms: number) => timers.push({ fn, ms, cleared: false }) - 1,
+      clearTimeout: (id: number) => { if (timers[id]) timers[id].cleared = true; },
+      setInterval: () => 0,
+      clearInterval() {},
+      fetch: (url: string) => new Promise(() => void asked.push(url)),
+    });
+    vm.runInContext(ENGINE_SOURCE, context, { filename: 'tv-engine.generated.js' });
+    // As infra/ops-console.tf publishes it: the addresses in place of their placeholders (or, for this one test, none for IoT Core).
+    const published = CORE_SOURCE
+      .replace('WEBSOCKET_URL_PLACEHOLDER', WEBSOCKET)
+      .replace('MQTT_WSS_URL_PLACEHOLDER', opts.viaWebSocket ? 'MQTT_WSS_URL_PLACEHOLDER' : MQTT);
+    vm.runInContext(published, context, { filename: 'tv-core.js' });
+    vm.runInContext(CONSOLE_SOURCE, context, { filename: 'device.js' });
+    return {
+      channels, configs, tokens, tab, asked, timers,
+      badge: () => ids.get('conn-badge')?.textContent,
+      detail: () => ids.get('conn-detail')?.textContent,
+      run: (code: string) => vm.runInContext(code, context) as unknown,
+      settle: () => new Promise<void>((resolve) => setImmediate(resolve)),
+    };
+  }
+
+
+  it('opens IoT Core first with the WebSocket behind it, for the television the tab remembers, with its token and nothing else', async () => {
+    const tv = televisionOnChannels();
+    await tv.settle();
+
+    expect(tv.channels).toHaveLength(1);
+    expect(tv.configs[0]!.mqtt!.wssUrl).toBe(MQTT);
+    expect(tv.configs[0]!.websocket.url).toBe(WEBSOCKET);
+    expect(tv.tokens[0]).toMatchObject({ jwt: 'the.device.token', deviceId: 'tv-9' });
+    expect(tv.asked).toEqual([]);
+  });
+
+  it('uses the WebSocket alone where the page was given no address for IoT Core', async () => {
+    const tv = televisionOnChannels({ viaWebSocket: true });
+    await tv.settle();
+
+    // No createDeviceChannel: the engine's own WebSocket channel is made, and it asks the socket the page was given.
+    expect(tv.channels).toHaveLength(0);
+    expect(tv.run('channel !== null && listening !== null')).toBe(true);
+  });
+
+  it('says connected when the channel opens, and shows nothing it was not sent', async () => {
+    const tv = televisionOnChannels();
+    await tv.settle();
+    const [channel] = tv.channels;
+
+    channel!.become('open');
+
+    expect(tv.badge()).toBe('connected');
+    expect(tv.detail()).toBe('paired');
+    expect(tv.run('channelOpen()')).toBe(true);
+  });
+
+  it('is told of the state from the channel’s very first moment: one that opens before the open call returns is not missed', async () => {
+    const tv = televisionOnChannels();
+    // Listened to as soon as it was made (`attach`), before createDeviceChannel had answered.
+    expect(tv.channels).toHaveLength(1);
+    expect(tv.channels[0]!.states.size).toBe(1);
+    expect(tv.channels[0]!.cards.size).toBe(1);
+    tv.channels[0]!.become('open');
+    expect(tv.badge()).toBe('connected');
+  });
+
+  it('keeps the card it is sent, and gives up what it holds when the channel is lost and comes back: the new connection is owed afresh', async () => {
+    const tv = televisionOnChannels();
+    await tv.settle();
+    const channel = tv.channels[0]!;
+    channel.become('open');
+    channel.card(NOTE('See you on Sunday.'));
+    expect(tv.run('keptCards.length')).toBe(1);
+
+    // The network goes: nothing more is said to be connected, the channel tries again by itself, and the home is asked whether it still has this television.
+    channel.become('backoff');
+    expect(tv.badge()).toBe('disconnected');
+    expect(tv.run('channelOpen()')).toBe(false);
+    expect(tv.channels).toHaveLength(1);
+    channel.become('connecting');
+    expect(tv.badge()).toBe('disconnected');
+
+    // And when it is back it is connected again, with nothing carried over.
+    channel.become('open');
+    expect(tv.badge()).toBe('connected');
+    expect(tv.run('keptCards.length')).toBe(0);
+    expect(tv.tab.has('wick_virtual_television')).toBe(true);
+  });
+
+  it('does not reconnect by itself: the channel does, so no timer of the page’s own is set for it', async () => {
+    const tv = televisionOnChannels();
+    await tv.settle();
+    tv.channels[0]!.become('open');
+    tv.channels[0]!.become('backoff');
+
+    expect(tv.timers.filter((t) => !t.cleared && t.ms === 5000)).toEqual([]);
+    expect(tv.channels).toHaveLength(1);
+  });
+
+  it('sends an event only on an open channel', async () => {
+    const tv = televisionOnChannels();
+    await tv.settle();
+    const channel = tv.channels[0]!;
+
+    tv.run("send({ t: 'light', at: 1 })");
+    expect(channel.sent).toEqual([]);
+
+    channel.become('open');
+    tv.run("send({ t: 'light', at: 1 })");
+    expect(channel.sent).toEqual([{ t: 'light', at: 1 }]);
+
+    channel.become('backoff');
+    tv.run("send({ t: 'light', at: 2 })");
+    expect(channel.sent).toHaveLength(1);
+  });
+
+  it('asks again for its cards through the channel when her language changes — once, and only when it is open', async () => {
+    const tv = televisionOnChannels();
+    await tv.settle();
+    const channel = tv.channels[0]!;
+
+    tv.run('askAgain()');
+    expect(channel.reconciled).toBe(0);
+    channel.become('open');
+    tv.run('askAgain()');
+    expect(channel.reconciled).toBe(1);
+  });
+
+  it('forgets a television whose channel never opened: a reload does not try it again', async () => {
+    const tv = televisionOnChannels({ refuse: true });
+    await tv.settle();
+
+    expect(tv.tab.has('wick_virtual_television')).toBe(false);
+    expect(tv.badge()).toBe('disconnected');
+    expect(tv.run('channel')).toBe(null);
+  });
+
+  it('keeps a television whose channel opened and was lost, even if the open and the loss came together', async () => {
+    const tv = televisionOnChannels();
+    // Open, and gone again before createDeviceChannel's answer was heard.
+    tv.channels[0]!.become('open');
+    tv.channels[0]!.become('backoff');
+    await tv.settle();
+
+    expect(tv.tab.has('wick_virtual_television')).toBe(true);
+  });
+
+  it('lets the channel go when she disconnects it by hand, and listens to it no more', async () => {
+    const tv = televisionOnChannels();
+    await tv.settle();
+    const channel = tv.channels[0]!;
+    channel.become('open');
+
+    tv.run('disconnect()');
+
+    expect(channel.closed).toBe(1);
+    expect(tv.tab.has('wick_virtual_television')).toBe(false);
+    expect(tv.run('channel')).toBe(null);
+    expect(channel.cards.size).toBe(0);
+    expect(channel.states.size).toBe(0);
+  });
+
+  it('lets the channel go, quietly, when the home says the television is no longer in it', async () => {
+    const tv = televisionOnChannels();
+    await tv.settle();
+    const channel = tv.channels[0]!;
+    channel.become('open');
+
+    tv.run('televisionGone()');
+
+    expect(channel.closed).toBe(1);
+    expect(tv.run('channel')).toBe(null);
+    expect(tv.tab.has('wick_virtual_television')).toBe(false);
+  });
+
+  it('listens to the channel that came after IoT Core was refused, and no longer to the first', async () => {
+    const tv = televisionOnChannels();
+    await tv.settle();
+    const first = tv.channels[0]!;
+    const second = new ScriptedChannel();
+    tv.configs[0]!.attach?.(second);
+
+    expect(first.cards.size).toBe(0);
+    expect(first.states.size).toBe(0);
+    second.become('open');
+    expect(tv.badge()).toBe('connected');
+    // The first, long let go, closes late: it is not news.
+    first.become('closed');
+    expect(tv.badge()).toBe('connected');
+    expect(tv.run('channel === null')).toBe(false);
   });
 });

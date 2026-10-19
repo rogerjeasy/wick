@@ -87,6 +87,12 @@ export type DeviceEvent =
   | { readonly t: 'read'; readonly cardId: string; readonly at: number };
 
 export type ControlMessage =
+  /**
+   * The answer to a television's `ping` on the WebSocket: nothing but
+   * proof that the connection still reaches the edge. The channel takes it
+   * itself and passes it to nobody (WebSocketChannel.ts).
+   */
+  | { readonly t: 'pong' }
   | { readonly t: 'patch'; readonly patch: CardPatch }
   | { readonly t: 'revoke'; readonly cardId: string }
   | {
@@ -148,6 +154,12 @@ export interface DeviceChannel {
   onControl(handler: (m: ControlMessage) => void): Unsubscribe;
   send(e: DeviceEvent): Promise<void>;
   readonly state: ChannelState;
+  /**
+   * Told each time the state changes — opened, lost and being retried, closed
+   * — for a screen that says so (the browser television's badge). Optional: a
+   * channel that does not tell is simply not asked.
+   */
+  onState?(handler: (state: ChannelState) => void): Unsubscribe;
 }
 
 /**

@@ -324,3 +324,85 @@ describe('MqttChannel — asking again for its cards (reconcile)', () => {
     await expect(channel.reconcile()).resolves.toBeUndefined();
   });
 });
+
+describe('MqttChannel — a broker that sends what it should not, and a connection that goes quiet', () => {
+  it('asks the library for a 30 second keepalive, so a half-open connection is closed within a minute', async () => {
+    const { clients, asked, connect } = broker();
+    const channel = new MqttChannel({ wssUrl: WSS }, connect);
+    const connecting = channel.connect(TOKEN);
+    clients[0]!.emit('connect');
+    await connecting;
+
+    expect(asked[0]!.options).toMatchObject({ keepalive: 30 });
+  });
+
+  it.each([
+    ['cards', 'not json', 'a card that is not JSON'],
+    ['cards', '{"id":7}', 'a card whose id is not a string'],
+    ['cards', 'null', 'null instead of a card'],
+    ['control', '{"nope":1}', 'a control message with no t'],
+    ['control', '[', 'a control message that is not JSON'],
+  ])('drops %s payload %s (%s) without throwing, and delivers the next one', async (topic, body) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const client = new FakeMqttClient();
+    const channel = new MqttChannel({ wssUrl: WSS }, fakeConnector(client));
+    await opened(channel, client);
+    const heard: unknown[] = [];
+    channel.onCard((c) => heard.push(c));
+    channel.onControl((m) => heard.push(m));
+
+    expect(() => client.emit('message', `wick/device/dev-1/${topic}`, Buffer.from(body))).not.toThrow();
+    expect(heard).toEqual([]);
+
+    client.emit('message', 'wick/device/dev-1/control', Buffer.from(JSON.stringify({ t: 'revoke', cardId: 'c1' })));
+    expect(heard).toEqual([{ t: 'revoke', cardId: 'c1' }]);
+  });
+
+  it('says so when the client errors after it has opened, instead of dropping the error', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const client = new FakeMqttClient();
+    const channel = new MqttChannel({ wssUrl: WSS }, fakeConnector(client));
+    await opened(channel, client);
+
+    client.emit('error', new Error('Keepalive timeout'));
+
+    expect(warn).toHaveBeenCalledWith('mqtt_client_error', 'Keepalive timeout');
+  });
+
+  it('reconnects after a keepalive timeout: the library errors, then closes', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { clients, connect } = broker();
+    const channel = new MqttChannel({ wssUrl: WSS }, connect);
+    const connecting = channel.connect(TOKEN);
+    clients[0]!.emit('connect');
+    await connecting;
+
+    clients[0]!.emit('error', new Error('Keepalive timeout'));
+    clients[0]!.emit('close');
+    expect(channel.state).toBe('backoff');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(clients).toHaveLength(2);
+  });
+});
+
+describe('MqttChannel — telling a screen how the connection stands', () => {
+  it('says opened, lost and being retried, opened again, closed', async () => {
+    vi.useFakeTimers();
+    const { clients, connect } = broker();
+    const channel = new MqttChannel({ wssUrl: WSS }, connect);
+    const told: string[] = [];
+    channel.onState((state) => told.push(state));
+
+    const connecting = channel.connect(TOKEN);
+    clients[0]!.emit('connect');
+    await connecting;
+    clients[0]!.emit('close');
+    await vi.advanceTimersByTimeAsync(1000);
+    clients[1]!.emit('connect');
+    await vi.advanceTimersByTimeAsync(0);
+    channel.close();
+
+    expect(told).toEqual(['connecting', 'open', 'backoff', 'connecting', 'open', 'closed']);
+  });
+});

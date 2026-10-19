@@ -104,4 +104,46 @@ describe('createDeviceChannel', () => {
     );
     expect(channel).toBeInstanceOf(WebSocketChannel);
   });
+  it('gives each channel to `attach` before it connects, so a screen hears its state from the first moment', async () => {
+    const seen: Array<{ kind: string; state: string }> = [];
+    const channel = await createDeviceChannel(
+      {
+        mqtt: { wssUrl: 'wss://iot.example/mqtt' },
+        websocket: { url: 'wss://example/ws' },
+        attach: (c) => {
+          const kind = c instanceof MqttChannel ? 'mqtt' : 'websocket';
+          seen.push({ kind, state: c.state });
+          c.onState?.((state) => seen.push({ kind, state }));
+        },
+      },
+      TOKEN,
+      { mqttConnect: workingMqttConnector() },
+    );
+
+    expect(channel).toBeInstanceOf(MqttChannel);
+    // Attached while still closed, then told of its connecting and its opening.
+    expect(seen).toEqual([
+      { kind: 'mqtt', state: 'closed' },
+      { kind: 'mqtt', state: 'connecting' },
+      { kind: 'mqtt', state: 'open' },
+    ]);
+  });
+
+  it('attaches the WebSocket too when IoT Core was refused, after the first, and the one returned is the one attached last', async () => {
+    vi.useFakeTimers();
+    const attached: unknown[] = [];
+    const pending = createDeviceChannel(
+      { mqtt: { wssUrl: 'wss://iot.example/mqtt', connectTimeoutMs: 50 }, websocket: { url: 'wss://example/ws' }, attach: (c) => attached.push(c) },
+      TOKEN,
+      { mqttConnect: brokenMqttConnector(), websocketOpen: workingWsFactory() },
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    const channel = await pending;
+
+    expect(attached).toHaveLength(2);
+    expect(attached[0]).toBeInstanceOf(MqttChannel);
+    expect(attached[1]).toBeInstanceOf(WebSocketChannel);
+    expect(channel).toBe(attached[1]);
+    channel.close();
+  });
 });
