@@ -39,7 +39,7 @@ import { callKey, claimOnce } from './once.js';
 import { localToUtc } from './when.js';
 import { EXPECT_VISIT_BAD_TIME_TEXT, EXPECT_VISIT_PAST_TEXT, EXPECT_VISIT_TOO_FAR_TEXT } from './expect_visit.js';
 import { IDEMPOTENCY_KEY_WINDOW_MS, SAME_NOTE_WINDOW_MS } from './send_note_to_tv.js';
-import { familyText } from '../guardian.js';
+import { familyName, familyText } from '../guardian.js';
 import {
   ARRANGE_BAD_WHO_TEXT,
   ARRANGE_TOO_MANY_TEXT,
@@ -114,7 +114,9 @@ export function registerArrangeVisit(
 
       const who = args.who.trim().replace(/\s+/g, ' ');
       if (who.length === 0 || who.length > ERRAND_LIMITS.whoMaxChars) return say(ARRANGE_BAD_WHO_TEXT);
-      if (!familyText(who, 'errand.who')) return say(ARRANGE_WHO_NOT_SHARED_TEXT);
+      // The errand's words reach the family again, so they are cleared once, here. Who is coming may be a name
+      // ("Иван the plumber"): read as a name when it is not clear as a sentence (policy's foreign.ts).
+      if (!familyText(who, 'errand.who') && !familyName(who, 'errand.who')) return say(ARRANGE_WHO_NOT_SHARED_TEXT);
 
       const timeZone = zoneOf(allowed.household);
       const at = localToUtc(args.date, args.time, timeZone);

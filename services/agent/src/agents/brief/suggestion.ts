@@ -48,12 +48,14 @@ export function judgeSuggestion(
   ctx: SuggestionContext,
   policy: HouseholdPolicy,
   checkText: (text: string) => boolean,
+  /** The household's own people, by name (policy foreign.ts). */
+  people: readonly string[] = [],
 ): SuggestionVerdict {
   const suggestion = readBriefSuggestion(raw);
   if (!suggestion) return { ok: false, why: 'not_a_suggestion' };
   if (!allowedActions(ctx).includes(suggestion.action)) return { ok: false, why: 'action_not_allowed' };
   if (!checkText(suggestion.reason)) return { ok: false, why: 'unsupported' };
-  if (!clearForFamily(suggestion.reason, policy).cleared) return { ok: false, why: 'guardian' };
+  if (!clearForFamily(suggestion.reason, policy, { people }).cleared) return { ok: false, why: 'guardian' };
   return { ok: true, suggestion };
 }
 

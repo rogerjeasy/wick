@@ -21,7 +21,7 @@ import { familyOnly } from '../agents/door/askFamily.js';
 import { NARRATIVE_REGION } from '../agents/narrator/prose.js';
 import { buildWeekCard, familyNameForWeekCard } from '../agents/narrator/weekCard.js';
 import { briefModel, runWeeklyBriefGraph } from '../graphs/weeklyBrief.js';
-import { loadHouseholdPolicy, loadHouseholdTimeZone } from '../store/household.js';
+import { loadHouseholdPolicy, loadHouseholdTimeZone, loadRoster } from '../store/household.js';
 import { lookStore, type LookSend } from '../store/looks.js';
 import type { BriefHandlerDeps } from './briefHandler.js';
 
@@ -51,6 +51,10 @@ export function briefWeeklyDepsFor(ddb: DynamoDBClient, table: string): (househo
         loadErrands: rows.loadErrands,
         loadTvActivity: rows.loadTvActivity,
         loadPolicy: () => loadHouseholdPolicy(ddb, table, householdId),
+        loadPeople: async () => [
+          ...(await loadRoster(ddb, table, householdId)).map((person) => person.name),
+          ...(await looks.listFamily(householdId)).map((member) => member.name),
+        ],
         guardrail: (request) => bedrock.send(new ApplyGuardrailCommand(request)),
         guardrailRef,
         saveWeek: weeks.save,

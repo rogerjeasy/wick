@@ -56,7 +56,8 @@ import { registerGetToday } from './tools/get_today.js';
 import { registerDidVisitorCome } from './tools/did_visitor_come.js';
 import { registerSendNoteToTv } from './tools/send_note_to_tv.js';
 import { registerGetReplies } from './tools/get_replies.js';
-import { loadRoster, registerListRegularVisitors } from './tools/list_regular_visitors.js';
+import { registerListRegularVisitors } from './tools/list_regular_visitors.js';
+import { householdPeople } from './people.js';
 import { registerGetWhatsDifferent } from './tools/get_whats_different.js';
 import { registerAddRegularVisitor } from './tools/add_regular_visitor.js';
 import { registerExpectVisit } from './tools/expect_visit.js';
@@ -383,6 +384,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     toolSpecs: () => (toolSpecs ??= listToolSpecs(ddb)),
     agent: deps.assistantAgent,
     toolTitles: () => (toolTitles ??= listToolTitles(ddb)),
+    peopleOf: (householdId) => householdPeople(ddb, deps.store, householdId),
     budget,
     now: circle.now,
   }));
@@ -451,11 +453,8 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
         lookedIn: (allowed) =>
           recordLook(ddb, { householdId: grant.householdId, userId: grant.userId, name: allowed.membership.name, timeZone: zoneOf(allowed.household) }, (deps.now ?? Date.now)(), deps.sendHome ?? (async () => {})),
         ...(timing ? { timing } : {}),
-        // Her regular visitors and her circle, by name: read only when an answer would otherwise be withheld.
-        people: async () => [
-          ...(await loadRoster(ddb, grant.householdId)).map((person) => person.name),
-          ...(await deps.store.listMembers(grant.householdId)).map((member) => member.name),
-        ],
+        // The resident, her regular visitors and her circle, by name: read only when an answer would otherwise be withheld.
+        people: () => householdPeople(ddb, deps.store, grant.householdId),
       }, deps.sendCard, deps.sendPatch, deps.withdrawCard, { errands: deps.errands });
       // No `sessionIdGenerator` given: that is what makes it stateless.
       // `enableJsonResponse`: the answer is one JSON body, written once the

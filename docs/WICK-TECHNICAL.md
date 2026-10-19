@@ -596,6 +596,15 @@ The content gate works the other way: saying "something was held back" would rev
 
 A lexicon catches what it lists. "St Mary's" or "d0ctor" pass. It stops Wick passing a protected fact on by accident; it does not stop someone set on spelling one past it. A missed word is added with a test, and so is the ordinary sentence it must not catch. It also fails closed: "a man on crutches" loses its sentence.
 
+**Names in other scripts.** The lexicon is English and reads letters a–z, so a letter outside them used to withhold the whole string. That made a household whose resident, carer or daughter is written in Cyrillic, Greek, Hebrew, Arabic, Han, Hangul or an Indic script unusable: every sentence that named her was withheld, and every answer was "Something went wrong". One exception now exists, and it is narrow (`services/policy/src/foreign.ts`):
+
+- A *word* wholly in one other script may stand as a person's name, unless it says doctor, nurse, hospital, medicine, bank, pension or debt in that script. A word with letters of two scripts is the look-alike trick and is still unreadable, as is an invisible character or an emoji.
+- Inside a sentence, such a word is set aside only where the household's own people are given (resident, home label, regular visitors, circle: `services/mcp-server/src/people.ts`, read only when an answer would otherwise be withheld). The rest of the sentence is read as before, so "Мария saw the doctor" is still held back.
+- A Latin name is never set aside inside a sentence, as before.
+- A person in another script is filed under `u-` and a 64-bit fingerprint of the name (`packages/contracts/src/person.ts`); it used to be an empty id, which the roster refused.
+
+What this does not do is read those languages. The role-word lists are short, hand-written, and best effort. A health word the lists do not hold, in a script the gate cannot read, typed by a family member as a visitor's name, would be accepted as a name: the household's own circle chose that name for someone in it, and no model or sensor of hers is behind it. Sentences in another script that are not a vouched-for name (a door sentence a model wrote in Russian, say) are still withheld.
+
 ---
 
 ## 7. CONNECTORS
