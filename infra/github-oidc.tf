@@ -786,14 +786,14 @@ data "aws_iam_policy_document" "github_deploy_denials" {
       "s3:PutObjectTagging",
       "s3:DeleteObject",
       "s3:DeleteObjectVersion",
-      "s3:ListBucket",
-      "s3:ListBucketVersions",
       "s3:RestoreObject",
     ]
+    # Objects only, never the bucket itself. s3:ListBucket is also the permission HeadBucket needs, and
+    # a Terraform refresh that is refused it reads the bucket as deleted: on 2026-10-19 that made CI plan to
+    # recreate both buckets and tear down their lifecycle rules, public access block and TLS-only policy.
+    # Naming an object is all that listing would give; reading or changing one stays denied.
     resources = [
-      aws_s3_bucket.media.arn,
       "${aws_s3_bucket.media.arn}/*",
-      aws_s3_bucket.photos.arn,
       "${aws_s3_bucket.photos.arn}/*",
     ]
   }

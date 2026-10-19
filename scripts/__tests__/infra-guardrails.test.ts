@@ -72,7 +72,7 @@ describe('the deploy role (infra/github-oidc.tf)', () => {
       // PartiQL is authorised under its own names, and a stream carries every change.
       'dynamodb:PartiQLSelect', 'dynamodb:PartiQLInsert', 'dynamodb:PartiQLUpdate', 'dynamodb:PartiQLDelete',
       'dynamodb:GetRecords', 'dynamodb:GetShardIterator', 'dynamodb:ListStreams',
-      's3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:ListBucket',
+      's3:GetObject', 's3:PutObject', 's3:DeleteObject',
       'lambda:InvokeFunction', 'lambda:InvokeAsync', 'lambda:InvokeFunctionUrl', 'events:PutEvents',
       'logs:GetLogEvents', 'logs:FilterLogEvents', 'logs:StartQuery', 'logs:StartLiveTail',
       'bedrock-agentcore:InvokeAgentRuntime', 'bedrock-agentcore:ListEvents',
@@ -83,8 +83,21 @@ describe('the deploy role (infra/github-oidc.tf)', () => {
     const bucketDenial = denies.find((s) => s.sid === 'NeverTouchADoorPictureOrAFamilyPhoto')!;
     expect(bucketDenial.resources.join(' ')).toContain('aws_s3_bucket.media');
     expect(bucketDenial.resources.join(' ')).toContain('aws_s3_bucket.photos');
+    // Objects only: every resource is an object path, never the bucket (see the next test for why).
+    expect(bucketDenial.resources.every((r) => r.endsWith('/*'))).toBe(true);
     const written = allows.find((s) => s.sid === 'PutTheStaticSites')!;
     expect(written.resources.join(' ')).not.toMatch(/media|photos/);
+  });
+
+  it('is never denied what Terraform needs to see that a bucket it manages exists', () => {
+    // s3:ListBucket is what HeadBucket asks for. Refused it, a refresh reads the bucket as deleted, plans to create
+    // it again and removes its lifecycle rules, public access block and policy (seen in CI on 2026-10-19).
+    const bucketReads = /^s3:(ListBucket|ListBucketVersions|GetBucket|GetLifecycleConfiguration|GetEncryptionConfiguration|GetAccelerateConfiguration|GetReplicationConfiguration)/;
+    const offenders = denies.filter((s) => s.actions.some((a) => bucketReads.test(a)) && !s.resources.every((r) => r.endsWith('/*')));
+    expect(offenders.map((s) => s.sid)).toEqual([]);
+    // And the role is allowed those on the buckets it manages.
+    const managed = allows.find((s) => s.actions.includes('s3:*') && s.resources.join(' ').includes('aws_s3_bucket.media'));
+    expect(managed).toBeDefined();
   });
 
   it('is allowed only the table’s settings, never a verb that reaches its rows by another name', () => {
