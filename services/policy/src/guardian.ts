@@ -18,6 +18,14 @@
  * resident's language changes only what her own television shows), so
  * this withholds nothing Wick itself wrote.
  *
+ * One exception, narrow on purpose: a name in another script (foreign.ts). A
+ * word wholly in one other script that says nothing of a doctor, a hospital,
+ * medicine, a bank or a debt may stand as a person's name, and where the
+ * household's own people are given (`people`), the same words are set aside
+ * inside a sentence. Without that, a household whose resident or carer is
+ * written in Cyrillic or Chinese was told "Something went wrong" to every
+ * question. Everything else in another script is unreadable still.
+ *
  * VERBATIM has no entry in the lexicon. Her own words never become text:
  * her television has no microphone, and her replies are keys to sentences
  * Wick wrote (send_note_to_tv.ts). The class is refused by `evaluate`, so
@@ -30,8 +38,9 @@
  * member's question, a name typed as a role — not a person set on
  * smuggling one past it.
  */
-import type { FactClass } from '@wick/contracts';
+import { personIdFor, type FactClass } from '@wick/contracts';
 import { evaluate } from './evaluate.js';
+import { isForeignNameWord } from './foreign.js';
 import { LEXICON, type ListedClass } from './lexicon.js';
 import { DEFAULT_POLICY } from './policy.js';
 import type { HouseholdPolicy } from './types.js';
@@ -89,9 +98,8 @@ export function normalise(text: string): string | undefined {
  * clearNameForFamily counts, so a member who calls themselves "Pension" or
  * "Council Tax" clears nothing but their own name, and not even that.
  */
-/** The id a name is filed under: "Mary-Jo O'Neil" is "mary-jo-o-neil" (add_regular_visitor personIdFor). */
-const idOf = (name: string): string =>
-  name.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+/** The id a name is filed under: "Mary-Jo O'Neil" is "mary-jo-o-neil" (contracts personIdFor, which the roster uses). */
+const idOf = personIdFor;
 
 function isOneOf(text: string, people: readonly string[]): boolean {
   const read = normalise(text.trim());
@@ -104,9 +112,32 @@ export interface ClearOptions {
   readonly people?: readonly string[];
 }
 
+/**
+ * The words of the household's own people that are written in another
+ * script, set aside as "someone" so the lexicon reads the sentence around
+ * them. Only a word that clearNameForFamily would take as part of a name, only
+ * of a person who passes it, and only where it stands alone (not inside a
+ * longer run of letters). A Latin name is never set aside here: "Anna Cash"
+ * is cleared as a whole string or not at all, as above.
+ */
+function maskNames(text: string, people: readonly string[] | undefined): string {
+  if (!people?.length) return text;
+  const names = new Set<string>();
+  for (const person of people) {
+    if (!clearNameForFamily(person)) continue;
+    for (const word of person.trim().split(/\s+/)) {
+      if (isForeignNameWord(word)) names.add(word);
+    }
+  }
+  if (names.size === 0) return text;
+  const alternatives = [...names].sort((a, b) => b.length - a.length).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const standingAlone = new RegExp(`(?<![\\p{L}\\p{N}\\p{M}])(?:${alternatives.join('|')})(?![\\p{L}\\p{N}\\p{M}])`, 'giu');
+  return text.replace(standingAlone, 'someone');
+}
+
 /** Which protected classes a string is about, by the lexicon — or that it cannot be read. */
 export function classify(text: string, options: ClearOptions = {}): Reading {
-  const plain = normalise(text);
+  const plain = normalise(maskNames(text, options.people));
   if (plain === undefined) return { readable: false };
   if (options.people?.length && isOneOf(text, options.people)) return { readable: true, classes: [] };
   const classes = new Set<ListedClass>();
@@ -162,9 +193,11 @@ const NOT_A_FIRST_NAME: ReadonlySet<string> = new Set(['the', 'a', 'an', 'her', 
 export function clearNameForFamily(name: string, policy: HouseholdPolicy = DEFAULT_POLICY): boolean {
   const words = name.trim().split(/\s+/);
   const first = words[0] ?? '';
-  const startsAsAName = words.length > 1 && /^[A-Z]/.test(first) && !NOT_A_FIRST_NAME.has(first.toLowerCase());
+  const startsAsAName = words.length > 1 && (/^[A-Z]/.test(first) || isForeignNameWord(first)) && !NOT_A_FIRST_NAME.has(first.toLowerCase());
   const read = words
     .map((word, i) => {
+      // A word in another script that says nothing protected is a name (foreign.ts).
+      if (isForeignNameWord(word)) return 'someone';
       if (i === 0 && TITLES.has(word.replace(/\.$/, ''))) return 'someone';
       if (i > 0 && startsAsAName && /^[A-Z]/.test(word) && SURNAMES_THAT_ARE_WORDS.has(word.toLowerCase())) return 'someone';
       return word;

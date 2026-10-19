@@ -82,4 +82,34 @@ describe('the content gate', () => {
       { numRuns: RUNS },
     );
   });
+
+  // A household whose people are written in other scripts (foreign.ts): their names are set aside inside a
+  // sentence, and nothing else about the sentence changes.
+  const FOREIGN_PEOPLE = ['Мария', 'Анна-Мария', 'Μαρία', '玛丽亚', 'ماريا', 'מרים', 'मारिया', '마리아', 'マリア', 'Мария Smith'];
+  const arbPeople = fc.subarray(FOREIGN_PEOPLE, { minLength: 1 });
+
+  it('never clears a protected phrase beside a household’s own foreign-script names, wherever they stand', () => {
+    fc.assert(
+      fc.property(arbProtectedText, arbPeople, fc.nat(), (text, people, at) => {
+        const name = people[at % people.length]!.split(' ')[0]!;
+        for (const withName of [`${name} ${text}`, `${text} ${name}`, `${name}: ${text}`]) {
+          expect(clearForFamily(withName, undefined, { people }).cleared).toBe(false);
+        }
+      }),
+      { numRuns: RUNS },
+    );
+  });
+
+  it('is no more generous with a household’s people than without them, except for their own names', () => {
+    fc.assert(
+      fc.property(fc.string({ maxLength: 120 }), arbPeople, (text, people) => {
+        // Anything cleared only because a name was set aside must be the name itself: take the names out of the text and it must clear alone.
+        const withPeople = clearForFamily(text, undefined, { people }).cleared;
+        if (!withPeople) return;
+        const without = people.flatMap((p) => p.split(' ')).reduce((rest, word) => rest.split(word).join('someone'), text);
+        expect(clearForFamily(without).cleared).toBe(true);
+      }),
+      { numRuns: RUNS },
+    );
+  });
 });
