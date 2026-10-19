@@ -109,6 +109,7 @@ import type { AnswerOutcome } from '../tools/result.js';
 import type { HouseholdPolicy } from '@wick/policy';
 import { checkAccess } from './circle.js';
 import { guardTelevision } from '../guardian.js';
+import { householdPeople } from '../people.js';
 import type { AccountStore } from './store.js';
 import { action, type TvCaller } from './familyTvTypes.js';
 import { watchCard, watchSeat } from './familyTvWatch.js';
@@ -508,7 +509,7 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
     const policy = loadHouseholdPolicy(ddb, who.householdId);
     const [light, week, door, reach, film, wave] = await Promise.all([
       policy.then((shared) => lightFor(who, at, shared)),
-      policy.then((shared) => readableWeek(shared, () => latestWeek(who, at), zoneOf(who.household))),
+      policy.then((shared) => readableWeek(shared, () => latestWeek(who, at), zoneOf(who.household), () => householdPeople(ddb, deps.store, who.householdId))),
       doorCard(who, at, true),
       reachCard(who, at, true),
       filmCard(who, at),
@@ -571,7 +572,7 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
     // Looked up afresh, not from what is kept: a press is decided on how things stand. And what is kept goes.
     weekLookups.delete(screenOf(who));
     const at = now();
-    const week = await readableWeek(await loadHouseholdPolicy(ddb, who.householdId), () => loadLatestWeek(ddb, who.householdId, currentIsoWeek(new Date(at))), zoneOf(who.household));
+    const week = await readableWeek(await loadHouseholdPolicy(ddb, who.householdId), () => loadLatestWeek(ddb, who.householdId, currentIsoWeek(new Date(at))), zoneOf(who.household), () => householdPeople(ddb, deps.store, who.householdId));
     if (week?.isoWeek !== isoWeek) return said(false, 'That week is not here to read.');
     if (!(await markWeekRead(ddb, who, isoWeek))) return said(false, 'This television is no longer connected.');
     return said(true, `You have read ${who.household.residentName}’s week.`);
@@ -656,5 +657,9 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
       if (isOnScreen(who)) return { status: 200, body: { waiting: [] } };
       return { status: 200, body: await waitingFor(who) };
     },
+  }, async (authorization?: string) => {
+    // Whose television it is says whose people to read. A request that cannot say gets none.
+    const who = await authenticate(authorization, true);
+    return 'status' in who ? [] : householdPeople(ddb, deps.store, who.householdId);
   });
 }

@@ -142,7 +142,7 @@ export function readAgentAnswer(raw: unknown, tools: ReadonlyMap<string, string>
 }
 
 /** What the family app is told: what waits, what may be said, or that the tools' own sentences must do. */
-export function answerFor(answer: AgentAnswer, titles: ReadonlyMap<string, string>, now: Date, timeZone: string): Record<string, unknown> {
+export function answerFor(answer: AgentAnswer, titles: ReadonlyMap<string, string>, now: Date, timeZone: string, people: readonly string[] = []): Record<string, unknown> {
   const { trace, toolTexts } = answer;
   if (answer.needsApproval) {
     const needsApproval = answer.needsApproval.map((call) => ({ ...call, title: titles.get(call.name) ?? call.name }));
@@ -153,7 +153,7 @@ export function answerFor(answer: AgentAnswer, titles: ReadonlyMap<string, strin
     { role: 'tool', results: toolTexts.map((text, i) => ({ id: `t${i}`, name: trace[i]!.tool, text })) },
   ];
   if (answer.say !== undefined) {
-    const check = checkReply(answer.say, turns, now, timeZone);
+    const check = checkReply(answer.say, turns, now, timeZone, people);
     if (check.ok) return { say: answer.say.trim(), trace, toolTexts };
     // Which check refused it, never the words: a number with nothing under it, a protected class, or its length.
     const named = ['empty', 'too long', 'protected'].includes(check.detail);
@@ -167,6 +167,8 @@ export interface TurnRouteDeps {
   readonly store: AccountStore;
   /** This server's own tools: each name and its title (tools/list). */
   readonly toolTitles: () => Promise<ReadonlyMap<string, string>>;
+  /** The household's own people, by name (people.ts), for the reply check. Absent, nobody is. */
+  readonly peopleOf?: ((householdId: string) => Promise<readonly string[]>) | undefined;
   /** The assistant's allowance (router.ts createStepLimiter), shared with /assistant/next. */
   readonly mayStep: (userId: string, cost: number) => boolean;
   readonly now: () => number;
@@ -206,7 +208,13 @@ export function turnRoute(deps: TurnRouteDeps): (req: Request, res: Response) =>
       const titles = await deps.toolTitles();
       const answer = readAgentAnswer(raw, titles);
       if (!answer) throw Object.assign(new Error('not a turn'), { name: 'AgentAnswerRefused' });
-      res.json(answerFor(answer, titles, new Date(deps.now()), zoneOf(household)));
+      // Read only when the reply would otherwise be refused: the common reply costs no read.
+      let sent = answerFor(answer, titles, new Date(deps.now()), zoneOf(household));
+      if (sent.unsupported === true && deps.peopleOf) {
+        const people = await deps.peopleOf(grant.householdId).catch(() => []);
+        if (people.length > 0) sent = answerFor(answer, titles, new Date(deps.now()), zoneOf(household), people);
+      }
+      res.json(sent);
     } catch (err) {
       // The name only: the payload held the token, and a runtime's error names accounts and resources.
       console.error(JSON.stringify({ level: 'error', msg: 'assistant_turn_failed', error: (err as Error).name || 'Error' }));

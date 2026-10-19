@@ -78,6 +78,12 @@ export interface WeeklyBriefDeps {
   readonly loadTvActivity: () => Promise<readonly Item[]>;
   /** What she keeps private: the Guardian reads with it. */
   readonly loadPolicy: () => Promise<HouseholdPolicy>;
+  /**
+   * The household's own people, by name — the resident, her regular visitors, her circle. A week names them,
+   * and the Guardian cannot read a name in Cyrillic or Chinese unless it is told whose it is. Absent, nobody is:
+   * every name in another script then makes the draft refused, and the week is written from the facts.
+   */
+  readonly loadPeople?: () => Promise<readonly string[]>;
   readonly guardrail: GuardrailSend;
   /** Undefined in a deployment with no Guardrail: every draft then falls back to the facts. */
   readonly guardrailRef: GuardrailRef | undefined;
@@ -149,6 +155,8 @@ interface Analysed {
   readonly lines: string[];
   readonly context: SuggestionContext;
   readonly policy: HouseholdPolicy;
+  /** The household's own people, by name: the Guardian sets aside their names in other scripts (policy foreign.ts). */
+  readonly people: readonly string[];
   readonly generatedAt: number;
 }
 
@@ -170,18 +178,20 @@ export function buildWeeklyBriefGraph(input: BriefInput, deps: WeeklyBriefDeps) 
     if (!analysed) {
       // A simulated week is counted as it was when it was first written, so the rewrite tells the same week.
       const now = input.keep?.generatedAt ?? deps.now();
-      const [rawItems, observedSince, errandRows, tvRows, policy] = await Promise.all([
+      const [rawItems, observedSince, errandRows, tvRows, policy, people] = await Promise.all([
         deps.loadEvents(baselineWindow(range)),
         deps.firstEventAt(),
         deps.loadErrands(),
         deps.loadTvActivity(),
         deps.loadPolicy(),
+        // A circle that cannot be read costs a name in another script its place in the draft, never the household its week.
+        (deps.loadPeople?.() ?? Promise.resolve<readonly string[]>([])).catch(() => []),
       ]);
       const { timeline, facts, deltas } = countWeek(rawItems, range, { now, timeZone: deps.timeZone, observedSince });
       const errands = errandRows.map(readErrandRow).filter((e) => e !== undefined);
       const films = watchedFilms(tvRows, range);
       const lines = [...factLines(facts), ...comparisonLines(deltas, facts.weekComplete), ...errandLines(errands, range), ...(films ? [FILM_LINE] : [])];
-      analysed = { facts, deltas, timeline, lines, context: { missedUsualVisit: missedUsualVisit(deltas), watchedFilms: films }, policy, generatedAt: now };
+      analysed = { facts, deltas, timeline, lines, context: { missedUsualVisit: missedUsualVisit(deltas), watchedFilms: films }, policy, people, generatedAt: now };
     }
     const facts = `The facts:\n${bullets(analysed.lines)}`;
     return retryReason ? `${facts}\n\nYour last draft was refused: ${retryReason}` : facts;
@@ -198,7 +208,7 @@ export function buildWeeklyBriefGraph(input: BriefInput, deps: WeeklyBriefDeps) 
 
     const numbers = checkNarrative(draft, week.facts, week.deltas);
     if (!numbers.ok) refused = refusalReason(numbers);
-    else if (!clearForFamily(draft, week.policy).cleared) {
+    else if (!clearForFamily(draft, week.policy, { people: week.people }).cleared) {
       refused = 'Your draft named something Wick never tells the family: health, care, money or anything private. Leave it out.';
     } else {
       try {
@@ -234,7 +244,7 @@ export function buildWeeklyBriefGraph(input: BriefInput, deps: WeeklyBriefDeps) 
 
   const validate = new StepNode(BRIEF_NODES.validate, async (ctx) => {
     const week = analysed!;
-    const verdict = judgeSuggestion(ctx.structured(BRIEF_NODES.suggester), week.context, week.policy, (t) => checkNarrative(t, week.facts, week.deltas).ok);
+    const verdict = judgeSuggestion(ctx.structured(BRIEF_NODES.suggester), week.context, week.policy, (t) => checkNarrative(t, week.facts, week.deltas).ok, week.people);
     if (!verdict.ok) {
       log({ level: 'warn', msg: 'brief_suggestion_refused', isoWeek: input.isoWeek, why: verdict.why });
       return 'nothing';

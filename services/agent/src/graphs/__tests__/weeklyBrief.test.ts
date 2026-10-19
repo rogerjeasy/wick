@@ -239,6 +239,53 @@ describe('the check — back to the writer once with the reason, then the facts 
   });
 });
 
+describe('a household whose people are written in another script', () => {
+  const CARER = 'Мария';
+  /** The same seven weeks, with the carer written in Cyrillic. */
+  const cyrillicWeeks = (): Item[] => sevenWeeks().map((item) => (item.personId?.S === 'maria' ? { ...item, personId: { S: 'u-0123456789abcdef' }, personName: { S: CARER } } : item));
+  const CARER_DRAFT = `Someone came to the front door 3 times this week. ${CARER} did not visit this week.`;
+
+  function withCarer(people: readonly string[] | undefined, writer: Turn[], suggester?: Turn[]) {
+    const s = setup({ writer, suggester: suggester ?? [suggest('arrange_visit', `${CARER} did not visit this week.`)] });
+    const deps: WeeklyBriefDeps = { ...s.deps, loadEvents: async () => cyrillicWeeks(), ...(people ? { loadPeople: async () => people } : {}) };
+    return { ...s, run: () => runWeeklyBriefGraph(s.input, deps) };
+  }
+
+  it('is written by the agents, with her name in it, when the Guardian is told whose names they are', async () => {
+    const s = withCarer([CARER], [CARER_DRAFT]);
+
+    const run = await s.run();
+
+    expect(run.result).toMatchObject({ status: 'written', textSource: 'agents', attempts: 1, suggestion: { action: 'arrange_visit', reason: `${CARER} did not visit this week.` } });
+    expect(s.saved).toHaveLength(1);
+    expect(s.saved[0]).toMatchObject({ text: CARER_DRAFT, textSource: 'agents' });
+  });
+
+  it('is written from the facts, as before, when it is not told: a name nobody has vouched for is not read', async () => {
+    const s = withCarer(undefined, [CARER_DRAFT, CARER_DRAFT]);
+
+    const run = await s.run();
+
+    expect(run.result).toMatchObject({ textSource: 'facts', attempts: 2 });
+  });
+
+  it('still refuses a draft that names a doctor beside her', async () => {
+    const s = withCarer([CARER], [`${CARER} did not visit: perhaps the doctor came instead.`, CARER_DRAFT]);
+
+    const run = await s.run();
+
+    expect(s.writer.seen[1]).toMatch(/Wick never tells the family/);
+    expect(run.result).toMatchObject({ textSource: 'agents', attempts: 2 });
+  });
+
+  it('does not stop the week when the circle cannot be read: it is written from the facts', async () => {
+    const s = setup({ writer: [CARER_DRAFT, CARER_DRAFT] });
+    const run = await runWeeklyBriefGraph(s.input, { ...s.deps, loadEvents: async () => cyrillicWeeks(), loadPeople: async () => { throw new Error('throttled'); } });
+
+    expect(run.result).toMatchObject({ status: 'written', textSource: 'facts' });
+  });
+});
+
 describe('validate — the suggestion, checked by code', () => {
   it('turns “watch together” into nothing when she watched no films that week', async () => {
     const s = setup({ writer: [GOOD_DRAFT], suggester: [suggest('watch_together', 'Watch a film with her.')] });

@@ -120,7 +120,7 @@ export const putPublicKey = (table: MemoryTable, publicKeyPem: string = PAIRING.
  * Margaret's home (hh-1) with Sarah allowed and her television connected,
  * and a second home (hh-2, Edith's) that nothing here may ever reach.
  */
-export async function world(options: { publicKey?: boolean; familyTv?: boolean; sarah?: Partial<Membership>; simulated?: boolean } = {}): Promise<World> {
+export async function world(options: { publicKey?: boolean; familyTv?: boolean; sarah?: Partial<Membership>; simulated?: boolean; resident?: string } = {}): Promise<World> {
   const table = createMemoryTable();
   const requests: TableRequest[] = [];
   const hooks: ((request: TableRequest) => void)[] = [];
@@ -152,7 +152,7 @@ export async function world(options: { publicKey?: boolean; familyTv?: boolean; 
     },
   }) as AccountStore;
 
-  await memory.createHousehold({ householdId: 'hh-1', name: 'Mum’s house', residentName: 'Margaret', createdBy: 'u_sarah', createdAt: 1, ...(options.simulated ? { simulated: true } : {}) });
+  await memory.createHousehold({ householdId: 'hh-1', name: 'Mum’s house', residentName: options.resident ?? 'Margaret', createdBy: 'u_sarah', createdAt: 1, ...(options.simulated ? { simulated: true } : {}) });
   await memory.putMembership(member(options.sarah));
   await memory.createHousehold({ householdId: 'hh-2', name: 'Edith’s home', residentName: 'Edith', createdBy: 'u_tom', createdAt: 1 });
   await memory.putMembership(member({ householdId: 'hh-2', userId: 'u_tom', name: 'Tom' }));

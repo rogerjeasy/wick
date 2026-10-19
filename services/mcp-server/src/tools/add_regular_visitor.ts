@@ -65,7 +65,7 @@
  */
 import { z } from 'zod';
 import { GetItemCommand, QueryCommand, TransactWriteItemsCommand, type DynamoDBClient, type TransactWriteItem } from '@aws-sdk/client-dynamodb';
-import type { RosterEntry } from '@wick/contracts';
+import { personIdFor, type RosterEntry } from '@wick/contracts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
@@ -88,13 +88,14 @@ type DayName = (typeof DAY_NAMES)[number];
 
 export const VISITOR_BAD_NAME_TEXT = 'I need the name they go by, in a word or two, like Maria.';
 /**
- * A name the Guardian cannot clear: a role ("Dr Patel", "the nurse"), or
- * letters it cannot read. It is the family member's own word, so they are
+ * A name the Guardian cannot clear: a role ("Dr Patel", "the nurse", or the
+ * word for one in another script), or letters it cannot read (a word that mixes
+ * scripts, an invisible character, an emoji). It is the family member's own word, so they are
  * told plainly why — the roster's names are read back to everyone in the
  * family, and a clinical role is a fact about her health (INV-4).
  */
 export const VISITOR_NAME_NOT_SHARED_TEXT =
-  'I need just the name they go by, like Maria, written in plain letters: not a title or what they come for. Names on the roster are read back to the whole family.';
+  'I need just the name they go by, like Maria: not a title or what they come for. Names on the roster are read back to the whole family.';
 export const VISITOR_BAD_TIME_TEXT = 'I need the time they usually come, like nine in the morning.';
 export const VISITOR_TOO_MANY_TEXT = 'There are already twelve regular visitors, which is as many as the door keeps.';
 export const VISITOR_CHANGED_MEANWHILE_TEXT = 'The roster was changed by someone else just now. Ask me again.';
@@ -110,15 +111,12 @@ export function visitorName(raw: string): string | undefined {
   return /^[\p{L}][\p{L}\p{M}' .-]{0,39}$/u.test(name) ? name : undefined;
 }
 
-/** "Maria" -> "maria", "Mary-Jo O'Neil" -> "mary-jo-o-neil". The roster's key for that name. */
-export function personIdFor(name: string): string {
-  return name
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+/**
+ * The roster's key for a name: "Maria" is "maria", "Mary-Jo O'Neil" is
+ * "mary-jo-o-neil", "Мария" is "u-" and a fingerprint (contracts person.ts,
+ * which the Guardian reads too).
+ */
+export { personIdFor };
 
 /**
  * The pattern the door agent reads: "TUE,FRI 09:00±30m", on the household's
