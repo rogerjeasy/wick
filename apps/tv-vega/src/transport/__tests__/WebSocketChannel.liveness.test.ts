@@ -243,4 +243,59 @@ describe('WebSocketChannel liveness', () => {
       expect(channel.state).toBe('open');
     });
   });
+
+  describe('telling a screen how the connection stands', () => {
+    it('says each change: opened, lost and being retried, opened again, closed', async () => {
+      const channel = new WebSocketChannel({ url: 'wss://x' }, factory);
+      const told: string[] = [];
+      channel.onState((state) => told.push(state));
+
+      const connecting = channel.connect(TOKEN);
+      FakeSocket.instances[0]!.onopen?.();
+      await connecting;
+      FakeSocket.instances[0]!.onclose?.();
+      await vi.advanceTimersByTimeAsync(1000);
+      FakeSocket.instances[1]!.onopen?.();
+      await vi.advanceTimersByTimeAsync(0);
+      channel.close();
+
+      expect(told).toEqual(['connecting', 'open', 'backoff', 'connecting', 'open', 'closed']);
+    });
+
+    it('says nothing when the state has not changed', async () => {
+      const channel = await open();
+      const told: string[] = [];
+      channel.onState((state) => told.push(state));
+      channel.close();
+      channel.close();
+      expect(told).toEqual(['closed']);
+    });
+
+    it('stops telling whoever asked it to stop, and is not stopped by a listener that throws', async () => {
+      const channel = new WebSocketChannel({ url: 'wss://x' }, factory);
+      const kept: string[] = [];
+      const dropped: string[] = [];
+      channel.onState(() => {
+        throw new Error('a screen that fails');
+      });
+      channel.onState((s) => kept.push(s));
+      const stop = channel.onState((s) => dropped.push(s));
+      stop();
+
+      const connecting = channel.connect(TOKEN);
+      FakeSocket.instances[0]!.onopen?.();
+      await connecting;
+
+      expect(kept).toEqual(['connecting', 'open']);
+      expect(dropped).toEqual([]);
+    });
+
+    it('says it is being retried when the edge goes silent', async () => {
+      const channel = await open({ url: 'wss://x', heartbeatMs: 1000, pongWaitMs: 500 });
+      const told: string[] = [];
+      channel.onState((state) => told.push(state));
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(told).toEqual(['backoff']);
+    });
+  });
 });

@@ -61,7 +61,8 @@ export class WebSocketChannel implements DeviceChannel {
   readonly #config: WebSocketChannelConfig;
   readonly #open: WebSocketFactory;
   #socket: WebSocket | undefined;
-  #state: ChannelState = 'closed';
+  #current: ChannelState = 'closed';
+  readonly #stateHandlers = new Set<(state: ChannelState) => void>();
   #token: DeviceToken | undefined;
   readonly #cardHandlers = new Set<(c: QueuedCard) => void>();
   readonly #controlHandlers = new Set<(m: ControlMessage) => void>();
@@ -77,7 +78,25 @@ export class WebSocketChannel implements DeviceChannel {
   }
 
   get state(): ChannelState {
-    return this.#state;
+    return this.#current;
+  }
+
+  onState(handler: (state: ChannelState) => void): Unsubscribe {
+    this.#stateHandlers.add(handler);
+    return () => this.#stateHandlers.delete(handler);
+  }
+
+  /** Every change of state goes through here, so whoever asked to be told is. A handler that throws costs the channel nothing. */
+  #setState(next: ChannelState): void {
+    if (this.#current === next) return;
+    this.#current = next;
+    for (const handler of [...this.#stateHandlers]) {
+      try {
+        handler(next);
+      } catch (err) {
+        console.warn('channel_state_handler_failed', err);
+      }
+    }
   }
 
   connect(token: DeviceToken): Promise<void> {
@@ -102,7 +121,7 @@ export class WebSocketChannel implements DeviceChannel {
     clearTimeout(this.#reconnectTimer);
     this.#stopHeartbeat();
     this.#socket?.close();
-    this.#state = 'closed';
+    this.#setState('closed');
   }
 
   onCard(handler: (c: QueuedCard) => void): Unsubscribe {
@@ -116,7 +135,7 @@ export class WebSocketChannel implements DeviceChannel {
   }
 
   async send(e: DeviceEvent): Promise<void> {
-    if (!this.#socket || this.#state !== 'open') throw new Error('not_connected');
+    if (!this.#socket || this.#current !== 'open') throw new Error('not_connected');
     this.#socket.send(JSON.stringify(e));
   }
 
@@ -127,19 +146,20 @@ export class WebSocketChannel implements DeviceChannel {
    */
   async reconcile(): Promise<void> {
     const socket = this.#socket;
-    if (!socket || this.#state !== 'open') return;
+    if (!socket || this.#current !== 'open') return;
     await this.#reconcileOn(socket);
   }
 
   async #reconcileOn(socket: WebSocket): Promise<void> {
     if (this.#config.role === 'background') return;
-    const sinceCardId = await this.#config.getLastSeenCardId?.();
-    const holding = await this.#config.getHeldCardIds?.();
+    // Awaited only where there is something to wait for: a screen with nothing to say of itself asks at once.
+    const sinceCardId = this.#config.getLastSeenCardId ? await this.#config.getLastSeenCardId() : undefined;
+    const holding = this.#config.getHeldCardIds ? await this.#config.getHeldCardIds() : undefined;
     socket.send(JSON.stringify({ t: 'reconcile', sinceCardId, ...(holding ? { holding } : {}) }));
   }
 
   #openSocket(): Promise<void> {
-    this.#state = 'connecting';
+    this.#setState('connecting');
     const token = this.#token!;
     const role = this.#config.role ? `&role=${this.#config.role}` : '';
     const url = `${this.#config.url}?token=${encodeURIComponent(token.jwt)}${role}`;
@@ -150,7 +170,7 @@ export class WebSocketChannel implements DeviceChannel {
         socket = this.#open(url);
       } catch (err) {
         // A socket that cannot even be made is a failed attempt like any other.
-        this.#state = this.#closing ? 'closed' : 'backoff';
+        this.#setState(this.#closing ? 'closed' : 'backoff');
         if (!this.#closing) this.#scheduleReconnect();
         reject(err instanceof Error ? err : new Error('websocket_not_made'));
         return;
@@ -160,7 +180,7 @@ export class WebSocketChannel implements DeviceChannel {
 
       socket.onopen = () => {
         void (async () => {
-          this.#state = 'open';
+          this.#setState('open');
           this.#backoffMs = MIN_BACKOFF_MS;
           this.#startHeartbeat(socket);
           try {
@@ -200,7 +220,7 @@ export class WebSocketChannel implements DeviceChannel {
           return;
         }
         this.#stopHeartbeat();
-        this.#state = this.#closing ? 'closed' : 'backoff';
+        this.#setState(this.#closing ? 'closed' : 'backoff');
         if (!settled) {
           settled = true;
           reject(new Error('websocket_closed_before_open'));
@@ -219,7 +239,7 @@ export class WebSocketChannel implements DeviceChannel {
     const every = this.#config.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
     const wait = this.#config.pongWaitMs ?? DEFAULT_PONG_WAIT_MS;
     this.#heartbeat = setInterval(() => {
-      if (this.#socket !== socket || this.#state !== 'open') return;
+      if (this.#socket !== socket || this.#current !== 'open') return;
       try {
         socket.send(JSON.stringify({ t: 'ping' }));
       } catch {
@@ -251,7 +271,7 @@ export class WebSocketChannel implements DeviceChannel {
     console.warn('websocket_silent — reconnecting');
     this.#stopHeartbeat();
     this.#socket = undefined;
-    this.#state = 'backoff';
+    this.#setState('backoff');
     try {
       socket.close();
     } catch {

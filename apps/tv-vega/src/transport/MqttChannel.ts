@@ -92,7 +92,8 @@ export class MqttChannel implements DeviceChannel {
   #client: MqttClient | undefined;
   #token: DeviceToken | undefined;
   #topics: Topics | undefined;
-  #state: ChannelState = 'closed';
+  #current: ChannelState = 'closed';
+  readonly #stateHandlers = new Set<(state: ChannelState) => void>();
   readonly #cardHandlers = new Set<(c: QueuedCard) => void>();
   readonly #controlHandlers = new Set<(m: ControlMessage) => void>();
   #backoffMs = MIN_BACKOFF_MS;
@@ -105,7 +106,25 @@ export class MqttChannel implements DeviceChannel {
   }
 
   get state(): ChannelState {
-    return this.#state;
+    return this.#current;
+  }
+
+  onState(handler: (state: ChannelState) => void): Unsubscribe {
+    this.#stateHandlers.add(handler);
+    return () => this.#stateHandlers.delete(handler);
+  }
+
+  /** Every change of state goes through here, so whoever asked to be told is. A handler that throws costs the channel nothing. */
+  #setState(next: ChannelState): void {
+    if (this.#current === next) return;
+    this.#current = next;
+    for (const handler of [...this.#stateHandlers]) {
+      try {
+        handler(next);
+      } catch (err) {
+        console.warn('channel_state_handler_failed', err);
+      }
+    }
   }
 
   close(): void {
@@ -113,7 +132,7 @@ export class MqttChannel implements DeviceChannel {
     clearTimeout(this.#reconnectTimer);
     this.#client?.end(true);
     this.#client = undefined;
-    this.#state = 'closed';
+    this.#setState('closed');
   }
 
   connect(token: DeviceToken): Promise<void> {
@@ -145,7 +164,7 @@ export class MqttChannel implements DeviceChannel {
   async send(e: DeviceEvent): Promise<void> {
     const client = this.#client;
     const topics = this.#topics;
-    if (!client || !topics || this.#state !== 'open') throw new Error('not_connected');
+    if (!client || !topics || this.#current !== 'open') throw new Error('not_connected');
     await publish(client, topics.events, JSON.stringify(e));
   }
 
@@ -157,7 +176,7 @@ export class MqttChannel implements DeviceChannel {
   async reconcile(): Promise<void> {
     const client = this.#client;
     const topics = this.#topics;
-    if (!client || !topics || this.#state !== 'open') return;
+    if (!client || !topics || this.#current !== 'open') return;
     await this.#reconcileOn(client, topics.events);
   }
 
@@ -176,7 +195,7 @@ export class MqttChannel implements DeviceChannel {
   #open({ first }: { first: boolean }): Promise<void> {
     const token = this.#token!;
     const topics = this.#topics!;
-    this.#state = 'connecting';
+    this.#setState('connecting');
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -196,7 +215,7 @@ export class MqttChannel implements DeviceChannel {
         client.end(true);
         if (this.#client === client) this.#client = undefined;
         if (first) {
-          this.#state = 'closed';
+          this.#setState('closed');
           reject(err);
         } else {
           // Our own retry: nobody is waiting on this promise for an answer.
@@ -223,7 +242,7 @@ export class MqttChannel implements DeviceChannel {
             settled = true;
             opened = true;
             clearTimeout(timeout);
-            this.#state = 'open';
+            this.#setState('open');
             this.#backoffMs = MIN_BACKOFF_MS;
             resolve();
           })();
@@ -248,7 +267,7 @@ export class MqttChannel implements DeviceChannel {
         opened = false;
         this.#client = undefined;
         if (this.#closing) {
-          this.#state = 'closed';
+          this.#setState('closed');
           return;
         }
         this.#scheduleReconnect();
@@ -264,7 +283,7 @@ export class MqttChannel implements DeviceChannel {
   }
 
   #scheduleReconnect(): void {
-    this.#state = 'backoff';
+    this.#setState('backoff');
     const delay = Math.random() * this.#backoffMs; // full jitter: uniform(0, current backoff)
     this.#backoffMs = Math.min(this.#backoffMs * 2, MAX_BACKOFF_MS);
     this.#reconnectTimer = setTimeout(() => void this.#open({ first: false }), delay);

@@ -385,3 +385,24 @@ describe('MqttChannel — a broker that sends what it should not, and a connecti
     expect(clients).toHaveLength(2);
   });
 });
+
+describe('MqttChannel — telling a screen how the connection stands', () => {
+  it('says opened, lost and being retried, opened again, closed', async () => {
+    vi.useFakeTimers();
+    const { clients, connect } = broker();
+    const channel = new MqttChannel({ wssUrl: WSS }, connect);
+    const told: string[] = [];
+    channel.onState((state) => told.push(state));
+
+    const connecting = channel.connect(TOKEN);
+    clients[0]!.emit('connect');
+    await connecting;
+    clients[0]!.emit('close');
+    await vi.advanceTimersByTimeAsync(1000);
+    clients[1]!.emit('connect');
+    await vi.advanceTimersByTimeAsync(0);
+    channel.close();
+
+    expect(told).toEqual(['connecting', 'open', 'backoff', 'connecting', 'open', 'closed']);
+  });
+});

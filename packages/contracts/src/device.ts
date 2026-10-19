@@ -154,6 +154,12 @@ export interface DeviceChannel {
   onControl(handler: (m: ControlMessage) => void): Unsubscribe;
   send(e: DeviceEvent): Promise<void>;
   readonly state: ChannelState;
+  /**
+   * Told each time the state changes — opened, lost and being retried, closed
+   * — for a screen that says so (the browser television's badge). Optional: a
+   * channel that does not tell is simply not asked.
+   */
+  onState?(handler: (state: ChannelState) => void): Unsubscribe;
 }
 
 /**
