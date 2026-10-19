@@ -1375,6 +1375,8 @@ var WickTv = (() => {
     "waiting.sharing": "What your family can see is ready to look at.",
     "waiting.question": "Wick has a question for you.",
     "waiting.something": "Something is waiting for you.",
+    // In the quiet line of the home screen when the connection to home has been down for a while (transport/linkWatch.ts).
+    "link.down": "Wick can't reach home just now.",
     // Cards: the few words that are not the server's.
     "week.headline": "Your week.",
     "message.headline": "A message from {name}.",
@@ -1499,6 +1501,7 @@ var WickTv = (() => {
     "waiting.sharing": "Ya puede revisar lo que ve su familia.",
     "waiting.question": "Wick tiene una pregunta para usted.",
     "waiting.something": "Algo le está esperando.",
+    "link.down": "Wick no puede conectarse ahora.",
     "week.headline": "Su semana.",
     "message.headline": "Un mensaje de {name}.",
     "message.photoLabel": "Foto de {name}",
