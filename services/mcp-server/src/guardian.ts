@@ -69,10 +69,11 @@ function logWithheld(where: string, uncleared: Uncleared): void {
 
 /**
  * One string, for the family: itself when the gate clears it, undefined when
- * not. `where` names the field for the log.
+ * not. `where` names the field for the log. `people`: the household's own
+ * (people.ts), whose names in another script are set aside (policy's foreign.ts).
  */
-export function familyText(text: string, where: string): string | undefined {
-  const clearance = clearForFamily(text);
+export function familyText(text: string, where: string, people: readonly string[] = []): string | undefined {
+  const clearance = clearForFamily(text, undefined, { people });
   if (clearance.cleared) return text;
   logWithheld(where, { at: '$', classes: clearance.classes });
   return undefined;
@@ -90,8 +91,8 @@ export function familyName(name: string, where: string): string | undefined {
   return undefined;
 }
 
-/** Whether a string may be shown to the family. For a rule that needs only the answer, without the log. */
-export const clears = (text: string): boolean => clearForFamily(text).cleared;
+/** Whether a string may be shown to the family. For a rule that needs only the answer, without the log. `people`: the household's own (people.ts). */
+export const clears = (text: string, people: readonly string[] = []): boolean => clearForFamily(text, undefined, { people }).cleared;
 
 /**
  * The first string in `value` the gate cannot clear, or undefined when
@@ -254,12 +255,25 @@ export class WithheldFromFamily extends Error {
  * sent: the route fails, and the television says what it says when any
  * request fails.
  */
-export function guardTelevision<E extends { [K in keyof E]: (...args: never[]) => Promise<{ readonly status: number; readonly body: unknown }> }>(endpoints: E): E {
+export function guardTelevision<E extends { [K in keyof E]: (...args: never[]) => Promise<{ readonly status: number; readonly body: unknown }> }>(
+  endpoints: E,
+  /**
+   * The household's own people, for the request these arguments make: asked
+   * only when an answer would otherwise be withheld, as the tools' are, so a
+   * resident or a carer written in another script is not (policy's
+   * foreign.ts). The same names the tools are given (people.ts).
+   */
+  peopleFor?: (...args: never[]) => Promise<readonly string[]>,
+): E {
   const guarded: Record<string, unknown> = {};
   for (const [route, endpoint] of Object.entries(endpoints) as [string, (...args: never[]) => Promise<{ readonly status: number; readonly body: unknown }>][]) {
     guarded[route] = async (...args: never[]) => {
       const reply = await endpoint(...args);
-      const uncleared = firstUncleared(reply.body);
+      let uncleared = firstUncleared(reply.body);
+      if (uncleared && peopleFor) {
+        const people = await peopleFor(...args).catch(() => []);
+        uncleared = people.length > 0 ? firstUncleared(reply.body, NOTHING, '$', people) : uncleared;
+      }
       if (uncleared) {
         logWithheld(`/tv/${route}`, uncleared);
         throw new WithheldFromFamily();

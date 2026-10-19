@@ -104,6 +104,32 @@ export type FamilyWeekResult =
   | { readonly status: 'available'; readonly narrative: WeekNarrative }
   | { readonly status: 'private' };
 
+/** Whether the gate cannot clear a timeline entry: its sentence, or the id its visitor's name makes. */
+const entryIsUnclear = (e: TimelineEntry, people: readonly string[]): boolean =>
+  !clears(e.summary, people) || (e.personId !== undefined && !clears(e.personId, people));
+
+/** A comparison names its visitor twice: as a label, and in its metric (`visit:<personId>`). */
+const deltaIsUnclear = (d: RhythmDelta, people: readonly string[]): boolean =>
+  !clears(d.metric, people) || (d.label !== undefined && !clears(d.label, people));
+
+/**
+ * Whether the gate cannot clear something in this week as it stands: the
+ * paragraph, an entry, a comparison. Given the household's own people
+ * (people.ts), a name in another script is not that something.
+ */
+export function weekIsUnclear(narrative: WeekNarrative, people: readonly string[] = []): boolean {
+  return !clears(narrative.text, people) || narrative.timeline.some((e) => entryIsUnclear(e, people)) || (narrative.deltas ?? []).some((d) => deltaIsUnclear(d, people));
+}
+
+/**
+ * The household's people, but only when this week would otherwise be held
+ * back or rewritten: the common week costs no read.
+ */
+export async function namesForWeek(narrative: WeekNarrative, people: (() => Promise<readonly string[]>) | undefined): Promise<readonly string[]> {
+  if (!people || !weekIsUnclear(narrative)) return [];
+  return people().catch(() => []);
+}
+
 /**
  * Sarah's copy of the week, honouring what the resident keeps private
  * ("What Sarah sees", services/edge-device/lambda/sharing.mjs). The week's
@@ -125,17 +151,16 @@ export type FamilyWeekResult =
  * resident's own television keeps the week as it was written: she has seen
  * everything the family reads, and more.
  */
-export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, timeZone: string): FamilyWeekResult {
+export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, timeZone: string, people: readonly string[] = []): FamilyWeekResult {
   if (!isSharedWithFamily('RHYTHM', policy)) return { status: 'private' };
 
   const hidden = { door: !isSharedWithFamily('DOOR_EVENT', policy), visits: !isSharedWithFamily('PRESENCE', policy) };
-  const unclearEntry = (e: TimelineEntry) => !clears(e.summary) || (e.personId !== undefined && !clears(e.personId));
-  // A comparison names its visitor twice: as a label, and in its metric (`visit:<personId>`).
-  const unclearDelta = (d: RhythmDelta) => !clears(d.metric) || (d.label !== undefined && !clears(d.label));
-  const unclear = !clears(narrative.text) || narrative.timeline.some(unclearEntry) || (narrative.deltas ?? []).some(unclearDelta);
+  const unclearEntry = (e: TimelineEntry) => entryIsUnclear(e, people);
+  const unclearDelta = (d: RhythmDelta) => deltaIsUnclear(d, people);
+  const unclear = weekIsUnclear(narrative, people);
   if (!hidden.door && !hidden.visits && !unclear) {
     // The Sunday brief's suggestion is read like everything else: one the gate cannot clear is left out, never reworded.
-    if (narrative.suggestion && !clears(narrative.suggestion.reason)) {
+    if (narrative.suggestion && !clears(narrative.suggestion.reason, people)) {
       console.warn(JSON.stringify({ level: 'warn', msg: 'guardian_withheld', where: 'week_suggestion', isoWeek: narrative.isoWeek }));
       const { suggestion: _withheld, ...rest } = narrative;
       return { status: 'available', narrative: rest };
@@ -211,9 +236,11 @@ export async function loadLatestFamilyWeek(
   currentWeek: string,
   policy: () => Promise<HouseholdPolicy>,
   timeZone: string,
+  /** The household's own people, asked for only when the week would otherwise be held back (people.ts). */
+  people?: () => Promise<readonly string[]>,
 ): Promise<FamilyLatestWeek> {
   const latest = await loadLatestWeek(ddb, householdId, currentWeek);
-  return latest.status === 'available' ? familyCopyOfLatest(latest, await policy(), timeZone) : latest;
+  return latest.status === 'available' ? familyCopyOfLatest(latest, await policy(), timeZone, await namesForWeek(latest.narrative, people)) : latest;
 }
 
 /**
@@ -222,9 +249,9 @@ export async function loadLatestFamilyWeek(
  * (a television asking every few seconds) still applies her choices as they
  * stand on every asking, never as they stood.
  */
-export function familyCopyOfLatest(latest: LatestWeekResult, policy: HouseholdPolicy, timeZone: string): FamilyLatestWeek {
+export function familyCopyOfLatest(latest: LatestWeekResult, policy: HouseholdPolicy, timeZone: string, people: readonly string[] = []): FamilyLatestWeek {
   if (latest.status !== 'available') return latest;
-  const family = familyWeek(latest.narrative, policy, timeZone);
+  const family = familyWeek(latest.narrative, policy, timeZone, people);
   if (family.status === 'private') return { status: 'private' };
   // An earlier week than the current one is said as one: "that week", never "this week".
   if (latest.thisWeek) return { status: 'available', narrative: asAnEarlierWeek(family.narrative), thisWeek: latest.thisWeek };
@@ -321,11 +348,11 @@ export function registerGetWeekNarrative(
       let result: FamilyLatestWeek;
       if (isoWeek) {
         const named = await loadWeekNarrative(ddb, ctx.householdId, isoWeek);
-        result = named.status === 'available' ? familyWeek(named.narrative, await policy(), timeZone) : named;
+        result = named.status === 'available' ? familyWeek(named.narrative, await policy(), timeZone, await namesForWeek(named.narrative, ctx.people)) : named;
         // A week named that is over is said as one, like the latest week when it is an earlier one.
         if (result.status === 'available' && isoWeek < currentWeek) result = { status: 'available', narrative: asAnEarlierWeek(result.narrative) };
       } else {
-        result = await loadLatestFamilyWeek(ddb, ctx.householdId, currentWeek, policy, timeZone);
+        result = await loadLatestFamilyWeek(ddb, ctx.householdId, currentWeek, policy, timeZone, ctx.people);
       }
 
       if (result.status === 'awaiting_resident') return say(WEEK_AWAITING_RESIDENT_TEXT);

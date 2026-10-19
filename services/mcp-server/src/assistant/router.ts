@@ -54,6 +54,8 @@ export interface AssistantRouterOptions {
   readonly agent?: AssistantAgent | undefined;
   /** Each of this server's tools' name and title, for what waits for a member's yes. */
   readonly toolTitles?: () => Promise<ReadonlyMap<string, string>>;
+  /** The household's own people, by name (people.ts): the reply check sets aside their names in other scripts. */
+  readonly peopleOf?: (householdId: string) => Promise<readonly string[]>;
   readonly now: () => number;
 }
 
@@ -142,6 +144,7 @@ export function createAssistantRouter(options: AssistantRouterOptions): express.
 
       const step = await nextStep({
         converse: assistant.converse,
+        people: (await options.peopleOf?.(grant.householdId).catch(() => undefined)) ?? [],
         tools,
         who: { memberName: membership.name, residentName: household.residentName, householdName: household.name, simulated: household.simulated === true },
         now: new Date(now()),
@@ -160,6 +163,7 @@ export function createAssistantRouter(options: AssistantRouterOptions): express.
     agent: options.agent,
     store,
     toolTitles: options.toolTitles ?? (async () => new Map((await toolSpecs()).map((t) => [t.name, t.name]))),
+    peopleOf: options.peopleOf,
     mayStep,
     now,
   }));

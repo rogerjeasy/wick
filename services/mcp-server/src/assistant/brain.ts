@@ -266,11 +266,11 @@ const numbersIn = (text: string): string[] => text.match(/\d+/g) ?? [];
  * gate cannot clear is asked for once more, and then the app says the
  * tools' own sentences instead — the way any unfit reply ends.
  */
-export function checkReply(text: string, turns: readonly Turn[], now: Date, timeZone: string): ReplyCheck {
+export function checkReply(text: string, turns: readonly Turn[], now: Date, timeZone: string, people: readonly string[] = []): ReplyCheck {
   const reply = text.trim();
   if (!reply) return { ok: false, detail: 'empty' };
   if (reply.length > MAX_REPLY_CHARS) return { ok: false, detail: 'too long' };
-  if (!familyText(reply, 'assistant.reply')) return { ok: false, detail: 'protected' };
+  if (!familyText(reply, 'assistant.reply', people)) return { ok: false, detail: 'protected' };
 
   // Today's date, and the films' lengths ("Sintel, 15 minutes"): Wick's catalogue, which the agent is shown in
   // invite_to_watch, and not a fact about her. Live, a "which film?" that gave them was refused, and went silent.
@@ -294,6 +294,8 @@ function retryReason(check: Extract<ReplyCheck, { ok: false }>): string {
 
 export interface StepDeps {
   readonly converse: Converse;
+  /** The household's own people, by name (people.ts): so a reply that names one in another script is not withheld for it. */
+  readonly people?: readonly string[];
   readonly tools: readonly ToolSpec[];
   readonly who: Who;
   readonly now: Date;
@@ -320,7 +322,8 @@ export async function nextStep(deps: StepDeps, turns: readonly Turn[]): Promise<
     return { done: false, calls: reply.calls.slice(0, MAX_CALLS_PER_STEP) };
   }
 
-  const check = checkReply(reply.text, turns, now, timeZone);
+  const people = deps.people ?? [];
+  const check = checkReply(reply.text, turns, now, timeZone, people);
   if (check.ok) return { done: true, say: reply.text.trim() };
 
   // Once more, told why — as the Narrator is (narrator/index.ts).
@@ -333,6 +336,6 @@ export async function nextStep(deps: StepDeps, turns: readonly Turn[]): Promise<
       { role: 'user', content: [{ text: retryReason(check) }] },
     ],
   });
-  if (!again.calls.length && checkReply(again.text, turns, now, timeZone).ok) return { done: true, say: again.text.trim() };
+  if (!again.calls.length && checkReply(again.text, turns, now, timeZone, people).ok) return { done: true, say: again.text.trim() };
   return { done: true, unsupported: true };
 }
