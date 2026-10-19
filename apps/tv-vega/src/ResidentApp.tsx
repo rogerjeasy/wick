@@ -99,8 +99,7 @@ import { BreakController } from './break/BreakController.js';
 import { followScreen } from './break/followScreen.js';
 import { QueueStore, type Mantel } from './headless/QueueStore.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
-import { PlaybackEventStore, toStoredPlaybackEvent } from './personalization/PlaybackEventStore.js';
-import { CONTENT_ID_NAMESPACE, platformPlaybackReporter } from './personalization/report.js';
+import { platformPlaybackReporter } from './personalization/report.js';
 import { WatchActivity } from './personalization/watchActivity.js';
 import { CATALOG, calmPointsOf, programmeById, type Programme } from './catalog/catalog.js';
 import { homeBehind } from './home/behind.js';
@@ -259,7 +258,6 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
    */
   const settle = React.useMemo(() => pressSettle(), []);
 
-  const playbackStore = React.useMemo(() => new PlaybackEventStore(KeplerFileSystem), []);
   // Watch Activity for the platform (Content Personalization): when, by Amazon's rules, and the report itself.
   const watchActivity = React.useMemo(() => new WatchActivity(), []);
   const reportPlayback = React.useMemo(() => platformPlaybackReporter(), []);
@@ -541,19 +539,16 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
 
   // §4.3 and §3.3: the cloud hears about it now, over the channel this
   // process holds, and the platform hears it now too (personalization/
-  // report.ts). The local store keeps it for the nightly flush.
+  // report.ts). Nothing is kept on the television for later: what the cloud
+  // and the platform are told, they are told as it happens.
   const handlePlaybackEvent = React.useCallback(
     (snapshot: PlayerSnapshot) => {
       const at = Date.now();
       void store.enqueueOutbound(toPlaybackDeviceEvent(snapshot, at));
       // Leaving the film comes only this way, as a stop: the platform hears it as EXIT.
       tellPlatform(snapshot, at);
-      const stored = toStoredPlaybackEvent(snapshot, CONTENT_ID_NAMESPACE, at, true);
-      // Best-effort: the VVD has no data root (FL-013), and a store that
-      // cannot be written must not stop the programme.
-      if (stored) playbackStore.append(stored).catch((e) => console.error('playback_event_store_failed', e));
     },
-    [store, playbackStore, tellPlatform],
+    [store, tellPlatform],
   );
 
   const handleExitWatching = React.useCallback(() => {

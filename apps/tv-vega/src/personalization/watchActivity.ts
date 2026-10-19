@@ -7,14 +7,16 @@
  *   - on seeking to a new position (her 30-second skips, "start over");
  *   - once every 60 seconds while in the player, whatever the state.
  *
- * BUFFERING is not a state the platform has (PlaybackEventStore.ts says the
- * same), so it is neither reported nor counted as a change. A film that has
+ * BUFFERING is not a state the platform has, so it is neither reported nor
+ * counted as a change. A film that has
  * ended is EXIT, which is also what is sent when she leaves the film.
  *
  * Pure: the clock is passed in, and the report itself is report.ts's.
  */
 import type { PlayerSnapshot } from '../player/PlayerService.js';
-import type { ReportablePlaybackState } from './PlaybackEventStore.js';
+
+/** The platform's own three reportable states (kepler-content-personalization's PlaybackState): no BUFFERING, no INTERSTITIAL (Wick has neither ads nor a use for reporting transient buffering). */
+export type ReportablePlaybackState = 'PLAYING' | 'PAUSED' | 'EXIT';
 
 /** Amazon's interval while in the player. */
 export const REPORT_EVERY_MS = 60_000;

@@ -82,7 +82,7 @@ const RESIDENTS = /^(ResidentApp\.tsx|transport\/|headless\/(?!launchCardService
 
 /** Everything by which the resident's television sends, reports or decides. None of it is named in a family television's code. */
 const RESIDENTS_NAMES =
-  /holdCardChannel|createDeviceChannel|enqueueOutbound|QueueStore|BreakController|NaturalBreakEngine|PlaybackEventStore|DeviceEvent|WebSocket|mqtt|PlayerService|PlaybackRecorder|playbackRecorder|TogetherReporter|togetherReporter|toPlaybackDeviceEvent|toStoredPlaybackEvent|watchCommand|seekTarget/;
+  /holdCardChannel|createDeviceChannel|enqueueOutbound|QueueStore|BreakController|NaturalBreakEngine|platformPlaybackReporter|DeviceEvent|WebSocket|mqtt|PlayerService|PlaybackRecorder|playbackRecorder|TogetherReporter|togetherReporter|toPlaybackDeviceEvent|toStoredPlaybackEvent|watchCommand|seekTarget/;
 
 /** A file's code, without its comments: what it does, not what it says it does not do. */
 const code = (file: string): string =>
@@ -231,7 +231,7 @@ describe('App.tsx — the one branch', () => {
   it("keeps everything the resident's television does inside ResidentApp", () => {
     const residents = direct('ResidentApp.tsx');
 
-    for (const needed of ['transport/startCardChannel.ts', 'transport/createDeviceChannel.ts', 'headless/launchCardService.ts', 'headless/QueueStore.ts', 'break/BreakController.ts', 'personalization/PlaybackEventStore.ts']) {
+    for (const needed of ['transport/startCardChannel.ts', 'transport/createDeviceChannel.ts', 'headless/launchCardService.ts', 'headless/QueueStore.ts', 'break/BreakController.ts', 'personalization/report.ts']) {
       expect(residents).toContain(needed);
     }
   });

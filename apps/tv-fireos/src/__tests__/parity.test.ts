@@ -110,7 +110,7 @@ describe('what Fire OS swaps for the Vega app', () => {
   it('keeps Amazon packages it has no stand-in for out of what is on screen', () => {
     // The files a Vega background process runs, and the two that speak to
     // Vega-only platform services. Nothing the Fire OS app renders imports them.
-    const vegaOnly = /src\/(headless\/(CardService|DataRefreshService|RhythmSyncTask|HeadlessInterface)|personalization\/handlers|notify\/doorToast)\.ts$/;
+    const vegaOnly = /src\/(headless\/(CardService|DataRefreshService|HeadlessInterface)|personalization\/handlers|notify\/doorToast)\.ts$/;
     const strays = sources
       .filter((s) => !vegaOnly.test(s.file))
       .flatMap((s) => [...s.text.matchAll(/^import\s+(?!type\b)[^'"]*from\s+'(@amazon-devices\/[^']+)'/gm)].map((m) => `${s.file.replace(table.repoRoot + '/', '')}: ${m[1]}`))

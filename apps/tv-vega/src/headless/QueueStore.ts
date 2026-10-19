@@ -15,10 +15,11 @@
  *     hydrated once and written through, so a device whose disk works still
  *     survives a restart (§3.4 rule 4) — a disk failure costs persistence
  *     across restarts, never a card in the running app.
- *   - The outbox is genuinely cross-process: RhythmSyncTask runs as its own
- *     task and appends to it for the channel holder to drain. So disk stays
- *     its source of truth whenever disk works, re-read on every drain; only
- *     events the disk refuses fall back to this instance's memory.
+ *   - The outbox keeps disk as its source of truth whenever disk works,
+ *     re-read on every drain, so an event another process appends is sent by
+ *     the one that holds the channel (nothing does today: a background task
+ *     used to, and was removed as unused); only events the disk refuses fall
+ *     back to this instance's memory.
  *
  * Three more things are decided here, because here is where a card comes to
  * be held:

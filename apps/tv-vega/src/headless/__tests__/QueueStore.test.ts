@@ -141,7 +141,7 @@ describe('QueueStore', () => {
     expect(await second.drainOutbound()).toHaveLength(1);
   });
 
-  it('drains outbound events another process appended after this store loaded (RhythmSyncTask)', async () => {
+  it('drains outbound events another process appended after this store loaded', async () => {
     const fs = fakeFs();
     const holder = new QueueStore(fs);
     await holder.drainOutbound(); // loaded, empty
