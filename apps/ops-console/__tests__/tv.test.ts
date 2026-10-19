@@ -54,11 +54,11 @@ describe('tv.html — the page is the television and nothing else', () => {
   const html = readFileSync(fileURLToPath(new URL('../tv.html', import.meta.url)), 'utf8');
 
   it('loads the television’s rules, the television, then the page, and no script of its own', () => {
-    expect([...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1])).toEqual(['tv-engine.generated.js', 'tv-core.js', 'tv.js']);
+    expect([...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1])).toEqual(['tv-engine.generated.js', 'tv-channels.generated.js', 'tv-core.js', 'tv.js']);
     expect(html).not.toMatch(/<style/i);
     expect(html).not.toMatch(/\sstyle=/i);
     expect(html).not.toMatch(/\son[a-z]+=/i);
-    expect(html.match(/<script/g)).toHaveLength(3);
+    expect(html.match(/<script/g)).toHaveLength(4);
   });
 
   it('has no console: no telemetry, no raw messages, no badge', () => {
@@ -68,9 +68,13 @@ describe('tv.html — the page is the television and nothing else', () => {
   it('is published with every file it loads, the posters among them, under the ops console’s security headers', () => {
     const tf = readFileSync(fileURLToPath(new URL('../../../infra/ops-console.tf', import.meta.url)), 'utf8');
     const files = [...html.matchAll(/(?:href|src)="([^":]+)"/g)].map((m) => m[1]!);
-    expect(files).toEqual(['tv.css', 'tv-engine.generated.js', 'tv-core.js', 'tv.js']);
+    expect(files).toEqual(['tv.css', 'tv-engine.generated.js', 'tv-channels.generated.js', 'tv-core.js', 'tv.js']);
     for (const file of [...files, 'tv.html', 'tv-catalog.json']) expect(tf, file).toContain(`key           = "${file}"`);
     expect(tf).toContain('key           = "posters/${each.value}"');
+    // The cards come by IoT Core first: the page is given its address, and the policy lets the page reach it.
+    expect(tf).toContain('"MQTT_WSS_URL_PLACEHOLDER"');
+    expect(tf).toContain('data.aws_iot_endpoint.data.endpoint_address');
+    expect(readFileSync(fileURLToPath(new URL('../../../infra/csp/ops-console.csp', import.meta.url)), 'utf8')).toMatch(/connect-src[^;]*\$\{iot\}/);
     expect(TV_SOURCE).toContain('`posters/${programme.id}.jpg`');
     for (const p of CATALOG.programmes) readFileSync(fileURLToPath(new URL(`../../tv-vega/assets/image/${p.id}.jpg`, import.meta.url)));
     // One distribution, one policy: every page of the site is answered with it.
@@ -700,8 +704,8 @@ describe('tv.js — what it never does', () => {
     expect(TV_SOURCE).toMatch(/function pressPlay\(\)/);
   });
 
-  it('puts nothing away on a timer: its only timers are the look, a code tried again, and the channel tried again', () => {
-    expect(TV_SOURCE.match(/setTimeout\(/g)).toHaveLength(1);
+  it('puts nothing away on a timer: its only timers are the look and a code tried again (the channel tries itself again)', () => {
+    expect(TV_SOURCE.match(/setTimeout\(/g) ?? []).toHaveLength(0);
     expect(TV_SOURCE.match(/setInterval\(/g)).toHaveLength(1);
   });
 });

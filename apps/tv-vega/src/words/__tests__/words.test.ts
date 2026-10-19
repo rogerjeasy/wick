@@ -89,6 +89,8 @@ describe('the words table — English, exactly as the television said it before 
       'waiting.sharing': 'What your family can see is ready to look at.',
       'waiting.question': 'Wick has a question for you.',
       'waiting.something': 'Something is waiting for you.',
+      // transport/linkWatch.ts, said in the home screen's quiet line
+      'link.down': "Wick can't reach home just now.",
       // cards/WeekCard.tsx, cards/MessageCard.tsx, cards/DoorCard.tsx, cards/doorDetail.ts
       'week.headline': 'Your week.',
       'message.headline': 'A message from {name}.',

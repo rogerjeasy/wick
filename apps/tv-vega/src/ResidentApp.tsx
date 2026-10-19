@@ -128,6 +128,7 @@ import { toPlaybackDeviceEvent } from './watch/playbackRecorder.js';
 import { TogetherReporter, type Together } from './watch/togetherReporter.js';
 import { createDeviceChannel } from './transport/createDeviceChannel.js';
 import { holdCardChannel, type RunningCardChannel } from './transport/startCardChannel.js';
+import { linkWatch } from './transport/linkWatch.js';
 import { launchCardService } from './headless/launchCardService.js';
 import type { DeviceConfig } from './config.js';
 import { useOnScreen } from './useOnScreen.js';
@@ -189,6 +190,15 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
    */
   const [light, setLight] = React.useState<string | undefined>(undefined);
   const [lookedIn, setLookedIn] = React.useState<string | undefined>(undefined);
+  /**
+   * The connection to home has been down for a while (transport/linkWatch.ts).
+   * Said in the home screen's quiet line, in place of what is waiting or who
+   * looked in: a door that cannot ring here is the one thing she should be
+   * told, and what was waiting is still there when the connection is back.
+   */
+  const [linkDown, setLinkDown] = React.useState(false);
+  const link = React.useMemo(() => linkWatch(), []);
+  const handleLink = React.useCallback((open: boolean) => setLinkDown(link.report(open, Date.now())), [link]);
   /**
    * The language she chose, as the home says it (QueueStore.language) — or
    * null for the moment before this launch has read what the last one
@@ -360,13 +370,17 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   React.useEffect(() => () => watch.stop(), [watch]);
   React.useEffect(() => {
     if (!onScreen) return;
-    const held = holdCardChannel(store, inUse, createDeviceChannel, config, undefined, questionLeft, watch.trouble);
+    link.reset();
+    const held = holdCardChannel(store, inUse, createDeviceChannel, config, undefined, questionLeft, watch.trouble, handleLink);
     cardChannel.current = held;
     return () => {
       cardChannel.current = null;
       held.stop();
+      // Nothing is held, so nothing is down: the next channel says for itself.
+      link.reset();
+      setLinkDown(false);
     };
-  }, [inUse, onScreen, store, config, questionLeft, watch]);
+  }, [inUse, onScreen, store, config, questionLeft, watch, link, handleLink]);
 
   // A picture card whose address is missing or has run out — a card may wait for days, an address lives an
   // hour. The server mints a new one each time it sends the card, so the cards are asked for again: once for a
@@ -871,11 +885,11 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           onChoose={handleChoose}
           cardVisible={!behind.reach}
           lastWatchedId={lastWatchedId}
-          waiting={waiting && waiting.id !== card?.id ? waitingLine(waiting, language) : undefined}
+          waiting={!linkDown && waiting && waiting.id !== card?.id ? waitingLine(waiting, language) : undefined}
           onOpenWaiting={handleOpenWaiting}
           light={light}
           onOpenLight={handleOpenLight}
-          lookedIn={lookedIn}
+          lookedIn={linkDown ? say('link.down') : lookedIn}
           mantel={offersMantel(home) ? say('home.mantel') : undefined}
           onOpenMantel={handleOpenMantel}
           seeing={say('seeing.entry')}

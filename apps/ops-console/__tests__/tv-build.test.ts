@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { CATALOG_FILE, ENGINE_FILE, catalog, renderCatalog, renderEngine } from '../../../scripts/tv-page/build.js';
+import { CATALOG_FILE, CHANNELS_FILE, ENGINE_FILE, catalog, renderCatalog, renderChannels, renderEngine } from '../../../scripts/tv-page/build.js';
 import { PROGRAMMES } from '../../../packages/contracts/src/programmes.js';
 import { CALM_POINTS } from '../../tv-vega/src/catalog/calmPoints.js';
 import { PRESS_SETTLE_MS } from '../../tv-vega/src/press/settle.js';
@@ -56,5 +56,27 @@ describe('tv-engine.generated.js — the television’s own rules, bundled from 
     expect(tv.HOLD_MS).toBe(HOLD_MS);
     expect(typeof tv.BreakController).toBe('function');
     expect((tv.words as (l: string) => (k: string) => string)('es')('home.question')).toBe(WORDS.es['home.question']);
+  });
+});
+
+describe('tv-channels.generated.js — how the page reaches home, bundled from the Vega app', () => {
+  it('is exactly what `npm run tv:build` writes now', async () => {
+    expect(readFileSync(CHANNELS_FILE, 'utf8')).toBe(await renderChannels());
+  });
+
+  it('runs in a bare browser page and sets one global, WickTvChannels, which opens a channel', () => {
+    // A page has no `process`, no `require` and no `Buffer`: the bundle must not ask for them when it loads.
+    const context = vm.createContext({
+      setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask, URL, URLSearchParams, console, AbortController, AbortSignal, TextEncoder, TextDecoder, Event, EventTarget, atob, btoa,
+      crypto: globalThis.crypto, WebSocket: class {}, navigator: { userAgent: 'a browser', product: 'Gecko' },
+    });
+    // A page is its own `self`, which the library reads its AbortController from.
+    context.self = context;
+    vm.runInContext(readFileSync(CHANNELS_FILE, 'utf8'), context);
+    const channels = vm.runInContext('WickTvChannels', context) as Record<string, unknown>;
+
+    expect(Object.keys(channels)).toEqual(['createDeviceChannel']);
+    expect(Object.keys(context)).toContain('WickTvChannels');
+    expect(typeof channels.createDeviceChannel).toBe('function');
   });
 });

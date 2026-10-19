@@ -34,6 +34,7 @@
  * this on the Vega simulator found.
  */
 import mqttLib, { type MqttClient } from 'mqtt';
+import { readCardPayload, readControlPayload } from './wire.js';
 import type {
   ChannelState,
   ControlMessage,
@@ -73,6 +74,12 @@ const topicsFor = (deviceId: string): Topics => ({
 const DEFAULT_CONNECT_TIMEOUT_MS = 4000;
 const MIN_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
+/**
+ * Seconds between the client's own PINGREQs. A connection that stops
+ * answering is closed by the library after one and a half of these, which
+ * is what tells this channel a half-open socket is dead. The default is 60.
+ */
+const KEEPALIVE_SECONDS = 30;
 
 /** The address to connect to: the configured one, with this television's token added. */
 export function mqttUrl(wssUrl: string, jwt: string): string {
@@ -85,7 +92,8 @@ export class MqttChannel implements DeviceChannel {
   #client: MqttClient | undefined;
   #token: DeviceToken | undefined;
   #topics: Topics | undefined;
-  #state: ChannelState = 'closed';
+  #current: ChannelState = 'closed';
+  readonly #stateHandlers = new Set<(state: ChannelState) => void>();
   readonly #cardHandlers = new Set<(c: QueuedCard) => void>();
   readonly #controlHandlers = new Set<(m: ControlMessage) => void>();
   #backoffMs = MIN_BACKOFF_MS;
@@ -98,7 +106,25 @@ export class MqttChannel implements DeviceChannel {
   }
 
   get state(): ChannelState {
-    return this.#state;
+    return this.#current;
+  }
+
+  onState(handler: (state: ChannelState) => void): Unsubscribe {
+    this.#stateHandlers.add(handler);
+    return () => this.#stateHandlers.delete(handler);
+  }
+
+  /** Every change of state goes through here, so whoever asked to be told is. A handler that throws costs the channel nothing. */
+  #setState(next: ChannelState): void {
+    if (this.#current === next) return;
+    this.#current = next;
+    for (const handler of [...this.#stateHandlers]) {
+      try {
+        handler(next);
+      } catch (err) {
+        console.warn('channel_state_handler_failed', err);
+      }
+    }
   }
 
   close(): void {
@@ -106,7 +132,7 @@ export class MqttChannel implements DeviceChannel {
     clearTimeout(this.#reconnectTimer);
     this.#client?.end(true);
     this.#client = undefined;
-    this.#state = 'closed';
+    this.#setState('closed');
   }
 
   connect(token: DeviceToken): Promise<void> {
@@ -138,7 +164,7 @@ export class MqttChannel implements DeviceChannel {
   async send(e: DeviceEvent): Promise<void> {
     const client = this.#client;
     const topics = this.#topics;
-    if (!client || !topics || this.#state !== 'open') throw new Error('not_connected');
+    if (!client || !topics || this.#current !== 'open') throw new Error('not_connected');
     await publish(client, topics.events, JSON.stringify(e));
   }
 
@@ -150,7 +176,7 @@ export class MqttChannel implements DeviceChannel {
   async reconcile(): Promise<void> {
     const client = this.#client;
     const topics = this.#topics;
-    if (!client || !topics || this.#state !== 'open') return;
+    if (!client || !topics || this.#current !== 'open') return;
     await this.#reconcileOn(client, topics.events);
   }
 
@@ -169,7 +195,7 @@ export class MqttChannel implements DeviceChannel {
   #open({ first }: { first: boolean }): Promise<void> {
     const token = this.#token!;
     const topics = this.#topics!;
-    this.#state = 'connecting';
+    this.#setState('connecting');
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -177,6 +203,7 @@ export class MqttChannel implements DeviceChannel {
       const client = this.#connect(mqttUrl(this.#config.wssUrl, token.jwt), {
         clientId: token.deviceId,
         clean: false,
+        keepalive: KEEPALIVE_SECONDS,
         reconnectPeriod: 0, // reconnecting is done here, with a fresh address each time
       });
       this.#client = client;
@@ -188,7 +215,7 @@ export class MqttChannel implements DeviceChannel {
         client.end(true);
         if (this.#client === client) this.#client = undefined;
         if (first) {
-          this.#state = 'closed';
+          this.#setState('closed');
           reject(err);
         } else {
           // Our own retry: nobody is waiting on this promise for an answer.
@@ -215,7 +242,7 @@ export class MqttChannel implements DeviceChannel {
             settled = true;
             opened = true;
             clearTimeout(timeout);
-            this.#state = 'open';
+            this.#setState('open');
             this.#backoffMs = MIN_BACKOFF_MS;
             resolve();
           })();
@@ -223,12 +250,13 @@ export class MqttChannel implements DeviceChannel {
       });
 
       client.on('message', (topic: string, payload: Buffer) => {
+        // A payload that is not what it should be is dropped (wire.ts), never thrown from a library callback.
         if (topic === topics.cards) {
-          const card = JSON.parse(payload.toString('utf8')) as QueuedCard;
-          for (const h of this.#cardHandlers) h(card);
+          const card = readCardPayload(payload);
+          if (card) for (const h of this.#cardHandlers) h(card);
         } else if (topic === topics.control) {
-          const control = JSON.parse(payload.toString('utf8')) as ControlMessage;
-          for (const h of this.#controlHandlers) h(control);
+          const control = readControlPayload(payload);
+          if (control) for (const h of this.#controlHandlers) h(control);
         }
       });
 
@@ -239,18 +267,23 @@ export class MqttChannel implements DeviceChannel {
         opened = false;
         this.#client = undefined;
         if (this.#closing) {
-          this.#state = 'closed';
+          this.#setState('closed');
           return;
         }
         this.#scheduleReconnect();
       });
 
-      client.on('error', (err: Error) => fail(err));
+      client.on('error', (err: Error) => {
+        // Before the connection opens an error is the attempt's failure. After, it is this channel's to say:
+        // the library follows it with a close, which is what schedules the next connection.
+        if (settled) console.warn('mqtt_client_error', err.message);
+        fail(err);
+      });
     });
   }
 
   #scheduleReconnect(): void {
-    this.#state = 'backoff';
+    this.#setState('backoff');
     const delay = Math.random() * this.#backoffMs; // full jitter: uniform(0, current backoff)
     this.#backoffMs = Math.min(this.#backoffMs * 2, MAX_BACKOFF_MS);
     this.#reconnectTimer = setTimeout(() => void this.#open({ first: false }), delay);

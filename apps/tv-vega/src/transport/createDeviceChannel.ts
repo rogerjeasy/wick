@@ -16,6 +16,13 @@ export interface DeviceChannelConfig {
   /** Absent, MQTT is never tried: the card service, which holds the WebSocket's background slot. */
   readonly mqtt?: MqttChannelConfig;
   readonly websocket: WebSocketChannelConfig;
+  /**
+   * Given each channel before it connects, so a screen can listen from the
+   * channel's very first moment: its state, and what it is sent as soon as
+   * it is subscribed. Called again for the WebSocket when IoT Core was
+   * refused; the first channel is then let go.
+   */
+  readonly attach?: (channel: ReconcilingChannel) => void;
 }
 
 export interface DeviceChannelOverrides {
@@ -32,6 +39,7 @@ export async function createDeviceChannel(
     const mqttChannel = overrides.mqttConnect
       ? new MqttChannel(config.mqtt, overrides.mqttConnect)
       : new MqttChannel(config.mqtt);
+    config.attach?.(mqttChannel);
     try {
       await mqttChannel.connect(token);
       return mqttChannel;
@@ -42,6 +50,7 @@ export async function createDeviceChannel(
   const wsChannel = overrides.websocketOpen
     ? new WebSocketChannel(config.websocket, overrides.websocketOpen)
     : new WebSocketChannel(config.websocket);
+  config.attach?.(wsChannel);
   try {
     await wsChannel.connect(token);
   } catch (err) {

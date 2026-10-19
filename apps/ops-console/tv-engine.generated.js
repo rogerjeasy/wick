@@ -38,6 +38,7 @@ var WickTv = (() => {
     PlaybackRecorder: () => PlaybackRecorder,
     SEEK_STEP_MS: () => SEEK_STEP_MS,
     SETTLED_AFTER_MS: () => SETTLED_AFTER_MS,
+    WebSocketChannel: () => WebSocketChannel,
     asking: () => asking,
     backAnswersReach: () => backAnswersReach,
     backClosesOpened: () => backClosesOpened,
@@ -1375,6 +1376,8 @@ var WickTv = (() => {
     "waiting.sharing": "What your family can see is ready to look at.",
     "waiting.question": "Wick has a question for you.",
     "waiting.something": "Something is waiting for you.",
+    // In the quiet line of the home screen when the connection to home has been down for a while (transport/linkWatch.ts).
+    "link.down": "Wick can't reach home just now.",
     // Cards: the few words that are not the server's.
     "week.headline": "Your week.",
     "message.headline": "A message from {name}.",
@@ -1499,6 +1502,7 @@ var WickTv = (() => {
     "waiting.sharing": "Ya puede revisar lo que ve su familia.",
     "waiting.question": "Wick tiene una pregunta para usted.",
     "waiting.something": "Algo le está esperando.",
+    "link.down": "Wick no puede conectarse ahora.",
     "week.headline": "Su semana.",
     "message.headline": "Un mensaje de {name}.",
     "message.photoLabel": "Foto de {name}",
@@ -1725,5 +1729,231 @@ var WickTv = (() => {
       }
     };
   }
+
+  // apps/tv-vega/src/transport/wire.ts
+  var isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+  function isQueuedCard(value) {
+    return isObject(value) && typeof value.id === "string" && isObject(value.card) && typeof value.card.type === "string";
+  }
+  function isControlMessage(value) {
+    return isObject(value) && typeof value.t === "string";
+  }
+  function parse(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return void 0;
+    }
+  }
+  function unreadable(where) {
+    console.warn("wire_frame_unreadable", where);
+    return void 0;
+  }
+  function readWireMessage(data) {
+    const frame = parse(String(data));
+    if (!isObject(frame)) return unreadable("websocket");
+    if (frame.kind === "card" && isQueuedCard(frame.card)) return { kind: "card", card: frame.card };
+    if (frame.kind === "control" && isControlMessage(frame.control)) return { kind: "control", control: frame.control };
+    return unreadable("websocket");
+  }
+
+  // apps/tv-vega/src/transport/WebSocketChannel.ts
+  var MIN_BACKOFF_MS = 1e3;
+  var MAX_BACKOFF_MS = 3e4;
+  var DEFAULT_HEARTBEAT_MS = 45e3;
+  var DEFAULT_PONG_WAIT_MS = 15e3;
+  var WebSocketChannel = class {
+    #config;
+    #open;
+    #socket;
+    #current = "closed";
+    #stateHandlers = /* @__PURE__ */ new Set();
+    #token;
+    #cardHandlers = /* @__PURE__ */ new Set();
+    #controlHandlers = /* @__PURE__ */ new Set();
+    #backoffMs = MIN_BACKOFF_MS;
+    #reconnectTimer;
+    #closing = false;
+    #heartbeat;
+    #pongTimer;
+    constructor(config, open = (url) => new WebSocket(url)) {
+      this.#config = config;
+      this.#open = open;
+    }
+    get state() {
+      return this.#current;
+    }
+    onState(handler) {
+      this.#stateHandlers.add(handler);
+      return () => this.#stateHandlers.delete(handler);
+    }
+    /** Every change of state goes through here, so whoever asked to be told is. A handler that throws costs the channel nothing. */
+    #setState(next) {
+      if (this.#current === next) return;
+      this.#current = next;
+      for (const handler of [...this.#stateHandlers]) {
+        try {
+          handler(next);
+        } catch (err) {
+          console.warn("channel_state_handler_failed", err);
+        }
+      }
+    }
+    connect(token) {
+      clearTimeout(this.#reconnectTimer);
+      this.#stopHeartbeat();
+      const wasClosing = this.#closing;
+      this.#closing = true;
+      this.#socket?.close();
+      this.#closing = wasClosing;
+      this.#token = token;
+      this.#closing = false;
+      this.#backoffMs = MIN_BACKOFF_MS;
+      return this.#openSocket();
+    }
+    close() {
+      this.#closing = true;
+      clearTimeout(this.#reconnectTimer);
+      this.#stopHeartbeat();
+      this.#socket?.close();
+      this.#setState("closed");
+    }
+    onCard(handler) {
+      this.#cardHandlers.add(handler);
+      return () => this.#cardHandlers.delete(handler);
+    }
+    onControl(handler) {
+      this.#controlHandlers.add(handler);
+      return () => this.#controlHandlers.delete(handler);
+    }
+    async send(e) {
+      if (!this.#socket || this.#current !== "open") throw new Error("not_connected");
+      this.#socket.send(JSON.stringify(e));
+    }
+    /**
+     * Asks for this television's cards again, as on connecting. Sends nothing
+     * when it is not connected — connecting asks anyway — and never on the
+     * card service's connection.
+     */
+    async reconcile() {
+      const socket = this.#socket;
+      if (!socket || this.#current !== "open") return;
+      await this.#reconcileOn(socket);
+    }
+    async #reconcileOn(socket) {
+      if (this.#config.role === "background") return;
+      const sinceCardId = this.#config.getLastSeenCardId ? await this.#config.getLastSeenCardId() : void 0;
+      const holding = this.#config.getHeldCardIds ? await this.#config.getHeldCardIds() : void 0;
+      socket.send(JSON.stringify({ t: "reconcile", sinceCardId, ...holding ? { holding } : {} }));
+    }
+    #openSocket() {
+      this.#setState("connecting");
+      const token = this.#token;
+      const role = this.#config.role ? `&role=${this.#config.role}` : "";
+      const url = `${this.#config.url}?token=${encodeURIComponent(token.jwt)}${role}`;
+      return new Promise((resolve, reject) => {
+        let socket;
+        try {
+          socket = this.#open(url);
+        } catch (err) {
+          this.#setState(this.#closing ? "closed" : "backoff");
+          if (!this.#closing) this.#scheduleReconnect();
+          reject(err instanceof Error ? err : new Error("websocket_not_made"));
+          return;
+        }
+        this.#socket = socket;
+        let settled = false;
+        socket.onopen = () => {
+          void (async () => {
+            this.#setState("open");
+            this.#backoffMs = MIN_BACKOFF_MS;
+            this.#startHeartbeat(socket);
+            try {
+              await this.#reconcileOn(socket);
+            } catch (err) {
+              console.warn("websocket_reconcile_failed", err);
+            }
+            if (!settled) {
+              settled = true;
+              resolve();
+            }
+          })();
+        };
+        socket.onmessage = (ev) => {
+          if (this.#socket === socket) this.#heardFromEdge();
+          const msg = readWireMessage(ev.data);
+          if (!msg) return;
+          if (msg.kind === "card") {
+            for (const h of this.#cardHandlers) h(msg.card);
+          } else if (msg.control.t !== "pong") {
+            for (const h of this.#controlHandlers) h(msg.control);
+          }
+        };
+        socket.onclose = () => {
+          if (this.#socket !== socket) {
+            if (!settled) {
+              settled = true;
+              reject(new Error("websocket_closed_before_open"));
+            }
+            return;
+          }
+          this.#stopHeartbeat();
+          this.#setState(this.#closing ? "closed" : "backoff");
+          if (!settled) {
+            settled = true;
+            reject(new Error("websocket_closed_before_open"));
+          }
+          if (!this.#closing) this.#scheduleReconnect();
+        };
+        socket.onerror = () => {
+        };
+      });
+    }
+    #startHeartbeat(socket) {
+      this.#stopHeartbeat();
+      const every = this.#config.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+      const wait = this.#config.pongWaitMs ?? DEFAULT_PONG_WAIT_MS;
+      this.#heartbeat = setInterval(() => {
+        if (this.#socket !== socket || this.#current !== "open") return;
+        try {
+          socket.send(JSON.stringify({ t: "ping" }));
+        } catch {
+          this.#declareDead(socket);
+          return;
+        }
+        this.#pongTimer ??= setTimeout(() => this.#declareDead(socket), wait);
+      }, every);
+    }
+    #heardFromEdge() {
+      clearTimeout(this.#pongTimer);
+      this.#pongTimer = void 0;
+    }
+    #stopHeartbeat() {
+      clearInterval(this.#heartbeat);
+      this.#heartbeat = void 0;
+      this.#heardFromEdge();
+    }
+    /**
+     * The connection answers nothing: let it go without waiting for a close
+     * that, on a half-open socket, may never come, and make another.
+     */
+    #declareDead(socket) {
+      if (this.#socket !== socket || this.#closing) return;
+      console.warn("websocket_silent — reconnecting");
+      this.#stopHeartbeat();
+      this.#socket = void 0;
+      this.#setState("backoff");
+      try {
+        socket.close();
+      } catch {
+      }
+      this.#scheduleReconnect();
+    }
+    #scheduleReconnect() {
+      const delay = Math.random() * this.#backoffMs;
+      this.#backoffMs = Math.min(this.#backoffMs * 2, MAX_BACKOFF_MS);
+      this.#reconnectTimer = setTimeout(() => void this.#openSocket().catch(() => void 0), delay);
+    }
+  };
   return __toCommonJS(tv_engine_exports);
 })();

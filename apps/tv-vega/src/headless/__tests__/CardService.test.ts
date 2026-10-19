@@ -113,6 +113,41 @@ describe('CardService', () => {
     expect(toasts).toEqual([expect.objectContaining({ mTitle: "Someone's at the front door." })]);
   });
 
+  it("writes none of the app's card files: the app is their one writer, and this process's stale queue must not replace it", async () => {
+    const base = await pairedFs();
+    const writes: string[] = [];
+    const fs: FileSystemLike = {
+      exists: (path) => base.exists(path),
+      readFileAsString: (path, encoding) => base.readFileAsString(path, encoding),
+      writeStringToFile: (path, content, encoding) => {
+        writes.push(path);
+        return base.writeStringToFile(path, content, encoding);
+      },
+    };
+    // What the app has on disk: a card she has not answered yet.
+    await base.writeStringToFile('/data/wick-queue.json', JSON.stringify([{ ...doorCard, id: 'older' }]), 'utf8');
+    await base.writeStringToFile('/data/wick-lastSeenCardId.json', 'older', 'utf8');
+    writes.length = 0;
+
+    const channel = listeningChannel();
+    __setCardServiceTestDeps({
+      fs,
+      config: { pairingApiUrl: 'https://pair.example', websocketUrl: 'wss://ws.example', wickServerUrl: 'https://wick.example' },
+      createChannel: channel.createChannel,
+      postToast: async () => undefined,
+    });
+
+    await onStartCardService();
+    await settle();
+    channel.push(doorCard);
+    await settle();
+
+    const cardFiles = ['/data/wick-queue.json', '/data/wick-lastSeenCardId.json', '/data/wick-outbox.json', '/data/wick-language.json'];
+    expect(writes.filter((path) => cardFiles.includes(path))).toEqual([]);
+    expect(JSON.parse(await base.readFileAsString('/data/wick-queue.json', 'utf8'))).toEqual([{ ...doorCard, id: 'older' }]);
+    expect(await base.readFileAsString('/data/wick-lastSeenCardId.json', 'utf8')).toBe('older');
+  });
+
   // A family member's own television (packages/contracts/src/familyTelevision.ts)
   // has no card channel at all: nothing of the resident's is sent to it.
   // What its service does instead is ask the Wick server what waits for
@@ -338,7 +373,7 @@ describe('CardService', () => {
     expect(channel.asked).toEqual([]);
   });
 
-  it('keeps the card for the app, and does not say it was shown — it has not been', async () => {
+  it('leaves the card for the server to replay to the app, and does not say it was shown — it has not been', async () => {
     const fs = await pairedFs();
     const channel = listeningChannel();
     __setCardServiceTestDeps({
@@ -353,7 +388,8 @@ describe('CardService', () => {
     channel.push(doorCard);
     await settle();
 
-    expect((await new QueueStore(fs).readAll()).map((c) => c.id)).toEqual(['c1']);
+    // Not on the disk: the app is its one writer. It is asked for again when the app connects (reconcile).
+    expect(await new QueueStore(fs).readAll()).toEqual([]);
     expect(channel.sent).toEqual([]);
   });
 
