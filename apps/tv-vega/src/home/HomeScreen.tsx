@@ -13,6 +13,14 @@
  * reach.ts). The platform's own long press tells the two apart, so the film
  * under her thumb does not start when she lets go.
  *
+ * Her day first (home/herDay.ts, contracts today.ts): when the server says
+ * one, the question gives way to "Good morning, Margaret." and the date, and
+ * a quiet panel under them says who is coming — "Maria usually comes
+ * tomorrow at 9 am." It is read, never pressed: nothing in it takes the
+ * focus, and the focus still starts on a film. What gives way to make room
+ * for it is homeLayout.ts careLayout's to say: the films' pictures first,
+ * never a word cut.
+ *
  * Four rows (home/homeLayout.ts has the heights): the question, alone; the
  * three films; the quiet line — what is waiting, or who looked in — when
  * there is one; and the pills. The pills are her light in the window, her
@@ -65,7 +73,8 @@ import { HOLD_MS } from '../watch/hold.js';
 import { HOME_FOCUS_START, focusOnReturn, focusReported, reachChanged, type HomeFocus } from './focusMemory.js';
 import { programmeLine, words } from '../words/words.js';
 import { POSTERS } from './posters.js';
-import { CAPTION_PADDING_DP, HOME_RING_DP, HOME_SCREEN, PILL_PADDING, QUIET_PADDING, captionPaddingDp, homeHeights, titleLines } from './homeLayout.js';
+import { CAPTION_PADDING_DP, DAY_GAP_DP, DAY_LINE_GAP_DP, DAY_PADDING, HOME_RING_DP, HOME_SCREEN, PILL_PADDING, QUIET_PADDING, captionPaddingDp, careLayout, homeHeights, titleLines } from './homeLayout.js';
+import type { HomeDay } from './herDay.js';
 
 export interface HomeScreenProps {
   /**
@@ -124,6 +133,12 @@ export interface HomeScreenProps {
   /** The word on the pill that opens Easier to see (words/words.ts): always there. */
   readonly seeing: string;
   readonly onOpenSeeing?: (() => void) | undefined;
+  /**
+   * Her day, in her language (home/herDay.ts): the greeting, the date and
+   * who is coming. Absent when the server says none, or the one it said is
+   * over: then the home screen opens on the question, as it always did.
+   */
+  readonly day?: HomeDay | undefined;
   /** OK was held for two seconds on whatever has the focus (watch/hold.ts HOLD_MS). */
   readonly onHold?: (() => void) | undefined;
   /**
@@ -134,7 +149,7 @@ export interface HomeScreenProps {
   readonly onKeyUp?: (() => void) | undefined;
 }
 
-export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, seeing, onOpenSeeing, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, seeing, onOpenSeeing, day, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
   const say = words(language);
   const theme = useCalmTheme();
   // Never a title cut: at 40pt one may take two lines, and the pictures are shorter for it (home/homeLayout.ts).
@@ -144,6 +159,9 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
   const quiet = waiting ? undefined : lookedIn;
   // With that line the films' pictures are shorter, so the screen stays inside 540dp (home/homeLayout.ts).
   const row = waiting !== undefined || quiet !== undefined;
+  // Her day, where there is one: what the headline says, where the date goes, what the panel holds — and the pictures what is left.
+  const care = day ? careLayout(theme, day, row, lines) : undefined;
+  const poster = care ? care.poster : homeHeights(theme, row, lines).poster;
 
   // Where the focus starts: the film she last watched, or the first. Never a pill.
   const start = `programme:${lastWatchedId ?? programmes[0]?.id}`;
@@ -192,9 +210,25 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
     <View style={styles.screen}>
       <View style={styles.top}>
         <Text style={[styles.question, styles.questionText]} accessibilityRole="header" numberOfLines={1}>
-          {say('home.question')}
+          {care ? care.headline : say('home.question')}
         </Text>
+        {care?.dateBeside ? (
+          <Text style={styles.date} numberOfLines={1}>
+            {care.dateBeside}
+          </Text>
+        ) : null}
       </View>
+
+      {/* Who is coming: to be read, never pressed. The date leads it when the headline's row had no room for it. */}
+      {care && care.panel.length > 0 ? (
+        <View style={styles.day} accessibilityRole="text">
+          {care.panel.map((sentence, i) => (
+            <Text key={`${i}:${sentence}`} style={styles.dayLine} numberOfLines={care.panelLines[i]}>
+              {sentence}
+            </Text>
+          ))}
+        </View>
+      ) : null}
 
       <View style={styles.row}>
         {programmes.map((programme) => (
@@ -213,8 +247,8 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
             style={({ focused: on }: { focused: boolean }) => [styles.tile, on ? styles.ringOn : styles.ringOff]}
           >
             {/* No picture where the words have left too little room for one. */}
-            {homeHeights(theme, row, lines).poster > 0 ? (
-              <Image source={POSTERS[programme.id]} style={[styles.poster, row ? styles.posterWithRow : null]} resizeMode="cover" accessibilityLabel="" />
+            {poster > 0 ? (
+              <Image source={POSTERS[programme.id]} style={[styles.poster, row ? styles.posterWithRow : null, care ? { height: poster } : null]} resizeMode="cover" accessibilityLabel="" />
             ) : null}
             {/* Its title. How long it runs is said to the screen reader (above): at 40pt the screen has no line for it. */}
             <View style={styles.caption}>
@@ -354,6 +388,27 @@ const makeStylesWith = (t: CalmTheme, titles: 1 | 2) => {
     },
     questionText: {
       flex: 1,
+    },
+    // The date, at the end of the greeting's row: quieter than the greeting, on the same line.
+    date: {
+      color: t.palette.inkDim,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
+      marginLeft: HOME_SCREEN.gap,
+    },
+    // Her day: one quiet panel under the greeting, closer to it than the rows are to each other.
+    day: {
+      marginTop: DAY_GAP_DP - HOME_SCREEN.gap,
+      borderRadius: 16,
+      backgroundColor: t.palette.raised,
+      paddingHorizontal: DAY_PADDING.horizontal,
+      paddingVertical: DAY_PADDING.vertical,
+      gap: DAY_LINE_GAP_DP,
+    },
+    dayLine: {
+      color: t.palette.ink,
+      fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
     },
     row: {
       flexDirection: 'row',

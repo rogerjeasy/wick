@@ -73,6 +73,13 @@ export type DeviceEvent =
   /** She took one thing down, with her own press. The answer is the mantelpiece as it now stands. */
   | { readonly t: 'mantel_take_down'; readonly photoId: string; readonly at: number }
   /**
+   * Her day (today.ts): the home screen asks for what it says beside its
+   * cards, and nothing else — when the day it was told is over, and when
+   * something new has come that may have changed it. The answer is a whole
+   * `home` control. Nothing is recorded of the asking.
+   */
+  | { readonly t: 'home'; readonly at: number }
+  /**
    * Read to me (speech.ts): she pressed Play while this card was on her
    * screen. The answer is a `speech` control with the address of the
    * reading, for this television only.

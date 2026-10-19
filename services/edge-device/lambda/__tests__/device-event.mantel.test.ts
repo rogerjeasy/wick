@@ -15,6 +15,8 @@ type Value = { S?: string; N?: string; BOOL?: boolean; SS?: string[] };
 type Row = Record<string, Value>;
 type Names = Record<string, string>;
 
+/** Her day (today.mjs) rides on every whole home: here, a day with nobody on the roster. */
+const HER_DAY = expect.objectContaining({ coming: [] });
 const aws = vi.hoisted(() => {
   Object.assign(process.env, {
     TABLE_NAME: 'wick',
@@ -288,9 +290,9 @@ describe('"Keep it" — with room', () => {
 
     const tv = await press('p1', 'keep');
 
-    expect(tv.controls).toEqual([{ t: 'home', home: { mantel: 1 }, whole: true }]);
+    expect(tv.controls).toEqual([{ t: 'home', home: { mantel: 1, today: HER_DAY }, whole: true }]);
     const [changed] = busOf('home.changed');
-    expect(readHomeState(changed.home)).toEqual({ mantel: 1 });
+    expect(readHomeState(changed.home)).toEqual({ mantel: 1, today: HER_DAY });
     expect(JSON.stringify(aws.events)).not.toMatch(/https:|X-Amz|fromName|Sarah/);
   });
 
@@ -302,7 +304,7 @@ describe('"Keep it" — with room', () => {
 
     expect(onTheMantel()).toHaveLength(MAX_MANTEL);
     expect(row('MANTEL')!.count).toEqual({ N: String(MAX_MANTEL) });
-    expect(tv.controls).toEqual([{ t: 'home', home: { mantel: MAX_MANTEL }, whole: true }]);
+    expect(tv.controls).toEqual([{ t: 'home', home: { mantel: MAX_MANTEL, today: HER_DAY }, whole: true }]);
   });
 });
 
@@ -738,7 +740,7 @@ describe('when the picture’s bytes are gone — the bucket let go of it before
 
     expect(onTheMantel()).toEqual(['old1']);
     expect(row('MANTEL')!.count).toEqual({ N: '1' });
-    expect(tv.controls.find((control) => control.t === 'home')).toEqual({ t: 'home', home: { mantel: 1 }, whole: true });
+    expect(tv.controls.find((control) => control.t === 'home')).toEqual({ t: 'home', home: { mantel: 1, today: HER_DAY }, whole: true });
     expect(aws.s3.asked).toBe(1);
   });
 });
@@ -824,8 +826,8 @@ describe('{ t: "mantel_take_down" } — she takes one thing down', () => {
 
     const mantel = tv.controls.find((control) => control.t === 'mantel') as { items: { photoId: string }[] };
     expect(mantel.items.map((item) => item.photoId)).toEqual(['old0', 'old2']);
-    expect(tv.controls.find((control) => control.t === 'home')).toEqual({ t: 'home', home: { mantel: 2 }, whole: true });
-    expect(readHomeState(busOf('home.changed')[0].home)).toEqual({ mantel: 2 });
+    expect(tv.controls.find((control) => control.t === 'home')).toEqual({ t: 'home', home: { mantel: 2, today: HER_DAY }, whole: true });
+    expect(readHomeState(busOf('home.changed')[0].home)).toEqual({ mantel: 2, today: HER_DAY });
     // What is on the bus is the count. The mantelpiece itself is not.
     expect(JSON.stringify(aws.events)).not.toMatch(/https:|X-Amz|items|old0/);
   });
@@ -837,7 +839,7 @@ describe('{ t: "mantel_take_down" } — she takes one thing down', () => {
 
     const tv = await television({ t: 'mantel_take_down', photoId: 'old0', at: 5 });
 
-    expect(tv.controls).toEqual([{ t: 'mantel', items: [] }, { t: 'home', home: {}, whole: true }]);
+    expect(tv.controls).toEqual([{ t: 'mantel', items: [] }, { t: 'home', home: { today: HER_DAY }, whole: true }]);
     expect(row('MANTEL')!.count).toEqual({ N: '0' });
   });
 
@@ -895,7 +897,7 @@ describe('a picture’s card sent again', () => {
     const tv = await television({ t: 'reconcile', at: 1 });
 
     expect(JSON.stringify(tv.cards)).toBe(JSON.stringify([note]));
-    expect(tv.controls).toEqual([{ t: 'home', home: {}, whole: true }]);
+    expect(tv.controls).toEqual([{ t: 'home', home: { today: HER_DAY }, whole: true }]);
   });
 
   it('the home screen learns the count when the television connects', async () => {
@@ -903,6 +905,6 @@ describe('a picture’s card sent again', () => {
 
     const tv = await television({ t: 'reconcile', at: 1 });
 
-    expect(tv.controls).toEqual([{ t: 'home', home: { mantel: 2 }, whole: true }]);
+    expect(tv.controls).toEqual([{ t: 'home', home: { mantel: 2, today: HER_DAY }, whole: true }]);
   });
 });

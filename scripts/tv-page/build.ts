@@ -87,6 +87,7 @@ export { unaskedLightCards } from './apps/tv-vega/src/home/light.ts';
 export { newestReachCard, reachOffersToPutAway, backAnswersReach } from './apps/tv-vega/src/home/reach.ts';
 export { overMantel } from './apps/tv-vega/src/mantel/mantel.ts';
 export { words, programmeLine } from './apps/tv-vega/src/words/words.ts';
+export { homeDay, sameHomeDay, herDayAsker } from './apps/tv-vega/src/home/herDay.ts';
 export { qrModules, qrRuns } from './packages/contracts/src/qr.ts';
 `;
 

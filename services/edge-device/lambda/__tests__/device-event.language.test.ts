@@ -12,6 +12,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 type Value = { S?: string; N?: string; BOOL?: boolean; SS?: string[] };
 type Row = Record<string, Value>;
 
+/** Her day (today.mjs) rides on every whole home: here, a day with nobody on the roster. */
+const HER_DAY = expect.objectContaining({ coming: [] });
 const aws = vi.hoisted(() => {
   process.env.TABLE_NAME = 'wick';
   process.env.EVENT_BUS_NAME = 'wick-bus';
@@ -171,7 +173,7 @@ describe('reconcile — the cards a television is owed, in the household’s lan
 
     expect(tv.result).toEqual({ statusCode: 200, body: '' });
     expect(tv.bytes).toBe(JSON.stringify([queuedCircle, queuedNote]));
-    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on' }, whole: true }]);
+    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on', today: HER_DAY }, whole: true }]);
   });
 
   it('hands a Spanish household each stored card through the phrasebook, with the free text kept beside it — and the row stays English', async () => {
@@ -185,7 +187,7 @@ describe('reconcile — the cards a television is owed, in the household’s lan
       { ...queuedCircle, card: { ...circle, headline: '[es] Tom would like to join.' } },
       { ...queuedNote, card: { ...note, transcript: 'Llámame esta noche, mamá.' } },
     ]);
-    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on', language: 'es' }, whole: true }]);
+    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on', language: 'es', today: HER_DAY }, whole: true }]);
     expect(JSON.parse(aws.rows.get(`${HH}|CARD#note-1`)!.data!.S!)).toEqual(queuedNote);
     // Nothing was written to any card: the edge only reads what was translated.
     expect(aws.sent.filter((c) => c.name !== 'Get' && c.name !== 'Query').map((c) => (c.input.Key as Row | undefined)?.sk?.S ?? (c.input.Item as Row).sk!.S)).not.toContainEqual(expect.stringMatching(/^CARD#/));
@@ -262,8 +264,8 @@ describe('her answer to the language question', () => {
     const tv = await press('language-es', 'yes');
 
     expect(metaRow()).toEqual({ pk: { S: HH }, sk: { S: 'META' }, language: { S: 'es' } });
-    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on', language: 'es' }, whole: true }]);
-    expect(homeChanged()).toEqual([expect.objectContaining({ householdId: 'hh-1', deviceId: 'tv-1', home: { light: 'on', language: 'es' } })]);
+    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on', language: 'es', today: HER_DAY }, whole: true }]);
+    expect(homeChanged()).toEqual([expect.objectContaining({ householdId: 'hh-1', deviceId: 'tv-1', home: { light: 'on', language: 'es', today: HER_DAY } })]);
     // What is told was read after the write, and as it stands.
     const homeRead = aws.sent.filter((c) => c.name === 'Query').at(-1)!;
     expect(homeRead.input.ConsistentRead).toBe(true);
@@ -281,7 +283,7 @@ describe('her answer to the language question', () => {
     // Not the television's `at` (1000): when she answered is not the television's to say.
     expect(Number(languageDeclinedAt!.N)).toBeGreaterThanOrEqual(before);
     expect(Number(languageDeclinedAt!.N)).toBeLessThanOrEqual(Date.now());
-    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on' }, whole: true }]);
+    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on', today: HER_DAY }, whole: true }]);
   });
 
   it('yes, after an earlier no: the no is taken off the record with the question', async () => {
@@ -298,8 +300,8 @@ describe('her answer to the language question', () => {
     const tv = await press('language-en', 'yes');
 
     expect(metaRow()).toEqual({ pk: { S: HH }, sk: { S: 'META' } });
-    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on' }, whole: true }]);
-    expect(homeChanged()[0].home).toEqual({ light: 'on' });
+    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on', today: HER_DAY }, whole: true }]);
+    expect(homeChanged()[0].home).toEqual({ light: 'on', today: HER_DAY });
   });
 
   it('no to English: she goes on in Spanish', async () => {
@@ -309,7 +311,7 @@ describe('her answer to the language question', () => {
 
     expect(metaRow()).toMatchObject({ language: { S: 'es' }, languageDeclined: { S: 'en' } });
     expect(metaRow().languageAsked).toBeUndefined();
-    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on', language: 'es' }, whole: true }]);
+    expect(tv.controls).toEqual([{ t: 'home', home: { light: 'on', language: 'es', today: HER_DAY }, whole: true }]);
   });
 
   it('a stale press — no question open — changes nothing: no language, and no answer put on record or taken off it', async () => {
@@ -319,7 +321,7 @@ describe('her answer to the language question', () => {
     await press('language-es', 'no');
 
     expect(metaRow()).toEqual({ pk: { S: HH }, sk: { S: 'META' } });
-    expect(homeChanged()[0].home).toEqual({ light: 'on' });
+    expect(homeChanged()[0].home).toEqual({ light: 'on', today: HER_DAY });
 
     home({ declined: 'es' });
     const said = { ...metaRow() };

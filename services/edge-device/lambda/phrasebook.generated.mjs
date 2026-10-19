@@ -227,6 +227,14 @@ var ES_CATALOGUE = {
     // The home screen and the Light card (contracts light.ts lookedInWords, edge light.mjs, mcp-server lookIn.ts).
     s("{first} looked in {part}.", "{first|cap} ha preguntado por usted {part}.")
   ],
+  // Her day, on her home screen (edge today.mjs). A visit "who" in the member's own words ("the window
+  // cleaner") has no sentence here, and stays English, whole.
+  "services/edge-device/lambda/today.mjs": [
+    s("{first} usually comes today at {time}.", "{first|cap} suele venir hoy a {time|las}."),
+    s("{first} usually comes tomorrow at {time}.", "{first|cap} suele venir mañana a {time|las}."),
+    s("{first} is coming to see you today at {time}.", "{first|cap} viene a verle hoy a {time|las}."),
+    s("{first} is coming to see you tomorrow at {time}.", "{first|cap} viene a verle mañana a {time|las}.")
+  ],
   // What a family member answers about the door, shown as "<name> says: …" (mcp-server answer_door_request.ts).
   "packages/contracts/src/door.ts": [
     s("{first} says: It's all right, I know who that is.", "{first|cap} dice: Está bien, sé quién es."),
@@ -581,8 +589,14 @@ function patchIn(language, patch, free) {
 function homeIn(language, home) {
   try {
     const fields = home;
-    if (!isFields(fields) || !isFields(fields.lookedIn) || typeof fields.lookedIn.line !== "string") return home;
-    return { ...fields, lookedIn: { ...fields.lookedIn, line: said(language, fields.lookedIn.line) } };
+    if (!isFields(fields)) return home;
+    const out = { ...fields };
+    if (isFields(fields.lookedIn) && typeof fields.lookedIn.line === "string") out.lookedIn = { ...fields.lookedIn, line: said(language, fields.lookedIn.line) };
+    if (isFields(fields.today) && Array.isArray(fields.today.coming)) {
+      const coming = fields.today.coming;
+      out.today = { ...fields.today, coming: coming.map((one) => isFields(one) && typeof one.line === "string" ? { ...one, line: said(language, one.line) } : one) };
+    }
+    return out;
   } catch {
     return home;
   }

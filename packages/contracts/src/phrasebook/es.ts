@@ -54,6 +54,15 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
     s('{first} looked in {part}.', '{first|cap} ha preguntado por usted {part}.'),
   ],
 
+  // Her day, on her home screen (edge today.mjs). A visit "who" in the member's own words ("the window
+  // cleaner") has no sentence here, and stays English, whole.
+  'services/edge-device/lambda/today.mjs': [
+    s('{first} usually comes today at {time}.', '{first|cap} suele venir hoy a {time|las}.'),
+    s('{first} usually comes tomorrow at {time}.', '{first|cap} suele venir mañana a {time|las}.'),
+    s('{first} is coming to see you today at {time}.', '{first|cap} viene a verle hoy a {time|las}.'),
+    s('{first} is coming to see you tomorrow at {time}.', '{first|cap} viene a verle mañana a {time|las}.'),
+  ],
+
   // What a family member answers about the door, shown as "<name> says: …" (mcp-server answer_door_request.ts).
   'packages/contracts/src/door.ts': [
     s("{first} says: It's all right, I know who that is.", '{first|cap} dice: Está bien, sé quién es.'),

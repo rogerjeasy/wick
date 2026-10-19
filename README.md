@@ -62,10 +62,11 @@ Fire OS. A note never interrupts. On Fire OS it waits quietly in the Notificatio
 programme (Amazon asks apps not to put up a heads-up while another app is in front, [FL-035](FRICTION.md)). Vega
 has no quiet place to leave it, so it waits in Wick. Either way it is on her screen the moment she opens Wick.
 
-### Fourteen features on top
+### Fifteen features on top
 
 | Feature | What she sees | What it never does |
 |---|---|---|
+| **Her day** | Her home screen opens on her: *"Good morning, Margaret."*, the date, and who is coming, such as *"Maria usually comes tomorrow at 9 am."* The films are under it. | Say anyone came, or show a visit the door has not been told of. |
 | **Ask Sarah to look** | One button on the door card asks Sarah to look at the same picture. Sarah's answer appears under her name. | Show Sarah the door unless Margaret asks. |
 | **Shall I tell Sarah?** | When a day is unusual, such as the carer not coming, Wick asks Margaret first and shows her the exact sentence it would send. | Tell the family anything she keeps to herself. |
 | **Calm points** | A note waits for the credits, a pause, or a quiet cut measured in the film itself. The film holds while she reads it. | Interrupt a scene. No model chooses the moment. |

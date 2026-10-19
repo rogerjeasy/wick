@@ -43,6 +43,8 @@ var WickTv = (() => {
     backClosesOpened: () => backClosesOpened,
     backOnShownCard: () => backOnShownCard,
     deriveSnapshot: () => deriveSnapshot,
+    herDayAsker: () => herDayAsker,
+    homeDay: () => homeDay,
     newestReachCard: () => newestReachCard,
     okHold: () => okHold,
     overMantel: () => overMantel,
@@ -55,6 +57,7 @@ var WickTv = (() => {
     qrModules: () => qrModules,
     qrRuns: () => qrRuns,
     reachOffersToPutAway: () => reachOffersToPutAway,
+    sameHomeDay: () => sameHomeDay,
     seekTarget: () => seekTarget,
     toPlaybackDeviceEvent: () => toPlaybackDeviceEvent,
     unaskedLightCards: () => unaskedLightCards,
@@ -141,6 +144,18 @@ var WickTv = (() => {
   // packages/contracts/src/mantel.ts
   var MANTEL_URL_TTL_SEC = 3600;
   var MANTEL_IDLE_AFTER_MS = 3 * 6e4;
+
+  // packages/contracts/src/today.ts
+  var HOUR_MS = 36e5;
+  function dayToShow(today, now) {
+    if (!today || now < today.dayStart || now >= today.dayEnd) return void 0;
+    const hours = (now - today.dayStart) / HOUR_MS;
+    const part = hours < 12 ? "morning" : hours < 18 ? "afternoon" : "evening";
+    return { part, coming: today.coming.filter((item) => now < item.until) };
+  }
+  function dayIsOver(today, now) {
+    return today !== void 0 && now >= today.dayEnd;
+  }
 
   // packages/contracts/src/reach.ts
   var REACH_ACTIONS = {
@@ -396,6 +411,14 @@ var WickTv = (() => {
       s("There is nobody Wick can ask just now.", "Ahora mismo no hay nadie a quien Wick pueda pedírselo."),
       // The home screen and the Light card (contracts light.ts lookedInWords, edge light.mjs, mcp-server lookIn.ts).
       s("{first} looked in {part}.", "{first|cap} ha preguntado por usted {part}.")
+    ],
+    // Her day, on her home screen (edge today.mjs). A visit "who" in the member's own words ("the window
+    // cleaner") has no sentence here, and stays English, whole.
+    "services/edge-device/lambda/today.mjs": [
+      s("{first} usually comes today at {time}.", "{first|cap} suele venir hoy a {time|las}."),
+      s("{first} usually comes tomorrow at {time}.", "{first|cap} suele venir mañana a {time|las}."),
+      s("{first} is coming to see you today at {time}.", "{first|cap} viene a verle hoy a {time|las}."),
+      s("{first} is coming to see you tomorrow at {time}.", "{first|cap} viene a verle mañana a {time|las}.")
     ],
     // What a family member answers about the door, shown as "<name> says: …" (mcp-server answer_door_request.ts).
     "packages/contracts/src/door.ts": [
@@ -1305,6 +1328,34 @@ var WickTv = (() => {
     // The two words on the light's button (home/light.ts).
     "home.lightOn": "Light on",
     "home.lightOut": "Light out",
+    // Her day, at the top of the home screen (home/herDay.ts): the greeting, with her name and without it.
+    "home.greetMorning": "Good morning, {name}.",
+    "home.greetAfternoon": "Good afternoon, {name}.",
+    "home.greetEvening": "Good evening, {name}.",
+    "home.greetMorningPlain": "Good morning.",
+    "home.greetAfternoonPlain": "Good afternoon.",
+    "home.greetEveningPlain": "Good evening.",
+    /** The date where the house is: "Monday 19 October". */
+    "home.date": "{weekday} {day} {month}",
+    "day.0": "Monday",
+    "day.1": "Tuesday",
+    "day.2": "Wednesday",
+    "day.3": "Thursday",
+    "day.4": "Friday",
+    "day.5": "Saturday",
+    "day.6": "Sunday",
+    "month.0": "January",
+    "month.1": "February",
+    "month.2": "March",
+    "month.3": "April",
+    "month.4": "May",
+    "month.5": "June",
+    "month.6": "July",
+    "month.7": "August",
+    "month.8": "September",
+    "month.9": "October",
+    "month.10": "November",
+    "month.11": "December",
     // What is waiting, in one line (home/waiting.ts).
     "waiting.note": "A note from {name} is waiting.",
     "waiting.week": "Your week is ready to read.",
@@ -1403,6 +1454,33 @@ var WickTv = (() => {
     "home.waitingLabel": "{line} Presione OK para abrir.",
     "home.lightOn": "Luz encendida",
     "home.lightOut": "Luz apagada",
+    "home.greetMorning": "Buenos días, {name}.",
+    "home.greetAfternoon": "Buenas tardes, {name}.",
+    "home.greetEvening": "Buenas noches, {name}.",
+    "home.greetMorningPlain": "Buenos días.",
+    "home.greetAfternoonPlain": "Buenas tardes.",
+    "home.greetEveningPlain": "Buenas noches.",
+    // "Lunes 19 de octubre": the weekday opens the line, so it takes its capital; the month does not.
+    "home.date": "{weekday} {day} de {month}",
+    "day.0": "Lunes",
+    "day.1": "Martes",
+    "day.2": "Miércoles",
+    "day.3": "Jueves",
+    "day.4": "Viernes",
+    "day.5": "Sábado",
+    "day.6": "Domingo",
+    "month.0": "enero",
+    "month.1": "febrero",
+    "month.2": "marzo",
+    "month.3": "abril",
+    "month.4": "mayo",
+    "month.5": "junio",
+    "month.6": "julio",
+    "month.7": "agosto",
+    "month.8": "septiembre",
+    "month.9": "octubre",
+    "month.10": "noviembre",
+    "month.11": "diciembre",
     "waiting.note": "Hay una nota de {name} esperando.",
     "waiting.week": "Su semana está lista para leer.",
     "waiting.circle": "{name} quiere unirse a su círculo familiar.",
@@ -1581,6 +1659,59 @@ var WickTv = (() => {
   function overMantel(picked, mantelOpen) {
     if (!mantelOpen || picked?.urgency === "DOOR") return picked;
     return void 0;
+  }
+
+  // apps/tv-vega/src/home/herDay.ts
+  var GREETING = {
+    morning: ["home.greetMorning", "home.greetMorningPlain"],
+    afternoon: ["home.greetAfternoon", "home.greetAfternoonPlain"],
+    evening: ["home.greetEvening", "home.greetEveningPlain"]
+  };
+  var dayKey = (weekday) => `day.${weekday}`;
+  var monthKey = (month) => `month.${month}`;
+  function homeDay(today, now, language) {
+    const shown = dayToShow(today, now);
+    if (!today || !shown) return void 0;
+    const say = words(language);
+    const [named, plain2] = GREETING[shown.part];
+    const put = (key, values) => say(key, values);
+    const plainGreeting = put(plain2, {});
+    return {
+      greeting: today.name ? put(named, { name: today.name }) : plainGreeting,
+      greetingPlain: plainGreeting,
+      date: put("home.date", { weekday: put(dayKey(today.weekday), {}), day: today.day, month: put(monthKey(today.month), {}) }),
+      coming: shown.coming.map((c) => c.line)
+    };
+  }
+  function sameHomeDay(a, b2) {
+    if (a === b2) return true;
+    if (!a || !b2) return false;
+    return a.greeting === b2.greeting && a.greetingPlain === b2.greetingPlain && a.date === b2.date && a.coming.length === b2.coming.length && a.coming.every((line, i) => line === b2.coming[i]);
+  }
+  var HER_DAY_ASK_EVERY_MS = 30 * 6e4;
+  var HER_DAY_AFTER_CARD_MS = 3e3;
+  var HER_DAY_RETRY_MS = 6e4;
+  function herDayAsker() {
+    let seen;
+    let lastAskedAt;
+    let newCardAt;
+    return {
+      look({ now, today, cardIds, onScreen }) {
+        if (seen !== void 0 && cardIds.some((id) => !seen.has(id))) newCardAt ??= now;
+        seen = new Set(cardIds);
+        if (lastAskedAt === void 0) {
+          lastAskedAt = now;
+          return false;
+        }
+        if (!onScreen || today === void 0) return false;
+        const since = now - lastAskedAt;
+        const due = dayIsOver(today, now) && since >= HER_DAY_RETRY_MS || newCardAt !== void 0 && now - newCardAt >= HER_DAY_AFTER_CARD_MS || since >= HER_DAY_ASK_EVERY_MS;
+        if (!due) return false;
+        lastAskedAt = now;
+        newCardAt = void 0;
+        return true;
+      }
+    };
   }
   return __toCommonJS(tv_engine_exports);
 })();
