@@ -3819,6 +3819,19 @@ fitToWhatIsSeen();
   if (pair) sessionStorage.setItem('wick_pair', pair);
 
   const code = params.get('code');
+  // Back from the sign-in with a code: the first screen is not shown again while the code is exchanged. The
+  // sentence that says what is being opened comes at once, and stays until the welcome has come.
+  let opening = null;
+  if (code) {
+    $('link-card').hidden = true;
+    opening = assistantSays(presentOpening(sessionStorage.getItem(OPENING_KEY)));
+  }
+  /** Back to the first screen, when there is nothing to open after all. */
+  const notOpening = () => {
+    opening?.remove();
+    opening = null;
+    $('link-card').hidden = false;
+  };
   if (code) await completeAuthIfRedirected(code);
   if (params.size > 0) window.history.replaceState({}, '', window.location.pathname);
 
@@ -3842,6 +3855,7 @@ fitToWhatIsSeen();
     $('link-title').textContent = 'Join with your Wick account';
     $('link-detail').textContent = 'Sign in, or create an account with your email and a password. The person at home is then asked whether to allow you.';
     $('connect').textContent = 'Continue';
+    notOpening();
     return;
   }
   // What was said before the browser went to the server's sign-out and back: an account just deleted.
@@ -3850,13 +3864,14 @@ fitToWhatIsSeen();
   if (!link) {
     if (farewell) $('link-say').textContent = farewell;
     if (pair) $('link-say').textContent = 'To connect that television, sign in to Wick first.';
+    notOpening();
     void offerDemoIfAllowed();
     return;
   }
 
   enableToolButtons(true);
   // Never a blank page while the welcome is fetched: a sentence that says what is happening, gone when it comes.
-  const opening = assistantSays(presentOpening(sessionStorage.getItem(OPENING_KEY)));
+  opening ??= assistantSays(presentOpening(sessionStorage.getItem(OPENING_KEY)));
   sessionStorage.removeItem(OPENING_KEY);
   try {
     await welcome();
@@ -3865,6 +3880,6 @@ fitToWhatIsSeen();
     if (err.code === 'home_closed') showHomeClosed(err.message);
     else if (link) assistantSays({ say: err.message, tone: 'error' });
   } finally {
-    opening.remove();
+    opening?.remove();
   }
 })();
