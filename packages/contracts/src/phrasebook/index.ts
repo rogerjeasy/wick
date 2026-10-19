@@ -155,12 +155,22 @@ export function patchIn(language: OtherLanguage, patch: CardPatch, free?: FreeTe
   }
 }
 
-/** The same for what the home screen is told ("Sarah looked in this morning."). */
+/**
+ * The same for what the home screen is told: "Sarah looked in this
+ * morning.", and each line of her day ("Maria usually comes tomorrow at 9
+ * am." — contracts today.ts). Each line is said whole or left whole.
+ */
 export function homeIn(language: OtherLanguage, home: HomeState): HomeState {
   try {
     const fields: unknown = home;
-    if (!isFields(fields) || !isFields(fields.lookedIn) || typeof fields.lookedIn.line !== 'string') return home;
-    return { ...fields, lookedIn: { ...fields.lookedIn, line: said(language, fields.lookedIn.line) } } as HomeState;
+    if (!isFields(fields)) return home;
+    const out: Fields = { ...fields };
+    if (isFields(fields.lookedIn) && typeof fields.lookedIn.line === 'string') out.lookedIn = { ...fields.lookedIn, line: said(language, fields.lookedIn.line) };
+    if (isFields(fields.today) && Array.isArray(fields.today.coming)) {
+      const coming: unknown[] = fields.today.coming;
+      out.today = { ...fields.today, coming: coming.map((one) => (isFields(one) && typeof one.line === 'string' ? { ...one, line: said(language, one.line) } : one)) };
+    }
+    return out as unknown as HomeState;
   } catch {
     return home;
   }

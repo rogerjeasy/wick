@@ -19,6 +19,7 @@
  */
 import { DEFAULT_LANGUAGE, isHouseholdLanguage, type OtherLanguage } from './language.js';
 import { MAX_MANTEL } from './mantel.js';
+import { readHerDay, type HerDay } from './today.js';
 
 export const LIGHT_SK = 'LIGHT';
 export const LOOKIN_SK_PREFIX = 'LOOKIN#';
@@ -70,6 +71,12 @@ export interface HomeState {
    * what they are is asked for by the television, never told on the way.
    */
   readonly mantel?: number;
+  /**
+   * Her day (today.ts): the date where the house is, her name for the
+   * greeting, and who is coming today and tomorrow. Absent from a server
+   * that does not say it; the home screen is then as it was.
+   */
+  readonly today?: HerDay;
 }
 
 const dayIn = (at: number, timeZone: string): string =>
@@ -108,7 +115,8 @@ const isTime = (value: unknown): value is number => typeof value === 'number' &&
  */
 export function readHomeState(value: unknown): HomeState | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const { light, lightOutUntil, lookedIn, language, mantel } = value as Record<string, unknown>;
+  const { light, lightOutUntil, lookedIn, language, mantel, today } = value as Record<string, unknown>;
+  const day = readHerDay(today);
   const look = typeof lookedIn === 'object' && lookedIn !== null ? (lookedIn as Record<string, unknown>) : undefined;
   const wellFormedLook = look !== undefined && typeof look.name === 'string' && isTime(look.at) && typeof look.line === 'string';
   return {
@@ -119,6 +127,7 @@ export function readHomeState(value: unknown): HomeState | undefined {
       : {}),
     ...(isHouseholdLanguage(language) && language !== DEFAULT_LANGUAGE ? { language } : {}),
     ...(typeof mantel === 'number' && Number.isInteger(mantel) && mantel >= 1 && mantel <= MAX_MANTEL ? { mantel } : {}),
+    ...(day ? { today: day } : {}),
   };
 }
 
