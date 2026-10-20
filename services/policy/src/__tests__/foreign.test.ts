@@ -95,6 +95,35 @@ describe('what stays closed', () => {
     }
   });
 
+  it('a role word is not a name for any mark of its own script, or any generic combining mark, put inside it', () => {
+    // Every mark Unicode has, so a range nobody listed cannot be the way through.
+    const generic = /^\p{M}$/u;
+    const cases: Array<[string, RegExp]> = [
+      ['доктор', /^[\p{Script=Inherited}\p{Script=Cyrillic}]$/u],
+      ['γιατρός', /^[\p{Script=Inherited}\p{Script=Greek}]$/u],
+      ['רופא', /^[\p{Script=Inherited}\p{Script=Hebrew}]$/u],
+      ['طبيب', /^[\p{Script=Inherited}\p{Script=Arabic}]$/u],
+      ['բժիշկ', /^[\p{Script=Inherited}\p{Script=Armenian}]$/u],
+      ['ექიმ', /^[\p{Script=Inherited}\p{Script=Georgian}]$/u],
+      ['의사', /^[\p{Script=Inherited}\p{Script=Hangul}]$/u],
+      ['医生', /^[\p{Script=Inherited}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]$/u],
+    ];
+    for (const [word, family] of cases) {
+      const stray: string[] = [];
+      for (let code = 0x300; code < 0x20000; code += 1) {
+        const mark = String.fromCodePoint(code);
+        if (!generic.test(mark) || !family.test(mark)) continue;
+        const cut = [...word].length > 2 ? 2 : 1;
+        const dressed = [...word].slice(0, cut).join('') + mark + [...word].slice(cut).join('');
+        if (isForeignNameWord(dressed)) stray.push(`U+${code.toString(16).toUpperCase()}`);
+      }
+      expect(stray, word).toEqual([]);
+    }
+    for (const mark of ['\uFE00', '\u1DC4', '\u20DD']) {
+      expect(isForeignNameWord(`до${mark}ктор`), mark).toBe(false);
+    }
+  });
+
   it('a person whose name says doctor is not set aside, however it is spelt: nothing in her words is', () => {
     expect(cleared('李医生 visited.', ['李医生'])).toBe(false);
     expect(cleared('Доктор Иванов visited.', ['Доктор Иванов'])).toBe(false);

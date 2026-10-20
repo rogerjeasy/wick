@@ -136,12 +136,16 @@ function scriptOf(word: string): Script | undefined {
 }
 
 /**
- * Marks that decorate a letter without changing the word: accents and
- * diacritics, Hebrew points, Arabic vowel signs. A marked "до́ктор" is still
- * "доктор". The marks that make a letter another letter (Indic vowel signs,
- * Thai vowels) are not in this list.
+ * Marks that decorate a letter without changing the word: every generic
+ * combining mark (accents, variation selectors, enclosing marks), and the
+ * marks of Cyrillic, Greek, Armenian, Georgian, Hebrew, Arabic, Hangul and the Japanese and Chinese scripts, which are accents, titlo,
+ * points and vowel signs on letters that stand without them. A marked
+ * "до́ктор" is still "доктор". The marks that make a letter another letter
+ * (Indic vowel signs, Thai vowels) are not in this class. It is every mark
+ * of those scripts, not a list of ranges, so scriptOf accepting any mark
+ * leaves no mark that fold does not remove.
  */
-const DECORATION = /[\u0300-\u036f\u0591-\u05c7\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed]/gu;
+const DECORATION = /(?=\p{M})[\p{Script=Inherited}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Hebrew}\p{Script=Arabic}\p{Script=Armenian}\p{Script=Georgian}\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu;
 
 /** A word as the role lists read it: lower case, undecorated. */
 function fold(text: string): string {
