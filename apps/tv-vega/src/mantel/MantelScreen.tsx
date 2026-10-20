@@ -27,7 +27,7 @@
 import * as React from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import type { HouseholdLanguage } from '@wick/contracts';
-import { CalmCard, useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
+import { CalmCard, CalmPresence, useCalmStyles, type CalmTheme } from '@wick/vega-calm-ui';
 import type { Mantel } from '../headless/QueueStore.js';
 import { HOLD_MS } from '../watch/hold.js';
 import { words } from '../words/words.js';
@@ -143,7 +143,7 @@ export function MantelScreen(props: MantelScreenProps): React.JSX.Element {
 
       {/* Over the picture, at the bottom, like any card. Not while the door's card is there: one thing asks at a time. */}
       {state.choosing && said && !cardVisible ? (
-        <View style={styles.choice}>
+        <CalmPresence shown rises style={styles.choice}>
           <CalmCard
             compact
             headline={say('mantel.choice', { name: said.fromName })}
@@ -151,7 +151,7 @@ export function MantelScreen(props: MantelScreenProps): React.JSX.Element {
             actions={choice}
             onAction={(id) => run({ t: id === 'take_down' ? 'take_down' : 'leave' })}
           />
-        </View>
+        </CalmPresence>
       ) : null}
     </View>
   );

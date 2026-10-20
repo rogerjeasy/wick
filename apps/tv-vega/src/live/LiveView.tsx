@@ -166,7 +166,7 @@ export function LiveView({ pairingApiUrl, jwt, cardId, language, onClose }: Live
             hasTVPreferredFocus
             accessibilityRole="button"
             accessibilityLabel={say('live.back')}
-            style={({ focused }: { focused: boolean }) => [styles.back, focused ? styles.backFocused : null]}
+            style={({ focused }: { focused: boolean }) => [styles.back, focused ? styles.backFocused : styles.backRest]}
           >
             <Text style={styles.backText}>{say('live.back')}</Text>
           </Pressable>
@@ -193,7 +193,7 @@ const makeStyles = (t: CalmTheme) =>
       justifyContent: 'center',
       paddingHorizontal: 96,
     },
-    // Bottom, inside the 5% TV safe area, on a solid band so it reads over any picture.
+    // Bottom, inside the 5% TV safe area, on a solid band so it reads over any picture: the film's bar's surface.
     caption: {
       position: 'absolute',
       left: 48,
@@ -202,28 +202,32 @@ const makeStyles = (t: CalmTheme) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: t.palette.raised,
+      gap: 24,
+      backgroundColor: t.palette.raisedHigh,
       borderRadius: 16,
-      paddingHorizontal: 32,
+      borderWidth: t.cardEdgeDp,
+      borderColor: t.palette.ink,
+      paddingHorizontal: 24,
       paddingVertical: 16,
     },
     captionText: {
+      flex: 1,
       color: t.palette.ink,
       fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
     },
     back: {
       borderRadius: 12,
-      borderWidth: 4,
-      borderColor: 'transparent',
       paddingHorizontal: 32,
       paddingVertical: 8,
       backgroundColor: t.palette.ground,
     },
-    backFocused: {
-      borderColor: t.palette.focus,
-    },
+    // The focus is the theme's ring (vega-calm-ui theme.ts): thicker with higher contrast on, the same room at rest.
+    backRest: t.ring(4).rest,
+    backFocused: t.ring(4).focused,
     backText: {
       color: t.palette.ink,
       fontSize: t.fontSize('body'),
+      lineHeight: t.lineHeight('body'),
     },
   });
