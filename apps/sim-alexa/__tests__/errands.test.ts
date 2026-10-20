@@ -115,7 +115,7 @@ describe('confirmErrand — the question before anything is arranged or called o
     expect(asked).toMatchObject({ title: 'Arrange this visit?', confirmLabel: 'Arrange it' });
     expect(asked.fields).toEqual([
       ['Who is coming', 'the plumber'],
-      ['When', 'Thursday 15 October, 10:00'],
+      ['When', 'Thursday 15 October, 10:00 am'],
       ['Remind her', 'An hour before'],
       ['Tell you how it went', 'No'],
       ['idempotencyKey', 'k-12345678'],
@@ -126,7 +126,7 @@ describe('confirmErrand — the question before anything is arranged or called o
     const asked = confirmErrand('arrange_visit', { who: 'the plumber', date: '2026-10-15', time: '10:00' });
     expect(asked.fields).toEqual([
       ['Who is coming', 'the plumber'],
-      ['When', 'Thursday 15 October, 10:00'],
+      ['When', 'Thursday 15 October, 10:00 am'],
       ['Remind her', 'On the morning, at eight'],
       ['Tell you how it went', 'Yes'],
     ]);

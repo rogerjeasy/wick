@@ -55,7 +55,7 @@ describe('buildSharingCard — one thing Sarah can see, in plain words', () => {
   const build = (page: number, exclusions: string[] = []) =>
     buildSharingCard({ householdId: 'margaret', page, policyJson: undefined, exclusions, familyName: 'Sarah', now: NOW, respondsTo: 'week-2026-W40' });
 
-  it('opens on the first thing, shared, with one button to keep it private', () => {
+  it('opens on the first thing, shared, with Next where the focus starts and one button to keep it private', () => {
     expect(build(0)).toEqual({
       id: 'sharing',
       urgency: 'DEFERRED',
@@ -73,9 +73,10 @@ describe('buildSharingCard — one thing Sarah can see, in plain words', () => {
         pages: 5,
         headline: 'When someone comes to your front door.',
         detail: `1 of 4. Sarah can see this. ${NEVER}`,
+        // Next first, where the focus starts as she pages: changing what is shared is one deliberate step away.
         actions: [
-          { id: 'toggle', label: 'Keep this private', kind: 'primary' },
-          { id: 'next', label: 'Next', kind: 'secondary' },
+          { id: 'next', label: 'Next', kind: 'primary' },
+          { id: 'toggle', label: 'Keep this private', kind: 'secondary' },
           { id: 'done', label: 'Done', kind: 'secondary' },
         ],
       },
@@ -86,7 +87,7 @@ describe('buildSharingCard — one thing Sarah can see, in plain words', () => {
     const card = build(1, ['PRESENCE']).card;
     expect(card.headline).toBe('Who visits you, by name, like Maria.');
     expect(card.detail).toBe(`2 of 4. You’re keeping this private. ${NEVER}`);
-    expect(card.actions[0]).toEqual({ id: 'toggle', label: 'Share it again', kind: 'primary' });
+    expect(card.actions[1]).toEqual({ id: 'toggle', label: 'Share it again', kind: 'secondary' });
   });
 
   it('ends on Stop Wick, whose first button is Next, never the one that deletes', () => {

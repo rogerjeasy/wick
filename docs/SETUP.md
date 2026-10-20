@@ -165,6 +165,11 @@ is `~/.wick/vvd-follow/follow.log`. It needs `gh` signed in and the Vega SDK.
 The Vega simulator is told from an Android TV emulator attached beside it by
 its OS release (`VVD_SERIAL` names it if that ever fails).
 
+A ring while another app is in front shows a toast, then a second one with
+the picture. Press **Menu** while a toast is on screen to open Wick on the door
+card: a Vega toast lasts eight seconds at most (`mTimeout` is 4 or 8), and a
+press after it has gone reaches nothing.
+
 Two things the simulator does differently from a Fire TV, both in
 [`FRICTION.md`](../FRICTION.md): it keeps nothing on disk between launches
 (FL-013), so the app pairs itself again through `POST /pair/refresh`; and it

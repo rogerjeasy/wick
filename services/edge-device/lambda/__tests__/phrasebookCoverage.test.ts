@@ -201,13 +201,13 @@ describe('"What Sarah sees" (sharing.mjs)', () => {
       'Sus citas, en resumen.',
     ]);
     expect([0, 1, 2, 3].map((i) => page(i, { watchers: ['Sarah'] }).detail)).toEqual([1, 2, 3, 4].map((n) => `${n} de 4. Sarah puede ver esto. ${NEVER}`));
-    expect(labels(page(0, { watchers: ['Sarah'] }))).toEqual(['Mantener en privado', 'Siguiente', 'Listo']);
+    expect(labels(page(0, { watchers: ['Sarah'] }))).toEqual(['Siguiente', 'Mantener en privado', 'Listo']);
   });
 
   it('says so when she is keeping it private, and offers to share it again', () => {
     const card = page(1, { exclusions: ['PRESENCE'], watchers: ['Sarah'] });
     expect(card.detail).toBe(`2 de 4. Usted mantiene esto en privado. ${NEVER}`);
-    expect(labels(card)).toEqual(['Compartir de nuevo', 'Siguiente', 'Listo']);
+    expect(labels(card)).toEqual(['Siguiente', 'Compartir de nuevo', 'Listo']);
   });
 
   it('says who can see it: one person by name, her family, or nobody yet', () => {
@@ -228,9 +228,9 @@ describe('"What Sarah sees" (sharing.mjs)', () => {
 
   it('a press on the card in her language is the press it always was', () => {
     const card = page(1, { watchers: ['Sarah'] });
-    expect(card.actions.map((a) => a.id)).toEqual([SHARING_ACTIONS.toggle, SHARING_ACTIONS.next, SHARING_ACTIONS.done]);
-    expect(sharingStep({ card }, card.actions[0]!.id, [])).toEqual({ page: 1, set: { factClass: 'PRESENCE', keepPrivate: true } });
-    expect(sharingStep({ card }, card.actions[1]!.id, [])).toEqual({ page: 2 });
+    expect(card.actions.map((a) => a.id)).toEqual([SHARING_ACTIONS.next, SHARING_ACTIONS.toggle, SHARING_ACTIONS.done]);
+    expect(sharingStep({ card }, card.actions[1]!.id, [])).toEqual({ page: 1, set: { factClass: 'PRESENCE', keepPrivate: true } });
+    expect(sharingStep({ card }, card.actions[0]!.id, [])).toEqual({ page: 2 });
   });
 });
 
