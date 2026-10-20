@@ -114,7 +114,7 @@ describe('the door card (agents/door/index.ts)', () => {
   });
 
   it('corrects the headline when the picture shows nobody, and leaves the description to be translated as free text', () => {
-    const nobody = { description: 'Three cars parked in a parking lot.', confidence: 0.9, personVisible: false };
+    const nobody = { description: 'Three cars parked in a parking lot.', personVisible: false };
     const afterMotion = buildDescriptionPatch('door-abc', nobody, 'motion')!;
     const afterRing = buildDescriptionPatch('door-abc', nobody, 'button_press')!;
     expect([afterMotion.line, afterRing.line]).toEqual([NOBODY_AFTER_MOTION_LINE, NOBODY_AFTER_RING_LINE]);
@@ -134,7 +134,7 @@ describe('the door card (agents/door/index.ts)', () => {
   });
 
   it('a description alone, or the picture, carries no word of Wick’s and is left exactly as it is', () => {
-    const described = buildDescriptionPatch('door-abc', { description: 'A man in a yellow jacket holding a clipboard.', confidence: 0.9, personVisible: true })!;
+    const described = buildDescriptionPatch('door-abc', { description: 'A man in a yellow jacket holding a clipboard.', personVisible: true })!;
     expect(patchIn('es', described)).toEqual(described);
     const picture = buildImagePatch('door-abc', { url: 'https://download.example/frame.jpg?sig=abc' } as Parameters<typeof buildImagePatch>[1]);
     expect(patchIn('es', picture)).toEqual(picture);

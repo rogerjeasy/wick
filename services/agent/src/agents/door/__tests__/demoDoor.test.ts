@@ -71,7 +71,7 @@ function world(over: { roster?: readonly RosterEntry[]; family?: readonly string
         expect(kind).toBe('door.describe');
         expect(hh).toBe(householdId);
         described.push(Buffer.from(String(payload.frame), 'base64'));
-        return { candidate: { description: 'A woman in a blue tunic holding a bag at the door.', confidence: 0.9, personVisible: true }, reason: 'ok', elapsedMs: 900 };
+        return { candidate: { description: 'A woman in a blue tunic holding a bag at the door.', personVisible: true }, reason: 'ok', elapsedMs: 900 };
       }, householdId),
     announceRing: async (rang) => void announced.push(rang),
     pictures: standInPictures(PICTURES),
@@ -183,7 +183,7 @@ describe('routeDemoDoorEvent — somebody at a demo home’s door', () => {
     const base: StandInBase = {
       ...w.base,
       describe: (householdId) =>
-        describeViaRuntime(async () => ({ candidate: { description: 'An empty doorstep with a potted plant.', confidence: 0.9, personVisible: false }, reason: 'ok', elapsedMs: 700 }), householdId),
+        describeViaRuntime(async () => ({ candidate: { description: 'An empty doorstep with a potted plant.', personVisible: false }, reason: 'ok', elapsedMs: 700 }), householdId),
     };
 
     expect(await routeDemoDoorEvent(event({ visitor: 'nobody' }), { isDemoHome: demoHome, base })).toBe('sent');

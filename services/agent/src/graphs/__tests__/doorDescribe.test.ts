@@ -6,12 +6,12 @@ const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
 
 describe('door describe graph — a Strands Agent on the frame, then the validator', () => {
   it('sends the frame to the model as an image, and keeps a valid sentence', async () => {
-    const model = new ScriptedModel('PERSON: yes\nA man in a delivery uniform, holding a parcel.');
+    const model = new ScriptedModel('PERSON: yes\nA man in a grey uniform, holding a small box.');
 
     const run = await runDescribeGraph(JPEG, { model });
 
     expect(run.path).toEqual([DESCRIBE_NODES.describe, DESCRIBE_NODES.validate]);
-    expect(run.result.candidate).toEqual({ description: 'A man in a delivery uniform, holding a parcel.', confidence: 0.9, personVisible: true });
+    expect(run.result.candidate).toEqual({ description: 'A man in a grey uniform, holding a small box.', personVisible: true });
     expect(run.result.reason).toBe('ok');
 
     const sent = model.seen[0]!.flatMap((m) => m.content);

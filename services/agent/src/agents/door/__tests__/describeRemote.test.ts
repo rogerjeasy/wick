@@ -3,7 +3,7 @@ import { describeViaRuntime } from '../describeRemote.js';
 
 describe('describeViaRuntime — Phase 2b runs in the household\'s AgentCore session', () => {
   it('sends the frame base64 as door.describe and returns the graph\'s answer', async () => {
-    const answer = { candidate: { description: 'A man holding a parcel.', confidence: 0.9 }, reason: 'ok', elapsedMs: 900 };
+    const answer = { candidate: { description: 'A man holding a parcel.' }, reason: 'ok', elapsedMs: 900 };
     const invoke = vi.fn(async () => answer);
 
     const out = await describeViaRuntime(invoke, 'margaret')(new Uint8Array([1, 2, 3]));

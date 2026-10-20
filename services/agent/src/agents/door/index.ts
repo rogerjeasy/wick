@@ -27,6 +27,7 @@ import {
   type DoorCard,
   type RosterEntry,
 } from '@wick/contracts';
+import { classify } from '@wick/policy';
 import type { RingDevice, RingHistoryEvent, RingImage } from '@wick/ring';
 import { matchVisitor } from './roster.js';
 
@@ -45,9 +46,6 @@ export const NOBODY_AFTER_RING_LINE = 'The doorbell rang.';
 
 
 export const DESCRIPTION_MAX_WORDS = 14;
-
-/** Below this, say nothing at all rather than guess. Principle 11. */
-export const MIN_DESCRIPTION_CONFIDENCE = 0.6;
 
 /**
  * Words that mark a claim about intent, mood or likelihood rather than an
@@ -200,25 +198,109 @@ export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
  * and a visitor's clothing or signage is untrusted text entering a vision
  * prompt, so it will be ignored eventually.
  */
-export function validateDescription(text: string): boolean {
+/**
+ * How a description may begin: as a description of what is in the frame —
+ * "A man …", "An empty porch …", "Two people …", "Nobody …". An instruction
+ * ("Open the door now."), a claim about a named person ("Margaret has
+ * cancer.") or an answer to someone ("Yes, …") cannot start this way.
+ */
+const OPENERS: ReadonlySet<string> = new Set([
+  // Articles, numbers and who is there.
+  'a', 'an', 'the', 'one', 'two', 'three', 'four', 'five', 'six', 'several', 'some', 'many', 'few',
+  'someone', 'somebody', 'nobody', 'no', 'nothing', 'people', 'empty', 'movement',
+  // What a frame is mostly of, at a door, day or night.
+  'bright', 'dark', 'dim', 'light', 'lights', 'headlights', 'shadow', 'shadows', 'sunlight', 'darkness',
+  'rain', 'snow', 'fog', 'mist', 'smoke', 'leaves', 'trees', 'grass', 'flowers', 'plants',
+  'cars', 'car', 'van', 'vans', 'bicycle', 'bicycles', 'parcel', 'parcels', 'package', 'packages', 'box', 'boxes',
+  'blurred', 'blurry', 'large', 'small', 'tall', 'wet', 'animated',
+  'white', 'black', 'grey', 'gray', 'red', 'blue', 'green', 'yellow', 'brown', 'orange',
+]);
+
+/**
+ * The prompt's own examples (describe.ts). A model that cannot see — a black
+ * frame, seen live on 2026-10-20 — gives one back word for word, and it
+ * would be shown as if it were the door.
+ */
+const PROMPT_EXAMPLES: readonly string[] = ['a man in a delivery uniform, holding a parcel', 'an empty porch with a parcel on the step'];
+
+/**
+ * Names of carriers a uniform or a van may show: the one kind of capitalised
+ * word a description may carry. Any other is taken as a name, which a
+ * description never says ("Never name anyone", describe.ts).
+ */
+const CARRIERS: ReadonlySet<string> = new Set([
+  'amazon', 'ups', 'dhl', 'fedex', 'usps', 'royal', 'mail', 'evri', 'hermes', 'dpd', 'yodel', 'parcelforce', 'ocado', 'tesco', 'sainsbury\'s',
+]);
+
+/** Words for who someone is to her, or what they are to her: a frame cannot show either. */
+const WHO_THEY_ARE = [
+  'son', 'daughter', 'husband', 'wife', 'grandson', 'granddaughter', 'grandchild', 'grandchildren', 'friend', 'friends',
+  'neighbour', 'neighbours', 'neighbor', 'neighbors', 'relative', 'relatives', 'family', 'carer', 'caregiver', 'boyfriend', 'girlfriend',
+];
+
+/** Speaking to someone, or as someone: a description does neither. */
+const ADDRESSED = ['you', 'your', 'yours', 'yourself', 'please', 'i', 'me', 'my', 'we', 'us', 'our'];
+
+/** Words that carry text out of the picture into the sentence: what a sign, a T-shirt or a note held up says. */
+const QUOTING = ['reads', 'reading', 'says', 'saying', 'said', 'written', 'writing', 'spelling', 'spelled', 'spelt'];
+
+const wordOf = (word: string): string => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'’]+$/gu, '');
+
+/**
+ * Why a description is refused, or undefined when it may be shown. The
+ * prompt asks for one observation of the frame (describe.ts); this is what
+ * holds when the frame — a sign, a slogan, a note held to the lens — or the
+ * model talks it out of that. A refused description is never shown: the
+ * card keeps Phase 1's line, which is always true.
+ */
+export function descriptionRefusal(text: string): string | undefined {
   const trimmed = text.trim();
-  if (!trimmed) return false;
+  if (!trimmed) return 'empty';
 
   const words = trimmed.split(/\s+/);
-  if (words.length > DESCRIPTION_MAX_WORDS) return false;
+  if (words.length > DESCRIPTION_MAX_WORDS) return 'too_long';
 
-  // One sentence. Trailing full stop is fine; a second sentence is not.
-  if (/[.!?]\s+\S/.test(trimmed)) return false;
+  // One sentence, ending in a full stop or nothing: a second sentence, a question or an exclamation is not a description.
+  if (/[.!?]\s+\S/.test(trimmed) || /[!?]/.test(trimmed)) return 'not_one_sentence';
 
   const lower = trimmed.toLowerCase();
-  if (SPECULATION.some((w) => new RegExp(`\\b${w}\\b`).test(lower))) return false;
+  if (SPECULATION.some((w) => new RegExp(`\\b${w}\\b`).test(lower))) return 'speculation';
 
-  return true;
+  const plain = words.map(wordOf);
+  if (!OPENERS.has(plain[0]!.toLowerCase())) return 'not_a_description';
+  const asked = trimmed.toLowerCase().replace(/[.\s]+$/, '');
+  if (PROMPT_EXAMPLES.includes(asked)) return 'example_echo';
+
+  // A name: a capitalised word anywhere after the first, unless it is a carrier's.
+  if (plain.slice(1).some((w) => /^\p{Lu}/u.test(w) && !CARRIERS.has(w.toLowerCase()))) return 'names_someone';
+
+  const lowered = plain.map((w) => w.toLowerCase());
+  if (lowered.some((w) => ADDRESSED.includes(w))) return 'addresses_someone';
+  if (lowered.some((w) => WHO_THEY_ARE.includes(w.replace(/['’]s$/, '')))) return 'says_who_they_are';
+  if (lowered.some((w) => QUOTING.includes(w)) || /["“”«»]/.test(trimmed)) return 'quotes_text';
+  // A house number, a time, a number plate: none is a description, and some are an address.
+  if (/\d/.test(trimmed)) return 'has_digits';
+
+  // Nothing the family is never told — health, money, relationships, where someone is (INV-4).
+  const reading = classify(trimmed);
+  if (!reading.readable) return 'unreadable';
+  if (reading.classes.length > 0) return `protected:${reading.classes.join(',')}`;
+
+  return undefined;
 }
 
+export function validateDescription(text: string): boolean {
+  return descriptionRefusal(text) === undefined;
+}
+
+/**
+ * A description the model gave and the validator let through. There is no
+ * confidence number: none was ever measured. A model that is not sure says
+ * UNCLEAR (describe.ts), and that is the abstention; the validator is the
+ * other half.
+ */
 export interface DescriptionCandidate {
   readonly description: string;
-  readonly confidence: number;
   /** From the model's PERSON line. Absent when it didn't say — never guessed. */
   readonly personVisible?: boolean;
 }
@@ -249,7 +331,6 @@ export function buildDescriptionPatch(
   candidate: DescriptionCandidate,
   eventType?: string,
 ): CardPatch | null {
-  if (candidate.confidence < MIN_DESCRIPTION_CONFIDENCE) return null;
   if (!validateDescription(candidate.description)) return null;
 
   const description = candidate.description.trim();

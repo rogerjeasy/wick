@@ -28,6 +28,7 @@
     "ops:status": "vite-node -c vitest.config.ts scripts/ops-status.ts",
     "latency:door": "vite-node -c vitest.config.ts scripts/door-latency.ts --",
     "latency:mcp": "vite-node -c vitest.config.ts scripts/mcp-latency.ts --",
+    "eval:describe": "vite-node -c vitest.config.ts scripts/describe-eval.ts --",
     "vvd:follow": "vite-node -c vitest.config.ts scripts/vvd-follow/run.ts",
     "vvd:follow:watch": "vite-node -c vitest.config.ts scripts/vvd-follow/agent.ts",
     "vvd:follow:stop": "vite-node -c vitest.config.ts scripts/vvd-follow/agent.ts -- --stop",
