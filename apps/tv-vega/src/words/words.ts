@@ -174,6 +174,45 @@ const en = {
   'seeing.contrastOn': 'Higher contrast: on',
   'seeing.contrastOff': 'Higher contrast: off',
   'seeing.back': 'Back',
+
+  // The redesign (docs/design/DESIGN.md §6). The home screen's films: one she stopped part-way (home/order.ts).
+  'home.carryOn': 'Carry on',
+  'home.left': '{minutes} min left',
+  /** Spoken on a film she stopped part-way. */
+  'home.carryOnLabel': '{title}. Carry on where you left it, {minutes} minutes left.',
+  // The pill that opens the tour (tour/tour.ts).
+  'home.tour': 'How Wick works',
+  'home.tourLabel': 'How Wick works. Press OK for a short tour with examples. Nothing is sent.',
+  // The line that fills while OK is held (watch/hold.ts holdProgress).
+  'hold.keep': 'Keep holding to ask {name} to ring you',
+  'hold.keepPlain': 'Keep holding to ask for a call',
+  // The film's bar (watch/transport.ts).
+  'watch.time': '{elapsed} of {total}',
+  'watch.left': '{minutes} min left',
+  /** Spoken when the bar comes. */
+  'watch.barLabel': '{title}. {elapsed} of {total}. {minutes} minutes left.',
+  // The words beside the mark of the Play key on a card (read/ReadHint.tsx).
+  'read.chip': 'Read aloud',
+  // The tour (tour/tour.ts): an example of each thing Wick does, and nothing sent.
+  'tour.kicker': 'How Wick works · {step} of {count}',
+  'tour.example': 'Example',
+  'tour.next': 'Show me the next',
+  'tour.close': 'Close the tour',
+  'tour.done': 'Back to the films',
+  /** Who the examples name when nobody is in her circle yet. */
+  'tour.family': 'your family',
+  'tour.doorHeadline': "Someone's at the front door.",
+  'tour.doorPicture': 'A person with a parcel is at the door.',
+  'tour.doorDetail': 'When the doorbell rings, this comes over anything, even another app. One button asks {name} to look.',
+  'tour.noteHeadline': 'A note from {name}',
+  'tour.noteText': "Hello! I'll ring you at seven.",
+  'tour.noteDetail': 'Notes wait for a quiet moment: a pause, the credits, or a calm point in the film. One button answers.',
+  'tour.holdHeadline': 'Hold OK for two seconds',
+  'tour.holdDetail': 'Anywhere in Wick, to ask {name} to ring you. A line fills while you hold, and nothing is sent until you say yes.',
+  'tour.readHeadline': 'Press Play to hear any card',
+  'tour.readDetail': 'Wick reads it aloud, in your language. Press Play again to stop.',
+  'tour.doneHeadline': 'That is Wick.',
+  'tour.doneDetail': 'Nothing in this tour was sent to anyone. It is here whenever you want it, under How Wick works.',
 } as const;
 
 export type WordKey = keyof typeof en;
@@ -288,6 +327,36 @@ const es: Readonly<Record<WordKey, string>> = {
   'seeing.contrastOn': 'Más contraste: sí',
   'seeing.contrastOff': 'Más contraste: no',
   'seeing.back': 'Atrás',
+
+  'home.carryOn': 'Continuar',
+  'home.left': 'Faltan {minutes} min',
+  'home.carryOnLabel': '{title}. Continuar donde lo dejó; faltan {minutes} minutos.',
+  'home.tour': 'Cómo funciona Wick',
+  'home.tourLabel': 'Cómo funciona Wick. Presione OK para ver ejemplos. No se envía nada.',
+  'hold.keep': 'Siga pulsando para pedir a {name} que le llame',
+  'hold.keepPlain': 'Siga pulsando para pedir una llamada',
+  'watch.time': '{elapsed} de {total}',
+  'watch.left': 'Faltan {minutes} min',
+  'watch.barLabel': '{title}. {elapsed} de {total}. Faltan {minutes} minutos.',
+  'read.chip': 'Escuchar',
+  'tour.kicker': 'Cómo funciona Wick · {step} de {count}',
+  'tour.example': 'Ejemplo',
+  'tour.next': 'Ver el siguiente',
+  'tour.close': 'Cerrar el recorrido',
+  'tour.done': 'Volver a las películas',
+  'tour.family': 'su familia',
+  'tour.doorHeadline': 'Hay alguien en la puerta.',
+  'tour.doorPicture': 'Una persona con un paquete está en la puerta.',
+  'tour.doorDetail': 'Cuando suena el timbre, esto aparece sobre todo, incluso otra aplicación. Un botón pide a {name} que mire.',
+  'tour.noteHeadline': 'Una nota de {name}',
+  'tour.noteText': '¡Hola! Le llamo a las siete.',
+  'tour.noteDetail': 'Las notas esperan un momento tranquilo: una pausa, los créditos o un punto tranquilo de la película. Un botón responde.',
+  'tour.holdHeadline': 'Mantenga OK dos segundos',
+  'tour.holdDetail': 'En cualquier parte de Wick, para pedir a {name} que le llame. Una línea se llena mientras mantiene, y no se envía nada hasta que diga que sí.',
+  'tour.readHeadline': 'Presione Play para oír una tarjeta',
+  'tour.readDetail': 'Wick la lee en voz alta, en su idioma. Presione Play otra vez para parar.',
+  'tour.doneHeadline': 'Eso es Wick.',
+  'tour.doneDetail': 'Nada de este recorrido se envió a nadie. Está aquí cuando lo quiera, en Cómo funciona Wick.',
 };
 
 /** Every language's table. A language added to the contract does not compile until it has one. */
