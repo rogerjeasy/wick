@@ -9,7 +9,7 @@
  * for either.
  */
 import { QueryCommand, ScanCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
-import { ERRAND_SK_PREFIX, VISIT_SK_PREFIX, padTimestamp, parseTimestampFromSortKey } from '@wick/contracts';
+import { ERRAND_SK_PREFIX, HEARD_SK_PREFIX, VISIT_SK_PREFIX, padTimestamp, parseTimestampFromSortKey } from '@wick/contracts';
 import { householdsWithTelevision } from '../narrator/everyHousehold.js';
 import type { WeekRange } from '../narrator/isoWeek.js';
 
@@ -73,8 +73,19 @@ export function householdRows(send: PagedSend, table: string, householdId: strin
         },
         ...(startKey ? { ExclusiveStartKey: startKey } : {}),
       }));
-      const [events, visits] = await Promise.all([between('EVT#'), between(VISIT_SK_PREFIX)]);
-      return [...events, ...visits];
+      // When the doorbell was heard (packages/contracts heard.ts): one row a UTC day, so the range is by day.
+      const heard = allPages(send, (startKey) => new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
+        ExpressionAttributeValues: {
+          ':pk': pk,
+          ':from': { S: `${HEARD_SK_PREFIX}${new Date(range.startMs).toISOString().slice(0, 10)}` },
+          ':to': { S: `${HEARD_SK_PREFIX}${new Date(range.endMs - 1).toISOString().slice(0, 10)}` },
+        },
+        ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+      }));
+      const [events, visits, hours] = await Promise.all([between('EVT#'), between(VISIT_SK_PREFIX), heard]);
+      return [...events, ...visits, ...hours];
     },
 
     /** The oldest EVT# row: sort keys are zero-padded timestamps, so the first is the first event. */

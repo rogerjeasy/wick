@@ -45,7 +45,7 @@ import { Agent, BedrockModel, Graph, type Model } from '@strands-agents/sdk';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import type { BriefSuggestion, RhythmDelta, SuggestedAction, TimelineEntry, WeekNarrative } from '@wick/contracts';
 import { clearForFamily, type HouseholdPolicy } from '@wick/policy';
-import { countWeek } from '../agents/narrator/index.js';
+import { countWeek, unheardOf } from '../agents/narrator/index.js';
 import { isoWeekRange, type WeekRange } from '../agents/narrator/isoWeek.js';
 import { comparisonLines } from '../agents/narrator/comparisons.js';
 import { checkNarrative, factLines, fallbackNarrative, refusalReason, type WeekFacts } from '../agents/narrator/weekFacts.js';
@@ -190,7 +190,7 @@ export function buildWeeklyBriefGraph(input: BriefInput, deps: WeeklyBriefDeps) 
       const { timeline, facts, deltas } = countWeek(rawItems, range, { now, timeZone: deps.timeZone, observedSince });
       const errands = errandRows.map(readErrandRow).filter((e) => e !== undefined);
       const films = watchedFilms(tvRows, range);
-      const lines = [...factLines(facts), ...comparisonLines(deltas, facts.weekComplete), ...errandLines(errands, range), ...(films ? [FILM_LINE] : [])];
+      const lines = [...factLines(facts), ...comparisonLines(deltas, facts.weekComplete, facts.unheardDays.length > 0), ...errandLines(errands, range), ...(films ? [FILM_LINE] : [])];
       analysed = { facts, deltas, timeline, lines, context: { missedUsualVisit: missedUsualVisit(deltas), watchedFilms: films }, policy, people, generatedAt: now };
     }
     const facts = `The facts:\n${bullets(analysed.lines)}`;
@@ -273,6 +273,7 @@ export function buildWeeklyBriefGraph(input: BriefInput, deps: WeeklyBriefDeps) 
       suggestion,
       deltas: week.deltas,
       timeline: week.timeline,
+      ...unheardOf(week.facts),
       generatedAt: week.generatedAt,
       ...(input.keep?.residentSeenAt === undefined ? {} : { residentSeenAt: input.keep.residentSeenAt }),
       ...(input.keep ? { simulated: true as const } : {}),

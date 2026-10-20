@@ -32,13 +32,15 @@
  * Model: Claude — runs weekly, offline, and prose quality IS the product here.
  * See docs/WICK-TECHNICAL.md §5.4.
  */
-import type { RhythmDelta, TimelineEntry, WeekNarrative } from '@wick/contracts';
+import { heardHoursOf, type RhythmDelta, type TimelineEntry, type WeekNarrative } from '@wick/contracts';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import { isoWeekRange, type WeekRange } from './isoWeek.js';
 import { toTimelineEntry } from './timeline.js';
-import { checkNarrative, factLines, fallbackNarrative, refusalReason, summariseWeek, type WeekFacts } from './weekFacts.js';
+import { checkNarrative, factLines, fallbackNarrative, refusalReason, summariseWeek, unheardDaysOf, type WeekFacts } from './weekFacts.js';
 import { comparisonLines } from './comparisons.js';
-import { baselineWindow, weekDeltas } from '../../rhythm/baseline.js';
+import { BASELINE_WEEKS, baselineWindow, weekDeltas } from '../../rhythm/baseline.js';
+
+const WEEK_MS = 7 * 86_400_000;
 
 export interface NarratorDeps {
   /** Called once, with the week and the six before it (rhythm/baseline.ts baselineWindow). */
@@ -80,10 +82,18 @@ export function countWeek(
     .map(toTimelineEntry)
     .filter((e): e is TimelineEntry => e !== undefined);
   const timeline = loaded.filter((e) => e.at >= range.startMs && e.at < range.endMs);
+  // When the doorbell was heard (packages/contracts heard.ts). Before the first hour on record, Wick was not yet listening.
+  const heard = rawItems.flatMap((item) => heardHoursOf(item.sk?.S, item.hours?.NS)).sort((a, b) => a - b);
+  const trackedSince = heard[0];
+  const facts = summariseWeek(timeline, { timeZone: when.timeZone, range, now: when.now, heard, ...(trackedSince === undefined ? {} : { trackedSince }) });
+  const unheardWeeks = Array.from({ length: BASELINE_WEEKS }, (_, i) => i + 1).filter((k) => {
+    const earlier = { startMs: range.startMs - k * WEEK_MS, endMs: range.endMs - k * WEEK_MS };
+    return unheardDaysOf(earlier, when.timeZone, when.now, heard, trackedSince).length > 0;
+  });
   return {
     timeline,
-    facts: summariseWeek(timeline, { timeZone: when.timeZone, range, now: when.now }),
-    deltas: weekDeltas(loaded, { range, now: when.now, observedSince: when.observedSince }),
+    facts,
+    deltas: weekDeltas(loaded, { range, now: when.now, observedSince: when.observedSince, unheardWeeks }),
   };
 }
 
@@ -103,7 +113,7 @@ export function factsWeekNarrative(
   when: { readonly now: number; readonly timeZone: string; readonly observedSince: number | undefined },
 ): WeekNarrative {
   const { timeline, facts, deltas } = countWeek(rawItems, isoWeekRange(isoWeek), when);
-  return { householdId, isoWeek, text: fallbackNarrative(facts, deltas), textSource: 'facts', deltas, timeline, generatedAt: when.now };
+  return { householdId, isoWeek, text: fallbackNarrative(facts, deltas), textSource: 'facts', deltas, timeline, ...unheardOf(facts), generatedAt: when.now };
 }
 
 export async function computeWeekNarrative(
@@ -118,7 +128,7 @@ export async function computeWeekNarrative(
     timeZone: deps.timeZone,
     observedSince: await deps.firstEventAt(),
   });
-  const lines = [...factLines(facts), ...comparisonLines(deltas, facts.weekComplete)];
+  const lines = [...factLines(facts), ...comparisonLines(deltas, facts.weekComplete, facts.unheardDays.length > 0)];
 
   let text: string | undefined;
   let retryReason: string | undefined;
@@ -146,6 +156,12 @@ export async function computeWeekNarrative(
     textSource: text === undefined ? 'facts' : 'model',
     deltas,
     timeline,
+    ...unheardOf(facts),
     generatedAt: deps.now(),
   };
+}
+
+/** The unheard days, kept with the week so that every later telling of it says the same (WeekNarrative.unheardDays). */
+export function unheardOf(facts: WeekFacts): Pick<WeekNarrative, 'unheardDays'> {
+  return facts.unheardDays.length > 0 ? { unheardDays: facts.unheardDays } : {};
 }
