@@ -283,7 +283,7 @@ describe('Play, with a note holding the film (the film is paused on the cut whil
     expect(await tv.sent()).toEqual(READ);
   });
 
-  it('the next Play, while it is still being read, stops the reading at once and carries on with the film — as Play there always did', async () => {
+  it('the next Play, while it is still being read, stops the reading — and the film stays held: Play never moves the film under a card', async () => {
     const tv = await asked();
     tv.heard();
 
@@ -292,12 +292,12 @@ describe('Play, with a note holding the film (the film is paused on the cut whil
 
     expect(tv.voices[0]!.said.slice(-2)).toEqual(['pause', 'let go']);
     expect(tv.reader.state).toBe('idle');
-    expect(tv.film).toMatchObject({ paused: false, toggled: 1, volume: 1 });
-    // Nothing more was asked: the second press is the film's.
+    expect(tv.film).toMatchObject({ paused: true, toggled: 0 });
+    // Nothing more was asked: the second press stopped the reading, and that is all.
     expect(await tv.sent()).toEqual(READ);
   });
 
-  it('the next Play, after the reading has ended, carries on with the film', async () => {
+  it('the next Play, after the reading has ended, reads the note again; the film still waits for her answer', async () => {
     const tv = await asked();
     tv.heard();
     tv.voices[0]!.listeners.get('ended')!();
@@ -305,58 +305,40 @@ describe('Play, with a note holding the film (the film is paused on the cut whil
 
     tv.press('play');
 
-    expect(tv.film).toMatchObject({ paused: false, toggled: 1, volume: 1 });
-    expect(tv.voices).toHaveLength(1);
-    expect(await tv.sent()).toEqual(READ);
+    expect(tv.film).toMatchObject({ paused: true, toggled: 0 });
+    expect((await tv.sent()).map((event) => event.t === 'read' && event.cardId)).toEqual(['note-1', 'note-1']);
   });
 
-  it('never needs a third press: when the asking failed quietly, the second Play carries on with the film', async () => {
+  it('when the asking failed quietly, Play asks again, and never moves the film', async () => {
     // No address in the answer.
     const nothing = await asked(null);
     expect(nothing.reader.state).toBe('idle');
     nothing.press('play');
-    expect(nothing.film).toMatchObject({ paused: false, toggled: 1 });
-    expect(await nothing.sent()).toEqual(READ);
+    expect(nothing.film).toMatchObject({ paused: true, toggled: 0 });
 
-    // An address that never starts to play: the second press comes before the television has given up on it.
-    const dead = await asked();
-    expect(dead.reader.state).toBe('starting');
-    dead.press('play');
-    await settle();
-    expect(dead.film).toMatchObject({ paused: false, toggled: 1 });
-    expect(dead.reader.state).toBe('idle');
-
-    // No answer at all.
+    // No answer at all, and an answer that comes late: it is not played over the film, which has not moved.
     const unanswered = television({ card: 'note-1', film: 'paused', holds: true });
     unanswered.press('play');
     unanswered.press('play');
-    expect(unanswered.film).toMatchObject({ paused: false, toggled: 1 });
-    // And the answer that then comes is not played over the film.
-    unanswered.channel.pushControl({ t: 'speech', cardId: 'note-1', url: URL });
-    await settle();
-    expect(unanswered.voices).toEqual([]);
+    expect(unanswered.film).toMatchObject({ paused: true, toggled: 0 });
   });
 
-  it('remembers the first Play only for that showing of that card: another card, or the same one shown again, starts with reading', async () => {
+  it('reads every showing of every card on Play: another note, and the same one shown again later', async () => {
     const tv = await asked();
     tv.heard();
-    tv.press('play');
-    await settle();
-    expect(tv.film).toMatchObject({ toggled: 1 });
 
-    // The film went on and the note was put away. At the next cut another note holds it.
+    // She answered; the film went on. At the next cut another note holds it.
     tv.show(undefined);
-    tv.film!.paused = true;
     tv.show('note-2', true);
     tv.press('play');
-    expect(tv.film).toMatchObject({ toggled: 1 });
+    expect(tv.film).toMatchObject({ toggled: 0 });
     expect((await tv.sent()).map((event) => event.t === 'read' && event.cardId)).toEqual(['note-1', 'note-2']);
 
-    // And later the first note again: it is read again, not skipped.
+    // And later the first note again: it is read again.
     tv.show(undefined);
     tv.show('note-1', true);
     tv.press('play');
-    expect(tv.film).toMatchObject({ toggled: 1 });
+    expect(tv.film).toMatchObject({ toggled: 0 });
     expect((await tv.sent()).map((event) => event.t === 'read' && event.cardId)).toEqual(['note-1', 'note-2', 'note-1']);
   });
 

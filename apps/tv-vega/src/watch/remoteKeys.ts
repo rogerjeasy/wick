@@ -15,11 +15,12 @@
  * The app says when (`playReads`); when it does not say, Play is the
  * programme's exactly as it always was.
  *
- * And over a note that is holding the film it is the card's once. The
- * first Play reads the note; the next is her way back to the film, as Play
- * there always was — the film goes on, the note is put away
- * (break/BreakController.ts), and a reading still under way ends at once.
- * `playIsTheCards` is that rule.
+ * Over a card, Play is always the card's (docs/design/DESIGN.md §6): it
+ * reads the card aloud, and the next Play stops the reading. It never
+ * moves the film, even over a note that is holding the film — one key, one
+ * meaning. The film goes on when she answers the card or puts it aside
+ * with Back (break/BreakController.ts), never because Play was pressed a
+ * second time.
  *
  * A key that is only Pause never asks for a reading. It stops one that is
  * under way and does nothing else then; otherwise it is the programme's.
@@ -75,24 +76,15 @@ const DPAD_KEYS: Readonly<Record<string, WatchCommand>> = {
 };
 
 /**
- * Whose the next Play is: the card's, or the programme's.
- *
- * The card's while a card that can be read is on screen (`card`) — always
- * on the home screen and over a film the card does not hold, which is only
- * ever the door's. Over a film the card is holding it is the card's once:
- * when Play has already asked for this showing of this card (`askedFor`),
- * the next Play carries on with the film. It does so whether that reading
- * is still going, has ended, or never started — she must never have to
- * press twice to get back to her film because of a reading that did not
- * happen.
- *
- * `askedFor` is the app's to keep, and to forget when the card leaves the
- * screen: another card, or the same one shown again later, starts with
- * reading again.
+ * Whose the next Play is: the card's whenever a card that can be read is on
+ * screen, however often Play has been pressed and whether or not the card
+ * is holding a film. `holdsFilm` and `askedFor` are still taken, so the two
+ * televisions that ask can keep asking, and say nothing now: Play over a
+ * card used to give the film back on its second press, which made one key
+ * mean two things on one screen.
  */
 export function playIsTheCards(at: { readonly card: string | undefined; readonly holdsFilm: boolean; readonly askedFor: string | null }): boolean {
-  if (at.card === undefined) return false;
-  return !(at.holdsFilm && at.askedFor === at.card);
+  return at.card !== undefined;
 }
 
 /**
