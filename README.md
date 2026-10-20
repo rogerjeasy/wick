@@ -222,7 +222,7 @@ Privacy is the product, not a compliance section.
 
 - **No camera looks inside the home.** Ring is used at the front door only.
 - **She sees everything the family sees**, on her own television, and can remove it. She reaches it at any time from her light on the home screen, and can stop Wick there: everything it keeps about her home is deleted, and her family's app says so.
-- **Health, money, relationships and location never reach the family.** A deterministic content gate, the Guardian, checks every string before a family member reads it, and property tests run it through the real tool paths.
+- **Health, money, relationships and location are never shared as a category.** No setting turns them on. Every string a family member reads also passes a deterministic content gate, the Guardian, and property tests run it through the real tool paths. It catches what its word list names, not every way of saying it.
 - **No mood detection, no wellness scores, no fall detection, no chatbot on the television.** The reasons are in [docs/WICK.md](docs/WICK.md) §6.
 
 ## What is real, and what is simulated

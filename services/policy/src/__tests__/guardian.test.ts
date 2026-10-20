@@ -47,6 +47,13 @@ describe('what reached the family before the gate', () => {
     expect(classesOf('Her boyfriend came round after the divorce.')).toEqual(['RELATIONSHIP']);
     expect(classesOf('Send it to 14 Elm Road, SW1A 1AA.')).toEqual(['LOCATION']);
   });
+
+  // An outside review fed "She is at 12 Broadway." to the gate on 2026-10-20, and it was cleared.
+  it('withholds a house number with a bare street name after it', () => {
+    for (const sentence of ['She is at 12 Broadway.', 'She is at 12 Broadway', 'Take it to 10 Downing.', 'A parcel came from 7 Larchmont.', 'She is at number 4 Kingsway.', 'She is at 12 Marlborough.', 'Meet at 7 Market.', 'Go to 3 Augustine.', 'At 5 Decker, by the shop.', 'At 4 Juniper.']) {
+      expect(classesOf(sentence), sentence).toEqual(['LOCATION']);
+    }
+  });
 });
 
 describe('what it must not catch', () => {
@@ -76,6 +83,18 @@ describe('what it must not catch', () => {
     'A stroke of luck.',
     'What a stroke of genius.',
     'At the stroke of midnight.',
+    // A time, a date or a count after "at", "to" or "from" is not an address.
+    'I’ll be back at 3 pm.',
+    'Dinner at 7 tomorrow?',
+    'Call me at 6 tonight.',
+    'Maria comes from 9 till 5.',
+    'See you at 2 o’clock.',
+    'The film starts at 8 sharp.',
+    'It moved from 12 March to 19 March.',
+    'From 3 Sept to 9 Oct.',
+    'Back at 1 June.',
+    'Up to 3 people can come.',
+    'Back at 10 or so.',
   ];
 
   for (const sentence of ordinary) {

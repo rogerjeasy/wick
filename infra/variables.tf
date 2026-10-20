@@ -28,7 +28,7 @@ variable "consent_page_url" {
 }
 
 variable "snapshot_retention_days" {
-  description = "INV-3. Door imagery is discarded within this window, enforced by bucket lifecycle rather than application code."
+  description = "INV-3. Lifecycle days for Ring media in the media bucket. S3 counts from the next midnight UTC and the bucket is versioned, so 1 means gone within about two days (four for an object never deleted)."
   type        = number
   default     = 1
 }
