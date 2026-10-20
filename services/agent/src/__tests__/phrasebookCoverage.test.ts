@@ -48,6 +48,7 @@ import { askAboutDifferences, buildTellCard } from '../agents/tell/ask.js';
 import { buildErrandReminder } from '../agents/errand/reminder.js';
 import { handleVisitAnswer } from '../agents/visit/answer.js';
 import { askAboutVisits } from '../agents/visit/ask.js';
+import { handleVisitSaid } from '../agents/visit/said.js';
 import { whatsDifferent, type DifferentInput } from '../rhythm/different.js';
 
 const coverage = coverageOf('agent', { cardIn, patchIn });
@@ -112,6 +113,32 @@ describe('the door card (agents/door/index.ts)', () => {
     const card = coverage.spanish(english);
     expect(card.match?.name).toBe('the plumber');
     expect(card.notice).toBe('Sarah organizó una visita para esta hora.');
+  });
+
+  it('a ring when nobody is expected: that it is so, and that the door is hers to keep shut', () => {
+    const card = coverage.spanish(buildPhaseOneCard({ event: { ...event, eventType: 'button_press' }, device, hallwayChime: false, householdId: 'hh-1', correlationId: 'corr-1', timeZone: 'UTC', now: NOW, family: ['Sarah'] }));
+    expect(card.line).toBe('Hay alguien en la puerta de entrada.');
+    expect(card.notice).toBe('Ahora no se espera a nadie en la puerta. No tiene por qué abrir.');
+  });
+
+  it('a visitor who confirmed from their visit pass: how Wick knows in her language, who is there in the member’s own words', () => {
+    const rossi: RosterEntry = { personId: 'errand:err_AAAAAAAAAAAAAAAAAAAA', name: 'Doctor Rossi', expectedOnce: { at: event.start, windowMin: 60 }, addedBy: 'u_sarah', arrangedByName: 'Sarah Hughes' };
+    const english = buildPhaseOneCard({ event: { ...event, eventType: 'button_press' }, device, hallwayChime: false, householdId: 'hh-1', correlationId: 'corr-1', timeZone: 'UTC', now: NOW, roster: [rossi], confirmedPersonId: rossi.personId });
+    const card = cardIn('es', english) as DoorCard;
+    expect(card.line).toBe('Doctor Rossi is at your door.');
+    expect(card.notice).toBe('La persona que viene acaba de confirmarlo desde su teléfono. Sarah organizó esta visita.');
+  });
+
+  it('and the same when it is said after the ring, as a patch (agents/visit/said.ts)', async () => {
+    const patches: CardPatch[] = [];
+    await handleVisitSaid({ householdId: 'hh-1', errandId: 'err_AAAAAAAAAAAAAAAAAAAA', says: 'at_door', at: NOW }, {
+      loadErrand: async () => ({ errandId: 'err_AAAAAAAAAAAAAAAAAAAA', householdId: 'hh-1', createdBy: 'u_sarah', createdByName: 'Sarah Hughes', who: 'Doctor Rossi', at: NOW, windowMinutes: 60, tellMe: false, status: 'rang', rangAt: NOW - MIN, cardId: 'door-abc', createdAt: NOW - DAY }),
+      isAllowed: async () => true,
+      claimOnce: async () => true,
+      nudge: async () => {},
+      sendPatch: async (patch) => void patches.push(patch),
+    });
+    expect(patchIn('es', patches[0]!)).toEqual({ cardId: 'door-abc', line: 'Doctor Rossi is at your door.', notice: 'La persona que viene acaba de confirmarlo desde su teléfono. Sarah organizó esta visita.' });
   });
 
   it('corrects the headline when the picture shows nobody, and leaves the description to be translated as free text', () => {

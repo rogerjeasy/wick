@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_CARD_DETAIL_CHARS,
   MANTEL_FULL_NOTICE,
+  NOBODY_EXPECTED_NOTICE,
+  visitorArrivedLine,
+  visitorConfirmedNotice,
   cardIn,
   freeTextOf,
   homeIn,
@@ -258,6 +261,15 @@ describe('what she consents by, word for word', () => {
     expect(es('Maria was here on Tuesday from 9:02 am to 9:47 am.')).toBe('Maria estuvo aquí el martes de 9:02 a 9:47.');
     expect(es('Yes, that’s right')).toBe('Sí, es correcto');
     expect(es('No, that’s not right')).toBe('No, no es correcto');
+  });
+
+  it('the visit pass at the door: how Wick knows, and that the door is hers — never that she can open', () => {
+    expect(es(NOBODY_EXPECTED_NOTICE)).toBe('Ahora no se espera a nadie en la puerta. No tiene por qué abrir.');
+    expect(es(visitorConfirmedNotice('Sarah Hughes'))).toBe('La persona que viene acaba de confirmarlo desde su teléfono. Sarah organizó esta visita.');
+    expect(es(visitorConfirmedNotice(''))).toBe('La persona que viene acaba de confirmarlo desde su teléfono.');
+    expect(es(visitorConfirmedNotice('Anne-Marie Ó Briain'))).toBe('La persona que viene acaba de confirmarlo desde su teléfono. Anne-Marie organizó esta visita.');
+    // Who is at the door is the member's own words: the headline has no sentence here, and stays English, whole.
+    expect(es(visitorArrivedLine('Doctor Rossi'))).toBeUndefined();
   });
 
   it('the light: one thing, and nothing more', () => {
