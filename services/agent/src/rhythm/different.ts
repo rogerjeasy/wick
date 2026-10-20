@@ -25,11 +25,15 @@
  *   - A day is compared with the same stretch of the same weekday — nine
  *     in the morning against nine in the morning — and never for differing
  *     by a single caller.
+ *   - Nothing is said from an absence over a stretch the doorbell was not
+ *     heard around (packages/contracts heard.ts): a quiet door and a door
+ *     Wick could not see look the same, and only one of them is news. A
+ *     past week the doorbell was not heard is left out of the usual too.
  *
  * Pure: no AWS, no model. Every sentence is written here. A model never
  * counts (§5.4), and it never decides what is unusual either.
  */
-import { fromLocalWallClock, localWallClock, type FactClass, type RosterEntry, type TimelineEntry } from '@wick/contracts';
+import { doorUnheard, fromLocalWallClock, heardAround, lastHeard, localWallClock, type FactClass, type RosterEntry, type TimelineEntry } from '@wick/contracts';
 import { BASELINE_WEEKS, MIN_BASELINE_WEEKS, deltaFor } from './baseline.js';
 
 const DAY_MS = 86_400_000;
@@ -80,6 +84,12 @@ export interface DifferentInput {
   readonly observedSince: number | undefined;
   /** The household's IANA time zone: "the night" is theirs. */
   readonly timeZone: string;
+  /**
+   * The hours the doorbell was heard (packages/contracts heard.ts), as hour
+   * starts. Given, nothing is said from an absence the doorbell was not heard
+   * around. Absent only for a caller that does not keep them.
+   */
+  readonly heard?: readonly number[];
 }
 
 export interface DifferentAnswer {
@@ -89,6 +99,12 @@ export interface DifferentAnswer {
   readonly enoughHistory: boolean;
   /** Most worth knowing first. Empty on a usual day. */
   readonly differences: readonly Difference[];
+  /**
+   * Set when the doorbell has not been heard for six hours or more: Wick
+   * cannot see the door just now, so an empty list says nothing about today.
+   * `lastHeardAt` is absent when it was not heard in the whole stretch read.
+   */
+  readonly doorUnheard?: { readonly lastHeardAt?: number };
 }
 
 /** 0 for a Sunday: the weekday of a midnight on the house's wall clock (localWallClock). */
@@ -143,6 +159,10 @@ function missedVisits(input: DifferentInput): Difference[] {
     if (daysAgo < 0) continue;
     const dayWall = todayWall - daysAgo * DAY_MS;
     const day = moment(dayWall);
+    // Their window, as the door would have seen it. Unheard around it, nothing can be said of it.
+    const windowFrom = moment(dayWall + (pattern.minuteOfDay - pattern.windowMin) * 60_000);
+    const windowTo = moment(dayWall + (pattern.minuteOfDay + pattern.windowMin) * 60_000);
+    if (input.heard && !heardAround(input.heard, windowFrom, windowTo, now)) continue;
 
     // Somebody at the door when they were expected, or a visit she confirmed:
     // either is a reason not to call the day missed. Neither alone says it was them.
@@ -223,10 +243,13 @@ function doorToday(input: DifferentInput): Difference[] {
   const doorTimes = entries.filter((e) => e.kind === 'door').map((e) => e.at);
   const countIn = (from: number): number => doorTimes.filter((at) => at >= from && at < from + elapsed).length;
 
+  const heard = input.heard;
   const priorWeeks: number[] = [];
   for (let k = 1; k <= BASELINE_WEEKS; k += 1) {
     const prior = fromLocalWallClock(todayWall - k * WEEK_MS, timeZone);
     if (observedSince === undefined || observedSince > prior) break;
+    // A week the doorbell was not heard is not a quiet week: it is left out of the usual.
+    if (heard && !heardAround(heard, prior, prior + elapsed, now)) continue;
     priorWeeks.push(countIn(prior));
   }
   const callers = doorTimes.filter((at) => at >= today && at <= now).length;
@@ -240,6 +263,8 @@ function doorToday(input: DifferentInput): Difference[] {
   const usualThen = `By that time ${about}`;
   const byThen = `by ${clockTime(now, timeZone)}`;
   if (delta.verdict === 'fewer') {
+    // Fewer than usual is said only of a day the doorbell was heard through.
+    if (heard && !heardAround(heard, today, now, now)) return [];
     const said = callers === 0 ? 'Nobody has come to the door today.' : `Fewer people than usual have come to the door today: ${callers}.`;
     const saidThen = callers === 0
       ? `Nobody had come to the door ${byThen} on ${dayName}.`
@@ -256,15 +281,23 @@ function doorToday(input: DifferentInput): Difference[] {
 }
 
 /** What is unlike this household's usual, right now. Most worth knowing first. */
+/** The doorbell's silence, when it has gone on too long to say anything of today. */
+function unheardNow(input: DifferentInput): Pick<DifferentAnswer, 'doorUnheard'> {
+  if (!input.heard || !doorUnheard(input.heard, input.now)) return {};
+  const lastHeardAt = lastHeard(input.heard, input.now);
+  return { doorUnheard: lastHeardAt === undefined ? {} : { lastHeardAt } };
+}
+
 export function whatsDifferent(input: DifferentInput): DifferentAnswer {
   const { now, observedSince } = input;
   const weeksObserved = observedSince === undefined ? 0 : Math.min(BASELINE_WEEKS, Math.max(0, Math.floor((now - observedSince) / WEEK_MS)));
   const enoughHistory = weeksObserved >= MIN_BASELINE_WEEKS;
-  if (!enoughHistory) return { weeksObserved, enoughHistory, differences: [] };
+  if (!enoughHistory) return { weeksObserved, enoughHistory, differences: [], ...unheardNow(input) };
 
   return {
     weeksObserved,
     enoughHistory,
     differences: [...missedVisits(input), ...doorAtNight(input, weeksObserved), ...doorToday(input)],
+    ...unheardNow(input),
   };
 }

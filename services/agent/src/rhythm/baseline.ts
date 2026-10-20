@@ -81,6 +81,12 @@ export interface RhythmWindow {
   readonly now: number;
   /** The household's first recorded event, ever. Absent when there is none. */
   readonly observedSince: number | undefined;
+  /**
+   * The weeks before this one (1 = last week) with a day the doorbell was not
+   * heard (packages/contracts heard.ts). They are left out of the usual: a
+   * week Wick could not see is not a quiet week.
+   */
+  readonly unheardWeeks?: readonly number[];
 }
 
 /**
@@ -128,8 +134,10 @@ export function weekDeltas(entries: readonly TimelineEntry[], window: RhythmWind
     metric.weeks[k]! += 1;
   }
 
+  const unheard = new Set(window.unheardWeeks ?? []);
   const deltas = [...counts].map(([metric, { label, weeks }]) => {
-    const [thisWeek = 0, ...priorWeeks] = weeks;
+    const [thisWeek = 0, ...prior] = weeks;
+    const priorWeeks = prior.filter((_, i) => !unheard.has(i + 1));
     return deltaFor({ metric, label, thisWeek, priorWeeks });
   });
   const [doorDelta, ...visitors] = deltas;
