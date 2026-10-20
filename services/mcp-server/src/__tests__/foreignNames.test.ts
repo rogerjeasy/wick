@@ -80,7 +80,8 @@ describe('a household written in Cyrillic, Greek and Chinese, through the tool s
     const week = result.structuredContent as { text: string; textSource?: string; timeline: { summary: string }[] };
     expect(week.text).toBe(narrative.text);
     expect(week.textSource).toBe('agents');
-    expect(week.timeline.map((e) => e.summary)).toEqual([`Someone came to the door when ${CARER} was expected.`, 'Someone was at the front door.']);
+    // The ring and "came when expected" are one moment, said once (contracts timeline.ts oneLinePerMoment).
+    expect(week.timeline.map((e) => e.summary)).toEqual([`Someone came to the door when ${CARER} was expected.`]);
   });
 
   it('still withholds the week, and says nothing was held back, when the household’s people are not known', async () => {

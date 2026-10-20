@@ -53,6 +53,22 @@ describe('loadTodayEvents', () => {
     expect(call.KeyConditionExpression).toContain('BETWEEN');
   });
 
+  it('says a ring when a visitor was expected once, not as a ring and again as expected', async () => {
+    const items = [
+      { sk: { S: 'EVT#001700000000000#a' }, type: { S: 'door' } },
+      { sk: { S: 'EVT#001700000000000#b' }, type: { S: 'presence' }, personName: { S: 'Dave the plumber' } },
+      { sk: { S: 'EVT#001700000300000#c' }, type: { S: 'door' } },
+    ];
+    const ddb = { send: vi.fn().mockResolvedValue({ Items: items }) } as unknown as DynamoDBClient;
+
+    const result = await loadTodayEvents(ddb, 'hh-1', new Date('2023-11-14T00:00:00.000Z'));
+
+    expect(result.events).toEqual([
+      { at: 1700000000000, summary: 'Someone came to the door when Dave the plumber was expected.' },
+      { at: 1700000300000, summary: 'Someone was at the front door.' },
+    ]);
+  });
+
   it('leaves out what the resident keeps private — not even a timestamp — and says what is kept private', async () => {
     // A refusal per event would still tell the family exactly when someone
     // came. The private class is named once instead, whether or not anything

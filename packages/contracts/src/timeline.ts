@@ -33,3 +33,31 @@ export function currentIsoWeek(now: Date = new Date()): string {
   const week = 1 + Math.round(((d.getTime() - firstThursday.getTime()) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
+
+/** What one moment at the door can be written as, from the plainest to the most it says. */
+const SAYS_MORE: Readonly<Record<string, number>> = { door: 1, presence: 2, visit: 3 };
+
+/**
+ * One line for one moment at the door, for whoever reads the list. A ring
+ * when Maria was expected writes a `door` row and a `presence` row, and a
+ * visit she confirmed a VISIT# row — three lines at 9:00 for one visit (seen
+ * 2026-10-20: "Three things" on a Tuesday, "Nine things" for five rings).
+ * Within one minute only the line that says the most is kept: a confirmed
+ * visit over "came when expected", and either over "someone was at the
+ * door". Counts are not taken from this: the week's own facts count the door
+ * and the visits apart, as they always did.
+ *
+ * Any other kind of entry is kept as it is. The order is kept.
+ */
+export function oneLinePerMoment<Entry extends { readonly at: number; readonly kind: string }>(entries: readonly Entry[]): Entry[] {
+  const minuteOf = (at: number): number => Math.floor(at / 60_000);
+  const most = new Map<number, number>();
+  for (const entry of entries) {
+    const rank = SAYS_MORE[entry.kind];
+    if (rank !== undefined) most.set(minuteOf(entry.at), Math.max(most.get(minuteOf(entry.at)) ?? 0, rank));
+  }
+  return entries.filter((entry) => {
+    const rank = SAYS_MORE[entry.kind];
+    return rank === undefined || rank === most.get(minuteOf(entry.at));
+  });
+}

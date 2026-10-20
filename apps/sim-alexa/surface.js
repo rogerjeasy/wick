@@ -827,7 +827,8 @@ function presentToday(today, formatTime, now) {
       kind: 'list',
       title: thisDay ? 'Today' : day,
       meta: '',
-      items: events.map((e) => ({ primary: e.summary, secondary: formatTime(e.at) })),
+      // Newest first, as the sentence above says it: the list is cut to a few, and the latest is the one asked about.
+      items: [...events].reverse().map((e) => ({ primary: e.summary, secondary: formatTime(e.at) })),
       ...(kept.length ? { footnote: kept.join(' ') } : {}),
     },
   };

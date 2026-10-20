@@ -226,7 +226,9 @@ describe('presentResult — today', () => {
     });
     const r = presentResult('get_today', raw, {}, at);
     expect(r.say).toBe('Two things so far today. Most recently: someone came to the door.');
-    expect(r.card.items[0]).toEqual({ primary: 'Maria visited.', secondary: 't100' });
+    // Newest first, as the sentence says it: a list cut to a few shows the latest.
+    expect(r.card.items[0]).toEqual({ primary: 'Someone came to the door.', secondary: 't300' });
+    expect(r.card.items[1]).toEqual({ primary: 'Maria visited.', secondary: 't100' });
   });
 
   it('names what is kept private, in the spoken answer and on the card', () => {

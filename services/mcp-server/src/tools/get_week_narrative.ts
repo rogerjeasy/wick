@@ -19,7 +19,7 @@
  */
 import { z } from 'zod';
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { SUGGESTED_ACTIONS, currentIsoWeek, doorWhenExpected, type RhythmDelta, type TimelineEntry, type WeekNarrative } from '@wick/contracts';
+import { SUGGESTED_ACTIONS, currentIsoWeek, doorWhenExpected, oneLinePerMoment, type RhythmDelta, type TimelineEntry, type WeekNarrative } from '@wick/contracts';
 import type { HouseholdPolicy } from '@wick/policy';
 import { fallbackNarrative, isoWeekRange, privateNarrative, summariseWeek, visibleDeltas } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -303,7 +303,8 @@ export function weekAnswer(week: WeekNarrative, thisWeek?: ThisWeekStatus) {
       baselineWeeks: d.baselineWeeks,
       ...(d.verdict === undefined ? {} : { verdict: d.verdict }),
     })),
-    timeline: week.timeline.map((e) => ({ at: e.at, kind: e.kind, summary: e.summary, ...(e.personId === undefined ? {} : { personId: e.personId }), ...(e.name === undefined ? {} : { name: e.name }) })),
+    // One line for one moment at the door (contracts timeline.ts): a confirmed visit is not also a ring and an "expected".
+    timeline: oneLinePerMoment(week.timeline).map((e) => ({ at: e.at, kind: e.kind, summary: e.summary, ...(e.personId === undefined ? {} : { personId: e.personId }), ...(e.name === undefined ? {} : { name: e.name }) })),
     ...(week.unheardDays?.length ? { unheardDays: [...week.unheardDays] } : {}),
     generatedAt: week.generatedAt,
     ...(week.residentSeenAt === undefined ? {} : { residentSeenAt: week.residentSeenAt }),
