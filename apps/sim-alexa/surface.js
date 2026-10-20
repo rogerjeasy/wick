@@ -406,6 +406,114 @@ export function suggestionsFor(listing, me = null) {
   ];
 }
 
+/** How many suggestions the row under the conversation shows; the rest are under "More". */
+export const FEATURED_SUGGESTIONS = 6;
+
+/** The groups "More" lists every suggestion under, in this order. */
+export const SUGGESTION_GROUPS = ['Ask about her', 'Send or arrange', 'Her home and circle', 'Demo'];
+
+/** What a suggestion asks — its tool, or the page's own kind of answer — and so where it belongs. */
+const askedBy = (suggestion) => {
+  const route = routeUtterance(suggestion.utterance);
+  return route.kind === 'tool' ? route.tool : route.kind;
+};
+
+/** Which group each kind of question belongs to. Anything not named here is a question about her. */
+const GROUP_OF = {
+  compose: 'Send or arrange',
+  arrange: 'Send or arrange',
+  invite: 'Send or arrange',
+  picture: 'Send or arrange',
+  get_errands: 'Send or arrange',
+  get_light: 'Her home and circle',
+  circle: 'Her home and circle',
+  language: 'Her home and circle',
+  connect: 'Her home and circle',
+  doorbell: 'Her home and circle',
+  notifications: 'Her home and circle',
+  standin: 'Demo',
+};
+
+/**
+ * The questions most worth one press, most useful first: the week, today,
+ * a note, a visit, and — in a demo home — somebody at the door, which is
+ * what shows her television working.
+ */
+const FEATURED_ORDER = ['get_week_narrative', 'get_today', 'compose', 'arrange', 'standin', 'get_whats_different', 'get_light', 'did_visitor_come'];
+
+/**
+ * The suggestions as the page lays them out: one row of the most useful,
+ * which scrolls inside itself, and every one of them grouped under "More".
+ * No chip is ever wider than the page has room for, however many there are.
+ *
+ * @param {{ label: string, utterance: string }[]} suggestions  suggestionsFor's list
+ */
+export function arrangeSuggestions(suggestions) {
+  const rank = (s) => FEATURED_ORDER.indexOf(askedBy(s));
+  const featured = suggestions
+    .filter((s) => rank(s) >= 0)
+    .sort((a, b) => rank(a) - rank(b))
+    .slice(0, FEATURED_SUGGESTIONS);
+  const groups = SUGGESTION_GROUPS.map((title) => ({
+    title,
+    items: suggestions.filter((s) => (GROUP_OF[askedBy(s)] ?? 'Ask about her') === title),
+  })).filter((group) => group.items.length > 0);
+  return { featured, groups };
+}
+
+/**
+ * When the waiting card's words change. The agent on AgentCore can take
+ * most of a minute to answer the first question after it has been idle; the
+ * page gives up on it at REQUEST_LIMITS_MS.assistant and answers another way.
+ */
+export const WAITING_STAGES_MS = { reading: 8_000, cold: 20_000, fallback: 45_000 };
+
+/** What the agent is most likely reading, from the question's words (routeUtterance's rules, which guess no more than that). */
+const TOPICS = {
+  get_week_narrative: 'Reading her week…',
+  get_today: 'Reading her day…',
+  did_visitor_come: 'Looking at her visits…',
+  get_visits: 'Looking at her visits…',
+  get_whats_different: 'Comparing this week with a usual one…',
+  get_light: 'Looking at her light…',
+  get_replies: 'Looking for her replies…',
+  get_door_request: 'Looking at the door…',
+  get_reach_request: 'Looking for a request to ring…',
+  get_errands: 'Looking at the visits you arranged…',
+  compose: 'Getting the note ready…',
+  arrange: 'Working out the visit…',
+  invite: 'Getting the invitation ready…',
+};
+const ANY_TOPIC = 'Asking Wick’s tools…';
+
+/** The waiting card's second line for a question, once the first seconds have passed. */
+export function waitingTopic(text) {
+  return TOPICS[askedBy({ utterance: String(text ?? '') })] ?? ANY_TOPIC;
+}
+
+/**
+ * The waiting card's words, by how long it has waited: never a bare
+ * "Thinking". Each stage says what is happening, and the last says what
+ * the page will do if the agent never answers — which is what it does.
+ *
+ * @param {number} elapsedMs
+ * @param {{ agent?: boolean, topic?: string }} [context]  whether Wick's agent is being asked, or one tool; what it is likely reading
+ * @returns {{ words: string, detail: string }}
+ */
+export function waitingWords(elapsedMs, { agent = false, topic = ANY_TOPIC } = {}) {
+  if (!agent) return { words: elapsedMs < WAITING_STAGES_MS.reading ? 'Asking Wick…' : 'Still asking Wick…', detail: '' };
+  if (elapsedMs < WAITING_STAGES_MS.reading) return { words: 'Asking Wick’s agent…', detail: '' };
+  if (elapsedMs < WAITING_STAGES_MS.cold) return { words: topic, detail: '' };
+  if (elapsedMs < WAITING_STAGES_MS.fallback) return { words: topic, detail: 'The first answer can take up to a minute while the agent wakes up.' };
+  return { words: 'Still waiting for the agent…', detail: 'If it does not answer, Wick answers from its own tools instead.' };
+}
+
+/** "12 s", "1 min 5 s": how long the card has waited. */
+export function elapsedLabel(elapsedMs) {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+}
+
 // ---------------------------------------------------------------------------
 // A demo home's stand-in doorbell (packages/contracts demoDoor.ts): somebody
 // made to arrive at the door, so that the door card can be seen on her
@@ -474,7 +582,7 @@ export const HELP_TEXT =
   'send a picture to the television, open the family circle, or show which language the television speaks.';
 
 const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
-const count = (n) => NUMBER_WORDS[n] ?? String(n);
+export const count = (n) => NUMBER_WORDS[n] ?? String(n);
 const things = (n) => `${count(n)} ${n === 1 ? 'thing' : 'things'}`;
 
 /** FactClass -> the words the television's own "What Sarah sees" screen uses. */
@@ -1780,7 +1888,7 @@ function memberLine(member, resident) {
   return part ? `${part} · ${said}` : sentenceCase(said);
 }
 
-function televisionLine(televisions) {
+export function televisionLine(televisions) {
   if (televisions.length === 0) return 'No television is connected yet.';
   const total = televisions.length;
   const on = televisions.filter((tv) => tv.connected).length;
