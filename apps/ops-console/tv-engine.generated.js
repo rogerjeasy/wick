@@ -34,6 +34,7 @@ var WickTv = (() => {
     FilmPositions: () => FilmPositions,
     HOLD_MS: () => HOLD_MS,
     HOLD_SHOWN_FROM_MS: () => HOLD_SHOWN_FROM_MS,
+    KNOWN_CARD_TYPES: () => KNOWN_CARD_TYPES,
     PAUSE_IS_BREAK_MS: () => PAUSE_IS_BREAK_MS,
     PRESS_SETTLE_MS: () => PRESS_SETTLE_MS,
     PlaybackRecorder: () => PlaybackRecorder,
@@ -52,6 +53,7 @@ var WickTv = (() => {
     clock: () => clock,
     counted: () => counted,
     deriveSnapshot: () => deriveSnapshot,
+    doorDetailText: () => doorDetailText,
     fraction: () => fraction,
     herDayAsker: () => herDayAsker,
     holdProgress: () => holdProgress,
@@ -73,6 +75,8 @@ var WickTv = (() => {
     qrRuns: () => qrRuns,
     reachOffersToPutAway: () => reachOffersToPutAway,
     readTally: () => readTally,
+    removesCard: () => removesCard,
+    replyActions: () => replyActions,
     sameHomeDay: () => sameHomeDay,
     seekTarget: () => seekTarget,
     toPlaybackDeviceEvent: () => toPlaybackDeviceEvent,
@@ -85,6 +89,28 @@ var WickTv = (() => {
   });
 
   // packages/contracts/src/card.ts
+  var MAX_CARD_ACTIONS = 3;
+  var DOOR_ACTIONS = {
+    watchLive: "watch_live",
+    hallwayChime: "hallway_chime",
+    askFamily: "ask_family",
+    dismiss: "dismiss"
+  };
+  var WEEK_ACTIONS = {
+    seen: "seen",
+    sharing: "sharing"
+  };
+  var SHARING_ACTIONS = {
+    toggle: "toggle",
+    next: "next",
+    done: "done",
+    /** The last page: Stop Wick. Leads to the page that asks if she is sure. */
+    stop: "stop",
+    /** "Yes, delete everything": her television asks the Wick server itself (POST /tv/stop). */
+    stopYes: "stop_yes",
+    /** "Keep Wick": back to the Stop Wick page, nothing changed. Not `keep`: that is the mantelpiece's "Keep it". */
+    keepWick: "keep_wick"
+  };
   var NOTE_ACTIONS = {
     later: "later"
   };
@@ -1888,6 +1914,63 @@ var WickTv = (() => {
   function overMantel(picked, mantelOpen) {
     if (!mantelOpen || picked?.urgency === "DOOR") return picked;
     return void 0;
+  }
+
+  // apps/tv-vega/src/cards/knownCards.ts
+  var KNOWN = {
+    DOOR: true,
+    MESSAGE: true,
+    WEEK: true,
+    SHARING: true,
+    CIRCLE: true,
+    TELL: true,
+    WATCH: true,
+    LIGHT: true,
+    REACH: true,
+    VISIT: true,
+    LANGUAGE: true,
+    PHOTO: true
+  };
+  var KNOWN_CARD_TYPES = Object.keys(KNOWN);
+
+  // apps/tv-vega/src/cards/doorDetail.ts
+  function doorDetailText(card, language = DEFAULT_LANGUAGE) {
+    if (card.description) return card.description;
+    if (card.match) {
+      return words(language)(card.match.expectedToday ? "door.looksLikeExpected" : "door.looksLike", { name: card.match.name });
+    }
+    return void 0;
+  }
+
+  // apps/tv-vega/src/cards/messageActions.ts
+  function replyActions(suggestedReplies) {
+    return suggestedReplies.slice(0, MAX_CARD_ACTIONS).map((label, i) => ({
+      id: `reply_${i}`,
+      label,
+      kind: i === 0 ? "primary" : "secondary"
+    }));
+  }
+
+  // apps/tv-vega/src/cards/cardActions.ts
+  function removesCard(card, actionId) {
+    switch (card.type) {
+      case "DOOR":
+        return actionId === DOOR_ACTIONS.dismiss;
+      case "WEEK":
+        return actionId !== WEEK_ACTIONS.sharing;
+      case "SHARING":
+        return actionId === SHARING_ACTIONS.done;
+      case "REACH":
+        return actionId !== REACH_ACTIONS.ring && actionId !== REACH_ACTIONS.hello;
+      case "LANGUAGE":
+        return true;
+      case "PHOTO":
+        return true;
+      case "MESSAGE":
+        return actionId !== NOTE_ACTIONS.later;
+      default:
+        return true;
+    }
   }
 
   // apps/tv-vega/src/home/herDay.ts

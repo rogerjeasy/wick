@@ -13,6 +13,7 @@ import { CALM_POINTS } from '../../tv-vega/src/catalog/calmPoints.js';
 import { PRESS_SETTLE_MS } from '../../tv-vega/src/press/settle.js';
 import { HOLD_MS } from '../../tv-vega/src/watch/hold.js';
 import { WORDS } from '../../tv-vega/src/words/words.js';
+import { ICONS, vendorFiles, vendoredNow } from '../../../scripts/web-vendor.mjs';
 
 describe('tv-catalog.json — what she can watch, and where a note may arrive inside it', () => {
   it('is exactly what `npm run tv:build` writes now', () => {
@@ -78,5 +79,71 @@ describe('tv-channels.generated.js — how the page reaches home, bundled from t
     expect(Object.keys(channels)).toEqual(['createDeviceChannel']);
     expect(Object.keys(context)).toContain('WickTvChannels');
     expect(typeof channels.createDeviceChannel).toBe('function');
+  });
+});
+
+describe('vendor/ — the web’s libraries, served from the page’s own origin (scripts/web-vendor.mjs)', () => {
+  const tf = readFileSync(new URL('../../../infra/ops-console.tf', import.meta.url), 'utf8');
+
+  it('is exactly what `npm run web:vendor` writes now: no file more, none less, not a byte different', async () => {
+    const written = await vendorFiles();
+    const now = vendoredNow();
+    expect([...now.keys()].sort()).toEqual([...written.keys()].sort());
+    for (const [file, content] of written) expect(now.get(file)!.equals(Buffer.from(content)), file).toBe(true);
+  });
+
+  it('is deployed file by file, each with its own type, under a policy that lets the page load its own fonts', async () => {
+    for (const file of (await vendorFiles()).keys()) expect(tf, file).toMatch(new RegExp(`"${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s+= "[a-z]+/[a-z0-9.+-]+(; charset=utf-8)?"`));
+    expect(tf).toContain('key           = "vendor/${each.key}"');
+    expect(readFileSync(new URL('../../../infra/csp/ops-console.csp', import.meta.url), 'utf8')).toMatch(/^font-src 'self';$/m);
+  });
+
+  it('gives the page the typeface from its own files, and the font’s licence beside them', () => {
+    const css = readFileSync(new URL('../vendor/fonts.css', import.meta.url), 'utf8');
+    const urls = [...css.matchAll(/url\(([^)]+)\)/g)].map((m) => m[1]!);
+    expect(urls.length).toBe(2);
+    for (const url of urls) {
+      expect(url).toMatch(/^fonts\/[a-z-]+\.woff2$/);
+      readFileSync(new URL(`../vendor/${url}`, import.meta.url));
+    }
+    expect(css).toContain("font-family: 'Atkinson Hyperlegible Next Variable'");
+    expect(readFileSync(new URL('../vendor/fonts/OFL.txt', import.meta.url), 'utf8')).toContain('SIL Open Font License');
+  });
+
+  it('builds every icon the page names as an <svg> with createElementNS, and sets one global, WickIcons', () => {
+    const made: Array<{ ns: string; tag: string; attrs: Record<string, string>; children: unknown[] }> = [];
+    const document = {
+      createElementNS: (ns: string, tag: string) => {
+        const node = { ns, tag, attrs: {} as Record<string, string>, children: [] as unknown[], setAttribute(k: string, v: string) { this.attrs[k] = v; }, appendChild(c: unknown) { this.children.push(c); return c; } };
+        made.push(node);
+        return node;
+      },
+    };
+    const context = vm.createContext({ document });
+    vm.runInContext(readFileSync(new URL('../vendor/icons.generated.js', import.meta.url), 'utf8'), context);
+    expect(Object.keys(context)).toEqual(['document', 'WickIcons']);
+    const icons = vm.runInContext('WickIcons', context) as { icon(name: string): { tag: string; attrs: Record<string, string>; children: unknown[] } | null; names: string[] };
+    expect(icons.names).toEqual(Object.keys(ICONS));
+    for (const name of icons.names) {
+      const svg = icons.icon(name)!;
+      expect(svg.tag).toBe('svg');
+      expect(svg.attrs).toMatchObject({ 'aria-hidden': 'true', stroke: 'currentColor', viewBox: '0 0 24 24' });
+      expect(svg.children.length).toBeGreaterThan(0);
+    }
+    expect(made.every((node) => node.ns === 'http://www.w3.org/2000/svg')).toBe(true);
+    expect(icons.icon('no-such-icon')).toBe(null);
+    expect(readFileSync(new URL('../vendor/icons.generated.js', import.meta.url), 'utf8')).not.toMatch(/\.(innerHTML|outerHTML)\s*=|insertAdjacentHTML\(/);
+  });
+
+  it('gives Motion’s animate as one global, WickMotion, that loads in a bare page', () => {
+    const context = vm.createContext({ window: {}, document: {}, performance, requestAnimationFrame: () => 0 });
+    vm.runInContext(readFileSync(new URL('../vendor/motion.generated.js', import.meta.url), 'utf8'), context);
+    expect(Object.keys(context)).toContain('WickMotion');
+    expect(typeof (vm.runInContext('WickMotion', context) as { animate: unknown }).animate).toBe('function');
+  });
+
+  it('serves the tour’s door picture as the stand-in doorbell’s own made picture, byte for byte', () => {
+    expect(readFileSync(new URL('../parcel.jpg', import.meta.url)).equals(readFileSync(new URL('../../../docs/demo-door/parcel.jpg', import.meta.url)))).toBe(true);
+    expect(tf).toContain('key           = "parcel.jpg"');
   });
 });

@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CATALOG, DOOR, NOTE, REMEMBERED, TV_SOURCE, queued, tvPage } from './tvPage.js';
+import { CATALOG, DOOR, NOTE, REMEMBERED, TV_SOURCE, queued, tvPage, type El, type FakeEvent } from './tvPage.js';
 import { PAUSE_IS_BREAK_MS, SETTLED_AFTER_MS } from '../../tv-vega/src/break/types.js';
 import { PRESS_SETTLE_MS } from '../../tv-vega/src/press/settle.js';
 import { HOLD_MS } from '../../tv-vega/src/watch/hold.js';
@@ -53,12 +53,19 @@ const shownType = (tv: ReturnType<typeof tvPage>) => tv.run('currentQueuedCard?.
 describe('tv.html — the page is the television and nothing else', () => {
   const html = readFileSync(fileURLToPath(new URL('../tv.html', import.meta.url)), 'utf8');
 
-  it('loads the television’s rules, the television, then the page, and no script of its own', () => {
-    expect([...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1])).toEqual(['tv-engine.generated.js', 'tv-channels.generated.js', 'tv-core.js', 'tv.js']);
+  it('loads its libraries, the television’s rules, the television, then the page, and no script of its own', () => {
+    expect([...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1])).toEqual([
+      'vendor/icons.generated.js',
+      'vendor/motion.generated.js',
+      'tv-engine.generated.js',
+      'tv-channels.generated.js',
+      'tv-core.js',
+      'tv.js',
+    ]);
     expect(html).not.toMatch(/<style/i);
     expect(html).not.toMatch(/\sstyle=/i);
     expect(html).not.toMatch(/\son[a-z]+=/i);
-    expect(html.match(/<script/g)).toHaveLength(4);
+    expect(html.match(/<script/g)).toHaveLength(6);
   });
 
   it('has no console: no telemetry, no raw messages, no badge', () => {
@@ -67,9 +74,12 @@ describe('tv.html — the page is the television and nothing else', () => {
 
   it('is published with every file it loads, the posters among them, under the ops console’s security headers', () => {
     const tf = readFileSync(fileURLToPath(new URL('../../../infra/ops-console.tf', import.meta.url)), 'utf8');
-    const files = [...html.matchAll(/(?:href|src)="([^":]+)"/g)].map((m) => m[1]!);
-    expect(files).toEqual(['tv.css', 'tv-engine.generated.js', 'tv-channels.generated.js', 'tv-core.js', 'tv.js']);
-    for (const file of [...files, 'tv.html', 'tv-catalog.json']) expect(tf, file).toContain(`key           = "${file}"`);
+    const files = [...html.matchAll(/(?:href|src)="([^":#]+)"/g)].map((m) => m[1]!);
+    expect(files).toEqual(['vendor/fonts.css', 'vendor/open-props.css', 'tv.css', 'vendor/icons.generated.js', 'vendor/motion.generated.js', 'tv-engine.generated.js', 'tv-channels.generated.js', 'tv-core.js', 'tv.js']);
+    const own = files.filter((file) => !file.startsWith('vendor/'));
+    for (const file of [...own, 'tv.html', 'tv-catalog.json', 'parcel.jpg']) expect(tf, file).toContain(`key           = "${file}"`);
+    // The libraries go up as one set, each file named (tv-build.test.ts holds the set to what `npm run web:vendor` writes).
+    for (const file of files.filter((f) => f.startsWith('vendor/'))) expect(tf, file).toContain(`"${file.slice('vendor/'.length)}"`);
     expect(tf).toContain('key           = "posters/${each.value}"');
     // The cards come by IoT Core first: the page is given its address, and the policy lets the page reach it.
     expect(tf).toContain('"MQTT_WSS_URL_PLACEHOLDER"');
@@ -143,6 +153,7 @@ describe('the home screen — what the Vega home shows', () => {
       ...CATALOG.programmes.flatMap((p) => [p.title, `${Math.round(p.durationMs / 60_000)} minutes`]),
       'Sarah looked in this morning.',
       'Easier to see',
+      WORDS.en['home.tour'],
     ]);
     // The focus starts on the first film, never a pill.
     expect(tv.focused()?.dataset.key).toBe('programme:big-buck-bunny');
@@ -199,6 +210,7 @@ describe('her day at the top — the greeting, the date, who is coming (home/her
       ...CATALOG.programmes.flatMap((p) => [p.title, `${Math.round(p.durationMs / 60_000)} minutes`]),
       'Light on',
       'Easier to see',
+      WORDS.en['home.tour'],
     ]);
     // Read, never pressed: the focus still starts on the first film.
     expect(tv.focused()?.dataset.key).toBe('programme:big-buck-bunny');
@@ -662,13 +674,328 @@ describe('the legend of the keys — the first time, and on the pairing screen; 
   });
 });
 
+/** A pointer going down, or up, on a node of the page (the remote beside the screen). */
+function pointer(node: El, type: string): FakeEvent {
+  const e = {
+    type,
+    target: node,
+    button: 0,
+    pointerId: 1,
+    detail: 1,
+    defaultPrevented: false,
+    stopped: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    stopImmediatePropagation() {
+      this.stopped = true;
+    },
+    stopPropagation() {
+      this.stopped = true;
+    },
+  };
+  node.dispatch(e);
+  return e;
+}
+
+const remoteButton = (tv: ReturnType<typeof tvPage>, name: string) => tv.page.document.getElementById('tv-remote-buttons').querySelector(`[data-remote="${name}"]`)!;
+const holdLine = (tv: ReturnType<typeof tvPage>) => tv.page.document.getElementById('stage').querySelector('.tv-hold')!;
+const bar = (tv: ReturnType<typeof tvPage>) => tv.screen.querySelector('.film-bar')!;
+const wordsOf = (node: El) => node.all().map((n) => n.ownText).filter(Boolean);
+/** Her day, for a home that says who she is (contracts today.ts). */
+const TODAY = (() => {
+  const start = Date.parse('2027-01-15T00:00:00Z');
+  return { weekday: 4, day: 15, month: 0, name: 'Margaret', dayStart: start, dayEnd: start + 24 * 3_600_000, coming: [] };
+})();
+
+describe('what this page is — said outside her screen, always (DESIGN.md §7)', () => {
+  it('says it is a stand-in for her Fire TV and that the keyboard is the remote, with a link to the keys', async () => {
+    const tv = tvPage();
+    const line = tv.page.document.getElementById('tv-standin');
+    expect(line.textContent).toContain('A stand-in for her Fire TV, in your browser. The keyboard is the remote.');
+    const link = line.querySelector('a')!;
+    expect(link.textContent).toBe('See the keys');
+    expect(link.href).toBe('#tv-keys');
+  });
+
+  it('names her once her home says who she is', async () => {
+    const tv = await atHome();
+    tv.home({ light: 'on', today: TODAY });
+    expect(tv.page.document.getElementById('tv-standin').textContent).toContain('A stand-in for Margaret’s Fire TV, in your browser.');
+  });
+
+  it('shows the keys when the link is followed, even after they were put away', async () => {
+    const tv = await atHome({ stored: { wick_tv_keys_seen: '1' } });
+    expect(tv.keysPanel.hidden).toBe(true);
+    tv.page.document.getElementById('tv-standin').querySelector('a')!.click();
+    expect(tv.keysPanel.hidden).toBe(false);
+  });
+});
+
+describe('the row under the films — the quiet line on its own row, then the pills (as HomeScreen.tsx)', () => {
+  it('puts who looked in on a row of its own, above the pills, and every pill keeps a name for a screen reader', async () => {
+    const tv = await atHome();
+    tv.home({ light: 'on', mantel: 2, today: TODAY, lookedIn: { name: 'Sarah', at: Date.now(), line: 'Sarah looked in this morning.', until: 1_800_000_000_000 + 3_600_000 } });
+    const quiet = tv.screen.querySelector('.home-quiet')!;
+    const pills = tv.screen.querySelector('.home-pills')!;
+    expect(wordsOf(quiet)).toEqual(['Sarah looked in this morning.']);
+    expect(quiet.querySelectorAll('button')).toEqual([]);
+    expect(pills.querySelectorAll('button').map((b) => b.dataset.key)).toEqual(['light', 'mantel', 'easier', 'tour']);
+    for (const pill of pills.querySelectorAll('button')) expect(pill.getAttribute('aria-label'), pill.dataset.key).toMatch(/\w/);
+    const rows = tv.screen.querySelector('.tv-home')!.children;
+    expect(rows.indexOf(quiet)).toBe(rows.indexOf(pills) - 1);
+  });
+
+  it('has no quiet row at all when there is nothing to say', async () => {
+    const tv = await atHome();
+    expect(tv.screen.querySelector('.home-quiet')).toBe(null);
+    expect(tv.screen.querySelector('.home-pills')).not.toBe(null);
+  });
+});
+
+describe('the remote beside the screen — a mouse or a finger presses what the keys press', () => {
+  it('has her remote’s six things, each a button with a label: the D-pad and OK, Back, Play/Pause, the two skips — and the keys', () => {
+    const tv = tvPage();
+    const buttons = tv.page.document.getElementById('tv-remote-buttons').querySelectorAll('button');
+    expect(buttons.map((b) => b.dataset.remote)).toEqual(['up', 'left', 'ok', 'right', 'down', 'back', 'play', 'rewind', 'forward', 'keys']);
+    for (const b of buttons) {
+      expect(b.getAttribute('aria-label'), b.dataset.remote).toMatch(/\w/);
+      // An icon beside a word, or a label of its own: never an icon alone (DESIGN.md §5).
+      expect(b.querySelectorAll('svg').every((svg) => svg.getAttribute('aria-hidden') === 'true')).toBe(true);
+    }
+  });
+
+  it('moves the ring with the arrows and presses OK, exactly as the keys do', async () => {
+    const tv = await atHome();
+    remoteButton(tv, 'down').click();
+    expect(tv.focused()?.dataset.key).toBe('easier');
+    tv.advance(PRESS_SETTLE_MS);
+    pointer(remoteButton(tv, 'ok'), 'pointerdown');
+    pointer(remoteButton(tv, 'ok'), 'pointerup');
+    expect(tv.buttons()).toEqual(['Larger text', 'Higher contrast', 'Back']);
+    remoteButton(tv, 'back').click();
+    expect(tv.says()[0]).toBe(WORDS.en['home.question']);
+  });
+
+  it('keeps the browser’s focus off its own buttons: the ring stays on her screen', async () => {
+    const tv = await atHome();
+    const down = pointer(remoteButton(tv, 'down'), 'pointerdown');
+    expect(down.defaultPrevented).toBe(true);
+  });
+
+  it('holds OK with a finger: a line fills from 0.4 s and says what holding does, and at two seconds the offer is asked for', async () => {
+    const tv = await atHome();
+    const ok = remoteButton(tv, 'ok');
+    pointer(ok, 'pointerdown');
+    tv.advance(300);
+    expect(holdLine(tv).hidden).toBe(true);
+    tv.advance(200);
+    expect(holdLine(tv).hidden).toBe(false);
+    expect(wordsOf(holdLine(tv))).toEqual([WORDS.en['hold.keepPlain']]);
+    tv.advance(HOLD_MS - 500);
+    expect(tv.sentOf('reach')).toHaveLength(1);
+    expect(holdLine(tv).hidden).toBe(true);
+    pointer(ok, 'pointerup');
+    // A hold is not a press: no film was started under her finger.
+    expect(tv.run('film')).toBe(null);
+  });
+
+  it('asks for nothing when the finger lets go before two seconds, or slides off', async () => {
+    const tv = await atHome();
+    const ok = remoteButton(tv, 'ok');
+    pointer(ok, 'pointerdown');
+    tv.advance(1500);
+    pointer(ok, 'pointercancel');
+    tv.advance(HOLD_MS);
+    expect(tv.sentOf('reach')).toEqual([]);
+    expect(holdLine(tv).hidden).toBe(true);
+    expect(tv.run('film')).toBe(null);
+  });
+
+  it('skips the film thirty seconds back and forward with the two skip keys, and says where it is', async () => {
+    const tv = await atHome();
+    const video = await watching(tv);
+    at(tv, video, 120_000);
+    remoteButton(tv, 'forward').click();
+    expect(video.currentTime).toBe(150);
+    expect(bar(tv).hidden).toBe(false);
+    remoteButton(tv, 'rewind').click();
+    expect(video.currentTime).toBe(120);
+    remoteButton(tv, 'play').click();
+    expect(video.paused).toBe(true);
+  });
+});
+
+describe('the film’s bar — its title, the time gone, how long is left (watch/transport.ts)', () => {
+  it('comes on ↑ or ↓, and goes after four seconds of play', async () => {
+    const tv = await atHome();
+    const video = await watching(tv);
+    at(tv, video, 65_000);
+    expect(bar(tv).hidden).toBe(true);
+
+    tv.press('ArrowUp');
+    expect(bar(tv).hidden).toBe(false);
+    const total = BUNNY.durationMs;
+    const left = Math.ceil((total - 65_000) / 60_000);
+    expect(wordsOf(bar(tv))).toEqual([BUNNY.title, `1:05 of ${Math.floor(total / 60_000)}:${String(Math.floor(total / 1000) % 60).padStart(2, '0')}`, `${left} min left`]);
+    expect(bar(tv).getAttribute('aria-label')).toBe(`${BUNNY.title}. 1:05 of ${Math.floor(total / 60_000)}:${String(Math.floor(total / 1000) % 60).padStart(2, '0')}. ${left} minutes left.`);
+
+    tv.advance(4000);
+    expect(bar(tv).hidden).toBe(true);
+    tv.press('ArrowDown');
+    expect(bar(tv).hidden).toBe(false);
+  });
+
+  it('stays while the film is paused, and comes on a skip', async () => {
+    const tv = await atHome();
+    const video = await watching(tv);
+    tv.press('Enter');
+    expect(video.paused).toBe(true);
+    tv.advance(30_000);
+    expect(bar(tv).hidden).toBe(false);
+    tv.press('Enter');
+    tv.advance(5000);
+    expect(bar(tv).hidden).toBe(true);
+    tv.press('ArrowLeft');
+    expect(bar(tv).hidden).toBe(false);
+  });
+
+  it('never covers a card', async () => {
+    const tv = await atHome();
+    await watching(tv);
+    tv.press('Enter');
+    expect(bar(tv).hidden).toBe(false);
+    tv.card(DOOR());
+    expect(bar(tv).hidden).toBe(true);
+  });
+});
+
+describe('her films in her order — home/order.ts, counted on this device and sent nowhere', () => {
+  const [first, second, third] = CATALOG.programmes;
+
+  it('puts a film she left part-way first, with “Carry on”, how long is left, and a line of how far she got', async () => {
+    const tv = await atHome({ stored: { wick_tv_film_positions: JSON.stringify({ [third!.id]: 600_000 }) } });
+    const tiles = tv.screen.querySelectorAll('.home-tile');
+    expect(tiles.map((t) => t.dataset.key)).toEqual([third, first, second].map((p) => `programme:${p!.id}`));
+    const minutes = Math.ceil((third!.durationMs - 600_000) / 60_000);
+    expect(tv.says()).toContain(WORDS.en['home.carryOn']);
+    expect(tv.says()).toContain(`${minutes} min left`);
+    expect(tiles[0]!.querySelector('.home-chip')!.textContent).toBe(WORDS.en['home.carryOn']);
+    expect(tiles[0]!.getAttribute('aria-label')).toBe(`${third!.title}. Carry on where you left it, ${minutes} minutes left.`);
+    expect(tiles[0]!.querySelector('.home-progress-fill')!.style['--fill']).toBe(String(600_000 / third!.durationMs));
+    expect(tiles[1]!.querySelector('.home-progress')).toBe(null);
+  });
+
+  it('then the films she starts most at this time of day', async () => {
+    const tally = { [second!.id]: { morning: 2, afternoon: 2, evening: 2 } };
+    const tv = await atHome({ stored: { wick_tv_watch_tally: JSON.stringify(tally) } });
+    expect(tv.screen.querySelectorAll('.home-tile').map((t) => t.dataset.key)).toEqual([second, first, third].map((p) => `programme:${p!.id}`));
+  });
+
+  it('counts a film she starts on this device, and tells nobody', async () => {
+    const tv = await atHome();
+    await watching(tv);
+    const tally = JSON.parse(tv.device.get('wick_tv_watch_tally')!) as Record<string, Record<string, number>>;
+    expect(Object.values(tally[first!.id]!)).toEqual([1]);
+    expect(JSON.stringify(tv.sent())).not.toContain('morning');
+  });
+});
+
+describe('How Wick works — a tour of examples, with the remote alone, and nothing sent (tour/tour.ts)', () => {
+  async function onTheTour() {
+    const tv = await atHome();
+    tv.press('ArrowDown');
+    tv.press('ArrowRight');
+    expect(tv.focused()?.dataset.key).toBe('tour');
+    expect(tv.focused()?.getAttribute('aria-label')).toBe(WORDS.en['home.tourLabel']);
+    tv.advance(PRESS_SETTLE_MS);
+    tv.press('Enter');
+    return tv;
+  }
+  const noted = (tv: ReturnType<typeof tvPage>) => tv.sent().filter((e) => !['break_state', 'home'].includes(String(e.t)));
+
+  it('shows each thing Wick does as an example, the door first with the stand-in doorbell’s picture from this page', async () => {
+    const tv = await onTheTour();
+    expect(tv.says()).toEqual([
+      'How Wick works · 1 of 5',
+      WORDS.en['tour.example'],
+      WORDS.en['tour.doorHeadline'],
+      WORDS.en['tour.doorPicture'],
+      WORDS.en['tour.doorDetail'].replace('{name}', WORDS.en['tour.family']),
+      WORDS.en['tour.next'],
+      WORDS.en['tour.close'],
+    ]);
+    expect(tv.screen.querySelector('.tour-picture')!.src).toBe('parcel.jpg');
+    expect(tv.focused()?.dataset.key).toBe('tour-next');
+  });
+
+  it('goes from step to step with OK, ends on the films, and sends nothing at all', async () => {
+    const tv = await onTheTour();
+    const before = noted(tv).length;
+    const headlines = [];
+    for (let step = 1; step <= 5; step++) {
+      headlines.push(tv.screen.querySelector('.headline')!.textContent);
+      tv.advance(PRESS_SETTLE_MS);
+      tv.press('Enter');
+    }
+    expect(headlines).toEqual([
+      WORDS.en['tour.doorHeadline'],
+      WORDS.en['tour.noteHeadline'].replace('{name}', WORDS.en['tour.family']),
+      WORDS.en['tour.holdHeadline'],
+      WORDS.en['tour.readHeadline'],
+      WORDS.en['tour.doneHeadline'],
+    ]);
+    expect(tv.says()[0]).toBe(WORDS.en['home.question']);
+    expect(tv.focused()?.dataset.key).toBe('tour');
+    expect(noted(tv).slice(before)).toEqual([]);
+  });
+
+  it('closes with Back, holds nothing, reads nothing, and lets the door over it while a note waits behind it', async () => {
+    const tv = await onTheTour();
+    tv.keyDown('Enter');
+    tv.advance(HOLD_MS + 100);
+    tv.keyUp('Enter');
+    // Holding OK is nothing here: let go, it is the press of the button it is on, "Show me the next".
+    expect(tv.sentOf('reach')).toEqual([]);
+    expect(tv.says()[0]).toBe('How Wick works · 2 of 5');
+    tv.press(' ');
+    expect(tv.sentOf('read')).toEqual([]);
+
+    tv.advance(SETTLED_AFTER_MS);
+    tv.card(NOTE);
+    expect(shownType(tv)).toBe(null);
+    tv.card(DOOR());
+    expect(shownType(tv)).toBe('DOOR');
+    tv.advance(PRESS_SETTLE_MS);
+    tv.press('Escape');
+    expect(tv.says()[0]).toBe('How Wick works · 2 of 5');
+    // Back closes the tour, and the note that waited behind it comes now, on her home screen.
+    tv.press('Escape');
+    expect(shownType(tv)).toBe('MESSAGE');
+  });
+});
+
+describe('the mark that reads a card aloud — the speaker and its words (read.chip)', () => {
+  it('carries the speaker icon and “Read aloud”, and is not one of the card’s buttons', async () => {
+    const tv = await atHome();
+    tv.advance(SETTLED_AFTER_MS);
+    tv.card(NOTE);
+    const mark = tv.screen.querySelector('.tv-read')!;
+    expect(mark.dataset.chip).toBe(WORDS.en['read.chip']);
+    expect(mark.querySelector('svg')).not.toBe(null);
+    expect(mark.tagName).toBe('span');
+  });
+});
+
 describe('tv.css — the television’s floor', () => {
   const css = readFileSync(fileURLToPath(new URL('../tv.css', import.meta.url)), 'utf8');
   /** Everything but the legend, which is for whoever is trying the page and not part of her television. */
   const screenCss = css.slice(0, css.indexOf('/* --- The keys (tv.html)'));
   const tokens = (block: string) => Object.fromEntries([...block.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1]!, m[2]!]));
-  const ordinary = tokens(/\.tv-screen \{([^}]*)\}/.exec(css)![1]!);
-  const high = tokens(/\.tv-screen\.higher-contrast \{([^}]*)\}/.exec(css)![1]!);
+  /** The rule whose selectors start with this one (the screen's tokens are shared with the hold line drawn over it). */
+  const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/\./g, '\\.')}(?:,\\s*[^{]+)? \\{([^}]*)\\}`).exec(css)![1]!;
+  const ordinary = tokens(rule('.tv-screen'));
+  const high = tokens(rule('.tv-screen.higher-contrast'));
 
   it('is the calm-ui palette', () => {
     expect(ordinary).toMatchObject({ ink: palette.ink.toLowerCase(), 'ink-dim': palette.inkDim.toLowerCase(), ground: palette.ground.toLowerCase(), raised: palette.raised.toLowerCase(), accent: palette.accent.toLowerCase(), focus: palette.focus.toLowerCase() });
@@ -676,7 +1003,7 @@ describe('tv.css — the television’s floor', () => {
 
   it('sets no type under 32, a quarter larger with Larger text', () => {
     expect(css).toMatch(new RegExp(`--body: calc\\(${calmType.bodyPt} \\* var\\(--dp\\) \\* var\\(--type\\)\\)`));
-    expect(css).toMatch(/\.tv-screen\.larger-text \{\s*--type: 1\.25;/);
+    expect(rule('.tv-screen.larger-text')).toMatch(/^\s*--type: 1\.25;/);
     for (const [, value] of screenCss.matchAll(/font-size:\s*([^;]+);/g)) expect(value).toMatch(/^var\(--(body|headline|display)\)$/);
   });
 
@@ -685,13 +1012,65 @@ describe('tv.css — the television’s floor', () => {
       expect(contrastRatio(ordinary[fg]!, ordinary[bg]!), `${fg} on ${bg}`).toBeGreaterThanOrEqual(7);
       expect(contrastRatio(high[fg]!, high[bg]!), `${fg} on ${bg}, higher contrast`).toBeGreaterThanOrEqual(15);
     }
-    expect(css).toMatch(/\.tv-screen\.higher-contrast \{[^}]*--ring: calc\(8 \* var\(--dp\)\)/);
-    expect(css).toMatch(/\.tv-screen \{[^}]*--ring: calc\(4 \* var\(--dp\)\)/);
+    expect(rule('.tv-screen.higher-contrast')).toMatch(/--ring: calc\(8 \* var\(--dp\)\)/);
+    expect(rule('.tv-screen')).toMatch(/--ring: calc\(4 \* var\(--dp\)\)/);
   });
+
+  /** The blocks that apply only when reduced motion has not been asked for, and the stylesheet without them. */
+  const motionBlocks: string[] = [];
+  let still = css;
+  for (let at = still.indexOf('@media (prefers-reduced-motion: no-preference)'); at >= 0; at = still.indexOf('@media (prefers-reduced-motion: no-preference)')) {
+    let depth = 0;
+    let end = still.indexOf('{', at);
+    for (; end < still.length; end++) {
+      if (still[end] === '{') depth++;
+      if (still[end] === '}' && --depth === 0) break;
+    }
+    motionBlocks.push(still.slice(at, end + 1));
+    still = still.slice(0, at) + still.slice(end + 1);
+  }
 
   it('has no red anywhere, and nothing that moves by itself', () => {
     for (const [hex] of css.matchAll(/#[0-9a-f]{6}\b/gi)) expect(alarmHue(hex), hex).toBe(null);
-    expect(css).not.toMatch(/animation|transition|@keyframes/);
+    expect(css).not.toMatch(/animation|@keyframes/);
+  });
+
+  it('moves only what a press moves, in 200 ms or less, and nothing at all with reduced motion asked for (DESIGN.md §4)', () => {
+    expect(motionBlocks.length).toBeGreaterThan(0);
+    expect(still).not.toMatch(/transition/);
+    for (const block of motionBlocks) for (const [, ms] of block.matchAll(/(\d+)ms/g)) expect(Number(ms)).toBeLessThanOrEqual(200);
+  });
+
+  it('has the redesign’s three: the raised-high surface, the progress track and the scrim — and every word on them at 7:1', () => {
+    expect(ordinary).toMatchObject({ 'raised-high': '#2a2621', track: '#4a443b' });
+    expect(rule('.tv-screen')).toMatch(/--scrim: rgb\(18 16 14 \/ 82%\);/);
+    for (const [fg, bg] of [['ink', 'raised-high'], ['ink-dim', 'raised-high'], ['accent', 'raised'], ['accent', 'raised-high']]) {
+      expect(contrastRatio(ordinary[fg]!, ordinary[bg]!), `${fg} on ${bg}`).toBeGreaterThanOrEqual(7);
+      expect(contrastRatio(high[fg]!, high[bg]!), `${fg} on ${bg}, higher contrast`).toBeGreaterThanOrEqual(15);
+    }
+  });
+
+  it('never cuts the quiet line under the films: no ellipsis, no clamp, no single line forced — it wraps (DESIGN.md §1)', () => {
+    for (const selector of ['.home-quiet', '.home-said', '.home-waiting', '.home-waiting-line']) {
+      const rules = [...css.matchAll(/(^|\n)([^{}\n][^{}]*)\{([^}]*)\}/g)].filter((m) => m[2]!.split(',').some((s) => s.trim().split(/[\s:]/)[0] === selector || s.includes(`${selector} `) || s.trim().endsWith(selector)));
+      expect(rules.length, selector).toBeGreaterThan(0);
+      for (const rule of rules) {
+        expect(rule[3], selector).not.toMatch(/text-overflow|line-clamp|white-space:\s*nowrap/);
+      }
+    }
+  });
+
+  it('shows the focus on a film as the ring, a raised surface and a little larger — never a colour alone', () => {
+    const focused = rule('.home-tile:focus');
+    expect(focused).toMatch(/background: var\(--raised-high\);/);
+    expect(focused).toMatch(/transform: scale\(1\.04\);/);
+    expect(css).toMatch(/\.tv-screen button:focus,\n\.tv-screen \[data-focusable\]:focus \{\s*outline: var\(--ring\) solid var\(--focus\);/);
+  });
+
+  it('sets her words in Atkinson Hyperlegible Next, from this page’s own files, and the page around her screen at 14 px or more', () => {
+    expect(css).toMatch(/--font: 'Atkinson Hyperlegible Next Variable'/);
+    expect(rule('.room')).toMatch(/font-size: clamp\(14px,/);
+    for (const [, value] of css.slice(css.indexOf('/* --- The keys (tv.html)')).matchAll(/font-size:\s*([^;]+);/g)) expect(value, value).toMatch(/^(clamp\(14px,|max\(14px,)/);
   });
 });
 

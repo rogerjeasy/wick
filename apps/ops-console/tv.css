@@ -1,59 +1,88 @@
 /*
- * Her television, in a browser (tv.html) — drawn as the Vega app draws it.
+ * Her television, in a browser (tv.html) — drawn as the Vega app draws it, in the design system of
+ * docs/design/DESIGN.md: a candle in a window, warm dark ground, warm white words, one amber flame.
  *
- * The screen is the Vega app's logical screen, 960 by 540 dp, scaled to the
- * window and letterboxed on black: one dp is a 960th of the screen's width
- * (--dp), so every size here is the Vega app's own number, from
- * packages/vega-calm-ui/src/tokens.ts and the screens that use them
- * (home/HomeScreen.tsx, CalmCard.tsx, watch/WatchScreen.tsx). The floor is
- * the television's: no type under 32, 7:1 contrast at the least, focus a
- * ring and never a colour alone, no red, no badge, nothing that moves by
- * itself (__tests__/tv.test.ts holds this file to it).
+ * The screen is the Vega app's logical screen, 960 by 540 dp, scaled to the window and letterboxed: one dp
+ * is a 960th of the screen's width (--dp), so every size here is the Vega app's own number, from
+ * packages/vega-calm-ui/src/tokens.ts and the screens that use them. The floor is the television's: no type
+ * under 32, 7:1 contrast at the least, focus a ring and a raised surface — never a colour alone — no red, no
+ * badge, and nothing that moves by itself (__tests__/tv.test.ts holds this file to it). What moves when she
+ * presses — a tile taking the focus, a card coming and going (tv.js, with Motion) — takes 200 ms or less,
+ * and nothing at all with reduced motion asked for.
  *
- * "Easier to see" (tv.js) adds two modes on the screen itself: .larger-text
- * sets every size of type 1.25 times larger (--type), and .higher-contrast
- * is black and white with a ring twice as thick — 21:1 everywhere.
+ * The type is Atkinson Hyperlegible Next, self-hosted (vendor/fonts.css); the easings and shadows are
+ * open-props' (vendor/open-props.css).
+ *
+ * "Easier to see" (tv.js) adds two modes on the screen itself: .larger-text sets every size of type 1.25
+ * times larger (--type), and .higher-contrast is black and white with a ring twice as thick — 21:1.
+ *
+ * After the screen, marked "The keys (tv.html)", is the page around it — the line that says it is a
+ * stand-in, the remote, the keyboard's legend — which is for whoever is trying it, not part of her
+ * television, and is held to the web's floor instead (14 px, 4.5:1).
  */
 
 :root {
   color-scheme: dark;
+  --page: #0b0a09;
+  --font: 'Atkinson Hyperlegible Next Variable', 'Atkinson Hyperlegible Next', 'Helvetica Neue', Roboto, 'Segoe UI', system-ui, sans-serif;
+  /* DESIGN.md §4: everything that enters or moves. */
+  --ease-wick: cubic-bezier(0.2, 0, 0, 1);
+  --gutter: 16px;
 }
 
 html,
 body {
   margin: 0;
   min-height: 100%;
-  background: #000000;
+  background: var(--page);
 }
 
 body {
   min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: 'Amazon Ember', 'Helvetica Neue', Roboto, 'Segoe UI', system-ui, sans-serif;
+  min-height: 100dvh;
+  font-family: var(--font);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  /* A candle's glow, low over the room: never behind a word, so never in the way of one. */
+  background:
+    radial-gradient(ellipse 70% 45% at 50% 0%, rgb(232 183 93 / 7%), transparent 70%),
+    var(--page);
 }
 
 [hidden] {
   display: none !important;
 }
 
-/* Sixteen by nine, as large as the window allows. Its width is what a dp is measured from. */
+.icon {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+}
+
+/* --- Her screen -------------------------------------------------------------------------------------- */
+
+/* Sixteen by nine. Its width is what a dp is measured from; how wide it may be is the room's (below). */
 .stage {
   position: relative;
-  width: min(100vw, calc(100vh * 16 / 9));
+  width: var(--screen-w, 100%);
+  max-width: 100%;
   container-type: inline-size;
 }
 
-.tv-screen {
-  /* packages/vega-calm-ui tokens.ts palette */
+.tv-screen,
+.tv-hold {
+  /* packages/vega-calm-ui tokens.ts palette, and the redesign's three (DESIGN.md §2) */
   --ink: #f4f1ea;
   --ink-dim: #c8c2b6;
   --ground: #12100e;
   --raised: #1e1b17;
+  --raised-high: #2a2621;
   --accent: #e8b75d;
   --on-accent: #12100e;
+  --track: #4a443b;
+  --scrim: rgb(18 16 14 / 82%);
   --focus: #ffffff;
   /* A surface's edge: none, on the ordinary palette. */
   --edge: #1e1b17;
@@ -64,30 +93,42 @@ body {
   --body: calc(32 * var(--dp) * var(--type));
   --headline: calc(48 * var(--dp) * var(--type));
   --display: calc(64 * var(--dp) * var(--type));
+  --radius: calc(16 * var(--dp));
 
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--body);
+  line-height: 1.4;
+}
+
+.tv-screen {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   overflow: hidden;
   background: var(--ground);
-  color: var(--ink);
-  font-size: var(--body);
-  line-height: 1.4;
+  border-radius: clamp(6px, calc(12 * var(--dp)), 18px);
+  box-shadow: var(--shadow-6), 0 0 0 1px rgb(244 241 234 / 6%);
 }
 
 /* Easier to see: every size of type a quarter larger. */
-.tv-screen.larger-text {
+.tv-screen.larger-text,
+.tv-hold.larger-text {
   --type: 1.25;
 }
 
 /* Easier to see: black and white, and a ring twice as thick. */
-.tv-screen.higher-contrast {
+.tv-screen.higher-contrast,
+.tv-hold.higher-contrast {
   --ink: #ffffff;
   --ink-dim: #ffffff;
   --ground: #000000;
   --raised: #000000;
+  --raised-high: #000000;
   --accent: #ffffff;
   --on-accent: #000000;
+  --track: #ffffff;
+  --scrim: rgb(0 0 0 / 88%);
   --focus: #ffffff;
   --edge: #ffffff;
   --ring: calc(8 * var(--dp));
@@ -122,13 +163,19 @@ body {
   display: flex;
   flex-direction: column;
   gap: calc(24 * var(--dp));
+  background:
+    radial-gradient(ellipse 60% 40% at 15% 0%, rgb(232 183 93 / 6%), transparent 70%),
+    var(--ground);
+}
+
+.tv-screen.higher-contrast .tv-home {
   background: var(--ground);
 }
 
 .home-top {
   display: flex;
-  align-items: center;
-  gap: calc(24 * var(--dp));
+  align-items: baseline;
+  gap: calc(16 * var(--dp));
 }
 
 .home-question {
@@ -136,6 +183,8 @@ body {
   min-width: 0;
   font-size: var(--headline);
   line-height: 1.25;
+  font-weight: 500;
+  letter-spacing: -0.02em;
   color: var(--ink);
 }
 
@@ -157,8 +206,9 @@ body {
   flex: none;
   margin-top: calc(-12 * var(--dp));
   box-sizing: border-box;
-  border-radius: calc(16 * var(--dp));
+  border-radius: var(--radius);
   background: var(--raised);
+  border: calc(2 * var(--dp)) solid var(--edge);
   padding: calc(4 * var(--dp)) calc(20 * var(--dp));
   display: flex;
   flex-direction: column;
@@ -171,16 +221,31 @@ body {
   line-height: 1.4;
 }
 
+/* A pill: an icon and its word, on a raised surface. */
 .home-pill {
   flex: none;
   box-sizing: border-box;
-  border-radius: calc(16 * var(--dp));
+  display: inline-flex;
+  align-items: center;
+  gap: calc(12 * var(--dp));
+  border-radius: var(--radius);
   border: calc(2 * var(--dp)) solid var(--edge);
   background: var(--raised);
-  padding: calc(2 * var(--dp)) calc(16 * var(--dp));
+  padding: calc(4 * var(--dp)) calc(16 * var(--dp));
   color: var(--ink-dim);
   font-size: var(--body);
   white-space: nowrap;
+}
+
+.home-pill .icon {
+  color: var(--accent);
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.home-pill:focus {
+  background: var(--raised-high);
+  color: var(--ink);
 }
 
 /* The films: three, side by side. Their pictures take what height the words leave, so the screen never overflows. */
@@ -196,18 +261,72 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-radius: calc(16 * var(--dp));
+  border-radius: var(--radius);
   border: calc(2 * var(--dp)) solid var(--edge);
   background: var(--raised);
   overflow: hidden;
+  box-shadow: var(--shadow-3);
+}
+
+/* The tile with the focus: the ring, a raised surface, and a little larger (DESIGN.md §4 focusMs) — never a colour alone. */
+.home-tile:focus {
+  background: var(--raised-high);
+  transform: scale(1.04);
+  box-shadow: var(--shadow-5);
+  z-index: 1;
+}
+
+.home-picture {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
 }
 
 .home-poster {
   display: block;
   width: 100%;
-  flex: 1 1 auto;
   min-height: 0;
   object-fit: cover;
+}
+
+/* "Carry on": on the picture of the film she left part-way, above the line of how far she got. */
+.home-chip {
+  position: absolute;
+  left: calc(12 * var(--dp));
+  bottom: calc(20 * var(--dp));
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8 * var(--dp));
+  padding: 0 calc(12 * var(--dp));
+  border-radius: calc(12 * var(--dp));
+  background: var(--raised-high);
+  color: var(--ink);
+  font-size: var(--body);
+  line-height: 1.4;
+}
+
+.home-chip .icon {
+  color: var(--accent);
+  width: 0.75em;
+  height: 0.75em;
+}
+
+/* How far she got into a film she left part-way: a line along the foot of its picture (home/order.ts). */
+.home-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(8 * var(--dp));
+  background: var(--track);
+}
+
+.home-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(var(--fill, 0));
 }
 
 .home-caption {
@@ -228,6 +347,7 @@ body {
 /* A film's title is never cut: at larger text it takes two lines, as on Vega (homeLayout.ts titleLines). */
 .home-title {
   color: var(--ink);
+  font-weight: 600;
   white-space: normal;
   overflow: visible;
 }
@@ -236,11 +356,15 @@ body {
   color: var(--ink-dim);
 }
 
-/* The quiet row under the films: one thing on the left, and at its right-hand end the pills. */
+/* "Carry on · 12 min left": the one line on the home screen in the flame's colour (9.6:1 on the tile). */
+.home-line.home-carry-on {
+  color: var(--accent);
+}
+
+/* The quiet line under the films — what is waiting, or who looked in — on a row of its own, its words never cut:
+   a long one takes a second line. */
 .home-quiet {
   display: flex;
-  align-items: center;
-  gap: calc(24 * var(--dp));
 }
 
 .home-said {
@@ -248,9 +372,8 @@ body {
   min-width: 0;
   color: var(--ink-dim);
   font-size: var(--body);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .home-waiting {
@@ -260,10 +383,14 @@ body {
   align-items: center;
   gap: calc(24 * var(--dp));
   box-sizing: border-box;
-  border-radius: calc(16 * var(--dp));
+  border-radius: var(--radius);
   border: calc(2 * var(--dp)) solid var(--edge);
   background: var(--raised);
-  padding: calc(6 * var(--dp)) calc(20 * var(--dp));
+  padding: calc(4 * var(--dp)) calc(20 * var(--dp));
+}
+
+.home-waiting:focus {
+  background: var(--raised-high);
 }
 
 .home-waiting-line {
@@ -271,33 +398,71 @@ body {
   min-width: 0;
   color: var(--ink-dim);
   font-size: var(--body);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* The pills: her light, her mantelpiece, Easier to see, How Wick works. Where the row has no room for every pill's
+   words, they give way one at a time (tv.js fitPills): that pill is its icon until it has the focus. */
+.home-pills {
+  display: flex;
+  align-items: center;
+  gap: calc(16 * var(--dp));
+}
+
+.home-pill.no-words:not(:focus) .pill-words {
+  display: none;
 }
 
 .home-open {
-  color: var(--ink);
+  color: var(--accent);
   font-size: var(--body);
 }
 
 /* --- A card (CalmCard.tsx): over the film, at the bottom, never instead of it ---- */
 
+/*
+ * Laid out as CalmCard lays it out: what the card shows beside its words, and its words — the headline
+ * first — then its buttons, and at the end of that row the mark of the Play key ("Read aloud").
+ */
 .tv-card {
   position: absolute;
+  z-index: 2;
   left: calc(48 * var(--dp));
   right: calc(48 * var(--dp));
   bottom: calc(32 * var(--dp));
   box-sizing: border-box;
   max-height: calc(476 * var(--dp));
   padding: calc(32 * var(--dp));
-  border-radius: calc(16 * var(--dp));
+  border-radius: var(--radius);
   border: calc(2 * var(--dp)) solid var(--edge);
   background: var(--raised);
   color: var(--ink);
+  box-shadow: var(--shadow-6);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'body body'
+    'actions read';
+  align-items: center;
+  column-gap: calc(24 * var(--dp));
+  row-gap: calc(24 * var(--dp));
+}
+
+.card-body {
+  grid-area: body;
+  display: flex;
+  align-items: flex-start;
+  gap: calc(24 * var(--dp));
+  min-width: 0;
+}
+
+.card-words {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: calc(12 * var(--dp));
+  gap: calc(8 * var(--dp));
 }
 
 .tv-card .kicker {
@@ -310,6 +475,8 @@ body {
   color: var(--ink);
   font-size: var(--headline);
   line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 
@@ -326,20 +493,21 @@ body {
 }
 
 .tv-card .body-text.next-language {
-  margin-top: calc(12 * var(--dp));
+  margin-top: calc(8 * var(--dp));
 }
 
 .tv-card .actions {
+  grid-area: actions;
   display: flex;
   flex-wrap: wrap;
   gap: calc(16 * var(--dp));
-  margin-top: calc(8 * var(--dp));
+  min-width: 0;
 }
 
 .tv-card .actions .pill {
   box-sizing: border-box;
   max-width: 100%;
-  padding: calc(20 * var(--dp)) calc(32 * var(--dp));
+  padding: calc(16 * var(--dp)) calc(32 * var(--dp));
   border-radius: calc(12 * var(--dp));
   border: calc(2 * var(--dp)) solid var(--edge);
   background: var(--ground);
@@ -349,53 +517,67 @@ body {
   text-align: center;
 }
 
-/* The first button is amber, and its words are the dark of the ground (constraints.ts actionColours). */
-.tv-card .actions .pill.primary {
-  background: var(--accent);
-  color: var(--on-accent);
+.tv-card .actions .pill:focus {
+  background: var(--raised-high);
 }
 
-/* The mark of the Play key (read/ReadHint.tsx): in the card's corner, not one of its buttons. */
+/* The first button is amber, and its words are the dark of the ground (constraints.ts actionColours). */
+.tv-card .actions .pill.primary,
+.tv-card .actions .pill.primary:focus {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+/* The mark of the Play key (read/ReadHint.tsx): the speaker and "Read aloud", at the end of the buttons' row —
+   not one of the buttons, and never in their way. Its words are the card's data-chip, in her language. */
 .tv-read {
-  position: absolute;
-  top: calc(20 * var(--dp));
-  right: calc(28 * var(--dp));
+  grid-area: read;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8 * var(--dp));
   color: var(--ink-dim);
   font-size: var(--body);
   line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.tv-read::before {
-  content: '\25B6';
+.tv-read .icon {
+  color: var(--accent);
 }
 
-/* The door (DoorCard.tsx): the picture beside the words, never above the headline. Compact, as on Vega: the headline
-   at body size and a 256 by 144 frame, so the film keeps the top of the screen. */
+.tv-read::after {
+  content: attr(data-chip);
+}
+
+/* What a card shows beside its words (CalmCard `media`): the door's frame, a picture, who a note is from. */
+.card-media {
+  flex: none;
+}
+
+.card-media:empty {
+  display: none;
+}
+
+/* The door (DoorCard.tsx): compact, a 256 by 144 frame beside the words, the headline at body size — so the film
+   keeps the top of the screen. */
 .tv-card.urgency-door {
   padding: calc(24 * var(--dp));
-  display: grid;
-  grid-template-columns: calc(256 * var(--dp)) minmax(0, 1fr);
-  column-gap: calc(24 * var(--dp));
-  row-gap: calc(8 * var(--dp));
-  align-content: start;
+  row-gap: calc(16 * var(--dp));
 }
 
-.tv-card.urgency-door > :not(.tv-still):not(.actions):not(.tv-read) {
-  grid-column: 2;
+.card-frame {
+  width: calc(256 * var(--dp));
 }
 
-.tv-card.urgency-door > .tv-still {
-  grid-column: 1;
-  grid-row: 1 / span 4;
+.tv-still {
+  display: block;
   width: 100%;
+  aspect-ratio: 16 / 9;
   max-height: calc(144 * var(--dp));
-  object-fit: contain;
+  object-fit: cover;
   border-radius: calc(8 * var(--dp));
-}
-
-.tv-card.urgency-door > .actions {
-  grid-column: 1 / -1;
 }
 
 .tv-card.urgency-door .headline {
@@ -404,18 +586,61 @@ body {
   font-weight: 700;
 }
 
-/* A picture from the family: whole, never cropped. */
+.tv-card .body-text.quiet {
+  color: var(--ink-dim);
+}
+
+/* Who a note is from: their picture, round (MessageCard.tsx). */
+.card-sender {
+  width: calc(96 * var(--dp));
+}
+
+.tv-sender {
+  display: block;
+  width: calc(96 * var(--dp));
+  height: calc(96 * var(--dp));
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* A picture from the family: whole, never cropped, beside the words. */
 .tv-photo {
   display: flex;
   justify-content: center;
 }
 
+.tv-card .tv-photo.card-media {
+  max-width: 40%;
+}
+
 .tv-photo img {
   display: block;
   max-width: 100%;
-  max-height: calc(200 * var(--dp));
+  max-height: calc(220 * var(--dp));
   object-fit: contain;
   border-radius: calc(8 * var(--dp));
+}
+
+/* --- Over the film: a scrim behind a card (DESIGN.md §2 scrim) --------------------------------------- */
+
+.tv-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--scrim);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tv-screen.scrimmed::after {
+  opacity: 1;
+}
+
+/* A card on its way out (tv.js): drawn as it was, fading, under whatever comes next, and reached by nothing. */
+.tv-card.tv-leaving {
+  z-index: 1;
+  pointer-events: none;
 }
 
 /* --- Screens that are the whole screen --------------------------------------- */
@@ -423,28 +648,49 @@ body {
 .tv-card.tv-pairing,
 .tv-card.tv-getting-code,
 .tv-card.tv-mantel,
-.tv-card.tv-family {
+.tv-card.tv-family,
+.tv-card.tv-tour {
   inset: 0;
   max-height: none;
   border: 0;
   border-radius: 0;
+  box-shadow: none;
   background: var(--ground);
   padding: calc(32 * var(--dp)) calc(48 * var(--dp));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   justify-content: center;
+  gap: calc(16 * var(--dp));
 }
 
-/* The pairing screen (PairingScreen.tsx): the code, large, and one sentence on where to enter it — from the top, so
-   the legend of the keys along the foot of the screen covers none of it. */
+.tv-card.tv-mantel .actions,
+.tv-card.tv-family .actions,
+.tv-card.tv-tour .actions {
+  margin-top: calc(8 * var(--dp));
+}
+
+/* The pairing screen (PairingScreen.tsx): the code, large, and one sentence on where to enter it — beside it, the
+   link as a QR code. */
 .tv-card.tv-pairing,
 .tv-card.tv-getting-code {
   justify-content: flex-start;
   padding-top: calc(56 * var(--dp));
+  background:
+    radial-gradient(ellipse 55% 45% at 20% 10%, rgb(232 183 93 / 8%), transparent 70%),
+    var(--ground);
+}
+
+.tv-pairing .headline,
+.tv-getting-code .headline {
+  font-size: var(--display);
+  line-height: 1.15;
 }
 
 .tv-pairing .headline {
-  font-size: var(--display);
   color: var(--accent);
   letter-spacing: calc(8 * var(--dp));
+  font-variant-numeric: tabular-nums;
 }
 
 .tv-pairing a.body-text {
@@ -454,8 +700,6 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* The code and its words on the left, the link as a QR code on the right (QrCode.tsx): black on the lightest ink,
-   which a phone's camera reads, with its quiet zone drawn in. */
 .tv-card.tv-pairing {
   flex-direction: row;
   align-items: flex-start;
@@ -465,6 +709,9 @@ body {
 .tv-pairing-words {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(16 * var(--dp));
 }
 
 .tv-pairing-qr {
@@ -478,6 +725,7 @@ body {
   width: 100%;
   height: auto;
   fill: #000;
+  border-radius: calc(8 * var(--dp));
 }
 
 .tv-qr .tv-qr-ground {
@@ -498,11 +746,134 @@ body {
   outline-offset: calc(3 * var(--dp));
 }
 
+/* --- How Wick works (tour/tour.ts) ------------------------------------------- */
+
+.tv-card.tv-tour {
+  justify-content: flex-start;
+  gap: calc(16 * var(--dp));
+}
+
+.tour-top {
+  display: flex;
+  align-items: center;
+  gap: calc(16 * var(--dp));
+}
+
+/* "Example": every step that shows something Wick does says it is one. An outline, not a badge. */
+.tour-mark {
+  border: calc(2 * var(--dp)) solid var(--accent);
+  border-radius: var(--radius);
+  padding: 0 calc(16 * var(--dp));
+  color: var(--accent);
+  font-size: var(--body);
+}
+
+.tour-example {
+  display: flex;
+  align-items: center;
+  gap: calc(24 * var(--dp));
+  box-sizing: border-box;
+  padding: calc(16 * var(--dp)) calc(24 * var(--dp));
+  border-radius: var(--radius);
+  border: calc(2 * var(--dp)) solid var(--edge);
+  background: var(--raised);
+  min-height: 0;
+}
+
+.tour-picture {
+  flex: none;
+  width: calc(224 * var(--dp));
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: calc(8 * var(--dp));
+}
+
+.tour-example-line,
+.tour-chip {
+  display: flex;
+  align-items: center;
+  gap: calc(12 * var(--dp));
+  color: var(--ink);
+  font-size: var(--body);
+}
+
+.tour-example-line .icon,
+.tour-chip .icon {
+  color: var(--accent);
+}
+
+.tour-chip {
+  color: var(--ink-dim);
+}
+
+.tour-example .hold-line {
+  position: static;
+  flex: 1;
+}
+
+/* The hold line is its own surface: no frame around it. */
+.tour-example.tour-hold {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+/* --- The line that fills while OK is held (watch/hold.ts) ---------------------- */
+
+.hold-line {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: calc(12 * var(--dp));
+  padding: calc(16 * var(--dp)) calc(24 * var(--dp));
+  border-radius: var(--radius);
+  background: var(--raised-high);
+  color: var(--ink);
+}
+
+/* Over her screen, in the room's stage: drawn for as long as OK is held, and no longer. */
+.tv-hold {
+  position: absolute;
+  z-index: 5;
+  left: calc(48 * var(--dp));
+  right: calc(48 * var(--dp));
+  bottom: calc(32 * var(--dp));
+  box-shadow: var(--shadow-5);
+}
+
+.hold-words {
+  display: flex;
+  align-items: center;
+  gap: calc(12 * var(--dp));
+  font-size: var(--body);
+}
+
+.hold-words .icon {
+  color: var(--accent);
+}
+
+.hold-track,
+.film-bar-track {
+  height: calc(8 * var(--dp));
+  border-radius: calc(4 * var(--dp));
+  background: var(--track);
+  overflow: hidden;
+}
+
+.hold-fill,
+.film-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(var(--fill, 0));
+}
+
 /* --- The film (WatchScreen.tsx) ---------------------------------------------- */
 
 .tv-film {
   position: absolute;
   inset: 0;
+  z-index: 0;
   background: #000000;
 }
 
@@ -519,19 +890,29 @@ body {
   display: none;
 }
 
-.film-notice {
+/* At the foot of the film: what it says over itself, and under that its bar. */
+.film-foot {
   position: absolute;
   left: calc(48 * var(--dp));
+  right: calc(48 * var(--dp));
   bottom: calc(32 * var(--dp));
-  max-width: calc(864 * var(--dp));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(12 * var(--dp));
+}
+
+.film-notice {
+  max-width: 100%;
   box-sizing: border-box;
-  padding: calc(16 * var(--dp)) calc(24 * var(--dp));
-  border-radius: calc(16 * var(--dp));
+  padding: calc(12 * var(--dp)) calc(24 * var(--dp));
+  border-radius: var(--radius);
   border: calc(2 * var(--dp)) solid var(--edge);
   background: var(--raised);
   display: flex;
   flex-direction: column;
   gap: calc(4 * var(--dp));
+  box-shadow: var(--shadow-4);
 }
 
 .film-line {
@@ -542,6 +923,57 @@ body {
 .film-attribution {
   color: var(--ink-dim);
   font-size: var(--body);
+}
+
+/* The film's bar (watch/transport.ts): the title, the time gone, how long is left, and the line. */
+.film-bar {
+  align-self: stretch;
+  box-sizing: border-box;
+  padding: calc(16 * var(--dp)) calc(24 * var(--dp));
+  border-radius: var(--radius);
+  background: var(--raised-high);
+  display: flex;
+  flex-direction: column;
+  gap: calc(12 * var(--dp));
+  box-shadow: var(--shadow-5);
+}
+
+.film-bar-top {
+  display: flex;
+  align-items: center;
+  gap: calc(16 * var(--dp));
+  min-width: 0;
+}
+
+.film-bar-state {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.film-bar-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+  font-size: var(--body);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.film-bar-left::before {
+  content: '·';
+  margin-right: calc(16 * var(--dp));
+  color: var(--track);
+}
+
+.film-bar-time,
+.film-bar-left {
+  flex: none;
+  color: var(--ink-dim);
+  font-size: var(--body);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- A family member's own television (tv-core.js) --------------------------- */
@@ -638,13 +1070,12 @@ body {
 .tv-card.fit-snug,
 .tv-card.fit-small {
   padding: calc(24 * var(--dp));
-  gap: calc(4 * var(--dp));
+  row-gap: calc(12 * var(--dp));
 }
 
-/* The door's picture keeps its distance from the words at every size. */
-.tv-card.urgency-door.fit-snug,
-.tv-card.urgency-door.fit-small {
-  column-gap: calc(24 * var(--dp));
+.tv-card.fit-snug .card-words,
+.tv-card.fit-small .card-words {
+  gap: calc(4 * var(--dp));
 }
 
 .tv-card.fit-snug .headline,
@@ -660,12 +1091,12 @@ body {
 }
 
 .tv-card.fit-small .actions .pill {
-  padding: calc(12 * var(--dp)) calc(24 * var(--dp));
+  padding: calc(8 * var(--dp)) calc(24 * var(--dp));
 }
 
 .tv-card.fit-small .tv-still,
 .tv-card.fit-small .tv-photo img {
-  max-height: calc(140 * var(--dp));
+  max-height: calc(120 * var(--dp));
 }
 
 /* And when even that is not enough, the screen grows taller than sixteen by nine for as long as that card is on it,
@@ -683,50 +1114,242 @@ body {
   margin: calc(32 * var(--dp)) calc(48 * var(--dp));
 }
 
-/* --- The keys (tv.html) ------------------------------------------------------ */
+/* --- What moves when she presses (DESIGN.md §4): 150 ms, and nothing with reduced motion ------------- */
 
-/* For whoever is trying this page, not part of her television: a remote has no legend. So it is never drawn over the
-   television: it sits under the screen, and while it shows, the screen is made smaller to leave room for it.
-   Put away by hand only. */
-.stage {
+@media (prefers-reduced-motion: no-preference) {
+  .home-tile,
+  .home-pill,
+  .home-waiting,
+  .tv-card .actions .pill {
+    transition:
+      transform 150ms var(--ease-wick),
+      background-color 150ms var(--ease-wick),
+      box-shadow 150ms var(--ease-wick);
+  }
+
+  .tv-screen::after {
+    transition: opacity 200ms var(--ease-wick);
+  }
+}
+
+/* --- The keys (tv.html): the page around her screen ------------------------------------------------- */
+
+/*
+ * For whoever is trying this page, not part of her television: a line that says what it is, the remote, and
+ * the keyboard's legend. The web's floor holds here (14 px, 4.5:1): words in --page-ink on --page.
+ *
+ * The room: on a wide window the remote stands beside the screen, on a narrow one under it. The screen is as
+ * large as what is left allows, sixteen by nine, and nothing is ever wider than the window.
+ */
+.room {
+  --page-ink: #f4f1ea;
+  --page-dim: #c8c2b6;
+  --page-raised: #1e1b17;
+  --page-high: #2a2621;
+  --page-line: #3a352e;
+  --page-accent: #e8b75d;
+  --key: clamp(44px, min(4.6vw, 6.2dvh), 96px);
+  --remote-w: calc(var(--key) * 3 + 2 * 10px + 2 * 16px);
+  --head: calc(1.4em + 24px);
+
+  box-sizing: border-box;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: max(var(--gutter), env(safe-area-inset-top)) max(var(--gutter), env(safe-area-inset-right)) max(var(--gutter), env(safe-area-inset-bottom)) max(var(--gutter), env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
-}
-
-.stage.keys-shown {
-  width: min(100vw, calc((100vh - 13vh) * 16 / 9));
-}
-
-.tv-keys {
-  position: static;
-  margin-top: calc(8 * 100cqw / 960);
-  box-sizing: border-box;
-  display: flex;
   align-items: center;
-  gap: 1.2em;
-  padding: 0.6em 1em;
-  border-radius: calc(12 * 100cqw / 960);
-  border: 1px solid #c8c2b6;
-  background: #1e1b17;
-  color: #f4f1ea;
-  font-family: 'Amazon Ember', 'Helvetica Neue', Roboto, 'Segoe UI', system-ui, sans-serif;
-  font-size: max(11px, calc(13.5 * 100cqw / 960));
-  line-height: 1.3;
+  justify-content: center;
+  gap: 12px;
+  color: var(--page-ink);
+  font-family: var(--font);
+  font-size: clamp(14px, 0.45vw + 11px, 26px);
+  line-height: 1.45;
+}
+
+.stand-in {
+  margin: 0;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  column-gap: 0.6em;
+  row-gap: 0.2em;
+  color: var(--page-dim);
+  text-align: center;
+}
+
+.stand-in .icon {
+  color: var(--page-accent);
+}
+
+.stand-in-words {
+  min-width: 0;
+}
+
+.stand-in-keys {
+  color: var(--page-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--page-accent);
+  text-underline-offset: 0.2em;
+  border-radius: 4px;
+}
+
+.stand-in-keys:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+}
+
+/* Narrow: the screen across the window, the remote under it. */
+.room-body {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.room .stage {
+  --screen-w: min(100%, calc((100dvh - var(--head) - 2 * var(--gutter) - 12px) * 16 / 9), 1600px);
+}
+
+.remote {
+  box-sizing: border-box;
+  width: min(100%, var(--screen-w-narrow, 640px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.remote-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px 24px;
+  padding: 16px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, #24201b, var(--page-raised));
+  border: 1px solid var(--page-line);
+  box-shadow: var(--shadow-4);
+}
+
+/* The D-pad and OK: a cross, OK in the middle. */
+.remote-pad {
+  display: grid;
+  grid-template-columns: repeat(3, var(--key));
+  grid-template-rows: repeat(3, var(--key));
+  gap: 10px;
+  grid-template-areas:
+    '. up .'
+    'left ok right'
+    '. down .';
+}
+
+.remote-up { grid-area: up; }
+.remote-left { grid-area: left; }
+.remote-ok { grid-area: ok; }
+.remote-right { grid-area: right; }
+.remote-down { grid-area: down; }
+
+.remote-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(calc(var(--key) * 1.6), auto));
+  gap: 10px;
+}
+
+.remote-button {
+  box-sizing: border-box;
+  min-width: var(--key);
+  min-height: var(--key);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45em;
+  padding: 0 0.8em;
+  border: 1px solid var(--page-line);
+  border-radius: 14px;
+  background: var(--page-high);
+  color: var(--page-ink);
+  font: inherit;
+  font-size: max(14px, 0.9em);
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.remote-pad .remote-button {
+  padding: 0;
+  border-radius: 50%;
+}
+
+.remote-button .icon {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+.remote-play .icon + .icon {
+  margin-left: -0.35em;
+}
+
+/* OK: the one amber key, as on the screen the first button is amber. */
+.remote-ok {
+  background: var(--page-accent);
+  border-color: var(--page-accent);
+  color: #12100e;
+  font-weight: 700;
+}
+
+.remote-button:hover {
+  background: #34302a;
+}
+
+.remote-ok:hover {
+  background: #f0c574;
+}
+
+.remote-button.is-down,
+.remote-button:active {
+  transform: scale(0.94);
+}
+
+.remote-button:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.remote-button[aria-expanded='true'] {
+  border-color: var(--page-accent);
+}
+
+/* The keyboard's legend: under the remote's buttons. Put away by hand only. */
+.tv-keys {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--page-line);
+  background: var(--page-raised);
+  color: var(--page-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .tv-keys-title {
   margin: 0;
   font-weight: 700;
-  white-space: nowrap;
 }
 
 .tv-keys dl {
-  flex: 1;
-  min-width: 0;
   display: grid;
-  grid-template-columns: repeat(3, auto auto);
-  justify-content: space-between;
-  gap: 0.25em 0.7em;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
   margin: 0;
 }
 
@@ -737,22 +1360,85 @@ body {
 
 .tv-keys dd {
   margin: 0;
-  color: #c8c2b6;
-  white-space: nowrap;
+  color: var(--page-dim);
+  min-width: 0;
 }
 
 .tv-keys-close {
-  flex: none;
+  align-self: flex-end;
   font: inherit;
-  padding: 0.4em 1em;
-  border-radius: 0.5em;
+  min-height: 44px;
+  padding: 0 1.2em;
+  border-radius: 12px;
   border: 0;
-  background: #e8b75d;
+  background: var(--page-accent);
   color: #12100e;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.tv-keys-close:focus {
+.tv-keys-close:focus-visible {
   outline: 3px solid #ffffff;
   outline-offset: 2px;
+}
+
+/* Wide: the remote beside the screen, the screen as large as what is left allows. */
+@media (min-aspect-ratio: 5/4) and (min-width: 560px) {
+  .room-body {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(16px, 2vw, 40px);
+  }
+
+  .room .stage {
+    --screen-w: min(calc(100vw - 2 * var(--gutter) - var(--remote-w) - clamp(16px, 2vw, 40px)), calc((100dvh - var(--head) - 2 * var(--gutter) - 12px) * 16 / 9));
+    flex: none;
+  }
+
+  .remote {
+    flex: none;
+    width: var(--remote-w);
+    max-height: calc(100dvh - var(--head) - 2 * var(--gutter));
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .remote-buttons {
+    flex-direction: column;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .remote-rows {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .remote-rows .remote-button {
+    min-width: 0;
+  }
+
+  /* Beside the screen the legend is narrow: each key over what it does. */
+  .tv-keys {
+    font-size: max(14px, 0.85em);
+  }
+
+  .tv-keys dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .tv-keys dd {
+    margin-bottom: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .remote-button,
+  .stand-in-keys {
+    transition:
+      transform 120ms var(--ease-out-3),
+      background-color 150ms var(--ease-out-3);
+  }
 }

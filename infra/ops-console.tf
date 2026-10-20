@@ -181,6 +181,43 @@ resource "aws_s3_object" "ops_console_tv_posters" {
   cache_control = "no-cache"
 }
 
+# The web's libraries (`npm run web:vendor`, scripts/web-vendor.mjs): the typeface, the icons, Motion's
+# `animate` and the open-props easings and shadows. Served from this site's own origin, because the policy
+# (csp/ops-console.csp) loads nothing from anywhere else; apps/ops-console/__tests__/tv-build.test.ts holds
+# this list to what the script writes.
+locals {
+  ops_console_vendor = {
+    "fonts.css"                                                    = "text/css; charset=utf-8"
+    "fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2"     = "font/woff2"
+    "fonts/atkinson-hyperlegible-next-latin-ext-wght-normal.woff2" = "font/woff2"
+    "fonts/OFL.txt"                                                = "text/plain; charset=utf-8"
+    "icons.generated.js"                                           = "application/javascript; charset=utf-8"
+    "motion.generated.js"                                          = "application/javascript; charset=utf-8"
+    "open-props.css"                                               = "text/css; charset=utf-8"
+  }
+}
+
+resource "aws_s3_object" "ops_console_vendor" {
+  for_each      = local.ops_console_vendor
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "vendor/${each.key}"
+  source        = "${path.module}/../apps/ops-console/vendor/${each.key}"
+  etag          = filemd5("${path.module}/../apps/ops-console/vendor/${each.key}")
+  content_type  = each.value
+  cache_control = "no-cache"
+}
+
+# The door in "How Wick works" (tv.js, tour/tour.ts): the stand-in doorbell's made picture of a parcel at the
+# door (docs/demo-door/NOTICE.md), copied beside the page so the tour sends for nothing.
+resource "aws_s3_object" "ops_console_tour_parcel" {
+  bucket        = aws_s3_bucket.ops_console.id
+  key           = "parcel.jpg"
+  source        = "${path.module}/../apps/ops-console/parcel.jpg"
+  etag          = filemd5("${path.module}/../apps/ops-console/parcel.jpg")
+  content_type  = "image/jpeg"
+  cache_control = "no-cache"
+}
+
 # ---------------------------------------------------------------------------
 # What the browser is told about these pages, on every answer: the same
 # headers as the family app's (infra/sim-alexa.tf, where each is explained),
