@@ -91,7 +91,7 @@ allows that person.
 
 No account and no hardware are needed.
 
-1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html). The keyboard is the remote: arrows move, **Enter** is OK, **Esc** is Back, **Space** is Play/Pause, and **Enter** held for two seconds is Hold for Sarah.
+1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html). The keyboard is the remote: arrows move, **Enter** is OK, **Esc** is Back, **Space** is Play/Pause, and **Enter** held for two seconds is Hold for Sarah. On a phone or tablet, use the remote drawn beside the screen. *How Wick works*, on its home screen, shows an example of everything below without the family app.
 2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose **Try the demo** and enter the code shown on the television (or point a phone at the QR code beside it). You are Sarah, in a demo home with six weeks of simulated history. Every press of **Try the demo** is a new demo session: a fresh key, its own guest and its own home, so nothing from anyone else's session (or your own earlier one) is ever shown. The header names the session, for example *Demo home K7F2QX*.
 3. On the television, press **Allow Sarah** when it appears, about twenty seconds after pairing. Then ask the family app anything, for example *"How has my mum been this week?"*
 4. Start a film, then ask the family app to *send a note to her television*. The note waits. Pause, or let Big Buck Bunny reach its calm point at 1:29, and it appears. **Space** reads it aloud; **Enter** replies.
@@ -102,16 +102,56 @@ Android TV emulator ([docs/SETUP.md](docs/SETUP.md)).
 
 ## Screenshots
 
-| | |
-|---|---|
-| ![A door card over a playing film, with a picture from the doorbell and one sentence describing it](docs/screenshots/door-card-over-film-vega.png) | ![A system toast over another Vega app: "Someone's at the front door."](docs/screenshots/door-toast-over-another-app-vega.png) |
-| **The door card**, over a film. Vega. | **The door, while another app is in front.** Vega. |
-| ![A message from Sarah held at a calm point in Big Buck Bunny, with three replies](docs/screenshots/note-at-calm-point-fireos.png) | ![The calm-point map for Big Buck Bunny, with three measured calm points](docs/screenshots/calm-point-map.png) |
-| **A note at a calm point.** Fire OS. | **The calm-point map**, [live page](https://rogerjeasy.github.io/wick/calm-points/). |
-| ![The question "Shall I tell Sarah?" with Tell Sarah and Keep it to myself](docs/screenshots/shall-i-tell-vega.png) | ![The hold card in Spanish: "¿Pedir a Sarah que le llame?"](docs/screenshots/hold-for-sarah-spanish-vega.png) |
-| **Shall I tell Sarah?** Vega. | **Hold for Sarah, in Spanish.** Vega. |
-| ![After a film watched together: "That was Big Buck Bunny, with Sarah. What did you think of it?"](docs/screenshots/watch-together-credits-vega.png) | ![The family app on a laptop and a phone, with the door's picture and three answers](docs/screenshots/family-app-conversation.png) |
-| **Watch together**, at the credits. Vega. | **The family app**, answering a door request. |
+Eight screens, two sides of one house: what Margaret sees on her television, and what Sarah sees in the
+family app. The browser television draws the same cards as the Vega app, and a parity test holds the two
+together. Every family-app screen is a live answer from the deployed stack, in a demo home.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/door-card-over-film.png" width="100%" alt="A door card over a film: the doorbell's picture of a man holding a parcel, Someone's at the front door, the vision model's sentence, and the buttons Ask Sarah to look, Not now and Read aloud"><br>
+      <sub><b>The door.</b> A ring puts a card over her film, then the picture and one sentence about it. One button asks Sarah to look. <i>Her television in a browser.</i></sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/family-app-asked-to-look.png" width="100%" alt="The family app: You have been asked to look at the door, the same picture, and three answers Sarah can give"><br>
+      <sub><b>Sarah is asked to look.</b> The same picture and three answers; hers appears on Margaret's television under her name. <i>Family app.</i></sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/note-at-a-pause.png" width="100%" alt="A note from Sarah waiting over a paused film, with three one-button replies"><br>
+      <sub><b>A note waits for a natural break</b>, here a pause, and is answered with one button. <i>Her television in a browser.</i></sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/redesign/13-card-read-aloud-chip.png" width="100%" alt="Shall I tell Sarah? with the sentence that would be told, and Keep it to myself, Tell Sarah and Read aloud"><br>
+      <sub><b>Shall I tell Sarah?</b> Nothing different leaves the house until she says so, and she sees the exact sentence first. <i>Vega.</i></sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/redesign/01-home-carry-on.png" width="100%" alt="Margaret's home screen on Vega: Big Buck Bunny first, marked Carry on with 8 min left and a progress line, then Sintel and Tears of Steel, and the pills Light on, Easier to see and How Wick works"><br>
+      <sub><b>Her home screen.</b> A film she left part-way comes first; <i>How Wick works</i> shows an example of each thing Wick does, with only the remote. <i>Vega.</i></sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/door-toast-over-another-app-vega.png" width="100%" alt="A Vega system toast over another app: Someone's at the front door. Open Wick to see who it is."><br>
+      <sub><b>The door, while another app is in front.</b> Only the door interrupts. <i>Vega Virtual Device.</i></sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/family-app-week.png" width="100%" alt="The family app: last week's story, the week's counts against her usual, and one thing Sarah could do"><br>
+      <sub><b>How her week went</b>, told from counts, with one thing Sarah could do. <i>Family app.</i></sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/family-app-visit-errand.png" width="100%" alt="The family app: The plumber is coming on Thursday at ten. Let Mum know. and the agent's plan, Arrange this visit?, waiting for Sarah's yes"><br>
+      <sub><b>A visit errand.</b> Wick's agent shows its plan and does nothing until Sarah says yes. <i>Family app.</i></sub>
+    </td>
+  </tr>
+</table>
+
+More, including the film's bar, the hold line, every step of the tour, Easier to see and the phone layouts:
+[`docs/screenshots/redesign/`](docs/screenshots/redesign/). The design rules behind them:
+[`docs/design/DESIGN.md`](docs/design/DESIGN.md).
 
 ## Why Amazon
 
