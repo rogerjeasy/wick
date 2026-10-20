@@ -58,6 +58,13 @@ export interface WeekNarrative {
   readonly suggestion?: BriefSuggestion;
   readonly deltas: readonly RhythmDelta[];
   readonly timeline: readonly TimelineEntry[];
+  /**
+   * The days of the week the doorbell was not heard at all (heard.ts), by
+   * name, in the household's time: nothing is said of who came then, and the
+   * week is not called quieter than usual. Absent when every day was heard,
+   * and on weeks written before 2026-10-20.
+   */
+  readonly unheardDays?: readonly string[];
   readonly generatedAt: number;
   /** INV-7 gate. Until set, no family surface may read this. */
   readonly residentSeenAt?: number;

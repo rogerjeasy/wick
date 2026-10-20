@@ -16,6 +16,7 @@ export * from './light.js';
 export * from './today.js';
 export * from './reach.js';
 export * from './visit.js';
+export * from './heard.js';
 export * from './familyTelevision.js';
 export * from './mantel.js';
 export * from './speech.js';

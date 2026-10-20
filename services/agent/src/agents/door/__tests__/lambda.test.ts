@@ -447,6 +447,42 @@ describe('routeDoorEvent', () => {
   });
 });
 
+describe('routeDoorEvent — the doorbell heard (packages/contracts heard.ts)', () => {
+  it('notes every doorbell event of a household as heard — a car going past as well as a visitor — and only the visitor reaches the television', async () => {
+    const heard = vi.fn(async (_householdId: string, _at: number) => {});
+    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+    const routing = { householdOf: async () => 'hh-b', depsFor: (householdId: string) => baseDeps({ householdId, sendToDevice }), heard };
+
+    expect(await routeDoorEvent({ ...detail, event_type: 'motion_detected', sub_type: 'vehicle' }, routing)).toBe('skipped');
+    expect(await routeDoorEvent(detail, routing)).toBe('sent');
+
+    expect(heard.mock.calls).toEqual([['hh-b', detail.occurred_at], ['hh-b', detail.occurred_at]]);
+    expect(sendToDevice).toHaveBeenCalledTimes(1);
+  });
+
+  it('notes nothing for a doorbell no household holds, or an event that is not a doorbell’s', async () => {
+    const heard = vi.fn(async (_householdId: string, _at: number) => {});
+    expect(await routeDoorEvent(detail, { householdOf: async () => undefined, depsFor: (householdId) => baseDeps({ householdId }), heard })).toBe('unclaimed_device');
+    expect(await routeDoorEvent({ ...detail, event_type: 'subscription_activated' }, { householdOf: async () => 'hh-b', depsFor: (householdId) => baseDeps({ householdId }), heard })).toBe('skipped');
+    expect(heard).not.toHaveBeenCalled();
+  });
+
+  it('never loses a ring because the note could not be written', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const sendToDevice = vi.fn(async (_card: QueuedCard) => {});
+    const result = await routeDoorEvent(detail, {
+      householdOf: async () => 'hh-b',
+      depsFor: (householdId) => baseDeps({ householdId, sendToDevice }),
+      heard: async () => {
+        throw new Error('throttled');
+      },
+    });
+    expect(result).toBe('sent');
+    expect(sendToDevice).toHaveBeenCalledTimes(1);
+    vi.restoreAllMocks();
+  });
+});
+
 describe('routeDoorEvent — the claim row authorizes, Ring\'s device list only says Ring is answering', () => {
   const ringDown = () => vi.fn(async (_deviceId: string): Promise<RingDevice | undefined> => {
     throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
