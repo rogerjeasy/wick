@@ -732,6 +732,27 @@ describe('what this page is — said outside her screen, always (DESIGN.md §7)'
   });
 });
 
+describe('the row under the films — the quiet line on its own row, then the pills (as HomeScreen.tsx)', () => {
+  it('puts who looked in on a row of its own, above the pills, and every pill keeps a name for a screen reader', async () => {
+    const tv = await atHome();
+    tv.home({ light: 'on', mantel: 2, today: TODAY, lookedIn: { name: 'Sarah', at: Date.now(), line: 'Sarah looked in this morning.', until: 1_800_000_000_000 + 3_600_000 } });
+    const quiet = tv.screen.querySelector('.home-quiet')!;
+    const pills = tv.screen.querySelector('.home-pills')!;
+    expect(wordsOf(quiet)).toEqual(['Sarah looked in this morning.']);
+    expect(quiet.querySelectorAll('button')).toEqual([]);
+    expect(pills.querySelectorAll('button').map((b) => b.dataset.key)).toEqual(['light', 'mantel', 'easier', 'tour']);
+    for (const pill of pills.querySelectorAll('button')) expect(pill.getAttribute('aria-label'), pill.dataset.key).toMatch(/\w/);
+    const rows = tv.screen.querySelector('.tv-home')!.children;
+    expect(rows.indexOf(quiet)).toBe(rows.indexOf(pills) - 1);
+  });
+
+  it('has no quiet row at all when there is nothing to say', async () => {
+    const tv = await atHome();
+    expect(tv.screen.querySelector('.home-quiet')).toBe(null);
+    expect(tv.screen.querySelector('.home-pills')).not.toBe(null);
+  });
+});
+
 describe('the remote beside the screen — a mouse or a finger presses what the keys press', () => {
   it('has her remote’s six things, each a button with a label: the D-pad and OK, Back, Play/Pause, the two skips — and the keys', () => {
     const tv = tvPage();
@@ -1026,6 +1047,16 @@ describe('tv.css — the television’s floor', () => {
     for (const [fg, bg] of [['ink', 'raised-high'], ['ink-dim', 'raised-high'], ['accent', 'raised'], ['accent', 'raised-high']]) {
       expect(contrastRatio(ordinary[fg]!, ordinary[bg]!), `${fg} on ${bg}`).toBeGreaterThanOrEqual(7);
       expect(contrastRatio(high[fg]!, high[bg]!), `${fg} on ${bg}, higher contrast`).toBeGreaterThanOrEqual(15);
+    }
+  });
+
+  it('never cuts the quiet line under the films: no ellipsis, no clamp, no single line forced — it wraps (DESIGN.md §1)', () => {
+    for (const selector of ['.home-quiet', '.home-said', '.home-waiting', '.home-waiting-line']) {
+      const rules = [...css.matchAll(/(^|\n)([^{}\n][^{}]*)\{([^}]*)\}/g)].filter((m) => m[2]!.split(',').some((s) => s.trim().split(/[\s:]/)[0] === selector || s.includes(`${selector} `) || s.trim().endsWith(selector)));
+      expect(rules.length, selector).toBeGreaterThan(0);
+      for (const rule of rules) {
+        expect(rule[3], selector).not.toMatch(/text-overflow|line-clamp|white-space:\s*nowrap/);
+      }
     }
   });
 

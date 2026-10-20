@@ -676,9 +676,11 @@ function renderHome() {
   }
   screen.appendChild(row);
 
-  // One quiet row under the films: a card that has waited its two showings, or who looked in; then her
-  // mantelpiece, and "Easier to see". Never where the focus starts.
+  // Under the films, as on Vega (HomeScreen.tsx): a quiet line of its own — a card that has waited its two showings,
+  // or who looked in — whose words are never cut; then a row of pills: her light, her mantelpiece, "Easier to see",
+  // How Wick works. Never where the focus starts.
   const quiet = el('div', 'home-quiet');
+  const pills = el('div', 'home-pills');
   const waiting = waitingCard && waitingCard.id !== currentQueuedCard?.id ? waitingCard : null;
   const looked = lookedInLine(now);
   if (waiting) {
@@ -691,44 +693,49 @@ function renderHome() {
     quiet.appendChild(open);
   } else if (looked) {
     quiet.appendChild(el('div', 'home-said', looked));
-  } else {
-    quiet.appendChild(el('div', 'home-said'));
   }
   // With her day at the top, her light joins the other pills: the greeting and the date have that row, as on Vega.
-  if (day && home.light) quiet.appendChild(lightPill(now));
+  if (day && home.light) pills.appendChild(lightPill(now));
   if (Number.isInteger(home.mantel) && home.mantel >= 1) {
     const mantelPill = homeButton('home-pill', 'mantel', openMantel);
     pillWords(mantelPill, 'image', say('home.mantel'));
     mantelPill.setAttribute('aria-label', say('home.mantelLabel'));
-    quiet.appendChild(mantelPill);
+    pills.appendChild(mantelPill);
   }
   const easier = homeButton('home-pill', 'easier', openEasier);
   pillWords(easier, 'eye', easierSay('title'));
   easier.setAttribute('aria-label', easierSay('title'));
-  quiet.appendChild(easier);
+  pills.appendChild(easier);
   // How Wick works: a tour of examples, with the remote alone, and nothing sent (tour/tour.ts).
   const tourPill = homeButton('home-pill', 'tour', openTour);
   pillWords(tourPill, 'circle-question-mark', say('home.tour'));
   tourPill.setAttribute('aria-label', say('home.tourLabel'));
-  quiet.appendChild(tourPill);
-  screen.appendChild(quiet);
+  pills.appendChild(tourPill);
+  if (quiet.children.length > 0) screen.appendChild(quiet);
+  screen.appendChild(pills);
 
   show(screen);
-  fitPills(quiet);
+  fitPills(pills);
   if (day) fitDay(screen, top, panel, day);
 }
 
+/** The order in which the pills give their words way when the row has no room for all of them (homeLayout.ts PILL_WORDS_GIVE_WAY). */
+const PILL_WORDS_GIVE_WAY = ['mantel', 'light', 'easier', 'tour'];
+
 /**
- * The pills give way before the quiet line does (as on Vega, home/homeLayout.ts pillsWithWords): where the row has
- * no room for every pill's words and who looked in, the pills show their icons, and each its words when it has the
- * focus. Every pill keeps its name for a screen reader, and the line its words.
+ * The pills' row, made to fit as on Vega (home/homeLayout.ts pillsWithWords): every pill shows its icon and its
+ * words while the row has room for them; where it has not, one pill at a time — in PILL_WORDS_GIVE_WAY's order —
+ * shows its icon alone, and its words again when it has the focus. Each keeps its name for a screen reader
+ * (aria-label). Nothing is ever cut: a word is shown whole, or the pill is its icon.
  */
 function fitPills(row) {
-  row.classList.remove('tight');
+  const pills = [...row.querySelectorAll('.home-pill')];
+  for (const pill of pills) pill.classList.remove('no-words');
   if (typeof row.scrollWidth !== 'number') return;
-  const line = row.querySelector('.home-said, .home-waiting-line');
-  const cut = (node) => Boolean(node) && node.scrollWidth > node.clientWidth + 1;
-  if (row.scrollWidth > row.clientWidth + 1 || cut(line)) row.classList.add('tight');
+  for (const key of PILL_WORDS_GIVE_WAY) {
+    if (row.scrollWidth <= row.clientWidth + 1) break;
+    pills.find((pill) => pill.dataset.key === key)?.classList.add('no-words');
+  }
 }
 
 /** A film's picture shorter than this share of the screen is a sliver, not a picture (homeLayout.ts POSTER_MIN_DP of 540). */

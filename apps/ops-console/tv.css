@@ -361,16 +361,10 @@ body {
   color: var(--accent);
 }
 
-/* The quiet row under the films: one thing on the left, and at its right-hand end the pills. */
+/* The quiet line under the films — what is waiting, or who looked in — on a row of its own, its words never cut:
+   a long one takes a second line. */
 .home-quiet {
   display: flex;
-  align-items: center;
-  gap: calc(16 * var(--dp));
-}
-
-/* No room for every pill's words beside the quiet line: the pills give way first, each its icon until it has the focus. */
-.home-quiet.tight .home-pill:not(:focus) .pill-words {
-  display: none;
 }
 
 .home-said {
@@ -378,9 +372,8 @@ body {
   min-width: 0;
   color: var(--ink-dim);
   font-size: var(--body);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .home-waiting {
@@ -405,9 +398,20 @@ body {
   min-width: 0;
   color: var(--ink-dim);
   font-size: var(--body);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* The pills: her light, her mantelpiece, Easier to see, How Wick works. Where the row has no room for every pill's
+   words, they give way one at a time (tv.js fitPills): that pill is its icon until it has the focus. */
+.home-pills {
+  display: flex;
+  align-items: center;
+  gap: calc(16 * var(--dp));
+}
+
+.home-pill.no-words:not(:focus) .pill-words {
+  display: none;
 }
 
 .home-open {
