@@ -32,9 +32,9 @@ watches is the screen, and she doesn't install, learn or wear anything.
 | **Second market** | Home-care agencies, who need proof that visits happened. |
 | **Devices** | Fire TV (Vega OS and Fire OS), a Ring doorbell, and Alexa+ for the family. |
 | **Price** | The door card is free. *Family* is £14.99 / $16.99 a month. Agencies pay per client. |
-| **Cost to run** | About $1.50–3.50 per household a month, once a few hundred homes share the fixed costs. |
+| **Cost to run** | About $1.55–3.75 per household a month at 300 homes, and $1.65–4.22 at 100, before live video and support (§9.2). |
 | **Distribution** | The Fire TV and Ring app stores, into homes that already own the devices. |
-| **Status** | Built and deployed on AWS. Tested on Amazon's simulators with a demo home, with no real resident yet. |
+| **Status** | Built and deployed on AWS. Tested on Amazon's simulators with a demo home. No older adult or family has used it yet, so every claim about its effect is a hypothesis (§15). |
 
 **Why it can only be Amazon.** Wick needs a trusted screen in the room, a
 doorbell with a developer API, and an assistant the family already owns. Only
@@ -465,11 +465,19 @@ An estimate from AWS list prices in us-east-1 and the deployed setup.
 | Family questions (Claude Sonnet 4.5) | ~$0.50–2 |
 | Door events (Lambda, AgentCore, Nova Lite) | ~$0.10–0.50 |
 | DynamoDB, Polly, Translate, Rekognition, Transcribe | <$0.50 |
-| Live video relay | Only while someone watches |
+| Live video relay | Only while someone watches; not counted here |
 | **Rough total** | **~$1.50–3.50** |
 
-At 100 households that's about $150–200 a month in total. At 10 households the
-fixed part dominates and it's closer to $7–9 each.
+The fixed part is $15–72 a month in all. So:
+
+| Households | Per month, in all | Per household |
+|---|---|---|
+| 10 | $30–107 | $3.00–10.70 |
+| 100 | $165–422 | $1.65–4.22 |
+| 300 | $465–1,122 | $1.55–3.74 |
+
+None of this counts the live video relay, support or installation help, which
+are not measured yet. They are the first costs a pilot has to measure.
 
 ### 9.3 Unit economics
 
@@ -620,7 +628,7 @@ Each platform limit, with what I tried and what I'd ask Amazon to change, is in
 
 | # | Risk | Where it stands |
 |---|---|---|
-| **R1** | The door card can't appear over another app. | **Partly true.** Inside Wick it shows over the film. Over another app, Vega shows a system toast and Fire OS a notification. |
+| **R1** | The door card can't appear over another app. | **Partly true.** Inside Wick it shows over the film. Over another app, Vega shows a system toast and Fire OS a notification. Everything else, including the timing of notes at a calm point, works only while she watches in Wick, which plays three open films today. Bringing that to the programmes she already watches needs a content or player partnership. |
 | **R2** | Alexa+ access doesn't come. | **True for now.** The family app calls the same server and says what it is. |
 | **R3** | Wick feels like surveillance anyway. | The trust model is on her screen, and *What Sarah sees* exists for exactly this. |
 | **R4** | Not a medical device, and must stay that way. | Wick makes no clinical claims, and its words and features are kept to that line. |
@@ -629,6 +637,13 @@ Each platform limit, with what I tried and what I'd ask Amazon to change, is in
 ---
 
 ## 15. What's next
+
+Nothing below has happened yet. Wick has not been used by an older adult or a
+family, so whether the family checks less, whether a resident understands what
+she is consenting to, and whether she keeps using it are open questions. The
+first thing to do is small and observed: a few resident and family pairs set it
+up, answer the door, consent and take it back, while someone notes what they
+finish alone, where they get stuck, and whether they would keep it.
 
 ### 15.1 The next twelve months
 

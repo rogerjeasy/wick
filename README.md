@@ -75,6 +75,17 @@ Fire OS. A note never interrupts. On Fire OS it waits quietly in the Notificatio
 programme (Amazon asks apps not to put up a heads-up while another app is in front, [FL-035](FRICTION.md)). Vega
 has no quiet place to leave it, so it waits in Wick. Either way it is on her screen the moment she opens Wick.
 
+**What works where.** Most of Wick needs her to be watching in Wick, which plays three open films today.
+
+| | In Wick: its home screen or one of its films | Another app in front: a streaming app, live TV |
+|---|---|---|
+| Someone at the door | The card over the film, with Ring’s picture and one sentence. The film holds. | Vega: an 8-second system toast, then a second with the picture and sentence. Each opens Wick, where the card waits five minutes. Fire OS: a heads-up notification with the picture and sentence. |
+| A note, the week, a visit question, "Shall I tell Sarah?" | At the film's next measured calm point, or in a pause | Nothing on screen. Fire OS files it quietly in the Notification Center; on Vega it waits in Wick. |
+| Timing at a calm point | Measured on Wick's own three films | None: Wick cannot see inside another app |
+| Watch live, Read to me, Hold for Sarah | Yes | Open Wick first |
+
+Carrying calm-point timing into the programmes she already watches would need a content or player partnership.
+
 ### Fifteen features on top
 
 | Feature | What she sees | What it never does |
