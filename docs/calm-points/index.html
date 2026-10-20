@@ -6,43 +6,43 @@
 <title>Calm points · Wick</title>
 <meta name="description" content="Where in each film a family note may arrive without spoiling a scene: measured with Amazon Rekognition and ffmpeg, chosen by rule."/>
 <link rel="icon" href="../icons/light-72.png"/>
-<meta name="theme-color" content="#12100E"/>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<meta name="theme-color" content="#12100E" media="(prefers-color-scheme: dark)"/>
+<meta name="theme-color" content="#FBF8F2" media="(prefers-color-scheme: light)"/>
 <link rel="stylesheet" href="../assets/site.css"/>
 <style>
-  .rules { list-style: none; padding: 0; margin: 28px 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  .rules li { background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 18px 20px; color: var(--ink-dim); font-size: .94rem; }
-  .rules strong { display: block; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
-  .legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 28px 0 0; color: var(--ink-dim); font-size: .9rem; }
-  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; }
-  section.film { background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 30px; margin-top: 28px; }
-  section.film h2 { font-family: var(--display); font-weight: 600; font-size: 1.8rem; letter-spacing: -.01em; margin: 0 0 6px; }
+  :root { --tl-film: #2B251E; --tl-left: rgba(0,0,0,.35); --tl-credits: #4A4136; --tl-quiet: #4F7F73; --tl-black: #000; --tl-cut: #8D8375; }
+  @media (prefers-color-scheme: light) { :root { --tl-film: #E9E1D3; --tl-left: rgba(60,40,10,.14); --tl-credits: #CBBFAA; --tl-quiet: #6FA597; --tl-black: #1C1813; --tl-cut: #7D7262; } }
+  .rules { list-style: none; padding: 0; margin: 28px 0 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .rules li { background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 18px 20px; color: var(--ink-dim); font-size: .96875rem; }
+  .rules strong { display: block; color: var(--accent-text); margin-bottom: 4px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 28px 0 0; color: var(--ink-dim); font-size: .9375rem; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; border: 1px solid var(--line-2); }
+  section.film { background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius); padding: clamp(20px, 3vw, 30px); margin-top: 28px; }
+  section.film h2 { font-size: clamp(1.5rem, 1.5vw + 1rem, 1.9rem); margin: 0 0 6px; }
   .numbers, .note, .attribution, figcaption { color: var(--ink-dim); }
-  .numbers { margin: 0; font-size: .92rem; } .numbers strong { color: var(--accent); }
-  .note { margin: 6px 0 0; font-size: .95rem; }
+  .numbers { margin: 0; font-size: .9375rem; } .numbers strong { color: var(--accent-text); }
+  .note { margin: 6px 0 0; font-size: .96875rem; }
   .timeline { width: 100%; height: auto; margin: 18px 0 8px; display: block; }
-  .film { fill: #2b251e; } .left-alone { fill: #000; opacity: 0.35; } .credits { fill: #4a4136; }
-  .quiet { fill: #4f7f73; opacity: 0.75; } .black { fill: #000; } .cut { stroke: #8d8375; stroke-width: 0.6; }
-  .calm { fill: var(--accent); stroke: var(--ground); stroke-width: 2; } .at { fill: var(--ink); font-size: 13px; text-anchor: middle; font-family: var(--sans); }
-  .points { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 20px; }
-  .point { background: var(--ground); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
-  .point h3 { font-family: var(--display); font-size: 1.4rem; font-weight: 600; margin: 0 0 12px; color: var(--accent); }
+  .timeline .film { fill: var(--tl-film); } .left-alone { fill: var(--tl-left); } .credits { fill: var(--tl-credits); }
+  .quiet { fill: var(--tl-quiet); opacity: 0.8; } .black { fill: var(--tl-black); } .cut { stroke: var(--tl-cut); stroke-width: 0.6; }
+  .calm { fill: var(--accent); stroke: var(--ground); stroke-width: 2; } .at { fill: var(--ink); font-size: 13px; text-anchor: middle; font-family: var(--sans); font-weight: 700; }
+  .points { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; margin-top: 20px; }
+  .point { background: var(--ground); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 18px; }
+  .point h3 { font-size: 1.4rem; font-weight: 800; margin: 0 0 12px; color: var(--accent-text); font-variant-numeric: tabular-nums; }
   .frames { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } figure { margin: 0; }
   .frames img { width: 100%; border-radius: 6px; display: block; background: #000; aspect-ratio: 16 / 9; object-fit: cover; }
-  figcaption { font-size: 12px; text-align: center; margin-top: 4px; letter-spacing: .04em; text-transform: uppercase; }
-  .why { margin: 12px 0 0; color: var(--ink-dim); font-size: .92rem; } .seen { margin: 8px 0 0; color: var(--ink); font-style: italic; font-size: .95rem; }
-  .attribution { font-size: .85rem; margin: 18px 0 0; }
-  @media (max-width: 860px) { .rules { grid-template-columns: 1fr; } section.film { padding: 22px; } }
+  figcaption { font-size: .875rem; text-align: center; margin-top: 4px; letter-spacing: .04em; text-transform: uppercase; }
+  .why { margin: 12px 0 0; color: var(--ink-dim); font-size: .9375rem; } .seen { margin: 8px 0 0; color: var(--ink); font-style: italic; font-size: .96875rem; }
+  .attribution { font-size: .875rem; margin: 18px 0 0; }
+  @media (max-width: 860px) { .rules { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
 <header class="nav">
   <div class="wrap">
-    <a class="brand" href="../"><img src="../icons/light-72.png" alt=""/>Wick</a>
+    <a class="brand" href="../"><img src="../icons/light-72.png" alt="" width="30" height="30"/>Wick</a>
     <div class="nav-links">
-      <a class="btn sm" href="https://github.com/rogerjeasy/wick">GitHub</a>
+      <a class="btn sm" href="https://github.com/rogerjeasy/wick"><svg class="i" aria-hidden="true"><use href="../assets/vendor/icons.svg#code-xml"/></svg>Source</a>
       <a class="btn sm primary" href="https://dmaz25jvryojp.cloudfront.net/">Try the demo</a>
     </div>
   </div>
@@ -58,10 +58,10 @@
         <li><strong>Chosen by rule</strong>A cut inside a quiet stretch, or the end of a fade. Never in the first 60 seconds, never in the last 60 before the credits, never two within 90 seconds.</li>
         <li><strong>Described, not decided</strong>The sentence under each one is written by a model on Amazon Bedrock looking at the two frames. It chooses nothing.</li>
       </ul>
-      <p class="legend"><span><i style="background:#4f7f73"></i>quiet</span><span><i style="background:#8d8375"></i>cuts</span><span><i style="background:#e8b75d"></i>calm point</span><span><i style="background:#4a4136"></i>credits</span><span><i style="background:#0a0806"></i>left alone</span></p>
+      <p class="legend"><span><i style="background:var(--tl-quiet)"></i>quiet</span><span><i style="background:var(--tl-cut)"></i>cuts</span><span><i style="background:var(--accent)"></i>calm point</span><span><i style="background:var(--tl-credits)"></i>credits</span><span><i style="background:var(--tl-left)"></i>left alone</span></p>
     </div>
   </div>
-  <div class="wrap" style="padding-bottom: 96px">
+  <div class="wrap" style="padding-bottom: clamp(4rem, 8vw, 6rem)">
 <section class="film">
   <h2>Big Buck Bunny</h2>
   <p class="numbers">152 shots · 56 quiet stretches · 1 fade through black · credits at 8:10 (Rekognition: 8:10) · <strong>3 calm points</strong></p>

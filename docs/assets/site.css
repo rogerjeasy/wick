@@ -194,10 +194,10 @@ footer a:hover{color:var(--ink);text-decoration:underline}
 
 /* The film */
 .film-frame{margin-top:clamp(2.25rem,5vw,3.5rem);border-radius:var(--radius);border:1px solid var(--line-2);background:var(--film-ground);box-shadow:var(--shadow);overflow:hidden}
-.film{position:relative;aspect-ratio:16/9;background:var(--film-ground)}
+.film-frame .film{position:relative;aspect-ratio:16/9;background:var(--film-ground)}
 .film video{width:100%;height:100%;object-fit:contain;background:var(--film-ground)}
 .film video::cue{font:500 1.05rem/1.4 var(--sans);background:rgba(10,9,8,.86);color:#fff}
-.film:fullscreen{width:100%;height:100%;aspect-ratio:auto;background:#000}
+.film-frame .film:fullscreen{width:100%;height:100%;aspect-ratio:auto;background:#000}
 .film-progress{position:absolute;inset:auto 0 0 0;height:3px;z-index:1}
 .film-progress i{display:block;height:100%;transform-origin:left;transform:scaleX(0);background:var(--accent)}
 .film-start{position:absolute;inset:0;display:none;place-items:end center;padding-bottom:8%;border:0;background:rgba(12,10,9,.35);cursor:pointer;color:#12100E}
@@ -219,14 +219,14 @@ footer a:hover{color:var(--ink);text-decoration:underline}
 .btn.sound[aria-pressed="true"]{border-color:var(--accent-line);color:var(--accent-text)}
 
 /* Measured strip */
-.numbers{border-block:1px solid var(--line);background:var(--ground-2)}
-.numbers dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0}
-.numbers div{padding:clamp(20px,3vw,30px) clamp(14px,2vw,24px);border-left:1px solid var(--line);min-width:0}
-.numbers div:first-child{border-left:0}
-.numbers dt{color:var(--ink-dim);font-size:.9375rem;line-height:1.45}
-.numbers dd{margin:0 0 6px;order:-1;font-weight:800;font-size:clamp(1.6rem,2.4vw + .6rem,2.4rem);letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.1}
-.numbers div{display:flex;flex-direction:column}
-.numbers small{display:block;color:var(--ink-faint);font-size:.875rem;margin-top:4px}
+.stats{border-block:1px solid var(--line);background:var(--ground-2)}
+.stats dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0}
+.stats div{padding:clamp(20px,3vw,30px) clamp(14px,2vw,24px);border-left:1px solid var(--line);min-width:0}
+.stats div:first-child{border-left:0}
+.stats dt{color:var(--ink-dim);font-size:.9375rem;line-height:1.45}
+.stats dd{margin:0 0 6px;order:-1;font-weight:800;font-size:clamp(1.6rem,2.4vw + .6rem,2.4rem);letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.1}
+.stats div{display:flex;flex-direction:column}
+.stats small{display:block;color:var(--ink-faint);font-size:.875rem;margin-top:4px}
 
 /* The idea: built for the caregiver / built for her */
 .contrast{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
@@ -367,9 +367,9 @@ kbd{display:inline-block;font:700 .8125rem/1.4 var(--sans);padding:1px 7px;borde
 }
 @media (max-width:1024px){
   .features{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .numbers dl{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .numbers div:nth-child(3){border-left:0}
-  .numbers div:nth-child(n+3){border-top:1px solid var(--line)}
+  .stats dl{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stats div:nth-child(3){border-left:0}
+  .stats div:nth-child(n+3){border-top:1px solid var(--line)}
   .built-grid,.media-pair,.real{grid-template-columns:minmax(0,1fr)}
   .shot,.shot.wide{grid-column:span 6}
 }
@@ -404,9 +404,9 @@ kbd{display:inline-block;font:700 .8125rem/1.4 var(--sans);padding:1px 7px;borde
   .table.measured td:first-child{padding-bottom:0}
 }
 @media (max-width:400px){
-  .numbers dl{grid-template-columns:minmax(0,1fr)}
-  .numbers div{border-left:0}
-  .numbers div:nth-child(n+2){border-top:1px solid var(--line)}
+  .stats dl{grid-template-columns:minmax(0,1fr)}
+  .stats div{border-left:0}
+  .stats div:nth-child(n+2){border-top:1px solid var(--line)}
 }
 
 @media (prefers-reduced-motion:reduce){
