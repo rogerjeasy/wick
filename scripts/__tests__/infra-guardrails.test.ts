@@ -135,6 +135,7 @@ describe('what an anonymous visitor can reach (infra/edge.tf)', () => {
   const edge = read('edge.tf');
   const pairing = read('pairing.tf');
   const live = read('live.tf');
+  const visitPass = read('visit-pass.tf');
   const limits = (() => {
     const block = /edge_route_limits = \{([\s\S]*?)\n  \}/.exec(edge)![1]!;
     return new Map([...block.matchAll(/"([A-Z]+ [^"]+)"\s*=\s*\{\s*rate\s*=\s*(\d+),\s*burst\s*=\s*(\d+)\s*\}/g)].map((m) => [m[1]!, { rate: Number(m[2]), burst: Number(m[3]) }]));
@@ -144,6 +145,7 @@ describe('what an anonymous visitor can reach (infra/edge.tf)', () => {
     ...[...(/routes = \{([\s\S]*?)\n  \}/.exec(edge)![1]!).matchAll(/"([A-Z]+ [^"]+)"\s*=/g)].map((m) => m[1]!),
     ...[...(/pairing_routes = \{([\s\S]*?)\n  \}/.exec(pairing)![1]!).matchAll(/"([A-Z]+ [^"]+)"\s*=/g)].map((m) => m[1]!),
     ...[...(/live_routes = toset\(\[(.*?)\]\)/.exec(live)![1]!).matchAll(/"([A-Z]+ [^"]+)"/g)].map((m) => m[1]!),
+    ...[...(/visit_pass_routes = toset\(\[(.*?)\]\)/.exec(visitPass)![1]!).matchAll(/"([A-Z]+ [^"]+)"/g)].map((m) => m[1]!),
   ];
 
   it('knows every route of the edge API', () => {
