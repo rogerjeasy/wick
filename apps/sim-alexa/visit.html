@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Your visit · Wick</title>
+<!-- The visitor's page (visit-state.js): three buttons, and nothing about the house. Not indexed, and never a Referer. -->
+<meta name="robots" content="noindex, nofollow" />
+<meta name="referrer" content="no-referrer" />
+<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content="#fbf7f0" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#12100e" media="(prefers-color-scheme: dark)" />
+<!-- Where the page says what the visitor pressed: the edge API. infra/sim-alexa.tf writes the deployed address in place of this one. -->
+<meta name="wick-edge-api" content="http://127.0.0.1:3300" />
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
+<!-- Self-hosted, as the family app's are (scripts/family-vendor.mjs): nothing on this page comes from another site. -->
+<link rel="preload" href="./vendor/atkinson-hyperlegible-next-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="stylesheet" href="./vendor/fonts.css" />
+<link rel="stylesheet" href="./visit.css" />
+</head>
+<body>
+  <main class="visit" aria-labelledby="visit-heading">
+    <p class="visit-brand">
+      <svg class="visit-flame" viewBox="0 0 16 22" aria-hidden="true"><path d="M8 0c3 5 7 8 7 13a7 7 0 0 1-14 0C1 8 5 5 8 0z" fill="#e8b75d"/><path d="M8 9c1.5 2.5 3 4 3 6a3 3 0 0 1-6 0c0-2 1.5-3.5 3-6z" fill="#f4dfb4"/></svg>
+      <span>Wick</span>
+    </p>
+
+    <section id="visit-card" class="visit-card" aria-busy="true">
+      <h1 id="visit-heading" class="visit-heading">Your visit</h1>
+      <p id="visit-lead" class="visit-lead">Opening your link…</p>
+
+      <!-- What came of the last press, announced as it changes. -->
+      <div id="visit-result" class="visit-result" role="status" aria-live="polite" hidden>
+        <span id="visit-result-icon" class="visit-result-icon"></span>
+        <p class="visit-result-words"><strong id="visit-result-head"></strong> <span id="visit-result-last"></span></p>
+      </div>
+
+      <div id="visit-buttons" class="visit-buttons" role="group" aria-label="What to tell the house" hidden>
+        <button class="visit-button" type="button" data-says="on_way" data-icon="send"><span class="visit-button-icon"></span><span class="visit-button-words"><span class="visit-button-label">On my way</span><span class="visit-button-hint"></span></span><span class="visit-button-mark"></span></button>
+        <button class="visit-button" type="button" data-says="late" data-icon="clock"><span class="visit-button-icon"></span><span class="visit-button-words"><span class="visit-button-label">Running late</span><span class="visit-button-hint"></span></span><span class="visit-button-mark"></span></button>
+        <button class="visit-button primary" type="button" data-says="at_door" data-icon="door-open"><span class="visit-button-icon"></span><span class="visit-button-words"><span class="visit-button-label">I’m at the door</span><span class="visit-button-hint"></span></span><span class="visit-button-mark"></span></button>
+      </div>
+
+      <button id="visit-retry" class="visit-retry" type="button" hidden>Try again</button>
+    </section>
+
+    <p class="visit-note">A link for one visit. It can say that you are on the way, running late or at the door, and nothing more; it shows nothing about the house.</p>
+  </main>
+  <noscript><p class="visit-note">This page needs JavaScript to tell the house you are coming.</p></noscript>
+
+  <script type="module" src="./visit.js"></script>
+</body>
+</html>

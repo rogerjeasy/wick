@@ -168,6 +168,56 @@ resource "aws_s3_object" "sim_alexa_capture_worklet_js" {
   cache_control = "no-cache"
 }
 
+# The visitor's page (apps/sim-alexa/visit.html): the link a family member
+# forwards to the visitor they arranged, with three buttons and nothing about
+# the house. It tells the edge API what was pressed (POST /visit/status and
+# /visit/say, infra/edge.tf), so the checked-in local address is rewritten to
+# the edge's here, as index.html's server is above. The token is after the
+# page's "#", which a browser never sends: CloudFront's logs never hold it.
+locals {
+  sim_alexa_visit_html = replace(
+    file("${path.module}/../apps/sim-alexa/visit.html"),
+    "http://127.0.0.1:3300",
+    aws_apigatewayv2_api.edge.api_endpoint,
+  )
+}
+
+resource "aws_s3_object" "sim_alexa_visit_html" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "visit.html"
+  content       = local.sim_alexa_visit_html
+  etag          = md5(local.sim_alexa_visit_html)
+  content_type  = "text/html; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "sim_alexa_visit_js" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "visit.js"
+  source        = "${path.module}/../apps/sim-alexa/visit.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/visit.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "sim_alexa_visit_state_js" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "visit-state.js"
+  source        = "${path.module}/../apps/sim-alexa/visit-state.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/visit-state.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "sim_alexa_visit_css" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "visit.css"
+  source        = "${path.module}/../apps/sim-alexa/visit.css"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/visit.css")
+  content_type  = "text/css; charset=utf-8"
+  cache_control = "no-cache"
+}
+
 # The web app manifest and its icons: what lets a telephone add the family
 # app to its home screen — and an iPhone receives Web Push only from an app
 # added there. The icons are made by scripts/make-brand-assets.py.
@@ -258,7 +308,8 @@ resource "aws_s3_object" "sim_alexa_vendor_motion_js" {
 # the app is always run under it). Scripts, styles and fonts come from this
 # site alone (the fonts are self-hosted, above), and from one file on jsDelivr: hls.js 1.5.17, which is also loaded
 # with Subresource Integrity. There is no 'unsafe-inline' and no
-# 'unsafe-eval' anywhere. It connects to the Wick server and the films and
+# 'unsafe-eval' anywhere. It connects to the Wick server, the edge API (the
+# visitor's page, and nothing else on the site, calls it) and the films, and
 # nowhere else. The one wide directive is img-src https:, and on purpose: a
 # door's picture comes from Ring's media host, which Ring does not name and
 # reaches by a redirect (FRICTION.md FL-005), and an image runs no code.
@@ -279,7 +330,9 @@ locals {
   ])
   sim_alexa_csp = replace(trimspace(templatefile("${path.module}/csp/family-app.csp", {
     wick_server = join(" ", compact(local.sim_alexa_wick_servers))
-    films       = "https://${aws_cloudfront_distribution.programmes.domain_name}"
+    # The visitor's page tells the edge API what was pressed (visit.html, above).
+    edge_api = aws_apigatewayv2_api.edge.api_endpoint
+    films    = "https://${aws_cloudfront_distribution.programmes.domain_name}"
   })), "\n", " ")
 }
 

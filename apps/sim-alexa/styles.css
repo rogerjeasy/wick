@@ -485,6 +485,17 @@ button { -webkit-tap-highlight-color: transparent; }
 .errand-step .icon { width: 1.05em; height: 1.05em; }
 .errand-step[data-state='done'] { color: var(--ink); }
 .errand-step[data-state='done'] .icon { color: var(--ok); }
+/* What the visitor said from their link (errands.js visitorSaid): the server's sentence, beside the mark of what it was. */
+.errand-visitor { display: flex; align-items: flex-start; gap: var(--s-xs); margin: 0; padding: var(--s-xs) var(--s-s); border-radius: var(--r-m); background: var(--card-inner); }
+.errand-visitor .icon { color: var(--wick); margin-top: 0.15em; }
+/* Sending the visitor a link: the button, what a second link does, and the link once made. */
+.errand-entry > .actions { display: flex; flex-wrap: wrap; gap: var(--s-s); align-items: center; }
+.errand-entry > .actions .btn, .errand-link .actions .btn { flex: 1 1 auto; }
+@media (min-width: 640px) { .errand-entry > .actions .btn, .errand-link .actions .btn { flex: 0 1 auto; } }
+.errand-pass-note { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
+.errand-link { display: flex; flex-direction: column; gap: var(--s-xs); }
+.errand-link .actions { display: flex; flex-wrap: wrap; gap: var(--s-s); }
+.errand-link-words { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
 
 /* ------------------------------------------------------------- buttons */
 

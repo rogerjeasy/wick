@@ -1,0 +1,208 @@
+/*
+ * The visitor's page (visit.html; docs/design/DESIGN.md).
+ *
+ * Not the family app's chrome: the visitor is not signed in to anything and
+ * stands in for no Alexa+ surface. It is Wick's own look, the candle in the
+ * window of her television (DESIGN.md §2): a warm dark ground and warm white
+ * words, or — in a phone's light mode, on a doorstep in daylight — warm
+ * paper and dark ink. One amber button, the one that matters at the door.
+ * No red: a press that did not go through is only said so, in words.
+ *
+ * One column, 320 pixels and up; every button is far larger than 48 pixels.
+ * Atkinson Hyperlegible Next, self-hosted (vendor/fonts.css). Things arrive in
+ * 200 ms on DESIGN.md's curve, and not at all with reduced motion.
+ */
+:root {
+  color-scheme: light dark;
+  --font: "Atkinson Hyperlegible Next", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  --ease-enter: cubic-bezier(0.2, 0, 0, 1);
+
+  --ground: #fbf7f0;
+  --glow: rgba(232, 183, 93, 0.22);
+  --card: #ffffff;
+  --card-line: #e8dfcf;
+  --ink: #211b12;            /* 16.9:1 on --card */
+  --ink-dim: #5d5446;        /* 7.4:1 on --card */
+  --button: #f7f2e9;
+  --button-hover: #f0e7d7;
+  --button-line: #ddd0b9;
+  --icon-ground: #f3e6c9;
+  --icon-ink: #7a5514;
+  --accent: #e8b75d;         /* Wick's amber: the main button, the flame */
+  --accent-hover: #f1c77a;
+  --accent-line: #c9952f;
+  --accent-ink: #1a1408;     /* 9.9:1 on --accent */
+  --accent-ink-dim: #4a3a17; /* 6.1:1 on --accent */
+  --ok: #2f7a4f;             /* 5.3:1 on --card; always beside a word */
+  --ok-ground: #edf6f0;
+  --problem: #7a3d1f;
+  --problem-ground: #fbf0e8;
+  --focus: #1a1408;
+  --shadow: 0 1px 2px rgba(60, 40, 10, 0.06), 0 12px 32px -12px rgba(60, 40, 10, 0.18);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Her television's tokens (packages/vega-calm-ui tokens.ts). */
+    --ground: #12100e;
+    --glow: rgba(232, 183, 93, 0.12);
+    --card: #1e1b17;
+    --card-line: #2f2a24;
+    --ink: #f4f1ea;          /* 15.2:1 on --card */
+    --ink-dim: #c8c2b6;      /* 9.7:1 on --card */
+    --button: #2a2621;
+    --button-hover: #35302a;
+    --button-line: #3d372f;
+    --icon-ground: #3a3123;
+    --icon-ink: #f4dfb4;
+    --ok: #7fd1a0;
+    --ok-ground: rgba(127, 209, 160, 0.1);
+    --problem: #f0c8a8;
+    --problem-ground: rgba(240, 200, 168, 0.1);
+    --focus: #ffffff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px -16px rgba(0, 0, 0, 0.6);
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--ground); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: radial-gradient(42rem 26rem at 50% -8rem, var(--glow), transparent 70%), var(--ground);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+@media (min-width: 768px) { body { font-size: 18px; } }
+button { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.icon { width: 1.25em; height: 1.25em; flex: none; display: block; }
+
+.visit {
+  width: 100%;
+  max-width: 31rem;
+  margin: 0 auto;
+  /* Clear of the notch and the rounded corners (viewport-fit=cover), and never less than 16 pixels from the edge. */
+  padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+@media (min-width: 768px) { .visit { padding-top: max(48px, 9vh); } }
+
+.visit-brand { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--ink-dim); font-weight: 700; letter-spacing: 0.02em; }
+.visit-flame { width: 16px; height: 22px; flex: none; }
+
+.visit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 20px;
+  background: var(--card);
+  border: 1px solid var(--card-line);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+}
+@media (min-width: 480px) { .visit-card { padding: 32px 28px; } }
+.visit-heading { margin: 0; font-size: clamp(1.6rem, 1.2rem + 2vw, 2rem); line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
+.visit-lead { margin: 0; color: var(--ink-dim); }
+
+/* ------------------------------------------------------------ the buttons */
+
+.visit-buttons { display: flex; flex-direction: column; gap: 12px; }
+.visit-button {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 76px;
+  padding: 14px 16px;
+  border: 2px solid var(--button-line);
+  border-radius: 16px;
+  background: var(--button);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms var(--ease-enter), border-color 150ms var(--ease-enter), transform 80ms var(--ease-enter), opacity 150ms var(--ease-enter);
+}
+.visit-button:hover:not(:disabled) { background: var(--button-hover); }
+.visit-button:active:not(:disabled) { transform: scale(0.98); }
+.visit-button-icon {
+  display: grid; place-items: center;
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--icon-ground); color: var(--icon-ink);
+}
+.visit-button-words { display: flex; flex-direction: column; min-width: 0; }
+.visit-button-label { font-size: 1.2em; font-weight: 700; line-height: 1.25; }
+.visit-button-hint { color: var(--ink-dim); font-size: 0.9em; }
+.visit-button-mark { display: none; color: var(--ok); }
+.visit-button-mark .icon { width: 1.5em; height: 1.5em; }
+/* The mark takes room only when there is one: on a 320-pixel phone the words need it more. */
+.visit-button[data-last="true"] .visit-button-mark { display: block; }
+.visit-button[data-last="true"] { border-color: var(--ok); }
+
+/* The one that matters at the door: Wick's amber, and the last of the three. */
+.visit-button.primary { min-height: 84px; background: var(--accent); border-color: var(--accent-line); color: var(--accent-ink); }
+.visit-button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.visit-button.primary .visit-button-icon { background: rgba(26, 20, 8, 0.12); color: var(--accent-ink); }
+.visit-button.primary .visit-button-hint { color: var(--accent-ink-dim); }
+.visit-button.primary .visit-button-mark { color: var(--accent-ink); }
+.visit-button.primary[data-last="true"] { border-color: var(--accent-ink); }
+
+/* One press at a time: the others wait, and the one pressed says it is working. */
+.visit-button:disabled { cursor: default; opacity: 0.55; }
+.visit-button[data-working="true"] { opacity: 1; cursor: progress; }
+.visit-button[data-working="true"] .visit-button-mark { display: block; }
+.visit-button[data-working="true"] .visit-button-mark .icon { display: none; }
+.visit-button[data-working="true"] .visit-button-mark::before {
+  content: ""; display: block; width: 1.25em; height: 1.25em; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: visit-spin 0.7s linear infinite;
+}
+.visit-button.primary[data-working="true"] .visit-button-mark { color: var(--accent-ink); }
+.visit-button:not(.primary)[data-working="true"] .visit-button-mark { color: var(--ink-dim); }
+
+/* ------------------------------------------------------------- the answer */
+
+.visit-result {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--ok-ground);
+  animation: visit-enter 200ms var(--ease-enter);
+}
+.visit-result-icon { color: var(--ok); padding-top: 2px; }
+.visit-result-words { margin: 0; }
+.visit-result-words strong { display: block; }
+.visit-result[data-tone="problem"] { background: var(--problem-ground); }
+.visit-result[data-tone="problem"] .visit-result-icon { color: var(--problem); }
+
+.visit-retry {
+  align-self: flex-start;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 2px solid var(--button-line);
+  border-radius: 12px;
+  background: var(--button);
+  font-weight: 700;
+  cursor: pointer;
+}
+.visit-retry:hover { background: var(--button-hover); }
+
+.visit-note { margin: 0; padding: 0 8px; color: var(--ink-dim); font-size: 14px; text-align: center; }
+
+@keyframes visit-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes visit-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .visit-result { animation: none; }
+  .visit-button { transition: none; }
+  .visit-button:active:not(:disabled) { transform: none; }
+  .visit-button[data-working="true"] .visit-button-mark::before { animation: none; border-style: dotted; border-right-color: currentColor; }
+}

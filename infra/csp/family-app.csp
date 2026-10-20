@@ -4,7 +4,7 @@ style-src 'self';
 font-src 'self';
 img-src 'self' data: blob: https:;
 media-src 'self' blob: ${films};
-connect-src 'self' ${wick_server} ${films};
+connect-src 'self' ${wick_server} ${edge_api} ${films};
 worker-src 'self' blob:;
 manifest-src 'self';
 base-uri 'none';
