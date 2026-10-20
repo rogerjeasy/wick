@@ -83,3 +83,25 @@ describe('the family app as an app on a telephone', () => {
     for (const file of imported) expect(tf, file).toContain(`key           = "${file}"`);
   });
 });
+
+describe('the visitor’s page, deployed (visit.html)', () => {
+  const visit = read('../visit.html');
+
+  it('is published with every file it names, and every module its script imports', () => {
+    expect(tf).toContain('key           = "visit.html"');
+    const local = [...visit.matchAll(/(?:href|src)="\.\/([^"]+)"/g)].map((m) => m[1]!);
+    expect(local).toEqual(expect.arrayContaining(['visit.js', 'visit.css']));
+    for (const file of local.filter((f) => !f.startsWith('icons/'))) expect(tf, file).toContain(`key           = "${file}"`);
+    for (const [, name] of read('../visit.js').matchAll(/^import [^;]*? from '\.\/([^']+)';/gm)) expect(tf, name).toContain(`key           = "${name}"`);
+  });
+
+  it('is given the edge API’s address by the deploy, in place of the local one', () => {
+    expect(visit).toContain('<meta name="wick-edge-api" content="http://127.0.0.1:3300" />');
+    expect(tf).toMatch(/file\("\$\{path\.module\}\/\.\.\/apps\/sim-alexa\/visit\.html"\),\s*"http:\/\/127\.0\.0\.1:3300",\s*aws_apigatewayv2_api\.edge\.api_endpoint,/);
+  });
+
+  it('may reach the edge API, which the policy names, and nowhere new', () => {
+    expect(csp).toMatch(/^connect-src 'self' \$\{wick_server\} \$\{edge_api\} \$\{films\};$/m);
+    expect(tf).toMatch(/edge_api\s*=\s*aws_apigatewayv2_api\.edge\.api_endpoint/);
+  });
+});
