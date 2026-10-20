@@ -5,6 +5,19 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/rogerjeasy/wick/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rogerjeasy/wick/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/rogerjeasy/wick/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/rogerjeasy/wick?color=E8B75D&label=release"></a>
+  <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/github/license/rogerjeasy/wick?color=4A443B"></a>
+  <a href="https://github.com/rogerjeasy?tab=packages&repo_name=wick"><img alt="Packages on GitHub" src="https://img.shields.io/badge/packages-ghcr.io%20%C2%B7%20npm-2D415E"></a>
+  <br>
+  <img alt="Fire TV: Vega OS and Fire OS" src="https://img.shields.io/badge/Fire%20TV-Vega%20OS%20%C2%B7%20Fire%20OS-FF9900">
+  <img alt="Ring Partner API" src="https://img.shields.io/badge/Ring-Partner%20API-1C9AD6">
+  <img alt="Alexa+: MCP 2025-11-25, OAuth 2.1" src="https://img.shields.io/badge/Alexa%2B-MCP%202025--11--25%20%C2%B7%20OAuth%202.1-00CAFF">
+  <img alt="Amazon Bedrock AgentCore and Strands" src="https://img.shields.io/badge/Amazon%20Bedrock-AgentCore%20%C2%B7%20Strands-232F3E">
+  <img alt="Accessibility: 32 pt, 7:1 contrast" src="https://img.shields.io/badge/accessibility-32%20pt%20%C2%B7%207%3A1%20contrast-1E1B17">
+</p>
+
+<p align="center">
   <strong><a href="https://rogerjeasy.github.io/wick/media/wick-demo-1080.mp4">Watch the film (1:28)</a></strong> ·
   <strong><a href="https://dmaz25jvryojp.cloudfront.net/">Try the family app</a></strong> ·
   <a href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">Her television in a browser tab</a> ·
