@@ -36,7 +36,7 @@ describe('mockImports', () => {
   });
 
   it('passes a module whose name does not say mock', () => {
-    expect(mockImports("import { PlaybackEventStore } from './personalization/PlaybackEventStore.js';")).toEqual([]);
+    expect(mockImports("import { QueueStore } from './headless/QueueStore.js';")).toEqual([]);
   });
 });
 

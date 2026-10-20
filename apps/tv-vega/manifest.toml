@@ -61,11 +61,6 @@ id             = "com.wick.tv.content.dataRefresh.provider"
 runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
 launch-type    = "singleton"
 
-# Nightly batch upload of local playback events.
-[[components.task]]
-id             = "com.wick.tv.rhythmSyncTask"
-runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
-
 # First-run pairing state.
 [[components.task]]
 id             = "com.wick.tv.onInstallTask"

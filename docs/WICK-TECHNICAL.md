@@ -261,7 +261,7 @@ Vega's `manifest.toml` declares `interactive`, `service` and `task` components. 
 | `com.wick.tv.main` | interactive | Every screen, the player |
 | `com.wick.tv.card.service` | service | Keeps a background connection and posts a system toast for a door card while another app is in front (FL-022, FL-026). The toast is built and posted with react-native-kepler's own `useToastKepler` parts, since a service cannot call a hook (FL-044) |
 | `com.wick.tv.content.dataRefresh.provider` | service | Answers the platform's Content Personalization pulls (§3.3) |
-| `com.wick.tv.rhythmSyncTask`, `onInstallTask` | task | Registered; the batch upload is not scheduled, since playback is sent live. First-run state |
+| `com.wick.tv.onInstallTask` | task | First-run state. (A `rhythmSyncTask` that was to upload playback nightly was removed on 2026-10-19: it was never scheduled, and playback is sent live.) |
 
 The main component provides `IContentPersonalizationServer` and `IMediaPlaybackServer` (Start over, skip forward and back; Play, Pause and Stop are core). `IContentLauncherServer` and `IAccountLoginServer` are partner-gated and not declared.
 
@@ -273,7 +273,7 @@ Tasks register with `registerHeadlessEntryPoint`, services with `registerHeadles
 
 The player reports Watch Activity as it happens, by Amazon's "When to Send" rules: on every change of state, on a seek, and every 60 seconds while in the player (`personalization/watchActivity.ts`). Each report is `ContentPersonalizationServer.reportNewPlaybackEvent` with the content id (`cdf_id`), an internal profile id, duration, position, state and the credits position (`personalization/report.ts`). Leaving a film is `EXIT`, never `PAUSE`, as Amazon's table says. ✅ V on the Vega Virtual Device: the platform's own log shows `reportNewPlaybackEvent called` and `sendPlaybackEvents async call completed successfully` at the start, the 60-second mark, a pause and leaving the film. The data-refresh service answers the platform's pulls with nothing and commits (`DataRefreshService.ts`): the playback pull is for off-device viewing, which Wick does not have, and Wick has no watchlist or entitlements. No mocks are wired in, unlike the sample.
 
-What is not shown is a Continue Watching row. That row is drawn from a Fire TV catalogue integration, and Wick's three Blender films are in no Amazon catalogue, so the platform has nothing to resolve the ids against (SP-7, FL-043).
+What is not shown is a Continue Watching row. That row is drawn from a Fire TV catalogue integration, and Wick's three Blender films are in no Amazon catalogue, so the platform has nothing to resolve the ids against (SP-7, FL-043). So, plainly: **this integration is real and has no effect anyone can see on a television.** The platform takes the reports (its own log says so); nothing in Fire TV's home draws from them without a catalogue. What she does see of the same facts is Wick's own: a film she left goes on from where she left it (`watch/resume.ts`), and the family sees that she watched (the rhythm). Wick keeps no copy of the reports on the television: a store of them, and a nightly task to upload it, were written for a use that never came and were removed on 2026-10-19.
 
 ### 3.4 The Natural-Break Engine
 

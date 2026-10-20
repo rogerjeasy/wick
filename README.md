@@ -142,7 +142,7 @@ design is in [docs/WICK-TECHNICAL.md](docs/WICK-TECHNICAL.md).
 
 | | Used for |
 |---|---|
-| **Vega OS** | The resident's app in React Native for Vega. A headless service shows the door over other apps, media controls make a platform pause count as a natural break, `w3cmedia` plays the films and the door's live view, and Content Personalization is told what she watches as she watches it. |
+| **Vega OS** | The resident's app in React Native for Vega. A headless service shows the door over other apps, media controls make a platform pause count as a natural break, `w3cmedia` plays the films and the door's live view, and Content Personalization is told what she watches as she watches it (the platform takes the reports; its Continue Watching row needs an Amazon catalogue Wick's three open films are not in, [FL-043](FRICTION.md)). |
 | **Fire OS** | The same source through four small adapters, with an Android foreground service for the door, and her film as Android's `MediaSession`, so "Alexa, pause" and the remote's media keys go through the same rules as on Vega. |
 | **Ring Partner API** | OAuth link, webhooks, recorded frames and live view (WebRTC bridged to HLS for the television). |
 | **Alexa+ MCP** | An MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1) with 25 tools. The add-on surface is partner-only, so a simulated Alexa+ app calls it, as the rules allow. |

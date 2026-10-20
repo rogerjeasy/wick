@@ -22,10 +22,11 @@
  *     dismissed cards back, showing counts lost. Nothing is lost by this:
  *     the server holds every card and replays what the app has not seen
  *     when it connects (reconcile).
- *   - The outbox is genuinely cross-process: RhythmSyncTask runs as its own
- *     task and appends to it for the channel holder to drain. So disk stays
- *     its source of truth whenever disk works, re-read on every drain; only
- *     events the disk refuses fall back to this instance's memory.
+ *   - The outbox keeps disk as its source of truth whenever disk works,
+ *     re-read on every drain, so an event another process appends is sent by
+ *     the one that holds the channel (nothing does today: a background task
+ *     used to, and was removed as unused); only events the disk refuses fall
+ *     back to this instance's memory.
  *
  * Three more things are decided here, because here is where a card comes to
  * be held:
