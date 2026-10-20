@@ -6,6 +6,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { loadTodayEvents, registerGetToday, summariseEvent } from '../get_today.js';
 import { allowedContext } from './toolContext.js';
+import { createMemoryTable } from '../../__tests__/memoryTable.js';
+import { guardTools } from '../../guardian.js';
+import type { ToolContext } from '../context.js';
 
 describe('summariseEvent', () => {
   it('summarises a door event', () => {
@@ -156,5 +159,38 @@ describe('registerGetToday (registered tool handler, end to end)', () => {
     expect(content[0]!.text).not.toContain('Maria');
     expect(content[0]!.text).not.toContain('1700000000000');
     expect(content[0]!.text).toContain('keeps to themselves');
+  });
+});
+
+describe('get_today — a visitor’s name the gate cannot clear (INV-4)', () => {
+  /** A presence row as the door writes it, at a moment today, behind the Guardian as every tool is. */
+  async function todayWith(personName: string, ctx: ToolContext = allowedContext('hh-1')) {
+    const table = createMemoryTable();
+    const at = Date.now() - 1000;
+    table.put({ pk: { S: 'HH#hh-1' }, sk: { S: `EVT#${String(at).padStart(15, '0')}#a` }, type: { S: 'presence' }, personName: { S: personName } });
+    const mcpServer = guardTools(new McpServer({ name: 'test', version: '0.1.0' }), undefined, ctx.people ? () => ctx.people!() : undefined);
+    registerGetToday(mcpServer, table.ddb, ctx);
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+    return client.callTool({ name: 'get_today', arguments: {} });
+  }
+
+  it('leaves the name out, and keeps the rest of the day: "Doctor Rossi" is the arranging member’s word, not everyone’s', async () => {
+    const result = await todayWith('Doctor Rossi');
+
+    expect(result.isError).toBeFalsy();
+    expect((result.structuredContent as { events: { summary: string }[] }).events.map((e) => e.summary)).toEqual([
+      'Someone came to the door when a visitor was expected.',
+    ]);
+    expect(JSON.stringify(result)).not.toContain('Rossi');
+  });
+
+  it('keeps a name the gate clears, and one of the household’s own people in another script', async () => {
+    const summaries = async (name: string, ctx?: ToolContext) =>
+      ((await todayWith(name, ctx)).structuredContent as { events: { summary: string }[] }).events.map((e) => e.summary);
+
+    expect(await summaries('Maria')).toEqual(['Someone came to the door when Maria was expected.']);
+    expect(await summaries('Иван', { ...allowedContext('hh-1'), people: async () => ['Иван'] })).toEqual(['Someone came to the door when Иван was expected.']);
   });
 });
