@@ -192,7 +192,7 @@ export function familyWeek(stored: WeekNarrative, policy: HouseholdPolicy, timeZ
 
   const hides = (kind: string) => (kind === 'door' && hidden.door) || ((kind === 'visit' || kind === 'presence') && hidden.visits);
   const timeline = narrative.timeline.filter((e) => !hides(e.kind) && !unclearEntry(e));
-  const facts = summariseWeek(timeline, { timeZone, range: isoWeekRange(narrative.isoWeek), now: narrative.generatedAt });
+  const facts = summariseWeek(timeline, { timeZone, range: isoWeekRange(narrative.isoWeek), now: narrative.generatedAt, unheardDays: narrative.unheardDays ?? [] });
   // Weeks written before the baseline existed carry no deltas at all.
   const deltas = visibleDeltas(narrative.deltas ?? [], hidden).filter((d) => !unclearDelta(d));
   // Only her own choice is said to be kept private: what the Guardian held back is not mentioned at all.
@@ -302,6 +302,7 @@ export function weekAnswer(week: WeekNarrative, thisWeek?: ThisWeekStatus) {
       ...(d.verdict === undefined ? {} : { verdict: d.verdict }),
     })),
     timeline: week.timeline.map((e) => ({ at: e.at, kind: e.kind, summary: e.summary, ...(e.personId === undefined ? {} : { personId: e.personId }), ...(e.name === undefined ? {} : { name: e.name }) })),
+    ...(week.unheardDays?.length ? { unheardDays: [...week.unheardDays] } : {}),
     generatedAt: week.generatedAt,
     ...(week.residentSeenAt === undefined ? {} : { residentSeenAt: week.residentSeenAt }),
     ...(week.simulated ? { simulated: true as const } : {}),
@@ -336,6 +337,7 @@ const OUTPUT = answerSchema({
     personId: z.string().optional(),
     name: z.string().optional().describe('The regular visitor a `presence` (someone at the door when they were expected) or `visit` (confirmed by the resident) entry is about.'),
   })),
+  unheardDays: z.array(z.string()).optional().describe('Days of the week the doorbell was not heard at all: nothing can be said of who came then, and the week is not called quiet.'),
   generatedAt: z.number(),
   residentSeenAt: z.number().optional(),
   simulated: z.literal(true).optional().describe('A demo home’s week: nobody lived it.'),

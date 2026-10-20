@@ -63,7 +63,7 @@
  * morning as at nine at night.
  */
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { VISIT_SETTLED_MS, currentIsoWeek, padTimestamp, parseTimestampFromSortKey, type RosterEntry, type WeekNarrative } from '@wick/contracts';
+import { VISIT_SETTLED_MS, currentIsoWeek, heardHourOf, heardSk, padTimestamp, parseTimestampFromSortKey, type RosterEntry, type WeekNarrative } from '@wick/contracts';
 import { VISIT_GRACE_MS, briefMessage, factsWeekNarrative, isoWeekRange, parsePattern, visitItem } from '@wick/agent';
 import { wallClockAsUtc, wallClockToMoment } from '../tools/when.js';
 
@@ -235,6 +235,9 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
 
   // As the Narrator finds it for any home: the household's first event (narrator/lambda.ts firstEventAt).
   const observedSince = parseTimestampFromSortKey(events[0]!.sk!.S!);
+  // The stand-in doorbell was heard every hour from the first event to now (packages/contracts heard.ts):
+  // a demo home's weeks are whole, so its story can say what a whole week says.
+  const heard = heardRows(householdId, observedSince, now);
   const weeks: Item[] = [];
   for (let weeksAgo = FIRST_WEEK_AGO; weeksAgo >= 1; weeksAgo -= 1) {
     const weekStart = thisMonday - weeksAgo * WEEK;
@@ -242,7 +245,7 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
     const narratedAt = weekStart + WEEK - NARRATED_BEFORE_WEEK_END_MS;
     const narrative: WeekNarrative = {
       // With the visits she confirmed: only those say who came (packages/contracts visit.ts).
-      ...factsWeekNarrative(householdId, isoWeek, [...events, ...visits], { now: narratedAt, timeZone, observedSince }),
+      ...factsWeekNarrative(householdId, isoWeek, [...events, ...visits, ...heard], { now: narratedAt, timeZone, observedSince }),
       residentSeenAt: narratedAt + READ_AFTER_MS,
       simulated: true,
     };
@@ -253,7 +256,17 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
   const films = demoFilmItems(householdId, thisMonday, timeZone);
   const roster: Item = { pk, sk: { S: `PER#${DEMO_VISITOR.personId}` }, data: { S: JSON.stringify(DEMO_VISITOR) } };
   // The demo home's own expiry, on every row: a visit's row would otherwise keep its thirteen months (store/visits.ts).
-  return [roster, ...events, ...weeks, ...visits, ...films].map((item) => ({ ...item, ttl }));
+  return [roster, ...events, ...weeks, ...visits, ...heard, ...films].map((item) => ({ ...item, ttl }));
+}
+
+/** HEARD# rows for every hour from `from` to `now`, one row a UTC day (packages/contracts heard.ts), marked simulated. */
+function heardRows(householdId: string, from: number, now: number): Item[] {
+  const byDay = new Map<string, string[]>();
+  for (let hour = Math.floor(from / HOUR) * HOUR; hour < now; hour += HOUR) {
+    const sk = heardSk(hour);
+    byDay.set(sk, [...(byDay.get(sk) ?? []), String(heardHourOf(hour))]);
+  }
+  return [...byDay].map(([sk, hours]) => ({ pk: { S: `HH#${householdId}` }, sk: { S: sk }, hours: { NS: hours }, simulated: { BOOL: true } }));
 }
 
 /** The demo home's television, as the rhythm rows name it. */
