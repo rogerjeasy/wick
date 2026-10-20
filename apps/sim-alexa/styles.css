@@ -47,7 +47,7 @@ body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
   background: var(--ground);
   color: var(--ink);
-  font-family: "Amazon Ember", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  font-family: "Atkinson Hyperlegible Next", "Amazon Ember", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
   font-size: var(--t-body);
   line-height: 1.4;
   display: flex;

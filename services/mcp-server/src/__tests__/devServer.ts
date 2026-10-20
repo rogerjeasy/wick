@@ -860,6 +860,7 @@ const TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.png': 'image/png',
+  '.woff2': 'font/woff2',
 };
 /** Published beside the page when deployed (infra/sim-alexa.tf); served from where it lives here. */
 const ADDON_MANIFEST = fileURLToPath(new URL('../../../../addon-package/addon.json', import.meta.url));

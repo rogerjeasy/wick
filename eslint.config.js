@@ -38,7 +38,7 @@ export default tseslint.config(
   // apps/ops-console/*.generated.js is the Vega app's own source, bundled by `npm run tv:build` and held to it byte
   // for byte (apps/ops-console/__tests__/tv-build.test.ts): its source is linted where it lives.
   // .worktrees/ and .claude/worktrees/ hold other branches checked out side by side (.gitignore).
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**', '.programmes/**', 'apps/tv-fireos/android/**', 'apps/ops-console/*.generated.js', '.worktrees/**', '.claude/worktrees/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**', '.programmes/**', 'apps/tv-fireos/android/**', 'apps/ops-console/*.generated.js', 'apps/sim-alexa/vendor/**', '.worktrees/**', '.claude/worktrees/**'] },
 
   // Parse TypeScript everywhere.
   ...tseslint.configs.recommended,

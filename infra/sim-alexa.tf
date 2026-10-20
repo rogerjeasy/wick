@@ -179,13 +179,73 @@ resource "aws_s3_object" "sim_alexa_icons" {
   cache_control = "max-age=86400"
 }
 
+# The family app's libraries, self-hosted: the Atkinson Hyperlegible Next
+# typeface, Open Props' easings, shadows and sizes, the Lucide icons it uses
+# and Motion's animate. Written by scripts/family-vendor.mjs (npm run
+# family:vendor) from the root devDependencies and committed; nothing is
+# fetched from another site when the page runs (font-src 'self' in the
+# policy below).
+resource "aws_s3_object" "sim_alexa_vendor_fonts_css" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "vendor/fonts.css"
+  source        = "${path.module}/../apps/sim-alexa/vendor/fonts.css"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/vendor/fonts.css")
+  content_type  = "text/css; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "sim_alexa_vendor_font_latin" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "vendor/atkinson-hyperlegible-next-latin-wght-normal.woff2"
+  source        = "${path.module}/../apps/sim-alexa/vendor/atkinson-hyperlegible-next-latin-wght-normal.woff2"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/vendor/atkinson-hyperlegible-next-latin-wght-normal.woff2")
+  content_type  = "font/woff2"
+  cache_control = "max-age=86400"
+}
+
+resource "aws_s3_object" "sim_alexa_vendor_font_latin_ext" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "vendor/atkinson-hyperlegible-next-latin-ext-wght-normal.woff2"
+  source        = "${path.module}/../apps/sim-alexa/vendor/atkinson-hyperlegible-next-latin-ext-wght-normal.woff2"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/vendor/atkinson-hyperlegible-next-latin-ext-wght-normal.woff2")
+  content_type  = "font/woff2"
+  cache_control = "max-age=86400"
+}
+
+resource "aws_s3_object" "sim_alexa_vendor_open_props_css" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "vendor/open-props.css"
+  source        = "${path.module}/../apps/sim-alexa/vendor/open-props.css"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/vendor/open-props.css")
+  content_type  = "text/css; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "sim_alexa_vendor_icons_js" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "vendor/icons.generated.js"
+  source        = "${path.module}/../apps/sim-alexa/vendor/icons.generated.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/vendor/icons.generated.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "sim_alexa_vendor_motion_js" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "vendor/motion.generated.js"
+  source        = "${path.module}/../apps/sim-alexa/vendor/motion.generated.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/vendor/motion.generated.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
 # ---------------------------------------------------------------------------
 # What the browser is told about the page, on every answer CloudFront gives.
 #
 # Content-Security-Policy, from infra/csp/family-app.csp (one directive per
 # line; the local dev server sends the same file with its own addresses, so
-# the app is always run under it). Scripts and styles come from this site
-# alone, and from one file on jsDelivr: hls.js 1.5.17, which is also loaded
+# the app is always run under it). Scripts, styles and fonts come from this
+# site alone (the fonts are self-hosted, above), and from one file on jsDelivr: hls.js 1.5.17, which is also loaded
 # with Subresource Integrity. There is no 'unsafe-inline' and no
 # 'unsafe-eval' anywhere. It connects to the Wick server and the films and
 # nowhere else. The one wide directive is img-src https:, and on purpose: a
