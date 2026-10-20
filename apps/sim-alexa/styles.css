@@ -1,33 +1,75 @@
 /*
- * Tokens from Amazon's Alexa+ add-on design guide (Visual Foundations):
- * card and button colours, the spacing scale, the corner radii and the type
- * scale. The guide sets type on a 768x480 base canvas and scales it 1.6x
- * for far-field reading; --scale does the same here, and drops to 1 on a
- * phone, which is held in the hand.
+ * The family app (docs/design/DESIGN.md §2, §3, §4, §7).
+ *
+ * The chrome follows Amazon's Alexa+ add-on design guide (Visual
+ * Foundations): dark navy surfaces, its card and button colours, radii and
+ * type scale — this page stands in for an Alexa+ surface. Wick's own amber
+ * is kept for Wick's final actions, her light and the flame, and nothing
+ * else. No red anywhere: a step that stopped is only quieter.
+ *
+ * The type scale is the guide's (body 16, headline 18, display 24) at 1× on
+ * a telephone, rising to 1.5× on a large screen, set in Atkinson Hyperlegible
+ * Next (vendor/fonts.css). Easings, shadows and the size scale come from
+ * Open Props (vendor/open-props.css); motion is 200 ms or less and none at
+ * all with reduced motion.
+ *
+ * Mobile first: one column from 320 pixels with nothing wider than the
+ * screen; from 1024, the conversation and a panel about her home.
  */
 :root {
-  --scale: 1.5;
+  color-scheme: dark;
+  --scale: 1;
+  --font: "Atkinson Hyperlegible Next", "Amazon Ember", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+
   --ground: #0b0e13;
   --stage: #0f131a;
-  --card: #14181e;            /* default-normal, dark */
-  --card-inner: #1b2028;      /* nested-inner-normal, dark */
-  --button: #2d415e;          /* secondary blue 270 */
+  --card: #151a21;            /* default-normal, dark — words on it: --ink 15.9:1, --ink-dim 8.6:1 */
+  --card-inner: #1c222b;      /* nested-inner-normal, dark */
+  --card-raised: #212833;
+  --button: #2d415e;          /* secondary blue 270 — --ink on it 9.4:1 */
+  --button-hover: #37507a;
   --button-quiet: #232f40;    /* secondary blue 190 */
+  --button-quiet-hover: #2b3a50;
   --ink: #f2f4f7;
-  --ink-dim: #b4bcc8;
-  --line: #2a313c;
+  --ink-dim: #aeb7c4;         /* 7.9:1 on --card-inner, 6.7:1 on --button-quiet: never under 4.5 */
+  --line: #28303b;
+  --line-strong: #3a4554;
   --focus: #ffffff;
-  --wick: #e8b75d;            /* Wick's one brand colour: final actions only */
-  --wick-ink: #1a1408;
+  --wick: #e8b75d;            /* Wick's one brand colour: final actions, the light, the flame */
+  --wick-hover: #f1c77a;
+  --wick-ink: #1a1408;        /* words on --wick, 9.9:1 */
+  --wick-glow: rgba(232, 183, 93, 0.35);
+  --ok: #7fd1a0;              /* "On now", "Done": always beside a word or a tick */
+  --problem: #f0b8a8;
+  --icon-ground: #1f2b3d;
+  --icon-ink: #b9cdea;
 
-  --s-2xs: 6px; --s-xs: 8px; --s-s: 12px; --s-m: 16px; --s-l: 20px; --s-xl: 24px;
-  --r-s: 8px; --r-m: 12px; --r-l: 16px; --r-pill: 9999px;
+  --s-2xs: 6px;
+  --s-xs: var(--size-2, 0.5rem);
+  --s-s: 0.75rem;
+  --s-m: var(--size-3, 1rem);
+  --s-l: var(--size-4, 1.25rem);
+  --s-xl: var(--size-5, 1.5rem);
+  --r-s: 8px; --r-m: 12px; --r-l: 16px; --r-xl: 20px; --r-pill: 9999px;
+  --touch: 44px;
+
+  --ease-enter: cubic-bezier(0.2, 0, 0, 1);
+  --ease-ui: var(--ease-3, cubic-bezier(0.25, 0, 0.3, 1));
 
   --t-display: calc(24px * var(--scale));   /* textStyleDisplay5 */
   --t-headline: calc(18px * var(--scale));  /* textStyleHeadline2 */
   --t-body: calc(16px * var(--scale));      /* textStyleBody1 */
-  --t-small: calc(14px * var(--scale));     /* textStyleBody2 */
+  --t-small: calc(14px * var(--scale));     /* textStyleBody2: the floor */
 }
+/* The guide's far-field steps: a little larger on a tablet, 1.25× on a laptop, 1.5× on a large screen. */
+@media (min-width: 768px) { :root { --scale: 1.125; } }
+@media (min-width: 1280px) { :root { --scale: 1.25; } }
+@media (min-width: 1920px) { :root { --scale: 1.5; } }
+/* A laptop's screen is wide but not tall: a question and its answer must fit between the bar and the field. */
+@media (min-width: 768px) and (max-height: 960px) { :root { --scale: 1.0625; } }
+@media (min-width: 1280px) and (min-height: 961px) and (max-height: 1100px) { :root { --scale: 1.125; } }
+@media (min-width: 1920px) and (max-height: 1100px) { :root { --scale: 1.25; } }
+
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 /*
@@ -36,7 +78,7 @@
  * main.js: on a telephone it shrinks when the keyboard opens, so the question
  * field stays above the keyboard instead of under it.
  */
-html { height: 100%; }
+html { height: 100%; background: var(--ground); }
 body { height: 100%; overflow: hidden; }
 @supports (height: 100dvh) {
   body { height: var(--app-height, 100dvh); }
@@ -45,95 +87,141 @@ body {
   margin: 0;
   /* Clear of the notch and the rounded corners, when the page is drawn to the screen's edges (viewport-fit=cover). */
   padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
-  background: var(--ground);
+  background:
+    radial-gradient(70rem 36rem at 12% -12%, rgba(45, 65, 94, 0.42), transparent 62%),
+    radial-gradient(50rem 30rem at 100% 110%, rgba(45, 65, 94, 0.22), transparent 60%),
+    var(--ground);
   color: var(--ink);
-  font-family: "Atkinson Hyperlegible Next", "Amazon Ember", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  font-family: var(--font);
   font-size: var(--t-body);
-  line-height: 1.4;
+  line-height: 1.45;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
-button, input, textarea { font: inherit; color: inherit; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.icon { width: 1.15em; height: 1.15em; flex: none; display: block; }
+.icon-slot { display: inline-flex; flex: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
-/* One honest line, outside the surface: what this is and is not. Opened, it says why. */
+/* One honest line, above everything: what this is and is not. Opened, it says why. */
 .disclosure {
-  margin: 0;
+  flex: none;
   width: 100%;
-  max-width: 1180px;
+  max-width: 1680px;
+  margin: 0 auto;
   padding: var(--s-xs) var(--s-m);
   color: var(--ink-dim);
   font-size: 14px;
   line-height: 1.45;
 }
-.disclosure strong { color: var(--ink); font-weight: 600; }
-.disclosure summary { cursor: pointer; padding: 0; }
-.disclosure[open] summary { margin-bottom: var(--s-2xs); }
+.disclosure strong { color: var(--ink); font-weight: 700; }
+.disclosure summary { cursor: pointer; display: flex; gap: var(--s-xs); align-items: flex-start; list-style: none; padding: 2px 0; }
+.disclosure summary::-webkit-details-marker { display: none; }
+.disclosure summary .icon { width: 1.1em; height: 1.1em; margin-top: 0.15em; color: var(--icon-ink); }
+.disclosure p { margin: var(--s-xs) 0 var(--s-2xs); max-width: 60rem; }
 
+/* ---------------------------------------------------------------- frame */
+
+.shell { flex: 1; min-height: 0; width: 100%; max-width: 1680px; margin: 0 auto; display: flex; flex-direction: column; }
+
+.bar {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-xs) var(--s-s);
+  padding: var(--s-s) var(--s-m);
+  font-size: var(--t-small);
+  z-index: 5;
+}
+.bar .who { display: inline-flex; align-items: center; gap: var(--s-xs); font-weight: 700; white-space: nowrap; flex: none; }
+.bar .who-name { font-size: calc(var(--t-small) * 1.15); letter-spacing: 0.01em; }
+.bar .who small { color: var(--ink-dim); font-weight: 400; font-size: inherit; }
+.bar .spacer { flex: 1; }
+.status { color: var(--ink-dim); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Not signed in, and nothing else to say: the first screen says it, and on a telephone the bar keeps a row for nothing. */
+.status[data-state="signed-out"] { display: none; }
+.status[data-state="connected"]::before { content: ""; display: inline-block; vertical-align: 0.1em; margin-right: var(--s-2xs); width: 0.55em; height: 0.55em; border-radius: 50%; background: var(--ok); }
+
+.flame { width: 0.8em; height: 1.1em; flex: none; color: var(--wick); }
+.flame.brand { width: 1em; height: 1.35em; }
+
+/* The light in the window: lit, or not. Not lit is quiet, never a warning. */
+.light { display: inline-flex; align-items: center; gap: var(--s-2xs); color: var(--ink-dim); white-space: nowrap; padding: 4px 12px; border: 1px solid var(--line); border-radius: var(--r-pill); }
+.light .flame, .window .flame { filter: grayscale(1); opacity: 0.4; }
+.light.lit { color: var(--ink); border-color: rgba(232, 183, 93, 0.45); }
+.light.lit .flame, .window.lit .flame { filter: none; opacity: 1; }
+
+.toggle {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s-xs);
+  min-height: var(--touch); min-width: var(--touch);
+  background: none; border: 1px solid var(--line); border-radius: var(--r-pill);
+  padding: 0 var(--s-m); color: var(--ink-dim); cursor: pointer; white-space: nowrap; flex: none;
+  transition: background-color 150ms var(--ease-ui), border-color 150ms var(--ease-ui), color 150ms var(--ease-ui), transform 80ms var(--ease-ui);
+}
+.toggle:hover { color: var(--ink); border-color: var(--line-strong); background: var(--button-quiet); }
+.toggle[aria-pressed="true"] { color: var(--ink); border-color: var(--ink-dim); background: var(--button-quiet); }
+.bar-actions { display: flex; align-items: center; gap: var(--s-xs); }
+.menu-toggle { padding: 0; }
+
+/* -------------------------------------------------------------- layout */
+
+.layout { flex: 1; min-height: 0; display: flex; }
 .surface {
-  width: 100%;
-  max-width: 1180px;
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--stage);
-  border: 1px solid var(--line);
-  border-radius: var(--r-l) var(--r-l) 0 0;
-  overflow: hidden;
+  border-top: 1px solid var(--line);
+}
+.home-panel { display: none; }
+
+@media (min-width: 640px) {
+  .layout { padding: 0 var(--s-m) var(--s-m); gap: var(--s-l); }
+  .surface { border: 1px solid var(--line); border-radius: var(--r-xl); overflow: hidden; box-shadow: var(--shadow-3, none); }
+}
+/* Two columns: the conversation, and her home at a glance. */
+@media (min-width: 1024px) {
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 27vw, 420px); padding: 0 var(--s-l) var(--s-l); }
+  .layout:has(> .home-panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
+  .home-panel:not([hidden]) {
+    display: block;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--stage);
+    border: 1px solid var(--line);
+    border-radius: var(--r-xl);
+    padding: var(--s-l);
+    box-shadow: var(--shadow-3, none);
+  }
+  /* The panel shows her light and her home: the bar does not say them twice. */
+  .bar .light, .home-toggle { display: none !important; }
 }
 
-.bar {
-  display: flex;
-  align-items: center;
-  gap: var(--s-m);
-  padding: var(--s-m) var(--s-xl);
-  border-bottom: 1px solid var(--line);
-  font-size: var(--t-small);
-}
-.bar .who { display: flex; align-items: center; gap: var(--s-s); font-weight: 600; white-space: nowrap; }
-.bar .who small { color: var(--ink-dim); font-weight: 400; font-size: inherit; }
-.bar .spacer { flex: 1; }
-.status { color: var(--ink-dim); }
-/* Not signed in, and nothing else to say: the first screen says it, and on a telephone the bar keeps a row for nothing. */
-.status[data-state="signed-out"] { display: none; }
-.status[data-state="connected"]::before { content: "● "; color: #7fd1a0; }
-
-.flame { width: 0.8em; height: 1.1em; flex: none; }
-
-/* The light in the window: lit, or not. Not lit is quiet, never a warning. */
-.light { display: inline-flex; align-items: center; gap: var(--s-xs); color: var(--ink-dim); white-space: nowrap; }
-.light .flame, .window .flame { filter: grayscale(1); opacity: 0.35; }
-.light.lit { color: var(--ink); }
-.light.lit .flame, .window.lit .flame { filter: none; opacity: 1; }
-.light-card { text-align: center; }
-.light-card .window { margin: var(--s-m) auto var(--s-s); width: 4.5rem; height: 6rem; display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--r-m, 12px) var(--r-m, 12px) 4px 4px; }
-.light-card .window.lit { box-shadow: 0 0 2.5rem rgba(232, 183, 93, 0.35); border-color: rgba(232, 183, 93, 0.5); }
-.light-card .window .flame { width: 1.8rem; height: 2.5rem; }
-.light-card .light-note { margin: 0 0 var(--s-m); color: var(--ink-dim); }
-
-.toggle {
-  display: inline-flex; align-items: center; gap: var(--s-xs);
-  background: none; border: 1px solid var(--line); border-radius: var(--r-pill);
-  padding: var(--s-2xs) var(--s-m); color: var(--ink-dim); cursor: pointer;
-}
-.toggle[aria-pressed="true"] { color: var(--ink); border-color: var(--ink-dim); }
-/* A button's words stay on one line; who is signed in gives way first, ending in an ellipsis. */
-.bar .toggle { white-space: nowrap; flex: none; }
-.bar .status { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* -------------------------------------------------------- conversation */
 
 .log {
   position: relative;
   flex: 1;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: var(--s-xl);
+  overscroll-behavior: contain;
+  padding: var(--s-m);
   display: flex;
   flex-direction: column;
-  gap: var(--s-xl);
+  gap: var(--s-l);
   scroll-behavior: smooth;
 }
+@media (min-width: 640px) { .log { padding: var(--s-xl); gap: var(--s-xl); } }
 /*
  * No room is kept under the last turn. A short conversation sits at the foot
  * of the screen, next to the field it was asked from, as a conversation does;
@@ -144,92 +232,140 @@ button, input, textarea { font: inherit; color: inherit; }
 .log::before { content: ""; flex: 1 0 0; margin-bottom: calc(-1 * var(--s-xl)); }
 /* Signed out, the first screen: the card in the middle, as wide as it reads well. */
 .log[data-signed-in="false"]::after { content: ""; flex: 1 0 0; margin-top: calc(-1 * var(--s-xl)); }
-.log[data-signed-in="false"] .first { align-self: center; width: 100%; max-width: 46rem; }
+.log[data-signed-in="false"] .first { align-self: center; width: 100%; max-width: 44rem; }
 @media (prefers-reduced-motion: reduce) { .log { scroll-behavior: auto; } }
 
 .turn-customer {
   align-self: flex-end;
-  max-width: 80%;
-  background: var(--button-quiet);
-  border-radius: var(--r-l) var(--r-l) var(--r-s) var(--r-l);
+  max-width: min(80%, 40rem);
+  background: var(--button);
+  border-radius: var(--r-xl) var(--r-xl) 6px var(--r-xl);
   padding: var(--s-s) var(--s-l);
   color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
-.turn-assistant { display: flex; flex-direction: column; gap: var(--s-m); max-width: 92%; }
-.say { font-size: var(--t-display); line-height: 1.3; margin: 0; text-wrap: pretty; }
+.turn-assistant { display: flex; flex-direction: column; gap: var(--s-m); max-width: min(100%, 60rem); min-width: 0; }
+.say { font-size: var(--t-display); font-weight: 500; line-height: 1.3; letter-spacing: -0.005em; margin: 0; text-wrap: pretty; overflow-wrap: anywhere; }
 .say[data-tone="private"], .say[data-tone="waiting"] { color: var(--ink); }
 .tone {
   align-self: flex-start;
   font-size: var(--t-small);
   color: var(--ink-dim);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--r-pill);
-  padding: 2px var(--s-m);
+  padding: 2px var(--s-s);
 }
 
-.thinking { display: inline-flex; gap: 6px; padding: var(--s-xs) 0; }
-.thinking i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-dim); animation: pulse 1.2s infinite ease-in-out; }
-.thinking i:nth-child(2) { animation-delay: 0.15s; }
-.thinking i:nth-child(3) { animation-delay: 0.3s; }
-@keyframes pulse { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .thinking i { animation: none; opacity: 0.7; } }
+/* An answer on its way: what is happening, how long it has waited, and a line that moves. Never a bare "Thinking". */
+.waiting {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "mark words time" "bar bar bar";
+  align-items: center;
+  gap: var(--s-s) var(--s-m);
+  width: 100%;
+  max-width: 36rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-l);
+  padding: var(--s-m) var(--s-l);
+}
+.waiting-mark { grid-area: mark; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: grid; place-items: center; background: rgba(232, 183, 93, 0.12); }
+.waiting-mark .flame { width: 0.9rem; height: 1.25rem; transform-origin: 50% 90%; animation: flicker 1.8s var(--ease-ui) infinite; }
+.waiting-words { grid-area: words; min-width: 0; }
+.waiting-line { margin: 0; font-weight: 700; }
+.waiting-detail { margin: 4px 0 0; color: var(--ink-dim); font-size: var(--t-small); }
+.waiting-time { grid-area: time; color: var(--ink-dim); font-size: var(--t-small); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.waiting-bar { grid-area: bar; position: relative; height: 4px; border-radius: 4px; background: var(--card-inner); overflow: hidden; }
+.waiting-bar i { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: inherit; background: linear-gradient(90deg, transparent, #7fa7dc, transparent); animation: travel 1.6s var(--ease-ui) infinite; }
+@keyframes travel { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@keyframes flicker { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(0.9, 0.96); opacity: 0.8; } }
+@media (prefers-reduced-motion: reduce) {
+  .waiting-bar i { animation: none; width: 100%; opacity: 0.4; }
+  .waiting-mark .flame { animation: none; }
+}
+
+/* -------------------------------------------------------------- cards */
 
 /* Card: one title, glanceable rows, one clear action. */
 .card {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--r-l);
-  padding: var(--s-l) var(--s-xl);
+  padding: var(--s-m);
   display: flex;
   flex-direction: column;
   gap: var(--s-m);
+  min-width: 0;
+  box-shadow: var(--shadow-2, none);
 }
-/* The card's header: its title, and the line under it; an icon beside them where there is one. */
-.card-head { display: flex; align-items: center; gap: var(--s-m); }
+@media (min-width: 640px) { .card { padding: var(--s-l) var(--s-xl); border-radius: var(--r-xl); } }
+/* The card's header: its icon, its title, and the line under it. */
+.card-head { display: flex; align-items: center; gap: var(--s-s); min-width: 0; }
+.card-icon { flex: none; width: 2.5rem; height: 2.5rem; border-radius: var(--r-m); display: grid; place-items: center; background: var(--icon-ground); color: var(--icon-ink); }
+.card-icon .icon { width: 1.25rem; height: 1.25rem; }
 .card-heading { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.card-title { font-size: var(--t-headline); font-weight: 600; margin: 0; line-height: 1.25; }
+.card-title { font-size: var(--t-headline); font-weight: 700; margin: 0; line-height: 1.25; overflow-wrap: anywhere; }
 .card-meta { color: var(--ink-dim); font-size: var(--t-small); }
 /* The card's primary text: the tool's own sentence, at reading size. */
-.primary-text { margin: 0; font-size: var(--t-body); line-height: 1.45; text-wrap: pretty; }
+.primary-text { margin: 0; font-size: var(--t-body); line-height: 1.5; text-wrap: pretty; }
+/* Who made it, and the quiet line about it: always last, always the same. */
+.card-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2xs) var(--s-m); color: var(--ink-dim); font-size: var(--t-small); padding-top: var(--s-s); border-top: 1px solid var(--line); }
+.card-foot .note { flex: 1 1 14rem; }
+.card-foot .note:empty { display: none; }
+.by { display: inline-flex; align-items: center; gap: var(--s-2xs); white-space: nowrap; margin-left: auto; }
+.empty { color: var(--ink-dim); margin: 0; }
 
 /* The first screen: one card, two ways in. */
-.card.intro { gap: var(--s-l); }
+.first .say { font-size: calc(var(--t-display) * 1.1); }
+.card.intro { gap: var(--s-l); padding: var(--s-l); }
+@media (min-width: 640px) { .card.intro { padding: var(--s-xl) calc(var(--s-xl) * 1.25); } }
 .card.intro .actions { display: flex; flex-wrap: wrap; gap: var(--s-s); }
-.card.intro .actions .btn { font-size: var(--t-body); padding: var(--s-s) var(--s-xl); min-height: 2.6em; }
-.card.intro .listing-icon { width: 64px; height: 64px; }
+.card.intro .actions .btn { font-size: var(--t-body); padding: var(--s-s) var(--s-xl); min-height: 3rem; flex: 1 1 12rem; }
+.card.intro .listing-icon { width: 56px; height: 56px; }
+.card.intro .card-title { font-size: calc(var(--t-headline) * 1.15); }
 .card.intro details summary { font-size: var(--t-small); }
 
-/* Getting started: numbered steps, each ticked off when it is true. */
-.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-s); }
-.step { display: flex; gap: var(--s-m); align-items: flex-start; background: var(--card-inner); border-radius: var(--r-m); padding: var(--s-s) var(--s-m); }
-.step-mark {
-  flex: none; width: 1.9em; height: 1.9em; border-radius: var(--r-pill);
-  display: inline-grid; place-items: center; font-weight: 600; font-size: var(--t-small);
-  border: 2px solid var(--line); color: var(--ink-dim);
+/* Getting started: a stepper, each step ticked off when it is true, a line joining them. */
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.step { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s-m); align-items: start; padding: var(--s-s); border-radius: var(--r-m); }
+.step:not(:last-child)::after {
+  content: ""; position: absolute; left: calc(var(--s-s) + 1rem - 1px); top: calc(var(--s-s) + 2.25rem); bottom: calc(-1 * var(--s-s) + 4px);
+  width: 2px; border-radius: 2px; background: var(--line-strong);
 }
-.step.current .step-mark { border-color: var(--wick); color: var(--ink); }
-.step.done .step-mark { background: var(--button); border-color: var(--button); color: var(--ink); }
-.step-words { display: flex; flex-direction: column; gap: var(--s-2xs); min-width: 0; }
-.step-words .btn { align-self: flex-start; margin-top: var(--s-2xs); }
-.step-title { margin: 0; font-weight: 600; }
+.step.done:not(:last-child)::after { background: rgba(127, 209, 160, 0.55); }
+.step.current { background: var(--card-inner); }
+.step-mark {
+  position: relative; z-index: 1;
+  flex: none; width: 2rem; height: 2rem; border-radius: var(--r-pill);
+  display: inline-grid; place-items: center; font-weight: 700; font-size: var(--t-small);
+  border: 2px solid var(--line-strong); color: var(--ink-dim); background: var(--card);
+}
+.step-mark .icon { width: 1.1rem; height: 1.1rem; stroke-width: 3; }
+.step.current .step-mark { border-color: var(--ink); color: var(--ink); background: var(--card-inner); }
+.step.done .step-mark { background: var(--ok); border-color: var(--ok); color: #0b1a12; }
+.step-words { display: flex; flex-direction: column; gap: var(--s-2xs); min-width: 0; padding-top: 0.2rem; }
+.step-words .btn { align-self: flex-start; margin-top: var(--s-xs); }
+.step-title { margin: 0; font-weight: 700; }
 .step.done .step-title { color: var(--ink-dim); }
 .step-detail { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
 
 /* The week: the paragraph, its measures as small tiles, then its days in a row scrolled sideways (the guide's Carousel). */
-.measures { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(14em, 1fr)); gap: var(--s-xs); font-size: var(--t-small); }
-.measures .measure { background: var(--card-inner); border-radius: var(--r-m); padding: var(--s-xs) var(--s-m); }
-.measures dt { font-weight: 600; }
-.measures dd { margin: 0; color: var(--ink-dim); }
+.measures { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13em), 1fr)); gap: var(--s-xs); font-size: var(--t-small); }
+.measures .measure { background: var(--card-inner); border-radius: var(--r-m); padding: var(--s-s) var(--s-m); }
+.measures dt { font-weight: 700; }
+.measures dd { margin: 2px 0 0; color: var(--ink-dim); }
 .carousel {
-  list-style: none; margin: 0; padding: 2px 2px var(--s-xs);
+  list-style: none; margin: 0 calc(-1 * var(--s-m)); padding: 2px var(--s-m) var(--s-xs);
   display: flex; gap: var(--s-s);
   overflow-x: auto; overscroll-behavior-x: contain;
-  scroll-snap-type: x proximity; scroll-behavior: smooth;
-  scrollbar-width: thin;
+  scroll-snap-type: x proximity; scroll-behavior: smooth; scroll-padding-inline: var(--s-m);
+  scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
 }
+@media (min-width: 640px) { .carousel { margin: 0; padding: 2px 2px var(--s-xs); scroll-padding-inline: 0; } }
 .carousel > li {
-  flex: 0 0 13em; scroll-snap-align: start;
+  flex: 0 0 min(13em, 78%); scroll-snap-align: start;
   background: var(--card-inner); border-radius: var(--r-m);
   padding: var(--s-s) var(--s-m);
   display: flex; flex-direction: column; gap: var(--s-2xs);
@@ -237,43 +373,50 @@ button, input, textarea { font: inherit; color: inherit; }
 }
 .carousel[data-collapsed="true"] > li:nth-child(n + 6) { display: none; }
 /* "See all": every day at once, wrapped onto as many rows as it takes — the guide's overflow surface, in place. */
-.carousel[data-collapsed="false"] { flex-wrap: wrap; overflow-x: visible; }
+.carousel[data-collapsed="false"] { flex-wrap: wrap; overflow-x: visible; margin: 0; padding: 2px; }
 .carousel[data-collapsed="false"] > li { flex: 1 1 13em; }
 .day-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-xs); }
-.day-name { margin: 0; font-size: var(--t-body); font-weight: 600; }
+.day-name { margin: 0; font-size: var(--t-body); font-weight: 700; }
 .day-count { margin: 0; color: var(--ink-dim); }
 .day-entries { list-style: none; margin: var(--s-2xs) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-2xs); }
-.day-entries li { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-xs); }
+.day-entries li { display: grid; grid-template-columns: 1fr; gap: 0; }
+@media (min-width: 640px) { .day-entries li { grid-template-columns: max-content 1fr; gap: var(--s-xs); } }
 .day-time { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .carousel { scroll-behavior: auto; } }
 /* The week measured: this week beside the one before and a usual one. */
-.facts { margin: 0 0 var(--s-s); display: grid; grid-template-columns: max-content 1fr; gap: var(--s-2xs) var(--s-m); }
-.facts dt { font-weight: 600; }
-.facts dd { margin: 0; color: var(--ink-dim); font-size: var(--t-small); align-self: center; }
+.facts { margin: 0 0 var(--s-s); display: grid; grid-template-columns: 1fr; gap: var(--s-2xs) var(--s-m); }
+.facts dt { font-weight: 700; }
+.facts dd { margin: 0 0 var(--s-xs); color: var(--ink-dim); font-size: var(--t-small); align-self: center; }
+@media (min-width: 640px) { .facts { grid-template-columns: max-content 1fr; } .facts dd { margin-bottom: 0; } }
 /* What the assistant did to answer: the tools it called, in plain words. */
-.trace { margin: var(--s-xs) 0 0; color: var(--ink-dim); font-size: var(--t-small); }
+.trace { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
 /* "Here is what I'll do": what Wick's agent would do, read before the first confirm card. */
-.plan ul { margin: var(--s-xs) 0 var(--s-s); padding-left: var(--s-l, 1.25rem); color: var(--ink); }
-.plan li { margin: var(--s-xs) 0; }
-.progress { margin-left: var(--s-s); color: var(--ink-dim); font-size: var(--t-small); }
+.plan { display: flex; flex-direction: column; gap: var(--s-xs); }
+.plan ul { margin: 0; padding: 0 0 0 1.25rem; color: var(--ink); display: flex; flex-direction: column; gap: var(--s-xs); }
+.plan li::marker { color: var(--ink-dim); }
+.progress { color: var(--ink-dim); font-size: var(--t-small); }
 .rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-xs); }
 .row {
   background: var(--card-inner);
   border-radius: var(--r-m);
   padding: var(--s-s) var(--s-m);
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: baseline;
-  gap: var(--s-m);
+  gap: 2px var(--s-m);
+  min-width: 0;
 }
-.row .secondary { color: var(--ink-dim); font-size: var(--t-small); white-space: nowrap; flex: none; }
-.row.stacked { flex-direction: column; align-items: stretch; gap: var(--s-2xs); }
+.row .primary { min-width: 0; overflow-wrap: anywhere; }
+.row .secondary { color: var(--ink-dim); font-size: var(--t-small); }
+@media (min-width: 640px) { .row { flex-wrap: nowrap; } .row .secondary { white-space: nowrap; flex: none; } }
+.row.stacked { flex-direction: column; align-items: stretch; gap: var(--s-2xs); flex-wrap: nowrap; }
 .row.stacked .secondary { white-space: normal; }
-.reply { font-weight: 600; }
+.reply { font-weight: 700; }
 .reply.none { font-weight: 400; color: var(--ink-dim); }
 .rows[data-collapsed="true"] > li:nth-child(n + 5) { display: none; }
 /* The language her television speaks now, among the ones that can be asked for. */
-.row[aria-current="true"] .primary { font-weight: 600; }
+.row[aria-current="true"] .primary { font-weight: 700; }
 /* A picture for her television, as it will be sent: whole, and no taller than leaves the button on screen. */
 .picture-preview { width: 100%; max-height: 40vh; object-fit: contain; border-radius: var(--r-m); background: var(--card-inner); }
 .picture-preview[hidden] { display: none; }
@@ -281,11 +424,10 @@ button, input, textarea { font: inherit; color: inherit; }
 /* A language's two names stay together ("Spanish — español"); on a phone it is the line beside them that wraps. */
 .card.language .row .primary { white-space: nowrap; }
 .card.language .row .secondary { white-space: normal; flex: 1; text-align: right; }
-.fields { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: var(--s-xs) var(--s-m); }
+.fields { margin: 0; display: grid; grid-template-columns: 1fr; gap: var(--s-2xs) var(--s-m); background: var(--card-inner); border-radius: var(--r-m); padding: var(--s-s) var(--s-m); }
 .fields dt { color: var(--ink-dim); font-size: var(--t-small); }
-.fields dd { margin: 0; }
-.card-foot { display: flex; align-items: center; gap: var(--s-m); color: var(--ink-dim); font-size: var(--t-small); }
-.card-foot .note { flex: 1; }
+.fields dd { margin: 0 0 var(--s-xs); overflow-wrap: anywhere; }
+@media (min-width: 640px) { .fields { grid-template-columns: max-content 1fr; } .fields dd { margin: 0; } }
 /* A question from the front door: the picture first, then each answer as its own full-width button. */
 .door-picture { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--r-m); background: var(--card-inner); }
 /* As wide as a picture is worth: on a wide screen a full-width picture would push the three answers out of sight. */
@@ -293,14 +435,15 @@ button, input, textarea { font: inherit; color: inherit; }
 /* And no taller than leaves the three answers on screen under it. */
 .card.door .door-picture { max-height: 30vh; max-height: 30dvh; }
 .door-answers { display: flex; flex-direction: column; gap: var(--s-xs); }
-.door-answers .btn { text-align: left; }
+.door-answers .btn { justify-content: flex-start; text-align: left; width: 100%; }
 /* The Sunday brief's one thing to do, under the week's paragraph: set apart, and its one button beside it. */
-.week-suggestion { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-s) var(--s-m); padding-top: var(--s-s); border-top: 1px solid var(--line); }
-.week-suggestion-words { flex: 1 1 16rem; }
+.week-suggestion { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-s) var(--s-m); padding: var(--s-s) var(--s-m); border-radius: var(--r-m); background: var(--card-inner); }
+.week-suggestion-words { flex: 1 1 16rem; min-width: 0; }
 .week-suggestion-words .secondary-text { margin: 0.15rem 0 0; color: var(--ink-dim); font-size: var(--t-small); line-height: 1.4; }
 /* The answer that was given stays marked; the others are out of use. */
-.door-answers .btn[aria-pressed="true"] { opacity: 1; border-color: var(--ink-dim); }
-.door-answers .btn[aria-pressed="true"]::before { content: "✓ "; }
+.door-answers .btn[aria-pressed="true"] { opacity: 1; border-color: var(--ok); }
+.door-answers .btn[aria-pressed="true"]::after { content: "Sent"; margin-left: auto; color: var(--ok); font-size: var(--t-small); }
+.door-answers .btn[aria-pressed="true"]::before { content: "✓"; color: var(--ok); }
 /* Under a request to ring: answering is not ringing. Quiet, like a footnote. */
 .reach-note { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
 /* Under the visits: how many came earlier, and what the times are. Quiet, like a footnote. */
@@ -309,64 +452,114 @@ button, input, textarea { font: inherit; color: inherit; }
 .watch-screen { width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r-m); background: #000; overflow: hidden; }
 .watch-screen[hidden] { display: none; }
 .watch-screen video { width: 100%; height: 100%; display: block; object-fit: contain; }
-.watch-status { margin: 0; font-weight: 600; }
-
-/* A visit the member arranged (errands.js): how it stands, and its steps. No red: a step that stopped is only quieter. */
-.errand-entry + .errand-entry { border-top: 1px solid var(--line); padding-top: var(--s-s); margin-top: var(--s-s); }
-.errand-who { margin: 0; font-weight: 600; }
-.errand-said { margin: var(--s-2xs) 0 var(--s-xs); }
-.errand-steps { list-style: none; margin: 0 0 var(--s-s); padding: 0; display: flex; flex-wrap: wrap; gap: var(--s-2xs) var(--s-s); font-size: var(--t-small); }
-.errand-step::before { content: '○ '; }
-.errand-step[data-state='done']::before { content: '● '; }
-.errand-step[data-state='skipped'], .errand-step[data-state='stopped'] { color: var(--ink-dim); }
-.errand-step[data-state='skipped']::before, .errand-step[data-state='stopped']::before { content: '– '; }
+.watch-status { margin: 0; font-weight: 700; }
+.watch-status:empty { display: none; }
+.watch-asks { margin: 0; }
 .watch-question { display: flex; flex-direction: column; gap: var(--s-xs); }
 .watch-question[hidden] { display: none; }
 .watch-question p { margin: 0; }
 .watch-attribution { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
 .watch-attribution:empty { display: none; }
 .card > .actions:empty { display: none; }
-.by { display: inline-flex; align-items: center; gap: var(--s-2xs); white-space: nowrap; }
-.empty { color: var(--ink-dim); margin: 0; }
+
+/* The light in the window, as a card. */
+.light-card { text-align: center; align-items: center; }
+.light-card .window, .home-light .window { display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: var(--r-m) var(--r-m) 4px 4px; background: #0c1016; }
+.light-card .window { margin: var(--s-xs) auto 0; width: 4.5rem; height: 6rem; }
+.light-card .window.lit, .home-light .window.lit {
+  box-shadow: 0 0 2.5rem var(--wick-glow);
+  border-color: rgba(232, 183, 93, 0.5);
+  background: radial-gradient(circle at 50% 62%, rgba(232, 183, 93, 0.28), transparent 70%), #0c1016;
+}
+.light-card .window .flame { width: 1.8rem; height: 2.5rem; }
+.light-card .light-note { margin: 0; color: var(--ink-dim); }
+.light-card .card-foot { align-self: stretch; text-align: left; }
+
+/* A visit the member arranged (errands.js): how it stands, and its steps, each with a mark and its word. */
+.errand-entry + .errand-entry { border-top: 1px solid var(--line); padding-top: var(--s-m); }
+.errand-entry { display: flex; flex-direction: column; gap: var(--s-xs); }
+.errand-who { margin: 0; font-weight: 700; }
+.errand-said { margin: 0; }
+.errand-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--s-2xs) var(--s-xs); font-size: var(--t-small); }
+.errand-step { display: inline-flex; align-items: center; gap: var(--s-2xs); padding: 4px 10px 4px 8px; border-radius: var(--r-pill); background: var(--card-inner); color: var(--ink-dim); }
+.errand-step .icon { width: 1.05em; height: 1.05em; }
+.errand-step[data-state='done'] { color: var(--ink); }
+.errand-step[data-state='done'] .icon { color: var(--ok); }
+
+/* ------------------------------------------------------------- buttons */
 
 .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s-xs);
+  min-height: var(--touch);
   border: 2px solid transparent;
   border-radius: var(--r-m);
-  padding: var(--s-s) var(--s-xl);
+  padding: var(--s-xs) var(--s-l);
   background: var(--button);
+  color: var(--ink);
   cursor: pointer;
   font-size: var(--t-small);
-  font-weight: 600;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  transition: background-color 150ms var(--ease-ui), border-color 150ms var(--ease-ui), transform 80ms var(--ease-ui), box-shadow 150ms var(--ease-ui);
 }
-.btn.quiet { background: var(--button-quiet); font-weight: 400; }
+.btn:hover:not(:disabled) { background: var(--button-hover); }
+.btn.quiet { background: var(--button-quiet); font-weight: 500; }
+.btn.quiet:hover:not(:disabled) { background: var(--button-quiet-hover); }
 /* The brand colour, where the guide allows it: the action that completes the task. */
 .btn.final { background: var(--wick); color: var(--wick-ink); }
+.btn.final:hover:not(:disabled) { background: var(--wick-hover); box-shadow: 0 0 0 4px rgba(232, 183, 93, 0.16); }
 /* One of two answers ("Whose television is it?"): the one chosen is outlined, the other stays quiet. */
-.btn.choice[aria-pressed="true"] { background: var(--button); border-color: var(--ink-dim); font-weight: 600; }
+.btn.choice[aria-pressed="true"] { background: var(--button); border-color: var(--ink-dim); font-weight: 700; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn.link { background: none; padding: var(--s-2xs) 0; color: var(--ink-dim); text-decoration: underline; align-self: flex-start; }
+.btn.link { background: none; min-height: var(--touch); padding: 0 2px; color: var(--ink-dim); text-decoration: underline; text-underline-offset: 3px; font-weight: 500; align-self: flex-start; }
+.btn.link:hover:not(:disabled) { background: none; color: var(--ink); }
+.row .btn.link { align-self: center; flex: none; }
+
+/* A press, seen at once (main.js): the button gives a little, and if it asked the server it says it is working. */
+.btn:active:not(:disabled), .chip:active:not(:disabled), .toggle:active, .btn.pressed, .chip.pressed, .toggle.pressed { transform: scale(0.97); }
+button[data-working="true"] { cursor: progress; }
+.btn[data-working="true"]::before, .chip[data-working="true"]::before, .toggle[data-working="true"]::before {
+  content: ""; flex: none; width: 1em; height: 1em; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+.btn.final[data-working="true"] { opacity: 0.85; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .btn[data-working="true"]::before, .chip[data-working="true"]::before, .toggle[data-working="true"]::before { animation: none; border-right-color: currentColor; border-style: dotted; }
+  .btn.pressed, .chip.pressed, .toggle.pressed, .btn:active, .chip:active, .toggle:active { transform: none; }
+}
+
+/* --------------------------------------------------------------- forms */
 
 .form { display: flex; flex-direction: column; gap: var(--s-s); }
 .form label { display: flex; flex-direction: column; gap: var(--s-2xs); color: var(--ink-dim); font-size: var(--t-small); }
 .form input, .form textarea, .form select, .ask input, details input, input.linkbox {
   background: var(--card-inner);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--r-m);
   padding: var(--s-s) var(--s-m);
   color: var(--ink);
-  font-size: var(--t-body);
+  font-size: max(16px, var(--t-body));
   width: 100%;
+  min-height: var(--touch);
+  transition: border-color 150ms var(--ease-ui), box-shadow 150ms var(--ease-ui);
 }
+.form input:focus, .form textarea:focus, .form select:focus, .ask input:focus { border-color: var(--ink-dim); }
+/* A field with the focus is ringed, as any control is, a little more lightly: the field to ask in has it whenever the page is ready. */
+.form input:focus-visible, .form textarea:focus-visible, .form select:focus-visible, .ask input:focus-visible { outline: 2px solid var(--ink-dim); outline-offset: 1px; }
 .form textarea { resize: vertical; min-height: 4.5em; }
 /* Wraps: the circle card has four, and a phone has no room for them in a row. */
 .form .actions, .card > .actions { display: flex; flex-wrap: wrap; gap: var(--s-s); align-items: center; }
+.form .actions .btn, .card > .actions .btn { flex: 1 1 auto; }
+@media (min-width: 640px) { .form .actions .btn, .card > .actions .btn { flex: 0 1 auto; } }
 .counter { color: var(--ink-dim); font-size: var(--t-small); margin-left: auto; }
 /* The six digits on the television: large, spaced, impossible to misread. */
-.form input.code { font-size: var(--t-display); letter-spacing: 0.18em; max-width: 9em; }
-input.linkbox { font-size: var(--t-small); }
-.problem { color: #f0b8a8; font-size: var(--t-small); margin: 0; min-height: 1.2em; }
-.row .btn.link { align-self: center; flex: none; }
-.card a { color: var(--wick); }
+.form input.code { font-size: var(--t-display); letter-spacing: 0.18em; max-width: 9em; font-variant-numeric: tabular-nums; }
+input.linkbox { font-size: max(16px, var(--t-small)); }
+.problem { color: var(--problem); font-size: var(--t-small); margin: 0; min-height: 1.2em; }
+.card a { color: var(--wick); text-underline-offset: 3px; }
 
 details { color: var(--ink-dim); font-size: var(--t-small); }
 /* The add-on listing: its icon beside the name, and what it says about itself. */
@@ -376,99 +569,192 @@ details { color: var(--ink-dim); font-size: var(--t-small); }
 .listing a { color: var(--ink); }
 .listing #listing-about p, .listing #listing-about ul { margin: var(--s-xs) 0 0; }
 .listing #listing-about ul { padding-left: 1.2em; }
-details summary { cursor: pointer; padding: var(--s-2xs) 0; }
+details summary { cursor: pointer; padding: var(--s-xs) 0; min-height: var(--touch); display: flex; align-items: center; gap: var(--s-xs); list-style: none; }
+details summary::-webkit-details-marker { display: none; }
+/* Its own chevron, turned when it is open: the browser's marker goes with display: flex. */
+details:not(.disclosure) > summary::before { content: ""; flex: none; width: 0.45em; height: 0.45em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform 150ms var(--ease-ui); }
+details[open]:not(.disclosure) > summary::before { transform: rotate(45deg); }
+.disclosure summary { min-height: 0; }
 details label { display: flex; flex-direction: column; gap: var(--s-2xs); margin-top: var(--s-xs); }
 
-.dock { border-top: 1px solid var(--line); padding: var(--s-m) var(--s-xl) calc(var(--s-l) + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: var(--s-s); }
-/*
- * One row of chips on every screen, scrolled sideways: sixteen of them wrapped
- * took a quarter of a tall screen from the conversation they are there to start.
- */
-.chips { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; gap: var(--s-xs); padding-bottom: var(--s-2xs); }
+/* ---------------------------------------------------------------- dock */
+
+.dock {
+  flex: none;
+  border-top: 1px solid var(--line);
+  padding: var(--s-s) var(--s-m) calc(var(--s-s) + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-s);
+  background: var(--stage);
+  min-width: 0;
+}
+@media (min-width: 640px) { .dock { padding: var(--s-m) var(--s-xl) var(--s-l); } }
+/* One row of the most useful questions, scrolled inside itself, its edges faded while there is more that way; "More" for every one. */
+.suggest { display: flex; align-items: center; gap: var(--s-xs); min-width: 0; }
+.chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--s-xs);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--s-l);
+  scrollbar-width: none;
+  /* Room for the focus ring, which the row would otherwise cut. */
+  padding: 5px;
+  margin: -5px;
+  --fade: 2.5rem;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
+}
+.chips::-webkit-scrollbar { display: none; }
+.chips[data-at-start="true"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent); mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent); }
+.chips[data-at-end="true"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade)); mask-image: linear-gradient(to right, transparent, #000 var(--fade)); }
+.chips[data-at-start="true"][data-at-end="true"] { -webkit-mask-image: none; mask-image: none; }
 .chip {
   flex: none;
-  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2xs);
+  min-height: var(--touch);
+  border: 1px solid var(--line-strong);
   background: var(--card);
+  color: var(--ink);
   border-radius: var(--r-pill);
-  padding: var(--s-xs) var(--s-l);
+  padding: 0 var(--s-m);
   cursor: pointer;
   font-size: var(--t-small);
   white-space: nowrap;
+  scroll-snap-align: start;
+  transition: background-color 150ms var(--ease-ui), border-color 150ms var(--ease-ui), transform 80ms var(--ease-ui);
 }
-.chip:hover:not(:disabled) { border-color: var(--ink-dim); }
+.chip:hover:not(:disabled) { border-color: var(--ink-dim); background: var(--card-raised); }
 .chip:disabled { opacity: 0.45; cursor: not-allowed; }
-.ask { display: flex; gap: var(--s-s); }
-.ask input { flex: 1; }
+.chip.more { background: var(--button-quiet); font-weight: 700; }
+.chip.more .icon { width: 1.05em; height: 1.05em; }
+.ask { display: flex; gap: var(--s-xs); min-width: 0; }
+.ask input { flex: 1; min-width: 0; min-height: 3rem; border-radius: var(--r-pill); padding-inline: var(--s-l); }
+.ask .send { flex: none; border-radius: var(--r-pill); min-width: 3rem; padding: 0 var(--s-l); }
+.ask .send .icon { width: 1.1em; height: 1.1em; }
 /* Ask by voice: a quiet round button beside the field. Listening, it takes Wick's colour — never red. */
-.ask .mic { flex: none; display: inline-grid; place-items: center; padding: var(--s-s); border-radius: var(--r-pill); min-width: 3em; }
-.ask .mic svg { width: 1.1em; height: 1.1em; }
+.ask .mic { flex: none; display: inline-grid; place-items: center; padding: 0; border-radius: var(--r-pill); width: 3rem; min-width: 3rem; height: 3rem; }
+.ask .mic svg { width: 1.2em; height: 1.2em; }
 .ask .mic[aria-pressed="true"] { background: var(--wick); color: var(--wick-ink); }
 .voice-line { margin: 0; display: flex; flex-wrap: wrap; gap: var(--s-2xs) var(--s-m); color: var(--ink-dim); font-size: var(--t-small); }
-.voice-line .voice-status { color: var(--ink); font-weight: 600; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.voice-line .voice-status { color: var(--ink); font-weight: 700; }
+.voice-line .voice-status:empty { display: none; }
 
-/*
- * A telephone, held in the hand: 360 to 430 pixels wide. Last in the file, so
- * it wins over the rules above without !important.
- */
-@media (max-width: 760px) {
-  :root { --scale: 1.1; }
-  .disclosure { padding: var(--s-xs) var(--s-m); font-size: 13px; }
-  /* Edge to edge: a border and rounded corners only take width a telephone does not have. */
-  .surface { border-left: 0; border-right: 0; border-radius: 0; }
-  /* The header wraps: the name and the buttons on one line, who is signed in and where on the next. */
-  .bar { flex-wrap: wrap; padding: var(--s-xs) var(--s-m); gap: var(--s-xs) var(--s-s); }
-  .bar .who small { display: none; }
-  /* A break before the second line, which holds who is signed in and where, and her light beside it. */
-  .bar::after { content: ""; order: 9; flex-basis: 100%; }
-  .bar .status { order: 10; flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bar .light { order: 11; flex: none; }
-  .toggle { padding: 4px 10px; min-height: 36px; font-size: 13px; }
-  .bar .who { gap: var(--s-xs); }
-  /* "Speak", not "Speak answers": the three buttons and the name then share one line, even at 360 pixels. */
-  .wide-only { display: none; }
-  /* One row of chips, swiped sideways, reaching the screen's edges. */
-  .chips {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    scroll-snap-type: x proximity;
-    margin: 0 calc(-1 * var(--s-m));
-    padding: 0 var(--s-m);
-  }
-  .chips::-webkit-scrollbar { display: none; }
-  .chip { scroll-snap-align: start; min-height: 40px; }
-  .log { padding: var(--s-m); gap: var(--s-l); }
-  .dock { padding: var(--s-s) var(--s-m) calc(var(--s-s) + env(safe-area-inset-bottom)); }
-  .say { font-size: calc(21px * var(--scale)); overflow-wrap: anywhere; }
-  .turn-assistant { max-width: 100%; }
-  .turn-customer { max-width: 88%; overflow-wrap: anywhere; }
-  .card { padding: var(--s-m); }
-  .card-head { gap: var(--s-s); }
-  .card.intro .actions .btn { flex: 1 1 100%; }
-  .card.intro .listing-icon { width: 48px; height: 48px; }
-  /* Two days and the edge of a third: there is more to the side. */
-  .carousel { margin: 0 calc(-1 * var(--s-m)); padding: 2px var(--s-m) var(--s-xs); scroll-padding-inline: var(--s-m); }
-  .carousel > li { flex-basis: 9.5em; }
-  /* The time above what happened: a tile is narrow here. */
-  .day-entries li { grid-template-columns: 1fr; gap: 0; }
-  .measures { grid-template-columns: 1fr; }
-  /* A row's two halves stack when they do not fit side by side, rather than run off the screen. */
-  .row { flex-wrap: wrap; }
-  .row .secondary { white-space: normal; }
-  .facts, .fields { grid-template-columns: 1fr; }
-  .facts dd, .fields dd { margin-bottom: var(--s-xs); }
-  .btn { padding: var(--s-s) var(--s-l); }
-  .form .actions .btn, .card > .actions .btn { flex: 1 1 auto; }
+/* -------------------------------------------------------------- sheets */
+
+dialog.sheet {
+  padding: 0;
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: min(84dvh, 48rem);
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-6, 0 24px 64px rgba(0, 0, 0, 0.5));
+  overflow: hidden;
+}
+dialog.sheet[open] { display: flex; flex-direction: column; }
+dialog.sheet::backdrop { background: rgba(5, 7, 10, 0.7); }
+.sheet-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--s-s); padding: var(--s-s) var(--s-s) var(--s-s) var(--s-l); border-bottom: 1px solid var(--line); }
+.sheet-title { margin: 0; font-size: var(--t-headline); font-weight: 700; }
+.sheet-close { border-color: transparent; padding: 0; }
+.sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--s-m) var(--s-l) calc(var(--s-l) + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: var(--s-l); }
+.sheet-group { display: flex; flex-direction: column; gap: var(--s-xs); }
+.sheet-group-title { margin: 0; font-size: var(--t-small); font-weight: 700; color: var(--ink-dim); letter-spacing: 0.02em; }
+.sheet-chips { display: flex; flex-wrap: wrap; gap: var(--s-xs); }
+.sheet-chips .chip { white-space: normal; text-align: left; max-width: 100%; padding-block: var(--s-2xs); }
+/* On a telephone, a sheet rises from the foot of the screen. */
+@media (max-width: 639px) {
+  dialog.sheet { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: var(--r-xl) var(--r-xl) 0 0; border-bottom: 0; max-height: 88dvh; }
 }
 
+/* ------------------------------------------------------- her home panel */
+
+.home-body { display: flex; flex-direction: column; gap: var(--s-m); min-width: 0; }
+.home-head { display: flex; align-items: center; gap: var(--s-s); }
+.home-title { margin: 0; font-size: var(--t-headline); font-weight: 700; line-height: 1.25; }
+.home-demo { margin: 0; align-self: flex-start; display: inline-flex; align-items: center; gap: var(--s-2xs); padding: 4px 12px; border-radius: var(--r-m); border: 1px solid var(--line-strong); color: var(--ink-dim); font-size: var(--t-small); }
+.home-demo .icon { width: 1em; height: 1em; }
+.home-light { display: flex; align-items: center; gap: var(--s-m); padding: var(--s-s) var(--s-m); background: var(--card); border: 1px solid var(--line); border-radius: var(--r-l); }
+.home-light .window { flex: none; width: 3rem; height: 4rem; }
+.home-light .flame { width: 1.1rem; height: 1.5rem; }
+.home-light-words { min-width: 0; }
+.home-light-title { margin: 0; font-weight: 700; }
+.home-section { display: flex; flex-direction: column; gap: var(--s-xs); padding-top: var(--s-m); border-top: 1px solid var(--line); }
+.home-section-title { margin: 0; display: flex; align-items: center; gap: var(--s-xs); font-size: var(--t-small); font-weight: 700; color: var(--ink-dim); letter-spacing: 0.02em; }
+.home-section-title .icon { width: 1.1em; height: 1.1em; color: var(--icon-ink); }
+.home-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-2xs); }
+.home-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px var(--s-s); padding: var(--s-xs) var(--s-s); background: var(--card); border-radius: var(--r-m); }
+.home-row.stacked { flex-direction: column; align-items: flex-start; }
+.home-row-name { font-weight: 700; overflow-wrap: anywhere; }
+.home-state { display: inline-flex; align-items: center; gap: var(--s-2xs); color: var(--ink-dim); font-size: var(--t-small); }
+.home-state .icon { width: 1em; height: 1em; }
+.home-row.on .home-state { color: var(--ink); }
+.home-row.on .home-state .icon { color: var(--ok); }
+.home-quiet { margin: 0; color: var(--ink-dim); font-size: var(--t-small); }
+.home-link { display: inline-flex; align-items: center; gap: var(--s-xs); min-height: var(--touch); color: var(--ink); font-size: var(--t-small); text-underline-offset: 3px; align-self: flex-start; }
+.home-body .btn { align-self: flex-start; }
+
+/* ------------------------------------------------------------ telephone */
+
 /*
- * A laptop's screen is wide but not tall: at the far-field scale a question
- * and its answer would not fit between the bar and the field. Its type is a
- * step smaller.
+ * A telephone, held in the hand: 320 to 639 pixels wide. Last in the file,
+ * so it wins over the rules above without !important.
  */
-@media (min-width: 761px) and (max-height: 900px) {
-  :root { --scale: 1.25; }
+@media (max-width: 639px) {
+  .disclosure { padding: var(--s-2xs) var(--s-m); }
+  .bar { padding: var(--s-xs) var(--s-s) var(--s-xs) var(--s-m); }
+  .bar .light { padding: 2px 10px; }
+  .home-toggle, .menu-toggle { padding: 0; border-color: transparent; }
+  .home-toggle .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  /* Speak answers, Account and Sign out: one menu, opened from the ⋮ button. */
+  .bar-actions {
+    display: none;
+    position: absolute;
+    top: calc(var(--touch) + var(--s-s));
+    right: var(--s-s);
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    min-width: 13rem;
+    padding: var(--s-2xs);
+    background: var(--card);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-l);
+    box-shadow: var(--shadow-5, 0 16px 40px rgba(0, 0, 0, 0.5));
+    z-index: 30;
+  }
+  .bar-actions[data-open="true"] { display: flex; }
+  .bar-actions .toggle { justify-content: flex-start; border: 0; border-radius: var(--r-m); color: var(--ink); padding: 0 var(--s-m); }
+  .ask .send .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .ask .send { padding: 0; width: 3rem; }
+  .turn-customer { max-width: 88%; }
+  .card-icon { width: 2.25rem; height: 2.25rem; }
+}
+@media (min-width: 640px) {
+  .menu-toggle { display: none !important; }
+}
+/* Narrower than the two columns: the bar wraps — the name and its buttons on one line, who is signed in and her light on the next. */
+@media (max-width: 1023px) {
+  .bar { flex-wrap: wrap; row-gap: 2px; }
+  .bar .status { order: 10; flex: 1 1 0; }
+  .bar .light { order: 11; }
+  body[data-signed-in="true"] .bar::after { content: ""; order: 9; flex-basis: 100%; }
+}
+@media (max-width: 1100px) {
+  .bar .who small { display: none; }
+}
+/* A small tablet: the bar's buttons keep their names for a screen reader and a tooltip, and show their icons. */
+@media (min-width: 640px) and (max-width: 819px) {
+  .bar-actions .toggle, .home-toggle { padding: 0; }
+  .bar-actions .label, .home-toggle .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 }
 
 /* A telephone with its keyboard open: what can be seen is the conversation and the field, and nothing else. */
