@@ -284,11 +284,15 @@ corrupted state file.
 
 ## Invariants enforced here, not in application code
 
-**INV-3 — no Ring media persists beyond 24 hours.** The `snapshots/` and
-`live/` prefixes carry expiry lifecycle rules (`core.tf`). Versioning is on,
-so each rule expires non-current versions too, or a deleted object would
-survive as one. Do not add an application-level copy, cache or backup of a
-snapshot.
+**INV-3 — Wick keeps no door picture, and Ring's live video only until the
+storage removes it.** Nothing writes a door picture to S3: the card shows
+Ring's own short-lived signed link. The `live/` prefix (Watch live's video
+pieces) and `snapshots/` (unused, kept as a backstop) carry one-day expiry
+rules (`core.tf`). S3 counts a day from the next midnight UTC, and versioning
+is on, so each rule also expires non-current versions a day after they
+become non-current: a piece the relay deleted is gone within about two days,
+one it never deleted within about four. Do not add an application-level
+copy, cache or backup of a picture or clip.
 
 **INV-1 — no long-lived credential reaches the television.** Ring secrets
 are in Secrets Manager, one per household (`wick/ring/tokens/<householdId>`),

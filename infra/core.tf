@@ -105,7 +105,9 @@ resource "aws_s3_bucket_versioning" "media" {
 resource "aws_s3_bucket_lifecycle_configuration" "media" {
   bucket = aws_s3_bucket.media.id
 
-  # INV-3 — door imagery is discarded within 24 hours.
+  # INV-3 — a backstop: nothing writes snapshots/ today (the card shows Ring's own
+  # signed link). One lifecycle day is counted from the next midnight UTC, so an
+  # object goes within about two days, and its old version a day or two after.
   rule {
     id     = "snapshots-expire"
     status = "Enabled"

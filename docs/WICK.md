@@ -423,7 +423,7 @@ off limits, and make withdrawal unconditional.
 | Question | Answer |
 |---|---|
 | Is anything heard in the house? | No. |
-| Is video stored? | Door pictures are deleted within a day by the storage itself. Live video is never recorded. |
+| Is video stored? | Wick keeps no copy of a door picture: the card shows Ring's own, through a short-lived link. Live video passes through short pieces that are removed when the viewing ends and deleted by the storage within about two days. Nothing is kept as a recording. |
 | Who holds the Ring keys? | The cloud service, one secret per household. A stolen Fire TV Stick gets you nothing. |
 | What if a family member is removed? | It takes effect on their next request. |
 | What if she withdraws? | She stops Wick on her own television: *What your family sees*, reached at any time from her light on the home screen, ends with *Stop Wick*, then *Yes, delete everything*. Her home is closed at once: the doorbell disconnected, everyone in her circle taken out, every picture and record deleted. Her family's app then says plainly that she has stopped Wick. The family can download or delete their own data in the family app. |

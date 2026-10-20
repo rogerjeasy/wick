@@ -108,7 +108,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "photos" {
     }
   }
 
-  # "Thank you", or taken down: what she did not keep is gone within a day.
+  # "Thank you", or taken down: what she did not keep is gone within about two days
+  # (one lifecycle day, run once a day; the bucket is not versioned).
   rule {
     id     = "gone-1d"
     status = "Enabled"

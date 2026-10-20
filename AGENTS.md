@@ -225,9 +225,20 @@ reading she asks for (`packages/contracts/src/speech.ts`): `readToHer` in
 `device-event.mjs` answers the television that pressed Play with the
 address of that card read aloud, and nobody else.
 
-### INV-3 — No Ring media is persisted beyond 24 hours
+### INV-3 — Wick keeps no door picture, and Ring's live video only until the storage removes it
+A door picture is never copied. The card shows Ring's own picture through
+the short-lived link Ring signs (`door/index.ts` `buildImagePatch`), and the
+Door agent reads its bytes only to describe them, in memory. Watch live
+writes short video pieces under `live/` in the media bucket while someone
+watches; the relay deletes them when the viewing ends, and the bucket's
+lifecycle (`infra/core.tf`) removes what is left. S3 counts a lifecycle day
+from the next midnight UTC, and the bucket is versioned, so an old version
+goes a day after its delete: every copy is gone within about two days of the
+viewing, and within four if the relay never deleted them. Say those numbers,
+never "within 24 hours".
+
 Enforced by S3 bucket lifecycle policy in `infra/`, not by application code.
-Do not add an application-level copy, cache or backup of a snapshot or clip.
+Do not add an application-level copy, cache or backup of a picture or clip.
 
 ### INV-4 — Nothing protected, and nothing verbatim, reaches the family
 Health, money, relationships, location and verbatim speech are refused for a
@@ -600,8 +611,8 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   is in no stored card, home message, bus event or log; it carries the
   signing role's key id and session token, never a secret, and grants one
   object for that hour (INV-1). The pictures have a bucket of their own
-  (`infra/photos.tf`): Ring media's one day (INV-3) is not theirs, and what
-  she lets go of is deleted within a day. **Never** tell the family what
+  (`infra/photos.tf`): Ring media's rule (INV-3) is not theirs, and what
+  she lets go of is deleted by the storage within about two days. **Never** tell the family what
   was kept, count her mantelpiece for anyone but her own home screen, put
   an address anywhere it could outlive its hour, let the idle screen delay
   a card or make anything disappear, or commit a real photograph as a
@@ -613,7 +624,7 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   television shows it, in her language — its sentences, then what she can
   press — and nothing that is not on the screen (`speechTextOf`). The voice
   is Amazon Polly's, made at the edge from those words when she asks, kept
-  one day so the same card is made once, and answered only to the
+  about two days at most (a one-day lifecycle rule) so the same card is made once, and answered only to the
   television that asked. Over any card, Play is the card's, every time: it
   reads, and the next Play stops the reading. It never moves the film — the
   film goes on when she answers the card or puts it aside with Back
