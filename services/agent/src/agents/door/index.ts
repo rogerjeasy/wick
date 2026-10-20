@@ -21,7 +21,10 @@ import { createHash } from 'node:crypto';
 import {
   DOOR_ACTIONS,
   MAX_CARD_ACTIONS,
+  NOBODY_EXPECTED_NOTICE,
   errandIdOf,
+  visitorArrivedLine,
+  visitorConfirmedNotice,
   type CardAction,
   type CardPatch,
   type DoorCard,
@@ -96,6 +99,13 @@ export interface DoorCardInput {
    * no live view and no chime, which would fail when pressed (D6).
    */
   readonly ringUnanswered?: boolean;
+  /**
+   * The roster entry whose visitor said "I'm at the door" on their visit
+   * pass, near enough to this ring to be about it (contracts visitPass.ts
+   * visitorSaidFresh; route.ts reads the word fresh). Only a ring matched to
+   * that same entry is said to be them.
+   */
+  readonly confirmedPersonId?: string;
 }
 
 /**
@@ -180,11 +190,16 @@ function cardIdFor(eventId: string): string {
  * (INV-6: idempotent and correlated).
  */
 export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
-  const { event, hallwayChime, householdId, correlationId, now, timeZone, roster, family, standIn = false, ringUnanswered = false } = input;
+  const { event, hallwayChime, householdId, correlationId, now, timeZone, roster, family, standIn = false, ringUnanswered = false, confirmedPersonId } = input;
   // Only a ring is taken for the visitor expected: somebody seen who did not ring is not (route.ts).
   const match = roster && event.eventType !== 'motion_detected' ? matchVisitor(roster, event.start, timeZone) : undefined;
   // A visitor an errand expects: the entry carries the name of the member who arranged it.
-  const arrangedBy = match && errandIdOf(match.personId) ? roster?.find((person) => person.personId === match.personId)?.arrangedByName : undefined;
+  const arranged = match && errandIdOf(match.personId) ? roster?.find((person) => person.personId === match.personId) : undefined;
+  const arrangedBy = arranged?.arrangedByName;
+  // The visitor said from their own phone, around this ring, that they are at the door (contracts visitPass.ts):
+  // the one thing that lets the door say who has come rather than who is due. Never that she can open.
+  const confirmed = arranged !== undefined && arranged.personId === confirmedPersonId;
+  const rang = event.eventType === 'button_press';
 
   return {
     type: 'DOOR',
@@ -192,12 +207,20 @@ export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
     householdId,
     correlationId,
     createdAt: now,
-    line: DOOR_LINE,
+    line: confirmed ? visitorArrivedLine(arranged.name) : DOOR_LINE,
     actions: actionsFor(hallwayChime, familyToAsk(family), standIn, ringUnanswered),
     // A demo home's stand-in doorbell is said in a label of its own on her television, never in her sentence.
     ...(standIn ? { standIn: true as const } : {}),
     ...(match ? { match } : {}),
-    ...(arrangedBy ? { notice: arrangedThisVisit(arrangedBy) } : {}),
+    ...(confirmed
+      ? { notice: visitorConfirmedNotice(arrangedBy ?? '') }
+      : arrangedBy
+        ? { notice: arrangedThisVisit(arrangedBy) }
+        // A ring nobody on the roster explains: she is told nobody is expected, and that the door is hers to keep shut.
+        // Said of a ring only — somebody seen who did not ring is not a caller.
+        : !match && rang
+          ? { notice: NOBODY_EXPECTED_NOTICE }
+          : {}),
   };
 }
 
@@ -341,13 +364,17 @@ export function buildDescriptionPatch(
   cardId: string,
   candidate: DescriptionCandidate,
   eventType?: string,
+  options: { readonly keepLine?: boolean } = {},
 ): CardPatch | null {
   if (!validateDescription(candidate.description)) return null;
 
   const description = candidate.description.trim();
   // Only a definite "nobody" corrects the headline. Unknown leaves Phase 1's
-  // line standing — a correction is a claim too.
-  if (candidate.personVisible !== false) return { cardId, description };
+  // line standing — a correction is a claim too. And a headline the visitor
+  // confirmed from their phone ("Doctor Rossi is at your door.") is never
+  // taken back to "The doorbell rang.": a frame of the step, taken a moment
+  // late or from the side, is weaker than what they said (route.ts).
+  if (candidate.personVisible !== false || options.keepLine) return { cardId, description };
   const pressed = eventType === 'button_press';
   // The same words for a stand-in doorbell: its card carries its own label (DoorCard.standIn).
   const line = pressed ? NOBODY_AFTER_RING_LINE : NOBODY_AFTER_MOTION_LINE;

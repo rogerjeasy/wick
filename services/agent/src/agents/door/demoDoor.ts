@@ -26,7 +26,7 @@
 import { readFile } from 'node:fs/promises';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import type { RingDevice } from '@wick/ring';
-import { demoDoorEventOf, demoVisitor, type CardPatch, type DemoVisitor, type DoorRangDetail, type QueuedCard, type RosterEntry } from '@wick/contracts';
+import { demoDoorEventOf, demoVisitor, type CardPatch, type DemoVisitor, type DoorRangDetail, type QueuedCard, type RosterEntry, type VisitorWord } from '@wick/contracts';
 import { buildDoorEventItem, buildPresenceItem } from './presence.js';
 import { runDoorPhase2 } from './phase2.js';
 import { routeRingEvent, type RouteDeps, type RouteResult } from './route.js';
@@ -74,6 +74,11 @@ export interface StandInBase {
   readonly timeZoneOf: (householdId: string) => Promise<string>;
   /** The stand-in was heard, as a real doorbell is (store/heard.ts), marked simulated. */
   readonly heard?: (householdId: string, at: number) => Promise<void>;
+  /**
+   * What an arranged visitor last said from their visit pass (store/visitorWord.ts): the demo home's visitor
+   * presses "I'm at the door" on a real pass, and the stand-in ring is confirmed by it as a real ring is.
+   */
+  readonly visitorWordOf?: (householdId: string, errandId: string) => Promise<VisitorWord | undefined>;
 }
 
 /** Reads a stand-in visitor's picture from a directory: docs/demo-door, copied beside the bundle (scripts/build-lambda.mjs). */
@@ -102,7 +107,7 @@ export function standInRouteDeps(householdId: string, visitor: DemoVisitor, base
     noteSighting: async (match, at) =>
       void (await noteDoorSighting({ householdId, match, at }, { ...base.visits, open: (visit) => base.visits.open({ ...visit, simulated: true }) })),
     sendToDevice: (card) => base.sendToDevice(card),
-    runPhase2: (cardId, event) =>
+    runPhase2: (cardId, event, options) =>
       runDoorPhase2(cardId, {
         fetchImage: async () => ({
           image: { url: visitor.pictureUrl, capturedAt: event.start, fetchedAt: base.now() },
@@ -110,8 +115,9 @@ export function standInRouteDeps(householdId: string, visitor: DemoVisitor, base
         }),
         describe,
         sendPatch: (patch) => base.sendPatch(patch, householdId),
-      }, event.eventType),
+      }, event.eventType, options),
     ...(base.announceRing ? { announceRing: base.announceRing } : {}),
+    ...(base.visitorWordOf ? { visitorWordOf: (errandId: string) => base.visitorWordOf!(householdId, errandId) } : {}),
     now: base.now,
   };
 }

@@ -44,6 +44,15 @@ describe('runDoorPhase2', () => {
     expect(sendPatch).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps a confirmed headline when the frame shows nobody: the sentence comes, the correction does not', async () => {
+    const sendPatch = vi.fn(async (_p: CardPatch) => {});
+    const nobody: DescribeResult = { candidate: { description: 'An empty porch with a parcel on the mat.', personVisible: false }, reason: 'ok', elapsedMs: 900 };
+
+    await runDoorPhase2('card-1', { fetchImage: async () => ({ image, bytes }), describe: async () => nobody, sendPatch }, 'button_press', { keepLine: true });
+
+    expect(sendPatch).toHaveBeenLastCalledWith({ cardId: 'card-1', description: 'An empty porch with a parcel on the mat.' });
+  });
+
   it('sends only the image patch when the model declines — Phase 1 stands (Principle 11)', async () => {
     const sendPatch = vi.fn(async (_p: CardPatch) => {});
     const fetchImage = vi.fn(async () => ({ image, bytes }));

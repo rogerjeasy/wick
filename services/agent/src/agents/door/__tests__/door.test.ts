@@ -334,6 +334,13 @@ describe('buildDescriptionPatch — the headline never contradicts the picture',
     expect(buildDescriptionPatch('card-1', nobody, 'button_press')?.line).toBe(NOBODY_AFTER_RING_LINE);
   });
 
+  it('never takes back a headline the visitor confirmed from their phone: the description still comes', () => {
+    expect(buildDescriptionPatch('card-1', nobody, 'button_press', { keepLine: true })).toEqual({
+      cardId: 'card-1',
+      description: 'Three cars parked in a parking lot.',
+    });
+  });
+
   it('leaves the headline alone when someone is in the frame', () => {
     const patch = buildDescriptionPatch('card-1', { ...nobody, personVisible: true }, 'motion_detected');
     expect(patch).not.toHaveProperty('line');

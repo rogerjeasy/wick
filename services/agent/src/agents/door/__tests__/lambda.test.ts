@@ -567,3 +567,103 @@ describe('dispatchDoorEvent — a Ring doorbell or a demo home’s stand-in', ()
     expect(r.demo).not.toHaveBeenCalled();
   });
 });
+
+describe('routeRingEvent — the visit pass at the door', () => {
+  const errandId = 'err_AAAAAAAAAAAAAAAAAAAA';
+  const rossi: RosterEntry = { personId: `errand:${errandId}`, name: 'Doctor Rossi', expectedOnce: { at: detail.occurred_at, windowMin: 60 }, addedBy: 'u_sarah', arrangedByName: 'Sarah Hughes' };
+  const atDoor = (minutesBeforeTheRing: number) => ({ says: 'at_door' as const, at: detail.occurred_at - minutesBeforeTheRing * 60_000 });
+  const sentCard = (deps: RouteDeps) => {
+    const sent = vi.mocked(deps.sendToDevice).mock.calls[0]![0]!;
+    if (sent.card.type !== 'DOOR') throw new Error('not a door card');
+    return sent.card;
+  };
+
+  it('says who is at the door when they said so on their phone within ten minutes of the ring, and who arranged it', async () => {
+    const deps = baseDeps({ listRoster: vi.fn(async () => [rossi]), visitorWordOf: vi.fn(async () => atDoor(2)) });
+
+    expect(await routeRingEvent(detail, deps)).toBe('sent');
+
+    const card = sentCard(deps);
+    expect(card.line).toBe('Doctor Rossi is at your door.');
+    expect(card.notice).toBe('They confirmed it on their phone just now. Sarah arranged this visit.');
+    expect(card.match).toMatchObject({ personId: rossi.personId, name: 'Doctor Rossi' });
+    // Read fresh for this one errand: the roster is cached for a minute, and the word may be seconds old.
+    expect(deps.visitorWordOf).toHaveBeenCalledWith(errandId);
+    // Phase 2 is told: a frame that shows nobody must not take "Doctor Rossi is at your door." back to "The doorbell rang."
+    expect(vi.mocked(deps.runPhase2).mock.calls[0]![2]).toEqual({ keepLine: true });
+  });
+
+  it('a word a minute after the ring counts too: the doctor may press it on the step', async () => {
+    const deps = baseDeps({ listRoster: vi.fn(async () => [rossi]), visitorWordOf: vi.fn(async () => atDoor(-1)) });
+    await routeRingEvent(detail, deps);
+    expect(sentCard(deps).line).toBe('Doctor Rossi is at your door.');
+  });
+
+  it('an "I’m at the door" from longer ago than ten minutes is about another moment: the card is today’s', async () => {
+    const deps = baseDeps({ listRoster: vi.fn(async () => [rossi]), visitorWordOf: vi.fn(async () => atDoor(11)) });
+
+    await routeRingEvent(detail, deps);
+
+    const card = sentCard(deps);
+    expect(card.line).toBe("Someone's at the front door.");
+    expect(card.notice).toBe('Sarah arranged a visit for about now.');
+    expect(vi.mocked(deps.runPhase2).mock.calls[0]).toHaveLength(2);
+  });
+
+  it('a ring inside an arranged visit’s window with no confirmation is exactly today’s card', async () => {
+    const without = baseDeps({ listRoster: vi.fn(async () => [rossi]) });
+    await routeRingEvent(detail, without);
+    for (const word of [undefined, { says: 'on_way' as const, at: detail.occurred_at - 60_000 }, { says: 'late' as const, at: detail.occurred_at, lateMinutes: 15 }]) {
+      const deps = baseDeps({ listRoster: vi.fn(async () => [rossi]), visitorWordOf: vi.fn(async () => word) });
+      await routeRingEvent(detail, deps);
+      expect(sentCard(deps)).toEqual(sentCard(without));
+    }
+    expect(sentCard(without)).toMatchObject({ line: "Someone's at the front door.", notice: 'Sarah arranged a visit for about now.' });
+  });
+
+  it('a ring when nobody is expected says so, and that the door is hers to keep shut — the headline as it always was', async () => {
+    const deps = baseDeps({ listFamily: vi.fn(async () => ['Sarah']), visitorWordOf: vi.fn(async () => atDoor(0)) });
+
+    await routeRingEvent(detail, deps);
+
+    const card = sentCard(deps);
+    expect(card.line).toBe("Someone's at the front door.");
+    expect(card.notice).toBe('Nobody is expected at the door now. You don’t have to open.');
+    // "Ask Sarah to look" is offered as before.
+    expect(card.actions.map((a) => a.id)).toEqual(['watch_live', 'ask_family', 'dismiss']);
+    expect(deps.visitorWordOf).not.toHaveBeenCalled();
+  });
+
+  it('says nothing of the kind of somebody seen who did not ring', async () => {
+    const deps = baseDeps({ listRoster: vi.fn(async () => [rossi]), visitorWordOf: vi.fn(async () => atDoor(0)) });
+
+    await routeRingEvent({ ...detail, event_type: 'motion_detected', sub_type: 'human' }, deps);
+
+    const card = sentCard(deps);
+    expect(card.line).toBe("Someone's at the front door.");
+    expect(card.notice).toBeUndefined();
+    expect(deps.visitorWordOf).not.toHaveBeenCalled();
+  });
+
+  it('asks only about an arranged visit: a regular visitor has no pass', async () => {
+    const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE 06:51±30m' };
+    const deps = baseDeps({ listRoster: vi.fn(async () => [maria]), visitorWordOf: vi.fn(async () => atDoor(0)) });
+
+    await routeRingEvent(detail, deps);
+
+    expect(deps.visitorWordOf).not.toHaveBeenCalled();
+    expect(sentCard(deps).line).toBe("Someone's at the front door.");
+    expect(sentCard(deps).notice).toBeUndefined();
+  });
+
+  it('a word that cannot be read costs the confirmation, never the card', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const deps = baseDeps({ listRoster: vi.fn(async () => [rossi]), visitorWordOf: vi.fn(async () => { throw new Error('table down'); }) });
+
+    expect(await routeRingEvent(detail, deps)).toBe('sent');
+
+    expect(sentCard(deps)).toMatchObject({ line: "Someone's at the front door.", notice: 'Sarah arranged a visit for about now.' });
+    expect(error.mock.calls.flat().join(' ')).toContain('visitor_word_unread');
+    error.mockRestore();
+  });
+});

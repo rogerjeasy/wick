@@ -68,11 +68,18 @@ export function withinDeadline<T>(work: () => Promise<T>, ms: number, reason: st
   };
 }
 
+/** What Phase 1 settled that Phase 2 must leave as it is. */
+export interface Phase2Options {
+  /** The headline is the visitor's own confirmation (index.ts buildPhaseOneCard): the frame may describe, never correct it. */
+  readonly keepLine?: boolean;
+}
+
 /** `eventType` picks the corrected headline when the frame shows nobody (index.ts). */
 export async function runDoorPhase2(
   cardId: string,
   deps: Phase2Deps,
   eventType?: string,
+  options: Phase2Options = {},
 ): Promise<Phase2Outcome> {
   let image: RingImage;
   let bytes: Uint8Array;
@@ -87,7 +94,7 @@ export async function runDoorPhase2(
   const described = await deps.describe(bytes);
   if (!described.candidate) return { image: imageOutcome, description: 'declined', reason: described.reason };
 
-  const patch = buildDescriptionPatch(cardId, described.candidate, eventType);
+  const patch = buildDescriptionPatch(cardId, described.candidate, eventType, options);
   if (!patch) return { image: imageOutcome, description: 'rejected', reason: described.reason };
 
   const descriptionOutcome = (await trySend(deps, patch)) ? 'patched' : 'patch_failed';
