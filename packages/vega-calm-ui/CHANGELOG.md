@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `palette.raisedHigh`, `palette.track` and `palette.scrim` (with
+  `theme.scrimOpacity` and `theme.trackEdgeDp`), black and white with higher
+  contrast on; words on `raisedHigh` are held to the theme's ratio
+  (`textPairs`).
+- Motion tokens: `motion.enterMs` (200), `exitMs` (150), `focusMs` (150),
+  `focusScale` (1.04), `enterRiseDp` (12) and `easing`
+  (cubic-bezier 0.2, 0, 0, 1); `motionTimings(reduceMotion)` turns them all
+  into an instant change.
+
 - Larger text and higher contrast. `CalmPreferencesProvider` gives every
   component under it a theme (`useCalmTheme`, `useCalmStyles`, `CalmText`):
   larger text multiplies every size by 1.25 (32pt becomes 40pt); higher

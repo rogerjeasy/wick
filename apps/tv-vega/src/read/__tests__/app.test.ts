@@ -78,7 +78,8 @@ describe('ResidentApp.tsx — read to me', () => {
     const layer = app.slice(app.indexOf('{card && !liveFor ? ('), app.indexOf('{liveFor ? ('));
 
     expect(layer).toMatch(/<CardRenderer\b/);
-    expect(layer).toMatch(/\{readable && !screenReader \? <ReadHint cardType=\{card\.card\.type\} language=\{language\} \/> : null\}/);
+    // With the words on the card's buttons, so the mark can say "Read aloud" where they leave room for it (hintPlace.ts).
+    expect(layer).toMatch(/\{readable && !screenReader \? <ReadHint cardType=\{card\.card\.type\} language=\{language\} actionLabels=\{actionLabelsOf\(card\.card\)\} \/> : null\}/);
     expect(app).toMatch(/const screenReader = useScreenReaderEnabled\(\);/);
     expect(layer.indexOf('<ReadHint')).toBeGreaterThan(layer.indexOf('<CardRenderer'));
   });

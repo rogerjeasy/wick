@@ -12,10 +12,27 @@ export const type = {
   displayPt: 64,
 } as const;
 
+/**
+ * Motion (docs/design/DESIGN.md §4). Motion says where something came from
+ * or went, in 200ms or less, and stops: nothing loops, blinks or moves by
+ * itself. The one thing longer is the hold line, which is the hold itself.
+ * With reduced motion asked for, every one of these is an instant change
+ * (`motionTimings`, theme.ts).
+ */
 export const motion = {
   /** Nothing longer, nothing faster, nothing that flashes. */
   durationMs: 200,
-  easing: 'ease-out',
+  /** A card arriving: opacity 0 to 1, and `enterRiseDp` up. */
+  enterMs: 200,
+  /** A card leaving: opacity 1 to 0. */
+  exitMs: 150,
+  /** A tile taking the focus: its scale 1 to `focusScale`. Tiles only, never words alone. */
+  focusMs: 150,
+  focusScale: 1.04,
+  /** How far a card rises as it arrives. */
+  enterRiseDp: 12,
+  /** Everything that enters or moves: cubic-bezier(0.2, 0, 0, 1), as its four control values. */
+  easing: [0.2, 0, 0, 1] as const,
 } as const;
 
 export const contrast = {
@@ -82,7 +99,13 @@ export const palette = {
   inkDim: '#C8C2B6',
   ground: '#12100E',
   raised: '#1E1B17',
+  /** The focused tile's surface, and the film's bar: a step up from `raised`, words still at 7:1 and more. */
+  raisedHigh: '#2A2621',
   accent: '#E8B75D',
+  /** The unfilled part of a progress line. Never words. */
+  track: '#4A443B',
+  /** Over a film, behind a card: this colour at `scrimOpacity` (theme.ts). */
+  scrim: '#12100E',
   focus: '#FFFFFF',
 } as const;
 
@@ -97,16 +120,32 @@ export const highContrastPalette = {
   inkDim: '#FFFFFF',
   ground: '#000000',
   raised: '#000000',
+  raisedHigh: '#000000',
   accent: '#FFFFFF',
+  // Black, like the ground: a progress line is then outlined in white (theme.ts `trackEdgeDp`), and filled white.
+  track: '#000000',
+  scrim: '#000000',
   focus: '#FFFFFF',
 } as const;
 
-/** The six colours a component may use, in either palette. */
+/** How much of a film shows through the scrim behind a card: 82% scrim, or 90% with higher contrast on. */
+export const scrimOpacity = {
+  standard: 0.82,
+  highContrast: 0.9,
+} as const;
+
+/** The nine colours a component may use, in either palette. */
 export interface Palette {
   readonly ink: string;
   readonly inkDim: string;
   readonly ground: string;
   readonly raised: string;
+  /** The focused tile's surface, and the film's bar. */
+  readonly raisedHigh: string;
   readonly accent: string;
+  /** The unfilled part of a progress line: never words. */
+  readonly track: string;
+  /** Behind a card over a film, at the theme's `scrimOpacity`. */
+  readonly scrim: string;
   readonly focus: string;
 }

@@ -215,8 +215,8 @@ describe('ResidentApp.tsx — where the rule sits', () => {
   });
 
   it('tells the guard which card is on screen as it is drawn, by the card’s id, and when Wick comes back', () => {
-    // The Easier to see card by its own name, when no card from the server is over it.
-    expect(source).toMatch(/settle\.appeared\(card\?\.id \?\? \(seeingShown \? SEEING_CARD : null\), Date\.now\(\)\)/);
+    // The Easier to see card by its own name, and each step of the tour by its own, when no card from the server is over them.
+    expect(source).toMatch(/settle\.appeared\(card\?\.id \?\? \(seeingShown \? SEEING_CARD : tourShown \? `tour:\$\{tourStep\}` : null\), Date\.now\(\)\)/);
     expect(source).toMatch(/settle\.returned\(Date\.now\(\)\)/);
   });
 });

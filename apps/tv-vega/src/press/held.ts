@@ -42,7 +42,7 @@
  *
  * Pure: `now` is passed in, and the keys are given as they arrive.
  */
-import { isOkKey } from '../watch/hold.js';
+import { HOLD_SHOWN_FROM_MS, isOkKey } from '../watch/hold.js';
 import type { RemoteEventLike } from '../watch/remoteKeys.js';
 import { pressActs } from './settle.js';
 
@@ -82,6 +82,9 @@ export function pressEnds(at: {
 }): boolean {
   if (at.reachableSince === null) return false;
   if (at.keyCameUp && (at.beganAt === null || at.beganAt < at.reachableSince)) return false;
+  // Held long enough for the hold line to show (press/HoldLine.tsx), and let go before the two seconds: she was
+  // holding, not pressing, and let go — nothing happens at all (docs/design/DESIGN.md §6).
+  if (at.keyCameUp && at.beganAt !== null && at.now - at.beganAt >= HOLD_SHOWN_FROM_MS) return false;
   return pressActs(at.reachableSince, at.now);
 }
 

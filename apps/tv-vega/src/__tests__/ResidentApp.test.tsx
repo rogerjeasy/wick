@@ -27,8 +27,8 @@ import type { PlayerSnapshot } from '../player/PlayerService.js';
 import { CARD_SERVICE_URI } from '../headless/launchCardService.js';
 import { CATALOG } from '../catalog/catalog.js';
 import { SETTLED_AFTER_MS } from '../break/types.js';
-import { moveApp, opened, pressBack, resetPlatform } from './render/platform.js';
-import { resetFiles } from './render/files.js';
+import { moveApp, opened, pressBack, resetPlatform, sendKey, timings } from './render/platform.js';
+import { files, resetFiles } from './render/files.js';
 import { resetMedia } from './render/media.js';
 import { button, buttons, headers, pressOk, render, shows, textOf, type Drawn } from './render/render.js';
 
@@ -37,6 +37,8 @@ vi.mock('react-native', () => import('./render/platform.js'));
 vi.mock('@amazon-devices/kepler-file-system', () => import('./render/files.js'));
 vi.mock('@amazon-devices/react-native-w3cmedia', () => import('./render/media.js'));
 vi.mock('../home/posters.js', () => ({ POSTERS: {} }));
+vi.mock('../icons/iconSources.generated.js', () => import('./render/icons.js'));
+vi.mock('../tour/tourPicture.js', () => ({ TOUR_DOOR_PICTURE: { uri: 'tour:door' } }));
 
 /** The card channel, as far as the app can tell: it is handed the queue, and puts cards in it. */
 const channel = vi.hoisted(() => ({
@@ -367,5 +369,96 @@ describe('ResidentApp, drawn whole', () => {
       await connection(false, 5_000);
       expect(shows(root, NOT_REACHED)).toBe(false);
     });
+  });
+});
+
+describe('her films, in her order (home/order.ts)', () => {
+  it('puts a film she left part-way first, marked Carry on, with the focus on it — and keeps where she left it in its file', async () => {
+    const { root } = await launch();
+    await wait(1_000);
+    await pressOk(button(root, 'Big Buck Bunny. 10 minutes'));
+    expect(film.props?.programme).toBe(BUNNY);
+    await filmAt(240_000);
+    // Back, as the film's screen hears it.
+    await act(async () => (film.props!.onExit as () => void)());
+    await wait(1_000);
+
+    const carry = button(root, 'Big Buck Bunny. Carry on where you left it, 6 minutes left.');
+    expect(buttons(root)[0]).toBe(carry);
+    expect(carry.props.hasTVPreferredFocus).toBe(true);
+    expect(shows(root, 'Carry on')).toBe(true);
+    expect(JSON.parse(files.get('/data/wick-positions.json')!)).toEqual({ 'big-buck-bunny': 240_000 });
+  });
+
+  it('counts the film she starts, by the part of the day, in a file of its own — and sends nothing about it', async () => {
+    const { root } = await launch();
+    await wait(1_000);
+    await pressOk(button(root, 'Sintel. 15 minutes'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const tally = JSON.parse(files.get('/data/wick-tally.json')!) as Record<string, Record<string, number>>;
+    expect(Object.values(tally.sintel!)).toEqual([1]);
+  });
+});
+
+describe('How Wick works (tour/tour.ts)', () => {
+  const PILL = 'How Wick works. Press OK for a short tour with examples. Nothing is sent.';
+
+  it('opens from its pill, moves on with OK after each step’s second, closes on Back — and sends nothing', async () => {
+    const { root } = await launch();
+    await wait(1_000);
+    await sent();
+    await pressOk(button(root, PILL));
+    expect(shows(root, 'How Wick works · 1 of 5')).toBe(true);
+    // Nothing of the home behind it.
+    expect(shows(root, 'What would you like to watch?')).toBe(false);
+
+    // A press in the step's first second is not taken.
+    await pressOk(button(root, 'Show me the next'));
+    expect(shows(root, 'How Wick works · 1 of 5')).toBe(true);
+    await wait(1_000);
+    await pressOk(button(root, 'Show me the next'));
+    expect(shows(root, 'How Wick works · 2 of 5')).toBe(true);
+
+    // Play reads nothing here: the reader reads only a card the server has.
+    await act(async () => sendKey({ eventType: 'playpause', eventKeyAction: 0 }));
+
+    expect(pressBack()).toBe(true);
+    await wait(1_000);
+    expect(shows(root, 'What would you like to watch?')).toBe(true);
+    // Nothing of the tour's: no press, no reading, no question.
+    expect((await sent()).filter((t) => ['card_action', 'read', 'reach', 'light', 'mantel', 'home'].includes(t))).toEqual([]);
+  });
+});
+
+describe('a card arriving and leaving (vega-calm-ui CalmPresence)', () => {
+  const scrims = (root: Drawn['root']) => root.findAll((n) => typeof n.type === 'string' && (n.props.style as { opacity?: number } | undefined)?.opacity === 0.82);
+
+  it('comes in rising, in 200ms; over a film, the film steps back behind a scrim; and it leaves in 150ms', async () => {
+    const { root } = await launch();
+    await wait(1_000);
+    await pressOk(button(root, 'Big Buck Bunny. 10 minutes'));
+    await filmAt(30_000);
+    timings.length = 0;
+    await deliver(door);
+    await wait(1_000);
+    expect(timings).toContainEqual({ toValue: 1, duration: 200 });
+    expect(scrims(root)).toHaveLength(1);
+    expect(scrims(root)[0]!.props.style).toMatchObject({ backgroundColor: '#12100E' });
+
+    await wait(1_000);
+    await pressOk(button(root, 'Not now'));
+    await wait(1_000);
+    expect(timings).toContainEqual({ toValue: 0, duration: 150 });
+    expect(headers(root)).toEqual([]);
+    expect(scrims(root)).toHaveLength(0);
+  });
+
+  it('has no scrim on the home screen, where nothing is behind a card but the ground', async () => {
+    const { root } = await launch();
+    await deliver(door);
+    await wait(1_000);
+    expect(scrims(root)).toHaveLength(0);
   });
 });

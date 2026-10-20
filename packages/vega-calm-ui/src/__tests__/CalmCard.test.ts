@@ -191,3 +191,22 @@ describe('CalmCard, drawn with what the viewer asked for', () => {
     expect(() => card({ actions: four }, LARGER)).toThrow(CalmViolation);
   });
 });
+
+describe('a card drawn inert (CalmInert): on its way off the screen', () => {
+  it('shows its buttons as they were, and none can be focused or pressed', () => {
+    const inert = renderCalmCard({ headline: 'Someone is at the door', actions, onAction: () => undefined }, calmTheme(STANDARD), true) as Element;
+    const pressables = all(inert).filter((element) => element.type === 'Pressable');
+    expect(pressables).toHaveLength(3);
+    for (const p of pressables) {
+      expect(p.props.focusable).toBe(false);
+      expect(p.props.onPress).toBeUndefined();
+      expect(p.props.hasTVPreferredFocus).toBe(false);
+    }
+  });
+
+  it('is pressable and focusable as ever when it is not', () => {
+    const live = card();
+    const pressables = all(live).filter((element) => element.type === 'Pressable');
+    expect(pressables.every((p) => p.props.focusable === true && typeof p.props.onPress === 'function')).toBe(true);
+  });
+});

@@ -71,14 +71,15 @@ export function PairingScreen({ info, trying }: PairingScreenProps): React.JSX.E
 
 const makeStyles = (t: CalmTheme) =>
   StyleSheet.create({
-    root: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.palette.ground },
-    headline: { fontSize: t.fontSize('headline'), color: t.palette.ink, marginBottom: 24 },
-    code: { fontSize: t.fontSize('display'), color: t.palette.accent, letterSpacing: 8, marginBottom: 16 },
-    body: { fontSize: t.fontSize('body'), color: t.palette.inkDim, textAlign: 'center', paddingHorizontal: 24, marginBottom: 16 },
+    root: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.palette.ground, paddingHorizontal: 48, paddingVertical: 32 },
+    headline: { fontSize: t.fontSize('headline'), lineHeight: t.lineHeight('headline'), color: t.palette.ink, marginBottom: 24 },
+    code: { fontSize: t.fontSize('display'), lineHeight: t.lineHeight('display'), color: t.palette.accent, letterSpacing: 8, marginBottom: 16 },
+    body: { fontSize: t.fontSize('body'), lineHeight: t.lineHeight('body'), color: t.palette.inkDim, textAlign: 'center', paddingHorizontal: 24, marginBottom: 16 },
     // Centred like the words above it: a long address wraps at its slashes, and a ragged left edge read as broken.
-    link: { fontSize: t.fontSize('body'), color: t.palette.inkDim, textAlign: 'center' },
-    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 48 },
-    words: { flex: 1, alignItems: 'center' },
-    qr: { alignItems: 'center', marginLeft: 32 },
-    scan: { fontSize: t.fontSize('body'), color: t.palette.inkDim, marginTop: 12, maxWidth: QR_SIZE + 64, textAlign: 'center' },
+    link: { fontSize: t.fontSize('body'), lineHeight: t.lineHeight('body'), color: t.palette.inkDim, textAlign: 'center' },
+    row: { flexDirection: 'row', alignItems: 'center', gap: 32 },
+    // The code and how to use it, on a card's surface: one thing to read, then the picture to scan.
+    words: { flex: 1, alignItems: 'center', backgroundColor: t.palette.raised, borderRadius: 16, paddingVertical: 24, borderWidth: t.cardEdgeDp, borderColor: t.palette.ink },
+    qr: { alignItems: 'center' },
+    scan: { fontSize: t.fontSize('body'), lineHeight: t.lineHeight('body'), color: t.palette.inkDim, marginTop: 12, maxWidth: QR_SIZE + 64, textAlign: 'center' },
   });

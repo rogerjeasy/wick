@@ -33,6 +33,13 @@ export const HOME_RING_DP = 4;
 
 /** Inside a tile, under its picture: the title's padding. */
 export const CAPTION_PADDING_DP = 16;
+/**
+ * Above and below the caption where "Carry on" is a line of it (carryOn
+ * below): the progress line sits in the room above the words, and nothing
+ * is kept below them — the room a third line needs, at 40pt, with the
+ * quiet line, where there is no picture left to give it.
+ */
+export const TIGHT_CAPTION_PADDING = { top: 8, bottom: 0 } as const;
 /** Inside a pill, around its words. */
 export const PILL_PADDING = { horizontal: 16, vertical: 2 } as const;
 /** Inside the quiet line, around its words. */
@@ -93,12 +100,17 @@ export interface HomeHeights {
   readonly poster: number;
 }
 
-/** How tall each row is, and the pictures with them, with or without the quiet line, with titles of so many lines. */
-export function homeHeights(theme: CalmTheme, quiet: boolean, titles: 1 | 2 = 1): HomeHeights {
+/**
+ * How tall each row is, and the pictures with them, with or without the
+ * quiet line, with captions of so many lines: a film's title's one or two,
+ * and one more where "Carry on" has no room over the picture (carryOn below).
+ */
+export function homeHeights(theme: CalmTheme, quiet: boolean, titles: number = 1, tightCaption = false): HomeHeights {
   const ring = 2 * theme.ring(HOME_RING_DP).footprintDp;
   const line = theme.lineHeight('body');
   const question = theme.lineHeight('headline');
-  const tileWithoutPoster = 2 * CAPTION_PADDING_DP + titles * line + ring;
+  const captionPadding = tightCaption ? TIGHT_CAPTION_PADDING.top + TIGHT_CAPTION_PADDING.bottom : 2 * CAPTION_PADDING_DP;
+  const tileWithoutPoster = captionPadding + titles * line + ring;
   const quietRow = line + 2 * QUIET_PADDING.vertical + ring;
   const pills = line + 2 * PILL_PADDING.vertical + ring;
   const rows = question + tileWithoutPoster + pills + (quiet ? quietRow : 0);
@@ -109,8 +121,8 @@ export function homeHeights(theme: CalmTheme, quiet: boolean, titles: 1 | 2 = 1)
 }
 
 /** The whole height of the screen as drawn: never more than the screen. */
-export function homeHeight(theme: CalmTheme, quiet: boolean, titles: 1 | 2 = 1): number {
-  const h = homeHeights(theme, quiet, titles);
+export function homeHeight(theme: CalmTheme, quiet: boolean, titles: number = 1, tightCaption = false): number {
+  const h = homeHeights(theme, quiet, titles, tightCaption);
   return 2 * HOME_SCREEN.paddingVertical + h.question + h.tileWithoutPoster + h.poster + h.pills + h.quiet + HOME_SCREEN.gap * (quiet ? 3 : 2);
 }
 
@@ -175,8 +187,8 @@ export interface CareLayout {
 }
 
 /** How her day sits on the home screen, with the quiet row or without it, with film titles of so many lines. */
-export function careLayout(theme: CalmTheme, day: DayText, quiet: boolean, titles: 1 | 2 = 1): CareLayout {
-  const h = homeHeights(theme, quiet, titles);
+export function careLayout(theme: CalmTheme, day: DayText, quiet: boolean, titles: number = 1, tightCaption = false): CareLayout {
+  const h = homeHeights(theme, quiet, titles, tightCaption);
   const line = theme.lineHeight('body');
   // Everything but the panel and the pictures: the headline, the films' words, the pills, the quiet row, and their gaps.
   const fixed = h.question + h.tileWithoutPoster + h.pills + h.quiet + HOME_SCREEN.gap * (quiet ? 3 : 2);
@@ -226,4 +238,138 @@ export function careLayout(theme: CalmTheme, day: DayText, quiet: boolean, title
   const left = Math.floor(room - built.height);
   const poster = left < POSTER_MIN_DP ? 0 : Math.min(POSTER_MAX_DP, left);
   return { headline, ...(dateBeside !== undefined ? { dateBeside } : {}), panel: built.panel, panelLines: built.lines, panelHeight, poster };
+}
+
+/*
+ * A film she left part-way (home/order.ts): first in the row, and marked
+ * "Carry on" with how long is left and a thin progress line over the
+ * bottom of its picture. Over the picture: "Carry on" at its top-left, in
+ * the amber of a first button, and the minutes left at its bottom-right,
+ * just above the line — each on its own chip, so the words never sit on the
+ * picture itself. Where the picture is too short for both, or a chip would
+ * not fit its width, "Carry on" is a line of the caption instead, under the
+ * title, with the progress line above it: the words are never cut, and the
+ * pictures give way first, as everywhere on this screen. Where even that
+ * line is not there to give (40pt, higher contrast and a quiet line), the
+ * progress line alone marks the film, and the screen reader says the words.
+ */
+
+/** Around the words on a chip over a picture. */
+export const CHIP_PADDING = { horizontal: 12, vertical: 2 } as const;
+/** How far a chip, and the progress line, stand in from the picture's edges. */
+export const CHIP_INSET_DP = 8;
+/** The progress line over the bottom of a picture, or under a caption. */
+export const TILE_PROGRESS_DP = 6;
+
+/** A chip's height: a line of body type and its padding. */
+export function chipHeightDp(theme: CalmTheme): number {
+  return theme.lineHeight('body') + 2 * CHIP_PADDING.vertical;
+}
+
+/** The inside of a tile: a third of the row, less the gaps and its ring. */
+export function tileInnerWidthDp(theme: CalmTheme): number {
+  return (HOME_ROW_DP - 2 * HOME_SCREEN.gap) / 3 - 2 * theme.ring(HOME_RING_DP).footprintDp;
+}
+
+/** Whether "Carry on" and the minutes left go over a picture this tall, whole, in this theme. */
+export function carryOnOverPoster(theme: CalmTheme, posterDp: number, chips: { readonly carryOn: string; readonly left: string }): boolean {
+  if (posterDp <= 0) return false;
+  const needed = 2 * chipHeightDp(theme) + TILE_PROGRESS_DP + 3 * CHIP_INSET_DP;
+  const room = tileInnerWidthDp(theme) - 2 * CHIP_INSET_DP;
+  const chip = (words: string): number => widthOf(words, theme.fontSize('body')) + 2 * CHIP_PADDING.horizontal;
+  return posterDp >= needed && chip(chips.carryOn) <= room && chip(chips.left) <= room;
+}
+
+export interface HomeLayout {
+  /** Her day, where there is one. */
+  readonly care?: CareLayout | undefined;
+  /** The films' pictures. */
+  readonly poster: number;
+  /** The lines under each picture: the title's, and "Carry on" when it is not over the picture. */
+  readonly captionLines: number;
+  /** The caption's padding is TIGHT_CAPTION_PADDING: "Carry on" is a line of it. */
+  readonly tightCaption: boolean;
+  /**
+   * Where "Carry on" goes for a film left part-way: over its picture, in
+   * its caption — or, at 40pt with higher contrast and a quiet line, where
+   * the screen has no line left, only the progress line, the words said to
+   * the screen reader. Absent when no film is.
+   */
+  readonly carryOn?: 'over' | 'caption' | 'line' | undefined;
+}
+
+/** The whole home screen's layout: her day, the pictures, and where "Carry on" goes. */
+export function homeLayout(
+  theme: CalmTheme,
+  input: { readonly quiet: boolean; readonly titles: 1 | 2; readonly day?: DayText | undefined; readonly carryOn?: { readonly carryOn: string; readonly left: string } | undefined },
+): HomeLayout {
+  const at = (captionLines: number, tight: boolean): { care?: CareLayout; poster: number } => {
+    if (input.day) {
+      const care = careLayout(theme, input.day, input.quiet, captionLines, tight);
+      return { care, poster: care.poster };
+    }
+    return { poster: homeHeights(theme, input.quiet, captionLines, tight).poster };
+  };
+  const plain = at(input.titles, false);
+  if (!input.carryOn) return { ...plain, captionLines: input.titles, tightCaption: false };
+  if (carryOnOverPoster(theme, plain.poster, input.carryOn)) return { ...plain, captionLines: input.titles, tightCaption: false, carryOn: 'over' };
+  const caption = at(input.titles + 1, true);
+  // The line fits, and takes no line about who is coming with it.
+  const fits = homeHeight(theme, input.quiet, input.titles + 1, true) - homeHeights(theme, input.quiet, input.titles + 1, true).poster + caption.poster <= HOME_SCREEN.height;
+  const keepsDay = !plain.care || (caption.care?.panel.length ?? 0) >= plain.care.panel.length;
+  if (fits && keepsDay) return { ...caption, captionLines: input.titles + 1, tightCaption: true, carryOn: 'caption' };
+  // No room for even that: the progress line alone, at the top of the caption, and the words to the screen reader.
+  return { ...plain, captionLines: input.titles, tightCaption: false, carryOn: 'line' };
+}
+
+/*
+ * The pills: her light, her mantelpiece, Easier to see and How Wick works,
+ * each an icon and its words. Four do not fit one row with their words at
+ * 32pt, and the row is not what should be cut — nor the films. So a pill
+ * may be its icon alone at rest, and it shows its words when it has the
+ * focus: she always reads what OK will do before she presses it, and the
+ * screen reader always hears the words. The pills give their words up in
+ * this order, and only as many as the row needs: the mantelpiece, her
+ * light, Easier to see, and How Wick works last of all. The row is
+ * measured with the widest of them open, so the focus moving never pushes
+ * a pill off the screen.
+ */
+
+/** Between a pill's icon and its words. */
+export const PILL_ICON_GAP_DP = 8;
+/** Which pills give up their words first, when the row needs the room. */
+export const PILL_WORDS_GIVE_WAY: readonly string[] = ['mantel', 'light', 'seeing', 'tour'];
+
+export interface PillSpec {
+  readonly id: string;
+  readonly words: string;
+}
+
+/** A pill's width: its icon, its words if shown, its padding and its ring. */
+export function pillWidthDp(theme: CalmTheme, words: string | undefined): number {
+  const icon = theme.preferences.largerText ? 40 : 32;
+  const text = words ? PILL_ICON_GAP_DP + widthOf(words, theme.fontSize('body')) : 0;
+  return icon + text + 2 * PILL_PADDING.horizontal + 2 * theme.ring(HOME_RING_DP).footprintDp;
+}
+
+/** The row's width with these pills showing their words at rest, and the widest of the others opened by the focus. */
+export function pillRowDp(theme: CalmTheme, pills: readonly PillSpec[], wordsAtRest: ReadonlySet<string>): number {
+  let rest = 0;
+  let opening = 0;
+  for (const pill of pills) {
+    const shut = pillWidthDp(theme, wordsAtRest.has(pill.id) ? pill.words : undefined);
+    rest += shut;
+    opening = Math.max(opening, pillWidthDp(theme, pill.words) - shut);
+  }
+  return rest + opening + HOME_SCREEN.gap * Math.max(0, pills.length - 1);
+}
+
+/** Which pills show their words at rest: all that the row has room for, giving way in PILL_WORDS_GIVE_WAY's order. */
+export function pillsWithWords(theme: CalmTheme, pills: readonly PillSpec[]): ReadonlySet<string> {
+  const shown = new Set(pills.map((pill) => pill.id));
+  for (const id of PILL_WORDS_GIVE_WAY) {
+    if (pillRowDp(theme, pills, shown) <= HOME_ROW_DP) break;
+    shown.delete(id);
+  }
+  return shown;
 }

@@ -21,13 +21,19 @@
  *
  * Over a card that can be read aloud, Play is the card's when the app says
  * so (packages/contracts/src/speech.ts, remoteKeys.ts): it reads the card,
- * and neither pauses nor resumes the programme here. Over a note that holds
- * the programme that is the first Play only — the next is the programme's
- * again, as Play there always was: the programme goes on and the note is
- * put away. The door's card holds the programme as a note does; a reading
+ * or stops reading it, and neither pauses nor resumes the programme here —
+ * however often it is pressed. A note that holds the programme lets it go
+ * on when she answers it or presses Back. The door's card holds the
+ * programme as a note does; a reading
  * over a film that is not held is turned down for it by the app, which is
  * told which player this screen has (`onPlayer`) and puts the sound back
  * when the reading is over.
+ *
+ * The film's bar (FilmBar.tsx, transport.ts): ↑ or ↓, a pause or a skip
+ * bring the title, the time gone of the whole, how long is left and a
+ * progress line, for four seconds of play — and for as long as the film is
+ * paused. Up and Down are never dead over a film. Holding OK shows its
+ * line from 0.4 s (press/HoldLine.tsx), and the bar steps aside for it.
  *
  * The platform's media controls reach the film too: "Alexa, pause", the
  * system's transport controls (mediaControls.ts). Each is decided by the
@@ -45,7 +51,10 @@ import { words } from '../words/words.js';
 import { PlayerService, type PlayerSnapshot } from '../player/PlayerService.js';
 import { PlaybackRecorder } from './playbackRecorder.js';
 import { FilmPositions } from './resume.js';
-import { isOkKey, okHold, type OkHold } from './hold.js';
+import { HOLD_SHOWN_FROM_MS, isOkKey, okHold, type OkHold } from './hold.js';
+import { TRANSPORT_SHOWN_MS, asksWhereFilmIs, transportShown } from './transport.js';
+import { FilmBar } from './FilmBar.js';
+import { HoldLine } from '../press/HoldLine.js';
 import { seekTarget, watchCommand, type ReadCommand } from './remoteKeys.js';
 import { startFilmSession, type FilmSession } from './mediaControls.js';
 import { ECHO_WAIT_MS, keyEchoes, mediaOutcome, moveFilm, type MediaCommand } from './mediaSession.js';
@@ -98,6 +107,14 @@ export interface WatchScreenProps {
    * anything: nobody follows a film she has not been told they are following.
    */
   readonly companion?: string | undefined;
+  /**
+   * Where she left each film (resume.ts): the film goes on from its kept
+   * place, and its place is kept as it is let go. The app's own, kept in
+   * its file (ResidentApp.tsx), so the home screen can say "Carry on".
+   */
+  readonly positions?: FilmPositions | undefined;
+  /** Whom holding OK would ask to ring her, when the television knows (press/HoldLine.tsx). */
+  readonly holdName?: string | undefined;
   /** OK was held for two seconds, with nothing else on screen to take it (hold.ts). */
   readonly onHold?: (() => void) | undefined;
   /** OK came up again after such a hold. */
@@ -107,8 +124,8 @@ export interface WatchScreenProps {
 
 type Status = 'opening' | 'playing' | 'paused' | 'failed';
 
-/** Where she left each film (resume.ts), for as long as the app runs: the next time she chooses it, it goes on from there. */
-const filmPositions = new FilmPositions();
+/** Where she left each film, when the app gives no store of its own: for as long as the app runs (resume.ts). */
+const sessionPositions = new FilmPositions();
 
 export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
   const { programme } = props;
@@ -125,8 +142,20 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
   /** What a media-session command does, once the player is ready: set below, read by the session. */
   const obey = React.useRef<(command: MediaCommand, deltaMs?: number) => void>(() => undefined);
 
+  /** Where the film has got to, as the player last said: for the film's bar. */
+  const where = React.useRef({ positionMs: 0, durationMs: programme.durationMs });
+  /** When she last asked where the film is — ↑, ↓, a skip, a pause (transport.ts) — or null for never. */
+  const [askedAt, setAskedAt] = React.useState<number | null>(null);
+  /** Draws the bar again: once a second while it is up, and when its four seconds are over. */
+  const [, redraw] = React.useReducer((n: number) => n + 1, 0);
+  const barUp = React.useRef(false);
+  /** Since when OK has been down where it may be held, for the hold line; null when it is not. */
+  const [holdSince, setHoldSince] = React.useState<number | null>(null);
+
   React.useEffect(() => {
     let cancelled = false;
+    // The app's kept places, or this session's.
+    const filmPositions = latest.current.positions ?? sessionPositions;
     let service: PlayerService | undefined;
     let session: FilmSession | undefined;
     let last: PlayerSnapshot | undefined;
@@ -150,6 +179,8 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       service.onSnapshot((snapshot) => {
         if (cancelled) return;
         report(snapshot);
+        where.current = { positionMs: snapshot.positionMs, durationMs: snapshot.durationMs > 0 ? snapshot.durationMs : programme.durationMs };
+        if (barUp.current) redraw();
         session?.publish(snapshot);
         if (snapshot.state === 'PLAYING') setStatus('playing');
         else if (snapshot.state === 'PAUSED') setStatus((s) => (s === 'opening' ? s : 'paused'));
@@ -198,6 +229,8 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
     else p.pause();
   };
   const hold = React.useRef<OkHold | null>(null);
+  /** When OK went down where it may be held: a hold let go early puts back what its first moment did. */
+  const okDownAt = React.useRef<number | null>(null);
   hold.current ??= okHold({
     // OK is free to be held only while it is the programme's: not a card's, and not the door camera's.
     canHold: () => playerRef.current !== null && !latest.current.cardVisible && !latest.current.suspended,
@@ -209,6 +242,11 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       latest.current.onHold?.();
     },
     onRelease: () => latest.current.onHoldEnd?.(),
+    onBegin: (at) => {
+      okDownAt.current = at;
+      setHoldSince(at);
+    },
+    onEnd: () => setHoldSince(null),
   });
   React.useEffect(() => () => hold.current?.cancel(), []);
 
@@ -217,16 +255,32 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
 
   useTVEventHandler((event) => {
     if (event.eventKeyAction === undefined || event.eventKeyAction === 0) echoes.key(event.eventType, Date.now());
+    const wasHold = hold.current?.held() ?? false;
     hold.current?.onEvent(event);
-    if (isOkKey(event.eventType) && event.eventKeyAction === 1) okToggled.current = false;
+    if (isOkKey(event.eventType) && event.eventKeyAction === 1) {
+      // Held long enough for its line to show, and let go before the two seconds: she was holding, and let go.
+      // Nothing happens at all (docs/design/DESIGN.md §6): the pause or play its first moment made is put back.
+      const began = okDownAt.current;
+      okDownAt.current = null;
+      const p0 = playerRef.current;
+      if (p0 && okToggled.current && !wasHold && began !== null && Date.now() - began >= HOLD_SHOWN_FROM_MS) toggle(p0);
+      okToggled.current = false;
+    }
     const p = playerRef.current;
     if (!p || latest.current.suspended) return;
+    // ↑ or ↓: where is the film? The bar says.
+    if (asksWhereFilmIs(event, { cardVisible: latest.current.cardVisible })) setAskedAt(Date.now());
     const command = watchCommand(event, { cardVisible: latest.current.cardVisible, playReads: latest.current.playReads, reading: latest.current.reading });
     if (command === 'toggle') {
       okToggled.current = isOkKey(event.eventType);
       toggle(p);
+      setAskedAt(Date.now());
     } else if (command) {
-      p.currentTime = seekTarget(p.currentTime * 1000, command, programme.durationMs) / 1000;
+      const target = seekTarget(p.currentTime * 1000, command, programme.durationMs);
+      p.currentTime = target / 1000;
+      // The bar says where the skip landed at once, not at the player's next word.
+      where.current = { ...where.current, positionMs: target };
+      setAskedAt(Date.now());
     }
   });
 
@@ -285,6 +339,7 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       deltaMs,
     );
     if (outcome.reader) now.onReadCommand?.(outcome.reader);
+    if (outcome.film) setAskedAt(Date.now());
     if (outcome.film) {
       moveFilm(p, outcome.film, () => {
         resumeAfterCard.current = false;
@@ -300,16 +355,33 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
     }, ECHO_WAIT_MS);
   };
 
+  // The hold line has the bottom of the screen from the moment it shows (0.4 s), and the bar steps aside for it.
+  const [holdShown, setHoldShown] = React.useState(false);
+  React.useEffect(() => {
+    if (holdSince === null) {
+      setHoldShown(false);
+      return;
+    }
+    const timer = setTimeout(() => setHoldShown(true), Math.max(0, holdSince + HOLD_SHOWN_FROM_MS - Date.now()));
+    return () => clearTimeout(timer);
+  }, [holdSince]);
+
   // A film's title is its name, and is never translated.
   const say = words(props.language);
-  const notice =
-    status === 'failed'
-      ? say('watch.failed', { title: programme.title })
-      : status === 'opening'
-        ? say('watch.starting', { title: programme.title })
-        : status === 'paused' && !props.cardVisible && !suspended
-          ? say('watch.paused', { title: programme.title })
-          : undefined;
+  const notice = status === 'failed' ? say('watch.failed', { title: programme.title }) : status === 'opening' ? say('watch.starting', { title: programme.title }) : undefined;
+
+  // The film's bar: when she asked where the film is, and while it is paused — never over a card, the door
+  // camera, or the hold line (transport.ts).
+  const ready = status === 'playing' || status === 'paused';
+  const now = Date.now();
+  const shown = !holdShown && transportShown({ paused: status === 'paused', cardVisible: props.cardVisible || suspended, ready, askedAt, now });
+  barUp.current = shown;
+  // Its four seconds are counted here: when they are over, it is drawn again, without itself.
+  React.useEffect(() => {
+    if (!shown || status === 'paused' || askedAt === null) return;
+    const timer = setTimeout(redraw, Math.max(0, askedAt + TRANSPORT_SHOWN_MS - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [shown, status, askedAt]);
 
   return (
     <View style={styles.screen}>
@@ -320,9 +392,20 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
             {notice}
           </Text>
           {props.companion && status !== 'failed' ? <Text style={styles.noticeText}>{say('watch.companion', { name: props.companion })}</Text> : null}
-          {status === 'paused' ? <Text style={styles.attribution}>{programme.attribution}</Text> : null}
         </View>
       ) : null}
+      <FilmBar
+        shown={shown}
+        language={props.language}
+        title={programme.title}
+        positionMs={where.current.positionMs}
+        durationMs={where.current.durationMs}
+        paused={status === 'paused'}
+        companion={props.companion}
+        attribution={programme.attribution}
+      />
+      {/* Holding OK over the film: its line, from 0.4 s (press/HoldLine.tsx). */}
+      <HoldLine since={holdSince} language={props.language} name={props.holdName} />
     </View>
   );
 }
@@ -336,20 +419,18 @@ const makeStyles = (t: CalmTheme) =>
     notice: {
       position: 'absolute',
       left: 48,
+      right: 48,
       bottom: 32,
-      backgroundColor: t.palette.raised,
+      backgroundColor: t.palette.raisedHigh,
       borderRadius: 16,
+      borderWidth: t.cardEdgeDp,
+      borderColor: t.palette.ink,
       paddingVertical: 16,
       paddingHorizontal: 24,
       gap: 4,
     },
     noticeText: {
       color: t.palette.ink,
-      fontSize: t.fontSize('body'),
-      lineHeight: t.lineHeight('body'),
-    },
-    attribution: {
-      color: t.palette.inkDim,
       fontSize: t.fontSize('body'),
       lineHeight: t.lineHeight('body'),
     },

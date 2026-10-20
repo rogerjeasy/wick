@@ -11,7 +11,7 @@
  * button she pressed.
  */
 import * as React from 'react';
-import { CalmCard } from '@wick/vega-calm-ui';
+import { CalmCard, CalmPresence } from '@wick/vega-calm-ui';
 import type { HouseholdLanguage } from '@wick/contracts';
 import { words } from '../words/words.js';
 import { useSeeing } from './SeeingProvider.js';
@@ -27,13 +27,16 @@ export interface SeeingCardProps {
 export function SeeingCard({ language, focusId, onAction }: SeeingCardProps): React.JSX.Element {
   const say = words(language);
   const { preferences } = useSeeing();
+  // Arriving like any card: rising into place in 200ms, or at once with reduced motion.
   return (
-    <CalmCard
-      headline={say('seeing.headline')}
-      detail={say('seeing.detail')}
-      actions={seeingActions(preferences, say)}
-      initialFocusId={focusId}
-      onAction={onAction}
-    />
+    <CalmPresence shown rises>
+      <CalmCard
+        headline={say('seeing.headline')}
+        detail={say('seeing.detail')}
+        actions={seeingActions(preferences, say)}
+        initialFocusId={focusId}
+        onAction={onAction}
+      />
+    </CalmPresence>
   );
 }

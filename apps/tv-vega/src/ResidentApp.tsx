@@ -56,15 +56,14 @@
  *
  * Read to me (packages/contracts/src/speech.ts). While a card is on screen
  * Play asks for it to be read aloud (read/reading.ts) — the one thing a key
- * heard here does. On the home screen, and on the door's card over a film
- * that is playing, Play again stops the reading, and the film is never
- * paused by it. Over a note that is holding the film Play is the card's
- * once: the first reads the note, and the next is her way back to the film
- * as Play there always was — the film goes on and the note is put away —
- * whether the reading is still going, is over, or never started
- * (watch/remoteKeys.ts playIsTheCards). Only when she asks: nothing here
- * ever starts a reading by itself. And where reading cannot work the mark
- * of the key is not drawn and Play is the film's from the first press.
+ * heard here does. Play again stops the reading. Over a card, Play is
+ * always the card's — on the home screen, on the door's card over a film,
+ * and over a note that is holding the film — and it never pauses or moves
+ * the film: one key, one meaning (watch/remoteKeys.ts playIsTheCards). The
+ * film held under a card goes on only when she answers the card or presses
+ * Back. Only when she asks: nothing here ever starts a reading by itself.
+ * And where reading cannot work the mark of the key is not drawn and Play
+ * is the film's.
  *
  * Easier to see (seeing/seeing.ts). A pill on the home screen opens its
  * card, drawn here like any card and held to the same one second. Its
@@ -78,6 +77,19 @@
  * moment its time is over, and asks the server for her day again when the
  * one it was told has ended or a new card has come (herDayAsker).
  *
+ * How Wick works (tour/tour.ts): a pill on the home screen opens a short
+ * tour, an example of each thing Wick does, drawn as it is drawn and
+ * marked "Example". It is held like a card — its one second, Back closes
+ * it, a card from the server comes over it — and nothing in it is sent:
+ * Play does nothing on it, since the reader reads only a card the server
+ * has.
+ *
+ * Her films, in her order (home/order.ts): one she left part-way first,
+ * marked "Carry on", then the ones she starts most at this time of day,
+ * then the catalogue's. Where she left each film and how often she starts
+ * each are kept in this television's own files (headless/keptText.ts),
+ * beside the queue, and sent nowhere.
+ *
  * The platform's screen reader (VoiceView). When it is on, each card that
  * comes on screen is announced once (read/announce.ts); her pictures never
  * fill an idle home screen — a slideshow is moving content, and the reader
@@ -89,7 +101,7 @@ import { Linking } from 'react-native';
 import { BackHandler, StyleSheet, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import type { DeviceEvent, DeviceToken, HomeState, HouseholdLanguage, MantelItem, QueuedCard } from '@wick/contracts';
-import { announce, useCalmStyles, useScreenReaderEnabled, type CalmTheme } from '@wick/vega-calm-ui';
+import { CalmInert, CalmPresence, announce, useCalmStyles, useScreenReaderEnabled, type CalmTheme } from '@wick/vega-calm-ui';
 import { speechTextOf } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
@@ -98,6 +110,9 @@ import { LiveView } from './live/LiveView.js';
 import { BreakController } from './break/BreakController.js';
 import { followScreen } from './break/followScreen.js';
 import { QueueStore, type Mantel } from './headless/QueueStore.js';
+import { POSITIONS_PATH, TALLY_PATH, recallKept } from './headless/keptText.js';
+import { FilmPositions } from './watch/resume.js';
+import { WatchTally, orderProgrammes } from './home/order.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
 import { platformPlaybackReporter } from './personalization/report.js';
 import { WatchActivity } from './personalization/watchActivity.js';
@@ -114,6 +129,7 @@ import type { RenewResult } from './pairing/PairingFlow.js';
 import { lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
 import { backAnswersReach, holdGuard, newestReachCard, reachOffersToPutAway } from './home/reach.js';
 import { ReadHint } from './read/ReadHint.js';
+import { actionLabelsOf } from './read/hintPlace.js';
 import { Reader, type ReadingState } from './read/reading.js';
 import { canRead, createSpeechPlayer } from './read/speechPlayer.js';
 import { lowerFilm, type HasVolume } from './watch/filmVolume.js';
@@ -136,6 +152,8 @@ import { announcer } from './read/announce.js';
 import { SeeingCard } from './seeing/SeeingCard.js';
 import { useSeeing } from './seeing/SeeingProvider.js';
 import { SEEING_CARD, seeingActions, seeingCardShows } from './seeing/seeing.js';
+import { TOUR_CLOSED, TOUR_STEPS, stepWords, tourActions, tourAfter, type TourState } from './tour/tour.js';
+import { TourScreen } from './tour/TourScreen.js';
 
 const QUEUE_POLL_MS = 1000;
 
@@ -178,6 +196,12 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const breakController = React.useMemo(() => new BreakController({ calmPointsOf }), []);
 
   const [card, setCard] = React.useState<QueuedCard | null>(null);
+  /**
+   * The card that has just left the screen, for the 150ms it takes to fade
+   * (vega-calm-ui CalmPresence): drawn inert, so it never takes a press.
+   */
+  const [leaving, setLeaving] = React.useState<{ readonly card: QueuedCard; readonly overFilm: boolean } | null>(null);
+  const shownCard = React.useRef<{ readonly card: QueuedCard | null; readonly overFilm: boolean }>({ card: null, overFilm: false });
   /** A card that has had its two showings and waits on the home screen to be asked for. */
   const [waiting, setWaiting] = React.useState<QueuedCard | null>(null);
   /** The waiting card the resident opened. A ref as well: the tick below reads it between renders. */
@@ -281,6 +305,27 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
   /**
+   * What this television keeps for itself (headless/keptText.ts): where she
+   * left each film, and how often she starts each one. Null for the moment
+   * before the disk has answered; a disk that never does is not waited for.
+   */
+  const [kept, setKept] = React.useState<{ readonly positions: FilmPositions; readonly tally: WatchTally } | null>(null);
+  const keptNow = React.useRef(kept);
+  keptNow.current = kept;
+  React.useEffect(() => {
+    let gone = false;
+    void Promise.all([recallKept(KeplerFileSystem, POSITIONS_PATH), recallKept(KeplerFileSystem, TALLY_PATH)]).then(([positions, tally]) => {
+      if (!gone) setKept((known) => known ?? { positions: new FilmPositions(positions), tally: new WatchTally(tally) });
+    });
+    return () => {
+      gone = true;
+    };
+  }, []);
+  /** The film on screen and the last word from its player: where it was left is kept the moment she leaves it. */
+  const watchingNow = React.useRef<Programme | null>(null);
+  watchingNow.current = watching;
+  const lastSnapshot = React.useRef<PlayerSnapshot | undefined>(undefined);
+  /**
    * The watch-together session her "Start the film" press began. Only that
    * press makes one, and it lasts for that showing of the film: it is gone
    * when she leaves the film or chooses anything from the home screen, so
@@ -299,8 +344,12 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const seeing = useSeeing();
   const styles = useCalmStyles(makeStyles);
   const seeingShown = seeingCardShows({ open: seeingOpen, card: card !== null, liveOpen: liveFor !== null });
-  // Its one second, like any card's: counted from when it comes on screen, by its name.
-  settle.appeared(card?.id ?? (seeingShown ? SEEING_CARD : null), Date.now());
+  /** How Wick works: the step she is on, or closed. Shown where a card would be, and only when none is. */
+  const [tour, setTour] = React.useState<TourState>(TOUR_CLOSED);
+  const tourShown = tour.open && card === null && liveFor === null && watching === null && !seeingShown;
+  const tourStep = tour.open ? tour.index : -1;
+  // Its one second, like any card's: counted from when it comes on screen, by its name — each step a card of its own.
+  settle.appeared(card?.id ?? (seeingShown ? SEEING_CARD : tourShown ? `tour:${tourStep}` : null), Date.now());
 
   // The card channel lives here, in the process that renders, for as long
   // as Wick is on screen: the one QueueStore instance the render loop reads
@@ -315,7 +364,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   /** What is on screen now, for the look below, which runs between renders. */
   const screenReader = useScreenReaderEnabled();
   const screenNow = React.useRef({ watching: false, mantelOpen: false, liveOpen: false, onScreen: true, seeing: false, screenReader: false });
-  screenNow.current = { watching: watching !== null, mantelOpen, liveOpen: liveFor !== null, onScreen, seeing: seeingShown, screenReader };
+  // The tour is on screen like the Easier to see card: the home is not quiet under it either.
+  screenNow.current = { watching: watching !== null, mantelOpen, liveOpen: liveFor !== null, onScreen, seeing: seeingShown || tourShown, screenReader };
   /** The channel while it is held, for the one thing the app asks on it by itself: its cards again (below). */
   const cardChannel = React.useRef<RunningCardChannel | null>(null);
   /**
@@ -402,7 +452,11 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   // The first look below sets the language as soon as the disk has been
   // read. This is only for a disk that never answers.
   React.useEffect(() => {
-    const giveUp = setTimeout(() => setLanguage((known) => known ?? store.language()), LANGUAGE_RECALL_WAIT_MS);
+    const giveUp = setTimeout(() => {
+      setLanguage((known) => known ?? store.language());
+      // Nor does what the television keeps for itself wait on such a disk: it is kept in memory instead.
+      setKept((known) => known ?? { positions: new FilmPositions(), tally: new WatchTally({ read: () => null, write: () => undefined }) });
+    }, LANGUAGE_RECALL_WAIT_MS);
     return () => clearTimeout(giveUp);
   }, [store]);
 
@@ -540,6 +594,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const handleSnapshot = React.useCallback(
     (snapshot: PlayerSnapshot | undefined) => {
       const now = Date.now();
+      if (snapshot) lastSnapshot.current = snapshot;
       breakController.setPlayback(snapshot, now);
       // Every snapshot, once a second: the platform hears changes, seeks and the 60-second beat.
       if (snapshot) tellPlatform(snapshot, now);
@@ -566,6 +621,12 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   );
 
   const handleExitWatching = React.useCallback(() => {
+    // Where she left it, kept now, so the home screen she comes back to already says "Carry on"
+    // (the film's screen keeps it again as it goes, to the same place).
+    const film = watchingNow.current;
+    const last = lastSnapshot.current;
+    if (film && last && last.contentId === film.id) keptNow.current?.positions.stopped(film.id, last.positionMs, film.durationMs, film.creditsPositionMs);
+    lastSnapshot.current = undefined;
     setWatching((current) => {
       if (current) setLastWatchedId(current.id);
       return null;
@@ -576,6 +637,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
 
   const handleChoose = React.useCallback((programme: Programme) => {
     setTogether(null);
+    // One more start of this film at this part of the day, for her order (home/order.ts). Counted here, never sent.
+    keptNow.current?.tally.started(programme.id, new Date().getHours());
     setWatching(programme);
   }, []);
 
@@ -598,6 +661,9 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     setSeeingOpen(true);
   }, []);
 
+  // How Wick works: the pill opens the tour at its first step.
+  const handleOpenTour = React.useCallback(() => setTour((now) => tourAfter(now, 'open')), []);
+
   // OK held for two seconds: ask for the card that offers to have someone ring her.
   const handleHold = React.useCallback(() => {
     const at = Date.now();
@@ -619,9 +685,9 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const [readingState, setReadingState] = React.useState<ReadingState>('idle');
   /**
    * The card Play has already asked to have read, during this showing of
-   * it. Over a film that card is holding, the next Play is then the film's
-   * again. Forgotten when the card leaves the screen: another card, or the
-   * same one shown again later, starts with reading.
+   * it. Still told to playIsTheCards, which no longer minds: Play over a
+   * card is the card's however often it is pressed. Forgotten when the card
+   * leaves the screen.
    */
   const [askedFor, setAskedFor] = React.useState<string | null>(null);
   const reader = React.useMemo(
@@ -643,8 +709,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   // another app, or where reading cannot work — and a reading of any other card is over.
   const readable = canRead();
   const readingCard = readable && onScreen && card !== null && liveFor === null ? card.id : undefined;
-  // Whose the next Play is (watch/remoteKeys.ts): the card's — or, over a film the card is holding, once Play
-  // has asked for it, the film's again.
+  // Whose the next Play is (watch/remoteKeys.ts): the card's, whenever one that can be read is on screen.
   const holdsFilm = watching !== null && breakController.holdsProgramme(card ?? undefined);
   const playReads = playIsTheCards({ card: readingCard, holdsFilm, askedFor });
   const reading = readingState !== 'idle';
@@ -673,7 +738,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     // else (mantel/idle.ts): it is not Play for a card that arrived in that moment.
     if (command && !blocksHome(idleNow.current)) {
       reader.press(command);
-      // Play has now asked for this showing of this card: over a film it holds, the next Play is her way back to the film.
+      // Play has asked for this showing of this card (playIsTheCards is told, and the next Play is still the card's).
       if (command === 'toggle' && at.card !== undefined) setAskedFor(at.card);
     }
     const next = idleOnKey(idleNow.current, event, now);
@@ -794,15 +859,32 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     [guard, settle, seeing],
   );
 
+  // A press on the tour: held to the step's one second and the hold's thumb like any card's. Nothing is sent.
+  const handleTourAction = React.useCallback(
+    (id: 'next' | 'close') => {
+      const now = Date.now();
+      if (guard.swallows(now)) return;
+      if (blocksHome(idleNow.current)) return;
+      if (!settle.acts(now)) return;
+      setTour((at) => (at.open && tourActions(at.index).some((action) => action.id === id) ? tourAfter(at, id) : at));
+    },
+    [guard, settle],
+  );
+
   // The platform's screen reader is told of each card once, as it comes on screen (read/announce.ts): the words
   // Play would read, in the order it would read them.
   const announcements = React.useMemo(() => announcer(), []);
-  const announced = onScreen && liveFor === null ? (card ? card.id : seeingShown ? SEEING_CARD : null) : null;
+  const announced = onScreen && liveFor === null ? (card ? card.id : seeingShown ? SEEING_CARD : tourShown ? `tour:${tourStep}` : null) : null;
   const announceWords = React.useRef<() => string>(() => '');
   announceWords.current = () => {
     if (card) return speechTextOf(card.card).join(' ');
     if (!language) return '';
     const say = words(language);
+    const step = TOUR_STEPS[tourStep];
+    if (tourShown && step) {
+      const w = stepWords(say, step, say('tour.family'));
+      return [say('tour.kicker', { step: tourStep + 1, count: TOUR_STEPS.length }), say('tour.example'), w.headline, w.example ?? '', w.detail].filter(Boolean).join(' ');
+    }
     return [say('seeing.headline'), say('seeing.detail'), ...seeingActions(seeing.preferences, say).map((action) => action.label)].join(' ');
   };
   React.useEffect(() => {
@@ -827,6 +909,11 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
         setSeeingOpen(false);
         return true;
       }
+      // Back closes the tour, at any step.
+      if (tourShown) {
+        setTour((now) => tourAfter(now, 'back'));
+        return true;
+      }
       if (!backClosesOpened({ openedId: openedId.current, shownId: card?.id ?? null, liveOpen: liveFor !== null })) {
         // A card that came to her (the door over her film, a note at a break): Back is its "Not now", or
         // nothing, and never reaches the film underneath or leaves Wick. The door camera keeps its own Back.
@@ -846,13 +933,23 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       return true;
     });
     return () => sub.remove();
-  }, [card, liveFor, handleAction, seeingShown]);
+  }, [card, liveFor, handleAction, seeingShown, tourShown]);
+
+  // A card has gone, or given way to another: it fades out where it was. Not while the door camera is up.
+  React.useEffect(() => {
+    const was = shownCard.current;
+    shownCard.current = { card, overFilm: watching !== null };
+    if (was.card && was.card.id !== card?.id && liveFor === null) setLeaving({ card: was.card, overFilm: was.overFilm });
+  }, [card, watching, liveFor]);
 
   // Not yet known which language to say it in: a moment, at launch. Nothing is drawn in the wrong one.
   if (language === null) return <View style={styles.unlit} />;
   const say = words(language);
   // The home screen behind whatever is over it (home/behind.ts): while a card is on screen, none of it is drawn.
-  const behind = homeBehind({ card: card !== null || seeingShown, mantelOpen, idle });
+  const behind = homeBehind({ card: card !== null || seeingShown || tourShown, mantelOpen, idle });
+  // Her films in her order (home/order.ts), and where she left those she stopped part-way.
+  const ordered = kept ? orderProgrammes(CATALOG, { startAt: (id) => kept.positions.startAt(id), tally: kept.tally.get(), hour: new Date().getHours() }) : CATALOG.map((programme) => ({ programme, resumeAtMs: undefined }));
+  const resumeAt = Object.fromEntries(ordered.flatMap((film) => (film.resumeAtMs ? [[film.programme.id, film.resumeAtMs] as const] : [])));
 
   return (
     <View style={styles.screen}>
@@ -871,6 +968,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           putAwayByHer={putAwayByHer}
           suspended={liveFor !== null}
           companion={together && together.programmeId === watching.id ? together.withName : undefined}
+          positions={kept?.positions}
           onHold={handleHold}
           onHoldEnd={handleKeyUp}
           onExit={handleExitWatching}
@@ -881,7 +979,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           inFront={onScreen}
           okDownSince={okKey.since}
           language={language}
-          programmes={CATALOG}
+          programmes={ordered.map((film) => film.programme)}
+          resumeAt={resumeAt}
           onChoose={handleChoose}
           cardVisible={!behind.reach}
           lastWatchedId={lastWatchedId}
@@ -894,6 +993,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           onOpenMantel={handleOpenMantel}
           seeing={say('seeing.entry')}
           onOpenSeeing={handleOpenSeeing}
+          tour={say('home.tour')}
+          onOpenTour={handleOpenTour}
           day={day}
           onHold={handleHold}
           onKeyUp={handleKeyUp}
@@ -919,12 +1020,26 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       {/* Over the programme, at the bottom, never instead of it. */}
       {/* Not while live view is open: a card left underneath keeps the remote's
           focus, and OK then presses "Watch live" again instead of Back. */}
+      {/* A card on its way off the screen: drawn as it was for its last 150ms, fading, and never pressed or focused. */}
+      {leaving && !liveFor ? (
+        <CalmPresence key={`leaving:${leaving.card.id}`} shown={false} startShown style={styles.cardLayer} pointerEvents="none" onGone={() => setLeaving(null)}>
+          <CalmInert>
+            <View style={styles.inert} importantForAccessibility="no-hide-descendants">
+              {leaving.overFilm ? <View style={styles.scrim} /> : null}
+              <CardRenderer card={leaving.card.card} language={language} onAction={() => undefined} />
+            </View>
+          </CalmInert>
+        </CalmPresence>
+      ) : null}
       {card && !liveFor ? (
-        <View style={styles.cardLayer} pointerEvents="box-none">
+        // Arriving: in 200ms, rising 12dp into place — at once with reduced motion (vega-calm-ui CalmPresence).
+        <CalmPresence key={`card:${card.id}`} shown rises style={styles.cardLayer} pointerEvents="box-none">
+          {/* Over a film, the film steps back behind the card: the scrim. */}
+          {watching ? <View style={styles.scrim} pointerEvents="none" /> : null}
           <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} language={language} onAction={handleAction} onPictureFailed={handlePictureFailed} />
           {/* The mark of the Play key: Play reads this card aloud. Only where it can — and not while a screen reader speaks the card already. */}
-          {readable && !screenReader ? <ReadHint cardType={card.card.type} language={language} /> : null}
-        </View>
+          {readable && !screenReader ? <ReadHint cardType={card.card.type} language={language} actionLabels={actionLabelsOf(card.card)} /> : null}
+        </CalmPresence>
       ) : null}
       {/* Easier to see, where any card goes. A card from the server comes over it; it is back when that card has gone. */}
       {seeingShown && !watching ? (
@@ -932,6 +1047,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           <SeeingCard language={language} focusId={seeingFocus} onAction={handleSeeingAction} />
         </View>
       ) : null}
+      {/* How Wick works: the whole screen, a step at a time. A card from the server comes over it. */}
+      {tourShown ? <TourScreen index={tourStep} language={language} onAction={handleTourAction} /> : null}
       {/* Back returns to the card as it was. */}
       {liveFor ? (
         <LiveView
@@ -966,5 +1083,17 @@ const makeStyles = (t: CalmTheme) =>
       justifyContent: 'flex-end',
       paddingHorizontal: 48,
       paddingBottom: 32,
+    },
+    // A card on its way off: laid out as the card layer lays it, inside it.
+    inert: {
+      flex: 1,
+      justifyContent: 'flex-end',
+    },
+    // Behind a card over a film: the film, stepped back.
+    scrim: {
+      // Absolute: the layer's padding is not its, so it reaches every edge of the screen.
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: t.palette.scrim,
+      opacity: t.scrimOpacity,
     },
   });

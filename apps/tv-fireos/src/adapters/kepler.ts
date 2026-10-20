@@ -14,8 +14,8 @@ import * as React from 'react';
 import { useTVEventHandler as useRemoteEvents } from 'react-native';
 import { remoteKeyEvents, type RemoteEvent } from './remoteEvents';
 
-export { AccessibilityInfo, Animated, BackHandler, Dimensions, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-export type { ImageSourcePropType } from 'react-native';
+export { AccessibilityInfo, Animated, BackHandler, Dimensions, Easing, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+export type { ImageSourcePropType, StyleProp, ViewStyle } from 'react-native';
 
 /**
  * A Vega component's handle. On Fire OS there is one app and no component

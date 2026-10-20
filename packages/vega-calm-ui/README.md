@@ -264,13 +264,18 @@ they reach a build at all.
 | `limits.maxListItems` | 3 | The same for lists on a card |
 | `limits.maxDetailLines` | 5 | Detail is cut so the buttons stay on screen |
 | `motion.durationMs` | 200 | Nothing longer, nothing that flashes |
+| `motion.enterMs` / `exitMs` / `focusMs` | 200 / 150 / 150 | A card arriving (and rising `enterRiseDp`, 12dp), leaving, and a tile taking the focus (scale `focusScale`, 1.04) |
+| `motion.easing` | `[0.2, 0, 0, 1]` | cubic-bezier for everything that enters or moves; `motionTimings(true)` makes every motion instant |
 | `layout.screenHeightDp` | 540 | Vega's logical screen height |
 | `layout.screenMarginDp` | 32 | Kept clear above and below a card (overscan) |
 | `palette.ink` | `#F4F1EA` | Main text: 15.2:1 on `raised` |
 | `palette.inkDim` | `#C8C2B6` | Secondary text: 9.7:1 on `raised` |
 | `palette.ground` | `#12100E` | Screen and button ground |
 | `palette.raised` | `#1E1B17` | Card surface |
+| `palette.raisedHigh` | `#2A2621` | The focused tile's surface, a transport bar: 13.3:1 with `ink` |
 | `palette.accent` | `#E8B75D` | Amber, the primary button. Warm without being an alarm |
+| `palette.track` | `#4A443B` | The unfilled part of a progress line (never words) |
+| `palette.scrim` | `#12100E` at 82% | Over a film, behind a card (`theme.scrimOpacity`) |
 | `palette.focus` | `#FFFFFF` | The focus ring |
 | `largerText.scale` | 1.25 | Larger text: 32pt becomes 40pt |
 | `contrast.highContrastMinRatio` | 15 | What higher contrast promises; black on white is 21 |

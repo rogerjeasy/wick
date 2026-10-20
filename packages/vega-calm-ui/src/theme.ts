@@ -16,7 +16,7 @@
  * a preference applies everywhere at once, not screen by screen.
  */
 import { CalmViolation, alarmHue, contrastRatio, type TypeRole } from './constraints.js';
-import { contrast, focusRing, highContrastPalette, largerText, layout, limits, palette, type, type Palette } from './tokens.js';
+import { contrast, focusRing, highContrastPalette, largerText, layout, limits, motion, palette, scrimOpacity, type, type Palette } from './tokens.js';
 
 /** What the viewer has asked for. Both off is the floor itself. */
 export interface CalmPreferences {
@@ -62,6 +62,13 @@ export interface CalmTheme {
   readonly minContrast: number;
   /** The width of the card's own edge: none, or with higher contrast on a white line around a black card. */
   readonly cardEdgeDp: number;
+  /** How opaque the scrim behind a card over a film is (`palette.scrim`). */
+  readonly scrimOpacity: number;
+  /**
+   * The edge round a progress line: none, or with higher contrast on a white
+   * line round the black track, so the unfilled part is still seen.
+   */
+  readonly trackEdgeDp: number;
   /** A type role's size in this theme. Never below 32pt. */
   fontSize(role: TypeRole): number;
   /** The line a type role takes: its size times the line height the tokens give it. */
@@ -122,6 +129,8 @@ function makeTheme(preferences: CalmPreferences): CalmTheme {
     palette: colours,
     minContrast,
     cardEdgeDp: preferences.higherContrast ? focusRing.highContrastRestDp : 0,
+    scrimOpacity: preferences.higherContrast ? scrimOpacity.highContrast : scrimOpacity.standard,
+    trackEdgeDp: preferences.higherContrast ? focusRing.highContrastRestDp : 0,
     fontSize: size,
     lineHeight: (role) => size(role) * LINE_HEIGHT[role],
     actionColours,
@@ -158,18 +167,37 @@ export function checkTheme(theme: CalmTheme): void {
 
 /** Every pair of colours a word is written in on a ground, in a theme: what checkTheme holds to its ratio. */
 export function textPairs(theme: CalmTheme): readonly (readonly [foreground: string, background: string])[] {
-  const { ink, inkDim, ground, raised } = theme.palette;
+  const { ink, inkDim, ground, raised, raisedHigh } = theme.palette;
   const pairs: [string, string][] = [
     [ink, raised],
     [inkDim, raised],
     [ink, ground],
     [inkDim, ground],
+    // The focused tile's words, and the film's bar.
+    [ink, raisedHigh],
+    [inkDim, raisedHigh],
   ];
   for (const kind of ['primary', 'secondary', 'dismiss'] as const) {
     const colours = theme.actionColours(kind);
     pairs.push([colours.label, colours.background]);
   }
   return pairs;
+}
+
+/** How long each motion takes (tokens.ts `motion`): as the tokens say, or — with reduced motion asked for — none at all. */
+export interface MotionTimings {
+  readonly enterMs: number;
+  readonly exitMs: number;
+  readonly focusMs: number;
+  /** How far a card rises as it arrives; none with reduced motion. */
+  readonly enterRiseDp: number;
+  /** The scale a focused tile is drawn at. It is a size, not a motion: kept with reduced motion, reached at once. */
+  readonly focusScale: number;
+}
+
+export function motionTimings(reduceMotion: boolean): MotionTimings {
+  if (reduceMotion) return { enterMs: 0, exitMs: 0, focusMs: 0, enterRiseDp: 0, focusScale: motion.focusScale };
+  return { enterMs: motion.enterMs, exitMs: motion.exitMs, focusMs: motion.focusMs, enterRiseDp: motion.enterRiseDp, focusScale: motion.focusScale };
 }
 
 const THEMES = new Map<string, CalmTheme>();
