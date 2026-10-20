@@ -141,8 +141,13 @@ instead, on Fire OS, is what the Vega build does with a system toast: it says
 *Open Wick*, and choosing the notification or the button brings Wick forward
 to the card, which is waiting there. When the door agent's picture and
 sentence come, the same notification is put up again with them. Only the
-door does this: a note from the family, the week, a question — anything that
-waits for a natural break — never posts anything outside Wick.
+door gets a heads-up. A note from the family gets one quiet line in the
+Notification Center — a low-importance channel (`wick_waiting`) with no
+heads-up, no sound, no vibration and no badge, saying only that a note from
+that person is waiting and never what it says — so that she finds it when she
+next looks, never over her programme (`src/door/doorAlert.ts` `noteAlert`,
+tested in `src/__tests__/doorService.test.ts`). The week, a question, a
+picture: nothing else is said outside Wick.
 
 How it is built:
 
@@ -255,7 +260,10 @@ television, with the phone's home screen in front:
 - after the phone emulator was restarted, and with Wick not opened, the
   service was started at boot and the next ring put the notification up;
 - a note from the family (`send_note_to_tv`) sent while another app was in
-  front of both put up nothing on either;
+  front of both put up nothing on either. That was true of the build of the
+  day: a note now leaves one quiet line in the Notification Center (above),
+  which has been exercised by the JavaScript's tests and not seen drawn, since
+  the TV emulator draws no third-party notification (FL-036);
 - on the TV emulator, the service ended by itself on a television that was
   not paired, and after the television was disconnected and paired again into
   another home, the next ring there put the notification up;
@@ -356,8 +364,18 @@ directory's `node_modules`.
 - Amazon Device Messaging, the Fire TV Integration SDK, camera, and any voice
   beyond the film's transport ("Alexa, pause" and the rest, below): Alexa
   cannot open a film or ask Wick anything here.
-- A signing key or an Appstore submission. Both build types are signed with
-  the debug key Android's tooling makes on each machine.
+- **An Appstore submission.** The release build is signed with the release key
+  when it is given one (`WICK_RELEASE_STORE_FILE`, `WICK_RELEASE_STORE_PASSWORD`,
+  `WICK_RELEASE_KEY_ALIAS`, `WICK_RELEASE_KEY_PASSWORD`, as Gradle properties or
+  environment variables; [docs/SETUP.md](../../docs/SETUP.md) says how to make
+  the key). Without them it is signed with the debug key Android's tooling makes
+  on each machine, and says so while it builds: fine for an emulator, never to
+  be published, and an APK signed by one machine's debug key cannot be updated
+  by one signed by another's. With `WICK_REQUIRE_RELEASE_KEY=true` a missing key
+  stops the build; that is what the tag-only `release` job in CI sets
+  (`.github/workflows/tv-fireos.yml`, the only place the key is read), and CI
+  reads the APK's signer afterwards and fails on the debug key. Every other CI
+  build holds no secret and is signed with a throwaway key.
 
 ## Architectures
 
