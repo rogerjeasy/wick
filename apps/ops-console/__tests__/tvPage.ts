@@ -15,6 +15,7 @@ const read = (file: string): string => readFileSync(fileURLToPath(new URL(`../${
 export const ENGINE_SOURCE = read('tv-engine.generated.js');
 export const CORE_SOURCE = read('tv-core.js');
 export const TV_SOURCE = read('tv.js');
+export const ICONS_SOURCE = read('vendor/icons.generated.js');
 export const CATALOG = JSON.parse(read('tv-catalog.json')) as { programmes: Array<{ id: string; title: string; durationMs: number; creditsPositionMs: number; calmPointsMs: number[] }> };
 
 type Listener = { fn: (event: FakeEvent) => void; capture: boolean };
@@ -369,8 +370,9 @@ function homeLayout(node: El): { left: number; top: number; width: number; heigh
     return { left: 48 + i * 296, top: 110, width: 272, height: 330 };
   }
   if (key === 'waiting') return { left: 48, top: 470, width: 500, height: 50 };
-  if (key === 'mantel') return { left: 600, top: 470, width: 150, height: 50 };
-  if (key === 'easier') return { left: 770, top: 470, width: 140, height: 50 };
+  if (key === 'mantel') return { left: 560, top: 470, width: 130, height: 50 };
+  if (key === 'easier') return { left: 700, top: 470, width: 120, height: 50 };
+  if (key === 'tour') return { left: 830, top: 470, width: 110, height: 50 };
   if (node.tagName === 'button' && node.parent) {
     // A card's buttons, in a row.
     const i = node.parent.children.indexOf(node);
@@ -503,6 +505,9 @@ export function tvPage(opts: TvOptions = {}) {
     clearTimeout: stop,
     setInterval: (fn: () => void, ms: number) => timers.push({ fn, due: clock.now + ms, every: ms, cleared: false }) - 1,
     clearInterval: stop,
+    // A frame every sixteen milliseconds of the test's clock: what the line that fills while OK is held is drawn by.
+    requestAnimationFrame: (fn: (at: number) => void) => timers.push({ fn: () => fn(clock.now), due: clock.now + 16, every: null, cleared: false }) - 1,
+    cancelAnimationFrame: stop,
     sessionStorage: { getItem: (k: string) => tab.get(k) ?? null, setItem: (k: string, v: string) => void tab.set(k, v), removeItem: (k: string) => void tab.delete(k) },
     ...(localStorage ? { localStorage } : {}),
     fetch: (url: string, init: { method?: string; body?: string } = {}) =>
@@ -522,6 +527,7 @@ export function tvPage(opts: TvOptions = {}) {
       },
     });
   }
+  vm.runInContext(ICONS_SOURCE, context, { filename: 'vendor/icons.generated.js' });
   vm.runInContext(ENGINE_SOURCE, context, { filename: 'tv-engine.generated.js' });
   vm.runInContext(CORE_SOURCE, context, { filename: 'tv-core.js' });
   vm.runInContext(TV_SOURCE, context, { filename: 'tv.js' });

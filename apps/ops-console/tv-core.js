@@ -78,6 +78,7 @@ const tvScreen = document.getElementById('tv-screen');
  *                                      the console's own buttons
  *   log(direction, payload)            a message in, or out
  *   shown(node)                        something has just been put on the screen
+ *   leaving(child, next)               something is about to be taken off the screen for `next` (tv.js lets a card fade)
  *   connected()                        the card channel has just opened
  *   showKept()                         decides, in place of showKeptCard, which card is on screen
  *   home()                             draws the home screen, in place of renderEmpty's own
@@ -158,7 +159,10 @@ function el(tag, className, text) {
 /** Puts one thing on the screen, over the film if one is playing — which is left where it is. */
 function show(node) {
   for (const child of [...tvScreen.children]) {
-    if (child !== film?.layer) child.remove();
+    // The film stays, and a card already on its way out (tv.js) finishes going by itself.
+    if (child === film?.layer || child.classList.contains('tv-leaving')) continue;
+    tvPage.leaving?.(child, node);
+    child.remove();
   }
   if (node) tvScreen.appendChild(node);
   fitScreen();
@@ -241,7 +245,7 @@ function cutOff(shown) {
 /** Measures what is on the screen and applies the remedy it needs. The film under a card is never measured. */
 function fitScreen() {
   tvScreen.classList.remove('grown');
-  const shown = [...tvScreen.children].find((child) => child !== film?.layer);
+  const shown = [...tvScreen.children].find((child) => child !== film?.layer && !child.classList.contains('tv-leaving'));
   if (!shown) return;
   // Sixteen by nine at this width, for what is sized by the screen and not by the card (a picture on a card).
   tvScreen.style.setProperty('--tv-height', `${Math.round((tvScreen.clientWidth * 9) / 16)}px`);
