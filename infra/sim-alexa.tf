@@ -100,6 +100,17 @@ resource "aws_s3_object" "sim_alexa_errands_js" {
   cache_control = "no-cache"
 }
 
+# Her home at a glance: what the panel beside the conversation shows, from
+# what the app was already told (apps/sim-alexa/__tests__/layout.test.ts).
+resource "aws_s3_object" "sim_alexa_home_js" {
+  bucket        = aws_s3_bucket.sim_alexa.id
+  key           = "home.js"
+  source        = "${path.module}/../apps/sim-alexa/home.js"
+  etag          = filemd5("${path.module}/../apps/sim-alexa/home.js")
+  content_type  = "application/javascript; charset=utf-8"
+  cache_control = "no-cache"
+}
+
 # Ask by voice: what the page does with the sound of a question before it
 # sends it — 16 kHz, 16-bit PCM — a separate module so it is tested without a
 # browser (apps/sim-alexa/__tests__/voice.test.ts).

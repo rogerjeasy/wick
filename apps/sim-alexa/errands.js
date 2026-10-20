@@ -215,3 +215,23 @@ export function errandNews(raw, seen) {
   const view = parsed.errands.find((v) => isView(v) && (v.status === 'rang' || v.status === 'no_show') && seen.get(v.errandId) !== v.status);
   return view ? { errandId: view.errandId, status: view.status, view } : null;
 }
+
+/**
+ * The visits still to come, from get_errands' answer, in the order the
+ * server lists them — for the panel about her home. Null when the answer
+ * cannot be read (not allowed yet, or no answer): the panel then says
+ * nothing about visits at all, rather than "none".
+ *
+ * @param {string} raw  get_errands' answer, as text
+ * @returns {{ who: string, when: string }[] | null}
+ */
+export function errandsToCome(raw) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed?.errands)) return null;
+  return parsed.errands.filter((v) => isView(v) && OPEN.includes(v.status)).map((v) => ({ who: v.who, when: v.when }));
+}
