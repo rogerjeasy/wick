@@ -110,7 +110,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
+      # No setup-gradle here: this job holds the release key, so it runs only the repo's own wrapper.
       - run: npm ci
       - run: npm run typecheck
       # The only step that sees the key: it is decoded, used and left in this step's own environment.
