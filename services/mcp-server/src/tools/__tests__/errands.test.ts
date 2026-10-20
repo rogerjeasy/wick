@@ -9,8 +9,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { errandStore, type ErrandExecutionInput, type ErrandSend } from '@wick/agent';
 import { ERRAND_LIMITS, type Errand, type RosterEntry } from '@wick/contracts';
+import { data } from '../result.js';
 import { createMemoryTable, type MemoryTable } from '../../__tests__/memoryTable.js';
-import { guardTools } from '../../guardian.js';
+import { guardToolAnswer, guardTools } from '../../guardian.js';
 import type { ToolContext } from '../context.js';
 import {
   ARRANGE_TOO_SOON_TEXT,
@@ -18,6 +19,8 @@ import {
   ARRANGE_WHO_NOT_SHARED_TEXT,
   ARRANGE_BAD_WHO_TEXT,
   ERRANDS_UNAVAILABLE_TEXT,
+  errandView,
+  toItsAuthor,
   type ErrandMachine,
 } from '../errands.js';
 import { registerArrangeVisit } from '../arrange_visit.js';
@@ -170,13 +173,32 @@ describe('arrange_visit — "the plumber is coming Thursday at ten, let Mum know
 
     expect(said(await ask('   '))).toBe(ARRANGE_BAD_WHO_TEXT);
     expect(said(await ask('x'.repeat(41)))).toBe(ARRANGE_BAD_WHO_TEXT);
-    // A role is a fact about her health, and the errand's words reach the family again (INV-4).
-    expect(said(await ask('the nurse'))).toBe(ARRANGE_WHO_NOT_SHARED_TEXT);
+    // A title that says what the visit is for, or anything else about her health, is a fact the family is never told (INV-4).
+    expect(said(await ask('the psychiatrist'))).toBe(ARRANGE_WHO_NOT_SHARED_TEXT);
+    expect(said(await ask('Dr Patel about her dialysis'))).toBe(ARRANGE_WHO_NOT_SHARED_TEXT);
+    expect(said(await ask('the nurse for her insulin'))).toBe(ARRANGE_WHO_NOT_SHARED_TEXT);
+    expect(said(await ask('Doctor Rossi 💊'))).toBe(ARRANGE_WHO_NOT_SHARED_TEXT);
     expect(ARRANGE_WHO_NOT_SHARED_TEXT).toMatch(/another word/);
 
     expect(errandRows(table)).toHaveLength(0);
     expect(rosterRows(table)).toHaveLength(0);
     expect(started).toHaveLength(0);
+  });
+
+  it('takes a general clinician’s title — "the nurse", "Doctor Rossi" — and hands the member’s own words back to them whole', async () => {
+    const table = createMemoryTable();
+    const { machine, started } = fakeMachine();
+    const client = await connect(table, sarah, machine);
+
+    const nurse = await client.callTool({ name: 'arrange_visit', arguments: { ...PLUMBER, who: 'the nurse' } });
+    const doctor = await client.callTool({ name: 'arrange_visit', arguments: { ...PLUMBER, who: 'Doctor Rossi', time: '11:00' } });
+
+    // Through the Guardian, as every tool is: the answer is not withheld, and nothing in it is cut.
+    expect(nurse.isError).toBeFalsy();
+    expect(content<{ errand: ErrandView }>(nurse).errand).toMatchObject({ who: 'the nurse', said: 'The door knows to expect the nurse on Thursday 15 October at 10:00 am.' });
+    expect(content<{ errand: ErrandView }>(doctor).errand).toMatchObject({ who: 'Doctor Rossi', said: 'The door knows to expect Doctor Rossi on Thursday 15 October at 11:00 am.' });
+    expect(errandRows(table).map((r) => r.who!.S).sort()).toEqual(['Doctor Rossi', 'the nurse']);
+    expect(started).toHaveLength(2);
   });
 
   it('trims who is coming, and takes forty characters', async () => {
@@ -270,6 +292,25 @@ describe('arrange_visit — "the plumber is coming Thursday at ten, let Mum know
   });
 });
 
+describe('toItsAuthor — the member’s own words, read back only to them (INV-2)', () => {
+  const rossi = {
+    errandId: 'err_ROSSIROSSIROSSIROSS', householdId: HH, createdBy: 'u_sarah', createdByName: 'Sarah Hughes', who: 'Doctor Rossi', at: THURSDAY_TEN,
+    windowMinutes: 60, tellMe: true, status: 'planned', createdAt: NOW,
+  } as const;
+  const answerFor = (readerId: string) => {
+    const view = errandView(rossi, 'Margaret', 'Europe/London');
+    return guardToolAnswer('get_errands', toItsAuthor(data({ errands: [view] }), readerId, [{ errand: rossi, view }]));
+  };
+
+  it('passes "Doctor Rossi" and the sentence built around it to the member who arranged the visit', () => {
+    expect(answerFor('u_sarah')).not.toHaveProperty('isError');
+  });
+
+  it('marks nothing for anyone else: the gate reads the same answer, and withholds it', () => {
+    expect(answerFor('u_david')).toMatchObject({ isError: true });
+  });
+});
+
 describe('get_errands — "did the plumber come?"', () => {
   const plant = (table: MemoryTable, errand: Partial<Errand> & Pick<Errand, 'errandId'>) =>
     store(table).create({
@@ -329,6 +370,21 @@ describe('get_errands — "did the plumber come?"', () => {
     expect(JSON.stringify(result)).not.toMatch(/arn:aws|secret-token|executionArn|taskToken/);
   });
 
+  it('reads "Doctor Rossi" back whole to the member who arranged it, through the gate', async () => {
+    const table = createMemoryTable();
+    await plant(table, { errandId: 'err_ROSSIROSSIROSSIROSS', who: 'Doctor Rossi' });
+    await store(table).move(HH, 'err_ROSSIROSSIROSSIROSS', ['planned'], 'rang', { rangAt: THURSDAY_TEN + 4 * 60_000 });
+    const client = await connect(table, sarah, fakeMachine().machine, THURSDAY_TEN + 3 * 3_600_000);
+
+    const result = await client.callTool({ name: 'get_errands', arguments: {} });
+
+    expect(result.isError).toBeFalsy();
+    expect(content<{ errands: ErrandView[] }>(result).errands[0]).toMatchObject({
+      who: 'Doctor Rossi',
+      said: 'Someone rang at 10:04 am, around when Doctor Rossi was expected.',
+    });
+  });
+
   it('says there are none', async () => {
     const client = await connect(createMemoryTable(), sarah, fakeMachine().machine);
     expect(said(await client.callTool({ name: 'get_errands', arguments: {} }))).toBe(NO_ERRANDS_TEXT);
@@ -377,6 +433,18 @@ describe('cancel_errand — "the plumber can’t come after all"', () => {
     expect(errandRows(table)[0]!.status!.S).toBe('planned');
     expect(rosterRows(table)).toHaveLength(1);
     expect(stopped).toHaveLength(0);
+  });
+
+  it('calls off "Doctor Rossi" and says so in the member’s own words', async () => {
+    const table = createMemoryTable();
+    const { machine } = fakeMachine();
+    const client = await connect(table, sarah, machine);
+    const { errand } = content<{ errand: ErrandView }>(await client.callTool({ name: 'arrange_visit', arguments: { ...PLUMBER, who: 'Doctor Rossi' } }));
+
+    const result = await client.callTool({ name: 'cancel_errand', arguments: { errandId: errand.errandId } });
+
+    expect(result.isError).toBeFalsy();
+    expect(content<{ errand: ErrandView }>(result).errand.said).toBe('The visit from Doctor Rossi on Thursday 15 October at 10:00 am was called off.');
   });
 
   it('cannot call off a visit that is over', async () => {

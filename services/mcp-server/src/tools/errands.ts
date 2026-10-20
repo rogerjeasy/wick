@@ -9,22 +9,33 @@
  * "Someone rang at 10:04 am, around when the plumber was expected" — never
  * "the plumber came". Nothing the operator keeps — the execution, the
  * door's token — is ever in it.
+ *
+ * Who is coming is the member's own words, and may be a general
+ * clinician's title ("Doctor Rossi", policy's clearVisitorForFamily), which
+ * the Guardian would not clear in any other sentence. So an answer marks
+ * them, and the sentences Wick built around them, as the reader's own
+ * (`toItsAuthor`) — only for the member who arranged the errand.
  */
 import { z } from 'zod';
 import { SFNClient, StartExecutionCommand, StopExecutionCommand } from '@aws-sdk/client-sfn';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { errandStore, windowEndOf, type ErrandExecutionInput, type ErrandSend, type ErrandStore, type HeldErrand } from '@wick/agent';
 import { ERRAND_STATUSES, clockTime } from '@wick/contracts';
+import { clearForFamily, clearVisitorForFamily } from '@wick/policy';
+import { theirOwnWords } from '../guardian.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
 export const ERRANDS_UNAVAILABLE_TEXT = 'This Wick cannot arrange visits yet.';
 export const ARRANGE_BAD_WHO_TEXT = 'I need who is coming, in a few words, like the plumber.';
 /**
- * Who is coming, in words the Guardian cannot clear: a role ("the nurse"),
- * or letters it cannot read. The member's own word, so they are told
- * plainly why — the errand's words are read back to them and on the door
- * card, and a clinical role is a fact about her health (INV-4).
+ * Who is coming, in words the Guardian cannot clear even with a general
+ * clinician's title set aside (policy's clearVisitorForFamily): a title that
+ * says what the visit is for ("the psychiatrist"), another protected word
+ * ("Dr Patel about her dialysis"), or letters it cannot read. The member's
+ * own word, so they are told plainly why — the errand's words are read back
+ * to them and on the door card, and what the visit is for is a fact about
+ * her health (INV-4).
  */
 export const ARRANGE_WHO_NOT_SHARED_TEXT =
   'I need another word for who is coming, like the plumber or Dave: not a title or what they come for, because what you call them is read back by Wick.';
@@ -143,6 +154,32 @@ export function errandView(errand: HeldErrand, residentName: string, timeZone: s
     ...(errand.rangAt === undefined ? {} : { rangAt: errand.rangAt }),
     said: errandSentence(errand, residentName, timeZone),
   };
+}
+
+/**
+ * Whether the words for who is coming may be kept on an errand: as text, as
+ * a name, or with a general clinician's title set aside (policy's
+ * clearVisitorForFamily). Logged, never the words, when not.
+ */
+export function visitorWordsClear(who: string): boolean {
+  if (clearVisitorForFamily(who)) return true;
+  const clearance = clearForFamily(who);
+  console.warn(JSON.stringify({ level: 'warn', msg: 'guardian_withheld', where: 'errand.who', at: '$', classes: clearance.cleared ? [] : clearance.classes }));
+  return false;
+}
+
+/** The strings of an errand as shown that are its author's words, or built around them. */
+const wordsOf = (view: ErrandView): string[] => [view.who, view.said];
+
+/**
+ * An answer about errands, with each errand's words marked as the reader's
+ * own (guardian.ts `theirOwnWords`) where the reader is the errand's author,
+ * and only there (INV-2): anyone else's errand is read by the gate as any
+ * answer is. `shown`: each errand in the answer, beside its view.
+ */
+export function toItsAuthor<T extends object>(result: T, readerId: string, shown: readonly { readonly errand: HeldErrand; readonly view: ErrandView }[]): T {
+  const words = shown.filter(({ errand }) => errand.createdBy === readerId).flatMap(({ view }) => wordsOf(view));
+  return words.length === 0 ? result : theirOwnWords(result, words);
 }
 
 /** Over, and not to be shown after a week: the window has passed, whatever came of it. */
