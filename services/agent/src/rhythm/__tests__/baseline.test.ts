@@ -9,7 +9,7 @@ const W41 = { startMs: Date.UTC(2026, 9, 5), endMs: Date.UTC(2026, 9, 12) };
 const AFTER_W41 = W41.endMs + 3_600_000;
 
 const door = (at: number): TimelineEntry => ({ at, kind: 'door', summary: 'Someone was at the front door.' });
-const visit = (at: number, personId = 'maria', name = 'Maria'): TimelineEntry => ({ at, kind: 'visit', summary: `${name} visited.`, personId });
+const visit = (at: number, personId = 'maria', name = 'Maria'): TimelineEntry => ({ at, kind: 'presence', summary: `Someone came to the door when ${name} was expected.`, personId, name });
 /** `n` door events on the Wednesday of the week `weeksAgo` weeks before W41. */
 const doors = (weeksAgo: number, n: number): TimelineEntry[] =>
   Array.from({ length: n }, (_, i) => door(W41.startMs - weeksAgo * WEEK + 2 * DAY + i * 60_000));

@@ -237,23 +237,29 @@ describe('presentResult — today', () => {
 });
 
 describe('presentResult — did a visitor come', () => {
-  it('answers yes with the time', () => {
-    const r = presentResult('did_visitor_come', JSON.stringify({ visited: true, at: 500, name: 'Maria', expectedToday: true }), {}, at);
-    expect(r.say).toBe('Yes. Maria came at t500. Today is one of their usual days.');
+  it('says the visitor came only when the resident confirmed it, with the time', () => {
+    const r = presentResult('did_visitor_come', JSON.stringify({ confirmed: true, doorWhenExpected: true, at: 500, name: 'Maria', expectedToday: true }), {}, at);
+    expect(r.say).toBe('Yes. Maria came at t500, as confirmed on the television.');
+  });
+
+  it('says somebody came to the door when she was expected — never that she came — when nobody confirmed it (the courier case)', () => {
+    const r = presentResult('did_visitor_come', JSON.stringify({ confirmed: false, doorWhenExpected: true, at: 500, name: 'Maria', expectedToday: true }), {}, at);
+    expect(r.say).toBe('Someone came to the door at t500, when Maria was expected. It has not been confirmed yet that it was Maria.');
+    expect(r.say).not.toMatch(/^Yes|Maria came/);
   });
 
   it('answers not yet on a usual day', () => {
-    const r = presentResult('did_visitor_come', JSON.stringify({ visited: false, name: 'Maria', expectedToday: true }), {}, at);
-    expect(r.say).toBe('Not yet. Maria usually comes today.');
+    const r = presentResult('did_visitor_come', JSON.stringify({ confirmed: false, doorWhenExpected: false, name: 'Maria', expectedToday: true }), {}, at);
+    expect(r.say).toBe('Not yet. Maria is usually expected today.');
   });
 
-  it('answers no on a day they are not expected', () => {
-    const r = presentResult('did_visitor_come', JSON.stringify({ visited: false, name: 'Maria', expectedToday: false }), {}, at);
-    expect(r.say).toBe("No. Maria hasn't come today, and today isn't one of their usual days.");
+  it('answers on a day they are not expected', () => {
+    const r = presentResult('did_visitor_come', JSON.stringify({ confirmed: false, doorWhenExpected: false, name: 'Maria', expectedToday: false }), {}, at);
+    expect(r.say).toBe("Today isn't one of Maria's usual days, and no visit has been confirmed.");
   });
 
   it('says when it does not know the person, rather than answering no', () => {
-    const r = presentResult('did_visitor_come', JSON.stringify({ visited: false, expectedToday: false }), {}, at);
+    const r = presentResult('did_visitor_come', JSON.stringify({ confirmed: false, doorWhenExpected: false, expectedToday: false }), {}, at);
     expect(r.say).toBe("I don't have anyone by that name among the regular visitors.");
   });
 });
@@ -724,14 +730,14 @@ describe("Something's Different", () => {
     expect(routeUtterance('Anything unusual about Maria this week?')).toEqual(asked);
   });
 
-  const told = { id: 'missed_visit-maria-2026-10-09', kind: 'missed_visit', sentence: 'Maria usually comes on Friday mornings. There was no visit on Friday.', at: 700, toldAt: 900 };
+  const told = { id: 'missed_visit-maria-2026-10-09', kind: 'missed_visit', sentence: 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.', at: 700, toldAt: 900 };
 
   it("says the server's own summary, and lays out what the resident asked to be told, with when it was", () => {
     const answer = JSON.stringify({ differences: [told], weeksObserved: 6, keptPrivate: [], summary: `Margaret asked Wick to tell you: ${told.sentence}` });
 
     const r = presentResult('get_whats_different', answer, {}, at);
 
-    expect(r.say).toBe('Margaret asked Wick to tell you: Maria usually comes on Friday mornings. There was no visit on Friday.');
+    expect(r.say).toBe('Margaret asked Wick to tell you: Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.');
     expect(r.card.title).toBe('One thing to tell you');
     expect(r.card.items).toEqual([{ primary: told.sentence, secondary: 't700 · told t900' }]);
     expect(r.card.footnote).toBe('Against the last 6 weeks in this house, and nothing else.');
@@ -857,17 +863,17 @@ describe('confirmWrite — nothing is put on a television or a roster without be
 
 describe('presentResult — the visitors', () => {
   const visitors = JSON.stringify({
-    visitors: [{ personId: 'maria', name: 'Maria', usualDays: 'Tuesday and Friday mornings', expectedToday: false, lastVisitAt: 500 }],
+    visitors: [{ personId: 'maria', name: 'Maria', usualDays: 'Tuesday and Friday mornings', expectedToday: false, lastConfirmedVisitAt: 500, lastDoorWhenExpectedAt: 700 }],
     expected: [{ name: 'Sarah', at: 900 }],
   });
 
   it('lists who comes, when they last did, and who has said they are coming', () => {
     const r = presentResult('list_regular_visitors', visitors, {}, at);
 
-    expect(r.say).toBe('Maria usually comes on Tuesday and Friday mornings.');
+    expect(r.say).toBe('Maria is usually expected on Tuesday and Friday mornings.');
     expect(r.card.title).toBe('Who visits');
     expect(r.card.items).toEqual([
-      { primary: 'Maria', secondary: 'Tuesday and Friday mornings · last came t500' },
+      { primary: 'Maria', secondary: 'Tuesday and Friday mornings · last confirmed visit t500' },
       { primary: 'Sarah', secondary: 'Expected t900' },
     ]);
   });
@@ -908,11 +914,13 @@ describe('presentResult — a day that is not today', () => {
   });
 
   it('answers a visit on a named day in the past tense, naming the day', () => {
-    const came = JSON.stringify({ visited: true, at: 100, name: 'Maria', expectedToday: true, date: '2026-10-09', dayInWords: 'Friday 9 October 2026' });
-    const not = JSON.stringify({ visited: false, name: 'Maria', expectedToday: false, date: '2026-10-12', dayInWords: 'Monday 12 October 2026' });
+    const came = JSON.stringify({ confirmed: true, doorWhenExpected: true, at: 100, name: 'Maria', expectedToday: true, date: '2026-10-09', dayInWords: 'Friday 9 October 2026' });
+    const atDoor = JSON.stringify({ confirmed: false, doorWhenExpected: true, at: 100, name: 'Maria', expectedToday: true, date: '2026-10-09', dayInWords: 'Friday 9 October 2026' });
+    const not = JSON.stringify({ confirmed: false, doorWhenExpected: false, name: 'Maria', expectedToday: false, date: '2026-10-12', dayInWords: 'Monday 12 October 2026' });
 
-    expect(presentResult('did_visitor_come', came, { now }, at).say).toBe('Yes. Maria came on Friday 9 October, at t100.');
-    expect(presentResult('did_visitor_come', not, { now }, at).say).toBe('No. Maria did not come on Monday 12 October, and it is not one of their usual days.');
+    expect(presentResult('did_visitor_come', came, { now }, at).say).toBe('Yes. Maria came on Friday 9 October, at t100, as confirmed on the television.');
+    expect(presentResult('did_visitor_come', atDoor, { now }, at).say).toBe('Someone came to the door on Friday 9 October at t100, when Maria was expected. It has not been confirmed that it was Maria.');
+    expect(presentResult('did_visitor_come', not, { now }, at).say).toBe("Monday 12 October is not one of Maria's usual days, and no visit was confirmed.");
   });
 });
 

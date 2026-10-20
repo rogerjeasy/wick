@@ -11,7 +11,7 @@ const FRIDAY = Date.UTC(2026, 9, 9);
 const at = (day: number, hour: number, minute = 0): number => day + hour * HOUR + minute * 60_000;
 
 const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' };
-const visit = (when: number, personId = 'maria', name = 'Maria'): TimelineEntry => ({ at: when, kind: 'visit', summary: `${name} visited.`, personId });
+const visit = (when: number, personId = 'maria', name = 'Maria'): TimelineEntry => ({ at: when, kind: 'presence', summary: `Someone came to the door when ${name} was expected.`, personId, name });
 const door = (when: number): TimelineEntry => ({ at: when, kind: 'door', summary: 'Someone was at the front door.' });
 
 /** Maria on every Tuesday and Friday at five past nine, for `weeks` weeks before this Friday. */
@@ -53,7 +53,7 @@ describe('a regular visitor who did not come', () => {
     expect(inLosAngeles(la(FRIDAY, 11))).toEqual([]);
     // 14:00 there: her time and two hours more have gone by.
     expect(inLosAngeles(la(FRIDAY, 14))).toEqual([
-      expect.objectContaining({ kind: 'missed_visit', sentence: 'Maria usually comes on Friday mornings. There has been no visit today.', at: la(FRIDAY, 9) }),
+      expect.objectContaining({ kind: 'missed_visit', sentence: 'Maria is usually expected on Friday mornings. Nobody has come to the door at that time today.', at: la(FRIDAY, 9) }),
     ]);
   });
 
@@ -64,8 +64,8 @@ describe('a regular visitor who did not come', () => {
       {
         kind: 'missed_visit',
         factClass: 'PRESENCE',
-        sentence: 'Maria usually comes on Friday mornings. There has been no visit today.',
-        lasting: 'Maria usually comes on Friday mornings. There was no visit on Friday.',
+        sentence: 'Maria is usually expected on Friday mornings. Nobody has come to the door at that time today.',
+        lasting: 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.',
         at: at(FRIDAY, 9),
         personId: 'maria',
       },
@@ -93,8 +93,8 @@ describe('a regular visitor who did not come', () => {
   it('names the day once it is no longer today', () => {
     const sentence = (now: number) => whatsDifferent(input({ entries: mariaCame(6), now })).differences[0]?.sentence;
 
-    expect(sentence(at(FRIDAY + DAY, 10))).toBe('Maria usually comes on Friday mornings. There was no visit yesterday.');
-    expect(sentence(at(FRIDAY + 3 * DAY, 10))).toBe('Maria usually comes on Friday mornings. There was no visit on Friday.');
+    expect(sentence(at(FRIDAY + DAY, 10))).toBe('Maria is usually expected on Friday mornings. Nobody came to the door at that time yesterday.');
+    expect(sentence(at(FRIDAY + 3 * DAY, 10))).toBe('Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.');
   });
 
   it('needs a habit, not a schedule: three visits on that weekday before it is hers', () => {
@@ -214,8 +214,8 @@ describe('the lasting wording — the same difference, said so that it is still 
   const lasting = (over: Partial<DifferentInput>) => whatsDifferent(input(over)).differences.map((d) => d.lasting);
 
   it('names the day of a missed visit, whichever day it is said on', () => {
-    expect(lasting({ entries: mariaCame(6) })).toEqual(['Maria usually comes on Friday mornings. There was no visit on Friday.']);
-    expect(lasting({ entries: mariaCame(6), now: at(FRIDAY + DAY, 10) })).toEqual(['Maria usually comes on Friday mornings. There was no visit on Friday.']);
+    expect(lasting({ entries: mariaCame(6) })).toEqual(['Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.']);
+    expect(lasting({ entries: mariaCame(6), now: at(FRIDAY + DAY, 10) })).toEqual(['Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.']);
   });
 
   it('names the day and the hour a quiet door was noticed, in the household’s own time', () => {

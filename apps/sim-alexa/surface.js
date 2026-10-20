@@ -833,20 +833,31 @@ function presentToday(today, formatTime, now) {
   };
 }
 
+/**
+ * Only a visit the resident confirmed is said as the visitor coming. The
+ * door when they were expected says when somebody came, never who: a
+ * courier in the carer's hour rings the same bell (packages/contracts visit.ts).
+ */
 function presentVisitor(v, formatTime, now) {
   if (!v.name) return { say: "I don't have anyone by that name among the regular visitors.", card: null, tone: 'answer' };
   if (!isToday(v.date, now)) {
     const day = withoutYear(v.dayInWords);
-    const say = v.visited
-      ? `Yes. ${v.name} came on ${day}, at ${formatTime(v.at)}.`
-      : `No. ${v.name} did not come on ${day}${v.expectedToday ? ', though it is one of their usual days.' : ', and it is not one of their usual days.'}`;
+    const say = v.confirmed
+      ? `Yes. ${v.name} came on ${day}, at ${formatTime(v.at)}, as confirmed on the television.`
+      : v.doorWhenExpected
+        ? `Someone came to the door on ${day} at ${formatTime(v.at)}, when ${v.name} was expected. It has not been confirmed that it was ${v.name}.`
+        : v.expectedToday
+          ? `The doorbell noted nobody on ${day} when ${v.name} was expected, and no visit was confirmed.`
+          : `${day} is not one of ${v.name}'s usual days, and no visit was confirmed.`;
     return { say, card: null, tone: 'answer' };
   }
-  const say = v.visited
-    ? `Yes. ${v.name} came at ${formatTime(v.at)}.${v.expectedToday ? ' Today is one of their usual days.' : ''}`
-    : v.expectedToday
-      ? `Not yet. ${v.name} usually comes today.`
-      : `No. ${v.name} hasn't come today, and today isn't one of their usual days.`;
+  const say = v.confirmed
+    ? `Yes. ${v.name} came at ${formatTime(v.at)}, as confirmed on the television.`
+    : v.doorWhenExpected
+      ? `Someone came to the door at ${formatTime(v.at)}, when ${v.name} was expected. It has not been confirmed yet that it was ${v.name}.`
+      : v.expectedToday
+        ? `Not yet. ${v.name} is usually expected today.`
+        : `Today isn't one of ${v.name}'s usual days, and no visit has been confirmed.`;
   return { say, card: null, tone: 'answer' };
 }
 
@@ -1274,7 +1285,7 @@ function presentVisitors(list, formatTime) {
   const say = !first
     ? `${expected[0].name} is expected ${formatTime(expected[0].at)}.`
     : first.usualDays
-      ? `${first.name} usually comes on ${first.usualDays}.`
+      ? `${first.name} is usually expected on ${first.usualDays}.`
       : `${first.name} is a regular visitor.`;
   return {
     say,
@@ -1286,7 +1297,12 @@ function presentVisitors(list, formatTime) {
       items: [
         ...visitors.map((v) => ({
           primary: v.name,
-          secondary: [v.usualDays, v.lastVisitAt !== undefined ? `last came ${formatTime(v.lastVisitAt)}` : null].filter(Boolean).join(' · ') || 'Regular visitor',
+          secondary: [
+            v.usualDays,
+            v.lastConfirmedVisitAt !== undefined
+              ? `last confirmed visit ${formatTime(v.lastConfirmedVisitAt)}`
+              : v.lastDoorWhenExpectedAt !== undefined ? `someone at the door when expected ${formatTime(v.lastDoorWhenExpectedAt)}` : null,
+          ].filter(Boolean).join(' · ') || 'Regular visitor',
         })),
         ...expected.map((v) => ({ primary: v.name, secondary: `Expected ${formatTime(v.at)}` })),
       ],
@@ -1472,7 +1488,7 @@ export function presentResult(toolName, raw, context = {}, formatTime = defaultF
   }
   const now = context.now ?? Date.now();
   if (toolName === 'get_today' && Array.isArray(parsed.events)) return presentToday(parsed, formatTime, now);
-  if (toolName === 'did_visitor_come' && typeof parsed.visited === 'boolean') return presentVisitor(parsed, formatTime, now);
+  if (toolName === 'did_visitor_come' && typeof parsed.confirmed === 'boolean') return presentVisitor(parsed, formatTime, now);
   if (toolName === 'list_regular_visitors' && Array.isArray(parsed.visitors)) return presentVisitors(parsed, formatTime);
   if (toolName === 'get_visits' && isVisits(parsed)) return presentVisits(parsed);
   if (toolName === 'get_whats_different' && Array.isArray(parsed.differences)) return presentDifferent(parsed, formatTime);

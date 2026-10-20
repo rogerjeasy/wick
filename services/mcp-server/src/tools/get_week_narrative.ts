@@ -19,7 +19,7 @@
  */
 import { z } from 'zod';
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { SUGGESTED_ACTIONS, currentIsoWeek, type RhythmDelta, type TimelineEntry, type WeekNarrative } from '@wick/contracts';
+import { SUGGESTED_ACTIONS, currentIsoWeek, doorWhenExpected, type RhythmDelta, type TimelineEntry, type WeekNarrative } from '@wick/contracts';
 import type { HouseholdPolicy } from '@wick/policy';
 import { fallbackNarrative, isoWeekRange, privateNarrative, summariseWeek, visibleDeltas } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -106,7 +106,7 @@ export type FamilyWeekResult =
 
 /** Whether the gate cannot clear a timeline entry: its sentence, or the id its visitor's name makes. */
 const entryIsUnclear = (e: TimelineEntry, people: readonly string[]): boolean =>
-  !clears(e.summary, people) || (e.personId !== undefined && !clears(e.personId, people));
+  !clears(e.summary, people) || (e.personId !== undefined && !clears(e.personId, people)) || (e.name !== undefined && !clears(e.name, people));
 
 /** A comparison names its visitor twice: as a label, and in its metric (`visit:<personId>`). */
 const deltaIsUnclear = (d: RhythmDelta, people: readonly string[]): boolean =>
@@ -151,14 +151,35 @@ export async function namesForWeek(narrative: WeekNarrative, people: (() => Prom
  * resident's own television keeps the week as it was written: she has seen
  * everything the family reads, and more.
  */
-export function familyWeek(narrative: WeekNarrative, policy: HouseholdPolicy, timeZone: string, people: readonly string[] = []): FamilyWeekResult {
+/** How a week written before 2026-10-20 said somebody at the door when a visitor was expected. */
+const LEGACY_VISITED = /^(.+) visited\.$/;
+
+/**
+ * A week stored before the door and a confirmed visit were told apart: its
+ * `visit` entries were somebody at the door when the visitor was expected,
+ * written "Maria visited." They are read as what they were, and the week's
+ * text, which may say the same, is written again from the facts.
+ */
+export function upgradeLegacyWeek(narrative: WeekNarrative): { readonly narrative: WeekNarrative; readonly upgraded: boolean } {
+  let upgraded = false;
+  const timeline = narrative.timeline.map((entry): TimelineEntry => {
+    const name = entry.kind === 'visit' && entry.name === undefined ? LEGACY_VISITED.exec(entry.summary)?.[1] : undefined;
+    if (name === undefined) return entry;
+    upgraded = true;
+    return { ...entry, kind: 'presence', summary: name === 'Someone' ? 'Someone came to the door when a regular visitor was expected.' : doorWhenExpected(name), ...(name === 'Someone' ? {} : { name }) };
+  });
+  return upgraded ? { narrative: { ...narrative, timeline }, upgraded } : { narrative, upgraded };
+}
+
+export function familyWeek(stored: WeekNarrative, policy: HouseholdPolicy, timeZone: string, people: readonly string[] = []): FamilyWeekResult {
   if (!isSharedWithFamily('RHYTHM', policy)) return { status: 'private' };
 
+  const { narrative, upgraded } = upgradeLegacyWeek(stored);
   const hidden = { door: !isSharedWithFamily('DOOR_EVENT', policy), visits: !isSharedWithFamily('PRESENCE', policy) };
   const unclearEntry = (e: TimelineEntry) => entryIsUnclear(e, people);
   const unclearDelta = (d: RhythmDelta) => deltaIsUnclear(d, people);
   const unclear = weekIsUnclear(narrative, people);
-  if (!hidden.door && !hidden.visits && !unclear) {
+  if (!hidden.door && !hidden.visits && !unclear && !upgraded) {
     // The Sunday brief's suggestion is read like everything else: one the gate cannot clear is left out, never reworded.
     if (narrative.suggestion && !clears(narrative.suggestion.reason, people)) {
       console.warn(JSON.stringify({ level: 'warn', msg: 'guardian_withheld', where: 'week_suggestion', isoWeek: narrative.isoWeek }));
@@ -280,7 +301,7 @@ export function weekAnswer(week: WeekNarrative, thisWeek?: ThisWeekStatus) {
       baselineWeeks: d.baselineWeeks,
       ...(d.verdict === undefined ? {} : { verdict: d.verdict }),
     })),
-    timeline: week.timeline.map((e) => ({ at: e.at, kind: e.kind, summary: e.summary, ...(e.personId === undefined ? {} : { personId: e.personId }) })),
+    timeline: week.timeline.map((e) => ({ at: e.at, kind: e.kind, summary: e.summary, ...(e.personId === undefined ? {} : { personId: e.personId }), ...(e.name === undefined ? {} : { name: e.name }) })),
     generatedAt: week.generatedAt,
     ...(week.residentSeenAt === undefined ? {} : { residentSeenAt: week.residentSeenAt }),
     ...(week.simulated ? { simulated: true as const } : {}),
@@ -313,6 +334,7 @@ const OUTPUT = answerSchema({
     kind: z.enum(['door', 'presence', 'visit', 'card', 'deviation']),
     summary: z.string(),
     personId: z.string().optional(),
+    name: z.string().optional().describe('The regular visitor a `presence` (someone at the door when they were expected) or `visit` (confirmed by the resident) entry is about.'),
   })),
   generatedAt: z.number(),
   residentSeenAt: z.number().optional(),

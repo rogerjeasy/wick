@@ -26,6 +26,10 @@ const hasUsualWeek = (deltas: readonly RhythmDelta[]): boolean => deltas.some((d
  * A visitor seen once, weeks ago, who is not expected and did not come is
  * not worth a sentence — and "Tom did not visit" about someone who never
  * does would read as a warning.
+ *
+ * A visitor's metric counts the door when they were expected (baseline.ts),
+ * so its words say exactly that: "nobody came to the door when Maria was
+ * expected", never "Maria did not visit". The door does not know who rang.
  */
 function worthMentioning(d: RhythmDelta): boolean {
   return isDoor(d) || d.thisWeek > 0 || (d.lastWeek ?? 0) > 0 || usualCount(d) > 0;
@@ -58,21 +62,23 @@ function doorLines(d: RhythmDelta, weekComplete: boolean): string[] {
 }
 
 function visitorLines(d: RhythmDelta, weekComplete: boolean): string[] {
-  const name = d.label ?? 'Someone';
+  const name = d.label ?? 'a regular visitor';
   const lines: string[] = [];
   const lastWeek = weekComplete ? 'Last week' : 'By this point last week';
-  if (d.thisWeek === 0) lines.push(weekComplete ? `${name} did not visit this week.` : `${name} has not visited so far this week.`);
+  if (d.thisWeek === 0) {
+    lines.push(weekComplete ? `Nobody came to the door when ${name} was expected this week.` : `Nobody has come to the door when ${name} was expected so far this week.`);
+  }
   if (d.lastWeek !== undefined) {
-    const visited = weekComplete ? ['did not visit', 'visited'] : ['had not visited', 'had visited'];
-    lines.push(`${lastWeek}: ${name} ${d.lastWeek === 0 ? visited[0] : `${visited[1]} ${times(d.lastWeek)}`}.`);
+    const came = weekComplete ? ['nobody came', 'someone came'] : ['nobody had come', 'someone had come'];
+    lines.push(`${lastWeek}: ${d.lastWeek === 0 ? came[0] : came[1]} to the door when ${name} was expected${d.lastWeek === 0 ? '' : `, ${times(d.lastWeek)}`}.`);
   }
   if (d.verdict !== undefined) {
     const usual = usualCount(d);
     const usualWeek = weekComplete ? 'In a usual week' : 'By this point in a usual week';
-    const visits = weekComplete ? ['does not visit', 'visits'] : ['has not visited', 'has visited'];
-    lines.push(`${usualWeek}: ${name} ${usual === 0 ? visits[0] : `${visits[1]} about ${times(usual)}`}.`);
-    const verdict = d.verdict === 'usual' ? 'about the usual' : `${d.verdict} visits than usual`;
-    lines.push(`${name} ${weekComplete ? 'this week' : 'so far this week'}: ${verdict}.`);
+    const comes = weekComplete ? ['nobody comes', 'someone comes'] : ['nobody has come', 'someone has come'];
+    lines.push(`${usualWeek}: ${usual === 0 ? comes[0] : comes[1]} to the door when ${name} is expected${usual === 0 ? '' : `, about ${times(usual)}`}.`);
+    const verdict = d.verdict === 'usual' ? 'about the usual' : `${d.verdict} times than usual`;
+    lines.push(`The door when ${name} was expected, ${weekComplete ? 'this week' : 'so far this week'}: ${verdict}.`);
   }
   return lines;
 }
@@ -158,15 +164,21 @@ export function comparisonSentences(
   for (const d of visitors.filter((v) => v.verdict === 'fewer')) {
     const usual = `about ${spokenTimes(usualCount(d))}`;
     if (weekComplete) {
-      sentences.push(d.thisWeek === 0 ? `${d.label} did not visit, and usually comes ${usual} a week.` : `${d.label} usually visits ${usual} a week.`);
+      sentences.push(d.thisWeek === 0
+        ? `Nobody came to the door when ${d.label} was expected; usually someone does, ${usual} a week.`
+        : `Usually someone comes to the door when ${d.label} is expected ${usual} a week.`);
     } else {
-      sentences.push(d.thisWeek === 0 ? `${d.label} has not visited so far, and has usually come ${usual} by now.` : `${d.label} has usually visited ${usual} by now.`);
+      sentences.push(d.thisWeek === 0
+        ? `Nobody has come to the door when ${d.label} was expected so far; usually someone has, ${usual} by now.`
+        : `Usually someone has come to the door when ${d.label} was expected ${usual} by now.`);
     }
   }
   if (doorDelta?.verdict === 'more') sentences.push(weekComplete ? 'The front door had more callers than usual.' : 'The front door has had more callers than usual so far.');
   if (doorDelta?.verdict === 'fewer') sentences.push(weekComplete ? 'The front door was quieter than usual.' : 'The front door has been quieter than usual so far.');
   for (const d of visitors.filter((v) => v.verdict === 'more')) {
-    sentences.push(weekComplete ? `${d.label} visited more than usual.` : `${d.label} has visited more than usual so far.`);
+    sentences.push(weekComplete
+      ? `Someone came to the door when ${d.label} was expected more often than usual.`
+      : `Someone has come to the door when ${d.label} was expected more often than usual so far.`);
   }
   return sentences;
 }

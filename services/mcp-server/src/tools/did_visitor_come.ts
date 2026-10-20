@@ -1,10 +1,17 @@
 /**
- * MCP tool: did_visitor_come — single GetItem + bounded Query. See §7.3.
+ * MCP tool: did_visitor_come — single GetItem + two bounded Queries. See §7.3.
  *
  * Carer/visitor verification (M5). Schedule-based, not biometric (D3, §5.2):
  * the roster's `expectedPattern` is a day-of-week/time expectation
  * ("TUE,FRI 09:00±30m"), matched against whether a presence EVT# row for this
- * personId exists today — not face recognition.
+ * personId exists that day — not face recognition.
+ *
+ * That row says somebody came to the door when the visitor was expected,
+ * never who: a courier in the carer's hour writes the same one. So the
+ * answer keeps the two apart (packages/contracts visit.ts): `confirmed` only
+ * when the resident said "Yes, that's right" about that day's visit on her
+ * television, and `doorWhenExpected` for the door alone. There is no plain
+ * "visited": nothing the door sees can say it.
  *
  * Reads the same EVT#<ts>#<ulid> entity get_today.ts reads. route.mjs
  * (services/edge-device/lambda/route.mjs) never writes a separate `at`
@@ -19,6 +26,7 @@
 import { z } from 'zod';
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { localDayCode, padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk, type RosterEntry } from '@wick/contracts';
+import { visitStore, type VisitSend } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
@@ -30,7 +38,11 @@ import { zoneOf } from '../accounts/types.js';
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
 export interface VisitorCheckResult {
-  readonly visited: boolean;
+  /** The resident confirmed on her television that they came that day. The only answer that says who came. */
+  readonly confirmed: boolean;
+  /** Somebody came to the door when they were expected that day. When, never who. */
+  readonly doorWhenExpected: boolean;
+  /** The confirmed visit's arrival; else the first time somebody came to the door when they were expected. */
   readonly at?: number;
   readonly name: string | undefined;
   readonly expectedToday: boolean;
@@ -56,7 +68,7 @@ export async function checkVisitor(
     Key: { pk: { S: `HH#${householdId}` }, sk: { S: `PER#${personId}` } },
   }));
   const raw = rosterRes.Item?.data?.S;
-  if (!raw) return { visited: false, name: undefined, expectedToday: false };
+  if (!raw) return { confirmed: false, doorWhenExpected: false, name: undefined, expectedToday: false };
   const roster = JSON.parse(raw) as RosterEntry;
 
   // The day where the house is, from its midnight to the next.
@@ -83,10 +95,15 @@ export async function checkVisitor(
     },
   }));
 
-  const visit = evtRes.Items?.[0];
+  const atDoor = evtRes.Items?.[0];
+  // Her answer about the visit that began that day: only "Yes, that's right" says who came.
+  const confirmedVisit = (await visitStore((command) => ddb.send(command as never) as ReturnType<VisitSend>, TABLE).recent(householdId, startOfDay))
+    .find((visit) => visit.personId === personId && visit.arrivedAt <= endOfDay && visit.answer === 'confirmed');
+  const at = confirmedVisit?.arrivedAt ?? (atDoor ? parseTsFromSk(atDoor.sk?.S ?? '') : undefined);
   return {
-    visited: Boolean(visit),
-    ...(visit ? { at: parseTsFromSk(visit.sk?.S ?? '') } : {}),
+    confirmed: Boolean(confirmedVisit),
+    doorWhenExpected: Boolean(atDoor),
+    ...(at !== undefined ? { at } : {}),
     name: roster.name,
     // `now` is the start of the day asked, where the house is (when.ts): its weekday is read there.
     expectedToday: expectedToday(roster.expectedPattern, now, timeZone),
@@ -95,8 +112,9 @@ export async function checkVisitor(
 
 /** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
 const OUTPUT = answerSchema({
-  visited: z.boolean(),
-  at: z.number().optional().describe('When they came, in milliseconds since the epoch. Absent when they did not.'),
+  confirmed: z.boolean().describe('The resident confirmed on their own television that this visitor came that day. The only answer that says who came.'),
+  doorWhenExpected: z.boolean().describe('Somebody came to the door when this visitor was expected that day. Not proof it was them: never say they came on this alone.'),
+  at: z.number().optional().describe('Milliseconds since the epoch: the confirmed visit, else when somebody came to the door when they were expected. Absent when neither.'),
   name: z.string().optional().describe('Absent for an id this household does not know.'),
   expectedToday: z.boolean().describe('Whether that day is one of their usual days.'),
   date: z.string().describe('The day answered for, YYYY-MM-DD.'),
@@ -114,7 +132,8 @@ export function registerDidVisitorCome(
     {
       title: 'Did a visitor come',
       description:
-        'Checks whether a specific regular visitor came on a given day — today unless one is named — and whether that is one of their usual days (`expectedToday`). ' +
+        'Checks a specific regular visitor on a given day — today unless one is named: whether the resident confirmed on their television that the visitor came (`confirmed`), whether somebody came to the door when the visitor was expected (`doorWhenExpected`, which says when, never who), and whether that is one of their usual days (`expectedToday`). ' +
+        'Say the visitor came only when `confirmed` is true. With only `doorWhenExpected`, say somebody came to the door at that time and that the resident has not confirmed it was them. ' +
         'Takes the `personId` from list_regular_visitors; `name` comes back empty for an id this household does not know. ' +
         'For "on Tuesday" or "yesterday" pass `day`; the answer says which day it is for (`dayInWords`).',
       inputSchema: {

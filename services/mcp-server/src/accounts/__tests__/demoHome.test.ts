@@ -156,7 +156,7 @@ describe('the demo home — one thing in it is different', () => {
   it('is that Maria did not come on her most recent morning — and nothing else', () => {
     // Made on the Wednesday afternoon: Tuesday was her morning.
     expect(different(NOW).differences.map((d) => d.sentence)).toEqual([
-      'Maria usually comes on Tuesday mornings. There was no visit yesterday.',
+      'Maria is usually expected on Tuesday mornings. Nobody came to the door at that time yesterday.',
     ]);
   });
 
@@ -167,7 +167,7 @@ describe('the demo home — one thing in it is different', () => {
 
     expect(mariaThisWeek).toEqual([2]);
     expect(different(saturday).differences.map((d) => d.sentence)).toEqual([
-      'Maria usually comes on Friday mornings. There was no visit yesterday.',
+      'Maria is usually expected on Friday mornings. Nobody came to the door at that time yesterday.',
     ]);
   });
 
@@ -177,7 +177,7 @@ describe('the demo home — one thing in it is different', () => {
 
     for (const made of [mondayMorning, tuesdayAtTen]) {
       expect(different(made).differences.map((d) => d.lasting)).toEqual([
-        'Maria usually comes on Friday mornings. There was no visit on Friday.',
+        'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.',
       ]);
     }
   });
@@ -194,7 +194,7 @@ describe('the demo home — one thing in it is different', () => {
     const fridayAtTen = W42.startMs + 4 * DAY + 10 * 3_600_000;
     expect(mariaSince(fridayAtTen, W42.startMs)).toEqual([]);
     expect(different(fridayAtTen).differences.map((d) => d.lasting)).toEqual([
-      'Maria usually comes on Tuesday mornings. There was no visit on Tuesday.',
+      'Maria is usually expected on Tuesday mornings. Nobody came to the door at that time on Tuesday.',
     ]);
   });
 

@@ -36,7 +36,14 @@ export interface WeekFacts {
   readonly doorVisits: number;
   /** Door visits by local day and part of day, in chronological order. */
   readonly doorTimes: readonly DoorTime[];
-  readonly visits: readonly NamedVisits[];
+  /**
+   * How often somebody came to the door when each regular visitor was
+   * expected (`presence`). When, never who: a courier in the carer's hour
+   * counts here too (packages/contracts visit.ts).
+   */
+  readonly whenExpected: readonly NamedVisits[];
+  /** The visits the resident confirmed on her television, by visitor: the only count of who came. */
+  readonly confirmed: readonly NamedVisits[];
   /**
    * False when the narrative is written with the week still under way —
    * true from Sunday evening on (TOLD_AS_THE_WEEK_MS), not only after
@@ -55,7 +62,7 @@ export interface SummariseOptions {
 
 export type NarrativeCheck =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: 'empty' | 'too_long' | 'unsupported_number' | 'unsupported_comparison'; readonly detail?: string };
+  | { readonly ok: false; readonly reason: 'empty' | 'too_long' | 'unsupported_number' | 'unsupported_comparison' | 'unconfirmed_visit'; readonly detail?: string };
 
 function localDayAndHour(at: number, timeZone: string): { day: string; hour: number } {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'long', hour: 'numeric', hourCycle: 'h23' }).formatToParts(new Date(at));
@@ -72,8 +79,6 @@ function partOfDay(hour: number): PartOfDay {
   return 'night';
 }
 
-const VISITED = /^(.+) visited\.$/;
-
 /**
  * From how long before the week ends its telling is the week's, not "the
  * week so far". The Narrator runs on Sunday evening (infra/narrator.tf, 20:00
@@ -89,8 +94,14 @@ export function summariseWeek(entries: readonly TimelineEntry[], options: Summar
   const sorted = [...entries].sort((a, b) => a.at - b.at);
 
   const doorTimes: { day: string; part: PartOfDay; count: number }[] = [];
-  const visits: { name: string; count: number }[] = [];
+  const whenExpected: { name: string; count: number }[] = [];
+  const confirmed: { name: string; count: number }[] = [];
   let doorVisits = 0;
+  const add = (to: { name: string; count: number }[], name: string) => {
+    const known = to.find((v) => v.name === name);
+    if (known) known.count += 1;
+    else to.push({ name, count: 1 });
+  };
 
   for (const entry of sorted) {
     if (entry.kind === 'door') {
@@ -100,12 +111,10 @@ export function summariseWeek(entries: readonly TimelineEntry[], options: Summar
       const last = doorTimes[doorTimes.length - 1];
       if (last && last.day === day && last.part === part) last.count += 1;
       else doorTimes.push({ day, part, count: 1 });
-    } else if (entry.kind === 'visit') {
-      const name = VISITED.exec(entry.summary)?.[1];
-      if (!name || name === 'Someone') continue;
-      const known = visits.find((v) => v.name === name);
-      if (known) known.count += 1;
-      else visits.push({ name, count: 1 });
+    } else if (entry.kind === 'presence' && entry.name) {
+      add(whenExpected, entry.name);
+    } else if (entry.kind === 'visit' && entry.name) {
+      add(confirmed, entry.name);
     }
   }
 
@@ -113,7 +122,7 @@ export function summariseWeek(entries: readonly TimelineEntry[], options: Summar
   // A whole week ends on its Sunday by definition; the range's last instant
   // is already Monday morning east of Greenwich.
   const throughDay = weekComplete ? 'Sunday' : localDayAndHour(Math.max(range.startMs, now), timeZone).day;
-  return { doorVisits, doorTimes, visits, weekComplete, throughDay };
+  return { doorVisits, doorTimes, whenExpected, confirmed, weekComplete, throughDay };
 }
 
 /** The only facts the model is shown. Every number it may use is here. */
@@ -125,8 +134,39 @@ export function factLines(facts: WeekFacts): string[] {
   ];
   lines.push(facts.doorVisits === 0 ? 'Nobody came to the front door.' : `Someone came to the front door ${times(facts.doorVisits)}.`);
   for (const t of facts.doorTimes) lines.push(`${t.day} ${t.part}: ${times(t.count)} at the front door.`);
-  for (const v of facts.visits) lines.push(`${v.name} visited ${times(v.count)}.`);
+  for (const v of facts.whenExpected) lines.push(`Someone came to the door ${times(v.count)} when ${v.name} was expected. That alone does not say who it was.`);
+  for (const v of facts.confirmed) lines.push(`The resident confirmed on the television that ${v.name} came ${times(v.count)}.`);
+  for (const v of unconfirmedVisitors(facts)) lines.push(`Nobody has confirmed that ${v} came this week. Never write that ${v} came or visited.`);
   return lines;
+}
+
+/** Per visitor: confirmed visits, and the times the door was answered when they were expected that nobody confirmed. */
+function visitorCounts(facts: WeekFacts): { name: string; confirmed: number; unconfirmed: number }[] {
+  const names = [...new Set([...facts.confirmed.map((v) => v.name), ...facts.whenExpected.map((v) => v.name)])];
+  return names.map((name) => {
+    const confirmed = facts.confirmed.find((v) => v.name === name)?.count ?? 0;
+    const atDoor = facts.whenExpected.find((v) => v.name === name)?.count ?? 0;
+    return { name, confirmed, unconfirmed: Math.max(0, atDoor - confirmed) };
+  });
+}
+
+/** The visitors somebody came to the door for this week, none of whose visits the resident confirmed. */
+function unconfirmedVisitors(facts: WeekFacts): string[] {
+  return visitorCounts(facts).filter((v) => v.confirmed === 0).map((v) => v.name);
+}
+
+const VISIT_CLAIM = /\b(?:visit(?:s|ed|ing)?|came|comes?|coming|was here|were here|stopped by|dropped (?:by|in)|popped (?:in|round|by)|called (?:in|round|by))\b/i;
+const HEDGED = /\bexpected\b|\bnot (?:yet )?confirmed\b|\bunconfirmed\b|\bnobody has confirmed\b/i;
+
+/** A sentence that says a visitor came, of a visitor nobody confirmed: the claim the door cannot make. */
+function unconfirmedClaim(text: string, facts: WeekFacts): string | undefined {
+  const names = unconfirmedVisitors(facts);
+  if (names.length === 0) return undefined;
+  for (const sentence of text.split(/(?<=[.!?;:])\s+/)) {
+    if (!VISIT_CLAIM.test(sentence) || HEDGED.test(sentence)) continue;
+    if (names.some((name) => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(sentence))) return sentence.trim();
+  }
+  return undefined;
 }
 
 const NUMBER_WORDS: Readonly<Record<string, number>> = {
@@ -137,7 +177,13 @@ const NUMBER_WORDS: Readonly<Record<string, number>> = {
 const NUMBER_PATTERN = new RegExp(`\\b(\\d+(?:\\.\\d+)?|${Object.keys(NUMBER_WORDS).join('|')})\\b`, 'gi');
 
 function allowedNumbers(facts: WeekFacts, deltas: readonly RhythmDelta[]): ReadonlySet<number> {
-  return new Set([facts.doorVisits, ...facts.doorTimes.map((t) => t.count), ...facts.visits.map((v) => v.count), ...comparisonNumbers(deltas)]);
+  return new Set([
+    facts.doorVisits,
+    ...facts.doorTimes.map((t) => t.count),
+    ...facts.whenExpected.map((v) => v.count),
+    ...visitorCounts(facts).flatMap((v) => [v.confirmed, v.unconfirmed]),
+    ...comparisonNumbers(deltas),
+  ]);
 }
 
 /**
@@ -161,6 +207,9 @@ export function checkNarrative(text: string, facts: WeekFacts, deltas: readonly 
 
   const comparison = checkComparisons(trimmed, deltas);
   if (!comparison.ok) return { ok: false, reason: 'unsupported_comparison', detail: comparison.detail };
+
+  const claim = unconfirmedClaim(trimmed, facts);
+  if (claim) return { ok: false, reason: 'unconfirmed_visit', detail: claim };
   return { ok: true };
 }
 
@@ -175,6 +224,8 @@ export function refusalReason(check: Extract<NarrativeCheck, { ok: false }>): st
       return `Your draft used "${check.detail}", a number that is not in the facts. Use only the numbers given.`;
     case 'unsupported_comparison':
       return `Your draft said "${check.detail}", which the facts do not support. Compare with last week, or with what is usual, only where the facts do.`;
+    case 'unconfirmed_visit':
+      return `Your draft said "${check.detail}", but nobody confirmed who came. Say that someone came to the door when they were expected, as the facts do.`;
     case 'too_long':
       // The number and the overshoot: "stay under the limit" alone left the second draft as long as the first.
       return `Your draft was ${check.detail} characters, ${Number(check.detail) - MAX_NARRATIVE_CHARS} over the limit of ${MAX_NARRATIVE_CHARS}. Cut a clause or a sentence.`;
@@ -214,11 +265,24 @@ function compose(
 
   // Who visited matters more than when the door was busy, so names claim
   // their room first and the time-of-day breakdown gets whatever is left.
+  // Only a visit she confirmed says who came; the door when someone was
+  // expected says only that somebody did.
   const named: string[] = [];
+  // With the door kept private, the visitor's sentence does not speak of the door either.
+  const came = include.door ? 'came to the door' : 'came';
   if (include.visits) {
-    for (const v of facts.visits) {
-      const sentence = `${v.name} visited ${spokenTimes(v.count)}.`;
-      if (fits([...(door ? [door] : []), ...named, sentence])) named.push(sentence);
+    for (const v of visitorCounts(facts)) {
+      const sentences = [
+        ...(v.confirmed > 0 ? [`${v.name} came ${spokenTimes(v.confirmed)}, as confirmed on the television.`] : []),
+        ...(v.unconfirmed > 0
+          ? [v.confirmed > 0
+            ? `Someone ${came} ${spokenTimes(v.unconfirmed)} more when ${v.name} was expected, not confirmed.`
+            : `Someone ${came} ${spokenTimes(v.unconfirmed)} when ${v.name} was expected.`]
+          : []),
+      ];
+      for (const sentence of sentences) {
+        if (fits([...(door ? [door] : []), ...named, sentence])) named.push(sentence);
+      }
     }
   }
 

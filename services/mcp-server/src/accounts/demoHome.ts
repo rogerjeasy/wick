@@ -241,7 +241,8 @@ export function demoHomeItems(householdId: string, now: number, timeZone: string
     const isoWeek = currentIsoWeek(new Date(weekStart));
     const narratedAt = weekStart + WEEK - NARRATED_BEFORE_WEEK_END_MS;
     const narrative: WeekNarrative = {
-      ...factsWeekNarrative(householdId, isoWeek, events, { now: narratedAt, timeZone, observedSince }),
+      // With the visits she confirmed: only those say who came (packages/contracts visit.ts).
+      ...factsWeekNarrative(householdId, isoWeek, [...events, ...visits], { now: narratedAt, timeZone, observedSince }),
       residentSeenAt: narratedAt + READ_AFTER_MS,
       simulated: true,
     };

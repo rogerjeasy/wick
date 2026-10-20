@@ -19,55 +19,67 @@ describe('expectedToday — on the household clock (issue #84)', () => {
   });
 });
 
-describe('checkVisitor', () => {
-  it('reports a visit found within the roster schedule', async () => {
-    // Presence EVT# rows have no real production writer yet (Task 7's seed
-    // script will be first) — this follows get_today.ts's verified-correct
-    // pattern: the timestamp lives ONLY in the sort key
-    // (`EVT#<15-digit-zero-padded-ms>#<uuid>`), matching route.mjs's actual
-    // card_shown/card_action writes. There is no separate `at` attribute.
-    const send = vi.fn().mockImplementation((cmd) => {
-      if (cmd.constructor.name === 'GetItemCommand') {
-        return Promise.resolve({
-          Item: {
-            data: { S: JSON.stringify({ personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' }) },
-          },
-        });
-      }
-      return Promise.resolve({
-        Items: [{ personId: { S: 'maria' }, sk: { S: 'EVT#001700000000000#a' } }],
-      });
-    });
-    const ddb = { send } as unknown as DynamoDBClient;
+/**
+ * A table of one roster entry, the presence rows asked for (EVT#) and the
+ * visits (VISIT#): each Query is answered by the prefix it asks from.
+ */
+function table({ atDoor = [] as Record<string, unknown>[], visits = [] as Record<string, unknown>[], roster = true } = {}) {
+  return vi.fn().mockImplementation((cmd) => {
+    if (cmd.constructor.name === 'GetItemCommand') {
+      return Promise.resolve(roster ? { Item: { data: { S: JSON.stringify({ personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' }) } } } : { Item: undefined });
+    }
+    const from = (cmd as { input: { ExpressionAttributeValues: Record<string, { S?: string }> } }).input.ExpressionAttributeValues[':from']?.S ?? '';
+    return Promise.resolve({ Items: from.startsWith('VISIT#') ? visits : atDoor });
+  });
+}
 
-    const result = await checkVisitor(ddb, 'hh-1', 'maria', new Date('2023-11-14T00:00:00.000Z'));
+const doorAt = (ms: number) => ({ personId: { S: 'maria' }, type: { S: 'presence' }, sk: { S: `EVT#${String(ms).padStart(15, '0')}#a` } });
+const visitRow = (ms: number, answer?: 'confirmed' | 'disputed', personId = 'maria') => ({
+  pk: { S: 'HH#hh-1' },
+  sk: { S: `VISIT#${String(ms).padStart(15, '0')}#${personId}` },
+  personId: { S: personId },
+  name: { S: personId === 'maria' ? 'Maria' : 'Tom' },
+  arrivedAt: { N: String(ms) },
+  ...(answer ? { answer: { S: answer }, askedAt: { N: String(ms + 3_600_000) } } : {}),
+});
 
-    expect(result).toEqual({ visited: true, at: 1700000000000, name: 'Maria', expectedToday: true });
+describe('checkVisitor — the door when she was expected, and her word, kept apart', () => {
+  const TUESDAY = new Date('2023-11-14T00:00:00.000Z');
+  const NINE = Date.parse('2023-11-14T09:02:00.000Z');
+
+  it('a ring during Maria’s window that nobody confirmed is the door when she was expected — never that Maria came (the courier case)', async () => {
+    const ddb = { send: table({ atDoor: [doorAt(NINE)] }) } as unknown as DynamoDBClient;
+
+    const result = await checkVisitor(ddb, 'hh-1', 'maria', TUESDAY);
+
+    expect(result).toEqual({ confirmed: false, doorWhenExpected: true, at: NINE, name: 'Maria', expectedToday: true });
+    expect(result).not.toHaveProperty('visited');
   });
 
-  it('reports no visit when nothing matches for the day', async () => {
-    const send = vi.fn().mockImplementation((cmd) => {
-      if (cmd.constructor.name === 'GetItemCommand') {
-        return Promise.resolve({
-          Item: { data: { S: JSON.stringify({ personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' }) } },
-        });
-      }
-      return Promise.resolve({ Items: [] });
-    });
-    const ddb = { send } as unknown as DynamoDBClient;
+  it('is confirmed only when the resident said "Yes, that\u2019s right" about that day’s visit', async () => {
+    const ddb = { send: table({ atDoor: [doorAt(NINE)], visits: [visitRow(NINE, 'confirmed')] }) } as unknown as DynamoDBClient;
 
-    const result = await checkVisitor(ddb, 'hh-1', 'maria', new Date('2023-11-14T00:00:00.000Z'));
+    expect(await checkVisitor(ddb, 'hh-1', 'maria', TUESDAY)).toEqual({ confirmed: true, doorWhenExpected: true, at: NINE, name: 'Maria', expectedToday: true });
+  });
 
-    expect(result).toEqual({ visited: false, name: 'Maria', expectedToday: true });
+  it('is not confirmed by a visit she has not answered, one she said was not right, another visitor’s, or one on another day', async () => {
+    const WEDNESDAY_NINE = Date.parse('2023-11-15T09:02:00.000Z');
+    for (const visits of [[visitRow(NINE)], [visitRow(NINE, 'disputed')], [visitRow(NINE, 'confirmed', 'tom')], [visitRow(WEDNESDAY_NINE, 'confirmed')]]) {
+      const ddb = { send: table({ atDoor: [doorAt(NINE)], visits }) } as unknown as DynamoDBClient;
+      expect((await checkVisitor(ddb, 'hh-1', 'maria', TUESDAY)).confirmed).toBe(false);
+    }
+  });
+
+  it('reports neither when nothing was noted that day', async () => {
+    const ddb = { send: table() } as unknown as DynamoDBClient;
+
+    expect(await checkVisitor(ddb, 'hh-1', 'maria', TUESDAY)).toEqual({ confirmed: false, doorWhenExpected: false, name: 'Maria', expectedToday: true });
   });
 
   it('reports unknown when the person is not on the roster', async () => {
-    const send = vi.fn().mockResolvedValue({ Item: undefined });
-    const ddb = { send } as unknown as DynamoDBClient;
+    const ddb = { send: table({ roster: false }) } as unknown as DynamoDBClient;
 
-    const result = await checkVisitor(ddb, 'hh-1', 'ghost', new Date('2023-11-14T00:00:00.000Z'));
-
-    expect(result).toEqual({ visited: false, name: undefined, expectedToday: false });
+    expect(await checkVisitor(ddb, 'hh-1', 'ghost', TUESDAY)).toEqual({ confirmed: false, doorWhenExpected: false, name: undefined, expectedToday: false });
   });
 });
 
@@ -101,9 +113,10 @@ describe('registerDidVisitorCome (registered tool handler, end to end)', () => {
 
     const result = await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria' } });
     const content = result.content as { type: string; text: string }[];
-    const parsed = JSON.parse(content[0]!.text) as { visited: boolean; name: string };
+    const parsed = JSON.parse(content[0]!.text) as { confirmed: boolean; doorWhenExpected: boolean; name: string };
 
-    expect(parsed).toMatchObject({ visited: true, name: 'Maria' });
+    expect(parsed).toMatchObject({ confirmed: false, doorWhenExpected: true, name: 'Maria' });
+    expect(parsed).not.toHaveProperty('visited');
   });
 
   it('withholds the whole answer when the household policy excludes PRESENCE (Fix 2)', async () => {
@@ -124,7 +137,8 @@ describe('registerDidVisitorCome (registered tool handler, end to end)', () => {
     const content = result.content as { type: string; text: string }[];
 
     // Must read as a refusal, not silently answer with the real visit data.
-    expect(content[0]!.text).not.toContain('"visited"');
+    expect(content[0]!.text).not.toContain('"doorWhenExpected"');
+    expect(content[0]!.text).not.toContain('"confirmed"');
     expect(content[0]!.text).toContain('keeping to themselves');
   });
 });

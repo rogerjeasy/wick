@@ -144,7 +144,9 @@ function missedVisits(input: DifferentInput): Difference[] {
     const dayWall = todayWall - daysAgo * DAY_MS;
     const day = moment(dayWall);
 
-    const visits = entries.filter((e) => e.kind === 'visit' && e.personId === person.personId).map((e) => e.at);
+    // Somebody at the door when they were expected, or a visit she confirmed:
+    // either is a reason not to call the day missed. Neither alone says it was them.
+    const visits = entries.filter((e) => (e.kind === 'presence' || e.kind === 'visit') && e.personId === person.personId).map((e) => e.at);
     // Came that day, or since: late is not missing.
     if (visits.some((at) => at >= day && at <= now)) continue;
 
@@ -160,13 +162,14 @@ function missedVisits(input: DifferentInput): Difference[] {
     if (cameBefore < MIN_BASELINE_WEEKS) continue;
 
     const dayName = DAY_NAMES[weekday(dayWall)]!;
-    const usual = `${person.name} usually comes on ${dayName} ${partOfDay(Math.floor(pattern.minuteOfDay / 60))}.`;
-    const absent = daysAgo === 0 ? 'There has been no visit today.' : daysAgo === 1 ? 'There was no visit yesterday.' : `There was no visit on ${dayName}.`;
+    // What the door saw, never more: nobody at the door when they were expected.
+    const usual = `${person.name} is usually expected on ${dayName} ${partOfDay(Math.floor(pattern.minuteOfDay / 60))}.`;
+    const absent = daysAgo === 0 ? 'Nobody has come to the door at that time today.' : daysAgo === 1 ? 'Nobody came to the door at that time yesterday.' : `Nobody came to the door at that time on ${dayName}.`;
     out.push({
       kind: 'missed_visit',
       factClass: 'PRESENCE',
       sentence: `${usual} ${absent}`,
-      lasting: `${usual} There was no visit on ${dayName}.`,
+      lasting: `${usual} Nobody came to the door at that time on ${dayName}.`,
       at: moment(dayWall + pattern.minuteOfDay * 60_000),
       personId: person.personId,
     });

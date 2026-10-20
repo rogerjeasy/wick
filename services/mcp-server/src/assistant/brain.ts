@@ -207,7 +207,7 @@ function withinSize(turns: Turn[]): Turn[] {
 /** Milliseconds since 1970 for any date a household's timeline could hold. */
 const looksLikeAMoment = (value: unknown): value is number => typeof value === 'number' && value > 1e12 && value < 1e13;
 
-/** Beside every moment (`at`, `sentAt`, `lastVisitAt`…) its words: `atLocal`, `sentAtLocal`. */
+/** Beside every moment (`at`, `sentAt`, `lastConfirmedVisitAt`…) its words: `atLocal`, `sentAtLocal`. */
 function withLocalTimes(value: unknown, timeZone: string): unknown {
   if (Array.isArray(value)) return value.map((v) => withLocalTimes(v, timeZone));
   if (!isRecord(value)) return value;

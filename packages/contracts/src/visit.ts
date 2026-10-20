@@ -30,6 +30,30 @@ import { padTimestamp } from './timeline.js';
 
 export const VISIT_SK_PREFIX = 'VISIT#';
 
+/**
+ * What Wick can know about a regular visitor, and it keeps the three apart
+ * in every tool, timeline and story:
+ *
+ *   expected        — the roster says they are due (a day and a time, or a
+ *                     visit somebody announced). A plan, not an event.
+ *   door when expected — somebody came to the door during that window: a
+ *                     `presence` row (door/presence.ts). It says when, never
+ *                     who. A courier during the carer's hour is one.
+ *   confirmed       — the resident said "Yes, that's right" about the visit
+ *                     on her television: a VISIT# row with answer
+ *                     `confirmed`. The only thing that says who came.
+ *
+ * Nothing but `confirmed` is ever said as "<name> came" or "<name> visited".
+ */
+export function doorWhenExpected(name: string): string {
+  return `Someone came to the door when ${name} was expected.`;
+}
+
+/** A visit the resident confirmed, as the timeline and the family say it. */
+export function confirmedVisitSentence(name: string): string {
+  return `${name} came, as confirmed on the television.`;
+}
+
 /** The Visit card's actions. One press answers; either finishes the card. */
 export const VISIT_ACTIONS = {
   right: 'visit_right',

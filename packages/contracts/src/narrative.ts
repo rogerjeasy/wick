@@ -69,9 +69,16 @@ export interface WeekNarrative {
   readonly simulated?: true;
 }
 
+/**
+ * One moment of the week. `presence` is somebody at the door when a regular
+ * visitor was expected — it says when, never who; `visit` is a visit the
+ * resident confirmed on her television (visit.ts). `name` is the visitor's,
+ * for either.
+ */
 export interface TimelineEntry {
   readonly at: number;
   readonly kind: 'door' | 'presence' | 'visit' | 'card' | 'deviation';
   readonly summary: string;
   readonly personId?: string;
+  readonly name?: string;
 }

@@ -10,8 +10,8 @@ const FRIDAY_NINE = Date.UTC(2026, 9, 9, 9);
 const missed: Difference = {
   kind: 'missed_visit',
   factClass: 'PRESENCE',
-  sentence: 'Maria usually comes on Friday mornings. There has been no visit today.',
-  lasting: 'Maria usually comes on Friday mornings. There was no visit on Friday.',
+  sentence: 'Maria is usually expected on Friday mornings. Nobody has come to the door at that time today.',
+  lasting: 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.',
   at: FRIDAY_NINE,
   personId: 'maria',
 };
@@ -56,7 +56,7 @@ describe('buildTellCard', () => {
         correlationId: 'corr-1',
         createdAt: NOW,
         headline: 'Shall I tell Sarah?',
-        detail: 'Maria usually comes on Friday mornings. There was no visit on Friday.',
+        detail: 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.',
         actions: [
           { id: 'keep_private', label: 'Keep it to myself', kind: 'dismiss' },
           { id: 'tell_family', label: 'Tell Sarah', kind: 'secondary' },
@@ -81,7 +81,7 @@ describe('tellRowItem', () => {
       differenceId: { S: 'missed_visit-maria-2026-10-09' },
       kind: { S: 'missed_visit' },
       factClass: { S: 'PRESENCE' },
-      sentence: { S: 'Maria usually comes on Friday mornings. There was no visit on Friday.' },
+      sentence: { S: 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.' },
       at: { N: String(FRIDAY_NINE) },
       askedAt: { N: String(NOW) },
       weeksObserved: { N: '6' },

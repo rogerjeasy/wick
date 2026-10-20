@@ -22,7 +22,7 @@
  * an item attribute that real production rows don't have.
  */
 import { QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk } from '@wick/contracts';
+import { doorWhenExpected, padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk } from '@wick/contracts';
 import { DEFAULT_POLICY, type HouseholdPolicy } from '@wick/policy';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
@@ -51,7 +51,8 @@ export function summariseEvent(event: RawTimelineEvent): string | undefined {
     case 'door':
       return 'Someone was at the front door.';
     case 'presence':
-      return event.personName ? `${event.personName} arrived.` : 'Someone arrived.';
+      // Somebody at the door when a regular visitor was expected: when, never who (packages/contracts visit.ts).
+      return event.personName ? doorWhenExpected(event.personName) : 'Someone came to the door when a regular visitor was expected.';
     default:
       return undefined;
   }

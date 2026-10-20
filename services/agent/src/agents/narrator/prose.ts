@@ -31,7 +31,8 @@ Rules, all mandatory:
 - Plain, unsensational prose: a thoughtful neighbour's tone, not a report. No "flurry", no "busy", no exclamation.
 - If the week is not over, say "so far". If nothing happened, say plainly that it was a quiet week.
 - Compare with last week, or with a usual week, only where the facts do, and only the way they do. If the facts say nothing was unusual, say so plainly: that is the most valuable sentence you can write. If they say there is not enough history, call nothing usual or unusual.
-- If the facts say someone who usually visits did not, say so plainly and without alarm.
+- Only a visit the facts say the resident confirmed may be told as that person coming. Somebody at the door when a visitor was expected is only that: say it as the facts do, never "<name> visited".
+- If the facts say nobody came to the door when a regular visitor was expected, say so plainly and without alarm.
 - Never speculate about how anyone felt, or why anyone came. Report what happened, not what it meant.`;
 
 export async function writeNarrative(

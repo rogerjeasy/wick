@@ -54,7 +54,7 @@ describe('loadShareableDifferences — what the resident could be asked about', 
 
     expect(found.weeksObserved).toBe(6);
     expect(found.differences.map((d) => [d.kind, d.lasting])).toEqual([
-      ['missed_visit', 'Maria usually comes on Friday mornings. There was no visit on Friday.'],
+      ['missed_visit', 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.'],
     ]);
   });
 

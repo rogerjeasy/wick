@@ -7,7 +7,10 @@ import { isoWeekRange } from '../isoWeek.js';
 const range = isoWeekRange('2026-W40');
 const LONDON = 'Europe/London';
 const door = (iso: string): TimelineEntry => ({ at: Date.parse(iso), kind: 'door', summary: 'Someone was at the front door.' });
-const visit = (iso: string, name: string): TimelineEntry => ({ at: Date.parse(iso), kind: 'visit', summary: `${name} visited.`, personId: name.toLowerCase() });
+/** A visit she confirmed on the television (narrator/timeline.ts, a VISIT# row answered "Yes, that's right"). */
+const confirmedVisit = (iso: string, name: string): TimelineEntry => ({ at: Date.parse(iso), kind: 'visit', summary: `${name} came, as confirmed on the television.`, personId: name.toLowerCase(), name });
+/** Somebody at the door when the visitor was expected: a presence row. When, never who. */
+const visit = (iso: string, name: string): TimelineEntry => ({ at: Date.parse(iso), kind: 'presence', summary: `Someone came to the door when ${name} was expected.`, personId: name.toLowerCase(), name });
 const afterTheWeek = range.endMs + 60_000;
 
 // The Rhythm baseline's answer for a week (rhythm/baseline.ts), with five weeks of history.
@@ -33,13 +36,14 @@ describe('summariseWeek', () => {
     ]);
   });
 
-  it('counts named visits per person, in order of first arrival', () => {
+  it('counts the door when each visitor was expected per person, in order of first arrival — and the visits she confirmed apart', () => {
     const facts = summariseWeek(
-      [visit('2026-09-29T09:00:00Z', 'Maria'), visit('2026-10-01T09:00:00Z', 'Maria'), visit('2026-09-30T15:00:00Z', 'Tom')],
+      [visit('2026-09-29T09:00:00Z', 'Maria'), visit('2026-10-01T09:00:00Z', 'Maria'), visit('2026-09-30T15:00:00Z', 'Tom'), confirmedVisit('2026-09-29T09:00:00Z', 'Maria')],
       { timeZone: LONDON, range, now: afterTheWeek },
     );
 
-    expect(facts.visits).toEqual([{ name: 'Maria', count: 2 }, { name: 'Tom', count: 1 }]);
+    expect(facts.whenExpected).toEqual([{ name: 'Maria', count: 2 }, { name: 'Tom', count: 1 }]);
+    expect(facts.confirmed).toEqual([{ name: 'Maria', count: 1 }]);
     expect(facts.doorVisits).toBe(0);
   });
 
@@ -82,13 +86,60 @@ describe('factLines', () => {
       'This is the week so far: Monday to Thursday. The week is not over.',
       'Someone came to the front door 2 times.',
       'Wednesday evening: 2 times at the front door.',
-      'Maria visited 1 time.',
+      'Someone came to the door 1 time when Maria was expected. That alone does not say who it was.',
+      'Nobody has confirmed that Maria came this week. Never write that Maria came or visited.',
+    ]);
+  });
+
+  it('says a visit she confirmed as the visitor coming, and only that one', () => {
+    const facts = summariseWeek(
+      [visit('2026-09-29T09:00:00Z', 'Maria'), confirmedVisit('2026-09-29T09:00:00Z', 'Maria')],
+      { timeZone: LONDON, range, now: afterTheWeek },
+    );
+    expect(factLines(facts)).toEqual([
+      'This is the whole week: Monday to Sunday.',
+      'Nobody came to the front door.',
+      'Someone came to the door 1 time when Maria was expected. That alone does not say who it was.',
+      'The resident confirmed on the television that Maria came 1 time.',
     ]);
   });
 
   it('says plainly when nothing happened', () => {
     const facts = summariseWeek([], { timeZone: LONDON, range, now: afterTheWeek });
     expect(factLines(facts)).toEqual(['This is the whole week: Monday to Sunday.', 'Nobody came to the front door.']);
+  });
+});
+
+describe('checkNarrative — nobody is said to have come on the door’s word alone', () => {
+  const atDoor = summariseWeek([visit('2026-09-29T09:00:00Z', 'Maria'), visit('2026-10-01T09:00:00Z', 'Maria')], { timeZone: LONDON, range, now: afterTheWeek });
+
+  it('refuses a draft that says a visitor came, visited or was here when she confirmed none of it', () => {
+    for (const draft of ['Maria visited twice this week.', 'A quiet week. Maria came twice.', 'Maria was here on Tuesday and Thursday.', 'Maria stopped by twice.', 'Maria did not visit this week.']) {
+      const check = checkNarrative(draft, atDoor);
+      expect(check, draft).toMatchObject({ ok: false, reason: 'unconfirmed_visit' });
+    }
+  });
+
+  it('lets the facts’ own words through, and a sentence that says it is not confirmed', () => {
+    for (const draft of [
+      'Someone came to the door twice when Maria was expected.',
+      'The doorbell rang twice at the times Maria was expected, though nobody has confirmed it was her.',
+      fallbackNarrative(atDoor),
+    ]) {
+      expect(checkNarrative(draft, atDoor), draft).toEqual({ ok: true });
+    }
+  });
+
+  it('lets a visit she confirmed be told as the visitor coming', () => {
+    const confirmed = summariseWeek([visit('2026-09-29T09:00:00Z', 'Maria'), confirmedVisit('2026-09-29T09:00:00Z', 'Maria')], { timeZone: LONDON, range, now: afterTheWeek });
+    expect(checkNarrative('Maria came once this week.', confirmed)).toEqual({ ok: true });
+    expect(fallbackNarrative(confirmed)).toBe('A quiet week. Nobody came to the front door. Maria came once, as confirmed on the television.');
+  });
+
+  it('tells the model why, in words it can act on', () => {
+    const check = checkNarrative('Maria visited twice this week.', atDoor);
+    if (check.ok) throw new Error('expected a refusal');
+    expect(refusalReason(check)).toBe('Your draft said "Maria visited twice this week.", but nobody confirmed who came. Say that someone came to the door when they were expected, as the facts do.');
   });
 });
 
@@ -154,7 +205,7 @@ describe('fallbackNarrative', () => {
     );
     const text = fallbackNarrative(facts);
 
-    expect(text).toBe('Someone came to the front door three times this week: twice on Wednesday evening and once on Thursday morning. Maria visited once.');
+    expect(text).toBe('Someone came to the front door three times this week: twice on Wednesday evening and once on Thursday morning. Someone came to the door once when Maria was expected.');
     expect(checkNarrative(text, facts)).toEqual({ ok: true });
   });
 
@@ -190,7 +241,7 @@ describe('fallbackNarrative — with a Rhythm baseline', () => {
     const text = fallbackNarrative(facts, [usualDoor, usualMaria]);
 
     expect(text).toBe(
-      'Someone came to the front door three times this week: twice on Wednesday evening and once on Thursday morning. Maria visited once. Nothing unusual this week.',
+      'Someone came to the front door three times this week: twice on Wednesday evening and once on Thursday morning. Someone came to the door once when Maria was expected. Nothing unusual this week.',
     );
     expect(checkNarrative(text, facts, [usualDoor, usualMaria])).toEqual({ ok: true });
   });
@@ -200,7 +251,7 @@ describe('fallbackNarrative — with a Rhythm baseline', () => {
     const deltas = [{ ...usualDoor, thisWeek: 1 }, absentMaria];
     const text = fallbackNarrative(noMaria, deltas);
 
-    expect(text).toBe('Someone came to the front door once this week, on Wednesday evening. Maria did not visit, and usually comes about twice a week.');
+    expect(text).toBe('Someone came to the front door once this week, on Wednesday evening. Nobody came to the door when Maria was expected; usually someone does, about twice a week.');
     expect(checkNarrative(text, noMaria, deltas)).toEqual({ ok: true });
   });
 
@@ -229,7 +280,7 @@ describe('privateNarrative — the family’s week when the resident keeps part 
 
   it('leaves out the door, and says part of the week is private — never that nobody came', () => {
     const text = privateNarrative(facts, { door: true, visits: false });
-    expect(text).toBe('Maria visited once. Some of this week is kept private.');
+    expect(text).toBe('Someone came once when Maria was expected. Some of this week is kept private.');
     expect(text).not.toMatch(/door|nobody/i);
   });
 
@@ -246,8 +297,8 @@ describe('privateNarrative — the family’s week when the resident keeps part 
   it('never calls a week with something private in it "nothing unusual" — Wick cannot say that for the part it leaves out', () => {
     const busyDoor: RhythmDelta = { ...usualDoor, zScore: 3, verdict: 'more' };
 
-    expect(privateNarrative(facts, { door: true, visits: false }, [busyDoor, usualMaria])).toBe('Maria visited once. Some of this week is kept private.');
-    expect(privateNarrative(facts, { door: true, visits: false }, [usualDoor, usualMaria])).toBe('Maria visited once. Some of this week is kept private.');
+    expect(privateNarrative(facts, { door: true, visits: false }, [busyDoor, usualMaria])).toBe('Someone came once when Maria was expected. Some of this week is kept private.');
+    expect(privateNarrative(facts, { door: true, visits: false }, [usualDoor, usualMaria])).toBe('Someone came once when Maria was expected. Some of this week is kept private.');
   });
 
   it('still says what was out of the usual in the part that is shared, and nothing about the part that is not', () => {
@@ -255,7 +306,7 @@ describe('privateNarrative — the family’s week when the resident keeps part 
     const busyDoor: RhythmDelta = { ...usualDoor, thisWeek: 1, zScore: 3, verdict: 'more' };
 
     expect(privateNarrative(noMaria, { door: true, visits: false }, [busyDoor, absentMaria])).toBe(
-      'Maria did not visit, and usually comes about twice a week. Some of this week is kept private.',
+      'Nobody came to the door when Maria was expected; usually someone does, about twice a week. Some of this week is kept private.',
     );
     expect(privateNarrative(noMaria, { door: false, visits: true }, [busyDoor, absentMaria])).toBe(
       'Someone came to the front door once this week, on Wednesday evening. The front door had more callers than usual. Some of this week is kept private.',

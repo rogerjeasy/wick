@@ -13,11 +13,11 @@ describe('summariseEvent', () => {
   });
 
   it('summarises a presence event with a person name when known', () => {
-    expect(summariseEvent({ type: 'presence', personName: 'Maria' })).toBe('Maria arrived.');
+    expect(summariseEvent({ type: 'presence', personName: 'Maria' })).toBe('Someone came to the door when Maria was expected.');
   });
 
   it('summarises a presence event with no known person', () => {
-    expect(summariseEvent({ type: 'presence' })).toBe('Someone arrived.');
+    expect(summariseEvent({ type: 'presence' })).toBe('Someone came to the door when a regular visitor was expected.');
   });
 
   it('never describes how the resident uses their own television — that is not the family’s to see', () => {

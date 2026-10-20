@@ -192,8 +192,8 @@ describe('withholding looks like something that already happens', () => {
     const at = Date.now();
     const isoWeek = currentIsoWeek(new Date(at));
     const timeline = [
-      { at, kind: 'visit' as const, summary: 'Maria visited.', personId: 'maria' },
-      { at, kind: 'visit' as const, summary: 'Dr Patel visited.', personId: 'dr-patel' },
+      { at, kind: 'presence' as const, summary: 'Someone came to the door when Maria was expected.', personId: 'maria', name: 'Maria' },
+      { at, kind: 'presence' as const, summary: 'Someone came to the door when Dr Patel was expected.', personId: 'dr-patel', name: 'Dr Patel' },
     ];
     const narrative: WeekNarrative = {
       householdId: 'hh-1', isoWeek, text: 'Maria came, and Dr Patel looked at her hip.', textSource: 'model',

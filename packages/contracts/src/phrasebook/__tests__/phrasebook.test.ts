@@ -95,7 +95,7 @@ describe('what a placeholder carries', () => {
   it('a name that is a weekday stays a name, and the weekday beside it is translated', () => {
     expect(es('Tuesday was here on Tuesday from 9:02 am to 9:47 am.')).toBe('Tuesday estuvo aquí el martes de 9:02 a 9:47.');
     expect(es('Monday looked in this evening.')).toBe('Monday ha preguntado por usted esta noche.');
-    expect(es('April usually comes on Friday mornings.')).toBe('April suele venir los viernes por la mañana.');
+    expect(es('April is usually expected on Friday mornings.')).toBe('A April se le suele esperar los viernes por la mañana.');
   });
 
   it('a very long name, whole and promptly', () => {
@@ -116,12 +116,12 @@ describe('what a placeholder carries', () => {
   it('every weekday', () => {
     const days = [['Monday', 'lunes'], ['Tuesday', 'martes'], ['Wednesday', 'miércoles'], ['Thursday', 'jueves'], ['Friday', 'viernes'], ['Saturday', 'sábado'], ['Sunday', 'domingo']] as const;
     for (const [english, spanish] of days) {
-      expect(es(`There was no visit on ${english}.`)).toBe(`El ${spanish} no hubo visita.`);
+      expect(es(`Nobody came to the door at that time on ${english}.`)).toBe(`El ${spanish} no vino nadie a la puerta a esa hora.`);
     }
-    expect(es('Maria usually comes on Saturday afternoons.')).toBe('Maria suele venir los sábados por la tarde.');
-    expect(es('Maria usually comes on Sunday evenings.')).toBe('Maria suele venir los domingos a última hora de la tarde.');
-    expect(es('Maria usually comes on Wednesday nights.')).toBe('Maria suele venir los miércoles por la noche.');
-    expect(es('There was no visit on Someday.')).toBeUndefined();
+    expect(es('Maria is usually expected on Saturday afternoons.')).toBe('A Maria se le suele esperar los sábados por la tarde.');
+    expect(es('Maria is usually expected on Sunday evenings.')).toBe('A Maria se le suele esperar los domingos a última hora de la tarde.');
+    expect(es('Maria is usually expected on Wednesday nights.')).toBe('A Maria se le suele esperar los miércoles por la noche.');
+    expect(es('Nobody came to the door at that time on Someday.')).toBeUndefined();
   });
 
   it('a clock time, on the twenty-four-hour clock she reads', () => {
@@ -194,7 +194,7 @@ describe('what a placeholder carries', () => {
 describe('a field of several sentences', () => {
   it('is translated sentence by sentence when every sentence is held', () => {
     expect(es('Sarah has been asked to ring you. Nobody has answered yet.')).toBe('Se ha pedido a Sarah que le llame. Todavía no ha respondido nadie.');
-    expect(es('Maria usually comes on Friday mornings. There was no visit on Friday.')).toBe('Maria suele venir los viernes por la mañana. El viernes no hubo visita.');
+    expect(es('Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.')).toBe('A Maria se le suele esperar los viernes por la mañana. El viernes no vino nadie a la puerta a esa hora.');
   });
 
   it('is left whole when one sentence is not: never half in each language', () => {
@@ -446,7 +446,7 @@ const tell: TellCard = {
   type: 'TELL',
   id: 'tell-missed_visit-maria-2026-10-09',
   headline: 'Shall I tell Sarah?',
-  detail: 'Maria usually comes on Friday mornings. There was no visit on Friday.',
+  detail: 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.',
   actions: [
     { id: 'tell_family', label: 'Tell Sarah', kind: 'primary' },
     { id: 'keep_private', label: 'Keep it to myself', kind: 'dismiss' },
@@ -541,7 +541,7 @@ describe('cardIn — a card as her television should show it', () => {
     expect(cardIn('es', tell)).toEqual({
       ...tell,
       headline: '¿Se lo digo a Sarah?',
-      detail: 'Maria suele venir los viernes por la mañana. El viernes no hubo visita.',
+      detail: 'A Maria se le suele esperar los viernes por la mañana. El viernes no vino nadie a la puerta a esa hora.',
       actions: [
         { id: 'tell_family', label: 'Decírselo a Sarah', kind: 'primary' },
         { id: 'keep_private', label: 'Me lo guardo', kind: 'dismiss' },
@@ -607,7 +607,7 @@ describe('cardIn — a card as her television should show it', () => {
   });
 
   it('leaves a sentence it does not hold in English, whole, and translates the rest of the card', () => {
-    const odd: TellCard = { ...tell, detail: 'Maria usually comes on Friday mornings. Something Wick has never said.' };
+    const odd: TellCard = { ...tell, detail: 'Maria is usually expected on Friday mornings. Something Wick has never said.' };
     const shown = cardIn('es', odd) as TellCard;
     expect(shown.detail).toBe(odd.detail);
     expect(shown.headline).toBe('¿Se lo digo a Sarah?');

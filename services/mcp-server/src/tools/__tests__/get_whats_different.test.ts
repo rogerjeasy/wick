@@ -14,7 +14,7 @@ const HOUR = 3_600_000;
 const FRIDAY = Date.UTC(2026, 9, 9);
 const NOW = new Date(FRIDAY + 14 * HOUR);
 
-const MISSED = 'Maria usually comes on Friday mornings. There was no visit on Friday.';
+const MISSED = 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.';
 const NIGHT = 'Someone came to the door in the night, at 2:10 am on Friday. Nobody had come at night in the 6 weeks before.';
 
 /** A TELL# row, as the agent plane files it (agents/tell/ask.ts) and the resident's press answers it. */
@@ -78,14 +78,14 @@ describe('loadWhatsDifferent — only what the resident chose to tell', () => {
 
   it('tells the newest first, and stops telling a week after the resident said so', async () => {
     const table = createMemoryTable();
-    putTell(table, 'missed_visit-maria-2026-10-06', { answer: 'tell', answeredAt: FRIDAY - 2 * DAY, sentence: 'Maria usually comes on Tuesday mornings. There was no visit on Tuesday.' });
+    putTell(table, 'missed_visit-maria-2026-10-06', { answer: 'tell', answeredAt: FRIDAY - 2 * DAY, sentence: 'Maria is usually expected on Tuesday mornings. Nobody came to the door at that time on Tuesday.' });
     putTell(table, 'door_at_night-2026-10-09', { kind: 'door_at_night', factClass: 'DOOR_EVENT', sentence: NIGHT, answer: 'tell', answeredAt: FRIDAY + 13 * HOUR });
     putTell(table, 'missed_visit-maria-2026-09-29', { answer: 'tell', answeredAt: FRIDAY - 9 * DAY });
 
     const answer = (await load(table))!;
 
     expect(answer.differences.map((d) => d.id)).toEqual(['door_at_night-2026-10-09', 'missed_visit-maria-2026-10-06']);
-    expect(answer.summary).toBe(`Margaret asked Wick to tell you: ${NIGHT} Maria usually comes on Tuesday mornings. There was no visit on Tuesday.`);
+    expect(answer.summary).toBe(`Margaret asked Wick to tell you: ${NIGHT} Maria is usually expected on Tuesday mornings. Nobody came to the door at that time on Tuesday.`);
   });
 
   it('stops telling what the resident has since made private, class by class', async () => {

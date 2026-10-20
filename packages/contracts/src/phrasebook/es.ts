@@ -172,8 +172,8 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
 
   // The very sentence that would be told: every lasting wording the detector can write.
   'services/agent/src/rhythm/different.ts': [
-    s('{name} usually comes on {day} {parts}.', '{name|cap} suele venir los {day|pl} {parts}.'),
-    s('There was no visit on {day}.', 'El {day} no hubo visita.'),
+    s('{name} is usually expected on {day} {parts}.', 'A {name} se le suele esperar los {day|pl} {parts}.'),
+    s('Nobody came to the door at that time on {day}.', 'El {day} no vino nadie a la puerta a esa hora.'),
     s('Someone came to the door in the night, at {time} on {day}.', 'Alguien vino a la puerta por la noche, el {day} a {time|las}.'),
     s('Nobody had come at night in the {n} weeks before.', 'En las {n} semanas anteriores no había venido nadie por la noche.'),
     s('Nobody had come to the door by {time} on {day}.', 'El {day}, a {time|las}, todavía no había venido nadie a la puerta.'),
