@@ -109,16 +109,29 @@ describe('get_week_narrative INV-7 guard (end-to-end through the registered tool
 });
 
 describe('a week with days the doorbell was not heard', () => {
-  it('keeps them in the family’s copy: their copy never calls the week quiet either', () => {
-    const week: WeekNarrative = {
-      householdId: 'hh-1', isoWeek: '2026-W40', text: 'Nobody came to the front door on the days Wick heard the doorbell. Wick heard nothing from the doorbell on Tuesday, so it cannot say who came then.',
-      textSource: 'facts', deltas: [], timeline: [], unheardDays: ['Tuesday'],
-      generatedAt: Date.parse('2026-10-04T20:00:00Z'), residentSeenAt: Date.parse('2026-10-04T20:05:00Z'),
-    };
-    const result = familyWeek(week, { ...DEFAULT_POLICY, residentExclusions: ['DOOR_EVENT'] }, 'Europe/London');
+  const week: WeekNarrative = {
+    householdId: 'hh-1', isoWeek: '2026-W40', text: 'Nobody came to the front door on the days Wick heard the doorbell. Wick heard nothing from the doorbell on Tuesday, so it cannot say who came then.',
+    textSource: 'facts',
+    // Maria usually comes twice a week, and nobody came when she was expected: but Tuesday was unheard.
+    deltas: [{ metric: 'visit:maria', label: 'Maria', thisWeek: 0, lastWeek: 2, baseline: 2, zScore: -2, baselineWeeks: 5, verdict: 'fewer' }],
+    timeline: [], unheardDays: ['Tuesday'],
+    generatedAt: Date.parse('2026-10-04T20:00:00Z'), residentSeenAt: Date.parse('2026-10-04T20:05:00Z'),
+  };
+
+  it('keeps them in the family’s copy where the door is shared: it says so, and never calls the week quiet', () => {
+    const result = familyWeek(week, { ...DEFAULT_POLICY, residentExclusions: ['PRESENCE'] }, 'Europe/London');
     if (result.status !== 'available') throw new Error('expected a week');
     expect(result.narrative.text).toContain('Wick heard nothing from the doorbell on Tuesday');
     expect(result.narrative.text).not.toMatch(/quiet/i);
+    expect(result.narrative.unheardDays).toEqual(['Tuesday']);
+  });
+
+  it('keeps them back with a door the resident keeps private — and still says nobody did not come', () => {
+    const result = familyWeek(week, { ...DEFAULT_POLICY, residentExclusions: ['DOOR_EVENT'] }, 'Europe/London');
+    if (result.status !== 'available') throw new Error('expected a week');
+    expect(result.narrative.text).not.toMatch(/doorbell|heard|door/i);
+    expect(result.narrative.text).not.toMatch(/Nobody came|quiet/i);
+    expect(result.narrative).not.toHaveProperty('unheardDays');
   });
 });
 

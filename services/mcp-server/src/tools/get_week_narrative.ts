@@ -198,7 +198,9 @@ export function familyWeek(stored: WeekNarrative, policy: HouseholdPolicy, timeZ
   // Only her own choice is said to be kept private: what the Guardian held back is not mentioned at all.
   const text = hidden.door || hidden.visits ? privateNarrative(facts, hidden, deltas) : fallbackNarrative(facts, deltas);
   // The suggestion rested on the whole week, so it goes with the paragraph: the family's copy is the facts they may read, and no more.
-  const { suggestion: _rested, ...rest } = narrative;
+  // Which days the doorbell went unheard is about the door: kept back with it.
+  const { suggestion: _rested, unheardDays: _unheard, ...kept } = narrative;
+  const rest = hidden.door || !narrative.unheardDays?.length ? kept : { ...kept, unheardDays: narrative.unheardDays };
   return {
     status: 'available',
     narrative: { ...rest, timeline, deltas, text, textSource: 'facts' },

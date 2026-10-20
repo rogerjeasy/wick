@@ -293,7 +293,8 @@ function compose(
 ): string[] {
   const unheard = facts.unheardDays.length > 0;
   // The days the doorbell went unheard are said first after the door, and claim their room before anything else.
-  const notHeard = unheard ? [`Wick heard nothing from the doorbell on ${list(facts.unheardDays)}, so it cannot say who came then.`] : [];
+  // With the door kept private they are not said at all — they are about the door — but the week is still never called quiet.
+  const notHeard = unheard && include.door ? [`Wick heard nothing from the doorbell on ${list(facts.unheardDays)}, so it cannot say who came then.`] : [];
   const fits = (sentences: readonly string[]) => [...notHeard, ...sentences, ...tail].join(' ').length <= MAX_NARRATIVE_CHARS;
 
   let door: string | undefined;
