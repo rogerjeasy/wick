@@ -96,6 +96,9 @@ jobs:
     environment: release
     permissions:
       contents: write
+    env:
+      # The certificate of Wick's release key: every release APK since 1.2.0 is signed with it.
+      WICK_RELEASE_CERT_SHA256: e5d905dc0cd52c797c10b297ce4bdb4c20d0a291904825d2d2e51a8184a875d2
     defaults:
       run:
         working-directory: apps/tv-fireos
@@ -142,7 +145,14 @@ jobs:
             echo "::error::The release APK is signed with the debug key."
             exit 1
           fi
-          echo "Release APK signed by the release key." | tee -a "$GITHUB_STEP_SUMMARY"
+          # And with Wick's one release key, the one 1.2.0 was signed with: an APK signed by any other key
+          # cannot be installed over the Wick already on a television (1.1.0 was signed with a debug key,
+          # and 1.2.0 had to be installed after an uninstall). A new key is a new fingerprint here, on purpose.
+          if ! echo "$certs" | grep -q "SHA-256 digest: $WICK_RELEASE_CERT_SHA256"; then
+            echo "::error::The release APK is not signed with Wick's release key (SHA-256 $WICK_RELEASE_CERT_SHA256)."
+            exit 1
+          fi
+          echo "Release APK signed by Wick's release key, SHA-256 $WICK_RELEASE_CERT_SHA256." | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Attach the APK to the release
         working-directory: ${{ github.workspace }}
         env:

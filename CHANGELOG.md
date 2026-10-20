@@ -4,6 +4,50 @@ Wick's releases. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] — 2026-10-20
+
+What an outside review and an end-to-end run on the Vega Virtual Device and
+the Fire OS emulator found, fixed (#153–#159).
+
+### Her television (Vega OS and Fire OS)
+
+- **The Vega Virtual Device can be paired by anyone.** Every simulator has
+  the same id, and the demo home that paired one last held them all: a fresh
+  install opened in somebody else's home with no code. That hold now lapses
+  twelve hours after the pairing, a demo home can bring the simulator in from
+  the family app with no code on its screen, and the simulator and its
+  background service follow it there without a relaunch.
+- **The door says who is due, never who has come.** "Ask Sarah to look" stays
+  when a visitor is expected; "Maria is expected around now", never "This
+  looks like Maria"; "Sarah arranged a visit for about now". Somebody seen who
+  did not ring is not taken for the visitor, nor counted as a caller.
+- **What your family sees:** *Next* is the first button, where the focus
+  starts, so paging on never changes what is shared.
+- **Stop Wick** says so when it could not be done, instead of nothing.
+
+### The family app and the agents
+
+- A ring when Maria was expected is "Someone came to the door when Maria was
+  expected"; only a visit she confirmed on her television says Maria came.
+- One line for one moment at the door; today's list newest first.
+- Absence is said only where the doorbell was heard: unheard days are named,
+  and never called quiet.
+- The assistant's true replies are no longer refused by the Guardrail;
+  "not yet" ends with the visitor's usual time; a note keeps the member's own
+  words for a time.
+- The Guardian catches a street address ("at 12 Broadway"); the door's
+  sentence is checked for injected text, and measured
+  ([docs/evals/door-descriptions.md](docs/evals/door-descriptions.md)).
+- A television that keeps no secret joins only a demo home.
+
+### Installing
+
+- **Fire OS:** signed with Wick's release key, as 1.2.0 was, so it installs
+  over 1.2.0 in place. The release workflow now refuses an APK signed with
+  any other key. From 1.1.0 or earlier (signed with a debug key), uninstall
+  first: `adb uninstall com.wick.tv`.
+- **Vega:** `vega run-app wick-vega-1.2.1-<arch>.vpkg com.wick.tv.main`.
+
 ## [1.2.0] — 2026-10-20
 
 The redesign: one design system for her television, the browser television,
