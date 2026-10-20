@@ -372,3 +372,37 @@ describe('routeCardAction — she has read her week (week.seen)', () => {
     expect(r.invoke).not.toHaveBeenCalled();
   });
 });
+
+describe('routeCardAction — the visit pass (wick.visit / visit.said)', () => {
+  const routes = () => ({
+    invoke: vi.fn(),
+    askFamily: vi.fn(),
+    tellAnswer: vi.fn(),
+    askResident: vi.fn(),
+    withdraw: vi.fn(),
+    tellHome: vi.fn(),
+    reachAsk: vi.fn(),
+    reachDue: vi.fn(),
+    visitAnswer: vi.fn(),
+    askVisits: vi.fn(async () => []),
+    visitSaid: vi.fn(async () => ({ nudged: true, patched: false })),
+  });
+  const said = { householdId: 'margaret', errandId: 'err_AAAAAAAAAAAAAAAAAAAA', says: 'on_way', at: 5 };
+
+  it('hands what the visitor said to its own handler, and wakes nothing else', async () => {
+    const r = routes();
+
+    const out = await routeCardAction({ source: 'wick.visit', 'detail-type': 'visit.said', detail: said }, r);
+
+    expect(r.visitSaid).toHaveBeenCalledWith(said);
+    expect(out).toEqual({ result: { nudged: true, patched: false } });
+    expect(r.invoke).not.toHaveBeenCalled();
+  });
+
+  it('takes it only from the edge’s own source: a device event cannot say a visitor spoke', async () => {
+    const r = routes();
+    expect(await routeCardAction({ source: 'wick.device', 'detail-type': 'visit.said', detail: said }, r)).toEqual({ result: 'ignored' });
+    expect(r.visitSaid).not.toHaveBeenCalled();
+    expect(r.invoke).not.toHaveBeenCalled();
+  });
+});

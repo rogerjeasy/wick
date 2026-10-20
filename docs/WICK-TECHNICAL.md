@@ -450,7 +450,7 @@ AgentCore Runtime runs one container with four Strands graphs (`services/agent/s
 |---|---|---|
 | Door picture to one sentence | Nova Lite | Fast and cheap; it describes, it does not reason |
 | Weekly narrative | Claude Sonnet 4.5 | Prose quality is the product; runs once a week |
-| Family app: which tool answers | Claude Sonnet 4.5 | Choosing among 25 tools; it only words what a tool returned |
+| Family app: which tool answers | Claude Sonnet 4.5 | Choosing among 26 tools; it only words what a tool returned |
 | Guardian | none | Rules only |
 
 ### 5.2 Door agent
@@ -680,13 +680,13 @@ sequenceDiagram
     App-->>Sarah: the week as a card
 ```
 
-**The 25 tools.**
+**The 26 tools.**
 
 | Area | Tools |
 |---|---|
 | The week and today | `get_week_narrative`, `get_today`, `get_resident_shared_view`, `get_whats_different`, `get_light` |
 | Visitors | `did_visitor_come`, `get_visits`, `list_regular_visitors`, `add_regular_visitor`, `expect_visit` |
-| Visit errands | `arrange_visit`, `get_errands`, `cancel_errand` |
+| Visit errands | `arrange_visit`, `get_errands`, `cancel_errand`, `make_visit_pass` |
 | Notes | `send_note_to_tv`, `get_replies` |
 | The door | `get_door_request`, `answer_door_request` |
 | Being asked to ring | `get_reach_request`, `answer_reach_request` |
@@ -1062,13 +1062,45 @@ stateDiagram-v2
     WaitForDoor --> MarkFailed: an error after retries
 ```
 
-- **`arrange_visit`** `{ who, date, time, reminder, tellMe }`. In one DynamoDB transaction it writes the errand (`ERRAND#<id>`) and a roster entry for the visitor (`PER#errand:<id>`, the expected moment ±60 minutes, filed under the member). Then it starts the state machine, named after the errand so a retry starts nothing twice. `who` must clear the Guardian: the errand's words reach the family again. Limits: 2 minutes to 60 days ahead, ten open errands per home.
+- **`arrange_visit`** `{ who, date, time, reminder, tellMe }`. In one DynamoDB transaction it writes the errand (`ERRAND#<id>`) and a roster entry for the visitor (`PER#errand:<id>`, the expected moment ±60 minutes, filed under the member). Then it starts the state machine, named after the errand so a retry starts nothing twice. `who` must clear the Guardian: the errand's words reach the family again. One narrow exception (`clearVisitorForFamily`, `services/policy`): a general clinician's title — the doctor, Dr Rossi, the district nurse, the GP — is who comes to help, like a carer, and is taken; a title that says what for (a psychiatrist, a therapist) and any other protected word are still refused, and the lexicon is unchanged, so the door camera's sentences still never say "a nurse". Those words are handed back whole only to the member who wrote them; anyone else reading the door or the day gets the sentence without the name. Limits: 2 minutes to 60 days ahead, ten open errands per home.
 - **The door.** Every press of the bell, real or stand-in, puts a `door.rang` event on the Wick bus after the card is made (best effort: it never delays the card). A person seen at the door who did not ring gets her card but is not a ring. The `errand-door` Lambda finds the home's errand waiting on that window and wakes the workflow (`SendTaskSuccess`). The card itself says the visitor is expected around now, through the roster, and adds "Sarah arranged a visit for about now." — never that this ring is them: a ring in the window may be anyone, so "Ask Sarah to look" stays on the card.
 - **The reminder** is a note from the member, written by code from the phrasebook, in her language, DEFERRED: it waits for a natural break like any other note.
 - **The member is told** by Web Push (no names, no times in the payload) and sees the outcome in the family app: "Someone rang at 10:04, around when the plumber was expected", never "the plumber came". Whether it was the plumber is hers to say (M5).
 - **Every step asks again** whether the member is still allowed (INV-9). If not, the errand closes quietly and the roster entry goes.
-- `get_errands` and `cancel_errand` (only the author may cancel) complete the set. **25 MCP tools** in all.
+- `get_errands` and `cancel_errand` (only the author may cancel) complete the set. **26 MCP tools** in all.
 - **For judges**: arrange a visit five minutes ahead in a demo home, then ring the stand-in doorbell's "The visitor you arranged".
+
+### 19.1 The visit pass
+
+*In short: the visitor Sarah arranged says from their own phone that they are on the way, running late, or at the door. A ring within ten minutes of "I'm at the door" is the first ring Wick can say is them.*
+
+From a real conversation (README, *A real door*): a different doctor each time, nobody she recognises, a door kept shut, and a telephone call to her daughter in Italy. An expected stranger and an unknown stranger look the same at her door; the door alone can say who is due, never who has come. The pass is the evidence that was missing — a link Wick handed the member, pressed on the step. No model decides it and no face is kept.
+
+```mermaid
+sequenceDiagram
+    participant Sarah as Sarah (family app)
+    participant Server as Wick server
+    participant Visitor as The doctor's phone
+    participant Edge as Edge visit-pass Lambda
+    participant Agent as Agent plane
+    participant TV as Her television
+    Sarah->>Server: make_visit_pass(errandId)
+    Server-->>Sarah: link …/visit.html#token (hash kept, token shown once)
+    Sarah->>Visitor: forwards it (WhatsApp, SMS, email)
+    Visitor->>Edge: POST /visit/say {token, "on_way"}
+    Edge->>TV: home.changed → her day: "Doctor Rossi is on the way. Sarah arranged it."
+    Edge->>Agent: visit.said → Sarah nudged
+    Visitor->>Edge: POST /visit/say {token, "at_door"}
+    Note over TV: the doorbell rings
+    Agent->>TV: "Doctor Rossi is at your door. They confirmed it on their phone just now."
+```
+
+- **`make_visit_pass`** `{ errandId }`, the errand's author only, while it is open. 128 random bits as 32 hex characters; only the SHA-256 is stored (`VPASS#<hash>`), with the household and the errand. A new pass replaces the old one. The link is the family app's `/visit.html#<token>`: after `#`, so the token is in no server's log.
+- **The page** has three buttons and nothing about the house: no name, no address, no household. It opens three hours before the visit and closes when the window does. Every refusal — an unknown link, a visit called off, a member she no longer allows, a window past — answers the same `over`, so the page is no oracle. Thirty presses per pass, and the routes have their own API Gateway limits.
+- **What a press does** (`services/edge-device/lambda/visit-pass.mjs`): what was said is kept on the errand and its roster entry, her home screen is told (`home.changed`), and `visit.said` goes on the bus for the agent plane, which nudges the member (`visitor_on_way`, `visitor_late`, `visitor_at_door`: a kind, no words) and, when the ring came first, puts the confirmation on the door card already up.
+- **The door** (`services/agent/src/agents/door`): a ring matched to an arranged visit reads that visit's last word fresh. Within ten minutes either side of "I'm at the door", the card says who is there and how Wick knows. Without it, the card is exactly as before — who is due, "Ask Sarah to look". A ring when nobody at all is expected says so: *"Nobody is expected at the door now. You don't have to open."*
+- **Never** "you can open" or "it is safe": the card states what Wick knows and the door is hers. A forwarded link is the member's choice; the pass proves only that whoever pressed holds it.
+- **For judges**: in a demo home, arrange "the doctor in five minutes", press *Send a link to the doctor*, open the link in another tab, press *I'm at the door*, then ring the stand-in doorbell's "The visitor you arranged".
 
 ## 20. THE GUARDRAIL
 

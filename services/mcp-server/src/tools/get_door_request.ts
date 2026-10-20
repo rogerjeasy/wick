@@ -21,6 +21,12 @@
  * which already happens: nothing in the answer says a sentence was held
  * back. Her own television still shows it. The picture is hers to show.
  *
+ * The card's line is read the same way. It may name an arranged visitor in
+ * the words of the member who arranged them ("Doctor Rossi is at your
+ * door.", a visit pass): theirs to read, and a fact about her health to
+ * everyone else. A line the gate cannot clear is the door's own standard
+ * line instead, so the question is still asked and the answer not withheld.
+ *
  * Two reads and no model call, inside Alexa+'s 500ms budget (§9.3).
  */
 import { GetItemCommand, QueryCommand, type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -30,7 +36,7 @@ import { gated, type ToolContext } from './context.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, READS, data, say } from './result.js';
 import { z } from 'zod';
-import { familyText } from '../guardian.js';
+import { familyText, familyTextKnowing } from '../guardian.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
@@ -59,6 +65,16 @@ export const NOBODY_ASKED = (residentName: string): string => `${residentName} h
 
 const ANSWERS = Object.entries(DOOR_ANSWERS).map(([key, text]) => ({ key, text }));
 
+/**
+ * The door card's standard line, as the Door agent writes it
+ * (services/agent agents/door/index.ts `DOOR_LINE`, which @wick/agent does not
+ * export): what a line the gate cannot clear is told as.
+ */
+export const DOOR_LINE = "Someone's at the front door.";
+
+/** The household's own people, asked for only when a line would otherwise be held back (people.ts). */
+type People = () => Promise<readonly string[]>;
+
 /** The LOOK# row of one door card, or undefined. Consistent: an answer is decided on it. */
 export async function loadLookRow(ddb: DynamoDBClient, householdId: string, requestId: string): Promise<Item | undefined> {
   const res = await ddb.send(new GetItemCommand({
@@ -70,7 +86,7 @@ export async function loadLookRow(ddb: DynamoDBClient, householdId: string, requ
 }
 
 /** What one LOOK# row says now, read against the door card it is about. */
-export async function describeLook(ddb: DynamoDBClient, householdId: string, row: Item, now: number): Promise<DoorRequest | undefined> {
+export async function describeLook(ddb: DynamoDBClient, householdId: string, row: Item, now: number, people?: People): Promise<DoorRequest | undefined> {
   const requestId = row.cardId?.S;
   const askedAt = Number(row.askedAt?.N);
   if (!requestId || !Number.isFinite(askedAt)) return undefined;
@@ -92,8 +108,10 @@ export async function describeLook(ddb: DynamoDBClient, householdId: string, row
   const expiresAt = queued ? queued.expiresAt ?? queued.queuedAt + DOOR_CARD_TTL_MS : 0;
   if (!queued || queued.card.type !== 'DOOR' || now >= expiresAt) return { ...asked, state: 'gone' };
 
-  const { line, imageRef } = queued.card;
-  // For the family, through the Guardian: a sentence it cannot clear is left out, as one the model never wrote.
+  const { imageRef } = queued.card;
+  // For the family, through the Guardian: a line it cannot clear is the door's standard one, which every card starts as.
+  const line = (await familyTextKnowing(queued.card.line, 'door.line', people)) ?? DOOR_LINE;
+  // A sentence it cannot clear is left out, as one the model never wrote.
   const description = queued.card.description ? familyText(queued.card.description, 'door.description') : undefined;
   return {
     ...asked,
@@ -107,7 +125,7 @@ export async function describeLook(ddb: DynamoDBClient, householdId: string, row
 }
 
 /** The newest question about the door, or undefined when nobody has been asked. */
-export async function loadDoorRequest(ddb: DynamoDBClient, householdId: string, now: number): Promise<DoorRequest | undefined> {
+export async function loadDoorRequest(ddb: DynamoDBClient, householdId: string, now: number, people?: People): Promise<DoorRequest | undefined> {
   const res = await ddb.send(new QueryCommand({
     TableName: TABLE,
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
@@ -115,7 +133,7 @@ export async function loadDoorRequest(ddb: DynamoDBClient, householdId: string, 
   }));
   // A handful at most: one per door card, each gone after a day.
   const newest = (res.Items ?? []).sort((a, b) => Number(b.askedAt?.N ?? 0) - Number(a.askedAt?.N ?? 0))[0];
-  return newest ? describeLook(ddb, householdId, newest, now) : undefined;
+  return newest ? describeLook(ddb, householdId, newest, now, people) : undefined;
 }
 
 /** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
@@ -146,7 +164,7 @@ export function registerGetDoorRequest(mcpServer: McpServer, ddb: DynamoDBClient
       annotations: READS,
     },
     withFriendlyErrors(gated(ctx, async (allowed) => {
-      const request = await loadDoorRequest(ddb, ctx.householdId, now());
+      const request = await loadDoorRequest(ddb, ctx.householdId, now(), ctx.people ? () => ctx.people!() : undefined);
       return request ? data(request) : say(NOBODY_ASKED(allowed.household.residentName));
     }, { neighbour: true })),
   );

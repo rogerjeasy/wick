@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — a plain browser module, deliberately untyped (no build step).
-import { ARRANGE_NEEDS_ASSISTANT, ERRAND_SUGGESTION, confirmErrand, describeErrandCall, errandNews, presentErrand, withNoteSent } from '../errands.js';
+import { ARRANGE_NEEDS_ASSISTANT, ERRAND_SUGGESTION, confirmErrand, describeErrandCall, errandNews, passOffer, presentErrand, sendVisitLink, VISITOR_SHARE_TEXT, visitLinkWords, withNoteSent } from '../errands.js';
 // @ts-expect-error — the same.
 import { SUGGESTIONS, confirmWrite, describeCall, presentResult, presentTurn, routeUtterance } from '../surface.js';
 
@@ -177,5 +177,140 @@ describe('the chip, the trace and the nudge', () => {
     expect(errandNews(raw, seen)).toBeNull();
     expect(errandNews(JSON.stringify({ say: 'None.' }), seen)).toBeNull();
     expect(errandNews('not json', seen)).toBeNull();
+  });
+});
+
+describe('the visit pass — a link the member sends to the visitor they arranged', () => {
+  const LINK = 'https://family.example/visit.html#0123456789abcdef0123456789abcdef';
+  const made = { link: LINK, who: 'Doctor Rossi', opensAt: THURSDAY_TEN - 3 * 3_600_000, closesAt: THURSDAY_TEN + 3_600_000, said: 'Here is your link for Thursday’s visit.' };
+
+  it('offers to send a link while the visit is still to come, by the visitor’s own description', () => {
+    const [entry] = presentResult('get_errands', JSON.stringify({ errands: [view({ who: 'Doctor Rossi', hasPass: false })] })).card.errands;
+    expect(entry.pass).toEqual({
+      label: 'Send a link to Doctor Rossi',
+      note: 'From their phone they can say they are on the way, running late or at the door, and her television says so.',
+    });
+  });
+
+  it('says a new link replaces the old one once one has been made', () => {
+    const [entry] = presentResult('get_errands', JSON.stringify({ errands: [view({ hasPass: true })] })).card.errands;
+    expect(entry.pass).toEqual({ label: 'Send the link again', note: 'A new link replaces the one you sent before, which then stops working.' });
+    expect(passOffer({ who: 'the plumber', hasPass: true }).label).toBe('Send the link again');
+  });
+
+  it('offers no link for a visit that is over, called off or did not go through', () => {
+    for (const status of ['rang', 'no_show', 'cancelled', 'failed']) {
+      const [entry] = presentResult('get_errands', JSON.stringify({ errands: [view({ status, hasPass: true })] })).card.errands;
+      expect(entry.pass, status).toBeUndefined();
+    }
+  });
+
+  it('shows what the visitor said, in the server’s words, under the steps', () => {
+    const said = 'Doctor Rossi said at 9:41 am that they were on the way.';
+    const [entry] = presentResult('get_errands', JSON.stringify({ errands: [view({ who: 'Doctor Rossi', visitor: { says: 'on_way', at: THURSDAY_TEN - 19 * 60_000 }, visitorSaid: said })] })).card.errands;
+    expect(entry.visitorSaid).toBe(said);
+    expect(entry.visitorSays).toBe('on_way');
+    const [plain] = presentResult('get_errands', JSON.stringify({ errands: [view()] })).card.errands;
+    expect(plain.visitorSaid).toBeUndefined();
+  });
+
+  it('presents a link made, with what is shared: “Your visit”, the server’s sentence and the link', () => {
+    const presented = presentResult('make_visit_pass', JSON.stringify(made));
+    expect(presented.tone).toBe('answer');
+    expect(presented.say).toBe(made.said);
+    expect(presented.card).toMatchObject({ kind: 'visit-pass', title: 'A link for Doctor Rossi', link: LINK, who: 'Doctor Rossi', said: made.said });
+    expect(presented.card.footnote).toMatch(/three hours before/);
+  });
+
+  it('says a refusal as the server put it, and reads no link that is not one', () => {
+    expect(presentResult('make_visit_pass', 'That visit is over, so there is no link to send.').say).toBe('That visit is over, so there is no link to send.');
+    expect(presentErrand('make_visit_pass', { ...made, link: 'javascript:alert(1)' })).toBeUndefined();
+    expect(presentErrand('make_visit_pass', { ...made, link: undefined })).toBeUndefined();
+  });
+
+  it('asks first when the assistant makes one, and describes it in a few words', () => {
+    presentResult('get_errands', JSON.stringify({ errands: [view({ who: 'Doctor Rossi' })] }));
+    expect(confirmWrite('make_visit_pass', { errandId: 'err_AAAAAAAAAAAAAAAAAAAA' })).toMatchObject({
+      title: 'Make a link for this visit?',
+      fields: [['Visit', 'Doctor Rossi, Thursday 15 October at 10:00 am']],
+      confirmLabel: 'Make the link',
+    });
+    expect(describeCall('make_visit_pass')).toBe('Made a link for the visitor');
+    expect(presentTurn(undefined, [{ name: 'make_visit_pass', args: {}, presented: null }]).trace).toBe('Did not make a link');
+  });
+});
+
+describe('sendVisitLink — the share sheet where there is one, else the clipboard, else the link shown', () => {
+  const pass = { link: 'https://family.example/visit.html#0123456789abcdef0123456789abcdef', said: 'Here is your link.', who: 'Doctor Rossi' };
+  /** A browser's navigator with only what is asked of it, recording what it was given. */
+  const browser = (has: { share?: (data: unknown) => Promise<void>; canShare?: (data: unknown) => boolean; copy?: (text: string) => Promise<void> }) => {
+    const given: { shared: unknown[]; copied: string[] } = { shared: [], copied: [] };
+    const nav: Record<string, unknown> = {};
+    if (has.share) nav.share = async (data: unknown) => { given.shared.push(data); await has.share!(data); };
+    if (has.canShare) nav.canShare = has.canShare;
+    if (has.copy) nav.clipboard = { writeText: async (text: string) => { given.copied.push(text); await has.copy!(text); } };
+    return { nav, given };
+  };
+  const refuse = (name: string) => async () => { throw Object.assign(new Error(name), { name }); };
+
+  it('opens the share sheet with “Your visit”, the sentence and the link', async () => {
+    const { nav, given } = browser({ share: async () => {}, copy: async () => {} });
+    expect(await sendVisitLink(pass, nav)).toBe('shared');
+    expect(given.shared).toEqual([{ title: 'Your visit', text: VISITOR_SHARE_TEXT, url: pass.link }]);
+    expect(given.copied).toEqual([]);
+  });
+
+  it('shares words written for the visitor, naming nobody — never the sentence written for the member', async () => {
+    const { nav, given } = browser({ share: async () => {} });
+    await sendVisitLink({ ...pass, said: 'Send this link to Doctor Rossi for Margaret.', shareText: 'Margaret at 12 Broadway' }, nav);
+    const text = (given.shared[0] as { text: string }).text;
+    expect(text).toBe(VISITOR_SHARE_TEXT);
+    expect(VISITOR_SHARE_TEXT).not.toMatch(/Rossi|Margaret|Sarah|Broadway/);
+  });
+
+  it('copies nothing when the member closes the sheet: that was their choice', async () => {
+    const { nav, given } = browser({ share: refuse('AbortError'), copy: async () => {} });
+    expect(await sendVisitLink(pass, nav)).toBe('cancelled');
+    expect(given.copied).toEqual([]);
+  });
+
+  it('copies the link where there is no sheet, the sheet cannot take it, or the browser would not open it', async () => {
+    for (const has of [{}, { share: refuse('NotAllowedError') }, { share: async () => {}, canShare: () => false }]) {
+      const { nav, given } = browser({ ...has, copy: async () => {} });
+      expect(await sendVisitLink(pass, nav)).toBe('copied');
+      expect(given.copied).toEqual([pass.link]);
+    }
+  });
+
+  it('shows the link to be copied by hand when neither works', async () => {
+    expect(await sendVisitLink(pass, browser({ copy: refuse('NotAllowedError') }).nav)).toBe('shown');
+    expect(await sendVisitLink(pass, {})).toBe('shown');
+  });
+
+  it('says what happened to the link, in a sentence', () => {
+    expect(visitLinkWords('shared', 'Doctor Rossi')).toBe('Shared. Doctor Rossi can open it on their phone.');
+    expect(visitLinkWords('copied', 'Doctor Rossi')).toBe('Copied. Paste it into a message to Doctor Rossi.');
+    expect(visitLinkWords('cancelled', 'Doctor Rossi')).toBe('Not sent yet. Share or copy it when you are ready.');
+    expect(visitLinkWords('shown', 'Doctor Rossi')).toBe('Select the link and copy it into a message to Doctor Rossi.');
+    expect(visitLinkWords('ready', 'Doctor Rossi')).toBe('Send it to Doctor Rossi by message or email.');
+  });
+});
+
+describe('errandNews — what the visitor said is news too', () => {
+  it('finds a visitor’s word once, says it in the server’s sentence, and leaves the visit to come', () => {
+    const seen = new Map();
+    const said = 'Doctor Rossi said at 9:41 am that they were at the door.';
+    const raw = JSON.stringify({ errands: [view({ status: 'waiting', visitor: { says: 'at_door', at: THURSDAY_TEN }, visitorSaid: said })] });
+
+    const news = errandNews(raw, seen);
+    expect(news).toMatchObject({ errandId: 'err_AAAAAAAAAAAAAAAAAAAA', status: 'waiting', say: said, ended: false });
+    seen.set(news.errandId, news.key);
+    expect(errandNews(raw, seen)).toBeNull();
+
+    // A later word is news again; and so is the ring after it, said as before.
+    const later = JSON.stringify({ errands: [view({ status: 'waiting', visitor: { says: 'late', at: THURSDAY_TEN + 60_000, lateMinutes: 15 }, visitorSaid: 'x' })] });
+    expect(errandNews(later, seen)).toMatchObject({ say: 'x' });
+    const rang = JSON.stringify({ errands: [view({ status: 'rang', said: 'Someone rang at 10:04 am.', visitor: { says: 'at_door', at: THURSDAY_TEN }, visitorSaid: said })] });
+    expect(errandNews(rang, seen)).toMatchObject({ status: 'rang', key: 'rang', say: 'Someone rang at 10:04 am.', ended: true });
   });
 });

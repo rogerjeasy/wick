@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { DEMO_VISITOR_KEYS, demoVisitor, type CardPatch, type DoorRangDetail, type QueuedCard, type RosterEntry, type Visit } from '@wick/contracts';
+import { DEMO_VISITOR_KEYS, demoVisitor, type CardPatch, type DoorRangDetail, type QueuedCard, type RosterEntry, type Visit, type VisitorWord } from '@wick/contracts';
 
 // Ring's clients, made to fail loudly if anything here so much as touches them.
 vi.mock('@wick/ring', async (original) => {
@@ -44,7 +44,7 @@ interface World {
   readonly announced: DoorRangDetail[];
 }
 
-function world(over: { roster?: readonly RosterEntry[]; family?: readonly string[]; now?: number } = {}): World {
+function world(over: { roster?: readonly RosterEntry[]; family?: readonly string[]; now?: number; words?: Record<string, VisitorWord> } = {}): World {
   const puts: Item[] = [];
   const rhythm: World['rhythm'] = [];
   const opened: Visit[] = [];
@@ -78,6 +78,7 @@ function world(over: { roster?: readonly RosterEntry[]; family?: readonly string
     newId: () => `id-${puts.length}`,
     now: () => now,
     timeZoneOf: async () => 'Europe/London',
+    visitorWordOf: async (householdId, errandId) => over.words?.[`${householdId}/${errandId}`],
   };
   return { base, puts, rhythm, opened, cards, patches, described, announced };
 }
@@ -125,6 +126,15 @@ describe('routeDemoDoorEvent — somebody at a demo home’s door', () => {
 
     expect(w.cards[0]!.card).toMatchObject({ match: { personId: plumber.personId, name: 'the plumber' }, notice: 'Guest arranged a visit for about now.' });
     expect(w.announced).toEqual([{ householdId: 'hh-demo', at: NOW - 1500, cardId: w.cards[0]!.id, matchPersonId: plumber.personId }]);
+  });
+
+  it('says who is at the door when the arranged visitor said so from their visit pass, as a real doorbell does', async () => {
+    const plumber: RosterEntry = { personId: 'errand:err_AAAAAAAAAAAAAAAAAAAA', name: 'the plumber', expectedOnce: { at: NOW + 5 * 60_000, windowMin: 60 }, addedBy: 'u_guest', arrangedByName: 'Guest' };
+    const w = world({ roster: [plumber], words: { 'hh-demo/err_AAAAAAAAAAAAAAAAAAAA': { says: 'at_door', at: NOW - 60_000 } } });
+
+    expect(await routeDemoDoorEvent(event({ visitor: 'arranged' }), { isDemoHome: demoHome, base: w.base })).toBe('sent');
+
+    expect(w.cards[0]!.card).toMatchObject({ line: 'The plumber is at your door.', notice: 'They confirmed it on their phone just now. Guest arranged this visit.', standIn: true });
   });
 
   it('never constructs or calls anything of Ring’s', async () => {

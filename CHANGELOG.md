@@ -4,6 +4,28 @@ Wick's releases. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### The visit pass
+
+From a conversation with a 79-year-old with memory loss and her daughter
+(README, *A real door*): a different doctor each time, nobody she recognises,
+a door kept shut.
+
+- **The visitor proves they are expected.** The member who arranged a visit
+  sends the visitor a link (`make_visit_pass`, the 26th MCP tool). On it the
+  visitor presses *On my way*, *Running late* or *I'm at the door*, and her
+  television says so: on her day, and — for a ring within ten minutes of *I'm
+  at the door* — on the door card: "Doctor Rossi is at your door. They
+  confirmed it on their phone just now." Without a press, the card is as
+  before.
+- **A ring nobody expected says so.** "Nobody is expected at the door now.
+  You don't have to open."
+- **The doctor can be arranged.** `arrange_visit` takes a general
+  clinician's title ("the doctor", "Dr Rossi", "the district nurse"); what
+  they come for is still never said, and the door camera's sentences are
+  unchanged.
+
 ## [1.2.1] — 2026-10-20
 
 What an outside review and an end-to-end run on the Vega Virtual Device and

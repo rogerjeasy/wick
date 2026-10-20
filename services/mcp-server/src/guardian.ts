@@ -80,6 +80,18 @@ export function familyText(text: string, where: string, people: readonly string[
 }
 
 /**
+ * `familyText`, with the household's own people asked for only when the
+ * text would otherwise be held back — as the whole answer's gate does
+ * (`guardTools`) — so a name in another script is not lost here that the
+ * answer's gate would have cleared.
+ */
+export async function familyTextKnowing(text: string, where: string, people?: () => Promise<readonly string[]>): Promise<string | undefined> {
+  if (clears(text)) return text;
+  const known = people ? await people().catch(() => []) : [];
+  return familyText(text, where, known);
+}
+
+/**
  * A name typed for a person (a regular visitor), for the family: itself when
  * the gate clears it as a name, undefined when not. The words after a first
  * name are a surname ("Anna Cash"); policy's clearNameForFamily.

@@ -95,6 +95,7 @@ const CALLS = (): [string, Record<string, unknown>][] => [
   ['arrange_visit', { who: 'the nurse', date: tomorrow(), time: '11:00' }],
   ['get_errands', {}],
   ['cancel_errand', { errandId: 'err_NOSUCHNOSUCHNOSUCHN' }],
+  ['make_visit_pass', { errandId: 'err_NOSUCHNOSUCHNOSUCHN' }],
 ];
 
 describe('the tool contract (outputSchema)', () => {
@@ -102,7 +103,7 @@ describe('the tool contract (outputSchema)', () => {
     const { client } = await demoGuest();
     const { tools } = await client.listTools();
 
-    expect(tools).toHaveLength(25);
+    expect(tools).toHaveLength(26);
     for (const tool of tools) {
       expect(tool.outputSchema, tool.name).toMatchObject({ type: 'object', additionalProperties: false });
       expect(tool.outputSchema!.properties, tool.name).toHaveProperty('say');
@@ -124,7 +125,7 @@ describe('the tool contract (outputSchema)', () => {
       expect(result.structuredContent, name).toBeDefined();
     }
 
-    expect(called.size).toBe(25);
+    expect(called.size).toBe(26);
     expect(invalid.mock.calls.flat().join('\n')).not.toContain('tool_output_invalid');
   });
 });

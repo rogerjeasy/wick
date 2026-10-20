@@ -7,6 +7,7 @@ import { createMemoryTable, type MemoryTable } from '../../__tests__/memoryTable
 import { loadDoorRequest, registerGetDoorRequest } from '../get_door_request.js';
 import { registerAnswerDoorRequest } from '../answer_door_request.js';
 import type { ToolContext } from '../context.js';
+import { guardTools } from '../../guardian.js';
 import { allowedContext } from './toolContext.js';
 
 const NOW = 1_790_900_000_000;
@@ -14,7 +15,7 @@ const MIN = 60_000;
 const PICTURE = 'https://download.example/ring/frame.jpg?sig=abc';
 
 /** A door card on the television, as egress.ts stores it. */
-function putCard(table: MemoryTable, cardId: string, over: { description?: string; imageRef?: string; notice?: string } = {}, expiresAt = NOW + 4 * MIN): void {
+function putCard(table: MemoryTable, cardId: string, over: { line?: string; description?: string; imageRef?: string; notice?: string } = {}, expiresAt = NOW + 4 * MIN): void {
   table.put({
     pk: { S: 'HH#hh-1' },
     sk: { S: `CARD#${cardId}` },
@@ -279,5 +280,39 @@ describe('answer_door_request (through the registered tool)', () => {
     expect(answer.text).toBe('Margaret no longer shares this with you.');
     expect(patches).toEqual([]);
     expect(await loadDoorRequest(table.ddb, 'hh-1', NOW)).toMatchObject({ state: 'waiting' });
+  });
+});
+
+describe('get_door_request — the card’s line, through the gate (INV-4)', () => {
+  /** Behind the Guardian, as every tool is (server.ts createMcpServer). */
+  async function guarded(table: MemoryTable, ctx: ToolContext = allowedContext('hh-1')) {
+    const mcpServer = guardTools(new McpServer({ name: 'test', version: '0.1.0' }), undefined, ctx.people ? () => ctx.people!() : undefined);
+    registerGetDoorRequest(mcpServer, table.ddb, ctx, () => NOW);
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+    return client.callTool({ name: 'get_door_request', arguments: {} });
+  }
+
+  it('says the door’s standard line, not the question withheld, when the card names a visitor the gate cannot clear', async () => {
+    // A visit pass's card says who is at the door in the arranging member's words; to anyone else they are a fact about her health.
+    const table = createMemoryTable();
+    putCard(table, 'door-abc', { line: 'Doctor Rossi is at your door.', imageRef: PICTURE });
+    putLook(table, 'door-abc', NOW - 30_000);
+
+    const result = await guarded(table);
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ state: 'waiting', line: "Someone's at the front door.", pictureUrl: PICTURE, answers: ANSWERS });
+    expect(JSON.stringify(result)).not.toContain('Rossi');
+  });
+
+  it('keeps a line that names one of the household’s own people in another script', async () => {
+    const table = createMemoryTable();
+    putCard(table, 'door-abc', { line: 'Иван is at your door.' });
+    putLook(table, 'door-abc', NOW - 30_000);
+    const ctx: ToolContext = { ...allowedContext('hh-1'), people: async () => ['Иван'] };
+
+    expect((await guarded(table, ctx)).structuredContent).toMatchObject({ state: 'waiting', line: 'Иван is at your door.' });
   });
 });

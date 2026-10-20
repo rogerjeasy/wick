@@ -11,10 +11,15 @@
  *
  * The resident's own name and the home's label are in it as well as the
  * roster and the circle: a sentence about her light names her.
+ *
+ * Not an errand's visitor (`PER#errand:<id>`): named for one visit, in the
+ * arranging member's words — "Doctor Rossi" — and never the household's own
+ * (tools/errandNames.ts).
  */
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { AccountStore } from './accounts/store.js';
 import { loadRoster } from './tools/list_regular_visitors.js';
+import { isErrandPerson } from './tools/errandNames.js';
 
 export async function householdPeople(ddb: DynamoDBClient, store: AccountStore, householdId: string): Promise<readonly string[]> {
   const [household, roster, members] = await Promise.all([
@@ -24,7 +29,7 @@ export async function householdPeople(ddb: DynamoDBClient, store: AccountStore, 
   ]);
   const names = [
     ...(household ? [household.residentName, household.name] : []),
-    ...roster.map((person) => person.name),
+    ...roster.filter((person) => !isErrandPerson(person.personId)).map((person) => person.name),
     ...members.map((member) => member.name),
   ];
   return names.filter((name) => typeof name === 'string' && name.trim() !== '');

@@ -5,7 +5,7 @@
  * came.
  */
 import { describe, expect, it } from 'vitest';
-import { MAX_COMING, errandPersonId, homeIn, memberPersonId, readHerDay } from '@wick/contracts';
+import { MAX_COMING, errandPersonId, homeIn, memberPersonId, readHerDay, visitorDayLine, type VisitorWord } from '@wick/contracts';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { MAX_COMING as EDGE_MAX_COMING, PERSON_SK_PREFIX, clockWords, herDay, localMoment, rosterRange, startOfLocalDay } from '../today.mjs';
 
@@ -24,6 +24,8 @@ const person = (entry: Record<string, unknown>): Row => ({ sk: { S: `${PERSON_SK
 const regular = (name: string, pattern: string, addedBy?: string) => person({ personId: name.toLowerCase(), name, expectedPattern: pattern, ...(addedBy ? { addedBy } : {}) });
 const errand = (who: string, at: number, by = 'u_sarah', byName = 'Sarah Hughes') =>
   person({ personId: errandPersonId('err_aaaaaaaaaaaaaaaaaaaa'), name: who, expectedOnce: { at, windowMin: 60 }, addedBy: by, arrangedByName: byName });
+/** The same visit, with what its visitor last said from their visit pass kept beside the entry (visit-pass.mjs). */
+const said = (row: Row, word: unknown): Row => ({ ...row, visitorWord: { S: typeof word === 'string' ? word : JSON.stringify(word) } });
 const ownVisit = (userId: string, name: string, at: number) => person({ personId: memberPersonId(userId), name, expectedOnce: { at, windowMin: 60 } });
 
 const day = (rosterRows: Row[], homeRows: Row[] = [meta('Margaret Hill'), member('u_sarah')], now = NOW, timeZone = LONDON) =>
@@ -136,6 +138,46 @@ describe('who is coming', () => {
   it('leaves out a row it cannot read, and never throws over one', () => {
     const broken: Row[] = [{ sk: { S: 'PER#x' }, data: { S: '{not json' } }, { sk: { S: 'PER#y' } }, regular('Maria', 'every day at nine', 'u_sarah')];
     expect(lines(day(broken))).toEqual([]);
+  });
+});
+
+describe('a visit whose visitor has said something from their visit pass', () => {
+  const visit = errand('Doctor Rossi', Date.parse('2026-10-19T09:18:00Z'));
+
+  it('says what they said in place of "is expected": on the way, late by how much, at the door', () => {
+    const at = Date.parse('2026-10-19T08:10:00Z');
+    expect(lines(day([said(visit, { says: 'on_way', at })]))).toEqual(['Doctor Rossi is on the way. Sarah arranged it.']);
+    expect(lines(day([said(visit, { says: 'late', at, lateMinutes: 30 })]))).toEqual(['Doctor Rossi will be about 30 minutes late.']);
+    expect(lines(day([said(visit, { says: 'at_door', at })]))).toEqual(['Doctor Rossi says they are at your door. Sarah arranged it.']);
+  });
+
+  it('is said until the visit’s window is over, as before — running late does not move it', () => {
+    const today = day([said(visit, { says: 'late', at: NOW, lateMinutes: 45 })]);
+    expect(today.coming[0]!.until).toBe(Date.parse('2026-10-19T10:18:00Z'));
+    expect(lines(day([said(visit, { says: 'late', at: NOW, lateMinutes: 45 })], undefined, Date.parse('2026-10-19T10:19:00Z')))).toEqual([]);
+  });
+
+  it('is the contract’s sentence, word for word', () => {
+    const words: VisitorWord[] = [{ says: 'on_way', at: NOW }, { says: 'late', at: NOW, lateMinutes: 15 }, { says: 'at_door', at: NOW }];
+    for (const word of words) {
+      expect(lines(day([said(errand('the district nurse', Date.parse('2026-10-19T09:18:00Z')), word)]))).toEqual([visitorDayLine('the district nurse', word, 'Sarah Hughes')]);
+      expect(lines(day([said(errand('Doctor Rossi', Date.parse('2026-10-19T09:18:00Z'), 'u_sarah', ''), word)]))).toEqual([visitorDayLine('Doctor Rossi', word, '')]);
+    }
+  });
+
+  it('a word it cannot read leaves the line as it was', () => {
+    for (const word of ['{not json', { says: 'come_in', at: NOW }, { says: 'late', at: NOW }]) {
+      expect(lines(day([said(visit, word)]))).toEqual(['Doctor Rossi is expected today at 10:18 am. Sarah arranged it.']);
+    }
+  });
+
+  it('only for a visit a member arranged: a word on any other row says nothing', () => {
+    expect(lines(day([said(regular('Maria', 'MON 10:00±30m', 'u_sarah'), { says: 'on_way', at: NOW })]))).toEqual(['Maria usually comes today at 10 am.']);
+  });
+
+  it('stays in English, whole, in Spanish: who is coming is the member’s own words', () => {
+    const today = day([said(visit, { says: 'on_way', at: NOW })]);
+    expect(homeIn('es', { today }).today?.coming.map((c) => c.line)).toEqual(['Doctor Rossi is on the way. Sarah arranged it.']);
   });
 });
 

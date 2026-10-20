@@ -60,6 +60,7 @@ import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToD
 import { createRhythmWriter } from '../../rhythm/writeClient.js';
 import { devicesOfHousehold, ringDeviceOwners, type DdbSend } from '../../store/ringDevices.js';
 import { heardStore, type HeardSend } from '../../store/heard.js';
+import { visitorWordStore, type VisitorWordSend } from '../../store/visitorWord.js';
 import { lookStore, type LookSend } from '../../store/looks.js';
 import { buildDoorActivityKey, buildPresenceKey } from '../../rhythm/records.js';
 
@@ -110,6 +111,8 @@ const rhythmWriter = createRhythmWriter(ddb, TABLE);
 const ringDevices = ringDeviceOwners((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
 const heard = heardStore((cmd) => ddb.send(cmd as never) as ReturnType<HeardSend>, TABLE);
 const visits = visitStore((cmd) => ddb.send(cmd as never) as ReturnType<VisitSend>, TABLE);
+// What an arranged visitor said from their visit pass, read fresh for a ring matched to their visit (route.ts).
+const visitorWords = visitorWordStore((cmd) => ddb.send(cmd as never) as ReturnType<VisitorWordSend>, TABLE);
 
 async function loadRoster(householdId: string): Promise<readonly RosterEntry[]> {
   const rows = (prefix: string) => ddb.send(new QueryCommand({
@@ -208,6 +211,7 @@ function standInBase(): StandInBase {
     // Each home's own clock: a regular visitor's "09:00" is read on it.
     timeZoneOf: (householdId) => loadHouseholdTimeZone(ddb, TABLE, householdId),
     heard: (householdId, at) => heard.record(householdId, at, { simulated: true }),
+    visitorWordOf: visitorWords.rosterWord,
   };
 }
 
@@ -248,13 +252,14 @@ async function routeRing(detail: Record<string, unknown>): Promise<RouteResult> 
       recordPresenceActivity: (personId, at) => recordPresenceActivity(householdId, personId, at),
       noteSighting: async (match, at) => void (await noteDoorSighting({ householdId, match, at }, visits)),
       sendToDevice: (card, ringDeviceId) => realSendToDevice(card, DEFAULT_POLICY, { ringDeviceId }),
-      runPhase2: (cardId, event) =>
+      runPhase2: (cardId, event, options) =>
         runDoorPhase2(cardId, {
           fetchImage: withinDeadline(() => imageForEvent(ringClient, event.deviceId, event), FRAME_DEADLINE_MS, 'frame_deadline'),
           describe,
           sendPatch: (patch) => realSendPatchToDevice(patch, householdId),
-        }, event.eventType),
+        }, event.eventType, options),
       announceRing,
+      visitorWordOf: (errandId) => visitorWords.rosterWord(householdId, errandId),
       now: Date.now,
       // This home's own clock: a regular visitor's "09:00" is read on it.
       timeZone: await loadHouseholdTimeZone(ddb, TABLE, householdId),

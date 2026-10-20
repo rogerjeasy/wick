@@ -197,7 +197,14 @@ export function createMemoryTable(): MemoryTable {
         return query(input);
       case 'TransactWriteItemsCommand': {
         // All or nothing, as DynamoDB does it. Only the conditions the server uses are understood.
-        type Guarded = { Key?: Item; Item?: Item; ConditionExpression?: string; ExpressionAttributeValues?: Record<string, AttributeValue> };
+        type Guarded = {
+          Key?: Item;
+          Item?: Item;
+          ConditionExpression?: string;
+          UpdateExpression?: string;
+          ExpressionAttributeNames?: Names;
+          ExpressionAttributeValues?: Record<string, AttributeValue>;
+        };
         const writes = (input as unknown as { TransactItems: { Put?: Guarded; Delete?: Guarded; Update?: Guarded; ConditionCheck?: Guarded }[] }).TransactItems;
         const holds = (op: Guarded): boolean => {
           const held = items.get(keyOf(op.Key ?? op.Item!));
@@ -210,7 +217,7 @@ export function createMemoryTable(): MemoryTable {
             case '#d = :seen': return held?.data?.S === values[':seen']?.S;
             case 'attribute_not_exists(pk) OR #s <> :allowed': return held === undefined || held.status?.S !== values[':allowed']?.S;
             // Anything else is read as an UpdateItem's condition is; what that cannot read still throws.
-            default: return conditionHolds(op.ConditionExpression, held, {}, values);
+            default: return conditionHolds(op.ConditionExpression, held, op.ExpressionAttributeNames ?? {}, values);
           }
         };
         if (!writes.every((w) => holds((w.Put ?? w.Delete ?? w.Update ?? w.ConditionCheck)!))) {
@@ -219,7 +226,11 @@ export function createMemoryTable(): MemoryTable {
         for (const { Put, Delete, Update } of writes) {
           if (Put) items.set(keyOf(Put.Item!), Put.Item!);
           if (Delete) items.delete(keyOf(Delete.Key!));
-          if (Update) items.set(keyOf(Update.Key!), { ...Update.Key!, version: Update.ExpressionAttributeValues![':next']! });
+          // As an UpdateItem is applied (the roster's version, a visit pass's hash on its errand).
+          if (Update) {
+            const held = items.get(keyOf(Update.Key!)) ?? Update.Key!;
+            items.set(keyOf(Update.Key!), applySet(Update.UpdateExpression!, held, Update.ExpressionAttributeNames ?? {}, Update.ExpressionAttributeValues ?? {}));
+          }
         }
         return {};
       }

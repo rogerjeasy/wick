@@ -8,11 +8,11 @@
  * Ring value: what is Ring's arrives through `RouteDeps`.
  */
 import type { RingDevice, RingHistoryEvent } from '@wick/ring';
-import type { DoorRangDetail, QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
+import { errandIdOf, visitorSaidFresh, type DoorRangDetail, type QueuedCard, type RosterEntry, type VisitorMatch, type VisitorWord } from '@wick/contracts';
 import { handleDoorEvent } from './handle.js';
 import { isDoorWorthy, isDoorbellEvent, toRingHistoryEvent } from './parseEvent.js';
 import { matchVisitor } from './roster.js';
-import type { Phase2Outcome } from './phase2.js';
+import type { Phase2Options, Phase2Outcome } from './phase2.js';
 
 export type RouteResult = 'sent' | 'skipped' | 'unknown_device' | 'unclaimed_device';
 
@@ -50,7 +50,16 @@ export interface RouteDeps {
    */
   readonly noteSighting: (match: VisitorMatch | undefined, at: number) => Promise<void>;
   readonly sendToDevice: (card: QueuedCard, ringDeviceId: string) => Promise<void>;
-  readonly runPhase2: (cardId: string, event: RingHistoryEvent) => Promise<Phase2Outcome>;
+  /** `options` only when Phase 1 settled something Phase 2 must leave alone: a headline the visitor confirmed. */
+  readonly runPhase2: (cardId: string, event: RingHistoryEvent, options?: Phase2Options) => Promise<Phase2Outcome>;
+  /**
+   * What the visitor of an arranged visit last said from their visit pass
+   * (contracts visitPass.ts): the `visitorWord` on that errand's roster
+   * row, read fresh — the roster itself is a minute old (rosterCache.ts),
+   * and "I'm at the door" may be seconds old. Asked only for a ring matched
+   * to an errand. Absent, nobody is ever confirmed.
+   */
+  readonly visitorWordOf?: (errandId: string) => Promise<VisitorWord | undefined>;
   /**
    * Says on the bus that the door rang (announce.ts), for a visit errand
    * waiting for it. After the card, and best-effort: a failure is logged.
@@ -114,11 +123,16 @@ export async function routeRingEvent(
   const hallwayChime = ringUnanswered ? false : await deps.hasHallwayChime().catch(() => false);
   const family = await deps.listFamily().catch(() => []);
 
+  // Only a ring is a visitor: somebody seen who did not ring is not taken for the one expected (index.ts buildPhaseOneCard).
+  const match = seenOnly ? undefined : matchVisitor(roster, event.start, deps.timeZone);
+  const confirmedPersonId = await confirmedAtTheDoor(match, event.start, deps, correlationId);
+
   const queued = await handleDoorEvent(
     {
       event, device, hallwayChime, householdId: deps.householdId, correlationId, now: deps.now(), timeZone: deps.timeZone, roster, family,
       ...(deps.standIn ? { standIn: true } : {}),
       ...(ringUnanswered ? { ringUnanswered: true } : {}),
+      ...(confirmedPersonId ? { confirmedPersonId } : {}),
     },
     { sendToDevice: deps.sendToDevice },
   );
@@ -164,8 +178,6 @@ export async function routeRingEvent(
     }));
   }
 
-  // Only a ring is a visitor: somebody seen who did not ring is not taken for the one expected (index.ts buildPhaseOneCard).
-  const match = seenOnly ? undefined : matchVisitor(roster, event.start, deps.timeZone);
   if (match) {
     try {
       await deps.recordPresence(match, event.start);
@@ -196,7 +208,8 @@ export async function routeRingEvent(
   }
 
   try {
-    const outcome = await deps.runPhase2(queued.id, event);
+    // A headline the visitor confirmed stays: the frame describes the step, and does not take back what they said.
+    const outcome = confirmedPersonId ? await deps.runPhase2(queued.id, event, { keepLine: true }) : await deps.runPhase2(queued.id, event);
     console.log(JSON.stringify({ level: 'info', msg: 'phase2_outcome', correlationId, ...outcome }));
   } catch (err) {
     console.error(JSON.stringify({
@@ -206,6 +219,31 @@ export async function routeRingEvent(
   }
 
   return 'sent';
+}
+
+/**
+ * The roster entry whose visitor said "I'm at the door" on their pass near
+ * enough to this ring to be about it, or undefined. A ring matched to an
+ * arranged visit only, and one read: a failed read costs the confirmation,
+ * never the card, and is logged with the ids alone.
+ */
+async function confirmedAtTheDoor(
+  match: VisitorMatch | undefined,
+  ringAt: number,
+  deps: RouteDeps,
+  correlationId: string,
+): Promise<string | undefined> {
+  const errandId = match ? errandIdOf(match.personId) : undefined;
+  if (!match || !errandId || !deps.visitorWordOf) return undefined;
+  try {
+    return visitorSaidFresh(await deps.visitorWordOf(errandId), ringAt) ? match.personId : undefined;
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'error', msg: 'visitor_word_unread', correlationId, errandId,
+      err: err instanceof Error ? err.name || err.message : String(err),
+    }));
+    return undefined;
+  }
 }
 
 export interface HouseholdRouting {

@@ -432,7 +432,7 @@ export function createFamilyTelevision(deps: FamilyTelevisionDeps): FamilyTelevi
    * answered — for the home screen, not for what is waiting.
    */
   async function doorCard(who: Caller, at: number, settled: boolean): Promise<Ranked | undefined> {
-    const request = await loadDoorRequest(ddb, who.householdId, at);
+    const request = await loadDoorRequest(ddb, who.householdId, at, () => householdPeople(ddb, deps.store, who.householdId));
     if (!request) return undefined;
     const id = familyTvCardId('door_look', request.requestId);
 

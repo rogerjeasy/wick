@@ -66,7 +66,7 @@ describe('createApp', () => {
     expect(h.cards.map((c) => c.card)).toContainEqual(expect.objectContaining({ type: 'MESSAGE', transcript: 'Lunch on Sunday?', householdId: sarah.householdId }));
   });
 
-  it('exposes exactly the twenty-five deployed tools — the registered set IS the deploy contract', async () => {
+  it('exposes exactly the twenty-six deployed tools — the registered set IS the deploy contract', async () => {
     const { h } = await server();
     const sarah = await linkNewOrganiser(h);
     const { client } = await mcpClient(h, sarah);
@@ -98,6 +98,7 @@ describe('createApp', () => {
         'invite_to_watch',
         'join_watch_together',
         'list_regular_visitors',
+        'make_visit_pass',
         'send_note_to_tv',
         'withdraw_watch_invitation',
       ].sort(),

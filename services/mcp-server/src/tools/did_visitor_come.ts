@@ -29,6 +29,7 @@ import { localDayCode, localDayStart, localMinuteOfDay, padTimestamp as padTs, p
 import { visitStore, type VisitSend } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
+import { errandVisitorForFamily, isErrandPerson } from './errandNames.js';
 import { loadHouseholdPolicy, isSharedWithFamily, FAMILY_REFUSAL_TEXT } from './get_resident_shared_view.js';
 import { withFriendlyErrors } from './errors.js';
 import { answerSchema, READS, data, say } from './result.js';
@@ -128,7 +129,8 @@ export async function checkVisitor(
     confirmed: Boolean(confirmedVisit),
     doorWhenExpected: Boolean(atDoor),
     ...(at !== undefined ? { at } : {}),
-    name: roster.name,
+    // An errand's visitor, in the arranging member's words: said as "a visitor Sarah arranged" where the gate cannot clear them (errandNames.ts).
+    name: isErrandPerson(roster.personId ?? personId) ? errandVisitorForFamily(roster.name, roster.arrangedByName) : roster.name,
     // `now` is the start of the day asked, where the house is (when.ts): its weekday is read there.
     expectedToday: expectedToday(roster.expectedPattern, now, timeZone),
     usualTimeOver: usualTimeOver(roster.expectedPattern, now, askedAt, timeZone),

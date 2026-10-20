@@ -9,22 +9,33 @@
  * "Someone rang at 10:04 am, around when the plumber was expected" — never
  * "the plumber came". Nothing the operator keeps — the execution, the
  * door's token — is ever in it.
+ *
+ * Who is coming is the member's own words, and may be a general
+ * clinician's title ("Doctor Rossi", policy's clearVisitorForFamily), which
+ * the Guardian would not clear in any other sentence. So an answer marks
+ * them, and the sentences Wick built around them, as the reader's own
+ * (`toItsAuthor`) — only for the member who arranged the errand.
  */
 import { z } from 'zod';
 import { SFNClient, StartExecutionCommand, StopExecutionCommand } from '@aws-sdk/client-sfn';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { errandStore, windowEndOf, type ErrandExecutionInput, type ErrandSend, type ErrandStore, type HeldErrand } from '@wick/agent';
-import { ERRAND_STATUSES, clockTime } from '@wick/contracts';
+import { ERRAND_STATUSES, VISITOR_SAYS, clockTime, type VisitorWord } from '@wick/contracts';
+import { clearForFamily, clearVisitorForFamily } from '@wick/policy';
+import { theirOwnWords } from '../guardian.js';
 
 const TABLE = process.env.TABLE_NAME ?? 'wick';
 
 export const ERRANDS_UNAVAILABLE_TEXT = 'This Wick cannot arrange visits yet.';
 export const ARRANGE_BAD_WHO_TEXT = 'I need who is coming, in a few words, like the plumber.';
 /**
- * Who is coming, in words the Guardian cannot clear: a role ("the nurse"),
- * or letters it cannot read. The member's own word, so they are told
- * plainly why — the errand's words are read back to them and on the door
- * card, and a clinical role is a fact about her health (INV-4).
+ * Who is coming, in words the Guardian cannot clear even with a general
+ * clinician's title set aside (policy's clearVisitorForFamily): a title that
+ * says what the visit is for ("the psychiatrist"), another protected word
+ * ("Dr Patel about her dialysis"), or letters it cannot read. The member's
+ * own word, so they are told plainly why — the errand's words are read back
+ * to them and on the door card, and what the visit is for is a fact about
+ * her health (INV-4).
  */
 export const ARRANGE_WHO_NOT_SHARED_TEXT =
   'I need another word for who is coming, like the plumber or Dave: not a title or what they come for, because what you call them is read back by Wick.';
@@ -126,6 +137,32 @@ export interface ErrandView {
   readonly status: HeldErrand['status'];
   readonly rangAt?: number;
   readonly said: string;
+  /** Whether the visit has a link for its visitor (make_visit_pass). Never the link, nor its hash. */
+  readonly hasPass: boolean;
+  /** What the visitor last said from the link. */
+  readonly visitor?: VisitorWord;
+  /** The same, in one sentence: "Doctor Rossi said at 9:41 am that they were on the way." */
+  readonly visitorSaid?: string;
+}
+
+/** "the nurse" -> "The nurse": the first word of a sentence. The member's own words are otherwise kept as typed. */
+const opening = (words: string): string => (words ? words[0]!.toLocaleUpperCase('en-GB') + words.slice(1) : words);
+
+/**
+ * What the visitor said from the link, as the member is told it. Their
+ * words, not Wick's finding: "said that they were at the door", never "is
+ * at the door".
+ */
+export function visitorSentence(who: string, word: VisitorWord, timeZone: string): string {
+  const said = `${opening(who)} said at ${clockTime(word.at, timeZone)} that`;
+  switch (word.says) {
+    case 'on_way':
+      return `${said} they were on the way.`;
+    case 'late':
+      return `${said} they would be about ${word.lateMinutes} minutes late.`;
+    case 'at_door':
+      return `${said} they were at the door.`;
+  }
 }
 
 /** An errand as its author is shown it: named fields only, so nothing the operator keeps can slip in. */
@@ -142,7 +179,35 @@ export function errandView(errand: HeldErrand, residentName: string, timeZone: s
     status: errand.status,
     ...(errand.rangAt === undefined ? {} : { rangAt: errand.rangAt }),
     said: errandSentence(errand, residentName, timeZone),
+    hasPass: errand.passHash !== undefined,
+    ...(errand.visitorWord === undefined ? {} : { visitor: errand.visitorWord, visitorSaid: visitorSentence(errand.who, errand.visitorWord, timeZone) }),
   };
+}
+
+/**
+ * Whether the words for who is coming may be kept on an errand: as text, as
+ * a name, or with a general clinician's title set aside (policy's
+ * clearVisitorForFamily). Logged, never the words, when not.
+ */
+export function visitorWordsClear(who: string): boolean {
+  if (clearVisitorForFamily(who)) return true;
+  const clearance = clearForFamily(who);
+  console.warn(JSON.stringify({ level: 'warn', msg: 'guardian_withheld', where: 'errand.who', at: '$', classes: clearance.cleared ? [] : clearance.classes }));
+  return false;
+}
+
+/** The strings of an errand as shown that are its author's words, or built around them. */
+const wordsOf = (view: ErrandView): string[] => [view.who, view.said, ...(view.visitorSaid === undefined ? [] : [view.visitorSaid])];
+
+/**
+ * An answer about errands, with each errand's words marked as the reader's
+ * own (guardian.ts `theirOwnWords`) where the reader is the errand's author,
+ * and only there (INV-2): anyone else's errand is read by the gate as any
+ * answer is. `shown`: each errand in the answer, beside its view.
+ */
+export function toItsAuthor<T extends object>(result: T, readerId: string, shown: readonly { readonly errand: HeldErrand; readonly view: ErrandView }[]): T {
+  const words = shown.filter(({ errand }) => errand.createdBy === readerId).flatMap(({ view }) => wordsOf(view));
+  return words.length === 0 ? result : theirOwnWords(result, words);
 }
 
 /** Over, and not to be shown after a week: the window has passed, whatever came of it. */
@@ -161,4 +226,11 @@ export const ERRAND_VIEW = z.strictObject({
   status: z.enum(ERRAND_STATUSES).describe('planned, reminded, waiting (the door is watching), rang, no_show, cancelled or failed.'),
   rangAt: z.number().optional().describe('When the doorbell rang inside the window. Somebody rang: the door cannot say who.'),
   said: z.string().describe('How it stands, in one sentence to tell as it is.'),
+  hasPass: z.boolean().describe('Whether the visitor has been given a link (make_visit_pass) to say they are on the way, running late, or at the door.'),
+  visitor: z.strictObject({
+    says: z.enum(VISITOR_SAYS).describe('on_way, late or at_door.'),
+    at: z.number().describe('When they said it, epoch ms.'),
+    lateMinutes: z.number().optional().describe('"late": how late, in minutes, all told.'),
+  }).optional().describe('What the visitor last said from the link. Their word, pressed on their phone: not something Wick saw.'),
+  visitorSaid: z.string().optional().describe('The same, in one sentence to tell as it is.'),
 });

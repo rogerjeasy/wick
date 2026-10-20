@@ -169,6 +169,7 @@ locals {
     pair_claim          = aws_lambda_function.pair_claim.function_name
     pair_status         = aws_lambda_function.pair_status.function_name
     pair_refresh        = aws_lambda_function.pair_refresh.function_name
+    visit_pass          = aws_lambda_function.visit_pass.function_name
   }
 }
 

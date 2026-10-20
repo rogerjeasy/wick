@@ -75,7 +75,7 @@ import {
 import { presentHome } from './home.js';
 import { icon } from './vendor/icons.generated.js';
 import { animate, stagger } from './vendor/motion.generated.js';
-import { ARRANGE_NEEDS_ASSISTANT, errandNews } from './errands.js';
+import { ARRANGE_NEEDS_ASSISTANT, errandNews, passOffer, sendVisitLink, visitLinkWords } from './errands.js';
 import {
   DELETED_SAID,
   EXPORT_SAID,
@@ -701,7 +701,7 @@ $('home-toggle')?.addEventListener('click', () => openSheet($('home-sheet')));
 /** The icon a card's kind is known by (DESIGN.md §5): beside its title, never alone. */
 const CARD_ICONS = [
   ['door', 'bell'], ['week', 'calendar-days'], ['reach', 'phone'], ['visits', 'door-open'], ['watch', 'clapperboard'],
-  ['errand', 'calendar-check'], ['confirmation', 'circle-check'], ['note', 'message-square'], ['replies', 'message-square-reply'],
+  ['errand', 'calendar-check'], ['visit-pass', 'link'], ['confirmation', 'circle-check'], ['note', 'message-square'], ['replies', 'message-square-reply'],
   ['circle', 'users'], ['television', 'tv'], ['language', 'languages'], ['picture', 'image'], ['checklist', 'list-checks'],
   ['doorbell', 'bell-ring'], ['standin', 'bell-ring'], ['account', 'user'], ['notifications', 'bell'], ['help', 'circle-question-mark'],
   ['list', 'list'],
@@ -1101,6 +1101,7 @@ function renderCard(card, said) {
   if (card.kind === 'invitation') return renderInvitationCard(card);
   if (card.kind === 'light') return renderLightCard(card);
   if (card.kind === 'errand') return renderErrandCard(card);
+  if (card.kind === 'visit-pass') return renderVisitPassCard(card);
   const node = el('article', `card ${card.kind ?? ''}`.trim());
   cardHead(node, card.title, card.meta);
 
@@ -1634,6 +1635,8 @@ if ('serviceWorker' in navigator) {
     if (event.data.kind === 'door_look') void lookForDoorQuestion();
     if (event.data.kind === 'reach_ring' || event.data.kind === 'reach_hello') void lookForReach();
     if (event.data.kind === 'errand_rang' || event.data.kind === 'errand_no_show') void lookAtErrands();
+    // The visitor of a visit this person arranged said something from the link they were sent (errands.js errandNews).
+    if (event.data.kind === 'visitor_on_way' || event.data.kind === 'visitor_late' || event.data.kind === 'visitor_at_door') void lookAtErrands();
   });
 }
 
@@ -2073,8 +2076,9 @@ function renderInvitationCard(card) {
 
 // ---------------------------------------------------------------------------
 // Visit errands (errands.js): a visit the member arranged, as a card with its
-// steps, and the one thing that can be done about it from here while it is
-// still to come — calling it off, after the usual question.
+// steps, and the two things that can be done about it from here while it is
+// still to come — sending its visitor a link, and calling it off, after the
+// usual question.
 // ---------------------------------------------------------------------------
 
 /** The errands last shown as finished, so a nudge announces each ending once (errands.js errandNews). */
@@ -2101,15 +2105,116 @@ function renderErrandEntry(entry) {
     steps.appendChild(item);
   }
   section.appendChild(steps);
+  // What the visitor said last from their link, in the server's words: under the steps, because it is not one.
+  if (entry.visitorSaid) {
+    const word = el('p', 'errand-visitor');
+    word.append(icon({ on_way: 'send', late: 'clock', at_door: 'door-open' }[entry.visitorSays] ?? 'message-square'), el('span', undefined, entry.visitorSaid));
+    section.appendChild(word);
+  }
   if (entry.cancellable) {
     const actions = el('div', 'actions');
+    if (entry.pass) {
+      const send = el('button', 'btn errand-send');
+      send.type = 'button';
+      send.append(icon('link'), el('span', 'label', entry.pass.label));
+      send.addEventListener('click', () => void sendVisitPass(section, entry, send));
+      actions.appendChild(send);
+    }
     const callOff = el('button', 'btn quiet', 'Call it off');
     callOff.type = 'button';
     callOff.addEventListener('click', () => void callOffErrand(section, entry, callOff));
     actions.appendChild(callOff);
     section.appendChild(actions);
+    if (entry.pass) {
+      const note = el('p', 'errand-pass-note', entry.pass.note);
+      note.setAttribute('aria-live', 'polite');
+      section.appendChild(note);
+    }
   }
   return section;
+}
+
+/**
+ * The link, once made: shown, selectable, with a button for the share sheet
+ * where the browser has one and one to copy it, and a line saying what
+ * became of it (errands.js visitLinkWords). A press on either button is a
+ * press of its own, so a browser that refused the sheet after the wait for
+ * the server opens it now.
+ */
+function showVisitLink(box, pass, how) {
+  const input = el('input', 'linkbox');
+  input.readOnly = true;
+  input.value = pass.link;
+  input.setAttribute('aria-label', `Link for ${pass.who}`);
+  input.addEventListener('focus', () => input.select());
+  const words = el('p', 'errand-link-words', visitLinkWords(how, pass.who));
+  words.setAttribute('role', 'status');
+  const actions = el('div', 'actions');
+  if (typeof navigator.share === 'function') {
+    const share = el('button', 'btn final', 'Share link');
+    share.type = 'button';
+    share.addEventListener('click', async () => {
+      words.textContent = visitLinkWords(await sendVisitLink(pass, navigator), pass.who);
+    });
+    actions.appendChild(share);
+  }
+  const copy = el('button', 'btn quiet', how === 'copied' ? 'Copied' : 'Copy link');
+  copy.type = 'button';
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(pass.link);
+      copy.textContent = 'Copied';
+      words.textContent = visitLinkWords('copied', pass.who);
+    } catch {
+      input.focus();
+      words.textContent = visitLinkWords('shown', pass.who);
+    }
+  });
+  actions.appendChild(copy);
+  box.replaceChildren(input, actions, words);
+  box.hidden = false;
+  if (how === 'shown') input.focus();
+}
+
+/**
+ * "Send a link to Doctor Rossi": make_visit_pass, then the share sheet, the
+ * clipboard, or the link shown (errands.js sendVisitLink). The press is the
+ * member's choice, so it is not asked about again; what a second link does
+ * to the first is said beside the button before it is pressed.
+ */
+async function sendVisitPass(section, entry, button) {
+  const note = section.querySelector('.errand-pass-note');
+  try {
+    const result = await callTool('make_visit_pass', { errandId: entry.errandId });
+    const presented = presentResult('make_visit_pass', result.content?.[0]?.text ?? '', {}, formatTime, result.isError === true);
+    if (presented.card?.kind !== 'visit-pass') {
+      // A refusal, in the server's words: the visit is over, or it is not this person's.
+      if (note) note.textContent = presented.say;
+      return;
+    }
+    let box = section.querySelector('.errand-link');
+    if (!box) {
+      box = el('div', 'errand-link');
+      section.appendChild(box);
+    }
+    showVisitLink(box, presented.card, await sendVisitLink(presented.card, navigator));
+    // A link exists now: the button sends a new one, which replaces it.
+    const again = passOffer({ who: entry.who, hasPass: true });
+    button.querySelector('.label').textContent = again.label;
+    if (note) note.textContent = again.note;
+  } catch (err) {
+    if (note) note.textContent = err.message;
+  }
+}
+
+/** A link the assistant made in conversation (make_visit_pass): the same link, to share or copy. */
+function renderVisitPassCard(card) {
+  const node = el('article', 'card visit-pass');
+  cardHead(node, card.title, card.meta);
+  const box = el('div', 'errand-link');
+  showVisitLink(box, card, 'ready');
+  node.append(box, cardFoot(card.footnote));
+  return node;
 }
 
 function renderErrandCard(card) {
@@ -2156,15 +2261,16 @@ async function lookAtErrands() {
     if (result.isError === true) return;
     const news = errandNews(result.content?.[0]?.text ?? '', errandSeen);
     if (!news) return;
-    errandSeen.set(news.errandId, news.status);
-    const presented = presentResult('get_errands', JSON.stringify({ errands: [news.view] }), {}, formatTime);
+    errandSeen.set(news.errandId, news.key);
+    // Said in the server's sentence for what is news: the ring, or what the visitor said.
+    const presented = { ...presentResult('get_errands', JSON.stringify({ errands: [news.view] }), {}, formatTime), say: news.say };
     const entry = presented.card?.kind === 'errand' ? presented.card.errands[0] : undefined;
     const onThePage = [...document.querySelectorAll('.errand-entry')].filter((section) => section.dataset.errand === news.errandId);
     if (entry && onThePage.length > 0) {
       for (const section of onThePage) section.replaceWith(renderErrandEntry(entry));
       return;
     }
-    errandsToCome.delete(news.errandId);
+    if (news.ended) errandsToCome.delete(news.errandId);
     assistantSays(presented);
   } catch {
     // A look that failed is tried again at the next nudge, or the next look; nothing is said about it.

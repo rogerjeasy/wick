@@ -12,6 +12,11 @@
  * same turn), the door told, her reminder, and how it ended — somebody rang,
  * or nobody came. The words are the server's: the door knows that somebody
  * rang and when, never who it was.
+ *
+ * While a visit is still to come, the member can send its visitor a link
+ * (make_visit_pass; packages/contracts visitPass.ts): the visitor's page,
+ * visit.html, where they say they are on the way, running late or at the
+ * door. What they said last is shown under the steps, in the server's words.
  */
 
 /** The chip. It puts an example in the field to be changed, rather than sending it: the visit is the member's to describe. */
@@ -41,7 +46,7 @@ const REMINDER_WORDS = {
   none: 'No reminder',
 };
 
-const ERRAND_TOOLS = ['arrange_visit', 'get_errands', 'cancel_errand'];
+const ERRAND_TOOLS = ['arrange_visit', 'get_errands', 'cancel_errand', 'make_visit_pass'];
 const OPEN = ['planned', 'reminded', 'waiting'];
 const NUMBER_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 
@@ -50,6 +55,7 @@ export function describeErrandCall(toolName) {
   if (toolName === 'arrange_visit') return 'Arranged the visit';
   if (toolName === 'get_errands') return 'Looked at the visits you arranged';
   if (toolName === 'cancel_errand') return 'Called off the visit';
+  if (toolName === 'make_visit_pass') return 'Made a link for the visitor';
   return undefined;
 }
 
@@ -57,6 +63,7 @@ export function describeErrandCall(toolName) {
 export const ERRAND_DECLINED_TRACE = {
   arrange_visit: 'Did not arrange it',
   cancel_errand: 'Did not call it off',
+  make_visit_pass: 'Did not make a link',
 };
 
 /**
@@ -86,9 +93,35 @@ function stepsOf(view) {
   return [{ label: 'Door told', state: failed ? 'stopped' : 'done' }, reminder, outcome];
 }
 
+/**
+ * The button that sends the visitor a link, and the line under it. A second
+ * link replaces the first (the server deletes the old pass), so once there
+ * is one the member is told that before pressing.
+ *
+ * @param {{ who: string, hasPass?: boolean }} view
+ */
+export function passOffer(view) {
+  return view.hasPass === true
+    ? { label: 'Send the link again', note: 'A new link replaces the one you sent before, which then stops working.' }
+    : { label: `Send a link to ${view.who}`, note: 'From their phone they can say they are on the way, running late or at the door, and her television says so.' };
+}
+
+const VISITOR_SAYS = ['on_way', 'late', 'at_door'];
+
 function entryOf(view) {
   shown.set(view.errandId, { who: view.who, when: view.when });
-  return { errandId: view.errandId, who: view.who, when: view.when, said: view.said, steps: stepsOf(view), cancellable: OPEN.includes(view.status) };
+  const open = OPEN.includes(view.status);
+  const visitorSaid = typeof view.visitorSaid === 'string' && view.visitorSaid ? view.visitorSaid : undefined;
+  return {
+    errandId: view.errandId,
+    who: view.who,
+    when: view.when,
+    said: view.said,
+    steps: stepsOf(view),
+    cancellable: open,
+    ...(open ? { pass: passOffer(view) } : {}),
+    ...(visitorSaid ? { visitorSaid, visitorSays: VISITOR_SAYS.includes(view.visitor?.says) ? view.visitor.says : undefined } : {}),
+  };
 }
 
 function card(views, fromArrange = false) {
@@ -129,7 +162,82 @@ export function presentErrand(toolName, parsed) {
   if (toolName === 'cancel_errand' && parsed.cancelled === true && isView(parsed.errand)) {
     return { say: `Called off. The door is no longer expecting ${parsed.errand.who}, and nothing more will be sent.`, tone: 'answer', card: card([parsed.errand]) };
   }
+  if (toolName === 'make_visit_pass' && isPass(parsed)) return { say: parsed.said, tone: 'answer', card: passCard(parsed) };
   return undefined;
+}
+
+/** A link the server made: on the family app's own site, over https, to the visitor's page (contracts VISIT_PAGE_PATH). */
+const isPass = (p) => {
+  if (typeof p.who !== 'string' || typeof p.said !== 'string' || typeof p.link !== 'string') return false;
+  try {
+    const url = new URL(p.link);
+    return (url.protocol === 'https:' || url.hostname === '127.0.0.1' || url.hostname === 'localhost') && url.pathname.endsWith('/visit.html') && url.hash.length > 1;
+  } catch {
+    return false;
+  }
+};
+
+/** The card for a link made: what is shared, and what it can and cannot do. */
+function passCard(pass) {
+  return {
+    kind: 'visit-pass',
+    title: `A link for ${pass.who}`,
+    meta: '',
+    link: pass.link,
+    who: pass.who,
+    said: pass.said,
+    footnote: 'Whoever has this link can say they are on the way, running late or at the door, and nothing more. It works from three hours before the visit until it is over.',
+  };
+}
+
+/**
+ * What goes with the link into the visitor's WhatsApp, text or email. The
+ * page's own words, never the server's sentence to the member: a message
+ * the member forwards may be read by anyone, so it names nobody — not her,
+ * not the member, not the visitor — and no place.
+ */
+export const VISITOR_SHARE_TEXT = 'This is the link for your visit. Press On my way, Running late or I’m at the door, so the house knows. It works only around the time of the visit.';
+
+/**
+ * Sends the link: the phone's share sheet where there is one (WhatsApp,
+ * Messages, email — the member chooses), else the clipboard, else neither
+ * and the page shows the link to be copied by hand. Closing the sheet is an
+ * answer, not a failure: nothing is copied behind the member's back.
+ *
+ * A browser may refuse the sheet when the press that asked for it was
+ * spent waiting for the server; the link is then copied, and the card keeps
+ * a button for the sheet, pressed afresh.
+ *
+ * @param {{ link: string }} pass
+ * @param {Navigator | object} nav  the browser's navigator
+ * @returns {Promise<'shared' | 'cancelled' | 'copied' | 'shown'>}
+ */
+export async function sendVisitLink(pass, nav) {
+  const data = { title: 'Your visit', text: VISITOR_SHARE_TEXT, url: pass.link };
+  if (typeof nav?.share === 'function' && (typeof nav.canShare !== 'function' || nav.canShare(data))) {
+    try {
+      await nav.share(data);
+      return 'shared';
+    } catch (err) {
+      if (err?.name === 'AbortError') return 'cancelled';
+    }
+  }
+  try {
+    if (typeof nav?.clipboard?.writeText !== 'function') return 'shown';
+    await nav.clipboard.writeText(pass.link);
+    return 'copied';
+  } catch {
+    return 'shown';
+  }
+}
+
+/** What became of the link, said under it. `ready`: made by the assistant, and not yet sent anywhere. */
+export function visitLinkWords(how, who) {
+  if (how === 'shared') return `Shared. ${who} can open it on their phone.`;
+  if (how === 'copied') return `Copied. Paste it into a message to ${who}.`;
+  if (how === 'cancelled') return 'Not sent yet. Share or copy it when you are ready.';
+  if (how === 'shown') return `Select the link and copy it into a message to ${who}.`;
+  return `Send it to ${who} by message or email.`;
 }
 
 /**
@@ -192,6 +300,16 @@ export function confirmErrand(toolName, args = {}) {
       footnote: 'The door is told whom to expect, she is reminded at a calm moment, and the doorbell is watched for around then. Nothing is done until you say so.',
     };
   }
+  if (toolName === 'make_visit_pass') {
+    const id = String(args.errandId ?? '');
+    const known = shown.get(id);
+    return {
+      title: 'Make a link for this visit?',
+      fields: [['Visit', known ? `${known.who}, ${known.when}` : id], ...otherFields(args, ['errandId'])],
+      confirmLabel: 'Make the link',
+      footnote: 'You send it to the visitor. From their phone they can say they are on the way, running late or at the door, and nothing more. A new link replaces any sent before.',
+    };
+  }
   if (toolName === 'cancel_errand') {
     const id = String(args.errandId ?? '');
     const known = shown.get(id);
@@ -206,11 +324,26 @@ export function confirmErrand(toolName, args = {}) {
 }
 
 /**
+ * What there is to say about a visit now: that it rang or passed (`key` is
+ * the status), or what its visitor said last (`key` is the word and when).
+ * Undefined when there is nothing.
+ */
+function newsKeyOf(view) {
+  if (view.status === 'rang' || view.status === 'no_show') return { key: view.status, say: view.said, ended: true };
+  if (OPEN.includes(view.status) && typeof view.visitorSaid === 'string' && view.visitorSaid && VISITOR_SAYS.includes(view.visitor?.says)) {
+    return { key: `${view.visitor.says}@${view.visitor.at}`, say: view.visitorSaid, ended: false };
+  }
+  return undefined;
+}
+
+/**
  * What a nudge about an errand was about: the newest visit that has rung or
- * passed and was not yet seen that way here. Null when there is none.
+ * passed, or whose visitor has said something, and was not yet seen that
+ * way here. Null when there is none. `key` is what to remember as seen;
+ * `say` the server's sentence for it; `ended` whether the visit is over.
  *
  * @param {string} raw  get_errands' answer, as text
- * @param {Map<string, string>} seen  errand id -> the status last shown
+ * @param {Map<string, string>} seen  errand id -> the key last shown
  */
 export function errandNews(raw, seen) {
   let parsed;
@@ -220,8 +353,12 @@ export function errandNews(raw, seen) {
     return null;
   }
   if (!Array.isArray(parsed?.errands)) return null;
-  const view = parsed.errands.find((v) => isView(v) && (v.status === 'rang' || v.status === 'no_show') && seen.get(v.errandId) !== v.status);
-  return view ? { errandId: view.errandId, status: view.status, view } : null;
+  for (const view of parsed.errands) {
+    if (!isView(view)) continue;
+    const news = newsKeyOf(view);
+    if (news && seen.get(view.errandId) !== news.key) return { errandId: view.errandId, status: view.status, view, ...news };
+  }
+  return null;
 }
 
 /**

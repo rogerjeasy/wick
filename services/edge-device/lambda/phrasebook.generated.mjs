@@ -311,6 +311,14 @@ var ES_CATALOGUE = {
     // A visitor the family arranged (contracts errand.ts): who arranged it, under "The plumber is expected around now".
     s("{first} arranged a visit for about now.", "{first|cap} organizó una visita para esta hora.")
   ],
+  // The visit pass at the door (agent door/index.ts, visit/said.ts): how Wick knows who is there, and a ring nobody is
+  // expected for. Who is at the door ("Doctor Rossi is at your door.") is the member's own words, and stays English, whole.
+  // "La persona que viene": the visitor, with no gender and no "su" that could be read as hers. Never that she can open.
+  "packages/contracts/src/visitPass.ts": [
+    s("They confirmed it on their phone just now. {first} arranged this visit.", "La persona que viene acaba de confirmarlo desde su teléfono. {first|cap} organizó esta visita."),
+    s("They confirmed it on their phone just now.", "La persona que viene acaba de confirmarlo desde su teléfono."),
+    s("Nobody is expected at the door now. You don’t have to open.", "Ahora no se espera a nadie en la puerta. No tiene por qué abrir.")
+  ],
   // Her reminder of a visit the family arranged: a note from them in Wick's own words. Who is coming is theirs, and kept.
   "services/agent/src/agents/errand/reminder.ts": [
     s("A reminder from {first}: {name} is coming {part} at {time}.", "Un recordatorio de {first}: {name} viene {part}, a {time|las}."),

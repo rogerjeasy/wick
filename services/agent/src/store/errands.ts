@@ -20,7 +20,7 @@
  * against the table in memory without AWS.
  */
 import { DeleteItemCommand, GetItemCommand, QueryCommand, TransactWriteItemsCommand, UpdateItemCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
-import { ERRAND_SK_PREFIX, ERRAND_STATUSES, errandPersonId, errandSk, type Errand, type ErrandStatus, type RosterEntry } from '@wick/contracts';
+import { ERRAND_SK_PREFIX, ERRAND_STATUSES, errandPersonId, errandSk, readVisitorWord, type Errand, type ErrandStatus, type RosterEntry, type VisitorWord } from '@wick/contracts';
 
 type Item = Record<string, AttributeValue>;
 
@@ -40,7 +40,21 @@ export interface HeldErrand extends Errand {
   readonly cardId?: string;
   /** Step Functions' task token while the door waits (agents/errand). Never shown to anyone. */
   readonly taskToken?: string;
+  /** The sha-256 of the visit pass's token, while the visit has one (make_visit_pass). Never the token: that is not kept. */
+  readonly passHash?: string;
+  /** What the visitor last said from the pass (edge visit-pass.mjs), read, not trusted. */
+  readonly visitorWord?: VisitorWord;
 }
+
+/** A kept word, from its JSON: undefined for one that cannot be read. */
+const visitorWordOf = (attribute: AttributeValue | undefined): VisitorWord | undefined => {
+  if (!attribute?.S) return undefined;
+  try {
+    return readVisitorWord(JSON.parse(attribute.S));
+  } catch {
+    return undefined;
+  }
+};
 
 /** What a step may learn and keep on the row. */
 export interface ErrandFacts {
@@ -119,6 +133,7 @@ export function errandFromItem(item: Item | undefined, withToken = false): HeldE
   const remindAt = numberOf(item.remindAt);
   const rangAt = numberOf(item.rangAt);
   const remindedAt = numberOf(item.remindedAt);
+  const visitorWord = visitorWordOf(item.visitorWord);
   return {
     errandId,
     householdId,
@@ -136,6 +151,8 @@ export function errandFromItem(item: Item | undefined, withToken = false): HeldE
     ...(remindedAt === undefined ? {} : { remindedAt }),
     ...(item.cardId?.S ? { cardId: item.cardId.S } : {}),
     ...(withToken && item.taskToken?.S ? { taskToken: item.taskToken.S } : {}),
+    ...(item.passHash?.S ? { passHash: item.passHash.S } : {}),
+    ...(visitorWord ? { visitorWord } : {}),
   };
 }
 

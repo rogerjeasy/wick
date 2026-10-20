@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { PUSH_KINDS } from '../../../packages/contracts/src/push.js';
 
 /**
  * The service worker is a plain browser script with no exports, so it is
@@ -112,6 +113,33 @@ describe('the service worker — a nudge becomes a notification', () => {
     expect(options.tag).toBe('wick-week_ready');
     expect(options.requireInteraction).toBe(false);
     expect(JSON.stringify(options)).not.toContain('quiet');
+  });
+
+  it('says the visitor of a visit the member arranged is on the way, late, or at the door — never who, nor whose door', async () => {
+    const words = { visitor_on_way: 'Your visitor is on the way.', visitor_late: 'Your visitor is running late.', visitor_at_door: 'Your visitor is at the door.' };
+    for (const [kind, body] of Object.entries(words)) {
+      const w = worker();
+
+      await w.push({ kind, who: 'Doctor Rossi', lateMinutes: 15 });
+
+      const [title, options] = w.showNotification.mock.calls[0]!;
+      expect(title).toBe('Wick');
+      expect(options.body).toBe(body);
+      expect(options.tag).toBe(`wick-${kind}`);
+      // The member reads it when they can: nobody at the door is waiting on them to.
+      expect(options.requireInteraction).toBe(false);
+      expect(JSON.stringify(options)).not.toMatch(/Rossi|15/);
+    }
+  });
+
+  it('has words of its own for every kind of nudge Wick sends (packages/contracts push.ts)', async () => {
+    for (const kind of Object.values(PUSH_KINDS)) {
+      const w = worker();
+
+      await w.push({ kind });
+
+      expect(w.showNotification.mock.calls[0]![1].body, kind).not.toBe('Something is waiting for you in Wick.');
+    }
   });
 
   it('says nothing about the house for a request to ring, whatever the payload carries', async () => {

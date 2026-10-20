@@ -28,6 +28,12 @@ export const PUSH_KINDS = {
   errandRang: 'errand_rang',
   /** The window of a visit the member arranged passed with no ring. */
   errandNoShow: 'errand_no_show',
+  /** The visitor of a visit the member arranged said, from the visit pass, that they are on the way (visitPass.ts). */
+  visitorOnWay: 'visitor_on_way',
+  /** … that they are running late. */
+  visitorLate: 'visitor_late',
+  /** … that they are at the door. */
+  visitorAtDoor: 'visitor_at_door',
   /** The week (and its one suggestion) can be read: she has seen it first (INV-7). */
   weekReady: 'week_ready',
 } as const;
