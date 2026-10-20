@@ -105,7 +105,10 @@ jobs:
         with:
           subject-name: ghcr.io/${{ env.OWNER }}/${{ matrix.name }}
           subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
+          # Kept in GitHub's attestation store (`gh attestation verify oci://ghcr.io/rogerjeasy/<image>:<version> -R rogerjeasy/wick`),
+          # not pushed beside the image: in the registry it is a `sha256-…` tag, newer than the release's own, that GitHub
+          # Packages then shows as the latest version in its install command.
+          push-to-registry: false
 
   npm:
     name: npm @rogerjeasy/strands-agentcore-session
