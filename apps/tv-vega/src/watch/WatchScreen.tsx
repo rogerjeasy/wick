@@ -229,6 +229,8 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
     else p.pause();
   };
   const hold = React.useRef<OkHold | null>(null);
+  /** When OK went down where it may be held: a hold let go early puts back what its first moment did. */
+  const okDownAt = React.useRef<number | null>(null);
   hold.current ??= okHold({
     // OK is free to be held only while it is the programme's: not a card's, and not the door camera's.
     canHold: () => playerRef.current !== null && !latest.current.cardVisible && !latest.current.suspended,
@@ -240,7 +242,10 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
       latest.current.onHold?.();
     },
     onRelease: () => latest.current.onHoldEnd?.(),
-    onBegin: (at) => setHoldSince(at),
+    onBegin: (at) => {
+      okDownAt.current = at;
+      setHoldSince(at);
+    },
     onEnd: () => setHoldSince(null),
   });
   React.useEffect(() => () => hold.current?.cancel(), []);
@@ -250,8 +255,17 @@ export function WatchScreen(props: WatchScreenProps): React.JSX.Element {
 
   useTVEventHandler((event) => {
     if (event.eventKeyAction === undefined || event.eventKeyAction === 0) echoes.key(event.eventType, Date.now());
+    const wasHold = hold.current?.held() ?? false;
     hold.current?.onEvent(event);
-    if (isOkKey(event.eventType) && event.eventKeyAction === 1) okToggled.current = false;
+    if (isOkKey(event.eventType) && event.eventKeyAction === 1) {
+      // Held long enough for its line to show, and let go before the two seconds: she was holding, and let go.
+      // Nothing happens at all (docs/design/DESIGN.md §6): the pause or play its first moment made is put back.
+      const began = okDownAt.current;
+      okDownAt.current = null;
+      const p0 = playerRef.current;
+      if (p0 && okToggled.current && !wasHold && began !== null && Date.now() - began >= HOLD_SHOWN_FROM_MS) toggle(p0);
+      okToggled.current = false;
+    }
     const p = playerRef.current;
     if (!p || latest.current.suspended) return;
     // ↑ or ↓: where is the film? The bar says.

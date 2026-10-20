@@ -48,6 +48,17 @@ describe('pressBegins — the key goes down on something on the home screen', ()
   });
 });
 
+describe('pressEnds — a hold let go early (docs/design/DESIGN.md §6)', () => {
+  it('is nothing at all: OK held long enough for its line to show, and let go before the two seconds, presses nothing', () => {
+    expect(pressEnds({ keyCameUp: true, reachableSince: BACK, beganAt: BACK + 2_000, now: BACK + 2_400 })).toBe(false);
+    expect(pressEnds({ keyCameUp: true, reachableSince: BACK, beganAt: BACK + 2_000, now: BACK + 3_500 })).toBe(false);
+  });
+
+  it('is still a press when it was over before the line could show', () => {
+    expect(pressEnds({ keyCameUp: true, reachableSince: BACK, beganAt: BACK + 2_000, now: BACK + 2_399 })).toBe(true);
+  });
+});
+
 describe('pressEnds — the key comes up on it', () => {
   it('is acted on when the press began on the home, since it came back, and the home’s second is over', () => {
     expect(pressEnds({ keyCameUp: true, reachableSince: BACK, beganAt: BACK + 1_020, now: BACK + 1_100 })).toBe(true);
