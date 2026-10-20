@@ -106,7 +106,7 @@
       <div><dt>doorbell to door card <small>median, on the stand-in doorbell</small></dt><dd>2.3 s</dd></div>
       <div><dt>launch to fully drawn, Vega <small>mean of 10 cold starts</small></dt><dd>722 ms</dd></div>
       <div><dt>MCP call on an open connection <small>p95, against Alexa+'s 500 ms target</small></dt><dd>230–241 ms</dd></div>
-      <div><dt>MCP tools for the family <small>one agent uses the same tools</small></dt><dd>25</dd></div>
+      <div><dt>MCP tools for the family <small>one agent uses the same tools</small></dt><dd>26</dd></div>
     </dl>
   </div>
 
@@ -172,7 +172,7 @@
     <div class="wrap">
       <div class="section-head" data-reveal>
         <p class="kicker">Features</p>
-        <h2 id="features-title">Fifteen features on top. Each one says what it never does.</h2>
+        <h2 id="features-title">Sixteen features on top. Each one says what it never does.</h2>
         <p>Every one has a rule that protects her, enforced in code.</p>
       </div>
       <ul class="features" data-reveal>
@@ -190,11 +190,12 @@
         <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#volume-2"/></svg></span>Read to me</h3><p>Play reads the card on screen aloud, in her language (Amazon Polly).</p><p class="never"><b>Never</b> speaks unless she asks.</p></li>
         <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#eye"/></svg></span>Easier to see</h3><p>Larger text, at 40-point minimum, and higher contrast, at 21:1, across every screen.</p><p class="never"><b>Never</b> shrinks a word to make it fit.</p></li>
         <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#calendar-clock"/></svg></span>Visit errands</h3><p>Sarah says <em>"The plumber is coming Thursday at ten — let Mum know."</em> Wick's agent shows her the plan; after her yes, a note waits for Margaret's natural break, the door card later says <em>"Sarah arranged a visit for about now"</em>, Margaret is reminded that morning, and Sarah is told when the door rang or that nobody came.</p><p class="never"><b>Never</b> says the plumber came. It says someone rang around then; whether it was them is Margaret's to say.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#badge-check"/></svg></span>The visit pass</h3><p>Sarah sends the doctor a link. On the step the doctor presses <em>I'm at the door</em>, and Margaret's television says <em>"Doctor Rossi is at your door. They confirmed it on their phone just now."</em> A ring nobody expected says <em>"You don't have to open."</em></p><p class="never"><b>Never</b> tells her she can open, shows the visitor anything about her, or lets a model decide who is there.</p></li>
         <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#scroll-text"/></svg></span>The Sunday brief</h3><p>Margaret's week, written by agents from counted facts and checked twice, ends with one thing Sarah could do, with one button: write a note, arrange a visit or watch a film together.</p><p class="never"><b>Never</b> guesses how she feels, or suggests anything the week's facts don't support.</p></li>
       </ul>
       <div class="tools-line" data-reveal>
         <span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#server"/></svg></span>
-        <p>The family reaches all of it through <strong>25 MCP tools</strong>, and through an agent on Amazon Bedrock AgentCore that uses those same tools with the family member's own token and asks before every write. Every call checks again that Margaret still allows that person.</p>
+        <p>The family reaches all of it through <strong>26 MCP tools</strong>, and through an agent on Amazon Bedrock AgentCore that uses those same tools with the family member's own token and asks before every write. Every call checks again that Margaret still allows that person.</p>
       </div>
     </div>
   </section>
@@ -332,7 +333,7 @@
             <div><dt>Vega OS</dt><dd>The resident's app in React Native for Vega. A headless service shows the door over other apps, media controls make a platform pause count as a natural break, <code>w3cmedia</code> plays the films and the door's live view, and Content Personalization is told what she watches as she watches it.</dd></div>
             <div><dt>Fire OS</dt><dd>The same source through four small adapters, with an Android foreground service for the door, and her film as Android's <code>MediaSession</code>, so "Alexa, pause" and the remote's media keys go through the same rules as on Vega.</dd></div>
             <div><dt>Ring Partner API</dt><dd>OAuth link, webhooks, recorded frames and live view (WebRTC bridged to HLS for the television).</dd></div>
-            <div><dt>Alexa+ MCP</dt><dd>An MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1) with 25 tools. The add-on surface is partner-only, so a simulated Alexa+ app calls it, as the rules allow.</dd></div>
+            <div><dt>Alexa+ MCP</dt><dd>An MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1) with 26 tools. The add-on surface is partner-only, so a simulated Alexa+ app calls it, as the rules allow.</dd></div>
             <div><dt>Amazon Bedrock</dt><dd>Nova Lite describes the door's picture in one sentence. Claude Sonnet 4.5 is the family's assistant and writes the Sunday brief from numbers already counted. A Bedrock Guardrail checks both. No model runs inside a tool.</dd></div>
             <div><dt>AgentCore + Strands</dt><dd>Three agents in AgentCore Runtime: the door's Strands graphs, the family assistant (an MCP client with the member's own token, pausing for their yes, with AgentCore Memory) and the Sunday brief graph: analyst, writer, check, suggester.</dd></div>
             <div><dt>AWS</dt><dd>Lambda, API Gateway, IoT Core, EventBridge and Scheduler, Step Functions, SQS, App Runner, Cognito, DynamoDB, S3, CloudFront, Secrets Manager, Rekognition, Polly, Translate and Transcribe.</dd></div>

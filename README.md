@@ -86,7 +86,7 @@ has no quiet place to leave it, so it waits in Wick. Either way it is on her scr
 
 Carrying calm-point timing into the programmes she already watches would need a content or player partnership.
 
-### Fifteen features on top
+### Sixteen features on top
 
 | Feature | What she sees | What it never does |
 |---|---|---|
@@ -104,9 +104,10 @@ Carrying calm-point timing into the programmes she already watches would need a 
 | **Read to me** | Play reads the card on screen aloud, in her language (Amazon Polly). | Speak unless she asks. |
 | **Easier to see** | Larger text, at 40-point minimum, and higher contrast, at 21:1, across every screen. | Shrink a word to make it fit. |
 | **Visit errands** | Sarah says *"The plumber is coming Thursday at ten — let Mum know."* Wick's agent shows her the plan; after her yes, a note waits for Margaret's natural break, the door card later says *"Sarah arranged a visit for about now"*, Margaret is reminded that morning, and Sarah is told when the door rang or that nobody came. | Say the plumber came. It says someone rang around then; whether it was them is Margaret's to say. |
+| **The visit pass** | Sarah sends the doctor a link. On the step the doctor presses *I'm at the door*, and Margaret's television says *"Doctor Rossi is at your door. They confirmed it on their phone just now."* A ring nobody expected says *"You don't have to open."* | Tell her she can open, show the visitor anything about her, or let a model decide who is there. |
 | **The Sunday brief** | Margaret's week, written by agents from counted facts and checked twice, ends with one thing Sarah could do, with one button: write a note, arrange a visit or watch a film together. | Guess how she feels, or suggest anything the week's facts don't support. |
 
-The family reaches all of it through **25 MCP tools**, and through an agent on
+The family reaches all of it through **26 MCP tools**, and through an agent on
 Amazon Bedrock AgentCore that uses those same tools with the family member's own
 token and asks before every write. Every call checks again that Margaret still
 allows that person.
@@ -211,7 +212,7 @@ design is in [docs/WICK-TECHNICAL.md](docs/WICK-TECHNICAL.md).
 | **Vega OS** | The resident's app in React Native for Vega. A headless service shows the door over other apps, media controls make a platform pause count as a natural break, `w3cmedia` plays the films and the door's live view, and Content Personalization is told what she watches as she watches it (the platform takes the reports; its Continue Watching row needs an Amazon catalogue Wick's three open films are not in, [FL-043](FRICTION.md)). |
 | **Fire OS** | The same source through four small adapters, with an Android foreground service for the door, and her film as Android's `MediaSession`, so "Alexa, pause" and the remote's media keys go through the same rules as on Vega. |
 | **Ring Partner API** | OAuth link, webhooks, recorded frames and live view (WebRTC bridged to HLS for the television). |
-| **Alexa+ MCP** | An MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1) with 25 tools. The add-on surface is partner-only, so a simulated Alexa+ app calls it, as the rules allow. |
+| **Alexa+ MCP** | An MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1) with 26 tools. The add-on surface is partner-only, so a simulated Alexa+ app calls it, as the rules allow. |
 | **Amazon Bedrock** | Nova Lite describes the door's picture in one sentence. Claude Sonnet 4.5 is the family's assistant and writes the Sunday brief from numbers already counted. A **Bedrock Guardrail** (denied topics, PII, contextual grounding against the counted facts) checks both. No model runs inside a tool. |
 | **Bedrock AgentCore + Strands** | Three agents in AgentCore Runtime. The door's work runs as Strands graphs, one session per household. The family assistant is a Strands agent that calls Wick's MCP tools as an MCP client with the member's own token and pauses for their yes through Strands interrupts; its conversations live in **AgentCore Memory** (session storage Wick contributed to Amazon's AgentCore SDK) and it remembers the member's own words long-term. The Sunday brief is a Strands Graph: analyst, writer, check, suggester. |
 | **AWS** | Lambda, API Gateway, IoT Core, EventBridge and Scheduler, **Step Functions** (a visit errand runs for days as one execution), **SQS** (the brief's fan-out), App Runner, Cognito, DynamoDB, S3, CloudFront, Secrets Manager, Rekognition, Polly, Translate and Transcribe. All in Terraform, deployed by GitHub Actions over OIDC. |

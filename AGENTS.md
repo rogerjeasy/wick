@@ -563,6 +563,22 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   emergency service, sound anything, or word this as an alarm; never tell
   anyone a request exists before their turn; never carry a reason with it —
   she is not asked for one, and none may be guessed.
+- **A visit pass says three things about one visit, and nothing else.**
+  The visit pass (`packages/contracts/src/visitPass.ts`): a link the member
+  who arranged a visit forwards to the visitor. The token is shown once and
+  only its SHA-256 is kept (`VPASS#<hash>`); it goes after `#` in the link,
+  so no server logs it, and nothing logs it or its hash. With it the visitor
+  can say *on my way*, *running late* or *at the door*, from three hours
+  before the visit until its window ends — and do nothing else: read nothing,
+  learn nothing about the house. The page names nobody and no place. Every
+  refusal answers the same `over` (`services/edge-device/lambda/visit-pass.mjs`),
+  so a link is never an oracle for whether a visit exists, or was called off,
+  or its author was removed (INV-9 is asked again at every press). The door
+  card says who is at the door only for a ring within ten minutes of *at the
+  door* (`visitorSaidFresh`), and says how Wick knows. **Never** have Wick say
+  the visitor may be let in, that it is safe, or that she can open; never let
+  a model decide who is at the door; never show the visitor's page anything
+  the household holds.
 - **A wave carries no words, and its fate is hers.** A family member's
   television has one button that sends a wave
   (`services/mcp-server/src/accounts/familyTvWave.ts`). What the resident's

@@ -109,7 +109,7 @@ Built on those three, each with one button on her remote:
   arrange a visit, or watch a film together. Margaret still sees her week
   first.
 
-The family reaches all of it through the Wick server's 25 MCP tools, from a
+The family reaches all of it through the Wick server's 26 MCP tools, from a
 family app that stands in for Alexa+, and through Wick's own agent on Amazon
 Bedrock AgentCore, which calls those same tools with the family member's own
 token and asks before every write. Every tool asks again, on every call,
@@ -250,7 +250,7 @@ Bedrock AgentCore**, built with **Strands**, on a pipeline of twenty-three AWS
 services, every one in Terraform.
 
 - **The family assistant** is a Strands `Agent` in **AgentCore Runtime**. It is
-  an MCP client of Wick's own server, calling its 25 tools with the family
+  an MCP client of Wick's own server, calling its 26 tools with the family
   member's own token, so it can do nothing the member could not. Every write
   pauses through a **Strands interrupt** until the member says yes in the app;
   one yes covers one call. The token is checked against the Wick server before
@@ -432,7 +432,7 @@ hands something to her. The Vega Virtual Device is in the first frame.
 | 0:55–1:25 | Sarah asks the family app to send a note → the agent shows the note and asks for her yes → back on the VVD, the film plays on and nothing appears → at 1:29 in the film, a quiet cut: the film holds, the note comes up → **Play** reads it aloud → **OK** sends her reply → Sarah's app shows it | Notes wait for a natural break: a calm point measured in the film itself | "Calm point measured with Amazon Rekognition and ffmpeg · read aloud by Amazon Polly" |
 | 1:25–1:55 | On the VVD: *"Shall I tell Sarah? Maria usually comes on Friday mornings. There was no visit on Friday."* → Margaret presses **Tell Sarah** → Sarah asks *"Is everything alright at Mum's?"* → *"Margaret asked Wick to tell you: …"* | Nothing about her reaches the family unless she says so | "If she keeps it to herself, Sarah sees exactly what she would see if nothing had happened." |
 | 1:55–2:15 | Another app in front on the VVD → the system toast *"Someone's at the front door."* → **Open Wick** → the card. Three seconds of the Fire OS build on the Android TV emulator: the same card | Outside Wick, only the door interrupts. One source, both Fire TV platforms | "A note never interrupts another app: it waits, quietly, until she opens Wick." |
-| 2:15–2:35 | The architecture diagram, built up in three steps: television ↔ IoT Core / WebSocket; Ring webhook → Lambda → AgentCore (Strands, Nova Lite); family app → MCP server (25 tools) → the same agents | How it works, in twenty seconds | "Bedrock AgentCore · Strands · Guardrail · Step Functions · all Terraform" |
+| 2:15–2:35 | The architecture diagram, built up in three steps: television ↔ IoT Core / WebSocket; Ring webhook → Lambda → AgentCore (Strands, Nova Lite); family app → MCP server (26 tools) → the same agents | How it works, in twenty seconds | "Bedrock AgentCore · Strands · Guardrail · Step Functions · all Terraform" |
 | 2:35–2:50 | A single line of montage, about one second each: Hold for Sarah, Watch together, the visit witnessed, her language, Easier to see. Close on her home screen | Everything else, once | "Wick. For the person being cared for." |
 
 Total: 2:50. Rules for the edit:

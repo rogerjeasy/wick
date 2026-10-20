@@ -211,7 +211,7 @@ The Playground needs "press the doorbell" and "person detected" buttons first.
 
 *MCP spec 2025-11-25, Streamable HTTP, `@modelcontextprotocol/sdk` 1.32.1.*
 
-**Used for:** the family's side. An MCP server with 25 tools, its own OAuth 2.1
+**Used for:** the family's side. An MCP server with 26 tools, its own OAuth 2.1
 (PKCE, dynamic client registration), on App Runner. A complete add-on package
 (`addon-package/`), checked in CI. A simulated Alexa+ surface (the family app),
 because the add-on toolkit is partner-only.

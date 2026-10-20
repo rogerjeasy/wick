@@ -272,7 +272,7 @@ any time, never applied to strangers, never used to build a profile of anyone.
 
 | ID | Feature | What it does |
 |---|---|---|
-| **S4** | **The family line** | The family asks in plain words and gets a paragraph, not a dashboard. It runs on an MCP server, the open standard Alexa+ uses, with 25 tools, and an agent on Amazon Bedrock AgentCore that uses them with the member's own token and asks before every write. Alexa+ add-ons are partner-only for now, so the family app calls the same server and agent today. |
+| **S4** | **The family line** | The family asks in plain words and gets a paragraph, not a dashboard. It runs on an MCP server, the open standard Alexa+ uses, with 26 tools, and an agent on Amazon Bedrock AgentCore that uses them with the member's own token and asks before every write. Alexa+ add-ons are partner-only for now, so the family app calls the same server and agent today. |
 | **M3** | **One-button reply** | A note arrives at a natural break with three replies. Two are chosen from a fixed list of sentences I wrote, and the third is always *"Not right now."* No model ever puts words in her mouth. Back puts a note aside without answering: it waits on her home screen, and the family sees only that she has seen it. |
 | **D4** | **Ask about it** | Specific questions, like "did Maria come on Tuesday?" |
 | | **Hold for Sarah** | She holds OK for two seconds to ask one person to ring her. If they don't answer in three minutes, the next person is asked. |
