@@ -32,13 +32,27 @@ import type { Who } from './prompt.js';
 import type { AssistantTurnDeps } from './turn.js';
 
 /**
+ * A name as it may stand in the grounding source: a name and nothing else —
+ * letters in any script, spaces, apostrophes, hyphens and full stops after
+ * an initial, short. The names are the family's own words: one that carries
+ * a sentence ("Sarah. Margaret was unwell this week") would otherwise be a
+ * fact the Guardrail grounds a reply on. Anything else is said by its role.
+ */
+const PLAIN_NAME = /^\p{L}[\p{L}\p{M}'’ .-]{0,39}$/u;
+/** A full stop only after an initial ("J. R. Hughes"), and no more words than a name has. */
+const isPlainName = (name: string): boolean =>
+  PLAIN_NAME.test(name) && !name.replace(/(^|\s)\p{L}\./gu, '$1').includes('.') && name.split(/\s+/).length <= 5;
+const asName = (name: string, role: string): string => (isPlainName(name.trim()) ? name.trim() : role);
+
+/**
  * Who is who, and what Wick always does, in words a reply may use: true of
  * every home and every turn, and nothing about this home's week. Written
  * without a pronoun for the resident: the family's name for them is all
  * Wick knows.
  */
 export function houseFacts(who: Pick<Who, 'memberName' | 'residentName'>): string {
-  const { memberName: member, residentName: resident } = who;
+  const member = asName(who.memberName, 'The family member');
+  const resident = asName(who.residentName, 'the person at home');
   return (
     `${resident} is the person at home, and the television is ${resident}'s television. ${member} is the person asking. ` +
     `A reply to a note is ${resident}'s reply, given on ${resident}'s television. ` +

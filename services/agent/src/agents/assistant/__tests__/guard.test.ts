@@ -51,6 +51,15 @@ describe('guardReplyWith — the Guardrail on what the assistant says', () => {
     expect(houseFacts(who)).toContain('next natural break');
   });
 
+  it('puts a name there only when it is a name: one carrying a sentence is said by its role, so it can ground nothing', () => {
+    const facts = houseFacts({ memberName: 'Sarah. Margaret was unwell this week', residentName: 'Мария Иванова' });
+
+    expect(facts).not.toContain('unwell');
+    expect(facts).toContain('The family member is the person asking');
+    expect(facts).toContain("Мария Иванова's television");
+    expect(houseFacts({ memberName: 'J. R. Hughes', residentName: "Margaret O'Neill" })).toContain("J. R. Hughes is the person asking. A reply to a note is Margaret O'Neill's reply");
+  });
+
   it('never grounds a reply on that line alone: with no tool text there is still nothing to ground on', async () => {
     const g = guardrail({ action: 'NONE', assessments: [] });
 
