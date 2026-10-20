@@ -23,6 +23,7 @@ export * from './speech.js';
 export * from './hear.js';
 export * from './phrasebook/index.js';
 export * from './errand.js';
+export * from './visitPass.js';
 export * from './brief.js';
 export * from './clock.js';
 export * from './qr.js';
