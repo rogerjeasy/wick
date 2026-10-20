@@ -6,16 +6,14 @@
 <title>Privacy policy · Wick</title>
 <meta name="description" content="What Wick collects, what it shares with the family, what it never does, and how long it keeps anything.">
 <link rel="icon" href="icons/light-72.png">
-<meta name="theme-color" content="#12100E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#12100E" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#FBF8F2" media="(prefers-color-scheme: light)">
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
 <header class="nav">
   <div class="wrap">
-    <a class="brand" href="./"><img src="icons/light-72.png" alt="">Wick</a>
+    <a class="brand" href="./"><img src="icons/light-72.png" alt="" width="30" height="30">Wick</a>
     <div class="nav-links">
       <a class="btn sm" href="terms.html">Terms</a>
       <a class="btn sm primary" href="https://dmaz25jvryojp.cloudfront.net/">Try the demo</a>
@@ -29,7 +27,7 @@
       <p class="kicker">Privacy policy</p>
       <h1>She is the user, not the subject.</h1>
       <p class="lede">What Wick collects, what reaches the family, what never does, and how long anything is kept.</p>
-      <div class="meta"><span class="pill">Last updated 16 October 2026</span><span class="pill">Applies to the Wick television app, family app and service</span></div>
+      <div class="meta"><span class="pill">Last updated 20 October 2026</span><span class="pill">Applies to the Wick television app, family app and service</span></div>
     </div>
   </div>
 
@@ -100,12 +98,14 @@
           <li><strong>Your place in each circle</strong>: the name she sees, your role, and whether she has allowed you.</li>
           <li><strong>What you sent</strong>: notes and their replies, pictures and whether she has seen them, invitations, visits you said you would make, and any television you connected as your own.</li>
           <li><strong>Sign-ins</strong>: the tokens the family app holds and the browsers you asked to be notified on. Only a digest of each token is stored.</li>
+          <li><strong>What you said to the assistant</strong>: your conversation with the family app's assistant in each home, and what it remembers of your own words about how you like things done, in Amazon Bedrock AgentCore Memory.</li>
         </ul>
       </section>
 
       <section id="retention">
         <h2>How long data is kept</h2>
-        <table class="table">
+        <div class="table-scroll">
+        <table class="table retention">
           <thead><tr><th scope="col">Data</th><th scope="col">Kept</th></tr></thead>
           <tbody>
             <tr><td>Pictures from the door</td><td>Deleted within 24 hours, by storage rule</td></tr>
@@ -115,18 +115,20 @@
             <tr><td>Family pictures</td><td>One she lets go of is deleted within a day; one never answered after about 13 months; one she keeps, when she takes it down</td></tr>
             <tr><td>Visits</td><td>About 13 months</td></tr>
             <tr><td>Door and television events, and the weekly counts made from them</td><td>While the home is set up; deleted when it is closed</td></tr>
+            <tr><td>Your conversation with the assistant</td><td>30 days; what it remembers of your own words, until you delete your account or the home is closed</td></tr>
             <tr><td>Your account</td><td>Until you delete it</td></tr>
             <tr><td>Backups</td><td>The database keeps point-in-time backups for 35 days, so anything deleted is gone from them 35 days later</td></tr>
           </tbody>
         </table>
+        </div>
       </section>
 
       <section id="rights">
         <h2>Your data and your rights</h2>
         <p>In the family app, open <strong>Account</strong>:</p>
         <ul>
-          <li><strong>Download my data</strong> gives you a JSON file of everything above that Wick holds about you. It contains no password, code or token.</li>
-          <li><strong>Delete my account</strong> asks for your password again (a guest has none), says what will go, and then deletes your account, your sign-ins on every device, your place in each circle, the visits you announced and any television you connected as your own.</li>
+          <li><strong>Download my data</strong> gives you a JSON file of everything above that Wick holds about you, except what the assistant remembers. It contains no password, code or token.</li>
+          <li><strong>Delete my account</strong> asks for your password again (a guest has none), says what will go, and then deletes your account, your sign-ins on every device, your place in each circle, the visits you announced, any television you connected as your own, and everything the assistant kept of you.</li>
         </ul>
         <p class="callout"><strong>A home is never left without the person who set it up.</strong> If you set up a home, deleting your account closes it, and the app asks you to confirm that first. Closing a home disconnects its Ring doorbell and televisions, removes everyone from its circle, and deletes everything Wick holds about it. If the doorbell cannot be disconnected, nothing is deleted and you are asked to try again.</p>
         <p>A note or picture you sent to a home someone else set up belongs to that home. It is deleted when that home is closed, and listed in your download. You may ask for a correction through the contact address above.</p>
