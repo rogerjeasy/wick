@@ -66,6 +66,14 @@ export type TelevisionKind = typeof FAMILY_TV_KIND;
  */
 export type ClaimTelevision = (accessToken: string, code: string, as?: TelevisionKind) => Promise<{ status: number; body: string }>;
 
+/**
+ * Asks the pairing service for a code for the Vega Virtual Device's id, as
+ * the simulator itself would (edge-device pair-start.mjs). Returns its status
+ * and raw body. Anybody may ask for a code; what it is worth is decided when
+ * it is entered (pair-claim.mjs).
+ */
+export type StartSimulatorPairing = () => Promise<{ status: number; body: string }>;
+
 /** Said to someone the resident has not allowed yet, by this router and for the pairing Lambda's `not_allowed_yet`. */
 const ownTelevisionOnceAllowed = (resident: string): string => `You can connect a television of your own once ${resident} has allowed you.`;
 
@@ -82,6 +90,25 @@ const PAIRING_REFUSALS: Readonly<Record<string, string | ((resident: string) => 
   sign_in_required: 'Link Wick again.',
   invalid_token: 'Link Wick again.',
 };
+
+/**
+ * What the pairing Lambda's answer to a code becomes for the family app.
+ * Only an answer this server recognises is passed on: anything else from
+ * the pairing service could carry an ARN or an account id.
+ */
+function answerClaim(res: Response, reply: { status: number; body: string }, resident: string): void {
+  if (reply.status === 200) {
+    res.json({ connected: true, ...(connectedAsFamily(reply.body) ? { kind: FAMILY_TV_KIND } : {}) });
+    return;
+  }
+  const refusal = PAIRING_REFUSALS[reply.body];
+  if (!refusal) {
+    console.error('[wick/mcp-server] pairing service answered', reply.status);
+    res.status(502).json({ error: 'pairing_unavailable', message: 'The television could not be connected just now. Try again in a moment.' });
+    return;
+  }
+  res.status(reply.status).json({ error: reply.body, message: typeof refusal === 'string' ? refusal : refusal(resident) });
+}
 
 /** Whether the pairing Lambda's answer says it connected the television as a member's own. Its word, never the request's. */
 /** What a television's `ref` can look like (edge-device pair-claim.mjs newTelevisionRef, store.ts: sixteen random bytes, base64url). It is only ever looked for among the caller's own home's televisions. */
@@ -168,6 +195,8 @@ export function ringLinkView(answer: RingLinkAnswer): Record<string, unknown> {
 
 export interface ApiOptions {
   readonly claimTelevision?: ClaimTelevision | undefined;
+  /** A code for the Vega Virtual Device's id, for a demo home that brings it in without one on its screen. */
+  readonly startSimulatorPairing?: StartSimulatorPairing | undefined;
   /** Connecting a home's own Ring account. Absent where the deployment has no Ring. */
   readonly ringLinks?: RingLinks | undefined;
   /** A television in a browser tab, offered to anyone with no Fire TV to hand. */
@@ -191,7 +220,7 @@ export interface ApiOptions {
 
 export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHandler, options: ApiOptions = {}): express.Router {
   const { store } = circle;
-  const { claimTelevision, ringLinks, virtualTelevisionUrl, push, withdrawCard, photos, demoDoorbell, hear } = options;
+  const { claimTelevision, startSimulatorPairing, ringLinks, virtualTelevisionUrl, push, withdrawCard, photos, demoDoorbell, hear } = options;
   const router = express.Router();
   // Any origin: nothing here uses a cookie, and a token is only ever sent by
   // the page that holds it.
@@ -325,18 +354,42 @@ export function createApiRouter(circle: CircleDeps, requireAuth: () => RequestHa
     if (!claimTelevision || !req.auth) return void unavailable();
 
     const reply = as === undefined ? await claimTelevision(req.auth.token, code) : await claimTelevision(req.auth.token, code, as);
-    if (reply.status === 200) {
-      res.json({ connected: true, ...(connectedAsFamily(reply.body) ? { kind: FAMILY_TV_KIND } : {}) });
+    answerClaim(res, reply, resident);
+  }));
+
+  /**
+   * The Vega Virtual Device, brought into a demo home with no code on its
+   * screen. Every simulator has the same id and keeps nothing, so one that
+   * some other demo home holds opens straight into that home and never
+   * shows a code (seen 2026-10-20). This does what the simulator would: asks
+   * the pairing service for a code for its id, and enters it as the caller —
+   * so the pairing service decides everything, as for a typed code: the
+   * caller must be the organiser, the home must be a demo home, and the id is
+   * taken only from another demo home, never from a real one (pair-claim.mjs).
+   * Nothing is widened: anybody may ask for that code already. The simulator
+   * follows its id into this home by itself (apps/tv-vega pairing/standing.ts).
+   */
+  router.post('/api/televisions/simulator', withGrant(async (grant, req, res) => {
+    const household = await store.getHousehold(grant.householdId);
+    if (household?.simulated !== true) {
+      res.status(403).json({ error: 'demo_home_only', message: PAIRING_REFUSALS.television_cannot_prove_itself });
       return;
     }
-    // Only an answer this server recognises is passed on. Anything else from
-    // the pairing service could carry an ARN or an account id.
-    const refusal = PAIRING_REFUSALS[reply.body];
-    if (!refusal) {
-      console.error('[wick/mcp-server] pairing service answered', reply.status);
+    const unavailable = () =>
+      res.status(502).json({ error: 'pairing_unavailable', message: 'The Vega Virtual Device could not be connected just now. Try again in a moment.' });
+    if (!claimTelevision || !startSimulatorPairing || !req.auth) return void unavailable();
+    const started = await startSimulatorPairing();
+    let code: unknown;
+    try {
+      code = started.status === 200 ? (JSON.parse(started.body) as { code?: unknown }).code : undefined;
+    } catch {
+      code = undefined;
+    }
+    if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+      console.error('[wick/mcp-server] pairing service answered', started.status);
       return void unavailable();
     }
-    res.status(reply.status).json({ error: reply.body, message: typeof refusal === 'string' ? refusal : refusal(resident) });
+    answerClaim(res, await claimTelevision(req.auth.token, code), household.residentName);
   }));
 
   // Disconnects a television from the home in the caller's own token (INV-8): there is no household here to name.

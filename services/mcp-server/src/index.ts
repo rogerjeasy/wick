@@ -7,7 +7,7 @@ import { RekognitionClient } from '@aws-sdk/client-rekognition';
 import { S3Client } from '@aws-sdk/client-s3';
 import { TranscribeStreamingClient } from '@aws-sdk/client-transcribe-streaming';
 import { DEFAULT_POLICY } from '@wick/policy';
-import { DEMO_DOOR_DETAIL_TYPE, DEMO_DOOR_SOURCE, type DemoDoorEvent } from '@wick/contracts';
+import { DEMO_DOOR_DETAIL_TYPE, DEMO_DOOR_SOURCE, SIMULATOR_DEVICE_ID, type DemoDoorEvent } from '@wick/contracts';
 import { sendHomeToDevices, sendPatchToDevice, sendToDevice, takeBackFromDevices } from '@wick/agent';
 import { createApp, SERVER_VERSION } from './server.js';
 import { errandMachineFromEnv } from './tools/errands.js';
@@ -177,6 +177,15 @@ const app = createApp(ISSUER_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ code, ...(as ? { as } : {}) }),
+    });
+    return { status: res.status, body: await res.text() };
+  },
+  // The Vega Virtual Device's id (apps/tv-vega deviceId.ts SIMULATOR_DEVICE_ID): a code for it, as the simulator would ask.
+  startSimulatorPairing: async () => {
+    const res = await fetch(`${PAIRING_API_URL}/pair/start`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId: SIMULATOR_DEVICE_ID }),
     });
     return { status: res.status, body: await res.text() };
   },

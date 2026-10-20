@@ -2043,6 +2043,29 @@ export function presentConnect(me, wanted) {
       resident: `${resident} is then asked, on it, whether to allow you.`,
       family: `Your television will show you ${resident}’s light and anything she asks of you. It is never used to reach her.`,
     },
+    // A demo home only (POST /api/televisions/simulator): every Vega Virtual Device has the same id, so one may open
+    // straight into another demo home and never show a code. This brings it here instead. Never for one's own television.
+    simulator: me.household.simulated === true && offer !== 'family'
+      ? {
+          hint: 'Using the Vega Virtual Device? Every simulator has the same id, so it may open straight into another demo home without showing a code.',
+          label: 'Bring in the Vega Virtual Device',
+        }
+      : null,
+  };
+}
+
+/**
+ * Said once the Vega Virtual Device has been brought in (POST
+ * /api/televisions/simulator). The simulator follows its id here by itself
+ * within a minute (apps/tv-vega pairing/standing.ts); one that is not running
+ * Wick finds it at its next launch.
+ *
+ * @param {string} resident
+ */
+export function presentSimulatorConnected(resident) {
+  return {
+    say: `The Vega Virtual Device is now ${resident}’s television. It moves to this home within a minute; if Wick is not open on it, launch it.`,
+    tone: 'answer',
   };
 }
 

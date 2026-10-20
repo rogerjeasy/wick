@@ -8,6 +8,7 @@ import {
   needsConfirmation,
   presentCircle,
   presentConnect,
+  presentSimulatorConnected,
   presentPairLink,
   presentConnected,
   presentDoorbell,
@@ -364,6 +365,20 @@ describe('presentConnect — whose television it is, asked before the code is se
       as: null,
       lead: { resident: 'Open Wick on the television. It shows a six-digit code.', family: 'Open Wick on your television. It shows a six-digit code.' },
       footnote: { resident: HERS, family: QUIET },
+      simulator: null,
+    });
+  });
+
+  it('in a demo home, offers to bring in the Vega Virtual Device, which may show no code — never for one’s own television', () => {
+    const demo = { ...me('organiser', 'allowed'), household: { ...me('organiser', 'allowed').household, simulated: true } };
+    expect(presentConnect(demo).simulator).toEqual({
+      hint: 'Using the Vega Virtual Device? Every simulator has the same id, so it may open straight into another demo home without showing a code.',
+      label: 'Bring in the Vega Virtual Device',
+    });
+    expect(presentConnect({ ...demo, membership: { role: 'family', status: 'allowed' } }).simulator).toBeNull();
+    expect(presentSimulatorConnected('Margaret')).toEqual({
+      say: 'The Vega Virtual Device is now Margaret’s television. It moves to this home within a minute; if Wick is not open on it, launch it.',
+      tone: 'answer',
     });
   });
 
@@ -384,6 +399,7 @@ describe('presentConnect — whose television it is, asked before the code is se
         as: 'family',
         lead: { resident: 'Open Wick on the television. It shows a six-digit code.', family: 'Open Wick on your television. It shows a six-digit code.' },
         footnote: { resident: HERS, family: QUIET },
+        simulator: null,
       });
     }
   });

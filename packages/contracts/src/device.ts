@@ -171,3 +171,11 @@ export interface DeviceChannel {
 export type DeviceWireMessage =
   | { readonly kind: 'card'; readonly card: QueuedCard }
   | { readonly kind: 'control'; readonly control: ControlMessage };
+
+/**
+ * The id every Vega Virtual Device has (apps/tv-vega deviceId.ts): its
+ * storage keeps nothing, so it cannot keep an id of its own. The pairing
+ * service knows it too (edge-device proof.mjs), and answers it from the id
+ * alone, in a demo home only, for a limited time.
+ */
+export const SIMULATOR_DEVICE_ID = 'wick-tv';

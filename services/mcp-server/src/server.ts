@@ -31,7 +31,7 @@ import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { CardPatch, DemoDoorEvent } from '@wick/contracts';
 import { createAuth } from './auth.js';
 import { dynamoBudget, type Budget } from './budget.js';
-import { createApiRouter, type ClaimTelevision, type RingLinks } from './accounts/apiRouter.js';
+import { createApiRouter, type ClaimTelevision, type RingLinks, type StartSimulatorPairing } from './accounts/apiRouter.js';
 import { createAccountDataRouter } from './accounts/accountDataRouter.js';
 import { createFamilyTelevisionRouter } from './accounts/familyTelevisionRouter.js';
 import { createResidentTelevisionRouter } from './accounts/residentTelevisionRouter.js';
@@ -223,6 +223,8 @@ export interface AppDeps {
   readonly ddb: DynamoDBClient;
   /** The pairing API's POST /pair/claim, called as the signed-in person. */
   readonly claimTelevision?: ClaimTelevision;
+  /** The pairing API's POST /pair/start for the Vega Virtual Device's id (accounts/apiRouter.ts `/api/televisions/simulator`). */
+  readonly startSimulatorPairing?: StartSimulatorPairing;
   /** The home's own Ring link (accounts/apiRouter.ts `/api/ring`). Absent, those routes say Ring cannot be reached. */
   readonly ringLinks?: RingLinks;
   /** Let a visitor become an anonymous guest in one click (accounts/demo.ts). Off unless set. */
@@ -352,6 +354,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   app.use(createResidentTelevisionRouter({ ddb, now: circle.now, closeHome: (householdId) => closeHomeAtHerWord(myData, householdId) }));
   app.use(createApiRouter(circle, requireAuth, {
     claimTelevision: deps.claimTelevision,
+    startSimulatorPairing: deps.startSimulatorPairing,
     ringLinks: deps.ringLinks,
     virtualTelevisionUrl: deps.virtualTelevisionUrl,
     push,
