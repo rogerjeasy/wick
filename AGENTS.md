@@ -363,7 +363,11 @@ to the family: Wick cannot know what was kept.
 From `docs/WICK.md` §7. The ones that most often get violated by accident:
 
 - **Three items, never four.** DayCard holds at most 3. DoorCard has at most 3 actions.
-- **No auto-dismiss, no timers.** Nothing disappears on a countdown.
+- **No auto-dismiss, no timers.** No card, question or sentence she might
+  still be reading disappears on a countdown. The one thing that goes by
+  itself is the film's bar (`watch/transport.ts`), which asks nothing: it
+  goes after four seconds of play, as every player's does, and stays while
+  the film is paused.
 - **A note never talks over the story.** A deferred card shown in the middle of
   a programme — at one of its calm points, or in a pause — holds the programme
   on the cut, and the programme goes on when the card has gone
@@ -610,8 +614,10 @@ the thing to never do. Exactly one module reads it: `scripts/env.ts`.
   press — and nothing that is not on the screen (`speechTextOf`). The voice
   is Amazon Polly's, made at the edge from those words when she asks, kept
   one day so the same card is made once, and answered only to the
-  television that asked. Over a card that is holding her film, the first
-  Play reads and the next carries on with the film, as it always did. A
+  television that asked. Over any card, Play is the card's, every time: it
+  reads, and the next Play stops the reading. It never moves the film — the
+  film goes on when she answers the card or puts it aside with Back
+  (`watch/remoteKeys.ts` `playIsTheCards`, docs/design/DESIGN.md §6). A
   card never reads itself: that would be the beep this product promises not
   to make. And nothing about a reading reaches the family — no timeline
   row, no count, nothing on the bus. **Never** start a reading without her
