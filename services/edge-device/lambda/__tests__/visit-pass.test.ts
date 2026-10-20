@@ -26,19 +26,18 @@ import {
 } from '@wick/contracts';
 import {
   PASS_SPEAKS_FOR,
-  VISITOR_SAYS,
   VISIT_EVENTS,
-  VISIT_PASS_LIMITS,
   VISIT_PASS_PK_PREFIX,
   VISIT_PASS_SK,
   createHandler,
   isVisitPassToken,
   nextLateMinutes,
   passStateAt,
-  readVisitorWord,
   tokenHash,
   // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 } from '../visit-pass.mjs';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { VISITOR_SAYS, VISIT_PASS_LIMITS, readVisitorWord } from '../visitor-word.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { readHome } from '../home.mjs';
 
@@ -254,7 +253,8 @@ describe('POST /visit/say', () => {
     // The home as device-event.mjs tells it: read the same way, from the same rows, just after the word was kept.
     expect(detail.home).toEqual(JSON.parse(JSON.stringify(await readHome({ send: e.send, table: 'wick', householdId: HH, now: VISIT_AT - 20 * MINUTE }))));
     expect(readHomeState(detail.home)).toBeDefined();
-    expect(detail.home.today.coming).toHaveLength(1);
+    // Her day already says it: the word was kept before the home was read.
+    expect(detail.home.today.coming.map((c: { line: string }) => c.line)).toEqual(['Doctor Rossi says they are at your door. Sarah arranged it.']);
 
     expect(said).toEqual({ EventBusName: 'wick-bus', Source: 'wick.visit', DetailType: 'visit.said', Detail: JSON.stringify({ householdId: HH, errandId: ERRAND, says: 'at_door', at: VISIT_AT - 20 * MINUTE }) });
     expect(readVisitSaidDetail(JSON.parse(said!.Detail))).toEqual({ householdId: HH, errandId: ERRAND, says: 'at_door', at: VISIT_AT - 20 * MINUTE });

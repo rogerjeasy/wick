@@ -46,11 +46,8 @@ import { DynamoDBClient, GetItemCommand, UpdateItemCommand } from '@aws-sdk/clie
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { buildHomeChangedEntry } from './light.mjs';
 import { readHome } from './home.mjs';
+import { VISIT_PASS_LIMITS, isVisitorSays, visitorWordOfRow } from './visitor-word.mjs';
 
-/** contracts visitPass.ts VISITOR_SAYS. */
-export const VISITOR_SAYS = ['on_way', 'late', 'at_door'];
-/** contracts visitPass.ts VISIT_PASS_LIMITS (atDoorFreshMs is the door's, not this file's). */
-export const VISIT_PASS_LIMITS = { opensBeforeMs: 3 * 3_600_000, lateStepMinutes: 15, maxPresses: 30 };
 /** contracts visitPass.ts VISIT_PASS_PK_PREFIX, VISIT_PASS_SK. */
 export const VISIT_PASS_PK_PREFIX = 'VPASS#';
 export const VISIT_PASS_SK = 'VPASS';
@@ -69,7 +66,6 @@ export const PASS_SPEAKS_FOR = ['planned', 'reminded', 'waiting', 'rang'];
 /** contracts visitPass.ts isVisitPassToken: 128 random bits as 32 lower-case hex characters. */
 const TOKEN = /^[0-9a-f]{32}$/;
 export const isVisitPassToken = (value) => typeof value === 'string' && TOKEN.test(value);
-export const isVisitorSays = (value) => typeof value === 'string' && VISITOR_SAYS.includes(value);
 
 /** contracts visitPass.ts passStateAt. */
 export function passStateAt(visit, now) {
@@ -81,26 +77,6 @@ export function passStateAt(visit, now) {
 /** contracts visitPass.ts nextLateMinutes. */
 export function nextLateMinutes(current, windowMinutes) {
   return Math.min((current ?? 0) + VISIT_PASS_LIMITS.lateStepMinutes, windowMinutes);
-}
-
-/** contracts visitPass.ts readVisitorWord. Rows are read, not trusted. */
-export function readVisitorWord(raw) {
-  if (typeof raw !== 'object' || raw === null) return undefined;
-  if (!isVisitorSays(raw.says) || typeof raw.at !== 'number' || !Number.isFinite(raw.at)) return undefined;
-  if (raw.says === 'late') {
-    if (typeof raw.lateMinutes !== 'number' || !Number.isFinite(raw.lateMinutes) || raw.lateMinutes <= 0) return undefined;
-    return { says: 'late', at: raw.at, lateMinutes: raw.lateMinutes };
-  }
-  return { says: raw.says, at: raw.at };
-}
-
-/** The kept word on a row, or undefined. */
-function wordOf(item) {
-  try {
-    return item?.visitorWord?.S ? readVisitorWord(JSON.parse(item.visitorWord.S)) : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /** A token's hash: the only way a pass is found. */
@@ -192,7 +168,7 @@ export function createHandler({ send, putEvents, table, busName, now = Date.now 
     }))).Item;
     if (member?.status?.S !== 'allowed') return { refused: 'author_not_allowed', errandId };
 
-    return { hash, householdId, errandId, at, windowMinutes, word: wordOf(errandRow) };
+    return { hash, householdId, errandId, at, windowMinutes, word: visitorWordOfRow(errandRow) };
   }
 
   /** Her day has changed, and the agent plane is to hear what was said: one PutEvents. Logged, never thrown. */

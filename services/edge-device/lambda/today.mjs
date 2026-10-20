@@ -9,10 +9,16 @@
  *   a regular visitor     "Maria usually comes tomorrow at 9 am."
  *   a member's own visit  "Sarah is coming to see you today at 3 pm."
  *   an arranged visit     "The window cleaner is expected today at 10:18 am. Sarah arranged it."
+ *     … once its visitor has said so from their visit pass (contracts visitPass.ts):
+ *                         "Doctor Rossi is on the way. Sarah arranged it."
+ *                         "Doctor Rossi will be about 15 minutes late."
+ *                         "Doctor Rossi says they are at your door. Sarah arranged it."
  *
  * Each says only what the roster says: a regular visitor "usually" comes,
- * an arranged visit "is expected". Nothing here says anyone came — that is
- * the door's to see and hers to confirm (contracts visit.ts).
+ * an arranged visit "is expected" — or what its visitor said, in their
+ * words, kept beside the entry (`visitorWord`, visit-pass.mjs). Nothing
+ * here says anyone came — that is the door's to see and hers to confirm
+ * (contracts visit.ts).
  *
  * An entry stands only while the member whose word it rests on is still
  * allowed by her — the door's own rule (services/agent door/roster.ts
@@ -26,12 +32,13 @@
  * no sentence in the phrasebook, and stays English, whole.
  *
  * This plain .mjs Lambda can't import TS; the names below are inlined from
- * packages/contracts (today.ts, door.ts, circle.ts, errand.ts), and
- * today.test.ts holds them to it.
+ * packages/contracts (today.ts, door.ts, circle.ts, errand.ts, visitPass.ts
+ * visitorDayLine), and today.test.ts holds them to it.
  *
  * Pure: device-event.mjs owns the DynamoDB client.
  */
 import { endOfLocalDay } from './light.mjs';
+import { VISIT_PASS_LIMITS, visitorWordOfRow } from './visitor-word.mjs';
 
 /** contracts today.ts MAX_COMING. */
 export const MAX_COMING = 3;
@@ -128,14 +135,20 @@ function parsePattern(pattern) {
   return { days: dayPart.split(','), hour, minute, windowMin: Number(m[3]) };
 }
 
-/** The roster's entries, read from their rows; a row that is not one is left out. */
+/**
+ * The roster's entries, read from their rows; a row that is not one is left
+ * out. What a visitor said from their visit pass is an attribute of the row
+ * beside the entry, never inside it (visit-pass.mjs): it is read with it.
+ */
 function readRoster(rows) {
   return (rows ?? [])
     .filter((row) => row?.sk?.S?.startsWith(PERSON_SK_PREFIX) && typeof row.data?.S === 'string')
     .flatMap((row) => {
       try {
         const entry = JSON.parse(row.data.S);
-        return entry && typeof entry.personId === 'string' && typeof entry.name === 'string' ? [entry] : [];
+        if (!entry || typeof entry.personId !== 'string' || typeof entry.name !== 'string') return [];
+        const word = visitorWordOfRow(row);
+        return [{ person: entry, ...(word ? { word } : {}) }];
       } catch {
         return [];
       }
@@ -153,15 +166,30 @@ function stillWelcome(roster, homeRows) {
       .filter((row) => row?.sk?.S?.startsWith(MEMBER_SK_PREFIX) && row.status?.S === 'allowed')
       .map((row) => row.sk.S.slice(MEMBER_SK_PREFIX.length)),
   );
-  return roster.filter((person) => {
+  return roster.filter(({ person }) => {
     const userId = person.personId.startsWith(MEMBER_PERSON_PREFIX) ? person.personId.slice(MEMBER_PERSON_PREFIX.length) : person.addedBy;
     return userId === undefined || allowed.has(userId);
   });
 }
 
-/** The sentence for one visit, on the day it is said of. */
-function lineFor(person, when, time) {
+/**
+ * contracts visitPass.ts visitorDayLine: an arranged visit once its visitor
+ * has said something. "Late" says how late and not who arranged it, which
+ * the line before it already said.
+ */
+function visitorDayLine(who, word, arrangedByName) {
+  const arranged = firstName(arrangedByName);
+  const and = arranged ? ` ${arranged} arranged it.` : '';
+  const opened = opening(String(who).trim());
+  if (word.says === 'late') return `${opened} will be about ${word.lateMinutes ?? VISIT_PASS_LIMITS.lateStepMinutes} minutes late.`;
+  if (word.says === 'at_door') return `${opened} says they are at your door.${and}`;
+  return `${opened} is on the way.${and}`;
+}
+
+/** The sentence for one visit, on the day it is said of. `word`: what an arranged visit's visitor last said. */
+function lineFor(person, when, time, word) {
   if (person.personId.startsWith(ERRAND_PERSON_PREFIX)) {
+    if (word) return visitorDayLine(person.name, word, person.arrangedByName);
     const arranged = firstName(person.arrangedByName);
     const expected = `${opening(String(person.name).trim())} is expected ${when} at ${time}.`;
     return arranged ? `${expected} ${arranged} arranged it.` : expected;
@@ -192,14 +220,14 @@ export function herDay({ homeRows, rosterRows, now, timeZone }) {
   const name = firstName(meta?.residentName?.S);
 
   const found = [];
-  for (const person of stillWelcome(readRoster(rosterRows), homeRows)) {
+  for (const { person, word } of stillWelcome(readRoster(rosterRows), homeRows)) {
     // One visit somebody said would happen, at its moment.
     if (person.expectedOnce && Number.isFinite(person.expectedOnce.at)) {
       const at = person.expectedOnce.at;
       const over = at + (Number(person.expectedOnce.windowMin) || 0) * MINUTE_MS;
       if (over <= now || at >= tomorrowEnd) continue;
       const isToday = at < dayEnd;
-      const line = lineFor(person, isToday ? 'today' : 'tomorrow', clockWords(at, timeZone));
+      const line = lineFor(person, isToday ? 'today' : 'tomorrow', clockWords(at, timeZone), word);
       // "Tomorrow" stops being true at midnight, whatever time the visit is.
       if (line) found.push({ personId: person.personId, at, line, until: isToday ? over : dayEnd });
       continue;
