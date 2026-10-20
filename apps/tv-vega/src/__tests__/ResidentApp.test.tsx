@@ -37,6 +37,7 @@ vi.mock('react-native', () => import('./render/platform.js'));
 vi.mock('@amazon-devices/kepler-file-system', () => import('./render/files.js'));
 vi.mock('@amazon-devices/react-native-w3cmedia', () => import('./render/media.js'));
 vi.mock('../home/posters.js', () => ({ POSTERS: {} }));
+vi.mock('../icons/iconSources.generated.js', () => import('./render/icons.js'));
 
 /** The card channel, as far as the app can tell: it is handed the queue, and puts cards in it. */
 const channel = vi.hoisted(() => ({

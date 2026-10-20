@@ -24,6 +24,7 @@ import { HOME_RING_DP } from '../homeLayout.js';
 import { all, button, buttons, named, contrastOf, flat, focus, fontSize, headers, preferred, press, pressOk, render, settle, texts, type Drawn, type Node } from '../../__tests__/render/render.js';
 
 vi.mock('@amazon-devices/react-native-kepler', () => import('../../__tests__/render/platform.js'));
+vi.mock('../../icons/iconSources.generated.js', () => import('../../__tests__/render/icons.js'));
 // The films' stills are `require`d images, which only the Vega bundler resolves: here each is its own address.
 vi.mock('../posters.js', () => ({
   POSTERS: { 'big-buck-bunny': { uri: 'poster:big-buck-bunny' }, sintel: { uri: 'poster:sintel' }, 'tears-of-steel': { uri: 'poster:tears-of-steel' } },
@@ -411,9 +412,55 @@ describe('a press', () => {
     const { root } = await home({ ...WITH_EVERYTHING, onHold });
 
     for (const b of buttons(root)) {
-      expect(b.props.onLongPress, String(b.props.accessibilityLabel)).toBe(onHold);
       expect(b.props.delayLongPress).toBe(HOLD_MS);
+      await settle(() => (b.props.onLongPress as () => void)());
     }
+    expect(onHold).toHaveBeenCalledTimes(buttons(root).length);
+  });
+});
+
+describe('holding OK (press/HoldLine.tsx)', () => {
+  beforeEach(() => {
+    // The line waits its 0.4 s on a timer: this time the timers are faked too.
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(T);
+  });
+
+  it('shows from 0.4 s what holding will do, and nothing before', async () => {
+    const drawn = await home();
+    await settle(() => (tile(drawn.root, BUNNY).props.onPressIn as () => void)());
+    await settle(() => void vi.advanceTimersByTime(300));
+    expect(texts(drawn.root)).not.toContain('Keep holding to ask for a call');
+    await settle(() => void vi.advanceTimersByTime(100));
+    expect(texts(drawn.root)).toContain('Keep holding to ask for a call');
+  });
+
+  it('names whom it would ask, when the television knows', async () => {
+    const drawn = await home({ holdName: 'Sarah' });
+    await settle(() => (tile(drawn.root, BUNNY).props.onPressIn as () => void)());
+    await settle(() => void vi.advanceTimersByTime(500));
+    expect(texts(drawn.root)).toContain('Keep holding to ask Sarah to ring you');
+  });
+
+  it('goes the moment OK is let go — and nothing is asked', async () => {
+    const onHold = vi.fn();
+    const drawn = await home({ onHold });
+    await settle(() => (tile(drawn.root, BUNNY).props.onPressIn as () => void)());
+    await settle(() => void vi.advanceTimersByTime(1200));
+    await settle(() => (tile(drawn.root, BUNNY).props.onPressOut as () => void)());
+    expect(texts(drawn.root)).not.toContain('Keep holding to ask for a call');
+    expect(onHold).not.toHaveBeenCalled();
+  });
+
+  it('goes when the hold is made, and the offer is asked for', async () => {
+    const onHold = vi.fn();
+    const drawn = await home({ onHold });
+    await settle(() => (tile(drawn.root, BUNNY).props.onPressIn as () => void)());
+    await settle(() => void vi.advanceTimersByTime(2000));
+    await settle(() => (tile(drawn.root, BUNNY).props.onLongPress as () => void)());
+    expect(onHold).toHaveBeenCalledTimes(1);
+    expect(texts(drawn.root)).not.toContain('Keep holding to ask for a call');
   });
 });
 

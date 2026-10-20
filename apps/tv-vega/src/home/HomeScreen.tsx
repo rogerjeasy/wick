@@ -11,7 +11,10 @@
  * OK held for two seconds on anything here is not a press: it brings the
  * card that offers to ask someone to ring her (packages/contracts/src/
  * reach.ts). The platform's own long press tells the two apart, so the film
- * under her thumb does not start when she lets go.
+ * under her thumb does not start when she lets go. From 0.4 s the hold
+ * shows itself (press/HoldLine.tsx): a bar at the bottom says what holding
+ * will do and a line fills to the two seconds. Let go before then, and the
+ * bar goes and nothing happens at all.
  *
  * Her day first (home/herDay.ts, contracts today.ts): when the server says
  * one, the question gives way to "Good morning, Margaret." and the date, and
@@ -70,6 +73,7 @@ import { stylesFor, useCalmTheme, type CalmTheme } from '@wick/vega-calm-ui';
 import type { Programme } from '../catalog/catalog.js';
 import { pressBegins, pressEnds } from '../press/held.js';
 import { HOLD_MS } from '../watch/hold.js';
+import { HoldLine } from '../press/HoldLine.js';
 import { HOME_FOCUS_START, focusOnReturn, focusReported, reachChanged, type HomeFocus } from './focusMemory.js';
 import { programmeLine, words } from '../words/words.js';
 import { POSTERS } from './posters.js';
@@ -142,6 +146,13 @@ export interface HomeScreenProps {
   /** OK was held for two seconds on whatever has the focus (watch/hold.ts HOLD_MS). */
   readonly onHold?: (() => void) | undefined;
   /**
+   * Whom holding OK would ask to ring her, when the television knows
+   * (press/HoldLine.tsx). The home message does not say who is first in her
+   * circle (packages/contracts light.ts HomeState), so today it is never
+   * known here and the line says what holding does without a name.
+   */
+  readonly holdName?: string | undefined;
+  /**
    * OK came up on whatever has the focus here — after a press or a hold. The
    * app only minds after a hold: it is how it knows her thumb is off the
    * button before the card arrives (home/reach.ts holdGuard).
@@ -149,7 +160,7 @@ export interface HomeScreenProps {
   readonly onKeyUp?: (() => void) | undefined;
 }
 
-export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, seeing, onOpenSeeing, day, onHold, onKeyUp }: HomeScreenProps): React.JSX.Element {
+export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, onChoose, cardVisible, lastWatchedId, waiting, onOpenWaiting, light, onOpenLight, lookedIn, mantel, onOpenMantel, seeing, onOpenSeeing, day, onHold, holdName, onKeyUp }: HomeScreenProps): React.JSX.Element {
   const say = words(language);
   const theme = useCalmTheme();
   // Never a title cut: at 40pt one may take two lines, and the pictures are shorter for it (home/homeLayout.ts).
@@ -177,10 +188,24 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
   // down when it came back (press/held.ts). Kept with the screen, so a film takes it away with it.
   const began = React.useRef<number | null>(null);
   const keyCameUp = React.useRef(false);
+  // Since when OK has been down on something here, for the hold line: from the key going down to it coming up,
+  // or to the hold it became. Not while anything else has the remote.
+  const [holdSince, setHoldSince] = React.useState<number | null>(null);
   const pressIn = (): void => {
     keyCameUp.current = false;
-    began.current = pressBegins({ reachableSince: focus.current.reachableSince, now: Date.now(), okDownSince: okDownSince?.() ?? null });
+    const now = Date.now();
+    began.current = pressBegins({ reachableSince: focus.current.reachableSince, now, okDownSince: okDownSince?.() ?? null });
+    setHoldSince(now);
   };
+  // Held for the two seconds: the line has done its work, and the card it asked for is on its way.
+  const held = (): void => {
+    setHoldSince(null);
+    onHold?.();
+  };
+  const reachable = drawn && !cardVisible;
+  React.useEffect(() => {
+    if (!reachable) setHoldSince(null);
+  }, [reachable]);
   // OK comes up on it, seen now. It is acted on only if the press began here, and not in the home's first second
   // back within reach (press/settle.ts). Otherwise it does nothing at all — nothing is started, opened or sent,
   // and the second is not made longer by it.
@@ -189,6 +214,7 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
   // "pressed": `pressOut` notes the first, and the app is told of it as it always was.)
   const pressOut = (): void => {
     keyCameUp.current = true;
+    setHoldSince(null);
     onKeyUp?.();
   };
   const press =
@@ -236,7 +262,7 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
             key={programme.id}
             onPress={press(() => onChoose(programme))}
             onPressIn={pressIn}
-            onLongPress={onHold}
+            onLongPress={held}
             delayLongPress={HOLD_MS}
             onPressOut={pressOut}
             onFocus={() => reportFocus(`programme:${programme.id}`)}
@@ -267,7 +293,7 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
             <Pressable
               onPress={press(onOpenWaiting)}
               onPressIn={pressIn}
-              onLongPress={onHold}
+              onLongPress={held}
               delayLongPress={HOLD_MS}
               onPressOut={pressOut}
               onFocus={() => reportFocus('waiting')}
@@ -301,7 +327,7 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
           <Pressable
             onPress={press(onOpenLight)}
             onPressIn={pressIn}
-            onLongPress={onHold}
+            onLongPress={held}
             delayLongPress={HOLD_MS}
             onPressOut={pressOut}
             onFocus={() => reportFocus('light')}
@@ -321,7 +347,7 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
           <Pressable
             onPress={press(onOpenMantel)}
             onPressIn={pressIn}
-            onLongPress={onHold}
+            onLongPress={held}
             delayLongPress={HOLD_MS}
             onPressOut={pressOut}
             onFocus={() => reportFocus('mantel')}
@@ -341,7 +367,7 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
         <Pressable
           onPress={press(onOpenSeeing)}
           onPressIn={pressIn}
-          onLongPress={onHold}
+          onLongPress={held}
           delayLongPress={HOLD_MS}
           onPressOut={pressOut}
           onFocus={() => reportFocus('seeing')}
@@ -356,6 +382,9 @@ export function HomeScreen({ drawn, inFront, okDownSince, language, programmes, 
           </Text>
         </Pressable>
       </View>
+
+      {/* Holding OK: from 0.4 s, what it will do, and how far it has got (press/HoldLine.tsx). */}
+      <HoldLine since={holdSince} language={language} name={holdName} />
     </View>
   );
 }
