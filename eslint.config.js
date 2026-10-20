@@ -39,8 +39,9 @@ export default tseslint.config(
   // for byte (apps/ops-console/__tests__/tv-build.test.ts): its source is linted where it lives.
   // apps/ops-console/vendor/ is the web's libraries, copied and bundled from their packages by `npm run web:vendor`
   // and held to them byte for byte (tv-build.test.ts).
+  // docs/assets/vendor/ is third-party code written by `npm run pages:vendor` (scripts/pages-vendor.mjs), never edited.
   // .worktrees/ and .claude/worktrees/ hold other branches checked out side by side (.gitignore).
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**', '.programmes/**', 'apps/tv-fireos/android/**', 'apps/ops-console/*.generated.js', 'apps/ops-console/vendor/**', '.worktrees/**', '.claude/worktrees/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/cdk.out/**', '**/.build/**', '.programmes/**', 'apps/tv-fireos/android/**', 'apps/ops-console/*.generated.js', 'apps/ops-console/vendor/**', '.worktrees/**', '.claude/worktrees/**', 'docs/assets/vendor/**'] },
 
   // Parse TypeScript everywhere.
   ...tseslint.configs.recommended,

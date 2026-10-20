@@ -34,6 +34,7 @@
     "calm:measure": "scripts/calm-points/measure.sh",
     "calm:describe": "vite-node -c vitest.config.ts scripts/calm-points/describe.ts && npm run calm:build",
     "calm:build": "vite-node -c vitest.config.ts scripts/calm-points/cli.ts",
+    "pages:vendor": "node scripts/pages-vendor.mjs",
     "phrasebook:build": "node scripts/build-phrasebook.mjs",
     "speech:build": "node scripts/build-speech.mjs",
     "tv:build": "vite-node -c vitest.config.ts scripts/tv-page/cli.ts",
