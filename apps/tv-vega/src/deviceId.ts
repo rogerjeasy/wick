@@ -61,9 +61,10 @@ import type { FileSystemLike } from './headless/QueueStore.js';
 import { DEVICE_ID_PATH, loadOrCreateDeviceId, randomDeviceId } from './headless/OnInstallTask.js';
 import { TOKEN_PATH } from './pairing/PairingFlow.js';
 import { secureHex } from './random.js';
+import { SIMULATOR_DEVICE_ID } from '@wick/contracts';
 
-/** The id of any television whose storage cannot keep one. */
-export const SIMULATOR_DEVICE_ID = 'wick-tv';
+/** The id of any television whose storage cannot keep one (contracts device.ts). */
+export { SIMULATOR_DEVICE_ID };
 
 /** Flat, directly under /data/ — see PairingFlow.ts's TOKEN_PATH comment for why. */
 export const IDENTITY_PATH = '/data/wick-identity.json';

@@ -31,7 +31,7 @@ import { PairingFlow } from './pairing/PairingFlow.js';
 import { PairingScreen } from './pairing/PairingScreen.js';
 import { connectTelevision, type Connecting } from './pairing/connect.js';
 import { loadDeviceConfig } from './config.js';
-import { televisionIdentity } from './deviceId.js';
+import { SIMULATOR_DEVICE_ID, televisionIdentity } from './deviceId.js';
 import { televisionMode } from './family/mode.js';
 import { FamilyApp } from './family/FamilyApp.js';
 import { ResidentApp } from './ResidentApp.js';
@@ -116,6 +116,8 @@ function Television(): React.JSX.Element {
             keep: (fresh: DeviceToken) => pairing.keepIfLonger(fresh),
             // Fresh from the pairing service: it has just said this television is connected, and the token's hour starts now.
             ...(ready.asked ? { since: Date.now() } : {}),
+            // The Vega Virtual Device goes where its id now belongs: a demo home brought it in from the family app (standing.ts).
+            ...(ready.token.deviceId === SIMULATOR_DEVICE_ID ? { onMoved: (there: DeviceToken) => setScreen({ kind: 'ready', token: there, asked: true }) } : {}),
           }
         : undefined,
     [ready, pairing, handleSignedOut],
@@ -147,5 +149,6 @@ function Television(): React.JSX.Element {
       </AtStandardSize>
     );
   }
-  return <ResidentApp token={screen.token} config={config} {...(standing ? { standing } : {})} />;
+  // One home at a time: a television moved to another (the simulator, above) starts afresh there.
+  return <ResidentApp key={screen.token.householdId} token={screen.token} config={config} {...(standing ? { standing } : {})} />;
 }

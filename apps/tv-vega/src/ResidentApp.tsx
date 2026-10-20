@@ -188,6 +188,12 @@ export interface ResidentAppProps {
     readonly onGone: () => void;
     readonly keep: (fresh: DeviceToken) => Promise<void>;
     readonly since?: number;
+    /**
+     * The Vega Virtual Device only: its id now belongs to another home, and
+     * this is its token there (standing.ts `onMoved`). What this home left
+     * behind is forgotten first.
+     */
+    readonly onMoved?: (token: DeviceToken) => void;
   };
 }
 
@@ -408,6 +414,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
         held: { token, ...(standingNow.current?.since !== undefined ? { since: standingNow.current.since } : {}) },
         ask: (held) => standingNow.current?.ask(held) ?? Promise.resolve<RenewResult>('try_later'),
         onGone: () => void store.forget().then(() => standingNow.current?.onGone()),
+        ...(standingNow.current?.onMoved ? { onMoved: (there: DeviceToken) => void store.forget().then(() => standingNow.current?.onMoved?.(there)) } : {}),
         onFresh: (next) => {
           void standingNow.current?.keep(next);
           setFresh({ of: token, token: next });
@@ -816,11 +823,17 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
         setWatching(programme);
       }
       // "Yes, delete everything": she stops Wick. Her television asks the Wick server itself; once her home is
-      // closed it shows a new code, as a disconnected one does. Refused or unreachable, the page stays to try again.
+      // closed it shows a new code, as a disconnected one does. Refused or unreachable, the page stays, and says
+      // so: a press that seems to do nothing is pressed again, or taken for broken (seen on the Vega simulator, 2026-10-20,
+      // which can never stop Wick — it keeps no secret to show it is hers).
       if (card && card.id === cardId && stopsWick(card.card, actionId)) {
+        const page = card;
         void askToStop(fetch, config.wickServerUrl, inUse.jwt).then((stopped) => {
-          if (stopped === 'stopped') standing?.onGone();
-          else console.warn('stop_wick_not_done', stopped);
+          if (stopped === 'stopped') return void standing?.onGone();
+          console.warn('stop_wick_not_done', stopped);
+          if (page.card.type !== 'SHARING') return;
+          const detail = words(language ?? undefined)(stopped === 'refused' ? 'stop.refused' : 'stop.failed');
+          setCard((now) => (now?.id === page.id && now.card.type === 'SHARING' ? { ...now, card: { ...now.card, detail } } : now));
         });
         return;
       }
@@ -842,7 +855,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       // one, since FL-014 (holdCardChannel above).
       void store.enqueueOutbound({ t: 'card_action', cardId, action: actionId, at: Date.now() });
     },
-    [store, card, guard, breakController, reachAsked, settle, config, inUse, standing],
+    [store, card, guard, breakController, reachAsked, settle, config, inUse, standing, language],
   );
 
   // A press on the Easier to see card: held to the card's one second and the hold's thumb like any card's, then

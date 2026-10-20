@@ -140,6 +140,9 @@ describe('the words table — English, exactly as the television said it before 
       'pairing.gettingCode': 'Getting a code…',
       // pairing/connect.ts
       'pairing.stillTrying': 'Wick cannot reach the home just now.',
+      // pairing/stop.ts, said on the Stop Wick page when it was not done
+      'stop.refused': 'This television cannot stop Wick. Nothing was deleted.',
+      'stop.failed': 'Wick cannot reach the home just now. Nothing was deleted. Try again in a moment.',
       // watch/WatchScreen.tsx
       'watch.failed': '{title} will not play just now. Press Back.',
       'watch.starting': 'Starting {title}…',

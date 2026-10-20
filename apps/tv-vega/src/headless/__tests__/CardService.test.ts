@@ -3,10 +3,12 @@ import type { QueuedCard } from '@wick/contracts';
 import {
   onStartCardService,
   onStopCardService,
+  TAKE_UP_EVERY_MS,
   __setCardServiceTestDeps,
 } from '../CardService.js';
 import { QueueStore, type FileSystemLike } from '../QueueStore.js';
 import { resolveDeviceId } from '../../deviceId.js';
+import { STANDING_EVERY_MS } from '../../pairing/standing.js';
 
 function fakeFs(): FileSystemLike {
   const files = new Map<string, string>();
@@ -557,14 +559,31 @@ describe('CardService', () => {
     const part = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString('base64url');
     const nameOf = (token: Token): string => token.jwt.split('.')[2] ?? '?';
     /** A token as the pairing service mints one (edge-device jwt.mjs), good for an hour from `now`, by the service's clock. */
-    const mint = (name: string, deviceId: string, now = Date.now()): Token => {
+    const mint = (name: string, deviceId: string, now = Date.now(), householdId = 'h1'): Token => {
       const iat = Math.floor(now / 1000);
-      return { jwt: `${part({ alg: 'RS256' })}.${part({ deviceId, householdId: 'h1', iat, exp: iat + 3600 })}.${name}`, deviceId, householdId: 'h1', expiresAt: now + HOUR };
+      return { jwt: `${part({ alg: 'RS256' })}.${part({ deviceId, householdId, iat, exp: iat + 3600 })}.${name}`, deviceId, householdId, expiresAt: now + HOUR };
     };
     /** The Vega simulator's disk (FL-013): every call fails, and nothing is kept. */
     const diskThatKeepsNothing = (): FileSystemLike => {
       const fail = () => Promise.reject(new Error('com.amazon.kepler.io.IoError'));
       return { exists: fail, readFileAsString: fail, writeStringToFile: fail };
+    };
+    /**
+     * A disk that keeps nothing this process writes, and shows an id of its
+     * own — so the television is not the simulator, which also asks every
+     * minute where its id now belongs (the simulator's own tests, below).
+     * The hour of a refreshed token is the same for both.
+     */
+    const diskWithOnlyAnId = (): FileSystemLike => {
+      const fail = () => Promise.reject(new Error('com.amazon.kepler.io.IoError'));
+      return {
+        exists: async (path: string) => path === '/data/wick-identity.json',
+        readFileAsString: async (path: string) => {
+          if (path === '/data/wick-identity.json') return JSON.stringify({ deviceId: 'tv-own' });
+          throw new Error('com.amazon.kepler.io.IoError');
+        },
+        writeStringToFile: fail,
+      };
     };
 
     /** The edge: the pairing service, and the background WebSocket — checked as it opens, and not again. */
@@ -572,13 +591,15 @@ describe('CardService', () => {
       /** The edge's own clock: the television's may be hours out. */
       const now = (): number => Date.now() - (options.televisionClockFastBy ?? 0);
       let answer: 'token' | 'unreachable' | 'not_connected' = 'token';
+      /** Which home the pairing service says the television's id belongs to. */
+      let home = 'h1';
       let minted = 0;
       const opened: Array<{ token: Token; state: 'open' | 'backoff' | 'closed'; card?: (c: QueuedCard) => void }> = [];
       const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
         if (answer === 'unreachable') throw new TypeError('Network request failed');
         if (answer === 'not_connected') return new Response('device_not_paired', { status: 404 });
         const { deviceId } = JSON.parse(String(init?.body)) as { deviceId: string };
-        return new Response(JSON.stringify({ token: mint(`t${(minted += 1)}`, deviceId, now()) }), { status: 200 });
+        return new Response(JSON.stringify({ token: mint(`t${(minted += 1)}`, deviceId, now(), home) }), { status: 200 });
       });
       const createChannel = vi.fn(async (_config: unknown, token: Token) => {
         if (token.expiresAt <= now()) throw new Error('401 invalid_token');
@@ -606,6 +627,12 @@ describe('CardService', () => {
         says(next: typeof answer): void {
           answer = next;
         },
+        /** The id is now another home's: a demo home brought the simulator in. */
+        belongsTo(next: string): void {
+          home = next;
+        },
+        /** The home each connection's token is for, by its token's name. */
+        homes: (): string[] => opened.map((connection) => `${nameOf(connection.token)} ${connection.token.householdId} ${connection.state}`),
         /** Each connection the edge let on, by its token's name, and how it stands. */
         connections: (): string[] => opened.map((connection) => `${nameOf(connection.token)} ${connection.state}`),
         /**
@@ -634,7 +661,7 @@ describe('CardService', () => {
       };
     }
 
-    const start = async (the: ReturnType<typeof edge>, fs: FileSystemLike = diskThatKeepsNothing()) => {
+    const start = async (the: ReturnType<typeof edge>, fs: FileSystemLike = diskWithOnlyAnId()) => {
       vi.useFakeTimers();
       vi.setSystemTime(T0);
       const toasts: unknown[] = [];
@@ -781,6 +808,40 @@ describe('CardService', () => {
       await onStopCardService();
 
       expect(the.connections()).toEqual(['t1 closed', 't2 closed']);
+    });
+
+    // Every Vega simulator has the same id, and this process cannot be started
+    // again while it runs: it follows the id itself (CardService.ts).
+    describe('on the Vega Virtual Device', () => {
+      it('brought into another demo home: within a minute it lets the old home go and holds a connection there', async () => {
+        const the = edge();
+        await start(the, diskThatKeepsNothing());
+        await vi.advanceTimersByTimeAsync(5 * MINUTE);
+
+        the.belongsTo('h2');
+        await vi.advanceTimersByTimeAsync(STANDING_EVERY_MS + 2_000);
+
+        expect(the.homes()).toEqual(['t1 h1 closed', expect.stringMatching(/^t\d+ h2 open$/)]);
+      });
+
+      it('its binding run out: it lets go, and takes a home up again within TAKE_UP_EVERY_MS of being paired again', async () => {
+        const the = edge();
+        await start(the, diskThatKeepsNothing());
+        await vi.advanceTimersByTimeAsync(5 * MINUTE);
+
+        the.says('not_connected');
+        await vi.advanceTimersByTimeAsync(STANDING_EVERY_MS + 2_000);
+        expect(the.connections()).toEqual(['t1 closed']);
+        await vi.advanceTimersByTimeAsync(10 * MINUTE);
+        expect(the.connections()).toEqual(['t1 closed']);
+
+        the.belongsTo('h3');
+        the.says('token');
+        await vi.advanceTimersByTimeAsync(TAKE_UP_EVERY_MS + 2_000);
+
+        expect(the.homes()).toEqual(['t1 h1 closed', expect.stringMatching(/^t\d+ h3 open$/)]);
+        await onStopCardService();
+      });
     });
   });
 });
