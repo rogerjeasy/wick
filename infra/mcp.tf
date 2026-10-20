@@ -14,9 +14,12 @@
 # hackathon's "must stay live through judging" ruling needs — and a second
 # instance would answer any client the first one could.
 #
-# What is still per-process: the family assistant's rate budgets
-# (assistant/router.ts). They reset on a restart and would be counted per
-# instance; that is a looser limit, not a wrong answer.
+# What used to be per-process, and is not: the allowances an anonymous
+# visitor spends (the assistant's steps, a spoken question, a demo guest).
+# They are counted in the table (services/mcp-server/src/budget.ts), so
+# every instance reads one count and a restart does not give a fresh one.
+# Instances are capped as well (aws_apprunner_auto_scaling_configuration_version
+# below): the default is 25.
 #
 # The issuer URL problem: mcpAuthRouter() bakes `issuerUrl` into the OAuth
 # metadata it serves at startup (auth.ts's createAuthRouter), but App
@@ -209,8 +212,19 @@ resource "aws_iam_role_policy" "apprunner_instance" {
   policy = data.aws_iam_policy_document.apprunner_instance.json
 }
 
+# How far App Runner may scale the server. Left alone it takes the account's
+# default configuration: up to 25 instances at 100 requests each, and every
+# one an instance somebody pays for. One always runs.
+resource "aws_apprunner_auto_scaling_configuration_version" "mcp_server" {
+  auto_scaling_configuration_name = "${local.prefix}-mcp-server"
+  min_size                        = 1
+  max_size                        = var.mcp_max_instances
+  max_concurrency                 = 100
+}
+
 resource "aws_apprunner_service" "mcp_server" {
-  service_name = "${local.prefix}-mcp-server"
+  service_name                   = "${local.prefix}-mcp-server"
+  auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.mcp_server.arn
 
   source_configuration {
     authentication_configuration {

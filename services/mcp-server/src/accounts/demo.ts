@@ -29,6 +29,7 @@
  * afresh too (accountRouter.ts).
  */
 import { randomBytes } from 'node:crypto';
+import type { Budget } from '../budget.js';
 import type { Identity } from './identity.js';
 
 export const GUEST_ID_PREFIX = 'guest_';
@@ -69,27 +70,24 @@ export function newGuest(id: string): Identity {
 }
 
 export interface DemoLimiter {
-  /** True if one more guest may be made now; counts it if so. */
-  take(): boolean;
+  /** True if one more guest may be made now; counts it if so. A table that cannot be asked allows none (budget.ts). */
+  take(): Promise<boolean>;
 }
 
 /**
- * A fixed one-hour window, held in this process. The server runs as one
- * instance (infra/mcp.tf), so this process's count is the deployment's.
+ * A fixed one-hour window, counted in the table (budget.ts) so that it is the
+ * deployment's count and not one instance's: App Runner may run several, and
+ * a restart would otherwise give a fresh hour's allowance.
  */
-export function createDemoLimiter(now: () => number, limit: number = DEMO_ACCOUNTS_PER_HOUR): DemoLimiter {
-  let windowStart = now();
-  let made = 0;
+export function createDemoLimiter(budget: Budget, limit: number = DEMO_ACCOUNTS_PER_HOUR): DemoLimiter {
   return {
-    take() {
-      const at = now();
-      if (at - windowStart >= HOUR_MS) {
-        windowStart = at;
-        made = 0;
+    async take() {
+      try {
+        return await budget.take([{ counter: 'demo#accounts', limit, windowMs: HOUR_MS }]);
+      } catch (err) {
+        console.error(JSON.stringify({ level: 'error', msg: 'demo_budget_unavailable', error: (err as Error).name || 'Error' }));
+        return false;
       }
-      if (made >= limit) return false;
-      made += 1;
-      return true;
     },
   };
 }

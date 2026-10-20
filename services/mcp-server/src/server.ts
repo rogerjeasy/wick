@@ -30,6 +30,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { PutItemCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { CardPatch, DemoDoorEvent } from '@wick/contracts';
 import { createAuth } from './auth.js';
+import { dynamoBudget, type Budget } from './budget.js';
 import { createApiRouter, type ClaimTelevision, type RingLinks } from './accounts/apiRouter.js';
 import { createAccountDataRouter } from './accounts/accountDataRouter.js';
 import { createFamilyTelevisionRouter } from './accounts/familyTelevisionRouter.js';
@@ -228,6 +229,13 @@ export interface AppDeps {
   readonly demoAccounts?: boolean;
   /** How many guests the demo may make in an hour (accounts/demo.ts DEMO_ACCOUNTS_PER_HOUR unless set). */
   readonly demoAccountsPerHour?: number;
+  /**
+   * What an anonymous visitor may spend — assistant steps, spoken questions,
+   * demo guests — counted for the whole deployment (budget.ts). Absent, the
+   * table's own: every instance reads one count. A test or the dev server,
+   * which have no second instance, may give the in-memory one.
+   */
+  readonly budget?: Budget;
   /** The model behind the family app's conversation (assistant/brain.ts). Without one the app answers by its rules. */
   readonly assistant?: AssistantDeps;
   /** The assistant as a Strands agent on AgentCore Runtime (assistant/turn.ts). Without one, /assistant/turn says 503. */
@@ -288,6 +296,7 @@ let briefQueue: SQSClient | undefined;
 
 export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   const { ddb } = deps;
+  const budget = deps.budget ?? dynamoBudget(ddb, TABLE, deps.now ?? Date.now);
   const circle: CircleDeps = {
     store: deps.store,
     sendCard: deps.sendCard,
@@ -297,6 +306,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
   const { router: authRouter, requireAuth } = createAuth(issuerUrl, circle, deps.identity, {
     demoAccounts: deps.demoAccounts,
     demoAccountsPerHour: deps.demoAccountsPerHour,
+    budget,
     // A guest's home starts with six weeks to ask about, marked simulated (accounts/demoHome.ts),
     // and its newest week is then written again by Wick's agents — asked for, never waited for.
     seedDemoHome: async (householdId, timeZone) => {
@@ -361,7 +371,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     // Somebody at a demo home's door, for the Door agent's own path (accounts/demoDoorbell.ts).
     demoDoorbell: { ddb, store: deps.store, ring: deps.ringDemoDoor, now: circle.now, newId: circle.newId },
     // Ask by voice: the words are asked afterwards like typed ones, through the same gated paths.
-    hear: createHearRoute({ hear: deps.hear, store: deps.store, now: circle.now }),
+    hear: createHearRoute({ hear: deps.hear, store: deps.store, budget, now: circle.now }),
   }));
 
   // The tool list is the same for everyone and for the life of the process: asked for once, on first need.
@@ -375,6 +385,7 @@ export function createApp(issuerUrl: URL, deps: AppDeps): express.Express {
     agent: deps.assistantAgent,
     toolTitles: () => (toolTitles ??= listToolTitles(ddb)),
     peopleOf: (householdId) => householdPeople(ddb, deps.store, householdId),
+    budget,
     now: circle.now,
   }));
 

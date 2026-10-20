@@ -17,6 +17,7 @@
  * INV-8: there is no household in this file or in the environment. A
  * request's household is the one its token was approved for.
  */
+import type { Budget } from './budget.js';
 import express from 'express';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
@@ -42,8 +43,10 @@ export function createAuth(
   options: {
     readonly demoAccounts?: boolean | undefined;
     readonly demoAccountsPerHour?: number | undefined;
+    /** What an anonymous visitor may spend: counted for the whole deployment (budget.ts). */
+    readonly budget: Budget;
     readonly seedDemoHome?: ((householdId: string, timeZone: string) => Promise<void>) | undefined;
-  } = {},
+  },
 ): Auth {
   // The resource every token is bound to: this server, as its protected resource metadata names it.
   const oauth = createWickOAuth(circle.store, circle.now, issuerUrl);
@@ -57,7 +60,7 @@ export function createAuth(
       resourceName: 'Wick',
     }),
   );
-  router.use(createAccountRouter({ circle, identity, oauth, issuerUrl, demoAccounts: options.demoAccounts, demoAccountsPerHour: options.demoAccountsPerHour, seedDemoHome: options.seedDemoHome }));
+  router.use(createAccountRouter({ circle, identity, oauth, issuerUrl, demoAccounts: options.demoAccounts, demoAccountsPerHour: options.demoAccountsPerHour, budget: options.budget, seedDemoHome: options.seedDemoHome }));
 
   /**
    * §7.3 requires 401 with NO WWW-Authenticate header when unauthenticated.

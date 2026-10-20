@@ -116,7 +116,11 @@ for the hackathon, off for a deployment with real doorbells and real people),
 build:lambda` and a full `terraform apply` on every push to `main` that
 touches their paths. They authenticate by OIDC as `github-actions-wick-deploy`
 (`github-oidc.tf`), which can manage the services this stack already uses,
-scoped to `wick-*` names where AWS allows it.
+held to `wick-*` names, and which can never read or write what a household has
+put into Wick: three documents, an inline one, a managed one of grants and a
+managed one of explicit denials (item and object access, running a function,
+sending an event, reading logs). `scripts/__tests__/infra-guardrails.test.ts`
+fails if a service-wide grant or a denial is changed back.
 
 A laptop apply, by someone with administrator rights, is needed for:
 
@@ -130,6 +134,28 @@ A laptop apply, by someone with administrator rights, is needed for:
 - **The first apply of `images.tf`.** CI pins an image only in a parameter
   Terraform has already made, so on a stack that has never had `images.tf`
   applied, `deploy-agent.yml` stops at "pin the images" with that message.
+
+**The 2026-10-19 hardening needs one laptop apply, and before the merge reaches
+CI.** It makes the deploy role's policies (an inline policy, and two managed
+ones `github-actions-wick-deploy-stack` and `-denials`), a scaling
+configuration for the MCP server (`mcp_max_instances`, default 2), a limit of
+its own for each route of the edge API, and the budget brake: a managed policy
+`wick-spend-brake`, a role `wick-budget-brake` and a budget action, which need
+`TF_VAR_alarm_email` exported as the budget does (`var.budget_brake`, default
+on). Export it, run `terraform -chdir=infra plan` and read it (it should add
+the policies, attachments, scaling configuration, brake and role, update the
+deploy role's inline policy, the stage and the MCP service, and change nothing
+of the data), then apply. If CI applies first, it stops at the first resource
+its old policy cannot make, part-way through and harmlessly, and the laptop
+apply finishes it.
+
+CI can read the brake and cannot change it, nor pass its role to AWS Budgets:
+a change to `budget.tf`'s brake, like one to `github-oidc.tf`, is a laptop's
+apply. (CI's own apply refreshes them and, when nothing changed, does nothing.)
+
+To lift a brake that has fired: detach `wick-spend-brake` from the roles that
+`budget.tf` names (`aws iam detach-role-policy`), or apply with
+`budget_brake=false`.
 
 Before a laptop apply, bring the checkout up to date with `main` and run the
 same command as `plan` first. A targeted apply from a stale checkout once

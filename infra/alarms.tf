@@ -2,7 +2,8 @@
 # What pages someone, and where a failed event goes.
 #
 # Before this file nothing did either. Every Lambda could fail, be throttled
-# (this account's concurrency quota is 10 for 22 functions), or time out, and
+# (this account's concurrency quota is 1,000: it was 10 until the request of
+# 2026-10-14 was granted), or time out, and
 # the only trace was a log line nobody was reading. A door event that failed
 # was retried by Lambda and then dropped. Now:
 #

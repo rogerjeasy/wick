@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { linkNewOrganiser, startServer, type Harness } from '../../__tests__/harness.js';
 import type { AppDeps } from '../../server.js';
 import { STEPS_PER_DAY, STEPS_PER_PERSON, STEPS_PER_WINDOW, createStepLimiter } from '../router.js';
+import { memoryBudget } from '../../budget.js';
+import { createMemoryTable } from '../../__tests__/memoryTable.js';
 import type { Converse } from '../brain.js';
 
 const closers: (() => Promise<void>)[] = [];
@@ -135,60 +137,97 @@ describe('POST /assistant/next — one step of the stand-in assistant', () => {
   });
 });
 
+describe('the allowance is the deployment’s, not one instance’s', () => {
+  it('is shared by two servers over one table, as App Runner may run, and is not given back by a restart', async () => {
+    // No `budget` given: the server's own default, counted in the table. The harness's memory one is set aside.
+    const ddb = createMemoryTable().ddb;
+    const converse = vi.fn<Converse>(async () => ({ text: 'Yes.', calls: [] }));
+    const first = await server({ assistant: { converse }, ddb, budget: undefined as never });
+    const sarah = await allowedSarah(first);
+    const second = await first.restart(); // another instance: same store, same table
+    closers.push(second.close);
+
+    let answered = 0;
+    for (let i = 0; i < STEPS_PER_PERSON + 10; i += 1) {
+      const res = await post(i % 2 ? first : second, sarah.tokens.access_token, QUESTION);
+      if (res.status === 200) answered += 1;
+      else expect(res.status).toBe(429);
+    }
+
+    // One person's allowance, once: not once for each instance.
+    expect(answered).toBe(STEPS_PER_PERSON);
+    expect(converse).toHaveBeenCalledTimes(STEPS_PER_PERSON);
+  });
+
+  it('refuses every step, and calls no model, when the table cannot be asked', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const converse = vi.fn<Converse>(async () => ({ text: 'Yes.', calls: [] }));
+    const h = await server({ assistant: { converse } });
+    const sarah = await allowedSarah(h);
+    const broken = await server({ assistant: { converse }, store: h.store, ddb: { send: async () => { throw new Error('down'); } } as never, budget: undefined as never });
+
+    const res = await post(broken, sarah.tokens.access_token, QUESTION);
+
+    expect(res.status).toBe(429);
+    expect(converse).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+});
+
 describe('createStepLimiter — a guest account is free, and a model is not', () => {
   const WINDOW = 10 * 60_000;
 
-  it('gives each person their own allowance, renewed every window', () => {
+  it('gives each person their own allowance, renewed every window', async () => {
     let at = 0;
-    const take = createStepLimiter(() => at);
+    const take = createStepLimiter(memoryBudget(() => at));
 
-    for (let i = 0; i < STEPS_PER_PERSON; i += 1) expect(take('a')).toBe(true);
-    expect(take('a')).toBe(false);
-    expect(take('b')).toBe(true);
+    for (let i = 0; i < STEPS_PER_PERSON; i += 1) expect(await take('a')).toBe(true);
+    expect(await take('a')).toBe(false);
+    expect(await take('b')).toBe(true);
     at += WINDOW;
-    expect(take('a')).toBe(true);
+    expect(await take('a')).toBe(true);
   });
 
-  it('caps everyone together, so making new guests is not a way round one person’s allowance', () => {
-    const take = createStepLimiter(() => 0);
+  it('caps everyone together, so making new guests is not a way round one person’s allowance', async () => {
+    const take = createStepLimiter(memoryBudget(() => 0));
 
     let taken = 0;
     for (let person = 0; taken < STEPS_PER_WINDOW; person += 1) {
       for (let i = 0; i < STEPS_PER_PERSON && taken < STEPS_PER_WINDOW; i += 1) {
-        expect(take(`guest_${person}`)).toBe(true);
+        expect(await take(`guest_${person}`)).toBe(true);
         taken += 1;
       }
     }
-    expect(take('guest_new')).toBe(false);
+    expect(await take('guest_new')).toBe(false);
   });
 
-  it('keeps guests and people with accounts in separate budgets: a flood of guests cannot shut the others out', () => {
-    const take = createStepLimiter(() => 0);
+  it('keeps guests and people with accounts in separate budgets: a flood of guests cannot shut the others out', async () => {
+    const take = createStepLimiter(memoryBudget(() => 0));
 
     // Guest after guest, each using all they are allowed, until the guests' budget is gone.
     let spent = false;
     for (let guest = 0; !spent; guest += 1) {
-      for (let i = 0; i < STEPS_PER_PERSON && !spent; i += 1) spent = !take(`guest_${guest}`);
+      for (let i = 0; i < STEPS_PER_PERSON && !spent; i += 1) spent = !(await take(`guest_${guest}`));
     }
     // The guests' ten minutes are spent...
-    expect(take('guest_another')).toBe(false);
+    expect(await take('guest_another')).toBe(false);
     // ...and someone who signed up is answered as if nothing had happened.
-    expect(take('u_sarah')).toBe(true);
+    expect(await take('u_sarah')).toBe(true);
   });
 
-  it('caps the day as well: the worst a day can cost is a known number', () => {
+  it('caps the day as well: the worst a day can cost is a known number', async () => {
     let at = 0;
-    const take = createStepLimiter(() => at);
+    const take = createStepLimiter(memoryBudget(() => at));
 
     let taken = 0;
     for (let person = 0; taken < STEPS_PER_DAY; person += 1) {
-      if (take(`p${person}`)) taken += 1;
+      if (await take(`p${person}`)) taken += 1;
       else at += WINDOW;
     }
     at += WINDOW;
-    expect(take('one-more')).toBe(false);
+    expect(await take('one-more')).toBe(false);
     at += 24 * 60 * 60_000;
-    expect(take('one-more')).toBe(true);
+    expect(await take('one-more')).toBe(true);
   });
 });
 

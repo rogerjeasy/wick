@@ -134,3 +134,20 @@ variable "monthly_budget_usd" {
     error_message = "monthly_budget_usd must be more than zero."
   }
 }
+
+variable "mcp_max_instances" {
+  description = "The most instances App Runner may run of the Wick server (infra/mcp.tf). The default scaling configuration allows 25. The family's allowances are counted in the table and hold at any number (services/mcp-server/src/budget.ts), so this is a cost cap and a promise about the blast radius, not what makes the limits true. One instance always runs."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.mcp_max_instances >= 1 && var.mcp_max_instances <= 25
+    error_message = "mcp_max_instances must be between 1 and 25."
+  }
+}
+
+variable "budget_brake" {
+  description = "Whether the month's budget is also a brake (infra/budget.tf): when actual spend passes the budget, AWS attaches a policy that denies Bedrock and Transcribe to the roles that call them, and the app answers by its rules until someone lifts it. The email alone cannot stop a bill. Needs alarm_email, since the budget does. To lift a brake that has fired, detach the policy `wick-spend-brake` from those roles, or apply with this false."
+  type        = bool
+  default     = true
+}

@@ -521,6 +521,28 @@ resource "aws_apigatewayv2_stage" "default" {
     throttling_rate_limit  = 100
   }
 
+  # Each route that anybody on the internet can call has its own limit, set
+  # here and not left to the default above. Ring's webhook must always have
+  # room for Ring: a flood at a pairing route, which anyone may send, can
+  # then be refused for itself and take nothing from the webhook's. The
+  # limits are what each route is for: a television asks for a code once and
+  # polls for its token every few seconds; Ring sends a doorbell press.
+  dynamic "route_settings" {
+    for_each = local.edge_route_limits
+    content {
+      route_key              = route_settings.key
+      throttling_rate_limit  = route_settings.value.rate
+      throttling_burst_limit = route_settings.value.burst
+    }
+  }
+
+  # A route's settings name it, so it must exist first.
+  depends_on = [
+    aws_apigatewayv2_route.edge,
+    aws_apigatewayv2_route.pairing,
+    aws_apigatewayv2_route.agent_live,
+  ]
+
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api.arn
 
@@ -543,6 +565,20 @@ resource "aws_cloudwatch_log_group" "api" {
 }
 
 locals {
+  # Requests a second and a burst, for each route of the edge API.
+  edge_route_limits = {
+    "POST /ring/webhook"                = { rate = 100, burst = 50 } # Ring: its own bucket, shared with nothing else
+    "POST /ring/token"                  = { rate = 10, burst = 20 }
+    "GET /ring/link"                    = { rate = 10, burst = 20 }
+    "GET /ring/authorize"               = { rate = 10, burst = 20 }
+    "POST /pair/start"                  = { rate = 10, burst = 20 } # anybody may ask for a code
+    "POST /pair/claim"                  = { rate = 10, burst = 20 }
+    "GET /pair/status"                  = { rate = 50, burst = 100 } # every television waiting for its token, every few seconds
+    "POST /pair/refresh"                = { rate = 20, burst = 40 }
+    "POST /live/sessions"               = { rate = 10, burst = 20 }
+    "DELETE /live/sessions/{sessionId}" = { rate = 10, burst = 20 }
+  }
+
   routes = {
     "POST /ring/webhook"  = aws_lambda_function.webhook
     "POST /ring/token"    = aws_lambda_function.token

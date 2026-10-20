@@ -18,6 +18,7 @@ import { isTimeZone } from '@wick/contracts';
 import cors from 'cors';
 import express, { type Request, type Response } from 'express';
 import { acceptInvitation, CircleError, createHousehold, describeInvitation, invitationNeedsAnswer, type CircleDeps } from './circle.js';
+import type { Budget } from '../budget.js';
 import { createDemoLimiter, DEMO_HOME_NAME, DEMO_RESIDENT_NAME, isGuest, newDemoSessionKey, newGuest } from './demo.js';
 import { IdentityError, type Identity, type IdentityErrorCode, type IdentityProvider } from './identity.js';
 import type { PendingAuthorization, WickOAuth } from './oauthProvider.js';
@@ -67,6 +68,8 @@ export interface AccountRouterDeps {
   readonly demoAccounts?: boolean | undefined;
   /** How many guests an hour (demo.ts DEMO_ACCOUNTS_PER_HOUR unless set). */
   readonly demoAccountsPerHour?: number | undefined;
+  /** What an anonymous visitor may spend, counted for the whole deployment (budget.ts). */
+  readonly budget: Budget;
   /** Writes a new demo home its simulated history (demoHome.ts). Never called for any other home. */
   readonly seedDemoHome?: ((householdId: string, timeZone: string) => Promise<void>) | undefined;
 }
@@ -89,7 +92,7 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
   const { store, now } = circle;
   const secure = deps.issuerUrl.protocol === 'https:';
   const demo = deps.demoAccounts === true;
-  const demoLimiter = createDemoLimiter(now, deps.demoAccountsPerHour);
+  const demoLimiter = createDemoLimiter(deps.budget, deps.demoAccountsPerHour);
   const router = express.Router();
   router.use('/account', express.urlencoded({ extended: false }));
 
@@ -114,7 +117,7 @@ export function createAccountRouter(deps: AccountRouterDeps): express.Router {
    * undefined, having said so, when the hour's guests have all been made.
    */
   const startDemo = async (res: Response, tx: string, timeZone: string | undefined): Promise<{ guest: Identity; householdId: string } | undefined> => {
-    if (!demoLimiter.take()) {
+    if (!(await demoLimiter.take())) {
       html(res, demoBusyPage(tx), 429);
       return undefined;
     }

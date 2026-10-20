@@ -88,35 +88,6 @@ data "aws_iam_policy_document" "github_deploy" {
     ]
   }
 
-  # The stack itself. Scoped by service rather than by resource: Terraform
-  # creates and destroys these, so it needs the create verbs, and a resource
-  # ARN cannot be pinned for something that does not exist yet.
-  #
-  # ecr/cloudfront/apprunner added for S4a's deployed MCP server (App
-  # Runner, pulling from ECR) and the deployed sim-alexa (S3 behind
-  # CloudFront) — infra/mcp.tf, infra/sim-alexa.tf. Both CloudFront
-  # distributions and App Runner services get an AWS-assigned ID only after
-  # creation, so — same reasoning as everything else in this statement — a
-  # resource ARN can't be pinned ahead of the first apply.
-  statement {
-    sid = "ManageTheStack"
-    actions = [
-      "lambda:*",
-      "apigateway:*",
-      "logs:*",
-      "events:*",
-      "dynamodb:*",
-      "s3:*",
-      "ecr:*",
-      "cloudfront:*",
-      "apprunner:*",
-      # The agent plane (infra/agentcore.tf): the runtime and the workload
-      # identity AgentCore creates with it get their IDs only on creation.
-      "bedrock-agentcore:*",
-    ]
-    resources = ["*"]
-  }
-
   # Visit errands (infra/errands.tf): the state machine, by name, and never
   # an execution of it — CI cannot start, stop or read an errand. Without
   # these, every apply after the first (a laptop's) fails at refresh.
@@ -133,35 +104,6 @@ data "aws_iam_policy_document" "github_deploy" {
       "states:UntagResource",
     ]
     resources = ["arn:aws:states:${local.region}:${local.account_id}:stateMachine:wick-*"]
-  }
-
-  # The deploy role manages AgentCore (the runtime, the memory and its
-  # strategy) and never reads what is in them: no member's conversation, no
-  # member's remembered words, and no invocation of the agents. Explicit, so
-  # bedrock-agentcore:* above can never grant it.
-  statement {
-    sid    = "NeverReadAMembersMemoryNorInvokeTheAgents"
-    effect = "Deny"
-    actions = [
-      "bedrock-agentcore:InvokeAgentRuntime",
-      "bedrock-agentcore:InvokeAgentRuntimeForUser",
-      "bedrock-agentcore:CreateEvent",
-      "bedrock-agentcore:GetEvent",
-      "bedrock-agentcore:ListEvents",
-      "bedrock-agentcore:DeleteEvent",
-      "bedrock-agentcore:ListActors",
-      "bedrock-agentcore:ListSessions",
-      "bedrock-agentcore:RetrieveMemoryRecords",
-      "bedrock-agentcore:ListMemoryRecords",
-      "bedrock-agentcore:GetMemoryRecord",
-      "bedrock-agentcore:DeleteMemoryRecord",
-      "bedrock-agentcore:BatchCreateMemoryRecords",
-      "bedrock-agentcore:BatchUpdateMemoryRecords",
-      "bedrock-agentcore:BatchDeleteMemoryRecords",
-      "bedrock-agentcore:StartMemoryExtractionJob",
-      "bedrock-agentcore:ListMemoryExtractionJobs",
-    ]
-    resources = ["*"]
   }
 
   # The agents' Bedrock Guardrail (infra/guardrail.tf): the guardrail and its
@@ -483,6 +425,20 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = [aws_iam_role.github_deploy.arn]
   }
 
+  # Its two managed policies, to refresh them and never to change them.
+  statement {
+    sid = "ReadItsOwnPoliciesOnly"
+    actions = [
+      "iam:GetPolicy",
+      "iam:GetPolicyVersion",
+      "iam:ListPolicyVersions",
+    ]
+    resources = [
+      "arn:aws:iam::${local.account_id}:policy/github-actions-wick-deploy-stack",
+      "arn:aws:iam::${local.account_id}:policy/github-actions-wick-deploy-denials",
+    ]
+  }
+
   statement {
     sid       = "ReadOnlyLookups"
     actions   = ["iam:ListOpenIDConnectProviders", "iam:GetOpenIDConnectProvider", "sts:GetCallerIdentity"]
@@ -494,6 +450,442 @@ resource "aws_iam_role_policy" "github_deploy" {
   name   = "deploy"
   role   = aws_iam_role.github_deploy.id
   policy = data.aws_iam_policy_document.github_deploy.json
+}
+
+# The deploy role's permissions are three documents, because IAM allows an
+# inline policy 10,240 characters and a managed one 6,144: a short inline
+# policy of what the stack needs by service (above), a managed policy of the
+# grants held to this project's own names, and a managed policy of every
+# explicit denial. A Deny wins over every Allow in all three, whatever is
+# added to them later. The role can READ all of them and write none of them
+# (ReadSelfOnly): changing what CI may do is a laptop's apply.
+data "aws_iam_policy_document" "github_deploy_stack" {
+  # The stack itself, held to this project's own names. What an apply can touch
+  # is `wick*` and nothing else in the account (which holds other projects),
+  # and what it can never touch is the household's data: the statements below
+  # allow the verbs Terraform needs on those names, and the three after them
+  # DENY, for the whole account, every way a deploy could read or write a
+  # household's rows, pictures, logs or events, or run a function.
+  #
+  # This is evidence-based: the verbs were checked against what the role really
+  # called over twenty-one applies (CloudTrail, 17 to 19 October 2026): reads of
+  # every resource, UpdateFunctionCode/Configuration, UpdateService,
+  # UpdateAgentRuntime, UpdateDistribution, the image push, the image pins.
+  # Nothing it called is refused here. A resource whose name AWS chooses (a
+  # CloudFront distribution, an API Gateway API, an event-source mapping) is
+  # held to its type and this account.
+
+  statement {
+    sid     = "ManageTheFunctionsNeverRunThem"
+    actions = ["lambda:*"]
+    resources = [
+      "arn:aws:lambda:${local.region}:${local.account_id}:function:${local.prefix}-*",
+      # A mapping's own tags are read under its own ARN, which carries an id AWS chose.
+      "arn:aws:lambda:${local.region}:${local.account_id}:event-source-mapping:*",
+    ]
+  }
+
+  # An event-source mapping has an id AWS chooses, and the verbs that make one
+  # name no function until they have; each one only joins a function of the
+  # project's to a queue of the project's.
+  statement {
+    sid = "MapQueuesToFunctions"
+    actions = [
+      "lambda:CreateEventSourceMapping",
+      "lambda:UpdateEventSourceMapping",
+      "lambda:DeleteEventSourceMapping",
+      "lambda:GetEventSourceMapping",
+      "lambda:ListEventSourceMappings",
+      "lambda:ListFunctions",
+      "lambda:GetAccountSettings",
+    ]
+    resources = ["*"]
+  }
+
+  # The table's shape, and nothing of what is in it: the verbs Terraform calls to
+  # read it back and to change its settings. Not dynamodb:* (that would also be
+  # PartiQL and stream reads), and not CreateTable or DeleteTable: a table is made
+  # and removed from a laptop, behind deletion protection.
+  statement {
+    sid = "ManageTheTableNeverItsRows"
+    actions = [
+      "dynamodb:Describe*",
+      "dynamodb:ListTagsOfResource",
+      "dynamodb:UpdateTable",
+      "dynamodb:UpdateContinuousBackups",
+      "dynamodb:UpdateTimeToLive",
+      "dynamodb:TagResource",
+      "dynamodb:UntagResource",
+    ]
+    resources = [
+      "arn:aws:dynamodb:${local.region}:${local.account_id}:table/${local.prefix}",
+      "arn:aws:dynamodb:${local.region}:${local.account_id}:table/${local.prefix}/*",
+    ]
+  }
+
+  # The buckets as buckets (policy, lifecycle rules, encryption, the public
+  # access block): these name no object.
+  statement {
+    sid     = "ManageTheBucketsNotWhatIsInThem"
+    actions = ["s3:*"]
+    resources = [
+      aws_s3_bucket.media.arn,
+      aws_s3_bucket.photos.arn,
+      aws_s3_bucket.programmes.arn,
+      aws_s3_bucket.ops_console.arn,
+      aws_s3_bucket.sim_alexa.arn,
+    ]
+  }
+
+  # The two static sites Terraform fills (infra/ops-console.tf, sim-alexa.tf):
+  # her television in a browser tab and the family app. Public pages, and the
+  # only objects a deploy writes. Not the films, not a household's pictures.
+  statement {
+    sid = "PutTheStaticSites"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:GetObjectTagging",
+      "s3:PutObjectTagging",
+      "s3:DeleteObjectTagging",
+      "s3:ListBucket",
+    ]
+    resources = [
+      aws_s3_bucket.ops_console.arn,
+      "${aws_s3_bucket.ops_console.arn}/*",
+      aws_s3_bucket.sim_alexa.arn,
+      "${aws_s3_bucket.sim_alexa.arn}/*",
+    ]
+  }
+
+  statement {
+    sid     = "ManageTheLogGroupsNeverReadThem"
+    actions = ["logs:*"]
+    resources = [
+      "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/${local.prefix}-*",
+      "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/apigateway/${local.prefix}-*",
+      "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/vendedlogs/states/${local.prefix}-*",
+      "arn:aws:logs:${local.region}:${local.account_id}:log-group:/${local.prefix}/*",
+    ]
+  }
+
+  # Listing log groups and the account's log resource policies (the bus's
+  # delivery, infra/core.tf) name no group.
+  statement {
+    sid = "ListLogGroupsAndResourcePolicies"
+    actions = [
+      "logs:DescribeLogGroups",
+      "logs:DescribeResourcePolicies",
+      "logs:PutResourcePolicy",
+      "logs:DeleteResourcePolicy",
+      "logs:ListTagsForResource",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid     = "ManageTheBusAndItsRulesNeverSendToIt"
+    actions = ["events:*"]
+    resources = [
+      "arn:aws:events:${local.region}:${local.account_id}:event-bus/${local.prefix}*",
+      "arn:aws:events:${local.region}:${local.account_id}:rule/${local.prefix}*",
+      "arn:aws:events:${local.region}:${local.account_id}:rule/${local.prefix}*/*",
+    ]
+  }
+
+  statement {
+    sid       = "ListTheBusesAndRules"
+    actions   = ["events:ListEventBuses", "events:ListRules", "events:DescribeEventBus"]
+    resources = ["*"]
+  }
+
+  # API Gateway's own names are verbs, and its HTTP and WebSocket APIs are
+  # everything under /apis (and their tags); there is no REST API here.
+  statement {
+    sid     = "ManageTheHttpAndWebSocketApis"
+    actions = ["apigateway:*"]
+    resources = [
+      "arn:aws:apigateway:${local.region}::/apis",
+      "arn:aws:apigateway:${local.region}::/apis/*",
+      "arn:aws:apigateway:${local.region}::/tags/*",
+    ]
+  }
+
+  statement {
+    sid     = "ManageTheImageRepositories"
+    actions = ["ecr:*"]
+    resources = [
+      "arn:aws:ecr:${local.region}:${local.account_id}:repository/${local.prefix}-*",
+    ]
+  }
+
+  statement {
+    sid       = "LogInToTheRegistry"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  # CloudFront ids are chosen by AWS, and the account holds other projects'
+  # distributions: this is as narrow as the type allows.
+  statement {
+    sid     = "ManageTheDistributions"
+    actions = ["cloudfront:*"]
+    resources = [
+      "arn:aws:cloudfront::${local.account_id}:distribution/*",
+      "arn:aws:cloudfront::${local.account_id}:origin-access-control/*",
+      "arn:aws:cloudfront::${local.account_id}:response-headers-policy/*",
+    ]
+  }
+
+  # CloudFront's create verbs name no resource, because none exists yet.
+  statement {
+    sid = "CreateAndListTheDistributions"
+    actions = [
+      "cloudfront:CreateDistribution",
+      "cloudfront:CreateDistributionWithTags",
+      "cloudfront:CreateOriginAccessControl",
+      "cloudfront:CreateResponseHeadersPolicy",
+      "cloudfront:List*",
+      "cloudfront:GetCachePolicy",
+      "cloudfront:GetOriginRequestPolicy",
+    ]
+    resources = ["*"]
+  }
+
+  # The MCP server and its scaling configuration, by name. The account holds
+  # other projects' App Runner services.
+  statement {
+    sid     = "ManageTheServer"
+    actions = ["apprunner:*"]
+    resources = [
+      "arn:aws:apprunner:${local.region}:${local.account_id}:service/${local.prefix}-*",
+      "arn:aws:apprunner:${local.region}:${local.account_id}:autoscalingconfiguration/${local.prefix}-*",
+      # The configuration every service had before it had its own: a request that still names it is not refused.
+      "arn:aws:apprunner:${local.region}:${local.account_id}:autoscalingconfiguration/DefaultConfiguration/*",
+    ]
+  }
+
+  statement {
+    sid       = "ListTheServices"
+    actions   = ["apprunner:ListServices", "apprunner:ListAutoScalingConfigurations"]
+    resources = ["*"]
+  }
+
+  # The agent plane (infra/agentcore.tf): the runtime, the workload identity
+  # AgentCore creates with it, and the memory. Their ids are AWS's; the data
+  # plane is denied by name just below.
+  statement {
+    sid = "ManageTheAgentPlane"
+    actions = [
+      "bedrock-agentcore:*AgentRuntime*",
+      "bedrock-agentcore:*Memory",
+      "bedrock-agentcore:*WorkloadIdentity",
+      "bedrock-agentcore:ListTagsForResource",
+      "bedrock-agentcore:TagResource",
+      "bedrock-agentcore:UntagResource",
+    ]
+    resources = [
+      "arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:runtime/*",
+      "arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:memory/*",
+      "arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:workload-identity-directory/*",
+    ]
+  }
+
+  # Its create verbs name no resource, because none exists yet.
+  statement {
+    sid = "CreateAndListTheAgentPlane"
+    actions = [
+      "bedrock-agentcore:CreateAgentRuntime",
+      "bedrock-agentcore:CreateAgentRuntimeEndpoint",
+      "bedrock-agentcore:CreateMemory",
+      "bedrock-agentcore:CreateWorkloadIdentity",
+      "bedrock-agentcore:ListAgentRuntimes",
+      "bedrock-agentcore:ListMemories",
+      "bedrock-agentcore:ListWorkloadIdentities",
+    ]
+    resources = ["*"]
+  }
+
+  # The spend brake (infra/budget.tf): one managed policy and one budget action.
+  # CI can READ them, to refresh them, and never change them: what stops a bill
+  # is not a thing the code that runs on a merge should be able to switch off.
+  # Making or changing the brake is a laptop's apply, like the deploy role's
+  # own policy. Nor may CI pass the role it runs as to AWS Budgets.
+  statement {
+    sid = "ReadTheSpendBrake"
+    actions = [
+      "iam:GetPolicy",
+      "iam:GetPolicyVersion",
+      "iam:ListPolicyVersions",
+      "iam:ListPolicyTags",
+      "budgets:DescribeBudgetAction",
+      "budgets:DescribeBudgetActionsForBudget",
+    ]
+    resources = [
+      "arn:aws:iam::${local.account_id}:policy/${local.prefix}-spend-brake",
+      "arn:aws:budgets::${local.account_id}:budget/${local.prefix}-*",
+    ]
+  }
+}
+
+data "aws_iam_policy_document" "github_deploy_denials" {
+  # --- what a deploy can never do, whatever it is allowed above -------------------
+  #
+  # Anyone who can merge to main runs this role, and a merge deploys code that
+  # the functions' own roles run with. These denials are the other half: the
+  # deploy role's own credentials never read, write or run what a household has
+  # put into Wick. Each is explicit, so no allow above — present or added later —
+  # can grant it.
+
+  statement {
+    sid    = "NeverReadOrWriteAHouseholdsRows"
+    effect = "Deny"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:BatchGetItem",
+      "dynamodb:Query",
+      "dynamodb:Scan",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:BatchWriteItem",
+      "dynamodb:TransactGetItems",
+      "dynamodb:TransactWriteItems",
+      "dynamodb:ExecuteStatement",
+      "dynamodb:BatchExecuteStatement",
+      "dynamodb:ExecuteTransaction",
+      # PartiQL is authorised under these, not under the three above.
+      "dynamodb:PartiQLSelect",
+      "dynamodb:PartiQLInsert",
+      "dynamodb:PartiQLUpdate",
+      "dynamodb:PartiQLDelete",
+      # A table's stream carries every change to it.
+      "dynamodb:GetRecords",
+      "dynamodb:GetShardIterator",
+      "dynamodb:ListStreams",
+      "dynamodb:ExportTableToPointInTime",
+      "dynamodb:RestoreTableToPointInTime",
+      "dynamodb:RestoreTableFromBackup",
+      "dynamodb:CreateBackup",
+      "dynamodb:ImportTable",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "NeverTouchADoorPictureOrAFamilyPhoto"
+    effect = "Deny"
+    actions = [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:GetObjectAcl",
+      "s3:GetObjectTagging",
+      "s3:PutObject",
+      "s3:PutObjectAcl",
+      "s3:PutObjectTagging",
+      "s3:DeleteObject",
+      "s3:DeleteObjectVersion",
+      "s3:RestoreObject",
+    ]
+    # Objects only, never the bucket itself. s3:ListBucket is also the permission HeadBucket needs, and
+    # a Terraform refresh that is refused it reads the bucket as deleted: on 2026-10-19 that made CI plan to
+    # recreate both buckets and tear down their lifecycle rules, public access block and TLS-only policy.
+    # Listing names an object (photos/<household>/<random id>.jpg, an accepted exposure: it says which homes hold
+    # pictures and how many, not who is in them); reading or changing one stays denied.
+    resources = [
+      "${aws_s3_bucket.media.arn}/*",
+      "${aws_s3_bucket.photos.arn}/*",
+    ]
+  }
+
+  # Past versions of an object are never part of what a deploy needs, and the bucket-level refresh does not ask
+  # for them, so listing them stays denied on the buckets themselves.
+  statement {
+    sid       = "NeverListAPastVersionOfADoorPictureOrAFamilyPhoto"
+    effect    = "Deny"
+    actions   = ["s3:ListBucketVersions"]
+    resources = [aws_s3_bucket.media.arn, aws_s3_bucket.photos.arn]
+  }
+
+  statement {
+    sid    = "NeverRunAFunctionNorSendItAnEvent"
+    effect = "Deny"
+    actions = [
+      "lambda:InvokeFunction",
+      "lambda:InvokeAsync",
+      "lambda:InvokeFunctionUrl",
+      "events:PutEvents",
+      "events:PutPartnerEvents",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "NeverReadWhatTheFunctionsLog"
+    effect = "Deny"
+    actions = [
+      "logs:GetLogEvents",
+      "logs:GetLogRecord",
+      "logs:GetLogGroupFields",
+      "logs:FilterLogEvents",
+      "logs:StartQuery",
+      "logs:GetQueryResults",
+      "logs:StartLiveTail",
+    ]
+    resources = ["*"]
+  }
+
+  # The deploy role manages AgentCore (the runtime, the memory and its
+  # strategy) and never reads what is in them: no member's conversation, no
+  # member's remembered words, and no invocation of the agents. Explicit, so
+  # bedrock-agentcore:* above can never grant it.
+  statement {
+    sid    = "NeverReadAMembersMemoryNorInvokeTheAgents"
+    effect = "Deny"
+    actions = [
+      "bedrock-agentcore:InvokeAgentRuntime",
+      "bedrock-agentcore:InvokeAgentRuntimeForUser",
+      "bedrock-agentcore:CreateEvent",
+      "bedrock-agentcore:GetEvent",
+      "bedrock-agentcore:ListEvents",
+      "bedrock-agentcore:DeleteEvent",
+      "bedrock-agentcore:ListActors",
+      "bedrock-agentcore:ListSessions",
+      "bedrock-agentcore:RetrieveMemoryRecords",
+      "bedrock-agentcore:ListMemoryRecords",
+      "bedrock-agentcore:GetMemoryRecord",
+      "bedrock-agentcore:DeleteMemoryRecord",
+      "bedrock-agentcore:BatchCreateMemoryRecords",
+      "bedrock-agentcore:BatchUpdateMemoryRecords",
+      "bedrock-agentcore:BatchDeleteMemoryRecords",
+      "bedrock-agentcore:StartMemoryExtractionJob",
+      "bedrock-agentcore:ListMemoryExtractionJobs",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "github_deploy_stack" {
+  name        = "github-actions-wick-deploy-stack"
+  description = "What the deploy role may manage, by Wick's own names (infra/github-oidc.tf)."
+  policy      = data.aws_iam_policy_document.github_deploy_stack.json
+}
+
+resource "aws_iam_policy" "github_deploy_denials" {
+  name        = "github-actions-wick-deploy-denials"
+  description = "What the deploy role may never do to a household's data, whatever else it is allowed (infra/github-oidc.tf)."
+  policy      = data.aws_iam_policy_document.github_deploy_denials.json
+}
+
+resource "aws_iam_role_policy_attachment" "github_deploy_stack" {
+  role       = aws_iam_role.github_deploy.name
+  policy_arn = aws_iam_policy.github_deploy_stack.arn
+}
+
+resource "aws_iam_role_policy_attachment" "github_deploy_denials" {
+  role       = aws_iam_role.github_deploy.name
+  policy_arn = aws_iam_policy.github_deploy_denials.arn
 }
 
 output "github_deploy_role_arn" {

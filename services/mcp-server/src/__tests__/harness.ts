@@ -7,6 +7,7 @@ import type express from 'express';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { QueuedCard } from '@wick/contracts';
 import { createApp, type AppDeps } from '../server.js';
+import { memoryBudget } from '../budget.js';
 import { IdentityError, normaliseEmail, type IdentityProvider } from '../accounts/identity.js';
 import { createMemoryStore, type MemoryStore } from '../accounts/__tests__/memoryStore.js';
 
@@ -76,7 +77,11 @@ function listen(app: express.Express): Promise<{ port: number; close: () => Prom
 
 export async function startServer(overrides: Partial<AppDeps> = {}, issuer = 'http://127.0.0.1:4000'): Promise<Harness> {
   const cards: QueuedCard[] = [];
+  // The allowances are counted in memory here, on the clock the test gives the server: this harness has one
+  // instance and a table that answers nothing, which is not what the durable count (budget.ts) needs.
+  const clock = (): number => (overrides.now ?? Date.now)();
   const deps: AppDeps = {
+    budget: memoryBudget(clock),
     store: createMemoryStore(),
     identity: createFakeIdentity(),
     sendCard: async (card) => void cards.push(card),
