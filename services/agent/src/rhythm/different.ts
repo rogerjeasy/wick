@@ -257,7 +257,14 @@ function doorToday(input: DifferentInput): Difference[] {
   if (delta.verdict !== 'more' && delta.verdict !== 'fewer') return [];
 
   const dayName = DAY_NAMES[weekday(todayWall)]!;
-  const about = `on a ${dayName} there are usually about ${Math.round(delta.baseline)}.`;
+  // A count of callers, said as one: "about 1" was a number with no word for what it counted (2026-10-20).
+  const usually = Math.round(delta.baseline);
+  const about =
+    usually === 0
+      ? `on a ${dayName} there is usually nobody.`
+      : usually === 1
+        ? `on a ${dayName} there is usually one caller.`
+        : `on a ${dayName} there are usually about ${usually} callers.`;
   const usual = `By this time ${about}`;
   // Said later, "by this time" means nothing: the hour it was noticed is part of the fact.
   const usualThen = `By that time ${about}`;

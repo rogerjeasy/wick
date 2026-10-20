@@ -18,8 +18,8 @@ const missed: Difference = {
 const quiet: Difference = {
   kind: 'door_quiet',
   factClass: 'DOOR_EVENT',
-  sentence: 'Nobody has come to the door today. By this time on a Friday there are usually about 3.',
-  lasting: 'Nobody had come to the door by 3:00 pm on Friday. By that time on a Friday there are usually about 3.',
+  sentence: 'Nobody has come to the door today. By this time on a Friday there are usually about 3 callers.',
+  lasting: 'Nobody had come to the door by 3:00 pm on Friday. By that time on a Friday there are usually about 3 callers.',
   at: Date.UTC(2026, 9, 9),
 };
 
