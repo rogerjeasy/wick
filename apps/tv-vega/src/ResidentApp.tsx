@@ -56,15 +56,14 @@
  *
  * Read to me (packages/contracts/src/speech.ts). While a card is on screen
  * Play asks for it to be read aloud (read/reading.ts) — the one thing a key
- * heard here does. On the home screen, and on the door's card over a film
- * that is playing, Play again stops the reading, and the film is never
- * paused by it. Over a note that is holding the film Play is the card's
- * once: the first reads the note, and the next is her way back to the film
- * as Play there always was — the film goes on and the note is put away —
- * whether the reading is still going, is over, or never started
- * (watch/remoteKeys.ts playIsTheCards). Only when she asks: nothing here
- * ever starts a reading by itself. And where reading cannot work the mark
- * of the key is not drawn and Play is the film's from the first press.
+ * heard here does. Play again stops the reading. Over a card, Play is
+ * always the card's — on the home screen, on the door's card over a film,
+ * and over a note that is holding the film — and it never pauses or moves
+ * the film: one key, one meaning (watch/remoteKeys.ts playIsTheCards). The
+ * film held under a card goes on only when she answers the card or presses
+ * Back. Only when she asks: nothing here ever starts a reading by itself.
+ * And where reading cannot work the mark of the key is not drawn and Play
+ * is the film's.
  *
  * Easier to see (seeing/seeing.ts). A pill on the home screen opens its
  * card, drawn here like any card and held to the same one second. Its
@@ -77,6 +76,12 @@
  * the look below says it in her words once a second, so a line goes the
  * moment its time is over, and asks the server for her day again when the
  * one it was told has ended or a new card has come (herDayAsker).
+ *
+ * Her films, in her order (home/order.ts): one she left part-way first,
+ * marked "Carry on", then the ones she starts most at this time of day,
+ * then the catalogue's. Where she left each film and how often she starts
+ * each are kept in this television's own files (headless/keptText.ts),
+ * beside the queue, and sent nowhere.
  *
  * The platform's screen reader (VoiceView). When it is on, each card that
  * comes on screen is announced once (read/announce.ts); her pictures never
@@ -98,6 +103,9 @@ import { LiveView } from './live/LiveView.js';
 import { BreakController } from './break/BreakController.js';
 import { followScreen } from './break/followScreen.js';
 import { QueueStore, type Mantel } from './headless/QueueStore.js';
+import { POSITIONS_PATH, TALLY_PATH, recallKept } from './headless/keptText.js';
+import { FilmPositions } from './watch/resume.js';
+import { WatchTally, orderProgrammes } from './home/order.js';
 import type { PlayerSnapshot } from './player/PlayerService.js';
 import { platformPlaybackReporter } from './personalization/report.js';
 import { WatchActivity } from './personalization/watchActivity.js';
@@ -281,6 +289,27 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const [watching, setWatching] = React.useState<Programme | null>(null);
   const [lastWatchedId, setLastWatchedId] = React.useState<string | undefined>(undefined);
   /**
+   * What this television keeps for itself (headless/keptText.ts): where she
+   * left each film, and how often she starts each one. Null for the moment
+   * before the disk has answered; a disk that never does is not waited for.
+   */
+  const [kept, setKept] = React.useState<{ readonly positions: FilmPositions; readonly tally: WatchTally } | null>(null);
+  const keptNow = React.useRef(kept);
+  keptNow.current = kept;
+  React.useEffect(() => {
+    let gone = false;
+    void Promise.all([recallKept(KeplerFileSystem, POSITIONS_PATH), recallKept(KeplerFileSystem, TALLY_PATH)]).then(([positions, tally]) => {
+      if (!gone) setKept((known) => known ?? { positions: new FilmPositions(positions), tally: new WatchTally(tally) });
+    });
+    return () => {
+      gone = true;
+    };
+  }, []);
+  /** The film on screen and the last word from its player: where it was left is kept the moment she leaves it. */
+  const watchingNow = React.useRef<Programme | null>(null);
+  watchingNow.current = watching;
+  const lastSnapshot = React.useRef<PlayerSnapshot | undefined>(undefined);
+  /**
    * The watch-together session her "Start the film" press began. Only that
    * press makes one, and it lasts for that showing of the film: it is gone
    * when she leaves the film or chooses anything from the home screen, so
@@ -402,7 +431,11 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   // The first look below sets the language as soon as the disk has been
   // read. This is only for a disk that never answers.
   React.useEffect(() => {
-    const giveUp = setTimeout(() => setLanguage((known) => known ?? store.language()), LANGUAGE_RECALL_WAIT_MS);
+    const giveUp = setTimeout(() => {
+      setLanguage((known) => known ?? store.language());
+      // Nor does what the television keeps for itself wait on such a disk: it is kept in memory instead.
+      setKept((known) => known ?? { positions: new FilmPositions(), tally: new WatchTally({ read: () => null, write: () => undefined }) });
+    }, LANGUAGE_RECALL_WAIT_MS);
     return () => clearTimeout(giveUp);
   }, [store]);
 
@@ -540,6 +573,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const handleSnapshot = React.useCallback(
     (snapshot: PlayerSnapshot | undefined) => {
       const now = Date.now();
+      if (snapshot) lastSnapshot.current = snapshot;
       breakController.setPlayback(snapshot, now);
       // Every snapshot, once a second: the platform hears changes, seeks and the 60-second beat.
       if (snapshot) tellPlatform(snapshot, now);
@@ -566,6 +600,12 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   );
 
   const handleExitWatching = React.useCallback(() => {
+    // Where she left it, kept now, so the home screen she comes back to already says "Carry on"
+    // (the film's screen keeps it again as it goes, to the same place).
+    const film = watchingNow.current;
+    const last = lastSnapshot.current;
+    if (film && last && last.contentId === film.id) keptNow.current?.positions.stopped(film.id, last.positionMs, film.durationMs, film.creditsPositionMs);
+    lastSnapshot.current = undefined;
     setWatching((current) => {
       if (current) setLastWatchedId(current.id);
       return null;
@@ -576,6 +616,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
 
   const handleChoose = React.useCallback((programme: Programme) => {
     setTogether(null);
+    // One more start of this film at this part of the day, for her order (home/order.ts). Counted here, never sent.
+    keptNow.current?.tally.started(programme.id, new Date().getHours());
     setWatching(programme);
   }, []);
 
@@ -619,9 +661,9 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const [readingState, setReadingState] = React.useState<ReadingState>('idle');
   /**
    * The card Play has already asked to have read, during this showing of
-   * it. Over a film that card is holding, the next Play is then the film's
-   * again. Forgotten when the card leaves the screen: another card, or the
-   * same one shown again later, starts with reading.
+   * it. Still told to playIsTheCards, which no longer minds: Play over a
+   * card is the card's however often it is pressed. Forgotten when the card
+   * leaves the screen.
    */
   const [askedFor, setAskedFor] = React.useState<string | null>(null);
   const reader = React.useMemo(
@@ -643,8 +685,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   // another app, or where reading cannot work — and a reading of any other card is over.
   const readable = canRead();
   const readingCard = readable && onScreen && card !== null && liveFor === null ? card.id : undefined;
-  // Whose the next Play is (watch/remoteKeys.ts): the card's — or, over a film the card is holding, once Play
-  // has asked for it, the film's again.
+  // Whose the next Play is (watch/remoteKeys.ts): the card's, whenever one that can be read is on screen.
   const holdsFilm = watching !== null && breakController.holdsProgramme(card ?? undefined);
   const playReads = playIsTheCards({ card: readingCard, holdsFilm, askedFor });
   const reading = readingState !== 'idle';
@@ -673,7 +714,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     // else (mantel/idle.ts): it is not Play for a card that arrived in that moment.
     if (command && !blocksHome(idleNow.current)) {
       reader.press(command);
-      // Play has now asked for this showing of this card: over a film it holds, the next Play is her way back to the film.
+      // Play has asked for this showing of this card (playIsTheCards is told, and the next Play is still the card's).
       if (command === 'toggle' && at.card !== undefined) setAskedFor(at.card);
     }
     const next = idleOnKey(idleNow.current, event, now);
@@ -853,6 +894,9 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const say = words(language);
   // The home screen behind whatever is over it (home/behind.ts): while a card is on screen, none of it is drawn.
   const behind = homeBehind({ card: card !== null || seeingShown, mantelOpen, idle });
+  // Her films in her order (home/order.ts), and where she left those she stopped part-way.
+  const ordered = kept ? orderProgrammes(CATALOG, { startAt: (id) => kept.positions.startAt(id), tally: kept.tally.get(), hour: new Date().getHours() }) : CATALOG.map((programme) => ({ programme, resumeAtMs: undefined }));
+  const resumeAt = Object.fromEntries(ordered.flatMap((film) => (film.resumeAtMs ? [[film.programme.id, film.resumeAtMs] as const] : [])));
 
   return (
     <View style={styles.screen}>
@@ -871,6 +915,7 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           putAwayByHer={putAwayByHer}
           suspended={liveFor !== null}
           companion={together && together.programmeId === watching.id ? together.withName : undefined}
+          positions={kept?.positions}
           onHold={handleHold}
           onHoldEnd={handleKeyUp}
           onExit={handleExitWatching}
@@ -881,7 +926,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           inFront={onScreen}
           okDownSince={okKey.since}
           language={language}
-          programmes={CATALOG}
+          programmes={ordered.map((film) => film.programme)}
+          resumeAt={resumeAt}
           onChoose={handleChoose}
           cardVisible={!behind.reach}
           lastWatchedId={lastWatchedId}

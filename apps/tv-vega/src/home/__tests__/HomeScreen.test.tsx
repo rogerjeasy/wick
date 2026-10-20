@@ -21,7 +21,7 @@ import { CATALOG, type Programme } from '../../catalog/catalog.js';
 import { HOLD_MS } from '../../watch/hold.js';
 import { HomeScreen, type HomeScreenProps } from '../HomeScreen.js';
 import { HOME_RING_DP } from '../homeLayout.js';
-import { all, button, buttons, named, contrastOf, flat, focus, fontSize, headers, preferred, press, pressOk, render, settle, texts, type Drawn, type Node } from '../../__tests__/render/render.js';
+import { EASIER_TO_SEE, all, button, buttons, named, contrastOf, flat, focus, fontSize, headers, illegible, preferred, press, pressOk, render, settle, texts, type Drawn, type Node } from '../../__tests__/render/render.js';
 
 vi.mock('@amazon-devices/react-native-kepler', () => import('../../__tests__/render/platform.js'));
 vi.mock('../../icons/iconSources.generated.js', () => import('../../__tests__/render/icons.js'));
@@ -150,7 +150,8 @@ describe('what she sees', () => {
   });
 
   it('makes the films’ pictures shorter for the quiet line, so the screen still fits', async () => {
-    const posterHeight = async (props: Props): Promise<number> => flat(all((await home(props)).root, 'Image')[0]!.props.style).height as number;
+    // The picture fills its frame, and the frame is as tall as the room left for it.
+    const posterHeight = async (props: Props): Promise<number> => flat(all((await home(props)).root, 'Image')[0]!.parent!.props.style).height as number;
 
     expect(await posterHeight({ waiting: 'Your week is ready to read.' })).toBeLessThan(await posterHeight({}));
     expect(await posterHeight({ lookedIn: 'Sarah looked in this morning.' })).toBeLessThan(await posterHeight({}));
@@ -502,5 +503,87 @@ describe('while something else has the remote', () => {
     await settle(() => at(71_000));
     await pressOk(button(drawn.root, 'Your mantelpiece. Press OK to see the pictures you have kept.'));
     expect(onOpenMantel).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a film she left part-way (home/order.ts)', () => {
+  // Sintel, left at 4:05 of its 14:48: first, as the app orders it.
+  const ORDERED = [SINTEL, BUNNY, TEARS];
+  const PART_WAY = { programmes: ORDERED, resumeAt: { sintel: 245_000 } };
+  const carryTile = (root: Node): Node => button(root, 'Sintel. Carry on where you left it, 11 minutes left.');
+
+  it('says Carry on and how long is left over its picture, with the line along its foot', async () => {
+    const { root } = await home(PART_WAY);
+    expect(texts(root)).toEqual(expect.arrayContaining(['Carry on', '11 min left']));
+    const line = all(carryTile(root), 'Animated.View').map((node) => flat(node.props.style)).find((style) => typeof style.width === 'string');
+    expect(line?.width).toBe('27.6%');
+  });
+
+  it('is where the focus starts', async () => {
+    const { root } = await home(PART_WAY);
+    expect(preferred(root)).toEqual(['Sintel. Carry on where you left it, 11 minutes left.']);
+  });
+
+  it('marks no other film', async () => {
+    const { root } = await home(PART_WAY);
+    expect(texts(root).filter((t) => t === 'Carry on')).toHaveLength(1);
+    expect(tile(root, BUNNY)).toBeDefined();
+  });
+
+  it('says it in her language', async () => {
+    const { root } = await home({ ...PART_WAY, language: 'es', seeing: 'Más fácil de ver' });
+    expect(texts(root)).toEqual(expect.arrayContaining(['Continuar', 'Faltan 11 min']));
+  });
+
+  for (const [name, preferences] of EASIER_TO_SEE) {
+    it(`is legible, and whole, with ${name} — with the quiet line too`, async () => {
+      for (const extra of [{}, { lookedIn: 'Sarah looked in this morning.' }]) {
+        const { root } = await home({ ...PART_WAY, ...extra }, preferences);
+        expect(illegible(root, preferences)).toEqual([]);
+        expect(carryTile(root)).toBeDefined();
+      }
+    });
+  }
+});
+
+describe('How Wick works, and the pills’ icons', () => {
+  const TOUR = { tour: 'How Wick works', onOpenTour: vi.fn() };
+
+  it('offers the tour from a pill, never where the focus starts', async () => {
+    const { root } = await home(TOUR);
+    const pill = button(root, 'How Wick works. Press OK for a short tour with examples. Nothing is sent.');
+    expect(pill.props.hasTVPreferredFocus).toBe(false);
+    at(2_000);
+    await pressOk(pill);
+    expect(TOUR.onOpenTour).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws each pill’s icon beside its words', async () => {
+    const { root } = await home(TOUR);
+    const pill = button(root, 'How Wick works. Press OK for a short tour with examples. Nothing is sent.');
+    expect(all(pill, 'Image')[0]?.props.source).toEqual({ uri: 'icon:tour-ink-32' });
+    expect(texts(pill)).toEqual(['How Wick works']);
+    // The icon says nothing to the screen reader: the button's label says it all.
+    expect(all(pill, 'Image')[0]?.props.importantForAccessibility).toBe('no-hide-descendants');
+  });
+
+  it('gives a pill’s words way to its icon when the row has no room — and opens them when the focus is on it', async () => {
+    const { root } = await home({ ...WITH_EVERYTHING, ...TOUR });
+    const mantelPill = button(root, 'Your mantelpiece. Press OK to see the pictures you have kept.');
+    expect(texts(mantelPill)).toEqual([]);
+    await focus(mantelPill);
+    expect(texts(button(root, 'Your mantelpiece. Press OK to see the pictures you have kept.'))).toEqual(['Mantelpiece']);
+    // How Wick works keeps its words.
+    expect(texts(button(root, 'How Wick works. Press OK for a short tour with examples. Nothing is sent.'))).toEqual(['How Wick works']);
+  });
+
+  it('grows the focused film a little, with its ring — never the colour alone', async () => {
+    const { root } = await home();
+    await focus(tile(root, SINTEL));
+    const slot = tile(root, SINTEL).parent!;
+    const transform = flat(slot.props.style).transform as { scale: { value: number } }[];
+    expect(transform[0]!.scale.value).toBe(1.04);
+    expect(flat(tile(root, SINTEL).props.style, { focused: true }).borderColor).toBe('#FFFFFF');
+    expect(flat(tile(root, SINTEL).props.style, { focused: true }).backgroundColor).toBe(calmTheme(STANDARD).palette.raisedHigh);
   });
 });

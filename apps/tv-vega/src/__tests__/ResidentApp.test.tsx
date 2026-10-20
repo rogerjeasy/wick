@@ -28,7 +28,7 @@ import { CARD_SERVICE_URI } from '../headless/launchCardService.js';
 import { CATALOG } from '../catalog/catalog.js';
 import { SETTLED_AFTER_MS } from '../break/types.js';
 import { moveApp, opened, pressBack, resetPlatform } from './render/platform.js';
-import { resetFiles } from './render/files.js';
+import { files, resetFiles } from './render/files.js';
 import { resetMedia } from './render/media.js';
 import { button, buttons, headers, pressOk, render, shows, textOf, type Drawn } from './render/render.js';
 
@@ -368,5 +368,35 @@ describe('ResidentApp, drawn whole', () => {
       await connection(false, 5_000);
       expect(shows(root, NOT_REACHED)).toBe(false);
     });
+  });
+});
+
+describe('her films, in her order (home/order.ts)', () => {
+  it('puts a film she left part-way first, marked Carry on, with the focus on it — and keeps where she left it in its file', async () => {
+    const { root } = await launch();
+    await wait(1_000);
+    await pressOk(button(root, 'Big Buck Bunny. 10 minutes'));
+    expect(film.props?.programme).toBe(BUNNY);
+    await filmAt(240_000);
+    // Back, as the film's screen hears it.
+    await act(async () => (film.props!.onExit as () => void)());
+    await wait(1_000);
+
+    const carry = button(root, 'Big Buck Bunny. Carry on where you left it, 6 minutes left.');
+    expect(buttons(root)[0]).toBe(carry);
+    expect(carry.props.hasTVPreferredFocus).toBe(true);
+    expect(shows(root, 'Carry on')).toBe(true);
+    expect(JSON.parse(files.get('/data/wick-positions.json')!)).toEqual({ 'big-buck-bunny': 240_000 });
+  });
+
+  it('counts the film she starts, by the part of the day, in a file of its own — and sends nothing about it', async () => {
+    const { root } = await launch();
+    await wait(1_000);
+    await pressOk(button(root, 'Sintel. 15 minutes'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const tally = JSON.parse(files.get('/data/wick-tally.json')!) as Record<string, Record<string, number>>;
+    expect(Object.values(tally.sintel!)).toEqual([1]);
   });
 });

@@ -21,10 +21,10 @@
  *
  * Over a card that can be read aloud, Play is the card's when the app says
  * so (packages/contracts/src/speech.ts, remoteKeys.ts): it reads the card,
- * and neither pauses nor resumes the programme here. Over a note that holds
- * the programme that is the first Play only — the next is the programme's
- * again, as Play there always was: the programme goes on and the note is
- * put away. The door's card holds the programme as a note does; a reading
+ * or stops reading it, and neither pauses nor resumes the programme here —
+ * however often it is pressed. A note that holds the programme lets it go
+ * on when she answers it or presses Back. The door's card holds the
+ * programme as a note does; a reading
  * over a film that is not held is turned down for it by the app, which is
  * told which player this screen has (`onPlayer`) and puts the sound back
  * when the reading is over.
