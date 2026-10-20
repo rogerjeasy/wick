@@ -53,24 +53,42 @@ function flatten(style: unknown): Record<string, unknown> {
 /**
  * Animated, without the animation: a value is set to where its timing ends
  * the moment the timing is started. What is checked is that the screen asks
- * for the fade; how it looks halfway through is the platform's.
+ * for the fade; how it looks halfway through is the platform's. Each timing
+ * asked for is noted (`timings`), so a test can read how long it was asked
+ * to take.
  */
 class AnimatedValue {
   constructor(public value: number) {}
   setValue(value: number): void {
     this.value = value;
   }
+  stopAnimation(): void {}
+  /** Where an interpolation of this value stands now: the output at the nearest end of the input. */
+  interpolate(config: { readonly inputRange: readonly number[]; readonly outputRange: readonly (number | string)[] }): { readonly interpolated: number | string | undefined; readonly of: AnimatedValue } {
+    const at = this.value <= (config.inputRange[0] ?? 0) ? 0 : config.outputRange.length - 1;
+    return { interpolated: config.outputRange[at], of: this };
+  }
 }
+
+/** Every timing a screen asked for, in order: to what, and over how long. */
+export const timings: { readonly toValue: number; readonly duration: number | undefined }[] = [];
 
 export const Animated = {
   View: 'Animated.View',
   Value: AnimatedValue,
-  timing: (value: AnimatedValue, config: { readonly toValue: number; readonly duration?: number; readonly useNativeDriver?: boolean }) => ({
+  timing: (value: AnimatedValue, config: { readonly toValue: number; readonly duration?: number; readonly useNativeDriver?: boolean; readonly easing?: unknown }) => ({
     start: (done?: (result: { finished: boolean }) => void) => {
+      timings.push({ toValue: config.toValue, duration: config.duration });
       value.setValue(config.toValue);
       done?.({ finished: true });
     },
+    stop: () => undefined,
   }),
+};
+
+export const Easing = {
+  bezier: () => (t: number) => t,
+  linear: (t: number) => t,
 };
 
 /** The Vega Virtual Device's screen: 960x540dp at 1080p. */
@@ -191,4 +209,5 @@ export function resetPlatform(): void {
   backListeners.length = 0;
   keyListeners.clear();
   opened.length = 0;
+  timings.length = 0;
 }
