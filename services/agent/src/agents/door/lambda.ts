@@ -148,10 +148,10 @@ async function recordPresence(householdId: string, match: VisitorMatch, at: numb
   }));
 }
 
-async function recordDoorEvent(householdId: string, at: number): Promise<void> {
+async function recordDoorEvent(householdId: string, at: number, motion: boolean): Promise<void> {
   await ddb.send(new PutItemCommand({
     TableName: TABLE,
-    Item: buildDoorEventItem(householdId, at, randomUUID()),
+    Item: buildDoorEventItem(householdId, at, randomUUID(), { motion }),
   }));
 }
 
@@ -242,7 +242,7 @@ async function routeRing(detail: Record<string, unknown>): Promise<RouteResult> 
       listRoster: () => fetchRoster(householdId),
       listFamily: () => fetchFamily(householdId),
       recordPresence: (match, at) => recordPresence(householdId, match, at),
-      recordDoorEvent: (at) => recordDoorEvent(householdId, at),
+      recordDoorEvent: (at, motion) => recordDoorEvent(householdId, at, motion),
       recordDoorActivity: (deviceId, subType, measureName, at) =>
         recordDoorActivity(householdId, deviceId, subType, measureName, at),
       recordPresenceActivity: (personId, at) => recordPresenceActivity(householdId, personId, at),

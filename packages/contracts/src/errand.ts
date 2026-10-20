@@ -4,7 +4,7 @@
  * A family member asks the assistant (an agent on AgentCore) to arrange it.
  * The member says yes to the plan; from then on code carries it out, over
  * days, as a Step Functions execution: the door is told whom to expect (a
- * roster entry, so the door card can say "This looks like the plumber"),
+ * roster entry, so the door card can say "The plumber is expected around now"),
  * she is reminded on the morning at a natural break, and the member is told
  * when the door rang or when nobody came (docs/WICK-TECHNICAL.md §19).
  *

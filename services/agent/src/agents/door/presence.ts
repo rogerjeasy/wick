@@ -20,6 +20,16 @@ export interface TimelineItemOptions {
   readonly simulated?: boolean;
 }
 
+/**
+ * `motion`: a person seen at the door who did not ring (motion, sub_type
+ * human). Marked on the row, so that nothing counts it as a caller or says
+ * somebody came (narrator/timeline.ts, get_today.ts). A row without it is a
+ * ring, as every row written before it was.
+ */
+export interface DoorEventOptions extends TimelineItemOptions {
+  readonly motion?: boolean;
+}
+
 const marked = (options: TimelineItemOptions): Record<string, AttributeValue> =>
   options.simulated ? { simulated: { BOOL: true } } : {};
 
@@ -50,12 +60,13 @@ export function buildDoorEventItem(
   householdId: string,
   at: number,
   id: string,
-  options: TimelineItemOptions = {},
+  options: DoorEventOptions = {},
 ): Record<string, AttributeValue> {
   return {
     pk: { S: `HH#${householdId}` },
     sk: { S: `EVT#${padTimestamp(at)}#${id}` },
     type: { S: 'door' },
+    ...(options.motion ? { motion: { BOOL: true } } : {}),
     ...marked(options),
   };
 }

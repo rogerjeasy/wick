@@ -43,13 +43,15 @@ export interface RawTimelineEvent {
   readonly cardId?: string;
   readonly action?: string;
   readonly personName?: string;
+  /** A person seen at the door who did not ring (agent door/presence.ts buildDoorEventItem). */
+  readonly motion?: boolean;
 }
 
 /** The family's sentence for an event, or undefined for anything that is not theirs to see. */
 export function summariseEvent(event: RawTimelineEvent): string | undefined {
   switch (event.type) {
     case 'door':
-      return 'Someone was at the front door.';
+      return event.motion ? 'Movement at the front door, and nobody rang.' : 'Someone was at the front door.';
     case 'presence':
       // Somebody at the door when a regular visitor was expected: when, never who (packages/contracts visit.ts).
       return event.personName ? doorWhenExpected(event.personName) : 'Someone came to the door when a regular visitor was expected.';
@@ -109,6 +111,7 @@ export async function loadTodayEvents(
     const event: RawTimelineEvent = {
       type: item.type?.S ?? '',
       ...(item.personName?.S !== undefined && { personName: item.personName.S }),
+      ...(item.motion?.BOOL === true && { motion: true }),
     };
     if (event.type === 'door' && !doorShared) continue;
     if (event.type === 'presence' && !presenceShared) continue;

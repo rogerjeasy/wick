@@ -45,7 +45,14 @@ export const NOBODY_AFTER_MOTION_LINE = 'Movement at the front door.';
 export const NOBODY_AFTER_RING_LINE = 'The doorbell rang.';
 
 
-export const DESCRIPTION_MAX_WORDS = 14;
+/**
+ * The most words a description may have. The prompt asks for twelve
+ * (describe.ts); the validator allows a few more, because a true sentence one
+ * word over was refused whole and the card was left with no sentence at all
+ * (seen 2026-10-20: "A man in a green jacket holds a cardboard box in front
+ * of a house.", fifteen words). Sixteen still fits the card's detail slot.
+ */
+export const DESCRIPTION_MAX_WORDS = 16;
 
 /**
  * Words that mark a claim about intent, mood or likelihood rather than an
@@ -92,11 +99,14 @@ export interface DoorCardInput {
 }
 
 /**
- * Under "This looks like the plumber", for a visitor the family arranged
- * (contracts errand.ts): who arranged it, by the name the resident allowed.
- * It says who said they were coming, not who is there.
+ * Under "The plumber is expected around now", for a visitor the family
+ * arranged (contracts errand.ts): who arranged it, by the name the resident
+ * allowed. It says that a visit was arranged for about now — never that this
+ * is it: a ring in the plumber's window may be the carer, or a parcel (seen
+ * 2026-10-20: every ring around an arranged visit said "Sarah arranged this
+ * visit").
  */
-export const arrangedThisVisit = (name: string): string => `${name.trim().split(/\s+/)[0] || name} arranged this visit.`;
+export const arrangedThisVisit = (name: string): string => `${name.trim().split(/\s+/)[0] || name} arranged a visit for about now.`;
 
 /** The longest first name that still fits a button in 32pt type beside two others. */
 const MAX_NAME_ON_BUTTON = 12;
@@ -115,12 +125,12 @@ export function familyToAsk(family: readonly string[] | undefined): string | und
 /**
  * The three buttons — minus any the household cannot actually do.
  *
- * The middle one is for a second opinion. When nobody is expected and the
- * resident has allowed someone into the family circle, it asks that person
- * to look at the picture (askFamily.ts): the resident has no telephone in
- * their hand, a stranger is on the step, and the person they would ring is
- * one press away. For a visitor the household expects there is nothing to
- * ask.
+ * The middle one is for a second opinion. When the resident has allowed
+ * someone into the family circle, it asks that person to look at the picture
+ * (askFamily.ts): the resident has no telephone in their hand, someone is on
+ * the step, and the person they would ring is one press away. Whether or not
+ * somebody is expected: the door knows when a visitor is due, never who has
+ * come, and a stranger at the carer's hour is still a stranger (2026-10-20).
  *
  * Otherwise it rings the hallway chime: Ring's API can play audio only on a
  * Chime, an indoor speaker, so it tells the rest of the house, not the visitor
@@ -171,7 +181,8 @@ function cardIdFor(eventId: string): string {
  */
 export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
   const { event, hallwayChime, householdId, correlationId, now, timeZone, roster, family, standIn = false, ringUnanswered = false } = input;
-  const match = roster ? matchVisitor(roster, event.start, timeZone) : undefined;
+  // Only a ring is taken for the visitor expected: somebody seen who did not ring is not (route.ts).
+  const match = roster && event.eventType !== 'motion_detected' ? matchVisitor(roster, event.start, timeZone) : undefined;
   // A visitor an errand expects: the entry carries the name of the member who arranged it.
   const arrangedBy = match && errandIdOf(match.personId) ? roster?.find((person) => person.personId === match.personId)?.arrangedByName : undefined;
 
@@ -182,7 +193,7 @@ export function buildPhaseOneCard(input: DoorCardInput): DoorCard {
     correlationId,
     createdAt: now,
     line: DOOR_LINE,
-    actions: actionsFor(hallwayChime, match ? undefined : familyToAsk(family), standIn, ringUnanswered),
+    actions: actionsFor(hallwayChime, familyToAsk(family), standIn, ringUnanswered),
     // A demo home's stand-in doorbell is said in a label of its own on her television, never in her sentence.
     ...(standIn ? { standIn: true as const } : {}),
     ...(match ? { match } : {}),

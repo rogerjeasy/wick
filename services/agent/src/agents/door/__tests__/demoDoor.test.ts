@@ -123,7 +123,7 @@ describe('routeDemoDoorEvent — somebody at a demo home’s door', () => {
 
     expect(await routeDemoDoorEvent(event({ visitor: 'arranged' }), { isDemoHome: demoHome, base: w.base })).toBe('sent');
 
-    expect(w.cards[0]!.card).toMatchObject({ match: { personId: plumber.personId, name: 'the plumber' }, notice: 'Guest arranged this visit.' });
+    expect(w.cards[0]!.card).toMatchObject({ match: { personId: plumber.personId, name: 'the plumber' }, notice: 'Guest arranged a visit for about now.' });
     expect(w.announced).toEqual([{ householdId: 'hh-demo', at: NOW - 1500, cardId: w.cards[0]!.id, matchPersonId: plumber.personId }]);
   });
 

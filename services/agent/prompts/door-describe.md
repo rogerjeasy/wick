@@ -4,7 +4,7 @@ Describe what is visibly at the door, for a resident deciding whether the trip i
 worth making.
 
 ## Constraints (validated on output, not merely requested)
-- Present tense. One sentence. Maximum 14 words.
+- Present tense. One sentence. Maximum 12 words.
 - Observable facts only. No inference about intent, mood, purpose or errand.
 - Never name a person unless supplied in the household roster.
 - If uncertain, return nothing. Silence beats a wrong description.

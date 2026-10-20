@@ -129,8 +129,8 @@ describe('the words table — English, exactly as the television said it before 
       'message.headline': 'A message from {name}.',
       'message.photoLabel': "{name}'s photo",
       'door.pictureLabel': 'Picture from the front door camera',
-      'door.looksLikeExpected': 'This looks like {name} — expected around now.',
-      'door.looksLike': 'This looks like {name}.',
+      'door.looksLikeExpected': '{name} is expected around now.',
+      'door.looksLike': '{name} often comes around this time.',
       'door.standIn': 'Stand-in doorbell, for the demo',
       // pairing/PairingScreen.tsx
       'pairing.title': 'Set up Wick',

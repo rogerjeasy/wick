@@ -308,8 +308,8 @@ var ES_CATALOGUE = {
     // The press is the consent: the picture goes to the people she allows, for this one card (askFamily.ts).
     b("Ask {first} to look", "Pedir a {first} que mire"),
     b("Ring the hallway chime", "Tocar timbre del pasillo"),
-    // A visitor the family arranged (contracts errand.ts): who arranged it, under "This looks like the plumber".
-    s("{first} arranged this visit.", "{first|cap} organizó esta visita.")
+    // A visitor the family arranged (contracts errand.ts): who arranged it, under "The plumber is expected around now".
+    s("{first} arranged a visit for about now.", "{first|cap} organizó una visita para esta hora.")
   ],
   // Her reminder of a visit the family arranged: a note from them in Wick's own words. Who is coming is theirs, and kept.
   "services/agent/src/agents/errand/reminder.ts": [

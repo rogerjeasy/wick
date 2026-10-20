@@ -31,7 +31,7 @@ describe('doorDetailText', () => {
       ...base,
       match: { personId: 'maria', name: 'Maria', basis: 'schedule', expectedToday: true, confidence: 0.5 },
     };
-    expect(doorDetailText(card)).toBe('This looks like Maria — expected around now.');
+    expect(doorDetailText(card)).toBe('Maria is expected around now.');
   });
 
   it('never claims "expected" for a match that fell outside today\'s pattern', () => {
@@ -39,7 +39,7 @@ describe('doorDetailText', () => {
       ...base,
       match: { personId: 'maria', name: 'Maria', basis: 'schedule', expectedToday: false, confidence: 0.5 },
     };
-    expect(doorDetailText(card)).toBe('This looks like Maria.');
+    expect(doorDetailText(card)).toBe('Maria often comes around this time.');
   });
 });
 
@@ -48,9 +48,9 @@ describe('doorDetailText — in the language she chose', () => {
     type: 'DOOR', id: 'door-1', householdId: 'h', correlationId: 'c', createdAt: 0, actions: [], line: 'Alguien está en la puerta.', ...over,
   });
 
-  it('says who it looks like in Spanish, with no word that has to agree with the name', () => {
-    expect(doorDetailText(door({ match: { personId: 'maria', name: 'Maria', basis: 'schedule', expectedToday: true, confidence: 0.5 } }), 'es')).toBe('Parece ser Maria — se esperaba su visita ahora.');
-    expect(doorDetailText(door({ match: { personId: 'tom', name: 'Tom', basis: 'schedule', expectedToday: false, confidence: 0.5 } }), 'es')).toBe('Parece ser Tom.');
+  it('says who is due in Spanish, with no word that has to agree with the name', () => {
+    expect(doorDetailText(door({ match: { personId: 'maria', name: 'Maria', basis: 'schedule', expectedToday: true, confidence: 0.5 } }), 'es')).toBe('Se espera a Maria sobre esta hora.');
+    expect(doorDetailText(door({ match: { personId: 'tom', name: 'Tom', basis: 'schedule', expectedToday: false, confidence: 0.5 } }), 'es')).toBe('Tom suele venir a esta hora.');
   });
 
   it('says the description as the server wrote it: that came in her language already', () => {

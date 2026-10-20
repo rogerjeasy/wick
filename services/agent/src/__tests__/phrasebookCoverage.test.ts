@@ -95,7 +95,8 @@ describe('the door card (agents/door/index.ts)', () => {
     const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'FRI 09:00±30m' };
     const card = coverage.spanish(phaseOne({ roster: [maria], family: ['Sarah'], hallwayChime: true }));
     expect(card.match?.name).toBe('Maria');
-    expect(labels(card)).toEqual(['Ver en vivo', 'Tocar timbre del pasillo', 'Ahora no']);
+    // The family's second look stays: the door knows a visitor is due, never who has come.
+    expect(labels(card)).toEqual(['Ver en vivo', 'Pedir a Sarah que mire', 'Ahora no']);
   });
 
   it('for a visitor the family arranged, says who arranged it — the name and the visitor never translated', () => {
@@ -107,10 +108,10 @@ describe('the door card (agents/door/index.ts)', () => {
       arrangedByName: 'Sarah Hughes',
     };
     const english = phaseOne({ roster: [plumber] });
-    expect(english.notice).toBe('Sarah arranged this visit.');
+    expect(english.notice).toBe('Sarah arranged a visit for about now.');
     const card = coverage.spanish(english);
     expect(card.match?.name).toBe('the plumber');
-    expect(card.notice).toBe('Sarah organizó esta visita.');
+    expect(card.notice).toBe('Sarah organizó una visita para esta hora.');
   });
 
   it('corrects the headline when the picture shows nobody, and leaves the description to be translated as free text', () => {

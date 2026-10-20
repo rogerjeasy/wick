@@ -133,7 +133,7 @@ var WickTv = (() => {
     parcel: visitor("parcel", "A parcel delivery", "button_press"),
     stranger: visitor("stranger", "Somebody she does not know", "button_press"),
     // Ring saw a person move, and the picture shows nobody: the card's headline is corrected (door/index.ts).
-    nobody: visitor("nobody", "Nobody there, only movement", "motion_detected"),
+    nobody: visitor("nobody", "Movement, and nobody rings", "motion_detected"),
     // Whoever a member arranged to come (errand.ts arrange_visit), ringing now: arrange one a few minutes ahead and
     // ring this, and the door matches them by the time as it would anyone expected. A tradesman with a toolbox,
     // as a plumber or a window cleaner would come — not the delivery, which said a parcel had come for a visit.
@@ -555,8 +555,8 @@ var WickTv = (() => {
       // The press is the consent: the picture goes to the people she allows, for this one card (askFamily.ts).
       b("Ask {first} to look", "Pedir a {first} que mire"),
       b("Ring the hallway chime", "Tocar timbre del pasillo"),
-      // A visitor the family arranged (contracts errand.ts): who arranged it, under "This looks like the plumber".
-      s("{first} arranged this visit.", "{first|cap} organizó esta visita.")
+      // A visitor the family arranged (contracts errand.ts): who arranged it, under "The plumber is expected around now".
+      s("{first} arranged a visit for about now.", "{first|cap} organizó una visita para esta hora.")
     ],
     // Her reminder of a visit the family arranged: a note from them in Wick's own words. Who is coming is theirs, and kept.
     "services/agent/src/agents/errand/reminder.ts": [
@@ -1561,8 +1561,8 @@ var WickTv = (() => {
     "message.headline": "A message from {name}.",
     "message.photoLabel": "{name}'s photo",
     "door.pictureLabel": "Picture from the front door camera",
-    "door.looksLikeExpected": "This looks like {name} — expected around now.",
-    "door.looksLike": "This looks like {name}.",
+    "door.looksLikeExpected": "{name} is expected around now.",
+    "door.looksLike": "{name} often comes around this time.",
     // A demo home's stand-in doorbell (DoorCard.standIn): said beside her sentence, never inside it.
     "door.standIn": "Stand-in doorbell, for the demo",
     // The pairing screen. Shown in English always — see the header.
@@ -1727,8 +1727,8 @@ var WickTv = (() => {
     "message.photoLabel": "Foto de {name}",
     "door.pictureLabel": "Imagen de la cámara de la puerta",
     // "Su visita", so the sentence need not agree with whoever is named.
-    "door.looksLikeExpected": "Parece ser {name} — se esperaba su visita ahora.",
-    "door.looksLike": "Parece ser {name}.",
+    "door.looksLikeExpected": "Se espera a {name} sobre esta hora.",
+    "door.looksLike": "{name} suele venir a esta hora.",
     "door.standIn": "Timbre simulado, para la demostración",
     "pairing.title": "Configurar Wick",
     "pairing.instructions": "Escriba este código en la app familiar de Wick. Allí se indica de quién es este televisor.",
@@ -1948,7 +1948,8 @@ var WickTv = (() => {
   function doorDetailText(card, language = DEFAULT_LANGUAGE) {
     if (card.description) return card.description;
     if (card.match) {
-      return words(language)(card.match.expectedToday ? "door.looksLikeExpected" : "door.looksLike", { name: card.match.name });
+      const said = words(language)(card.match.expectedToday ? "door.looksLikeExpected" : "door.looksLike", { name: card.match.name });
+      return said.charAt(0).toUpperCase() + said.slice(1);
     }
     return void 0;
   }

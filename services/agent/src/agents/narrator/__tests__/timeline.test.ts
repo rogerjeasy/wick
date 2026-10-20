@@ -14,6 +14,10 @@ describe('toTimelineEntry', () => {
     expect(entry).toMatchObject({ kind: 'door', summary: 'Someone was at the front door.' });
   });
 
+  it('leaves out a person seen who did not ring: not a caller, so the week neither counts nor tells it', () => {
+    expect(toTimelineEntry(item({ type: { S: 'door' }, motion: { BOOL: true } }))).toBeUndefined();
+  });
+
   it('parses the timestamp out of the sort key, not off an item attribute — no writer produces one', () => {
     const entry = toTimelineEntry(item({ type: { S: 'door' } }));
     expect(entry?.at).toBe(1789455093305);

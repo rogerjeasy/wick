@@ -308,7 +308,8 @@ describe('routeRingEvent', () => {
     await routeRingEvent(detail, deps);
 
     expect(deps.recordDoorEvent).toHaveBeenCalledTimes(1);
-    expect(deps.recordDoorEvent).toHaveBeenCalledWith(1789455093305); // the event's own timestamp
+    // The event's own timestamp; a person seen who did not ring is marked so (presence.ts).
+    expect(deps.recordDoorEvent).toHaveBeenCalledWith(1789455093305, false);
   });
 
   it('D3: records the door event even when the same event also matches the roster — both are real, both are written', async () => {
@@ -319,6 +320,16 @@ describe('routeRingEvent', () => {
 
     expect(deps.recordDoorEvent).toHaveBeenCalledTimes(1);
     expect(deps.recordPresence).toHaveBeenCalledTimes(1);
+  });
+
+  it('somebody seen who did not ring: marked as seen, and never taken for the visitor expected', async () => {
+    const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE 06:51±30m' };
+    const deps = baseDeps({ listRoster: vi.fn(async () => [maria]) });
+
+    await routeRingEvent({ ...detail, event_type: 'motion_detected', sub_type: 'human' }, deps);
+
+    expect(deps.recordDoorEvent).toHaveBeenCalledWith(1789455093305, true);
+    expect(deps.recordPresence).not.toHaveBeenCalled();
   });
 
   it('D3: still reports "sent" when recording the door event fails', async () => {

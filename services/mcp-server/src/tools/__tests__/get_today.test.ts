@@ -10,6 +10,8 @@ import { allowedContext } from './toolContext.js';
 describe('summariseEvent', () => {
   it('summarises a door event', () => {
     expect(summariseEvent({ type: 'door' })).toBe('Someone was at the front door.');
+    // A person seen who did not ring (agent door/presence.ts): never said to have come.
+    expect(summariseEvent({ type: 'door', motion: true })).toBe('Movement at the front door, and nobody rang.');
   });
 
   it('summarises a presence event with a person name when known', () => {

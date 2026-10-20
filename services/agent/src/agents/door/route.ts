@@ -33,7 +33,8 @@ export interface RouteDeps {
   /** M5. Only called when the event actually matches the roster. */
   readonly recordPresence: (match: VisitorMatch, at: number) => Promise<void>;
   /** D3. Called for every door-worthy event, matched or not. */
-  readonly recordDoorEvent: (at: number) => Promise<void>;
+  /** `motion`: a person seen who did not ring (presence.ts buildDoorEventItem). */
+  readonly recordDoorEvent: (at: number, motion: boolean) => Promise<void>;
   /** S6. Every door-worthy event's occurrence, for the Rhythm baseline (§8.2's door_activity table). */
   readonly recordDoorActivity: (
     deviceId: string,
@@ -107,6 +108,8 @@ export async function routeRingEvent(
   if (!device) return 'unknown_device';
 
   const roster = await deps.listRoster();
+  // Somebody seen who did not ring (motion, sub_type human): not a caller, and never taken for the visitor expected.
+  const seenOnly = event.eventType === 'motion_detected';
   // A failed lookup costs the button, never the card.
   const hallwayChime = ringUnanswered ? false : await deps.hasHallwayChime().catch(() => false);
   const family = await deps.listFamily().catch(() => []);
@@ -138,7 +141,7 @@ export async function routeRingEvent(
   }
 
   try {
-    await deps.recordDoorEvent(event.start);
+    await deps.recordDoorEvent(event.start, seenOnly);
   } catch (err) {
     console.error(JSON.stringify({
       level: 'error', msg: 'record_door_event_failed', correlationId,
@@ -161,7 +164,8 @@ export async function routeRingEvent(
     }));
   }
 
-  const match = matchVisitor(roster, event.start, deps.timeZone);
+  // Only a ring is a visitor: somebody seen who did not ring is not taken for the one expected (index.ts buildPhaseOneCard).
+  const match = seenOnly ? undefined : matchVisitor(roster, event.start, deps.timeZone);
   if (match) {
     try {
       await deps.recordPresence(match, event.start);

@@ -88,8 +88,8 @@ const en = {
   'message.headline': 'A message from {name}.',
   'message.photoLabel': "{name}'s photo",
   'door.pictureLabel': 'Picture from the front door camera',
-  'door.looksLikeExpected': 'This looks like {name} — expected around now.',
-  'door.looksLike': 'This looks like {name}.',
+  'door.looksLikeExpected': '{name} is expected around now.',
+  'door.looksLike': '{name} often comes around this time.',
   // A demo home's stand-in doorbell (DoorCard.standIn): said beside her sentence, never inside it.
   'door.standIn': 'Stand-in doorbell, for the demo',
 
@@ -269,8 +269,8 @@ const es: Readonly<Record<WordKey, string>> = {
   'message.photoLabel': 'Foto de {name}',
   'door.pictureLabel': 'Imagen de la cámara de la puerta',
   // "Su visita", so the sentence need not agree with whoever is named.
-  'door.looksLikeExpected': 'Parece ser {name} — se esperaba su visita ahora.',
-  'door.looksLike': 'Parece ser {name}.',
+  'door.looksLikeExpected': 'Se espera a {name} sobre esta hora.',
+  'door.looksLike': '{name} suele venir a esta hora.',
   'door.standIn': 'Timbre simulado, para la demostración',
 
   'pairing.title': 'Configurar Wick',

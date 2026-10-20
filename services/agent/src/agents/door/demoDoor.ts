@@ -94,7 +94,7 @@ export function standInRouteDeps(householdId: string, visitor: DemoVisitor, base
     listRoster: () => base.listRoster(householdId),
     listFamily: () => base.listFamily(householdId),
     recordPresence: (match, at) => base.put(buildPresenceItem(householdId, match, at, base.newId(), marked)),
-    recordDoorEvent: (at) => base.put(buildDoorEventItem(householdId, at, base.newId(), marked)),
+    recordDoorEvent: (at, motion) => base.put(buildDoorEventItem(householdId, at, base.newId(), { ...marked, motion })),
     recordDoorActivity: (deviceId, subType, measureName, at) =>
       base.rhythm.increment(buildDoorActivityKey({ householdId, deviceId, subType, measureName, at }), at),
     recordPresenceActivity: (personId, at) =>
