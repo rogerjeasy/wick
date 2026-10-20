@@ -511,6 +511,8 @@ The prompts are constants beside the code that calls them (`door/describe.ts`, `
 
 `rhythm/different.ts` compares a day with the household's own last six weeks: a regular visitor who did not come, someone at the door in a house that never has night visitors, a day unlike that weekday. Nothing is called different from fewer than three weeks. Pure code.
 
+**A quiet door and a door Wick could not see look the same, so they are kept apart.** Every event from a household's doorbell, a car going past as well as a visitor, marks its hour as heard (`packages/contracts/src/heard.ts`, one `HEARD#<UTC day>` row holding the hours, kept 60 days). Anything said from an absence needs the doorbell heard on both sides of the stretch it is about: "nobody came when Maria was expected", "quieter than usual". A past week with an unheard day leaves the baseline. After six hours without a word from the doorbell, the detector says so (`doorUnheard`) instead of reporting an empty day. The week names its unheard days (`WeekNarrative.unheardDays`), drops every comparison an absence would make, and the Narrator refuses a draft that calls such a week quiet (`unheard_absence`).
+
 A difference is never sent to the family. Her television asks *"Shall I tell Sarah?"* with the exact sentence, and only *Tell* writes the row the family's tool reads (INV-10).
 
 ### 5.7 The visit, witnessed
