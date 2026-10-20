@@ -1,6 +1,7 @@
 export { evaluate } from './evaluate.js';
 export { classify, clearForFamily, clearNameForFamily, normalise, type ClearOptions, type Clearance, type Reading } from './guardian.js';
 export { LEXICON, type ListedClass, type Marker } from './lexicon.js';
+export { clearVisitorForFamily } from './visitor.js';
 export { DEFAULT_POLICY, DEFAULT_TABLE } from './policy.js';
 export type {
   Audience,
