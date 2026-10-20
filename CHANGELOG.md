@@ -4,6 +4,82 @@ Wick's releases. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-10-20
+
+The redesign: one design system for her television, the browser television,
+the family app and the project pages ([docs/design/DESIGN.md](docs/design/DESIGN.md)).
+
+### Her television (Vega OS and Fire OS)
+
+- **One meaning per key.** Play over a card reads it aloud, and the next Play
+  stops the reading. It never moves the film: the film goes on when she
+  answers the card or puts it aside with Back.
+- **The film's bar.** Title, time gone of the whole, minutes left and a
+  progress line. It comes on ↑ or ↓, a pause or a skip, and goes after four
+  seconds of play. ↑ and ↓ were dead keys over a film before.
+- **Holding OK shows itself.** From 0.4 s a line fills to the two seconds, with
+  what holding will do. Let go early and nothing happens at all.
+- **Home adapts to her.** A film she stopped part-way comes first, marked
+  *Carry on* with the minutes left; then what she watches most at this time
+  of day. Counted on the television, never guessed, never sent.
+- **How Wick works.** A tour from the home screen, with only the remote: an
+  example of the door, a note, holding OK and reading aloud, each marked
+  *Example*. Nothing in it is sent.
+- **Calm motion and icons.** Cards rise in over 200 ms and fade out over 150 ms
+  over a scrim; the focused tile grows a little; Lucide icons, rendered to
+  images at build time, beside the words. Reduced motion makes all of it
+  instant. No native module was added, so Fire OS builds from the same source.
+
+### Her television in a browser
+
+- Says on screen that it is a stand-in for her Fire TV.
+- A remote drawn beside the screen, so it works on a phone or a tablet; holding
+  its OK is Hold for Sarah.
+- The same bar, hold line, home order and tour as the Vega app.
+- A parity test draws every card with the Vega app's own components and with
+  the browser's, in English and Spanish. It found and fixed drift: labels Vega
+  never shows, two wrong headlines, a missing door line and two orders.
+
+### The family app
+
+- From 1024 px, two columns: the conversation, and a panel about her home
+  (her light, her televisions, who is expected, her circle).
+- Suggestions are one row and a *More* sheet; nothing overflows from 320 px
+  to 2560 px.
+- Waiting says what it is doing, and every press answers at once.
+- Atkinson Hyperlegible Next, Lucide icons, Motion and Open Props, all served
+  from the app itself.
+
+### Also
+
+- The project pages restyled; their tool and feature counts are held to the
+  code and the README by a test.
+- The README shows eight screenshots of the core features, captured live.
+- Since 1.1.0: a time counted from now is worked out, not refused (#125); a
+  television's event is dated by the edge's clock (#126); her day opens the
+  home screen (#133, #134); a lost connection is noticed, and the browser
+  television reaches home through IoT Core (#135); the Fire OS release APK is
+  signed with a release key (#136); the Guardian reads names in other scripts
+  and role words with marks inside (#138, #140); the deploy role is narrowed,
+  with spend budgets, per-route limits and a spend brake (#139); a demo test
+  no longer fails for an hour every Tuesday (#142).
+- Versions: Vega 1.2.0 (build 3); Fire OS 1.2.0 (version code 3), the first APK
+  that can update an earlier one in place.
+
+## [1.1.0] — 2026-10-18
+
+- **Each home keeps its own time zone**, given when it is set up; a demo home
+  runs on the guest's own clock.
+- **Production's health report is no longer public.**
+- **"Shall I tell Sarah?" starts on "Keep it to myself"**, which is also what
+  Back does.
+- **Notes say their time as a clock time**, and the third reply fits the note.
+- **A visit errand's card turns to "Someone rang" by itself.**
+- **The week's suggestion** says the thing to do, with its reason under it.
+- Back on a note puts it aside, the family is told she has seen a note, her
+  home can be closed from the television, and she can share from her home
+  screen (PRs #97–#124).
+
 ## [1.0.0] — 2026-10-17
 
 The first release: Wick, complete and deployed, as submitted to Build, Ship,
