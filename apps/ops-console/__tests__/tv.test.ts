@@ -971,8 +971,10 @@ describe('tv.css — the television’s floor', () => {
   /** Everything but the legend, which is for whoever is trying the page and not part of her television. */
   const screenCss = css.slice(0, css.indexOf('/* --- The keys (tv.html)'));
   const tokens = (block: string) => Object.fromEntries([...block.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1]!, m[2]!]));
-  const ordinary = tokens(/\.tv-screen \{([^}]*)\}/.exec(css)![1]!);
-  const high = tokens(/\.tv-screen\.higher-contrast \{([^}]*)\}/.exec(css)![1]!);
+  /** The rule whose selectors start with this one (the screen's tokens are shared with the hold line drawn over it). */
+  const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/\./g, '\\.')}(?:,\\s*[^{]+)? \\{([^}]*)\\}`).exec(css)![1]!;
+  const ordinary = tokens(rule('.tv-screen'));
+  const high = tokens(rule('.tv-screen.higher-contrast'));
 
   it('is the calm-ui palette', () => {
     expect(ordinary).toMatchObject({ ink: palette.ink.toLowerCase(), 'ink-dim': palette.inkDim.toLowerCase(), ground: palette.ground.toLowerCase(), raised: palette.raised.toLowerCase(), accent: palette.accent.toLowerCase(), focus: palette.focus.toLowerCase() });
@@ -980,7 +982,7 @@ describe('tv.css — the television’s floor', () => {
 
   it('sets no type under 32, a quarter larger with Larger text', () => {
     expect(css).toMatch(new RegExp(`--body: calc\\(${calmType.bodyPt} \\* var\\(--dp\\) \\* var\\(--type\\)\\)`));
-    expect(css).toMatch(/\.tv-screen\.larger-text \{\s*--type: 1\.25;/);
+    expect(rule('.tv-screen.larger-text')).toMatch(/^\s*--type: 1\.25;/);
     for (const [, value] of screenCss.matchAll(/font-size:\s*([^;]+);/g)) expect(value).toMatch(/^var\(--(body|headline|display)\)$/);
   });
 
@@ -989,13 +991,55 @@ describe('tv.css — the television’s floor', () => {
       expect(contrastRatio(ordinary[fg]!, ordinary[bg]!), `${fg} on ${bg}`).toBeGreaterThanOrEqual(7);
       expect(contrastRatio(high[fg]!, high[bg]!), `${fg} on ${bg}, higher contrast`).toBeGreaterThanOrEqual(15);
     }
-    expect(css).toMatch(/\.tv-screen\.higher-contrast \{[^}]*--ring: calc\(8 \* var\(--dp\)\)/);
-    expect(css).toMatch(/\.tv-screen \{[^}]*--ring: calc\(4 \* var\(--dp\)\)/);
+    expect(rule('.tv-screen.higher-contrast')).toMatch(/--ring: calc\(8 \* var\(--dp\)\)/);
+    expect(rule('.tv-screen')).toMatch(/--ring: calc\(4 \* var\(--dp\)\)/);
   });
+
+  /** The blocks that apply only when reduced motion has not been asked for, and the stylesheet without them. */
+  const motionBlocks: string[] = [];
+  let still = css;
+  for (let at = still.indexOf('@media (prefers-reduced-motion: no-preference)'); at >= 0; at = still.indexOf('@media (prefers-reduced-motion: no-preference)')) {
+    let depth = 0;
+    let end = still.indexOf('{', at);
+    for (; end < still.length; end++) {
+      if (still[end] === '{') depth++;
+      if (still[end] === '}' && --depth === 0) break;
+    }
+    motionBlocks.push(still.slice(at, end + 1));
+    still = still.slice(0, at) + still.slice(end + 1);
+  }
 
   it('has no red anywhere, and nothing that moves by itself', () => {
     for (const [hex] of css.matchAll(/#[0-9a-f]{6}\b/gi)) expect(alarmHue(hex), hex).toBe(null);
-    expect(css).not.toMatch(/animation|transition|@keyframes/);
+    expect(css).not.toMatch(/animation|@keyframes/);
+  });
+
+  it('moves only what a press moves, in 200 ms or less, and nothing at all with reduced motion asked for (DESIGN.md §4)', () => {
+    expect(motionBlocks.length).toBeGreaterThan(0);
+    expect(still).not.toMatch(/transition/);
+    for (const block of motionBlocks) for (const [, ms] of block.matchAll(/(\d+)ms/g)) expect(Number(ms)).toBeLessThanOrEqual(200);
+  });
+
+  it('has the redesign’s three: the raised-high surface, the progress track and the scrim — and every word on them at 7:1', () => {
+    expect(ordinary).toMatchObject({ 'raised-high': '#2a2621', track: '#4a443b' });
+    expect(rule('.tv-screen')).toMatch(/--scrim: rgb\(18 16 14 \/ 82%\);/);
+    for (const [fg, bg] of [['ink', 'raised-high'], ['ink-dim', 'raised-high'], ['accent', 'raised'], ['accent', 'raised-high']]) {
+      expect(contrastRatio(ordinary[fg]!, ordinary[bg]!), `${fg} on ${bg}`).toBeGreaterThanOrEqual(7);
+      expect(contrastRatio(high[fg]!, high[bg]!), `${fg} on ${bg}, higher contrast`).toBeGreaterThanOrEqual(15);
+    }
+  });
+
+  it('shows the focus on a film as the ring, a raised surface and a little larger — never a colour alone', () => {
+    const focused = rule('.home-tile:focus');
+    expect(focused).toMatch(/background: var\(--raised-high\);/);
+    expect(focused).toMatch(/transform: scale\(1\.04\);/);
+    expect(css).toMatch(/\.tv-screen button:focus,\n\.tv-screen \[data-focusable\]:focus \{\s*outline: var\(--ring\) solid var\(--focus\);/);
+  });
+
+  it('sets her words in Atkinson Hyperlegible Next, from this page’s own files, and the page around her screen at 14 px or more', () => {
+    expect(css).toMatch(/--font: 'Atkinson Hyperlegible Next Variable'/);
+    expect(rule('.room')).toMatch(/font-size: clamp\(14px,/);
+    for (const [, value] of css.slice(css.indexOf('/* --- The keys (tv.html)')).matchAll(/font-size:\s*([^;]+);/g)) expect(value, value).toMatch(/^(clamp\(14px,|max\(14px,)/);
   });
 });
 
