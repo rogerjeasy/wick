@@ -74,7 +74,13 @@ export const READ_CHIP = { paddingHorizontal: 12, paddingVertical: 2, iconGapDp:
 /** CalmCard's buttons (packages/vega-calm-ui theme.ts): padding either side of the words, the gap between them, a letter's width. */
 const BUTTON_PADDING_H_DP = 32;
 const BUTTON_GAP_DP = 16;
-const GLYPH_WIDTH_EM = 0.5;
+/**
+ * A letter's width, as the home screen measured it on the Vega Virtual
+ * Device (homeLayout.test.ts: 0.47 of the type size). On the simulator the
+ * buttons' words came out narrower still — "Keep it to myself" and "Tell
+ * Sarah" at about 0.37 — so this errs towards the icon alone by a margin.
+ */
+const GLYPH_WIDTH_EM = 0.47;
 
 /** The words on a card's buttons, as the card draws them. */
 export function actionLabelsOf(card: Card): readonly string[] {
