@@ -693,6 +693,16 @@ sequenceDiagram
 
 A neighbour may use only the door and ring tools.
 
+**What the visitor tools may say.** The door knows *when* somebody rang, never *who*: a courier during the carer's hour writes the same row as the carer. So every tool, timeline and weekly story keeps three things apart (`packages/contracts/src/visit.ts`):
+
+| State | Where it comes from | How it is said |
+|---|---|---|
+| Expected | The roster: a day and a time, or a visit somebody announced | *"Maria is usually expected on Tuesday mornings."* |
+| Door when expected | A `presence` row: somebody at the door in that window | *"Someone came to the door when Maria was expected."* |
+| Confirmed | A `VISIT#` row she answered *"Yes, that's right"* to | *"Maria came, as confirmed on the television."* |
+
+`did_visitor_come` answers `confirmed` and `doorWhenExpected` separately and has no plain `visited`. `list_regular_visitors` gives `lastConfirmedVisitAt` and `lastDoorWhenExpectedAt`. The Narrator refuses a model draft that says an unconfirmed visitor came (`unconfirmed_visit`), and a week stored in the old words is read again from its counts.
+
 **The family app** (`apps/sim-alexa`) signs in to a real account; *Try the demo* makes you Sarah in a demo home. Tool results appear as cards in the Alexa+ design guide's vocabulary, with a carousel for the week. A family member can also ask by voice: one utterance of up to ten seconds goes to Amazon Transcribe and is asked as if typed; nothing is kept.
 
 ### 7.4 Other AWS services, by feature
