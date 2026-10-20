@@ -15,7 +15,7 @@ import {
   ConverseCommand,
   type ContentBlock,
 } from '@aws-sdk/client-bedrock-runtime';
-import { parseDescribeReply, validateDescription, type DescriptionCandidate } from './index.js';
+import { descriptionRefusal, parseDescribeReply, type DescriptionCandidate } from './index.js';
 
 /** Vision-capable, fast, cheap. §5.1. */
 export const DESCRIBE_MODEL_ID = process.env.WICK_VISION_MODEL ?? 'amazon.nova-lite-v1:0';
@@ -42,7 +42,8 @@ Rules for the description, all mandatory:
 - Only what is visibly there. Never infer intent, mood, purpose or identity.
 - Never use: seems, appears, probably, likely, might, trying, waiting for.
 - Never name anyone.
-- If the frame is unclear, empty, or you are not confident, reply with exactly: UNCLEAR
+- If the frame is black, nearly black, unclear, or you are not confident, reply with exactly: UNCLEAR
+- Never copy an example below: describe only this frame.
 
 Good:
 PERSON: yes
@@ -54,6 +55,9 @@ An empty porch with a parcel on the step.
 
 Bad:
 Someone who seems to be a delivery driver waiting patiently.`;
+
+/** A word for a person in a description. "Nobody" and "no one" are not. */
+const HUMAN = /\b(?:man|men|woman|women|person|people|child|children|kid|kids|boy|boys|girl|girls|baby|toddler|teenager|adult|adults|someone|somebody|figure|figures|courier|driver|he|she|they)\b/i;
 
 export interface DescribeResult {
   readonly candidate: DescriptionCandidate | null;
@@ -72,12 +76,16 @@ export function judgeDescribeReply(raw: string): Omit<DescribeResult, 'elapsedMs
   if (!text) return { candidate: null, reason: 'model returned nothing' };
   if (/^UNCLEAR\b/i.test(text)) return { candidate: null, reason: 'model declined: unclear frame' };
   // Worth logging loudly: it means the prompt is losing to the image.
-  if (!validateDescription(text)) return { candidate: null, reason: `rejected by validator: "${text}"` };
+  const refused = descriptionRefusal(text);
+  if (refused) return { candidate: null, reason: `rejected by validator (${refused}): "${text}"` };
 
+  // The PERSON line is believed only where the sentence agrees with it: "PERSON: yes" over
+  // "Two animated rats …" (seen live) is not a person, and is left unknown — Phase 1's line stands.
+  const saysPerson = HUMAN.test(text);
+  const agreed = personVisible === undefined || personVisible === saysPerson ? personVisible : undefined;
   const candidate: DescriptionCandidate = {
     description: text,
-    confidence: 0.9,
-    ...(personVisible === undefined ? {} : { personVisible }),
+    ...(agreed === undefined ? {} : { personVisible: agreed }),
   };
   return { candidate, reason: 'ok' };
 }

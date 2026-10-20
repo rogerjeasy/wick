@@ -77,12 +77,12 @@ describe('liveStopHandler', () => {
 
 describe('doorDescribeHandler', () => {
   it('decodes the frame and answers with what the describe graph decided', async () => {
-    const model = new ScriptedModel('PERSON: no\nAn empty porch with a parcel on the step.');
+    const model = new ScriptedModel('PERSON: no\nAn empty doorstep with a box beside the mat.');
     const frame = Buffer.from([0xff, 0xd8, 0xff, 0x01]).toString('base64');
 
     const out = (await doorDescribeHandler(() => model)({ kind: 'door.describe', householdId: 'margaret', frame }, { sessionId: 's' })) as { candidate: unknown; reason: string };
 
-    expect(out.candidate).toEqual({ description: 'An empty porch with a parcel on the step.', confidence: 0.9, personVisible: false });
+    expect(out.candidate).toEqual({ description: 'An empty doorstep with a box beside the mat.', personVisible: false });
     expect(out.reason).toBe('ok');
     const image = model.seen[0]!.flatMap((m) => m.content).find((b) => b.type === 'imageBlock') as { source: { bytes: Uint8Array } };
     expect([...image.source.bytes]).toEqual([0xff, 0xd8, 0xff, 0x01]);

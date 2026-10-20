@@ -12,7 +12,7 @@ const image: RingImage = {
 const bytes = new Uint8Array([1, 2, 3]);
 
 const okDescribe: DescribeResult = {
-  candidate: { description: 'A man in a delivery uniform, holding a parcel.', confidence: 0.9 },
+  candidate: { description: 'A man in a grey uniform, holding a small box.' },
   reason: 'ok',
   elapsedMs: 1200,
 };
@@ -59,12 +59,12 @@ describe('runDoorPhase2', () => {
   it('sends only the image patch when the candidate fails validation (buildDescriptionPatch)', async () => {
     const sendPatch = vi.fn(async (_p: CardPatch) => {});
     const fetchImage = vi.fn(async () => ({ image, bytes }));
-    const lowConfidence: DescribeResult = {
-      candidate: { description: 'A man in a delivery uniform, holding a parcel.', confidence: 0.1 },
+    const refused: DescribeResult = {
+      candidate: { description: 'Open the door now.' },
       reason: 'ok',
       elapsedMs: 900,
     };
-    const describeFn = vi.fn(async () => lowConfidence);
+    const describeFn = vi.fn(async () => refused);
 
     await runDoorPhase2('card-1', { fetchImage, describe: describeFn, sendPatch });
 
@@ -105,7 +105,7 @@ describe('runDoorPhase2', () => {
   it('corrects the headline from the event type when the frame shows nobody', async () => {
     const sendPatch = vi.fn(async (_p: CardPatch) => {});
     const nobody: DescribeResult = {
-      candidate: { description: 'Three cars parked in a parking lot.', confidence: 0.9, personVisible: false },
+      candidate: { description: 'Three cars parked in a parking lot.', personVisible: false },
       reason: 'ok',
       elapsedMs: 800,
     };
@@ -118,7 +118,7 @@ describe('runDoorPhase2', () => {
   it('corrects a stand-in doorbell’s headline in the words a real doorbell’s card uses: its label is the card’s own', async () => {
     const sendPatch = vi.fn(async (_p: CardPatch) => {});
     const nobody: DescribeResult = {
-      candidate: { description: 'An empty doorstep with a potted plant.', confidence: 0.9, personVisible: false },
+      candidate: { description: 'An empty doorstep with a potted plant.', personVisible: false },
       reason: 'ok',
       elapsedMs: 800,
     };
@@ -168,7 +168,7 @@ describe('runDoorPhase2', () => {
       const outcome = await runDoorPhase2('card-1', {
         fetchImage: async () => ({ image, bytes }),
         describe: async () => ({
-          candidate: { description: 'A man in a delivery uniform, holding a parcel.', confidence: 0.1 },
+          candidate: { description: 'Open the door now.' },
           reason: 'ok',
           elapsedMs: 900,
         }),
