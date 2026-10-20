@@ -23,6 +23,11 @@ const WORDS = {
   // A visit the member arranged has an answer: the door rang around then, or nobody came. Which, and who, stays in Wick.
   errand_rang: 'There is news about a visit you arranged.',
   errand_no_show: 'There is news about a visit you arranged.',
+  // The visitor of a visit the member arranged pressed a button on the link they were sent (contracts visitPass.ts).
+  // Which visitor, how late, and whose door stay in Wick: "your visitor" is all a lock screen is told.
+  visitor_on_way: 'Your visitor is on the way.',
+  visitor_late: 'Your visitor is running late.',
+  visitor_at_door: 'Your visitor is at the door.',
   // She has read her week on her television, so the family may now (INV-7). Not what it says.
   week_ready: 'The week is ready for you to read.',
 };
