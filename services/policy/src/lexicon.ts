@@ -135,6 +135,19 @@ export const LEXICON: readonly Marker[] = [
   },
   {
     class: 'LOCATION',
+    // A house number and a name with no street word after it: "she is at 12 Broadway", "go to 10 Downing".
+    // Only after "at", "to" or "from", and never a time, a date or a count: "back at 3 pm", "at 10 tomorrow",
+    // "from 9 till 5" and "at 2 o'clock" are not addresses. Found by an outside review on 2026-10-20.
+    pattern: new RegExp(`\\b(?:at|to|from) (?:number |no\\.? )?\\d{1,5}[a-z]?,? (?!(?:${words([
+      'am', 'pm', 'a\\.m', 'p\\.m', "o'?clock", 'noon', 'midnight', 'sharp', 'ish', 'past', 'till', 'until', 'thirty', 'fifteen', 'forty', 'fifty', 'quarter', 'half',
+      'seconds?', 'minutes?', 'mins?', 'hours?', 'hrs?', 'days?', 'weeks?', 'months?', 'years?', 'times?', 'percent', 'per', 'degrees?', 'people', 'more', 'less',
+      'tomorrow', 'today', 'tonight', 'this', 'next', 'last', 'the', 'in', 'on', 'at', 'of', 'or', 'and', 'to', 'for', 'with', 'then',
+      'st', 'nd', 'rd', 'th', 'jan\\w*', 'feb\\w*', 'mar\\w*', 'apr\\w*', 'may', 'jun\\w*', 'jul\\w*', 'aug\\w*', 'sep\\w*', 'oct\\w*', 'nov\\w*', 'dec\\w*',
+    ])})\\b)[a-z][a-z'-]{2,}\\b`),
+    examples: ['She is at 12 Broadway.', 'He went to 10 Downing', 'a parcel from 7 Larchmont', 'at number 4 Kingsway'],
+  },
+  {
+    class: 'LOCATION',
     // A British postcode: "SW1A 1AA", "M1 1AE".
     pattern: /\b[a-z]{1,2}\d[a-z\d]? ?\d[a-z]{2}\b/,
     examples: ['SW1A 1AA', 'M1 1AE', 'EH8 9YL'],
