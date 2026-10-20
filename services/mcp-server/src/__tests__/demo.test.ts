@@ -22,6 +22,7 @@ import {
 import type { AppDeps } from '../server.js';
 import { createMemoryStore } from '../accounts/__tests__/memoryStore.js';
 import { createMemoryTable } from './memoryTable.js';
+import { wallClockAsUtc, wallClockToMoment } from '../tools/when.js';
 
 const closers: (() => Promise<void>)[] = [];
 
@@ -145,8 +146,11 @@ describe('the demo button — an anonymous account in one click', () => {
     });
     // The morning Maria missed is the latest one that is over (accounts/demoHome.ts). From Tuesday's
     // late morning that is in this week, and last week has both her visits; before then it is last
-    // Friday, and last week's story is written as it then was: one visit.
-    const tuesdayIsOver = isoWeekRange(currentIsoWeek(new Date())).startMs + 86_400_000 + (9 * 60 + 30) * 60_000 + 2 * 3_600_000;
+    // Friday, and last week's story is written as it then was: one visit. Tuesday is the house's:
+    // the demo home is in London, and its clock is an hour ahead of UTC half the year.
+    const house = 'Europe/London';
+    const thisMondayWall = isoWeekRange(currentIsoWeek(new Date(wallClockAsUtc(Date.now(), house)))).startMs;
+    const tuesdayIsOver = wallClockToMoment(thisMondayWall + 86_400_000 + (9 * 60 + 30) * 60_000 + 2 * 3_600_000, house);
     expect(week.text).toMatch(Date.now() >= tuesdayIsOver ? /Maria visited twice/ : /Maria visited once/);
     expect(week.text).toMatch(/Nothing unusual/);
 
