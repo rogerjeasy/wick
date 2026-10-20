@@ -29,13 +29,15 @@ const ANOTHER = 'z'.repeat(20) + '0123456789abcdef0123456789abcdef0123456789ab';
  * conditions it is written under as DynamoDB would. `kind` says which row it
  * is: the resident's (DEV#) or a family member's own (FTV#).
  */
-function television(kind: 'resident' | 'family', row: Item) {
+function television(kind: 'resident' | 'family', row: Item, { demo = false }: { demo?: boolean } = {}) {
   const sk = kind === 'resident' ? 'DEV#tv-1' : 'FTV#tv-1';
   let meanwhile: (() => void) | undefined;
   const send = async (command: { input: { Key: Item; UpdateExpression?: string; ConditionExpression?: string; ExpressionAttributeValues?: Item } }) => {
     const key = `${command.input.Key.pk!.S}|${command.input.Key.sk!.S}`;
     if (command instanceof GetItemCommand) {
       if (key === 'DEV#tv-1|META') return { Item: { householdId: { S: 'hh_1' } } };
+      // A demo home (proof.mjs isDemoHome): the only kind answered from an id alone.
+      if (key === 'HH#hh_1|META') return { Item: demo ? { simulated: { BOOL: true } } : undefined };
       return { Item: key === `HH#hh_1|${sk}` ? { ...row } : undefined };
     }
     if (command instanceof UpdateItemCommand) {
@@ -127,13 +129,23 @@ describe('POST /pair/refresh — a television that keeps a secret', () => {
 });
 
 describe('POST /pair/refresh — a television paired before secrets, or one that keeps nothing', () => {
-  it('is still answered from its id alone — the exception — and that token says it proves nothing', async () => {
-    const tv = television('resident', { deviceId: { S: 'tv-1' } });
+  it('is still answered from its id alone in a demo home — the exception — and that token says it proves nothing', async () => {
+    const tv = television('resident', { deviceId: { S: 'tv-1' } }, { demo: true });
 
     const res = await tv.ask({});
 
     expect(res.status).toBe(200);
     expect(res.claims).toMatchObject({ ...residents, proof: 'none' });
+    expect(tv.row).not.toHaveProperty('proofHash');
+  });
+
+  it('is never answered from its id alone in a real home', async () => {
+    const tv = television('resident', { deviceId: { S: 'tv-1' } });
+
+    const res = await tv.ask({});
+
+    expect(res.status).toBe(401);
+    expect(res.body).toBe('proof_required');
     expect(tv.row).not.toHaveProperty('proofHash');
   });
 
@@ -176,12 +188,18 @@ describe('POST /pair/refresh — a television paired before secrets, or one that
       signJwt({ ...residents, proof: 'pairing' }, stranger.privateKey, { expiresInSec: 600 }),
     ];
     for (const jwt of refused) {
-      const tv = television('resident', { deviceId: { S: 'tv-1' } });
-      const res = await tv.ask({ proof: SECRET }, jwt);
-      // Answered as before, under the exception — and nothing enrolled.
+      // In a demo home: answered as before, under the exception — and nothing enrolled.
+      const demo = television('resident', { deviceId: { S: 'tv-1' } }, { demo: true });
+      const res = await demo.ask({ proof: SECRET }, jwt);
       expect(res.status).toBe(200);
       expect(res.claims).toMatchObject({ proof: 'none' });
-      expect(tv.row).not.toHaveProperty('proofHash');
+      expect(demo.row).not.toHaveProperty('proofHash');
+
+      // In a real home: nothing at all.
+      const real = television('resident', { deviceId: { S: 'tv-1' } });
+      const refusedThere = await real.ask({ proof: SECRET }, jwt);
+      expect(refusedThere.status).toBe(401);
+      expect(real.row).not.toHaveProperty('proofHash');
     }
   });
 

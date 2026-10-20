@@ -103,15 +103,20 @@ next pairing. Every token says how it was earned (`proof`: `pairing`, `secret` o
 `none`); one minted without proof can never enrol a secret, so whoever minted
 it cannot take the television over or lock it out.
 
-**Known accepted exception:** for a television whose row keeps no secret,
-`POST /pair/refresh` still mints a device-bound JWT from `{deviceId}` alone.
+**Known accepted exception, demo homes only:** for a television whose row
+keeps no secret, in a home whose META row is marked `simulated` (a demo home,
+`proof.mjs` `isDemoHome`), `POST /pair/refresh` still mints a device-bound JWT
+from `{deviceId}` alone. **In a real home it never does:** the refresh is
+refused (401 `proof_required`), and `pair-claim.mjs` refuses to connect a
+television that will keep no secret to a home that is not a demo home (403
+`television_cannot_prove_itself`), before anything is written. A real home's
+television paired before secrets still enrols one with its pairing token.
 It exists for the Vega Virtual Device: its `/data` never keeps a write
 (FRICTION.md FL-013/FL-014), so a secret it made would be gone at the next
 launch, and `CardService.ts`'s separate process has no other way to learn it
 is already paired. Its id is the constant `wick-tv`, in this open-source
-repository. It also covers a television paired before secrets until it
-enrols one, or is paired again. So **anyone who knows a simulator's id — anyone — can mint a
-one-hour token for the home that simulator is paired to**, and with it do
+repository. So **anyone who knows a simulator's id — anyone — can mint a
+one-hour token for the demo home that simulator is paired to**, and with it do
 everything that television can: receive and replay the home's cards (the
 picture from the door, the family's notes, the week), mark the week seen
 (INV-7), open Watch live within five minutes of a door card, and press any
@@ -123,15 +128,15 @@ per-device cooldown (four in half a minute, `REFRESH_WINDOW_MS`); one simulator 
 one home at a time (`device-owner.mjs`); and the moment a row keeps a secret
 an unproven token is refused everywhere — by `connect.mjs`, the IoT
 authorizer at every re-check, every message on a WebSocket opened with one
-(`route.mjs`) and Watch live (`refusesUnproven`). The same exception covers a
-television paired before secrets until its app is updated and enrols one.
+(`route.mjs`) and Watch live (`refusesUnproven`). In a demo home the same
+exception covers a television paired before secrets until it enrols one.
 
 Consent presses are **not** refused for an unproven token, and that is a
-choice. Unproven tokens now exist only for rows that keep no secret, which in
-practice is the simulator. It mints one at every launch and is the
+choice. Unproven tokens now exist only for rows that keep no secret, in demo
+homes, which in practice is the simulator. It mints one at every launch and is the
 television of the demo video; refusing them would leave it unable to say yes
-to anything. **Never** pair the Vega Virtual Device to a home with a real
-person in it, and disconnect it from any home that is not a demo home.
+to anything. The server keeps it out of a home with a real person in it:
+the claim and the refresh above both ask whether the home is a demo home.
 
 **A second known accepted exception, smaller than the first:** a family
 television's background service is handed a token without proof, once, by

@@ -24,7 +24,8 @@
  *               secret, or showed a proven token while enrolling one.
  *   'none'    — minted by pair-refresh.mjs from the id alone, for a row
  *               that holds no proof (the Vega Virtual Device, FRICTION.md
- *               FL-013). The one kind that proves nothing.
+ *               FL-013), and only in a demo home (`isDemoHome`). The one
+ *               kind that proves nothing, so never one for a real home.
  *
  * A token minted before this claim existed says nothing. Then its lifetime
  * tells: only pair-claim.mjs ever minted one longer than an hour.
@@ -91,4 +92,14 @@ export function isUnproven(claims) {
  */
 export function refusesUnproven(item, unproven) {
   return unproven === true && typeof item?.proofHash?.S === 'string';
+}
+
+/**
+ * Whether a household is a demo home: its META row is marked `simulated`
+ * (every row of a demo home is). Only there is a television that keeps no
+ * secret connected (pair-claim.mjs) or answered from its id alone
+ * (pair-refresh.mjs): nobody lives in a demo home, and its rows are made up.
+ */
+export function isDemoHome(meta) {
+  return meta?.simulated?.BOOL === true;
 }

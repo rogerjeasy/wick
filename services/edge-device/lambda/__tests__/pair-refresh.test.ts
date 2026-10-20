@@ -28,8 +28,9 @@ function world(items: Record<string, Item>) {
 const body = (o: unknown) => ({ body: JSON.stringify(o) });
 
 describe('POST /pair/refresh', () => {
-  it('mints a token for the household the television belongs to, from the device id alone', async () => {
+  it('mints a token for the household the television belongs to, from the device id alone — in a demo home', async () => {
     const handler = world({
+      'HH#hh_1|META': { simulated: { BOOL: true } },
       'DEV#tv-1|META': { householdId: { S: 'hh_1' } },
       'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' } },
     });
@@ -44,6 +45,7 @@ describe('POST /pair/refresh', () => {
 
   it('INV-8: ignores a household named in the request — a television cannot ask its way into another home', async () => {
     const handler = world({
+      'HH#hh_1|META': { simulated: { BOOL: true } },
       'DEV#tv-1|META': { householdId: { S: 'hh_1' } },
       'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' } },
       'HH#hh_2|DEV#tv-1': { deviceId: { S: 'tv-1' } },
@@ -53,6 +55,21 @@ describe('POST /pair/refresh', () => {
 
     const { token } = JSON.parse(res.body) as { token: { householdId: string } };
     expect(token.householdId).toBe('hh_1');
+  });
+
+  it('never mints from the id alone for a real home: a television that keeps no secret there is asked for proof', async () => {
+    for (const meta of [undefined, { simulated: { BOOL: false } }, { name: { S: 'Margaret' } }]) {
+      const handler = world({
+        ...(meta ? { 'HH#hh_1|META': meta } : {}),
+        'DEV#tv-1|META': { householdId: { S: 'hh_1' } },
+        'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' } },
+      });
+      for (const ask of [{ deviceId: 'tv-1' }, { deviceId: 'tv-1', proof: 'p'.repeat(64) }, { deviceId: 'tv-1', forService: true }]) {
+        const res = await handler(body(ask));
+        expect(res.statusCode).toBe(401);
+        expect(res.body).toBe('proof_required');
+      }
+    }
   });
 
   it('says a television nobody has connected is not paired', async () => {
@@ -80,6 +97,7 @@ describe('POST /pair/refresh', () => {
       let now = NOW;
       const send = async (command: { input: { Key: Item; UpdateExpression?: string; ExpressionAttributeValues?: Item } }) => {
         if (command instanceof GetItemCommand) {
+          if (command.input.Key.sk!.S === 'META' && command.input.Key.pk!.S === 'HH#hh_1') return { Item: { simulated: { BOOL: true } } };
           return { Item: command.input.Key.pk!.S === 'DEV#tv-1' ? { householdId: { S: 'hh_1' } } : { ...row } };
         }
         if (command instanceof UpdateItemCommand) {
@@ -180,7 +198,7 @@ describe('POST /pair/refresh for a family television', () => {
   });
 
   it('never makes the resident’s television a family one, and asks the resident’s for nothing new', async () => {
-    const res = await worldWithKey({ 'DEV#tv-1|META': { householdId: { S: 'hh_1' } }, 'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' } } })(withToken({ deviceId: 'tv-1', kind: 'family' }));
+    const res = await worldWithKey({ 'HH#hh_1|META': { simulated: { BOOL: true } }, 'DEV#tv-1|META': { householdId: { S: 'hh_1' } }, 'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' } } })(withToken({ deviceId: 'tv-1', kind: 'family' }));
     expect(res.statusCode).toBe(200);
     const { token } = JSON.parse(res.body) as { token: { jwt: string; kind?: string } };
     expect(token.kind).toBeUndefined();
@@ -636,7 +654,7 @@ describe('POST /pair/refresh for a family television’s background service', ()
   });
 
   it('means nothing on the resident’s television: its service is answered as before, with no scope and no way stamped', async () => {
-    const items: Record<string, Item> = { 'DEV#tv-1|META': { householdId: { S: 'hh_1' } }, 'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' } } };
+    const items: Record<string, Item> = { 'HH#hh_1|META': { simulated: { BOOL: true } }, 'DEV#tv-1|META': { householdId: { S: 'hh_1' } }, 'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' } } };
     const updates: string[] = [];
     const send = async (command: { input: { Key: Item; UpdateExpression?: string } }) => {
       if (command instanceof GetItemCommand) return { Item: items[`${command.input.Key.pk!.S}|${command.input.Key.sk!.S}`] };
@@ -1069,7 +1087,7 @@ const ATTACKERS = 'a'.repeat(20) + '0123456789abcdef0123456789abcdef0123456789ab
  * one home of the attacker's own (hh_x, organiser Mallory). `secret`: whether
  * tv-1's row keeps its secret.
  */
-function homes({ secret, family = false }: { secret: boolean; family?: boolean }) {
+function homes({ secret, family = false, demo = false }: { secret: boolean; family?: boolean; demo?: boolean }) {
   const table = memoryTable();
   let now = NOW_A;
   const deps = { send: table.send, privateKey: async () => privateKey, publicKey: async () => publicKey, now: () => now, table: 'wick' };
@@ -1086,6 +1104,8 @@ function homes({ secret, family = false }: { secret: boolean; family?: boolean }
   organiser('sarahs-token', 'hh_1', 'u_sarah');
   organiser('mallorys-token', 'hh_x', 'u_mallory');
   table.put('DEV#tv-1|META', { householdId: { S: 'hh_1' } });
+  // A demo home (proof.mjs isDemoHome): the only kind a television that keeps no secret is answered in from its id.
+  if (demo) table.put('HH#hh_1|META', { simulated: { BOOL: true } });
   const victimKey = family ? 'HH#hh_1|FTV#tv-1' : 'HH#hh_1|DEV#tv-1';
   table.put(victimKey, {
     deviceId: { S: 'tv-1' },
@@ -1134,8 +1154,13 @@ const settled = (row: Row | undefined) => {
 };
 
 describe('TAKEOVER — someone who knows the resident’s television’s id', () => {
-  for (const secret of [true, false]) {
-    describe(secret ? 'a television that keeps its secret' : 'a television whose row keeps no secret yet', () => {
+  const kinds: [string, boolean, boolean][] = [
+    ['a television that keeps its secret', true, false],
+    ['a real home’s television whose row keeps no secret yet', false, false],
+    ['a demo home’s television whose row keeps no secret', false, true],
+  ];
+  for (const [kind, secret, demo] of kinds) {
+    describe(kind, () => {
       const attacks: [string, object, (() => string) | undefined][] = [
         ['(a) with no token', {}, undefined],
         ['(a) with no token, and a secret of their own', { proof: ATTACKERS }, undefined],
@@ -1147,19 +1172,19 @@ describe('TAKEOVER — someone who knows the resident’s television’s id', ()
       ];
       for (const [name, body, jwt] of attacks) {
         it(`${name}: enrols nothing, replaces nothing, removes nothing, and is never handed a proof:"secret" token`, async () => {
-          const h = homes({ secret });
+          const h = homes({ secret, demo });
           const before = structuredClone(h.victim());
 
           const res = await h.ask(body, jwt?.());
 
-          if (secret) {
+          if (!demo) {
             expect(res.status).toBe(401);
             expect(res.body).toBe('proof_required');
             // Refused before anything was written.
             expect(h.table.applied).toEqual([]);
             expect(h.victim()).toEqual(before);
           } else {
-            // The documented exception: a token that says it proves nothing, and only its own share counted.
+            // The documented exception, in a demo home only: a token that says it proves nothing, and only its own share counted.
             expect(res.minted).toMatchObject({ proof: 'none' });
             expect(settled(h.victim())).toEqual(settled(before));
           }
@@ -1170,7 +1195,7 @@ describe('TAKEOVER — someone who knows the resident’s television’s id', ()
       }
 
       it('(e) racing the real television’s enrolment: never the attacker’s secret, and no unproven token once the real one is enrolled', async () => {
-        const h = homes({ secret: false });
+        const h = homes({ secret: false, demo: true });
         // The attacker read the row before the real television enrolled, and writes after.
         h.table.meanwhile(() => {
           h.table.rows.get(h.victimKey)!.proofHash = { S: proofHashOf(REAL) };
@@ -1180,7 +1205,7 @@ describe('TAKEOVER — someone who knows the resident’s television’s id', ()
         expect(h.victim()?.proofHash).toEqual({ S: proofHashOf(REAL) });
 
         // And the real television's own enrolment, with its pairing token, wins over nothing but nothing.
-        const fresh = homes({ secret: false });
+        const fresh = homes({ secret: false, demo: true });
         await fresh.ask({ proof: ATTACKERS });
         expect((await fresh.ask({ proof: REAL }, pairingToken())).minted).toMatchObject({ proof: 'secret' });
         expect(fresh.victim()?.proofHash).toEqual({ S: proofHashOf(REAL) });
@@ -1300,8 +1325,17 @@ describe('LOCKOUT — nothing without the secret can keep the real television ou
     expect(real.minted).toMatchObject({ proof: 'secret' });
   });
 
-  it('on a row with no secret yet, a stranger using up the share anyone may use does not stop the real television enrolling, or refreshing after', async () => {
+  it('in a real home, a row with no secret yet answers a stranger nothing, and the real television still enrols with its pairing token', async () => {
     const h = homes({ secret: false });
+    for (let i = 0; i < 10; i += 1) expect((await h.ask({})).status).toBe(401);
+    expect(h.table.applied).toEqual([]);
+
+    expect((await h.ask({ proof: REAL }, pairingToken())).minted).toMatchObject({ proof: 'secret' });
+    expect((await h.ask({ proof: REAL })).status).toBe(200);
+  });
+
+  it('in a demo home, a row with no secret yet: a stranger using up the share anyone may use does not stop the real television enrolling, or refreshing after', async () => {
+    const h = homes({ secret: false, demo: true });
     let refused = 0;
     for (let i = 0; i < 10; i += 1) if ((await h.ask({})).status === 429) refused += 1;
     expect(refused).toBeGreaterThan(0);
@@ -1353,8 +1387,8 @@ describe('a secret made by the server, for a television that cannot make one', (
     expect((await askAs(h, 'wick-vega', { proof: secret })).minted).toMatchObject({ proof: 'secret' });
   });
 
-  it('is never made for a television that does not say it keeps a file, nor for the simulator’s id whatever it says', async () => {
-    const h = homes({ secret: false });
+  it('is never made for a television that does not say it keeps a file, nor for the simulator’s id whatever it says — which joins only a demo home', async () => {
+    const h = homes({ secret: false, demo: true });
     for (const body of [{ deviceId: 'wick-vega' }, { deviceId: 'wick-tv', keeps: true }]) {
       const code = await pairAs(h, body);
       const polled = await h.poll(code);
@@ -1364,6 +1398,22 @@ describe('a secret made by the server, for a television that cannot make one', (
       // Answered from its id alone, as before: the documented exception, not locked out.
       expect((await askAs(h, body.deviceId, {})).minted).toMatchObject({ proof: 'none' });
     }
+  });
+
+  it('a television that will keep no secret is never connected to a real home, and nothing is written', async () => {
+    const h = homes({ secret: false });
+    for (const ask of [{ deviceId: 'wick-vega' }, { deviceId: 'wick-tv', keeps: true }, { deviceId: 'wick-tv' }]) {
+      const started = await h.start(ask);
+      const code = (JSON.parse(started.body) as { code: string }).code;
+      const before = structuredClone([...h.table.rows.entries()]);
+      const res = await h.claim(code, 'sarahs-token');
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toBe('television_cannot_prove_itself');
+      expect([...h.table.rows.entries()]).toEqual(before);
+      expect((await h.poll(code)).body).toEqual({ status: 'pending' });
+    }
+    // One that keeps a secret is connected as ever.
+    expect((await h.claim((JSON.parse((await h.start({ deviceId: 'wick-vega', keeps: true })).body) as { code: string }).code, 'sarahs-token')).statusCode).toBe(200);
   });
 
   it('cannot be had by somebody who does not hold the code: polling any other code hands over nothing', async () => {

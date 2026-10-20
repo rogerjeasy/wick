@@ -396,7 +396,7 @@ stateDiagram-v2
     allowed --> removed: removed by the organiser or by her
 ```
 
-A television that can keep a file also keeps a random secret, and only that secret renews its token (§10.1). The Vega simulator keeps nothing on disk (FL-013), so it re-proves itself through `POST /pair/refresh`, which mints a one-hour token from its id. That is an accepted exception, bounded by time and rate, and the reason the simulator is only paired to demo homes.
+A television that can keep a file also keeps a random secret, and only that secret renews its token (§10.1). The Vega simulator keeps nothing on disk (FL-013), so it re-proves itself through `POST /pair/refresh`, which mints a one-hour token from its id. That is an accepted exception, bounded by time and rate, and allowed in demo homes only: the server refuses to connect a television that keeps no secret to a real home, and refuses its id-only refresh there (`isDemoHome`, `proof.mjs`).
 
 ### 4.3 Device → cloud events
 
