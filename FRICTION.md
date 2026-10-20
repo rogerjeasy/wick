@@ -3,7 +3,7 @@
 Developer-experience friction encountered while building Wick on Amazon Devices,
 Ring, Alexa+ and AWS.
 
-45 entries, FL-001 to FL-049, newest first, each written when the problem was hit.
+46 entries, FL-001 to FL-050, newest first, each written when the problem was hit.
 There is no FL-020, FL-034, FL-037 or FL-039: those numbers were set aside for
 work running in parallel and not needed. The same
 problems, gathered by tool with what worked well beside them, are in
@@ -61,6 +61,43 @@ removed from the design (2026-10-02).
 ## Entries
 
 <!-- Newest first. -->
+
+## FL-050 — Every Vega Virtual Device has the same identity, so one paired by somebody else opens in their home
+
+*2026-10-20.*
+
+**Tool / API:**      Vega Virtual Device (Vega SDK 0.24), `@amazon-devices/kepler-file-system`
+
+**Task attempted:**  Let anybody who installs Wick on their own Vega Virtual Device pair it to their own demo home,
+                     as the README asks a judge to.
+
+**Steps taken:**     1. A Vega app that wants a stable id keeps one on disk. The simulator's `/data` keeps no write
+                        (FL-013), so Wick's simulator uses one fixed id, `wick-tv`, and is answered by that id
+                        alone in a demo home.
+                     2. On 2026-10-20 a fresh install on a simulator opened straight into a demo home paired the day
+                        before, with no code to enter. Uninstalling the app did not change it: the pairing is the
+                        server's, by id.
+                     3. Looked for any per-instance identifier the simulator exposes to an app: a device serial,
+                        an installation id, an advertising id. None is documented for the Vega Virtual Device.
+
+**Expected:**        Either storage that keeps a file, or a documented identifier that differs between two
+                     simulators, so an app can tell one installation from another.
+
+**Actual:**          Neither. Every simulator is the same television to the server, and whichever demo home paired
+                     one last held them all, with no end.
+
+**Severity:**        Important
+
+**Workaround:**      The binding answered by the id alone runs out twelve hours after the pairing (`proof.mjs`
+                     `ID_ONLY_HOLD_MS`), so a simulator nobody has paired lately shows a code; and a demo home can
+                     bring the simulator in from the family app with no code on its screen
+                     (`POST /api/televisions/simulator`), which the simulator follows within a minute.
+
+**Suggestion:**      Give the Vega Virtual Device a per-instance identifier an app can read (as Android's
+                     `Settings.Secure.ANDROID_ID` is per installation), or make `/data` keep files, and say which in
+                     the Vega Virtual Device documentation.
+
+---
 
 ## FL-049 — Amazon Device Messaging is the documented way to reach a Fire TV app from a server, on Fire OS and on Vega, and Wick does not use it yet
 

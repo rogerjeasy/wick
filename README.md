@@ -122,7 +122,9 @@ No account and no hardware are needed.
 5. Press **Ring the stand-in doorbell** in the family app and choose who is there. The door card appears at once and the film waits under it, then the picture and one sentence about it. **Esc** (Back) or *Not now* puts it away and the film goes on; if the card goes by itself while she is at the door, the film stays paused for her. The stand-in doorbell rings at most once every 20 seconds.
 
 The same flow runs on the Vega Virtual Device and on the Fire OS build in the
-Android TV emulator ([docs/SETUP.md](docs/SETUP.md)).
+Android TV emulator ([docs/SETUP.md](docs/SETUP.md)). Every Vega Virtual Device
+has the same id, so one may open in another demo home with no code: in the
+family app, **Connect a television** then **Bring in the Vega Virtual Device**.
 
 ## Screenshots
 

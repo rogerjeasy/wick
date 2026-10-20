@@ -8,7 +8,7 @@ Ring's Developer Playground, and Alexa+ is a simulated surface in front of a
 real MCP server. Everything in between runs on AWS in `us-east-1`.
 
 Below, each tool gets the five answers Devpost asks for. The evidence is in
-[`FRICTION.md`](../FRICTION.md): 45 entries, each written when the problem
+[`FRICTION.md`](../FRICTION.md): 46 entries, each written when the problem
 happened, cited here as FL-0xx. Feature requests, with a priority for each, are
 at the end.
 
@@ -86,6 +86,8 @@ do nothing.
   eight seconds, and you can't hand it any value (FL-014, FL-026, FL-029).
 - On the simulator, `kepler-file-system` keeps nothing, so every launch starts
   unpaired. That forced a security trade-off in our own code (FL-013, Critical).
+  With no per-instance id either, every simulator is the same television to a
+  server, so one opened in somebody else's demo home (FL-050).
 - Remote key names on the simulator differ from the documented ones, and a
   wrong name compiles fine (FL-021).
 - A cleartext video URL shows a black screen with no error, and a missing
@@ -633,7 +635,7 @@ forces a workaround, **Nice-to-have** saves time.
 |---|---|---|
 | 1 | Alexa+ MCP Toolkit: a sandbox for any registered developer | Critical |
 | 2 | Vega: a supported way to show something over another app, and a documented service lifetime | Critical |
-| 3 | Vega Virtual Device: storage that persists | Critical |
+| 3 | Vega Virtual Device: storage that persists, or a per-instance id | Critical |
 | 4 | Ring linking that says what failed | Critical |
 | 5 | Ring Playground: "press the doorbell" and "person detected" buttons | Important |
 | 6 | Ring Playground: a simulated chime | Important |

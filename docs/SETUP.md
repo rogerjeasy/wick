@@ -140,6 +140,12 @@ in [`apps/tv-vega/src/config.ts`](../apps/tv-vega/src/config.ts).
 5. The television shows a pairing code. Enter it in the family app (path 1),
    allow yourself on the television, and use it.
 
+   Every Vega Virtual Device has the same id (it keeps nothing on disk,
+   FL-013), so a simulator another demo home paired in the last twelve hours
+   opens straight into that home, with no code. In the family app choose
+   **Connect a television**, then **Bring in the Vega Virtual Device**: it
+   moves to your demo home within a minute, or at its next launch.
+
 Useful while it runs:
 
 ```bash
