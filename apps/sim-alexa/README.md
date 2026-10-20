@@ -100,6 +100,21 @@ nothing is recorded or kept. Where the browser has no microphone to offer,
 the button is not shown. Not the browser's own speech recognition, which
 sends the sound elsewhere.
 
+**How it looks.** One design language with her television
+(`docs/design/DESIGN.md`): the Alexa+ guide's dark navy chrome and cards,
+Wick's amber only on Wick's final actions, her light and the flame, set in
+Atkinson Hyperlegible Next. One column from 320 pixels; from 1024, the
+conversation and a panel about her home — her light, her televisions and
+whether each is on, who is expected next, the circle — drawn only from what
+the app already asks (`home.js`). The suggestions are one row of the most
+useful, scrolled inside itself, and "More" for every one, grouped
+(`arrangeSuggestions`). Every press shows at once; one that asks the server
+says it is working until it has its answer, and an answer on its way is a
+card that says, by the second, what is happening (`waitingWords`) — the
+first answer from the agent can take most of a minute. The typeface, Lucide
+icons, Motion and Open Props are self-hosted in `vendor/`, written by
+`npm run family:vendor` and held to it by `__tests__/vendor.test.ts`.
+
 `surface.js` holds the routing and the sentence-and-card logic with no DOM and
 no network, and is tested (`__tests__/surface.test.ts`); `voice.js` does the
 same for the sound of a question (`__tests__/voice.test.ts`). `main.js` is the
