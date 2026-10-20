@@ -499,7 +499,9 @@ resource "aws_apigatewayv2_api" "edge" {
   protocol_type = "HTTP"
 
   # Browser-facing routes on this API: POST /pair/start, POST /pair/claim,
-  # GET /pair/status (the browser television — infra/pairing.tf). Everything else
+  # GET /pair/status (the browser television — infra/pairing.tf), and
+  # POST /visit/status, POST /visit/say (a visitor's phone, on the family
+  # app's visit page — infra/visit-pass.tf). Everything else
   # here is server-to-server (Ring) and never reads a CORS header — API
   # Gateway HTTP APIs apply cors_configuration API-wide, so this is scoped
   # to the methods those browser routes actually use, not a blanket allow.
@@ -541,6 +543,7 @@ resource "aws_apigatewayv2_stage" "default" {
     aws_apigatewayv2_route.edge,
     aws_apigatewayv2_route.pairing,
     aws_apigatewayv2_route.agent_live,
+    aws_apigatewayv2_route.visit_pass,
   ]
 
   access_log_settings {
@@ -577,6 +580,8 @@ locals {
     "POST /pair/refresh"                = { rate = 20, burst = 40 }
     "POST /live/sessions"               = { rate = 10, burst = 20 }
     "DELETE /live/sessions/{sessionId}" = { rate = 10, burst = 20 }
+    "POST /visit/status"                = { rate = 5, burst = 10 } # a visitor's phone, opening the link (visit-pass.tf)
+    "POST /visit/say"                   = { rate = 5, burst = 10 } # three buttons, pressed by one person
   }
 
   routes = {

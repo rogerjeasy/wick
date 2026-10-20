@@ -127,8 +127,8 @@ import { markNoteReplied, markNoteSeen, putsNoteAway, replyIndex, replyText } fr
 import { answerUpdate, askedUpdate, buildQuestionCard, decisionUpdate, notNowUpdate, positionUpdate, shouldAsk, startUpdate, watchPress } from './watch-together.mjs';
 import { SHARING_CARD_ID, allowedFirstNames, buildSharingCard, exclusionUpdate, readExclusions, sharingStep } from './sharing.mjs';
 import { buildTelevisionActiveEntry, claimActiveSignal, isActiveSignal } from './television-active.mjs';
-import { LIGHT_CARD_ID, buildHomeChangedEntry, buildLightCard, homeRange, homeState, lightPress, lightUpdate } from './light.mjs';
-import { herDay, rosterRange } from './today.mjs';
+import { LIGHT_CARD_ID, buildHomeChangedEntry, buildLightCard, lightPress, lightUpdate } from './light.mjs';
+import { loadHomeRows as readHomeRows, readHome } from './home.mjs';
 import { LANGUAGE_ACTIONS, inHerLanguage, languageAnswerUpdate, languageOfMeta, languagePress, languageRead } from './language.mjs';
 import {
   PHOTO_ACTIONS,
@@ -712,49 +712,12 @@ async function publishCardAction(detail) {
 
 /**
  * The light in the window — see light.mjs. One read of the household's rows
- * says what her home screen is told and what the Light card says.
+ * says what her home screen is told and what the Light card says (home.mjs).
+ * `consistent` for the moment after a press that changed one of these rows:
+ * what is told must be what was just written.
  */
-async function loadHomeRows(householdId, { consistent = false } = {}) {
-  const items = [];
-  let ExclusiveStartKey;
-  do {
-    const page = await ddb.send(new QueryCommand({
-      ...homeRange({ table: TABLE, householdId }),
-      // For the moment after a press that changed one of these rows: what is told must be what was just written.
-      ...(consistent ? { ConsistentRead: true } : {}),
-      ...(ExclusiveStartKey ? { ExclusiveStartKey } : {}),
-    }));
-    items.push(...(page.Items ?? []));
-    ExclusiveStartKey = page.LastEvaluatedKey;
-  } while (ExclusiveStartKey);
-  return items;
-}
-
-/** The household's roster (today.mjs rosterRange): who the door expects, and so who her day says is coming. */
-async function loadRosterRows(householdId, { consistent = false } = {}) {
-  const items = [];
-  let ExclusiveStartKey;
-  do {
-    const page = await ddb.send(new QueryCommand({ ...rosterRange({ table: TABLE, householdId }), ...(consistent ? { ConsistentRead: true } : {}), ...(ExclusiveStartKey ? { ExclusiveStartKey } : {}) }));
-    items.push(...(page.Items ?? []));
-    ExclusiveStartKey = page.LastEvaluatedKey;
-  } while (ExclusiveStartKey);
-  return items;
-}
-
-/**
- * Her day (today.mjs), from the home's rows and its roster. A roster that
- * cannot be read leaves her day without its lines, never the home screen
- * without its date.
- */
-async function readHerDay({ householdId, items, now, timeZone, consistent }) {
-  let rosterRows = [];
-  try {
-    rosterRows = await loadRosterRows(householdId, { consistent });
-  } catch (err) {
-    console.error('her_day_roster_failed', { householdId, err: err?.name });
-  }
-  return herDay({ homeRows: items, rosterRows, now, timeZone });
+function loadHomeRows(householdId, { consistent = false } = {}) {
+  return readHomeRows({ send: (command) => ddb.send(command), table: TABLE, householdId, consistent });
 }
 
 /**
@@ -766,11 +729,8 @@ async function readHerDay({ householdId, items, now, timeZone, consistent }) {
  */
 async function tellHome({ sendControl, householdId, consistent = false }) {
   try {
-    const items = await loadHomeRows(householdId, { consistent });
-    // Where the house is: what "today" means for the light in the window and for her day (household-zone.mjs).
-    const now = Date.now();
-    const timeZone = timeZoneOfRows(items);
-    const home = { ...homeState({ items, now, timeZone }), today: await readHerDay({ householdId, items, now, timeZone, consistent }) };
+    // Her light, who looked in and her day, where the house is (home.mjs, the same read visit-pass.mjs makes).
+    const home = await readHome({ send: (command) => ddb.send(command), table: TABLE, householdId, now: Date.now(), consistent });
     // `whole`: this is all of it, so a light she has since made private is not left showing.
     await sendControl({ t: 'home', home, whole: true });
     return home;

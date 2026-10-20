@@ -17,6 +17,8 @@
  *   week.seen                  → brief/weekReady.ts, here: she has read her week → the family is nudged that it is there
  *   reach.due                  → reach/due.ts, here: three minutes on and no answer → the next person is asked
  *                                (not from the bus: the one-time schedule reach/timer.ts set calls this function)
+ *   visit.said (wick.visit)    → visit/said.ts, here: the visitor pressed a button on their visit pass
+ *                                → the member who arranged it is nudged; a door card already up is told who is there
  *
  * A shim for the chime, because EventBridge cannot target an AgentCore
  * Runtime. Everything else is answered here: none of it needs a model or a
@@ -26,10 +28,10 @@
  * Nothing is retried here: the EventBridge targets have zero retries, and
  * each handler's once-only claim makes any redelivery harmless.
  */
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { CreateScheduleCommand, SchedulerClient } from '@aws-sdk/client-scheduler';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_HOUSEHOLD_TIME_ZONE, DEFAULT_LANGUAGE, DOOR_ACTIONS, PUSH_KINDS, isHouseholdLanguage, reachKindOf, readHomeState, tellAnswerOf, visitAnswerOf, type HomeState, type HouseholdLanguage } from '@wick/contracts';
+import { DEFAULT_HOUSEHOLD_TIME_ZONE, DEFAULT_LANGUAGE, DOOR_ACTIONS, PUSH_KINDS, VISIT_EVENTS, isHouseholdLanguage, reachKindOf, readHomeState, tellAnswerOf, visitAnswerOf, type HomeState, type HouseholdLanguage } from '@wick/contracts';
 import { DEFAULT_POLICY } from '@wick/policy';
 import { nudgeFamily, sendHomeToDevices, sendPatchToDevice, sendToDevice, sendWaitingCardsInLanguage, withdrawFromDevices } from '../../egress.js';
 import { loadShareableDifferences } from '../../rhythm/loadDifferent.js';
@@ -46,6 +48,9 @@ import { reachStore, type ReachSend } from '../../store/reaches.js';
 import { askAboutVisits } from '../visit/ask.js';
 import { handleVisitAnswer, type VisitAnswerResult } from '../visit/answer.js';
 import { visitStore, type VisitSend } from '../../store/visits.js';
+import { handleVisitSaid, visitSaidClaim, type VisitSaidResult } from '../visit/said.js';
+import { errandStore, type ErrandSend } from '../../store/errands.js';
+import { memberAllowed, type AllowedSend } from '../errand/allowed.js';
 import { isSharedWithFamily, loadHouseholdPolicy, loadHouseholdTimeZone } from '../../store/household.js';
 import { buildTellCard } from '../tell/ask.js';
 import { familyToAsk } from './index.js';
@@ -92,6 +97,8 @@ export interface CardActionRoutes {
   readonly askVisits: (householdId: string) => Promise<readonly string[]>;
   /** She has read her week: the family is told it is there to read (brief/weekReady.ts). Absent, nobody is told. */
   readonly weekSeen?: (detail: Record<string, unknown>) => Promise<WeekReadyResult>;
+  /** The visitor pressed a button on their visit pass (visit/said.ts). Absent, nobody is told. */
+  readonly visitSaid?: (detail: Record<string, unknown>) => Promise<VisitSaidResult>;
 }
 
 /** How long after her press a change of language is still acted on. */
@@ -100,12 +107,19 @@ export const LANGUAGE_CHANGE_FRESH_MS = 2 * 60_000;
 const LANGUAGE_CHANGE_CLOCK_SKEW_MS = 5_000;
 
 export interface DeviceBusEvent {
+  /** `wick.device` from a television's edge; `wick.visit` from the visit pass's (edge visit-pass.mjs). */
+  readonly source?: string;
   /** Absent on events from before there was more than one: those were all card.action. */
   readonly 'detail-type'?: string;
   readonly detail: Record<string, unknown>;
 }
 
 export async function routeCardAction(evt: DeviceBusEvent, routes: CardActionRoutes): Promise<unknown> {
+  if (evt['detail-type'] === VISIT_EVENTS.said) {
+    // Only the visit pass's own edge says a visitor spoke (infra/visit-pass.tf): nothing a television sends is taken for it.
+    if (evt.source !== VISIT_EVENTS.source || !routes.visitSaid) return { result: 'ignored' };
+    return { result: await routes.visitSaid(evt.detail) };
+  }
   if (evt['detail-type'] === 'television.active') {
     const householdId = evt.detail.householdId;
     if (typeof householdId !== 'string' || !householdId) return { result: 'ignored' };
@@ -311,6 +325,26 @@ async function visitAnswer(detail: Record<string, unknown>): Promise<VisitAnswer
   });
 }
 
+/** What the visitor said from their visit pass: the member who arranged it is told, and a door card already up says who is there. */
+function visitSaid(detail: Record<string, unknown>): Promise<VisitSaidResult> {
+  const errands = errandStore((cmd) => ddb.send(cmd as never) as ReturnType<ErrandSend>, TABLE);
+  return handleVisitSaid(detail, {
+    loadErrand: errands.get,
+    isAllowed: memberAllowed((cmd) => ddb.send(cmd as never) as ReturnType<AllowedSend>, TABLE),
+    claimOnce: async (said) => {
+      try {
+        await ddb.send(new PutItemCommand(visitSaidClaim({ table: TABLE, ...said })));
+        return true;
+      } catch (err) {
+        if ((err as { name?: string }).name === 'ConditionalCheckFailedException') return false;
+        throw err;
+      }
+    },
+    nudge: async (userIds, kind) => void (await nudgeFamily(userIds, kind)),
+    sendPatch: sendPatchToDevice,
+  });
+}
+
 export const handler = async (evt: DeviceBusEvent): Promise<void> => {
   const out = await routeCardAction(evt, {
     // The runtime is looked up only for a press that needs it.
@@ -325,6 +359,7 @@ export const handler = async (evt: DeviceBusEvent): Promise<void> => {
     reachDue,
     visitAnswer,
     askVisits,
+    visitSaid,
     weekSeen: (detail) => tellWeekReady(detail, {
       listFamily: (householdId) => looks().listFamily(householdId),
       weekShared: async (householdId) => isSharedWithFamily('RHYTHM', await loadHouseholdPolicy(ddb, TABLE, householdId)),
