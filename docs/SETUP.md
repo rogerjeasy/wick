@@ -196,6 +196,11 @@ $ANDROID_HOME/platform-tools/adb install -r android/app/build/outputs/apk/releas
 $ANDROID_HOME/platform-tools/adb shell am start -n com.wick.tv/.MainActivity
 ```
 
+Releases before 1.2.0 were signed with Android's debug key, and 1.2.0 with
+Wick's own, so Android refuses 1.2.0 over an earlier Wick
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`): run `adb uninstall com.wick.tv` first,
+then pair it again.
+
 The build starts an Android foreground service once it is paired, and a door card that arrives while another app is in front becomes one notification. The Android TV emulator draws no third-party notification ([FL-036](../FRICTION.md)): read it with `adb shell dumpsys notification`, or run the same APK on an Android phone emulator to see it drawn.
 
 ---
