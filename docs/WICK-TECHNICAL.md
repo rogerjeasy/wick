@@ -481,7 +481,7 @@ sequenceDiagram
 
 - **Phase 1 has no picture** because Ring has no live-capture call; its recorded frame took 3.15 s (SP-2, FL-005).
 - **The description is cancelled at 2.5 s.** A late sentence is worse than none.
-- **The sentence is constrained** in the prompt and by a validator: one sentence, present tense, observable facts, no names unless from her roster, nothing when unsure.
+- **The sentence is constrained** in the prompt and by a validator (`door/index.ts` `descriptionRefusal`): one sentence that opens as a description, at most 14 words, no speculation, no name, no second person, no number, no quoted text, nothing the family Guardian would refuse, and never the prompt's own example given back. The model's `UNCLEAR` is the only abstention; no confidence number is claimed, because none was measured. Measured on 42 tries over film stills, including cards of injected text: nothing unsafe was shown ([`docs/evals/door-descriptions.md`](evals/door-descriptions.md), `npm run eval:describe`).
 - **Roster matching is by schedule**, never by face ("Maria usually comes on Tuesdays at nine").
 - **Buttons.** *Watch live* bridges Ring's WebRTC to HLS for her player. *Ring the hallway chime* is built and contract-tested, but the Playground has no chime, so it is not in the demo (FL-019). *Ask Sarah to look* writes a row for the family's tools and sends a push that carries no words.
 - **The stand-in doorbell.** The Playground sends no webhooks (FL-027), so a demo home can ring a stand-in from the family app. Only the Wick server may send it, the agent checks the home is a demo home, the pictures are made up ([`docs/demo-door/NOTICE.md`](demo-door/NOTICE.md)), and every row is marked `simulated`.
