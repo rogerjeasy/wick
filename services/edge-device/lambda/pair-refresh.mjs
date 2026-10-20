@@ -46,7 +46,10 @@
  *     eliminated: REFRESH_TOKEN_TTL_SEC (an hour) and the per-device
  *     cooldown, and demo homes only. Anyone who knows such a television's
  *     id can still mint its token; for the simulator that id is public, and
- *     the home it reaches has nobody in it.
+ *     the home it reaches has nobody in it. And only for ID_ONLY_HOLD_MS
+ *     after the pairing (proof.mjs): then the binding answers 404
+ *     `device_not_paired`, the simulator shows a code, and whoever pairs it
+ *     next takes it — one stale demo home no longer holds every simulator.
  *
  * A family member's own television is not under that exception: its token
  * is minted only for one that shows the token it held (below), and the
@@ -158,7 +161,7 @@ import { signJwt, verifyJwt } from './jwt.mjs';
 import { REFRESH_TOKEN_TTL_SEC, nextRefreshWindow } from './pairing-code.mjs';
 import { deviceOwnerKey, householdOfDevice } from './device-owner.mjs';
 import { FAMILY_KIND, SERVICE_SESSION_MAX_MS, SERVICE_WINDOW_MS, WAITING_SCOPE, familyClaims, familyTelevisionKey } from './family-television.mjs';
-import { PROVEN_BY_SECRET, UNPROVEN, isDemoHome, isProof, isUnproven, proofHashOf, proofMatches } from './proof.mjs';
+import { PROVEN_BY_SECRET, UNPROVEN, idOnlyLapsed, isDemoHome, isProof, isUnproven, proofHashOf, proofMatches } from './proof.mjs';
 import { isResidentsToken } from './device-standing.mjs';
 
 /** The bearer token of a request, whatever case the header arrived in. */
@@ -308,6 +311,11 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
         // minted — an id was shown to the family and written in logs, and
         // knowing it must never be enough to speak for her television.
         if (!proven && !(await demoHome())) return { statusCode: 401, body: 'proof_required' };
+        // And only for ID_ONLY_HOLD_MS after it was paired: every simulator has
+        // this id, so a binding that never ran out held them all. Run out, it
+        // is no longer connected — the television shows a code, and the next
+        // pairing takes it.
+        if (!proven && idOnlyLapsed(item, now())) return { statusCode: 404, body: 'device_not_paired' };
       } else {
         familyUserId = item.userId?.S;
         if (!familyUserId) return { statusCode: 404, body: 'device_not_paired' };

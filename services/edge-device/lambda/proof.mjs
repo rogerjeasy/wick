@@ -103,3 +103,20 @@ export function refusesUnproven(item, unproven) {
 export function isDemoHome(meta) {
   return meta?.simulated?.BOOL === true;
 }
+
+/**
+ * How long a television that keeps no secret is answered from its id alone
+ * after it was paired (pair-refresh.mjs). Every Vega Virtual Device has the
+ * same id: without a limit, the demo home a simulator was last paired to
+ * held every simulator in the world, and none of them showed a code again
+ * (seen 2026-10-20: a fresh install opened straight into somebody else's
+ * demo home). After this the binding no longer answers, the simulator shows
+ * a code, and the next pairing takes it (pair-claim.mjs takeSimulatorFromDemoHome).
+ */
+export const ID_ONLY_HOLD_MS = 12 * 60 * 60 * 1000;
+
+/** Whether a binding row answered from its id alone has had its time. A row that says nothing of when it was paired is not judged. */
+export function idOnlyLapsed(item, now) {
+  const pairedAt = Number(item?.pairedAt?.N);
+  return Number.isFinite(pairedAt) && now - pairedAt > ID_ONLY_HOLD_MS;
+}
