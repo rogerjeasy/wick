@@ -192,6 +192,31 @@ footer a:hover{color:var(--ink);text-decoration:underline}
 .cta-row{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:30px}
 .hero-note{margin:16px 0 0;font-size:.9375rem;color:var(--ink-faint)}
 
+/* A real door: the story beside the hero's words, under them on narrower screens */
+.story{position:relative;isolation:isolate;max-width:40rem;margin:clamp(2.25rem,5vw,3rem) auto 0;padding:clamp(22px,3vw,34px);border-radius:var(--radius);border:1px solid var(--line-2);background:linear-gradient(160deg,var(--raised-2),var(--raised) 60%);box-shadow:var(--shadow);overflow:hidden;text-align:left}
+.story::before{content:"";position:absolute;z-index:-1;left:-30%;top:-45%;width:90%;height:90%;background:radial-gradient(closest-side,var(--glow),transparent);pointer-events:none}
+.story-kicker{display:flex;align-items:center;gap:8px;margin:0;color:var(--accent-text);font-size:.8125rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.story-kicker .i{width:1.15em;height:1.15em}
+.story-title{font-size:clamp(1.375rem,1vw + 1.05rem,1.75rem);line-height:1.2;letter-spacing:-.01em;margin:12px 0 10px}
+.story-lede{margin:0;color:var(--ink-dim);font-size:1rem;line-height:1.6}
+.story-steps{position:relative;list-style:none;margin:22px 0 0;padding:0;display:grid;gap:12px}
+.story-steps::before{content:"";position:absolute;left:17.5px;top:18px;bottom:18px;width:1px;background:linear-gradient(var(--accent-line),var(--line-2))}
+.story-steps li{position:relative;display:flex;align-items:center;gap:14px;color:var(--ink);font-size:1rem;line-height:1.4}
+.story-steps .dot{flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;border:1px solid var(--accent-line);background:var(--raised);color:var(--accent-text)}
+.story-steps .dot .i{width:17px;height:17px}
+.story-steps li:last-child .dot{border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}
+.story-close{margin:22px 0 0;padding-top:18px;border-top:1px solid var(--line);font-size:1rem;line-height:1.55;color:var(--ink-dim)}
+.story-close strong{color:var(--ink)}
+.story-source{margin:10px 0 0;font-size:.8125rem;line-height:1.5;color:var(--ink-faint)}
+@media (min-width:1080px){
+  .hero-top{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:clamp(40px,4.5vw,72px);align-items:center}
+  .hero-top .hero-copy{text-align:left;margin-inline:0;max-width:none}
+  .hero-top .lede{margin-inline:0}
+  .hero-top .cta-row{justify-content:flex-start}
+  .hero h1{font-size:clamp(2.75rem,2.4vw + 1.5rem,4rem)}
+  .story{margin:0;max-width:none}
+}
+
 /* The film */
 .film-frame{margin-top:clamp(2.25rem,5vw,3.5rem);border-radius:var(--radius);border:1px solid var(--line-2);background:var(--film-ground);box-shadow:var(--shadow);overflow:hidden}
 .film-frame .film{position:relative;aspect-ratio:16/9;background:var(--film-ground)}
