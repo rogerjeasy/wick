@@ -572,6 +572,12 @@ data "aws_iam_policy_document" "github_deploy_stack" {
 
   # Listing log groups and the account's log resource policies (the bus's
   # delivery, infra/core.tf) name no group.
+  #
+  # The log deliveries too: API Gateway asks for them whenever a stage with an
+  # access log is changed — a new route's own limit is a change to the edge
+  # API's stage — and they cannot be narrowed to a resource. Without them the
+  # visit pass's routes (infra/visit-pass.tf) failed the deploy on 2026-10-20:
+  # "Insufficient permissions to enable logging … logs:CreateLogDelivery".
   statement {
     sid = "ListLogGroupsAndResourcePolicies"
     actions = [
@@ -580,6 +586,11 @@ data "aws_iam_policy_document" "github_deploy_stack" {
       "logs:PutResourcePolicy",
       "logs:DeleteResourcePolicy",
       "logs:ListTagsForResource",
+      "logs:CreateLogDelivery",
+      "logs:GetLogDelivery",
+      "logs:UpdateLogDelivery",
+      "logs:DeleteLogDelivery",
+      "logs:ListLogDeliveries",
     ]
     resources = ["*"]
   }
