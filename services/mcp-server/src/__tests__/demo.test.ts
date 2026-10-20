@@ -151,7 +151,8 @@ describe('the demo button — an anonymous account in one click', () => {
     const house = 'Europe/London';
     const thisMondayWall = isoWeekRange(currentIsoWeek(new Date(wallClockAsUtc(Date.now(), house)))).startMs;
     const tuesdayIsOver = wallClockToMoment(thisMondayWall + 86_400_000 + (9 * 60 + 30) * 60_000 + 2 * 3_600_000, house);
-    expect(week.text).toMatch(Date.now() >= tuesdayIsOver ? /Maria visited twice/ : /Maria visited once/);
+    // Her visits of the last fortnight are ones the resident confirmed (demoHome.ts), so they are told as Maria coming.
+    expect(week.text).toMatch(Date.now() >= tuesdayIsOver ? /Maria came twice, as confirmed on the television/ : /Maria came once, as confirmed on the television/);
     expect(week.text).toMatch(/Nothing unusual/);
 
     // The carer the suggested question asks about is someone this home knows.
@@ -168,7 +169,7 @@ describe('the demo button — an anonymous account in one click', () => {
     expect(visits.visits.length).toBeGreaterThan(0);
     expect(visits.visits.every((v) => v.name === 'Maria' && v.confirmed)).toBe(true);
     expect(visits).toMatchObject({ confirmedCount: visits.visits.length, simulated: true });
-    expect(visits.summary).toMatch(/^Maria came (once|twice|\d+ times) in the last 14 days\. Margaret has confirmed (it|both of them|all of them)\.$/);
+    expect(visits.summary).toMatch(/^Maria came (once|twice|\d+ times) in the last 14 days, and Margaret has confirmed (it|both|each one)\.$/);
   });
 
   it('still makes the guest when the history cannot be written', async () => {

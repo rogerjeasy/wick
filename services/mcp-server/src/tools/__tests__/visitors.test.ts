@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { padTimestamp, type RosterEntry } from '@wick/contracts';
+import { visitItem } from '@wick/agent';
 import { createMemoryTable, type MemoryTable } from '../../__tests__/memoryTable.js';
 import { loadVisitors, registerListRegularVisitors } from '../list_regular_visitors.js';
 import { EXPECT_VISIT_PAST_TEXT, EXPECT_VISIT_TOO_FAR_TEXT, registerExpectVisit } from '../expect_visit.js';
@@ -33,14 +34,24 @@ async function connect(table: MemoryTable, register: (server: McpServer) => void
 const textOf = (result: unknown) => (result as { content: { text: string }[] }).content[0]!.text;
 
 describe('loadVisitors — who comes to this house, in words', () => {
-  it('names each regular visitor, the days they come, and when they last did', async () => {
+  it('names each regular visitor, the days they come, the last visit she confirmed, and apart from it the last time somebody came when they were expected', async () => {
     const table = createMemoryTable();
     person(table, 'PER#maria', MARIA);
     visit(table, Date.UTC(2026, 9, 9, 9, 5), MARIA);
     visit(table, Date.UTC(2026, 9, 13, 8, 55), MARIA);
+    // Friday's she confirmed; this morning's nobody has.
+    table.put(visitItem({ householdId: HH, personId: 'maria', name: 'Maria', arrivedAt: Date.UTC(2026, 9, 9, 9, 5), askedAt: Date.UTC(2026, 9, 9, 11), answer: 'confirmed', answeredAt: Date.UTC(2026, 9, 9, 11, 2) }));
+    table.put(visitItem({ householdId: HH, personId: 'maria', name: 'Maria', arrivedAt: Date.UTC(2026, 9, 13, 8, 55) }));
 
     expect(await loadVisitors(table.ddb, HH, NOW, 'Europe/London')).toEqual({
-      visitors: [{ personId: 'maria', name: 'Maria', usualDays: 'Tuesday and Friday mornings', expectedToday: true, lastVisitAt: Date.UTC(2026, 9, 13, 8, 55) }],
+      visitors: [{
+        personId: 'maria',
+        name: 'Maria',
+        usualDays: 'Tuesday and Friday mornings',
+        expectedToday: true,
+        lastConfirmedVisitAt: Date.UTC(2026, 9, 9, 9, 5),
+        lastDoorWhenExpectedAt: Date.UTC(2026, 9, 13, 8, 55),
+      }],
       expected: [],
     });
   });
@@ -291,7 +302,7 @@ describe('the day tools answer for the day where the house is', () => {
 
     const friday = await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria', day: 'friday' } });
 
-    expect(friday.structuredContent).toMatchObject({ visited: true, at: Date.UTC(2026, 9, 9, 16, 5), expectedToday: true, date: '2026-10-09' });
+    expect(friday.structuredContent).toMatchObject({ confirmed: false, doorWhenExpected: true, at: Date.UTC(2026, 9, 9, 16, 5), expectedToday: true, date: '2026-10-09' });
   });
 });
 
@@ -315,8 +326,8 @@ describe('the day tools take a day by name', () => {
     const friday = await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria', day: 'friday' } });
     const monday = await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria', date: '2026-10-12' } });
 
-    expect(friday.structuredContent).toMatchObject({ visited: true, at: Date.UTC(2026, 9, 9, 9, 5), name: 'Maria', expectedToday: true, date: '2026-10-09', dayInWords: 'Friday 9 October 2026' });
-    expect(monday.structuredContent).toMatchObject({ visited: false, expectedToday: false, dayInWords: 'Monday 12 October 2026' });
+    expect(friday.structuredContent).toMatchObject({ confirmed: false, doorWhenExpected: true, at: Date.UTC(2026, 9, 9, 9, 5), name: 'Maria', expectedToday: true, date: '2026-10-09', dayInWords: 'Friday 9 October 2026' });
+    expect(monday.structuredContent).toMatchObject({ confirmed: false, doorWhenExpected: false, expectedToday: false, dayInWords: 'Monday 12 October 2026' });
   });
 
   it('did_visitor_come keeps to the same six weeks as get_today, and to days that have come', async () => {
@@ -336,7 +347,7 @@ describe('the day tools take a day by name', () => {
     visit(table, Date.UTC(2026, 9, 13, 8, 55), MARIA);
     const client = await connect(table, (s) => registerDidVisitorCome(s, table.ddb, allowedContext(HH), () => NOW));
 
-    expect((await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria' } })).structuredContent).toMatchObject({ visited: true, date: '2026-10-13' });
+    expect((await client.callTool({ name: 'did_visitor_come', arguments: { personId: 'maria' } })).structuredContent).toMatchObject({ doorWhenExpected: true, date: '2026-10-13' });
   });
 });
 

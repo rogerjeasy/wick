@@ -106,27 +106,31 @@ const times = (n: number): string => (n === 1 ? 'once' : n === 2 ? 'twice' : `${
 const lastDays = (days: number): string => (days === 1 ? 'in the last day' : `in the last ${days} days`);
 
 /**
- * The answer in one or two sentences. How many came, and how many of those
- * she has confirmed — never why one is not, because Wick is not told and
- * must not guess.
+ * The answer in one or two sentences. How often the doorbell noted somebody
+ * when a regular visitor was expected, and how many of those she has
+ * confirmed — never why one is not, because Wick is not told and must not
+ * guess. A visit she has not confirmed is never said as the visitor coming:
+ * the door knows when, not who (packages/contracts visit.ts).
  */
 export function visitsSummary(visits: readonly VisitForFamily[], residentName: string, days: number, onePerson: boolean): string {
   const count = visits.length;
-  if (count === 0) return `No visits by ${onePerson ? 'that visitor' : 'a regular visitor'} have been noted ${lastDays(days)}.`;
+  if (count === 0) return `The doorbell has noted nobody when ${onePerson ? 'that visitor' : 'a regular visitor'} was expected ${lastDays(days)}.`;
 
   const names = new Set(visits.map((visit) => visit.name));
-  const came = names.size === 1
-    ? `${visits[0]!.name} came ${times(count)} ${lastDays(days)}.`
-    : `${count} visits by regular visitors were noted ${lastDays(days)}.`;
-
   const confirmed = visits.filter((visit) => visit.confirmed).length;
-  const them = count === 1 ? 'it' : count === 2 ? 'both of them' : 'all of them';
-  const none = count === 1 ? 'it' : count === 2 ? 'either of them' : 'any of them';
-  const said =
-    confirmed === count ? `${residentName} has confirmed ${them}.`
-    : confirmed === 0 ? `${residentName} has not confirmed ${none} yet.`
-    : `${residentName} has confirmed ${confirmed} of them.`;
-  return `${came} ${said}`;
+  if (confirmed === count) {
+    const came = names.size === 1 ? `${visits[0]!.name} came ${times(count)} ${lastDays(days)}` : `Regular visitors came ${times(count)} ${lastDays(days)}`;
+    return `${came}, and ${residentName} has confirmed ${count === 1 ? 'it' : count === 2 ? 'both' : 'each one'}.`;
+  }
+
+  const noted = names.size === 1
+    ? `The doorbell noted somebody when ${visits[0]!.name} was expected ${times(count)} ${lastDays(days)}.`
+    : `The doorbell noted somebody when a regular visitor was expected ${times(count)} ${lastDays(days)}.`;
+  const none = count === 1 ? 'it' : count === 2 ? 'either' : 'any of them';
+  const said = confirmed === 0
+    ? `${residentName} has not confirmed ${none} yet, so who came is not known.`
+    : `${residentName} has confirmed ${confirmed} of them; who came the other ${count - confirmed === 1 ? 'time' : `${count - confirmed} times`} is not known.`;
+  return `${noted} ${said}`;
 }
 
 /** What this tool's structured content is (result.ts `answerSchema`): built once, for every request. */
@@ -155,7 +159,8 @@ export function registerGetVisits(mcpServer: McpServer, ddb: DynamoDBClient, ctx
     {
       title: 'Visits by regular visitors, and whether the resident confirmed them',
       description:
-        'The visits of the household’s regular visitors (a carer, a cleaner) over the last days: the day, the times the doorbell noted, and whether the resident has confirmed each one on their own television (`confirmed`). ' +
+        'The times the doorbell noted somebody when one of the household’s regular visitors (a carer, a cleaner) was expected, over the last days: the day, the times noted, and whether the resident has confirmed on their own television that it was that visitor (`confirmed`). ' +
+        'Only a confirmed visit says who came: never say an unconfirmed one was the visitor. ' +
         'Use it for "did Maria come this week", "how long was the carer here", "has Mum confirmed Maria’s visits". Say `summary` as it stands. ' +
         'Pass `personId` from list_regular_visitors to keep to one visitor, and `days` to look further back than a week. ' +
         'A visit that is not confirmed means only that: never say or guess why. The times are what the doorbell noted, not a clinical or billing record. ' +

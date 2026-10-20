@@ -13,7 +13,7 @@
  */
 import { QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { padTimestamp, parseTimestampFromSortKey, type RosterEntry } from '@wick/contracts';
-import { loadRoster as loadRosterFrom } from '@wick/agent';
+import { loadRoster as loadRosterFrom, visitStore, type VisitSend } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
 import { expectedToday } from './did_visitor_come.js';
@@ -36,8 +36,10 @@ export interface RegularVisitor {
   /** "Tuesday and Friday mornings" — absent when no days are known. */
   readonly usualDays?: string;
   readonly expectedToday: boolean;
-  /** Absent when they have not come in the last four weeks. */
-  readonly lastVisitAt?: number;
+  /** The last visit the resident confirmed on her television, within four weeks. The only "when did they last come". */
+  readonly lastConfirmedVisitAt?: number;
+  /** The last time somebody came to the door when they were expected, within four weeks. When, never who. */
+  readonly lastDoorWhenExpectedAt?: number;
 }
 
 export interface VisitorsAnswer {
@@ -87,24 +89,31 @@ export async function loadVisitors(ddb: DynamoDBClient, householdId: string, now
       ':presence': { S: 'presence' },
     },
   }));
-  const lastVisit = new Map<string, number>();
+  const lastAtDoor = new Map<string, number>();
   for (const item of visits.Items ?? []) {
     const personId = item.personId?.S;
     const at = parseTimestampFromSortKey(item.sk?.S ?? '');
-    if (personId && at > (lastVisit.get(personId) ?? 0)) lastVisit.set(personId, at);
+    if (personId && at > (lastAtDoor.get(personId) ?? 0)) lastAtDoor.set(personId, at);
+  }
+  // Only her "Yes, that's right" says who came (packages/contracts visit.ts).
+  const lastConfirmed = new Map<string, number>();
+  for (const visit of await visitStore((command) => ddb.send(command as never) as ReturnType<VisitSend>, TABLE).recent(householdId, now.getTime() - LAST_VISIT_DAYS * DAY_MS)) {
+    if (visit.answer === 'confirmed' && visit.arrivedAt > (lastConfirmed.get(visit.personId) ?? 0)) lastConfirmed.set(visit.personId, visit.arrivedAt);
   }
 
   const visitors: RegularVisitor[] = roster
     .filter((p) => !p.expectedOnce)
     .map((p) => {
       const usualDays = describePattern(p.expectedPattern);
-      const lastVisitAt = lastVisit.get(p.personId);
+      const lastConfirmedVisitAt = lastConfirmed.get(p.personId);
+      const lastDoorWhenExpectedAt = lastAtDoor.get(p.personId);
       return {
         personId: p.personId,
         name: p.name,
         ...(usualDays ? { usualDays } : {}),
         expectedToday: expectedToday(p.expectedPattern, now, timeZone),
-        ...(lastVisitAt !== undefined ? { lastVisitAt } : {}),
+        ...(lastConfirmedVisitAt !== undefined ? { lastConfirmedVisitAt } : {}),
+        ...(lastDoorWhenExpectedAt !== undefined ? { lastDoorWhenExpectedAt } : {}),
       };
     });
 
@@ -124,7 +133,8 @@ const OUTPUT = answerSchema({
     name: z.string(),
     usualDays: z.string().optional(),
     expectedToday: z.boolean(),
-    lastVisitAt: z.number().optional(),
+    lastConfirmedVisitAt: z.number().optional().describe('The last visit the resident confirmed, within four weeks.'),
+    lastDoorWhenExpectedAt: z.number().optional().describe('The last time somebody came to the door when they were expected, within four weeks. Not proof it was them.'),
   })),
   expected: z.array(z.strictObject({ name: z.string(), at: z.number() })).describe('Family members who said they are coming, and when.'),
 });
@@ -141,7 +151,7 @@ export function registerListRegularVisitors(
       title: 'Who visits regularly',
       description:
         'Lists the people who visit this household regularly — each with the `personId` that did_visitor_come takes, the days they usually come, ' +
-        'whether today is one of them, and when they last came (`lastVisitAt`, within four weeks) — and any visits somebody has announced (`expected`). ' +
+        'whether today is one of them, the last visit the resident confirmed (`lastConfirmedVisitAt`) and the last time somebody came to the door when they were expected (`lastDoorWhenExpectedAt`, not proof it was them), both within four weeks — and any visits somebody has announced (`expected`). ' +
         'Call this first when a question names a visitor ("Maria", "the carer") or asks when someone last came.',
       inputSchema: {},
       outputSchema: OUTPUT,

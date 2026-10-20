@@ -14,6 +14,7 @@ import {
   loadWeekNarrative,
   registerGetWeekNarrative,
   spokenFromThen,
+  upgradeLegacyWeek,
 } from '../get_week_narrative.js';
 import { allowedContext } from './toolContext.js';
 
@@ -107,6 +108,47 @@ describe('get_week_narrative INV-7 guard (end-to-end through the registered tool
   });
 });
 
+describe('a week stored before the door and a confirmed visit were told apart', () => {
+  const legacy: WeekNarrative = {
+    householdId: 'hh-1',
+    isoWeek: '2026-W40',
+    text: 'Someone came to the front door twice. Maria visited twice.',
+    textSource: 'model',
+    deltas: [],
+    timeline: [
+      { at: Date.parse('2026-09-29T09:00:00Z'), kind: 'door', summary: 'Someone was at the front door.' },
+      { at: Date.parse('2026-09-29T09:00:00Z'), kind: 'visit', summary: 'Maria visited.', personId: 'maria' },
+      { at: Date.parse('2026-10-01T09:00:00Z'), kind: 'door', summary: 'Someone was at the front door.' },
+      { at: Date.parse('2026-10-01T09:00:00Z'), kind: 'visit', summary: 'Maria visited.', personId: 'maria' },
+    ],
+    generatedAt: Date.parse('2026-10-04T20:00:00Z'),
+    residentSeenAt: Date.parse('2026-10-04T20:05:00Z'),
+  };
+
+  it('reads its "Maria visited." entries as somebody at the door when she was expected', () => {
+    const { narrative, upgraded } = upgradeLegacyWeek(legacy);
+    expect(upgraded).toBe(true);
+    expect(narrative.timeline.filter((e) => e.kind !== 'door')).toEqual([
+      { at: Date.parse('2026-09-29T09:00:00Z'), kind: 'presence', summary: 'Someone came to the door when Maria was expected.', personId: 'maria', name: 'Maria' },
+      { at: Date.parse('2026-10-01T09:00:00Z'), kind: 'presence', summary: 'Someone came to the door when Maria was expected.', personId: 'maria', name: 'Maria' },
+    ]);
+  });
+
+  it('gives the family its text again from the facts, so the model’s "Maria visited twice" is never read', () => {
+    const result = familyWeek(legacy, DEFAULT_POLICY, 'Europe/London');
+    if (result.status !== 'available') throw new Error('expected a week');
+    expect(result.narrative.textSource).toBe('facts');
+    expect(result.narrative.text).toBe('Someone came to the front door twice this week: once on Tuesday morning and once on Thursday morning. Someone came to the door twice when Maria was expected.');
+    expect(result.narrative.text).not.toMatch(/Maria visited/);
+  });
+
+  it('leaves a week in today’s words exactly as it was', () => {
+    const current: WeekNarrative = { ...legacy, text: 'Someone came to the front door twice. Someone came to the door twice when Maria was expected.', timeline: upgradeLegacyWeek(legacy).narrative.timeline };
+    expect(upgradeLegacyWeek(current)).toEqual({ narrative: current, upgraded: false });
+    expect(familyWeek(current, DEFAULT_POLICY, 'Europe/London')).toEqual({ status: 'available', narrative: current });
+  });
+});
+
 describe('familyWeek — Sarah’s copy honours what Margaret keeps private ("What Sarah sees")', () => {
   // 2026-W40: two door visits on Wednesday evening (London), and Maria on Tuesday.
   const WEEK: WeekNarrative = {
@@ -116,7 +158,7 @@ describe('familyWeek — Sarah’s copy honours what Margaret keeps private ("Wh
     textSource: 'model',
     deltas: [],
     timeline: [
-      { at: Date.parse('2026-09-29T09:00:00Z'), kind: 'visit', summary: 'Maria visited.', personId: 'maria' },
+      { at: Date.parse('2026-09-29T09:00:00Z'), kind: 'presence', summary: 'Someone came to the door when Maria was expected.', personId: 'maria', name: 'Maria' },
       { at: Date.parse('2026-09-30T18:10:00Z'), kind: 'door', summary: 'Someone was at the front door.' },
       { at: Date.parse('2026-09-30T18:40:00Z'), kind: 'door', summary: 'Someone was at the front door.' },
     ],
@@ -141,8 +183,8 @@ describe('familyWeek — Sarah’s copy honours what Margaret keeps private ("Wh
   it('drops the door, without ever saying nobody came', () => {
     const result = familyWeek(WEEK, policy(['DOOR_EVENT']), 'Europe/London');
     if (result.status !== 'available') throw new Error('expected available');
-    expect(result.narrative.timeline.map((e) => e.kind)).toEqual(['visit']);
-    expect(result.narrative.text).toBe('Maria visited once. Some of this week is kept private.');
+    expect(result.narrative.timeline.map((e) => e.kind)).toEqual(['presence']);
+    expect(result.narrative.text).toBe('Someone came once when Maria was expected. Some of this week is kept private.');
   });
 
   it('withholds the whole week when the resident keeps the summary of their week private', () => {
@@ -179,7 +221,7 @@ describe('familyWeek — Sarah’s copy honours what Margaret keeps private ("Wh
       if (result.status !== 'available') throw new Error('expected available');
 
       expect(result.narrative.deltas.map((d) => d.metric)).toEqual(['visit:maria']);
-      expect(result.narrative.text).toBe('Maria did not visit, and usually comes about twice a week. Some of this week is kept private.');
+      expect(result.narrative.text).toBe('Nobody came to the door when Maria was expected; usually someone does, about twice a week. Some of this week is kept private.');
     });
   });
 });
@@ -389,7 +431,7 @@ describe('the Sunday brief’s suggestion — read by the family under the same 
   it('drops the suggestion when the family’s copy is rewritten for what she keeps private: it rested on facts they may not read', () => {
     const week: WeekNarrative = {
       ...AGENTS_WEEK,
-      timeline: [{ at: Date.parse('2026-09-15T09:00:00Z'), kind: 'visit', summary: 'Maria visited.', personId: 'maria' }],
+      timeline: [{ at: Date.parse('2026-09-15T09:00:00Z'), kind: 'presence', summary: 'Someone came to the door when Maria was expected.', personId: 'maria', name: 'Maria' }],
       suggestion: { action: 'arrange_visit', reason: 'Maria came only once this week.' },
     };
     const family = familyWeek(week, { ...DEFAULT_POLICY, residentExclusions: ['PRESENCE'] }, 'Europe/London');

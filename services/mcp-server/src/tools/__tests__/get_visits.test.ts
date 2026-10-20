@@ -68,7 +68,7 @@ describe('get_visits — did the carer come, and did she confirm it', () => {
       visits: [],
       confirmedCount: 0,
       residentName: 'Margaret',
-      summary: 'No visits by a regular visitor have been noted in the last 7 days.',
+      summary: 'The doorbell has noted nobody when a regular visitor was expected in the last 7 days.',
     });
   });
 
@@ -88,7 +88,7 @@ describe('get_visits — did the carer come, and did she confirm it', () => {
       }],
       confirmedCount: 1,
       residentName: 'Margaret',
-      summary: 'Maria came once in the last 7 days. Margaret has confirmed it.',
+      summary: 'Maria came once in the last 7 days, and Margaret has confirmed it.',
     });
   });
 
@@ -157,7 +157,7 @@ describe('get_visits — a visit is confirmed or it is not, and nothing else is 
     ]);
 
     expect(text).not.toMatch(/answer|asked|disput|reject|waiting|said no|wrong|not right|forgot|refus|declin/i);
-    expect(text).toContain('Maria came 4 times in the last 7 days. Margaret has confirmed 1 of them.');
+    expect(text).toContain('The doorbell noted somebody when Maria was expected 4 times in the last 7 days. Margaret has confirmed 1 of them; who came the other 3 times is not known.');
   });
 
   it('counts only the visits she confirmed', async () => {
@@ -170,27 +170,27 @@ describe('get_visits — the sentence to be said as it stands', () => {
   const on = (day: number, v: (over: Partial<Visit>) => Visit = confirmed, over: Partial<Visit> = {}): Visit => v({ arrivedAt: morning(day), leftAt: morning(day, 47), ...over });
 
   it('says once, twice, and then the number', async () => {
-    expect(await summaryOf([on(13)])).toBe('Maria came once in the last 7 days. Margaret has confirmed it.');
-    expect(await summaryOf([on(13), on(9)])).toBe('Maria came twice in the last 7 days. Margaret has confirmed both of them.');
-    expect(await summaryOf([on(13), on(11), on(9)])).toBe('Maria came 3 times in the last 7 days. Margaret has confirmed all of them.');
+    expect(await summaryOf([on(13)])).toBe('Maria came once in the last 7 days, and Margaret has confirmed it.');
+    expect(await summaryOf([on(13), on(9)])).toBe('Maria came twice in the last 7 days, and Margaret has confirmed both.');
+    expect(await summaryOf([on(13), on(11), on(9)])).toBe('Maria came 3 times in the last 7 days, and Margaret has confirmed each one.');
   });
 
   it('says how many she has confirmed when it is some of them', async () => {
-    expect(await summaryOf([on(13, visit), on(11), on(9)])).toBe('Maria came 3 times in the last 7 days. Margaret has confirmed 2 of them.');
-    expect(await summaryOf([on(13, visit), on(9)])).toBe('Maria came twice in the last 7 days. Margaret has confirmed 1 of them.');
+    expect(await summaryOf([on(13, visit), on(11), on(9)])).toBe('The doorbell noted somebody when Maria was expected 3 times in the last 7 days. Margaret has confirmed 2 of them; who came the other time is not known.');
+    expect(await summaryOf([on(13, visit), on(9)])).toBe('The doorbell noted somebody when Maria was expected twice in the last 7 days. Margaret has confirmed 1 of them; who came the other time is not known.');
   });
 
   it('says only that she has not confirmed them yet when she has confirmed none — no reason, and no judgement', async () => {
-    expect(await summaryOf([on(13, visit)])).toBe('Maria came once in the last 7 days. Margaret has not confirmed it yet.');
-    expect(await summaryOf([on(13, visit), on(9, visit)])).toBe('Maria came twice in the last 7 days. Margaret has not confirmed either of them yet.');
-    expect(await summaryOf([on(13, visit), on(11, visit), on(9, visit)])).toBe('Maria came 3 times in the last 7 days. Margaret has not confirmed any of them yet.');
+    expect(await summaryOf([on(13, visit)])).toBe('The doorbell noted somebody when Maria was expected once in the last 7 days. Margaret has not confirmed it yet, so who came is not known.');
+    expect(await summaryOf([on(13, visit), on(9, visit)])).toBe('The doorbell noted somebody when Maria was expected twice in the last 7 days. Margaret has not confirmed either yet, so who came is not known.');
+    expect(await summaryOf([on(13, visit), on(11, visit), on(9, visit)])).toBe('The doorbell noted somebody when Maria was expected 3 times in the last 7 days. Margaret has not confirmed any of them yet, so who came is not known.');
   });
 
   it('counts visits rather than naming anyone when several regular visitors came', async () => {
     const joan = { personId: 'joan', name: 'Joan' };
 
-    expect(await summaryOf([on(13), on(12, confirmed, joan), on(9, visit)])).toBe('3 visits by regular visitors were noted in the last 7 days. Margaret has confirmed 2 of them.');
-    expect(await summaryOf([on(13), on(12, confirmed, joan)])).toBe('2 visits by regular visitors were noted in the last 7 days. Margaret has confirmed both of them.');
+    expect(await summaryOf([on(13), on(12, confirmed, joan), on(9, visit)])).toBe('The doorbell noted somebody when a regular visitor was expected 3 times in the last 7 days. Margaret has confirmed 2 of them; who came the other time is not known.');
+    expect(await summaryOf([on(13), on(12, confirmed, joan)])).toBe('Regular visitors came twice in the last 7 days, and Margaret has confirmed both.');
   });
 
   it('keeps to one visitor when one is named', async () => {
@@ -198,11 +198,11 @@ describe('get_visits — the sentence to be said as it stands', () => {
     const answer = await ask([on(13), on(12, confirmed, joan), on(9, visit)], { personId: 'maria' });
 
     expect((answer.structured!.visits as { personId: string }[]).map((v) => v.personId)).toEqual(['maria', 'maria']);
-    expect(answer.structured).toMatchObject({ confirmedCount: 1, summary: 'Maria came twice in the last 7 days. Margaret has confirmed 1 of them.' });
+    expect(answer.structured).toMatchObject({ confirmedCount: 1, summary: 'The doorbell noted somebody when Maria was expected twice in the last 7 days. Margaret has confirmed 1 of them; who came the other time is not known.' });
   });
 
   it('does not say that nobody came when it was asked about one visitor and found none of theirs', async () => {
-    expect(await summaryOf([on(13)], { personId: 'joan' })).toBe('No visits by that visitor have been noted in the last 7 days.');
+    expect(await summaryOf([on(13)], { personId: 'joan' })).toBe('The doorbell has noted nobody when that visitor was expected in the last 7 days.');
   });
 });
 
@@ -219,9 +219,9 @@ describe('get_visits — how far back', () => {
     expect((await ask([confirmed(), lastWeek], { days: 14 })).structured).toMatchObject({
       days: 14,
       confirmedCount: 2,
-      summary: 'Maria came twice in the last 14 days. Margaret has confirmed both of them.',
+      summary: 'Maria came twice in the last 14 days, and Margaret has confirmed both.',
     });
-    expect(await summaryOf([], { days: 1 })).toBe('No visits by a regular visitor have been noted in the last day.');
+    expect(await summaryOf([], { days: 1 })).toBe('The doorbell has noted nobody when a regular visitor was expected in the last day.');
   });
 
   it('counts back from now, to the minute', async () => {

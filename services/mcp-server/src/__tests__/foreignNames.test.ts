@@ -68,7 +68,7 @@ describe('a household written in Cyrillic, Greek and Chinese, through the tool s
       householdId: 'hh-1', isoWeek, textSource: 'agents',
       text: `${CARER} visited once, which is about usual. ${RESIDENT} watched a film.`,
       deltas: [{ metric: `visit:${carerId}`, label: CARER, thisWeek: 1, baseline: 1, zScore: 0, baselineWeeks: 4, verdict: 'usual' }],
-      timeline: [{ at, kind: 'visit', summary: `${CARER} visited.`, personId: carerId }, { at, kind: 'door', summary: 'Someone was at the front door.' }],
+      timeline: [{ at, kind: 'presence', summary: `Someone came to the door when ${CARER} was expected.`, personId: carerId, name: CARER }, { at, kind: 'door', summary: 'Someone was at the front door.' }],
       generatedAt: at, residentSeenAt: at,
     };
     table.put(row(`NARR#${isoWeek}`, narrative));
@@ -80,7 +80,7 @@ describe('a household written in Cyrillic, Greek and Chinese, through the tool s
     const week = result.structuredContent as { text: string; textSource?: string; timeline: { summary: string }[] };
     expect(week.text).toBe(narrative.text);
     expect(week.textSource).toBe('agents');
-    expect(week.timeline.map((e) => e.summary)).toEqual([`${CARER} visited.`, 'Someone was at the front door.']);
+    expect(week.timeline.map((e) => e.summary)).toEqual([`Someone came to the door when ${CARER} was expected.`, 'Someone was at the front door.']);
   });
 
   it('still withholds the week, and says nothing was held back, when the household’s people are not known', async () => {
