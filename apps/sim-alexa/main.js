@@ -66,7 +66,14 @@ import {
   presentPlan,
   readAgentTurn,
   browserTimeZone,
+  arrangeSuggestions,
+  waitingWords,
+  waitingTopic,
+  elapsedLabel,
 } from './surface.js';
+import { presentHome } from './home.js';
+import { icon } from './vendor/icons.generated.js';
+import { animate, stagger } from './vendor/motion.generated.js';
 import { ARRANGE_NEEDS_ASSISTANT, errandNews } from './errands.js';
 import {
   DELETED_SAID,
@@ -143,6 +150,9 @@ function enableToolButtons(enabled) {
   log.dataset.signedIn = String(enabled);
   $('sign-out').hidden = !enabled;
   if ($('account')) $('account').hidden = !enabled;
+  if ($('menu-toggle')) $('menu-toggle').hidden = !enabled;
+  document.body.dataset.signedIn = String(enabled);
+  if (!enabled) drawHome();
 }
 
 async function discoverAuthServer(serverUrl) {
@@ -194,8 +204,9 @@ async function connect({ demo = false } = {}) {
   try {
     const serverUrl = $('server-url').value.replace(/\/$/, '');
     setStatus(demo ? 'Making your demo home…' : 'Opening Wick sign-in…');
-    // One press: the server is making the home, and a second press would make another.
+    // One press: the server is making the home, and a second press would make another. The one pressed says it is working.
     for (const id of ['demo', 'connect']) if ($(id)) $(id).disabled = true;
+    setWorking($(demo ? 'demo' : 'connect'), true);
     // Back on this page, the wait for the welcome says what is being made (presentOpening).
     sessionStorage.setItem(OPENING_KEY, demo ? 'demo' : 'link');
     const metadata = await discoverAuthServer(serverUrl);
@@ -227,6 +238,7 @@ async function connect({ demo = false } = {}) {
     // A failed connect must say so, not leave the page looking unchanged.
     setStatus(`Could not open sign-in: ${err.message}`);
     for (const id of ['demo', 'connect']) if ($(id)) $(id).disabled = false;
+    setWorking($(demo ? 'demo' : 'connect'), false);
     sessionStorage.removeItem(OPENING_KEY);
   }
 }
@@ -320,6 +332,9 @@ function signedOut(reason) {
   stopListening({ discard: true });
   stopChecklist();
   $('light').hidden = true;
+  homeKnown.circle = null;
+  homeKnown.light = null;
+  homeKnown.errands = null;
   // A link that ended by itself cannot tell the server; the browser still stops listening.
   void forgetThisBrowser({ tellServer: false });
   enableToolButtons(false);
@@ -344,6 +359,16 @@ function signedOut(reason) {
  */
 async function authorizedFetch(path, init = {}) {
   if (!link) throw new Error('Link Wick first.');
+  // The button that asked, if one did, says it is working until this has its answer.
+  const done = noteRequest();
+  try {
+    return await authorizedFetchOnce(path, init);
+  } finally {
+    done();
+  }
+}
+
+async function authorizedFetchOnce(path, init) {
   const send = () =>
     fetchWithin(requestLimitFor(path, init.method), `${link.serverUrl}${path}`, { ...init, headers: { ...(init.headers ?? {}), authorization: `Bearer ${link.accessToken}` } });
   let res = await send();
@@ -387,7 +412,10 @@ function showHomeClosed(message) {
   homeClosed = true;
   for (const node of document.querySelectorAll('.chip, #ask-input, #ask-send, #ask-voice')) node.disabled = true;
   $('chips').replaceChildren();
+  $('more-groups')?.replaceChildren();
+  if ($('more')) $('more').hidden = true;
   $('light').hidden = true;
+  drawHome();
   setStatus('Home closed', 'idle');
   assistantSays({ say: message, card: null });
 }
@@ -518,6 +546,8 @@ async function callTool(name, args) {
   const result = await callToolOnly(name, args);
   // However the light was asked after, the corner of the page keeps up with the answer.
   if (name === 'get_light') showLightInCorner(result.isError === true ? null : lightToShow(result.content?.[0]?.text ?? ''));
+  // And so does the panel's list of who is expected, after a visit is arranged or called off.
+  if ((name === 'arrange_visit' || name === 'cancel_errand') && result.isError !== true) void lookAtHome({ circle: false });
   // However a film watched together came to be on the page, it is not then announced as news (watchToAnnounce).
   if ((name === 'get_watch_together' || name === 'join_watch_together') && result.isError !== true) {
     const news = watchToAnnounce(result.content?.[0]?.text ?? '', watchSeen);
@@ -538,8 +568,18 @@ async function callTool(name, args) {
 // ---------------------------------------------------------------------------
 
 const log = $('log');
-const FLAME =
-  '<svg class="flame" viewBox="0 0 16 22" aria-hidden="true"><path d="M8 0c3 5 7 8 7 13a7 7 0 0 1-14 0C1 8 5 5 8 0z" fill="#e8b75d"/></svg>';
+/** Wick's own flame, the brand's one mark: drawn, never parsed from markup. */
+function brandFlame() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'flame');
+  svg.setAttribute('viewBox', '0 0 16 22');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M8 0c3 5 7 8 7 13a7 7 0 0 1-14 0C1 8 5 5 8 0z');
+  path.setAttribute('fill', 'currentColor');
+  svg.appendChild(path);
+  return svg;
+}
 const TONE_LABEL = { private: 'Kept private', waiting: 'Not yet', error: 'Something went wrong' };
 
 function el(tag, className, text) {
@@ -548,6 +588,158 @@ function el(tag, className, text) {
   if (text !== undefined) node.textContent = text;
   return node;
 }
+
+// ---------------------------------------------------------------------------
+// The page's frame: icons, the bar's menu, the sheets, a press answered at
+// once, and things arriving rather than appearing. None of it decides what is
+// said; it only makes what is said easier to see (docs/design/DESIGN.md).
+// ---------------------------------------------------------------------------
+
+/** Every `data-icon` slot in the page, drawn once (vendor/icons.generated.js: Lucide, built with createElementNS). */
+for (const slot of document.querySelectorAll('.icon-slot[data-icon]')) slot.replaceChildren(icon(slot.dataset.icon));
+
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+/** DESIGN.md §4: things arrive in 200 ms on one curve, and not at all with reduced motion. */
+const ENTER = { duration: 0.2, ease: [0.2, 0, 0, 1] };
+
+/**
+ * Every press is answered at once (DESIGN.md §1.3). The button shows it was
+ * pressed within the frame; if the press asks the server anything, the
+ * button says it is working — a spinner in it, and a second press does
+ * nothing — until every request it started has its answer.
+ */
+let press = null;
+const PRESS_WINDOW_MS = 150;
+
+function setWorking(button, on) {
+  if (!button) return;
+  if (on) {
+    button.dataset.working = 'true';
+    button.setAttribute('aria-busy', 'true');
+  } else {
+    delete button.dataset.working;
+    button.removeAttribute('aria-busy');
+  }
+}
+
+function endPress(mine) {
+  if (mine.pending > 0) return;
+  setWorking(mine.button, false);
+  if (press === mine) press = null;
+}
+
+document.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('button') : null;
+  if (!button) return;
+  // Working already: the press it is working on is the one that counts.
+  if (button.dataset.working === 'true') {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
+  button.classList.remove('pressed');
+  void button.offsetWidth;
+  button.classList.add('pressed');
+  setTimeout(() => button.classList.remove('pressed'), 240);
+  if (press) endPress(press);
+  const mine = { button, pending: 0, timer: null };
+  press = mine;
+  // Nothing asked of the server soon after: it was a press the page answered by itself.
+  mine.timer = setTimeout(() => endPress(mine), PRESS_WINDOW_MS);
+}, true);
+
+/** Called as a request to the server begins; the function it returns, when it ends. */
+function noteRequest() {
+  const mine = press;
+  if (!mine) return () => {};
+  clearTimeout(mine.timer);
+  mine.pending += 1;
+  setWorking(mine.button, true);
+  return () => {
+    mine.pending -= 1;
+    if (mine.pending === 0) mine.timer = setTimeout(() => endPress(mine), PRESS_WINDOW_MS);
+  };
+}
+
+/** The bar's buttons fold into one menu on a telephone (styles.css); this opens and closes it. */
+function setMenu(open) {
+  $('bar-actions').dataset.open = String(open);
+  $('menu-toggle').setAttribute('aria-expanded', String(open));
+}
+$('menu-toggle')?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  setMenu($('bar-actions').dataset.open !== 'true');
+  if ($('bar-actions').dataset.open === 'true') $('bar-actions').querySelector('button:not([hidden])')?.focus();
+});
+// Chosen, pressed elsewhere, or Escape: the menu closes.
+$('bar-actions')?.addEventListener('click', () => setMenu(false));
+document.addEventListener('click', (event) => {
+  if ($('bar-actions').dataset.open === 'true' && !$('bar-actions').contains(event.target)) setMenu(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && $('bar-actions').dataset.open === 'true') {
+    setMenu(false);
+    $('menu-toggle').focus();
+  }
+});
+
+/** A sheet (More, her home on a telephone): the browser's own modal dialog, so the focus is held in it and Escape closes it. */
+function openSheet(sheet) {
+  if (!sheet || sheet.open) return;
+  sheet.showModal();
+  if (!reducedMotion.matches) animate(sheet, { opacity: [0, 1], transform: ['translateY(16px)', 'translateY(0)'] }, ENTER);
+}
+for (const sheet of document.querySelectorAll('dialog.sheet')) {
+  sheet.addEventListener('click', (event) => {
+    // A press on the dimmed page around it, or on its close button.
+    if (event.target === sheet || (event.target instanceof Element && event.target.closest('[data-close]'))) sheet.close();
+  });
+}
+$('home-toggle')?.addEventListener('click', () => openSheet($('home-sheet')));
+
+/** The icon a card's kind is known by (DESIGN.md §5): beside its title, never alone. */
+const CARD_ICONS = [
+  ['door', 'bell'], ['week', 'calendar-days'], ['reach', 'phone'], ['visits', 'door-open'], ['watch', 'clapperboard'],
+  ['errand', 'calendar-check'], ['confirmation', 'circle-check'], ['note', 'message-square'], ['replies', 'message-square-reply'],
+  ['circle', 'users'], ['television', 'tv'], ['language', 'languages'], ['picture', 'image'], ['checklist', 'list-checks'],
+  ['doorbell', 'bell-ring'], ['standin', 'bell-ring'], ['account', 'user'], ['notifications', 'bell'], ['help', 'circle-question-mark'],
+  ['list', 'list'],
+];
+
+function decorateCard(card) {
+  if (card.classList.contains('intro') || card.classList.contains('light-card')) return;
+  const head = card.querySelector(':scope > .card-head');
+  if (!head || head.querySelector(':scope > .card-icon')) return;
+  const name = CARD_ICONS.find(([kind]) => card.classList.contains(kind))?.[1] ?? 'sparkles';
+  const badge = el('span', 'card-icon');
+  badge.appendChild(icon(name));
+  head.prepend(badge);
+}
+
+/**
+ * Whatever arrives in the conversation: its cards get their icons, and it
+ * comes in — a fade and an 8-pixel rise, a list's rows 30 ms apart — unless
+ * the reader has asked for less motion.
+ */
+const arrived = new MutationObserver((records) => {
+  const entering = [];
+  for (const record of records) {
+    for (const node of record.addedNodes) {
+      if (!(node instanceof HTMLElement)) continue;
+      const cards = node.matches('.card') ? [node] : [...node.querySelectorAll('.card')];
+      cards.forEach(decorateCard);
+      // A turn, or what fills one: not every small change inside a card that is already on the page.
+      if (node.matches('.turn-customer, .turn-assistant') || node.parentElement?.matches('.turn-assistant')) entering.push(node);
+    }
+  }
+  if (reducedMotion.matches || entering.length === 0) return;
+  animate(entering, { opacity: [0, 1], transform: ['translateY(8px)', 'translateY(0)'] }, ENTER);
+  for (const node of entering) {
+    const rows = [...node.querySelectorAll('.rows > li, .carousel > li, .steps > li, .door-answers > .btn')].slice(0, 12);
+    if (rows.length > 1) animate(rows, { opacity: [0, 1], transform: ['translateY(8px)', 'translateY(0)'] }, { ...ENTER, delay: stagger(0.03, { startDelay: 0.06 }) });
+  }
+});
+arrived.observe($('log'), { childList: true, subtree: true });
 
 let lastCustomerTurn = null;
 
@@ -578,12 +770,58 @@ function addCustomerTurn(text) {
   scrollToEnd();
 }
 
-function addThinking() {
+/** When the question being answered was asked, and what it is most likely about: the waiting card counts from then, across every way of answering it. */
+let asking = null;
+
+/**
+ * The card that stands for an answer on its way (DESIGN.md §1, "every press
+ * answers at once"): what is happening, in words that change honestly with
+ * the seconds (surface.js waitingWords), how long it has waited, and a line
+ * that moves — still, with reduced motion. Never a bare "Thinking".
+ *
+ * @param {{ agent?: boolean, topic?: string, words?: string }} [context]  whether Wick's agent is asked, what it is likely reading; or fixed words
+ */
+function waitingCard(context = {}) {
+  const since = asking?.since ?? Date.now();
+  const agent = context.agent ?? asking?.agent ?? false;
+  const topic = context.topic ?? asking?.topic;
+  const card = el('div', 'thinking waiting');
+  card.setAttribute('role', 'status');
+  const mark = el('span', 'waiting-mark');
+  mark.setAttribute('aria-hidden', 'true');
+  mark.appendChild(brandFlame());
+  const words = el('div', 'waiting-words');
+  const line = el('p', 'waiting-line');
+  const detail = el('p', 'waiting-detail');
+  words.append(line, detail);
+  const time = el('span', 'waiting-time');
+  time.setAttribute('aria-hidden', 'true');
+  const bar = el('span', 'waiting-bar');
+  bar.setAttribute('aria-hidden', 'true');
+  bar.appendChild(el('i'));
+  card.append(mark, words, time, bar);
+  const draw = () => {
+    const elapsed = Date.now() - since;
+    const said = waitingWords(elapsed, { agent, topic });
+    const next = card.dataset.words ?? said.words;
+    if (line.textContent !== next) line.textContent = next;
+    if (detail.textContent !== said.detail) detail.textContent = said.detail;
+    detail.hidden = said.detail === '';
+    time.textContent = elapsedLabel(elapsed);
+  };
+  if (context.words) card.dataset.words = context.words;
+  draw();
+  const ticking = setInterval(() => {
+    if (!card.isConnected) return clearInterval(ticking);
+    draw();
+  }, 1000);
+  card.redraw = draw;
+  return card;
+}
+
+function addThinking(context) {
   const turn = el('div', 'turn-assistant');
-  const dots = el('span', 'thinking');
-  dots.setAttribute('aria-label', 'Thinking');
-  dots.append(el('i'), el('i'), el('i'));
-  turn.appendChild(dots);
+  turn.appendChild(waitingCard(context));
   log.appendChild(turn);
   scrollToEnd();
   return turn;
@@ -602,7 +840,7 @@ function cardFoot(note) {
   const foot = el('div', 'card-foot');
   foot.appendChild(el('span', 'note', note ?? ''));
   const by = el('span', 'by');
-  by.innerHTML = `${FLAME} Wick`;
+  by.append(brandFlame(), ' Wick');
   foot.appendChild(by);
   return foot;
 }
@@ -970,13 +1208,15 @@ async function assistantStep() {
   return step;
 }
 
+/** What is being done now, on the turn's waiting card — a new one if the plan or a confirmation took its place. */
 function showProgress(turn, text) {
-  let progress = turn.querySelector('.progress');
-  if (!progress) {
-    progress = el('span', 'progress');
-    turn.appendChild(progress);
+  let card = turn.querySelector('.thinking');
+  if (!card) {
+    card = waitingCard();
+    turn.appendChild(card);
   }
-  progress.textContent = text;
+  card.dataset.words = text;
+  card.redraw?.();
   scrollToEnd();
 }
 
@@ -988,7 +1228,7 @@ function showProgress(turn, text) {
 function confirmInTurn(turn, call, title) {
   const asked = confirmWrite(call.name, call.args, title);
   return new Promise((resolve) => {
-    const card = el('article', 'card');
+    const card = el('article', 'card confirmation');
     const head = el('div', 'card-head');
     head.appendChild(el('h2', 'card-title', asked.title));
     card.appendChild(head);
@@ -1106,7 +1346,7 @@ function showPlan(turn, plan) {
  * agent could not be asked, so converse() asks the stand-in instead.
  */
 async function converseWithAgent(text) {
-  const turn = addThinking();
+  const turn = addThinking({ agent: true });
   let answer = await agentTurn({ question: text });
   // She has closed the home: showHomeClosed has said so, and this turn says nothing more.
   if (homeClosed) {
@@ -1159,7 +1399,7 @@ async function converseWithAgent(text) {
 async function converse(text) {
   // Wick's agent on AgentCore first; where there is none, or it cannot answer, the stand-in below, as before.
   if (await converseWithAgent(text)) return true;
-  const turn = addThinking();
+  const turn = addThinking({ agent: true });
   const before = conversation.length;
   rememberTurns({ role: 'user', text });
   const steps = [];
@@ -1210,7 +1450,7 @@ function addComposer(prefill) {
   const turn = el('div', 'turn-assistant');
   turn.appendChild(el('p', 'say', 'What would you like it to say?'));
 
-  const card = el('article', 'card');
+  const card = el('article', 'card note');
   const head = el('div', 'card-head');
   head.appendChild(el('h2', 'card-title', 'A note for the television'));
   card.appendChild(head);
@@ -1694,7 +1934,7 @@ function renderLightCard(card) {
   const window_ = el('div', card.lit ? 'window lit' : 'window');
   window_.setAttribute('role', 'img');
   window_.setAttribute('aria-label', card.title);
-  window_.innerHTML = FLAME;
+  window_.appendChild(brandFlame());
   node.appendChild(window_);
   node.appendChild(el('h2', 'card-title', card.title));
   if (card.note) node.appendChild(el('p', 'light-note', card.note));
@@ -1706,6 +1946,8 @@ function renderLightCard(card) {
 function showLightInCorner(shown) {
   const corner = $('light');
   // A home she has closed has no light to show.
+  homeKnown.light = shown && me && !homeClosed ? shown : null;
+  drawHome();
   if (!shown || !me || homeClosed) {
     corner.hidden = true;
     return;
@@ -1713,8 +1955,7 @@ function showLightInCorner(shown) {
   const resident = me.household.residentName;
   const words = shown.lit ? `${resident}’s light is on` : `${resident}’s light is not on`;
   corner.className = shown.lit ? 'light lit' : 'light';
-  corner.innerHTML = FLAME;
-  corner.appendChild(el('span', undefined, words));
+  corner.replaceChildren(brandFlame(), el('span', undefined, words));
   corner.setAttribute('aria-label', words);
   corner.hidden = false;
 }
@@ -1852,7 +2093,9 @@ function renderErrandEntry(entry) {
   section.appendChild(said);
   const steps = el('ol', 'errand-steps');
   for (const step of entry.steps) {
-    const item = el('li', 'errand-step', step.label);
+    // A tick, a dashed ring for what is still to come, a plain ring for what will not happen — and the step's words beside it.
+    const item = el('li', 'errand-step');
+    item.append(icon({ done: 'circle-check', next: 'circle-dashed' }[step.state] ?? 'circle'), step.label);
     item.dataset.state = step.state;
     steps.appendChild(item);
   }
@@ -1955,7 +2198,7 @@ function addInvitationToWatch() {
   const turn = el('div', 'turn-assistant');
   turn.appendChild(el('p', 'say', 'Which film, and when?'));
 
-  const card = el('article', 'card');
+  const card = el('article', 'card watch');
   const head = el('div', 'card-head');
   head.appendChild(el('h2', 'card-title', 'Watch a film together'));
   card.appendChild(head);
@@ -2073,7 +2316,7 @@ async function showNotifications({ quietUnlessOffered = false } = {}) {
   const turn = assistantSays({ say: presented.say, tone: 'answer' });
   if (!presented.card) return;
 
-  const { card, body } = plainCard(presented.card.title, 'It can be turned off again in the browser’s site settings.');
+  const { card, body } = plainCard(presented.card.title, 'It can be turned off again in the browser’s site settings.', 'notifications');
   body.appendChild(el('p', undefined, presented.card.body));
   const actions = el('div', 'actions');
   const yes = el('button', 'btn final', presented.card.confirmLabel);
@@ -2113,8 +2356,9 @@ function offerNotificationsOnce() {
 }
 
 /** A card the app itself draws under a sentence: title, body, footnote. */
-function plainCard(title, footnote) {
-  const card = el('article', 'card');
+/** @param {string} [kind]  what the card is about, which gives it its icon (CARD_ICONS) */
+function plainCard(title, footnote, kind) {
+  const card = el('article', kind ? `card ${kind}` : 'card');
   const head = el('div', 'card-head');
   head.appendChild(el('h2', 'card-title', title));
   card.appendChild(head);
@@ -2138,7 +2382,7 @@ function addPairLinkGate(code) {
   if (!gate.offered) return void addConnectTelevision();
 
   const turn = el('div', 'turn-assistant');
-  const { card, body } = plainCard(gate.title, gate.warning);
+  const { card, body } = plainCard(gate.title, gate.warning, 'television');
   body.appendChild(el('p', undefined, gate.question));
   const actions = el('div', 'actions');
   const yes = el('button', 'btn final', gate.confirm);
@@ -2186,7 +2430,7 @@ function addConnectTelevision({ prefill, wanted } = {}) {
   /** Whose it is to be: 'resident', 'family', or nothing while an organiser has not said. */
   let as = view.as;
   const turn = el('div', 'turn-assistant');
-  const { card, body } = plainCard(view.title, as ? view.footnote[as] : '');
+  const { card, body } = plainCard(view.title, as ? view.footnote[as] : '', 'television');
   const footnote = card.querySelector('.card-foot .note');
   const lead = el('p', 'empty', view.lead[as ?? 'resident']);
   // The code is asked for once it is known whose television it is.
@@ -2321,7 +2565,7 @@ async function addInvitation(role) {
     const presented = presentInvitation(role, invitation, resident);
     if (!presented.offered) return void assistantSays({ say: presented.say, tone: 'answer' });
     const turn = assistantSays({ say: presented.say, tone: 'answer' });
-    const { card, body } = plainCard(presented.title, presented.footnote);
+    const { card, body } = plainCard(presented.title, presented.footnote, 'circle');
     const input = el('input', 'linkbox');
     input.readOnly = true;
     input.value = inviteLink(window.location.href, invitation.code);
@@ -2348,7 +2592,7 @@ async function addInvitation(role) {
 }
 
 function renderCircleCard(view) {
-  const { card, body } = plainCard(view.title, view.footnote);
+  const { card, body } = plainCard(view.title, view.footnote, 'circle');
   const rows = el('ul', 'rows');
   for (const member of view.members) {
     const li = el('li', 'row');
@@ -2464,6 +2708,7 @@ function addPlaygroundToken() {
   const { card, body } = plainCard(
     'Ring’s simulator',
     'The Playground is Ring’s simulated doorbell. Its token works for about half an hour, and Wick keeps it on its server, not in this browser.',
+    'doorbell',
   );
   const form = el('form');
   form.autocomplete = 'off';
@@ -2505,7 +2750,7 @@ function addPlaygroundToken() {
 }
 
 function renderDoorbellCard(view) {
-  const { card, body } = plainCard(view.title, view.footnote);
+  const { card, body } = plainCard(view.title, view.footnote, 'doorbell');
   if (view.rows.length > 0) {
     const rows = el('ul', 'rows');
     for (const row of view.rows) {
@@ -2612,8 +2857,7 @@ function stopLookingAtLanguage() {
 function addLanguageCard(turn, first) {
   const resident = me.household.residentName;
   const shownFirst = presentLanguage(first, me).card;
-  const { card, body } = plainCard(shownFirst.title, shownFirst.footnote);
-  card.classList.add('language');
+  const { card, body } = plainCard(shownFirst.title, shownFirst.footnote, 'language');
   const rows = el('ul', 'rows');
   const line = el('p', 'watch-status');
   line.setAttribute('role', 'status');
@@ -2797,8 +3041,7 @@ async function openPicture(chosenFile) {
 /** Puts the card under a turn: choosing, seeing, sending, and how the pictures already sent stand. */
 function addPictureCard(turn) {
   const words = presentPhotoComposer(me);
-  const { card, body } = plainCard(words.title, words.footnote);
-  card.classList.add('picture');
+  const { card, body } = plainCard(words.title, words.footnote, 'picture');
 
   const chooseLabel = el('label', undefined, words.choose);
   const file = document.createElement('input');
@@ -3039,7 +3282,7 @@ async function showPictures() {
 
 /** One button per stand-in visitor. A press rings once: it carries a key of its own, and the buttons rest until it is answered. */
 function renderStandInDoorbell(words) {
-  const { card, body } = plainCard(words.title, words.footnote);
+  const { card, body } = plainCard(words.title, words.footnote, 'standin');
   const actions = el('div', 'actions');
   const line = el('p', 'watch-status');
   line.setAttribute('role', 'status');
@@ -3147,7 +3390,9 @@ function fillChecklist(view) {
   checklist.steps.replaceChildren(...view.steps.map((step, i) => {
     const li = el('li', step.done ? 'step done' : step.key === view.current ? 'step current' : 'step');
     if (step.key === view.current) li.setAttribute('aria-current', 'step');
-    const mark = el('span', 'step-mark', step.done ? '✓' : String(i + 1));
+    const mark = el('span', 'step-mark');
+    if (step.done) mark.appendChild(icon('check'));
+    else mark.textContent = String(i + 1);
     mark.setAttribute('aria-hidden', 'true');
     const words = el('div', 'step-words');
     const title = el('p', 'step-title');
@@ -3184,8 +3429,7 @@ function showChecklist(televisions) {
   const view = me ? presentChecklist(me, televisions, askedHere()) : null;
   if (!view || view.complete) return;
   const turn = el('div', 'turn-assistant');
-  const { card, body } = plainCard(view.title, 'Each step ticks itself off when it is true.');
-  card.classList.add('checklist');
+  const { card, body } = plainCard(view.title, 'Each step ticks itself off when it is true.', 'checklist');
   const steps = el('ol', 'steps');
   const status = el('p', 'watch-status');
   status.setAttribute('role', 'status');
@@ -3232,11 +3476,14 @@ async function welcome() {
   let televisions;
   if (me.membership.role === 'organiser' || me.membership.status === 'allowed') {
     try {
-      televisions = (await api('/api/circle')).televisions.length;
+      homeKnown.circle = await api('/api/circle');
+      televisions = homeKnown.circle.televisions.length;
     } catch {
       televisions = undefined;
     }
   }
+  drawHome();
+  void lookAtHome({ circle: false });
   const presented = presentWelcome(me, televisions);
   assistantSays(presented);
 
@@ -3257,6 +3504,149 @@ async function welcome() {
   void lookAtTheLight();
   void lookForWhatWasTold();
   offerNotificationsOnce();
+}
+
+// ---------------------------------------------------------------------------
+// Her home at a glance (home.js presentHome): beside the conversation from
+// 1024 pixels, a sheet below that. Drawn only from what the app was already
+// told — GET /api/me and /api/circle at the welcome, get_light when the app
+// opens, get_errands — and asked again only after a question is answered.
+// ---------------------------------------------------------------------------
+
+/** What is known of her home: `circle` (GET /api/circle), `light` (lightToShow), `errands` (get_errands' text). */
+const homeKnown = { circle: null, light: null, errands: null };
+
+/** A small heading with its icon, for a part of the panel. */
+function homeSection(title, iconName, ...content) {
+  const section = el('section', 'home-section');
+  const heading = el('h3', 'home-section-title');
+  heading.append(icon(iconName), title);
+  section.append(heading, ...content);
+  return section;
+}
+
+/** A button in the panel that asks what a chip would. On a telephone the sheet goes first. */
+function homeAsk(label, utterance, prefill = false) {
+  const button = el('button', 'btn quiet small', label);
+  button.type = 'button';
+  button.addEventListener('click', () => {
+    $('home-sheet')?.close();
+    if (prefill) prefillAsk(utterance);
+    else void handleUtterance(utterance);
+  });
+  return button;
+}
+
+function drawHomeInto(body, view) {
+  const prefix = body.dataset.prefix;
+  const head = el('div', 'home-head');
+  const title = el('h2', 'home-title', view.title);
+  title.id = `${prefix}-title`;
+  const mark = el('span', 'card-icon');
+  mark.appendChild(icon('house'));
+  head.append(mark, title);
+  const parts = [head];
+  if (view.demo) {
+    const demo = el('p', 'home-demo');
+    demo.append(icon('sparkles'), view.demo);
+    parts.push(demo);
+  }
+
+  // Her light: a window, lit or not, and the words — never the colour alone.
+  const light = el('div', view.light?.lit ? 'home-light lit' : 'home-light');
+  const window_ = el('span', view.light?.lit ? 'window lit' : 'window');
+  window_.setAttribute('aria-hidden', 'true');
+  window_.appendChild(brandFlame());
+  const lightWords = el('div', 'home-light-words');
+  if (view.light) lightWords.append(el('p', 'home-light-title', view.light.words), el('p', 'home-quiet', 'One thing about today, as she shares it.'));
+  else lightWords.append(el('p', 'home-light-title', 'Her light'), el('p', 'home-quiet', 'Not looked at yet.'));
+  light.append(window_, lightWords);
+  parts.push(light);
+  if (!view.light && !homeClosed && me?.membership.status === 'allowed') parts.push(homeAsk('Is the light on?', "Is the light on at Mum's?"));
+
+  if (view.televisions) {
+    const rows = el('ul', 'home-rows');
+    for (const tv of view.televisions.rows) {
+      const row = el('li', tv.on ? 'home-row on' : 'home-row');
+      const state = el('span', 'home-state');
+      state.append(icon(tv.on ? 'circle-check' : 'circle'), tv.state);
+      row.append(el('span', 'home-row-name', tv.name), state);
+      rows.appendChild(row);
+    }
+    const content = [el('p', 'home-quiet', view.televisions.line)];
+    if (view.televisions.rows.length) content.push(rows);
+    if (view.virtualTelevisionUrl) {
+      const open = el('a', 'home-link', 'Open her virtual television');
+      open.href = view.virtualTelevisionUrl;
+      open.target = '_blank';
+      open.rel = 'noopener';
+      open.prepend(icon('tv'));
+      content.push(open);
+    }
+    parts.push(homeSection('Her televisions', 'tv', ...content));
+  }
+
+  if (view.expected) {
+    const content = [];
+    if (view.expected.length === 0) content.push(el('p', 'home-quiet', 'Nobody you arranged is expected.'));
+    else {
+      const rows = el('ul', 'home-rows');
+      for (const visit of view.expected.slice(0, 3)) {
+        const row = el('li', 'home-row stacked');
+        row.append(el('span', 'home-row-name', visit.who), el('span', 'home-quiet', visit.when));
+        rows.appendChild(row);
+      }
+      content.push(rows);
+    }
+    content.push(homeAsk('Arrange a visit', 'The plumber is coming on Thursday at ten. Let Mum know.', true));
+    parts.push(homeSection('Expected next', 'calendar-check', ...content));
+  }
+
+  if (view.circle) parts.push(homeSection('Family circle', 'users', el('p', 'home-quiet', view.circle), homeAsk('See the circle', 'Who is in the family circle?')));
+
+  if (me?.household?.simulated && !homeClosed) {
+    parts.push(homeSection('Try it', 'bell-ring', el('p', 'home-quiet', 'Make somebody arrive at her stand-in doorbell, and see the door card on her television.'), homeAsk('Ring the stand-in doorbell', 'Ring the stand-in doorbell')));
+  }
+  body.replaceChildren(...parts);
+}
+
+/** Draws the panel and the sheet from what is known; hides both while there is no home to show. */
+function drawHome() {
+  const panel = $('home-panel');
+  if (!panel) return;
+  const show = Boolean(me) && !homeClosed && Boolean(link);
+  panel.hidden = !show;
+  if ($('home-toggle')) $('home-toggle').hidden = !show;
+  if (!show) {
+    $('home-sheet')?.close();
+    return;
+  }
+  const view = presentHome({ me, ...homeKnown });
+  for (const body of [$('home-panel-body'), $('home-sheet-body')]) if (body) drawHomeInto(body, view);
+}
+
+/** Asks again what the panel shows, as the person signed in: the circle (where they may see it), and the visits to come. */
+async function lookAtHome({ circle = true } = {}) {
+  if (!me || homeClosed) return;
+  const mine = me;
+  if (circle && (mine.membership.role === 'organiser' || mine.membership.status === 'allowed')) {
+    try {
+      homeKnown.circle = await api('/api/circle');
+    } catch {
+      // What was known stays shown.
+    }
+  }
+  if (mine.membership.status === 'allowed') {
+    try {
+      const result = await callToolOnly('get_errands', {});
+      const text = result.content?.[0]?.text ?? '';
+      // With nothing arranged the tool answers in a sentence, not a list: that is "nobody expected", not "unknown".
+      homeKnown.errands = result.isError === true ? null : text.trim().startsWith('{') ? text : JSON.stringify({ errands: [] });
+    } catch {
+      // What was known stays shown.
+    }
+  }
+  if (me === mine) drawHome();
 }
 
 /** The rules this page answered by before there was a model, and still does when there is none. */
@@ -3303,6 +3693,7 @@ async function handleUtterance(text) {
   if (noAssistant) return answerByRules(text);
 
   answering = true;
+  asking = { since: Date.now(), agent: true, topic: waitingTopic(text) };
   setAsking(false);
   let answered = false;
   try {
@@ -3312,11 +3703,16 @@ async function handleUtterance(text) {
     // Still signed in? Then the next question may be asked.
     if (me) {
       setAsking(true);
-      $('ask-input').focus();
+      $('ask-input').focus({ preventScroll: true });
     }
   }
+  // Answered by the rules after all: its waiting card counts on from the question, and asks Wick, not the agent.
+  if (asking) asking.agent = false;
   if (!answered) answerByRules(text);
+  asking = null;
   noteAsked();
+  // What was just done may have changed her home at a glance: a visit arranged, a television answered.
+  void lookAtHome();
 }
 
 /**
@@ -3331,21 +3727,63 @@ function prefillAsk(example) {
   input.select();
 }
 
+/** One suggestion as a button: asked when pressed, or — an example to be changed (errands.js ERRAND_SUGGESTION) — put in the field. */
+function suggestionChip(suggestion, enabled, before) {
+  const chip = el('button', 'chip', suggestion.label);
+  chip.type = 'button';
+  chip.disabled = !enabled;
+  chip.addEventListener('click', () => {
+    before?.();
+    if (suggestion.prefill) prefillAsk(suggestion.utterance);
+    else void handleUtterance(suggestion.utterance);
+  });
+  return chip;
+}
+
 function showSuggestions(listing = shownListing) {
   shownListing = listing;
   // A home she has closed has nothing left to ask about.
   if (homeClosed) return;
   // As enabled as the field beside them: redrawing must not open what sign-in has not.
   const enabled = !$('ask-input').disabled;
-  $('chips').replaceChildren(...suggestionsFor(listing, me).map((suggestion) => {
-    const chip = el('button', 'chip', suggestion.label);
-    chip.type = 'button';
-    chip.disabled = !enabled;
-    // An example to be changed (errands.js ERRAND_SUGGESTION) is put in the field, not sent.
-    chip.addEventListener('click', () => (suggestion.prefill ? prefillAsk(suggestion.utterance) : void handleUtterance(suggestion.utterance)));
-    return chip;
+  // One row of the most useful, and every one of them under "More", grouped (surface.js arrangeSuggestions).
+  const { featured, groups } = arrangeSuggestions(suggestionsFor(listing, me));
+  $('chips').replaceChildren(...featured.map((suggestion) => suggestionChip(suggestion, enabled)));
+  $('chips').scrollLeft = 0;
+  fadeChipEdges();
+  if (!$('more-groups')) return;
+  const sheet = $('more-sheet');
+  $('more-groups').replaceChildren(...groups.map((group, i) => {
+    const section = el('section', 'sheet-group');
+    const heading = el('h3', 'sheet-group-title', group.title);
+    heading.id = `more-group-${i}`;
+    const list = el('div', 'sheet-chips');
+    list.setAttribute('role', 'group');
+    list.setAttribute('aria-labelledby', heading.id);
+    list.append(...group.items.map((suggestion) => suggestionChip(suggestion, enabled, () => sheet.close())));
+    section.append(heading, list);
+    return section;
   }));
 }
+
+/** The row's faded edges say there is more to either side, and only while there is. */
+function fadeChipEdges() {
+  const row = $('chips');
+  row.dataset.atStart = String(row.scrollLeft <= 2);
+  row.dataset.atEnd = String(row.scrollLeft + row.clientWidth >= row.scrollWidth - 2);
+}
+$('chips').addEventListener('scroll', fadeChipEdges, { passive: true });
+window.addEventListener('resize', fadeChipEdges, { passive: true });
+// Left and right move along the row, as they do in a toolbar; Tab goes on past it.
+$('chips').addEventListener('keydown', (event) => {
+  if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+  const chips = [...$('chips').querySelectorAll('.chip:not(:disabled)')];
+  const at = chips.indexOf(document.activeElement);
+  if (at < 0) return;
+  event.preventDefault();
+  chips[Math.max(0, Math.min(chips.length - 1, at + (event.key === 'ArrowRight' ? 1 : -1)))].focus();
+});
+$('more')?.addEventListener('click', () => openSheet($('more-sheet')));
 showSuggestions(null);
 
 /**
@@ -3539,6 +3977,7 @@ if (voiceAvailable(navigator, window)) {
 $('speak-toggle').addEventListener('click', (event) => {
   speakAnswers = !speakAnswers;
   event.currentTarget.setAttribute('aria-pressed', String(speakAnswers));
+  event.currentTarget.querySelector('.icon-slot')?.replaceChildren(icon(speakAnswers ? 'volume-2' : 'volume-x'));
   if (!speakAnswers && 'speechSynthesis' in window) window.speechSynthesis.cancel();
 });
 
@@ -3615,7 +4054,7 @@ function showAccount() {
   if (!me) return;
   const view = presentAccount(me);
   const turn = assistantSays({ say: view.say, tone: 'answer' });
-  const { card, body } = plainCard(view.title, view.footnote);
+  const { card, body } = plainCard(view.title, view.footnote, 'account');
   const rows = el('ul', 'rows');
   for (const row of view.rows) {
     const item = el('li', 'row');
@@ -3680,7 +4119,7 @@ async function askBeforeDeleting() {
   thinking.remove();
   const view = presentDeletion(plan, me);
   const turn = el('div', 'turn-assistant');
-  const { card, body } = plainCard(view.title, view.footnote);
+  const { card, body } = plainCard(view.title, view.footnote, 'account');
   body.appendChild(el('p', undefined, view.lead));
   const goes = el('ul', 'rows');
   for (const line of view.goes) goes.appendChild(el('li', 'row stacked', line));

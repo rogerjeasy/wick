@@ -26,86 +26,123 @@
 <body>
   <!-- One line until it is opened, on every screen: it is said before anything else, and kept out of the way. -->
   <details id="disclosure" class="disclosure">
-    <summary><strong>A simulated Alexa+ surface.</strong> Real account, real Wick server, real tools. Why simulated?</summary>
-    Amazon's
+    <summary><span class="icon-slot" data-icon="shield-check"></span><span><strong>A simulated Alexa+ surface.</strong> Real account, real Wick server, real tools. Why simulated?</span></summary>
+    <p>Amazon's
     Alexa+ add-on tools are open to select partners only, so this page stands in for the
     assistant, as the hackathon permits. Nothing on it is canned: you sign in to a real
     account, a model chooses which of Wick's tools to call, and this page calls them on
     the real Wick MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1). Every fact it
-    says comes from a tool's answer.
+    says comes from a tool's answer.</p>
   </details>
 
-  <main class="surface">
+  <div class="shell">
     <header class="bar">
       <span class="who">
-        <svg class="flame" viewBox="0 0 16 22" aria-hidden="true"><path d="M8 0c3 5 7 8 7 13a7 7 0 0 1-14 0C1 8 5 5 8 0z" fill="#e8b75d"/><path d="M8 9c1.5 2.5 3 4 3 6a3 3 0 0 1-6 0c0-2 1.500-3.500 3-6z" fill="#f4dfb4"/></svg>
-        Wick <small>· add-on for Alexa+ (simulated)</small>
+        <svg class="flame brand" viewBox="0 0 16 22" aria-hidden="true"><path d="M8 0c3 5 7 8 7 13a7 7 0 0 1-14 0C1 8 5 5 8 0z" fill="#e8b75d"/><path d="M8 9c1.5 2.5 3 4 3 6a3 3 0 0 1-6 0c0-2 1.500-3.500 3-6z" fill="#f4dfb4"/></svg>
+        <span class="who-name">Wick</span> <small>add-on for Alexa+ (simulated)</small>
       </span>
+      <span id="auth-status" class="status" role="status" data-state="signed-out">Not connected</span>
       <span class="spacer"></span>
       <span id="light" class="light" role="img" hidden></span>
-      <span id="auth-status" class="status" role="status" data-state="signed-out">Not connected</span>
-      <button id="speak-toggle" class="toggle" type="button" aria-pressed="false" aria-label="Speak answers" hidden>Speak<span class="wide-only"> answers</span></button>
-      <!-- Your own account: download what Wick holds, or delete it (account.js). -->
-      <button id="account" class="toggle" type="button" hidden>Account</button>
-      <button id="sign-out" class="toggle" type="button" hidden>Sign out</button>
+      <!-- Her home, as a sheet: on a wide screen it is the panel beside the conversation instead. -->
+      <button id="home-toggle" class="toggle home-toggle" type="button" aria-haspopup="dialog" title="Her home" hidden><span class="icon-slot" data-icon="house"></span><span class="label">Her home</span></button>
+      <!-- On a telephone the three below fold into one menu (main.js); on anything wider they stand in the bar. -->
+      <button id="menu-toggle" class="toggle menu-toggle" type="button" aria-expanded="false" aria-controls="bar-actions" aria-label="Menu" hidden><span class="icon-slot" data-icon="ellipsis-vertical"></span></button>
+      <div id="bar-actions" class="bar-actions" data-open="false">
+        <button id="speak-toggle" class="toggle" type="button" aria-pressed="false" title="Speak answers" hidden><span class="icon-slot" data-icon="volume-x"></span><span class="label">Speak answers</span></button>
+        <!-- Your own account: download what Wick holds, or delete it (account.js). -->
+        <button id="account" class="toggle" type="button" title="Account" hidden><span class="icon-slot" data-icon="user"></span><span class="label">Account</span></button>
+        <button id="sign-out" class="toggle" type="button" title="Sign out" hidden><span class="icon-slot" data-icon="log-out"></span><span class="label">Sign out</span></button>
+      </div>
     </header>
 
-    <!-- The conversation. Customer turns on the right; the assistant's sentence,
-         then at most one card from the add-on. Announced as it arrives. -->
-    <section id="log" class="log" role="log" aria-live="polite" aria-label="Conversation" data-signed-in="false">
-      <!-- The first screen: what Wick is, in one sentence, and the two ways in. -->
-      <div id="link-card" class="turn-assistant first">
-        <p id="link-say" class="say">Wick tells you how someone who lives alone is getting on at home, from her front door and her television, and only what she has agreed to share.</p>
-        <article class="card intro" aria-labelledby="link-title">
-          <div class="card-head">
-            <img id="listing-icon" class="listing-icon" alt="" hidden />
-            <div class="card-heading">
-              <h2 id="link-title" class="card-title">Wick</h2>
-              <span id="listing-meta" class="card-meta">Add-on for Alexa+ · simulated listing</span>
-            </div>
+    <div class="layout">
+      <main class="surface">
+        <!-- The conversation. Customer turns on the right; the assistant's sentence,
+             then at most one card from the add-on. Announced as it arrives. -->
+        <section id="log" class="log" role="log" aria-live="polite" aria-label="Conversation" data-signed-in="false">
+          <!-- The first screen: what Wick is, in one sentence, and the two ways in. -->
+          <div id="link-card" class="turn-assistant first">
+            <p id="link-say" class="say">Wick tells you how someone who lives alone is getting on at home, from her front door and her television, and only what she has agreed to share.</p>
+            <article class="card intro" aria-labelledby="link-title">
+              <div class="card-head">
+                <img id="listing-icon" class="listing-icon" alt="" hidden />
+                <div class="card-heading">
+                  <h2 id="link-title" class="card-title">Wick</h2>
+                  <span id="listing-meta" class="card-meta">Add-on for Alexa+ · simulated listing</span>
+                </div>
+              </div>
+              <p id="link-detail" class="primary-text">Ask how her week has been, see who came to the door, and put a note on her television. She decides what you can see, on her own television.</p>
+              <div class="actions">
+                <button id="demo" class="btn final" type="button" hidden>Try the demo</button>
+                <button id="connect" class="btn final" type="button">Sign in</button>
+              </div>
+              <p id="demo-hint" class="card-meta" hidden>No email and no password: a guest account and a demo home of your own, with a simulated history to ask about.</p>
+              <!-- Wick's listing as an add-on, filled from ./addon.json (the package
+                   Amazon's toolkit would be given). Hidden until that file is read. -->
+              <details id="listing-body" class="listing" hidden>
+                <summary>Things to say, and more about Wick</summary>
+                <ul id="listing-phrases" class="rows"></ul>
+                <div id="listing-about"></div>
+                <p class="empty">Enabling Wick links a Wick account.
+                  <a id="listing-privacy" target="_blank" rel="noopener">Privacy</a> ·
+                  <a id="listing-terms" target="_blank" rel="noopener">Terms</a></p>
+              </details>
+              <!-- A developer's: which Wick server to link against. Shown only with ?dev (surface.js developerMode). -->
+              <details id="server" class="server" hidden>
+                <summary>Server (developer)</summary>
+                <label>MCP server URL <input id="server-url" value="http://127.0.0.1:3300" autocomplete="off" spellcheck="false" /></label>
+              </details>
+            </article>
           </div>
-          <p id="link-detail" class="primary-text">Ask how her week has been, see who came to the door, and put a note on her television. She decides what you can see, on her own television.</p>
-          <div class="actions">
-            <button id="demo" class="btn final" type="button" hidden>Try the demo</button>
-            <button id="connect" class="btn final" type="button">Sign in</button>
-          </div>
-          <p id="demo-hint" class="card-meta" hidden>No email and no password: a guest account and a demo home of your own, with a simulated history to ask about.</p>
-          <!-- Wick's listing as an add-on, filled from ./addon.json (the package
-               Amazon's toolkit would be given). Hidden until that file is read. -->
-          <details id="listing-body" class="listing" hidden>
-            <summary>Things to say, and more about Wick</summary>
-            <ul id="listing-phrases" class="rows"></ul>
-            <div id="listing-about"></div>
-            <p class="empty">Enabling Wick links a Wick account.
-              <a id="listing-privacy" target="_blank" rel="noopener">Privacy</a> ·
-              <a id="listing-terms" target="_blank" rel="noopener">Terms</a></p>
-          </details>
-          <!-- A developer's: which Wick server to link against. Shown only with ?dev (surface.js developerMode). -->
-          <details id="server" class="server" hidden>
-            <summary>Server (developer)</summary>
-            <label>MCP server URL <input id="server-url" value="http://127.0.0.1:3300" autocomplete="off" spellcheck="false" /></label>
-          </details>
-        </article>
-      </div>
-    </section>
+        </section>
 
-    <footer id="dock" class="dock" hidden>
-      <div id="chips" class="chips" role="group" aria-label="Things you can ask"></div>
-      <form id="ask" class="ask" autocomplete="off">
-        <label class="sr-only" for="ask-input">Ask Wick</label>
-        <input id="ask-input" placeholder="Ask about the house…" disabled />
-        <!-- Ask by voice (voice.js). Hidden until main.js finds a microphone this browser can ask for. -->
-        <button id="ask-voice" class="btn quiet mic" type="button" aria-label="Ask by voice" aria-pressed="false" aria-describedby="voice-note" title="Ask by voice" hidden disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 1 0-7 0v6A3.5 3.5 0 0 0 12 15zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V20H8.5a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H13v-2.59a6 6 0 0 0 5-5.91z"/></svg>
-        </button>
-        <button id="ask-send" class="btn" type="submit" disabled>Ask</button>
-      </form>
-      <p id="voice-line" class="voice-line" hidden>
-        <span id="voice-status" class="voice-status" role="status" aria-live="polite"></span>
-        <span id="voice-note">Amazon Transcribe turns it into words; Wick keeps no recording.</span>
-      </p>
-    </footer>
-  </main>
+        <footer id="dock" class="dock" hidden>
+          <!-- One row of the most useful questions, scrolled inside itself; "More" has every one, grouped (surface.js arrangeSuggestions). -->
+          <div class="suggest">
+            <div id="chips" class="chips" role="group" aria-label="Things you can ask" data-at-start="true" data-at-end="true"></div>
+            <button id="more" class="chip more" type="button" aria-haspopup="dialog" aria-controls="more-sheet"><span class="icon-slot" data-icon="layout-grid"></span>More</button>
+          </div>
+          <form id="ask" class="ask" autocomplete="off">
+            <label class="sr-only" for="ask-input">Ask Wick</label>
+            <input id="ask-input" placeholder="Ask about the house…" disabled />
+            <!-- Ask by voice (voice.js). Hidden until main.js finds a microphone this browser can ask for. -->
+            <button id="ask-voice" class="btn quiet mic" type="button" aria-label="Ask by voice" aria-pressed="false" aria-describedby="voice-note" title="Ask by voice" hidden disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 1 0-7 0v6A3.5 3.5 0 0 0 12 15zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V20H8.5a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H13v-2.59a6 6 0 0 0 5-5.91z"/></svg>
+            </button>
+            <button id="ask-send" class="btn send" type="submit" disabled><span class="icon-slot" data-icon="send"></span><span class="label">Ask</span></button>
+          </form>
+          <p id="voice-line" class="voice-line" hidden>
+            <span id="voice-status" class="voice-status" role="status" aria-live="polite"></span>
+            <span id="voice-note">Amazon Transcribe turns it into words; Wick keeps no recording.</span>
+          </p>
+        </footer>
+      </main>
+
+      <!-- Her home at a glance, beside the conversation from 1024 pixels (home.js presentHome). -->
+      <aside id="home-panel" class="home-panel" aria-labelledby="home-panel-title" hidden>
+        <div id="home-panel-body" class="home-body" data-prefix="home-panel"></div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Every question, grouped: what "More" opens. A bottom sheet on a telephone, a window on anything wider. -->
+  <dialog id="more-sheet" class="sheet" aria-labelledby="more-title">
+    <div class="sheet-head">
+      <h2 id="more-title" class="sheet-title">Things you can ask</h2>
+      <button class="toggle sheet-close" type="button" data-close aria-label="Close"><span class="icon-slot" data-icon="x"></span></button>
+    </div>
+    <div id="more-groups" class="sheet-body"></div>
+  </dialog>
+
+  <!-- Her home on a screen too narrow for the panel. -->
+  <dialog id="home-sheet" class="sheet" aria-labelledby="home-sheet-title">
+    <div class="sheet-head">
+      <span class="sheet-title" aria-hidden="true"></span>
+      <button class="toggle sheet-close" type="button" data-close aria-label="Close"><span class="icon-slot" data-icon="x"></span></button>
+    </div>
+    <div id="home-sheet-body" class="home-body sheet-body" data-prefix="home-sheet"></div>
+  </dialog>
 
   <script type="module" src="./main.js"></script>
 </body>
