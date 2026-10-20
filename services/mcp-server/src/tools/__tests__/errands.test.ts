@@ -385,6 +385,45 @@ describe('get_errands — "did the plumber come?"', () => {
     });
   });
 
+  it('says whether the visit has a link, and what its visitor last said from it, in the member’s own words', async () => {
+    const table = createMemoryTable();
+    await plant(table, { errandId: 'err_ROSSIROSSIROSSIROSS', who: 'Doctor Rossi' });
+    await plant(table, { errandId: 'err_PLUMBERPLUMBERPLUMB', createdAt: NOW - 1000 });
+    const [rossi] = errandRows(table).filter((r) => r.errandId!.S === 'err_ROSSIROSSIROSSIROSS');
+    table.put({ ...rossi!, passHash: { S: 'a'.repeat(64) }, visitorWord: { S: JSON.stringify({ says: 'on_way', at: THURSDAY_TEN - 19 * 60_000 }) } });
+    const client = await connect(table, sarah, fakeMachine().machine, THURSDAY_TEN - 15 * 60_000);
+
+    const result = await client.callTool({ name: 'get_errands', arguments: {} });
+
+    expect(result.isError).toBeFalsy();
+    const [doctor, plumber] = content<{ errands: (ErrandView & { hasPass: boolean; visitor?: unknown; visitorSaid?: string })[] }>(result).errands;
+    expect(doctor).toMatchObject({
+      hasPass: true,
+      visitor: { says: 'on_way', at: THURSDAY_TEN - 19 * 60_000 },
+      visitorSaid: 'Doctor Rossi said at 9:41 am that they were on the way.',
+    });
+    expect(plumber).toMatchObject({ hasPass: false });
+    expect(plumber).not.toHaveProperty('visitor');
+    expect(plumber).not.toHaveProperty('visitorSaid');
+    // The pass's hash is the operator's: the member is told only that there is one.
+    expect(JSON.stringify(result)).not.toContain('a'.repeat(64));
+  });
+
+  it('says each thing a visitor can say, at the house’s time', () => {
+    const errand = {
+      errandId: 'err_ROSSIROSSIROSSIROSS', householdId: HH, createdBy: 'u_sarah', createdByName: 'Sarah Hughes', who: 'the nurse', at: THURSDAY_TEN,
+      windowMinutes: 60, tellMe: true, status: 'waiting', createdAt: NOW,
+    } as const;
+    const saidFor = (visitorWord: { says: 'on_way' | 'late' | 'at_door'; at: number; lateMinutes?: number }) => errandView({ ...errand, visitorWord }, 'Margaret', 'Europe/London');
+
+    expect(saidFor({ says: 'late', at: THURSDAY_TEN - 10 * 60_000, lateMinutes: 15 })).toMatchObject({
+      visitor: { says: 'late', at: THURSDAY_TEN - 10 * 60_000, lateMinutes: 15 },
+      visitorSaid: 'The nurse said at 9:50 am that they would be about 15 minutes late.',
+    });
+    expect(saidFor({ says: 'at_door', at: THURSDAY_TEN + 2 * 60_000 }).visitorSaid).toBe('The nurse said at 10:02 am that they were at the door.');
+    expect(saidFor({ says: 'on_way', at: THURSDAY_TEN - 19 * 60_000 }).visitorSaid).toBe('The nurse said at 9:41 am that they were on the way.');
+  });
+
   it('says there are none', async () => {
     const client = await connect(createMemoryTable(), sarah, fakeMachine().machine);
     expect(said(await client.callTool({ name: 'get_errands', arguments: {} }))).toBe(NO_ERRANDS_TEXT);

@@ -20,7 +20,7 @@ import { z } from 'zod';
 import { SFNClient, StartExecutionCommand, StopExecutionCommand } from '@aws-sdk/client-sfn';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { errandStore, windowEndOf, type ErrandExecutionInput, type ErrandSend, type ErrandStore, type HeldErrand } from '@wick/agent';
-import { ERRAND_STATUSES, clockTime } from '@wick/contracts';
+import { ERRAND_STATUSES, VISITOR_SAYS, clockTime, type VisitorWord } from '@wick/contracts';
 import { clearForFamily, clearVisitorForFamily } from '@wick/policy';
 import { theirOwnWords } from '../guardian.js';
 
@@ -137,6 +137,32 @@ export interface ErrandView {
   readonly status: HeldErrand['status'];
   readonly rangAt?: number;
   readonly said: string;
+  /** Whether the visit has a link for its visitor (make_visit_pass). Never the link, nor its hash. */
+  readonly hasPass: boolean;
+  /** What the visitor last said from the link. */
+  readonly visitor?: VisitorWord;
+  /** The same, in one sentence: "Doctor Rossi said at 9:41 am that they were on the way." */
+  readonly visitorSaid?: string;
+}
+
+/** "the nurse" -> "The nurse": the first word of a sentence. The member's own words are otherwise kept as typed. */
+const opening = (words: string): string => (words ? words[0]!.toLocaleUpperCase('en-GB') + words.slice(1) : words);
+
+/**
+ * What the visitor said from the link, as the member is told it. Their
+ * words, not Wick's finding: "said that they were at the door", never "is
+ * at the door".
+ */
+export function visitorSentence(who: string, word: VisitorWord, timeZone: string): string {
+  const said = `${opening(who)} said at ${clockTime(word.at, timeZone)} that`;
+  switch (word.says) {
+    case 'on_way':
+      return `${said} they were on the way.`;
+    case 'late':
+      return `${said} they would be about ${word.lateMinutes} minutes late.`;
+    case 'at_door':
+      return `${said} they were at the door.`;
+  }
 }
 
 /** An errand as its author is shown it: named fields only, so nothing the operator keeps can slip in. */
@@ -153,6 +179,8 @@ export function errandView(errand: HeldErrand, residentName: string, timeZone: s
     status: errand.status,
     ...(errand.rangAt === undefined ? {} : { rangAt: errand.rangAt }),
     said: errandSentence(errand, residentName, timeZone),
+    hasPass: errand.passHash !== undefined,
+    ...(errand.visitorWord === undefined ? {} : { visitor: errand.visitorWord, visitorSaid: visitorSentence(errand.who, errand.visitorWord, timeZone) }),
   };
 }
 
@@ -169,7 +197,7 @@ export function visitorWordsClear(who: string): boolean {
 }
 
 /** The strings of an errand as shown that are its author's words, or built around them. */
-const wordsOf = (view: ErrandView): string[] => [view.who, view.said];
+const wordsOf = (view: ErrandView): string[] => [view.who, view.said, ...(view.visitorSaid === undefined ? [] : [view.visitorSaid])];
 
 /**
  * An answer about errands, with each errand's words marked as the reader's
@@ -198,4 +226,11 @@ export const ERRAND_VIEW = z.strictObject({
   status: z.enum(ERRAND_STATUSES).describe('planned, reminded, waiting (the door is watching), rang, no_show, cancelled or failed.'),
   rangAt: z.number().optional().describe('When the doorbell rang inside the window. Somebody rang: the door cannot say who.'),
   said: z.string().describe('How it stands, in one sentence to tell as it is.'),
+  hasPass: z.boolean().describe('Whether the visitor has been given a link (make_visit_pass) to say they are on the way, running late, or at the door.'),
+  visitor: z.strictObject({
+    says: z.enum(VISITOR_SAYS).describe('on_way, late or at_door.'),
+    at: z.number().describe('When they said it, epoch ms.'),
+    lateMinutes: z.number().optional().describe('"late": how late, in minutes, all told.'),
+  }).optional().describe('What the visitor last said from the link. Their word, pressed on their phone: not something Wick saw.'),
+  visitorSaid: z.string().optional().describe('The same, in one sentence to tell as it is.'),
 });
