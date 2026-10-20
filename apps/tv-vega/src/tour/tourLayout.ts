@@ -17,7 +17,7 @@ import type { TourKind } from './tour.js';
 export const TOUR_SCREEN = { width: 960, height: 540, paddingHorizontal: 48, paddingVertical: 32 } as const;
 export const TOUR_ROW_DP = TOUR_SCREEN.width - 2 * TOUR_SCREEN.paddingHorizontal;
 /** Between the blocks of a step. */
-export const TOUR_GAP_DP = 12;
+export const TOUR_GAP_DP = 8;
 /** Between the kicker or headline and what follows it. */
 export const TOUR_TEXT_GAP_DP = 8;
 /** The door's picture, as DoorCard.tsx reserves it: 16:9, beside the words. */
@@ -42,6 +42,12 @@ export const exampleIsCard = (kind: TourKind): boolean => kind === 'door' || kin
 /** A tag on the example's top edge: its height, half of it above the edge. */
 export const tagHeightDp = (theme: CalmTheme): number => theme.lineHeight('body') + 2 * TAG_PADDING.vertical;
 
+/**
+ * The room above an example's words: its own padding, or — where that is
+ * less — enough that the tags on its top edge never lie over its words.
+ */
+export const exampleTopPaddingDp = (theme: CalmTheme, own: number): number => Math.max(own, tagHeightDp(theme) / 2 + 4);
+
 /** How tall the example is: the card's face, the bar, or nothing. */
 export function exampleHeightDp(theme: CalmTheme, kind: TourKind, words: TourWords): number {
   const body = theme.lineHeight('body');
@@ -50,16 +56,17 @@ export function exampleHeightDp(theme: CalmTheme, kind: TourKind, words: TourWor
     // DoorCard's layout: compact, the picture beside the words, the headline at body size.
     const text = TOUR_ROW_DP - 2 * layout.compactPaddingDp - TOUR_FRAME.width - MEDIA_GAP_DP - edge;
     const lines = estimatedLines(words.headline, text, theme.fontSize('body')) * body + layout.compactTextGapDp + estimatedLines(words.example, text, theme.fontSize('body')) * body;
-    return 2 * layout.compactPaddingDp + Math.max(TOUR_FRAME.height, lines) + edge;
+    return exampleTopPaddingDp(theme, layout.compactPaddingDp) + layout.compactPaddingDp + Math.max(TOUR_FRAME.height, lines) + edge;
   }
   if (kind === 'note') {
     // MessageCard's: a CalmCard, the headline at headline size, the note under it.
     const text = TOUR_ROW_DP - 2 * layout.cardPaddingDp - edge;
-    return 2 * layout.cardPaddingDp + estimatedLines(words.headline, text, theme.fontSize('headline')) * theme.lineHeight('headline') + layout.textGapDp + estimatedLines(words.example, text, theme.fontSize('body')) * body + edge;
+    return exampleTopPaddingDp(theme, layout.cardPaddingDp) + layout.cardPaddingDp + estimatedLines(words.headline, text, theme.fontSize('headline')) * theme.lineHeight('headline') + layout.textGapDp + estimatedLines(words.example, text, theme.fontSize('body')) * body + edge;
   }
   // The hold line: its words and its line; the read chip: its icon and words.
-  if (kind === 'hold') return 2 * BAR_PADDING.vertical + body + 12 + 8 + edge;
-  if (kind === 'read') return 2 * BAR_PADDING.vertical + body + edge;
+  const bar = exampleTopPaddingDp(theme, BAR_PADDING.vertical) + BAR_PADDING.vertical + edge;
+  if (kind === 'hold') return bar + body + 12 + 8;
+  if (kind === 'read') return bar + body;
   return 0;
 }
 

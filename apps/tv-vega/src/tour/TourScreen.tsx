@@ -25,7 +25,7 @@ import { CalmPresence, CalmProgress, CalmThemeProvider, stylesFor, useCalmTheme,
 import { Icon } from '../icons/Icon.js';
 import { words, type PlainWordKey } from '../words/words.js';
 import { TOUR_STEPS, stepWords, tourActions } from './tour.js';
-import { BAR_PADDING, TAG_PADDING, TOUR_FRAME, TOUR_GAP_DP, TOUR_SCREEN, TOUR_TEXT_GAP_DP, exampleIsCard, tagHeightDp, tourTheme } from './tourLayout.js';
+import { BAR_PADDING, TAG_PADDING, TOUR_FRAME, TOUR_GAP_DP, TOUR_SCREEN, TOUR_TEXT_GAP_DP, exampleIsCard, exampleTopPaddingDp, tagHeightDp, tourTheme } from './tourLayout.js';
 import { TOUR_DOOR_PICTURE } from './tourPicture.js';
 
 export interface TourScreenProps {
@@ -195,15 +195,18 @@ const makeStyles = (t: CalmTheme) =>
       fontWeight: '700',
     },
     // A card's face, as CalmCard draws it.
+    // Its top padding leaves the tags their room: they never lie over its words.
     card: {
       backgroundColor: t.palette.raised,
       borderRadius: 16,
       padding: 32,
+      paddingTop: exampleTopPaddingDp(t, 32),
       borderWidth: t.cardEdgeDp,
       borderColor: t.palette.ink,
     },
     cardCompact: {
       padding: 24,
+      paddingTop: exampleTopPaddingDp(t, 24),
     },
     row: {
       flexDirection: 'row',
@@ -239,6 +242,7 @@ const makeStyles = (t: CalmTheme) =>
       backgroundColor: t.palette.raisedHigh,
       borderRadius: 16,
       paddingVertical: BAR_PADDING.vertical,
+      paddingTop: exampleTopPaddingDp(t, BAR_PADDING.vertical),
       paddingHorizontal: BAR_PADDING.horizontal,
       borderWidth: t.cardEdgeDp,
       borderColor: t.palette.ink,
@@ -265,13 +269,13 @@ const makeStyles = (t: CalmTheme) =>
       color: t.palette.inkDim,
       fontSize: t.fontSize('body'),
       lineHeight: t.lineHeight('body'),
-      marginBottom: TOUR_TEXT_GAP_DP - TOUR_GAP_DP,
+      marginBottom: Math.max(0, TOUR_TEXT_GAP_DP - TOUR_GAP_DP),
     },
     headline: {
       color: t.palette.ink,
       fontSize: t.fontSize('headline'),
       lineHeight: t.lineHeight('headline'),
-      marginBottom: TOUR_TEXT_GAP_DP - TOUR_GAP_DP,
+      marginBottom: Math.max(0, TOUR_TEXT_GAP_DP - TOUR_GAP_DP),
     },
     detail: {
       color: t.palette.ink,
