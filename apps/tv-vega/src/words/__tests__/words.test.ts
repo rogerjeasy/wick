@@ -59,6 +59,39 @@ const HER_DAY_WORDS = {
 };
 
 /** Easier to see (seeing/seeing.ts): the pill, and its card's headline, line and three buttons. */
+/** The redesign (docs/design/DESIGN.md §6): the films' order, the hold line, the film's bar, the tour. */
+const REDESIGN_WORDS = {
+  'home.carryOn': 'Carry on',
+  'home.left': '{minutes} min left',
+  'home.carryOnLabel': '{title}. Carry on where you left it, {minutes} minutes left.',
+  'home.tour': 'How Wick works',
+  'home.tourLabel': 'How Wick works. Press OK for a short tour with examples. Nothing is sent.',
+  'hold.keep': 'Keep holding to ask {name} to ring you',
+  'hold.keepPlain': 'Keep holding to ask for a call',
+  'watch.time': '{elapsed} of {total}',
+  'watch.left': '{minutes} min left',
+  'watch.barLabel': '{title}. {elapsed} of {total}. {minutes} minutes left.',
+  'read.chip': 'Read aloud',
+  'tour.kicker': 'How Wick works · {step} of {count}',
+  'tour.example': 'Example',
+  'tour.next': 'Show me the next',
+  'tour.close': 'Close the tour',
+  'tour.done': 'Back to the films',
+  'tour.family': 'your family',
+  'tour.doorHeadline': "Someone's at the front door.",
+  'tour.doorPicture': 'A person with a parcel is at the door.',
+  'tour.doorDetail': 'When the doorbell rings, this comes over anything, even another app. One button asks {name} to look.',
+  'tour.noteHeadline': 'A note from {name}',
+  'tour.noteText': "Hello! I'll ring you at seven.",
+  'tour.noteDetail': 'Notes wait for a quiet moment: a pause, the credits, or a calm point in the film. One button answers.',
+  'tour.holdHeadline': 'Hold OK for two seconds',
+  'tour.holdDetail': 'Anywhere in Wick, to ask {name} to ring you. A line fills while you hold, and nothing is sent until you say yes.',
+  'tour.readHeadline': 'Press Play to hear any card',
+  'tour.readDetail': 'Wick reads it aloud, in your language. Press Play again to stop.',
+  'tour.doneHeadline': 'That is Wick.',
+  'tour.doneDetail': 'Nothing in this tour was sent to anyone. It is here whenever you want it, under How Wick works.',
+} as const;
+
 const SEEING_WORDS = {
   'seeing.entry': 'Easier to see',
   'seeing.entryLabel': 'Easier to see. Press OK for larger text or higher contrast.',
@@ -129,6 +162,7 @@ describe('the words table — English, exactly as the television said it before 
       ...DOOR_ALERT_WORDS,
       ...SEEING_WORDS,
       ...HER_DAY_WORDS,
+      ...REDESIGN_WORDS,
     });
   });
 
@@ -141,7 +175,7 @@ describe('the words table — English, exactly as the television said it before 
   });
 
   it('says what "Read to me" added (packages/contracts speech.ts), and nothing else', () => {
-    expect(Object.keys(WORDS.en).filter((key) => key.startsWith('read.'))).toEqual(Object.keys(READ_WORDS));
+    expect(Object.keys(WORDS.en).filter((key) => key.startsWith('read.') && key !== 'read.chip')).toEqual(Object.keys(READ_WORDS));
   });
 
   it('says what the mantelpiece added (packages/contracts mantel.ts), and nothing else', () => {

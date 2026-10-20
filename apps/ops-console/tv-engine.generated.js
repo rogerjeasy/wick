@@ -33,23 +33,36 @@ var WickTv = (() => {
     CALM_POINT_WINDOW_MS: () => CALM_POINT_WINDOW_MS,
     FilmPositions: () => FilmPositions,
     HOLD_MS: () => HOLD_MS,
+    HOLD_SHOWN_FROM_MS: () => HOLD_SHOWN_FROM_MS,
     PAUSE_IS_BREAK_MS: () => PAUSE_IS_BREAK_MS,
     PRESS_SETTLE_MS: () => PRESS_SETTLE_MS,
     PlaybackRecorder: () => PlaybackRecorder,
     SEEK_STEP_MS: () => SEEK_STEP_MS,
     SETTLED_AFTER_MS: () => SETTLED_AFTER_MS,
+    TOUR_CLOSED: () => TOUR_CLOSED,
+    TOUR_STEPS: () => TOUR_STEPS,
+    TRANSPORT_SHOWN_MS: () => TRANSPORT_SHOWN_MS,
+    WatchTally: () => WatchTally,
     WebSocketChannel: () => WebSocketChannel,
     asking: () => asking,
+    asksWhereFilmIs: () => asksWhereFilmIs,
     backAnswersReach: () => backAnswersReach,
     backClosesOpened: () => backClosesOpened,
     backOnShownCard: () => backOnShownCard,
+    clock: () => clock,
+    counted: () => counted,
     deriveSnapshot: () => deriveSnapshot,
+    fraction: () => fraction,
     herDayAsker: () => herDayAsker,
+    holdProgress: () => holdProgress,
     homeDay: () => homeDay,
+    minutesLeft: () => minutesLeft,
     newestReachCard: () => newestReachCard,
     okHold: () => okHold,
     onThisClock: () => onThisClock,
+    orderProgrammes: () => orderProgrammes,
     overMantel: () => overMantel,
+    partOfDay: () => partOfDay,
     playGoesTo: () => playGoesTo,
     playIsTheCards: () => playIsTheCards,
     pressSettle: () => pressSettle,
@@ -59,9 +72,13 @@ var WickTv = (() => {
     qrModules: () => qrModules,
     qrRuns: () => qrRuns,
     reachOffersToPutAway: () => reachOffersToPutAway,
+    readTally: () => readTally,
     sameHomeDay: () => sameHomeDay,
     seekTarget: () => seekTarget,
     toPlaybackDeviceEvent: () => toPlaybackDeviceEvent,
+    tourActions: () => tourActions,
+    tourAfter: () => tourAfter,
+    transportShown: () => transportShown,
     unaskedLightCards: () => unaskedLightCards,
     waitingLine: () => waitingLine,
     words: () => words
@@ -682,9 +699,9 @@ var WickTv = (() => {
         return form === "pl" ? day.endsWith("s") ? day : `${day}s` : void 0;
       }
       case "time": {
-        const clock = `${slot.hour}:${String(slot.minute).padStart(2, "0")}`;
-        if (form === void 0) return clock;
-        return form === "las" ? `${slot.hour === 1 ? "la" : "las"} ${clock}` : void 0;
+        const clock2 = `${slot.hour}:${String(slot.minute).padStart(2, "0")}`;
+        if (form === void 0) return clock2;
+        return form === "las" ? `${slot.hour === 1 ? "la" : "las"} ${clock2}` : void 0;
       }
       case "part":
         return plain(form, PARTS_OF_TODAY2[slot.index]);
@@ -1187,6 +1204,11 @@ var WickTv = (() => {
 
   // apps/tv-vega/src/watch/hold.ts
   var HOLD_MS = 2e3;
+  var HOLD_SHOWN_FROM_MS = 400;
+  function holdProgress(heldMs) {
+    if (!Number.isFinite(heldMs) || heldMs < HOLD_SHOWN_FROM_MS) return null;
+    return Math.min(1, (heldMs - HOLD_SHOWN_FROM_MS) / (HOLD_MS - HOLD_SHOWN_FROM_MS));
+  }
   var KEY_DOWN = 0;
   var KEY_UP = 1;
   var OK_KEYS = ["select", "enter"];
@@ -1196,8 +1218,10 @@ var WickTv = (() => {
     let isDown = false;
     let becameHold = false;
     const stop = () => {
+      const was = timer !== void 0;
       if (timer !== void 0) clearTimeout(timer);
       timer = void 0;
+      if (was) input.onEnd?.();
     };
     return {
       onEvent(event) {
@@ -1217,8 +1241,10 @@ var WickTv = (() => {
         if (isDown) return;
         isDown = true;
         if (!input.canHold()) return;
+        input.onBegin?.(Date.now());
         timer = setTimeout(() => {
           timer = void 0;
+          input.onEnd?.();
           if (!input.canHold()) return;
           becameHold = true;
           input.onHold();
@@ -1233,12 +1259,132 @@ var WickTv = (() => {
     };
   }
 
+  // apps/tv-vega/src/watch/transport.ts
+  var TRANSPORT_SHOWN_MS = 4e3;
+  var KEY_DOWN2 = 0;
+  var INFO_KEYS = ["up", "down", "dpad_up", "dpad_down"];
+  function asksWhereFilmIs(event, at) {
+    if (at.cardVisible) return false;
+    if (event.eventKeyAction !== void 0 && event.eventKeyAction !== KEY_DOWN2) return false;
+    return INFO_KEYS.includes(event.eventType);
+  }
+  function transportShown(state) {
+    if (state.cardVisible || !state.ready) return false;
+    if (state.paused) return true;
+    return state.askedAt !== null && state.now - state.askedAt < TRANSPORT_SHOWN_MS;
+  }
+  function clock(ms) {
+    const total = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1e3));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor(total % 3600 / 60);
+    const seconds = total % 60;
+    const ss = String(seconds).padStart(2, "0");
+    return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${ss}` : `${minutes}:${ss}`;
+  }
+  function fraction(positionMs, durationMs) {
+    if (!(durationMs > 0) || !Number.isFinite(positionMs)) return 0;
+    return Math.min(1, Math.max(0, positionMs / durationMs));
+  }
+  function minutesLeft(positionMs, durationMs) {
+    if (!(durationMs > 0)) return 0;
+    const left = Math.max(0, durationMs - Math.max(0, positionMs));
+    return left === 0 ? 0 : Math.max(1, Math.ceil(left / 6e4));
+  }
+
+  // apps/tv-vega/src/home/order.ts
+  function partOfDay(hour) {
+    if (hour < 12) return "morning";
+    if (hour < 18) return "afternoon";
+    return "evening";
+  }
+  function orderProgrammes(programmes, at) {
+    const part = partOfDay(at.hour);
+    const ranked = programmes.map((programme2, index) => {
+      const resumeAtMs = at.startAt(programme2.id);
+      const partWay = resumeAtMs > 0;
+      const watched = at.tally[programme2.id]?.[part] ?? 0;
+      return { programme: programme2, index, partWay, resumeAtMs: partWay ? resumeAtMs : void 0, watched };
+    });
+    ranked.sort((a, b2) => Number(b2.partWay) - Number(a.partWay) || b2.watched - a.watched || a.index - b2.index);
+    return ranked.map(({ programme: programme2, resumeAtMs }) => resumeAtMs === void 0 ? { programme: programme2 } : { programme: programme2, resumeAtMs });
+  }
+  function counted(tally, programmeId, hour) {
+    const part = partOfDay(hour);
+    const before = tally[programmeId] ?? {};
+    return { ...tally, [programmeId]: { ...before, [part]: (before[part] ?? 0) + 1 } };
+  }
+  function readTally(text) {
+    if (!text) return {};
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      const tally = {};
+      for (const [id, parts] of Object.entries(parsed)) {
+        if (!parts || typeof parts !== "object") continue;
+        const kept = {};
+        for (const part of ["morning", "afternoon", "evening"]) {
+          const n = parts[part];
+          if (typeof n === "number" && Number.isInteger(n) && n > 0) kept[part] = n;
+        }
+        tally[id] = kept;
+      }
+      return tally;
+    } catch {
+      return {};
+    }
+  }
+  var WatchTally = class {
+    constructor(store) {
+      this.store = store;
+      let text;
+      try {
+        text = store.read();
+      } catch {
+        text = null;
+      }
+      this.tally = readTally(text);
+    }
+    tally;
+    get() {
+      return this.tally;
+    }
+    started(programmeId, hour) {
+      this.tally = counted(this.tally, programmeId, hour);
+      try {
+        this.store.write(JSON.stringify(this.tally));
+      } catch {
+      }
+    }
+  };
+
+  // apps/tv-vega/src/tour/tour.ts
+  var TOUR_STEPS = [
+    { kind: "door", headlineKey: "tour.doorHeadline", exampleKey: "tour.doorPicture", detailKey: "tour.doorDetail" },
+    { kind: "note", headlineKey: "tour.noteHeadline", exampleKey: "tour.noteText", detailKey: "tour.noteDetail" },
+    { kind: "hold", headlineKey: "tour.holdHeadline", detailKey: "tour.holdDetail" },
+    { kind: "read", headlineKey: "tour.readHeadline", detailKey: "tour.readDetail" },
+    { kind: "done", headlineKey: "tour.doneHeadline", detailKey: "tour.doneDetail" }
+  ];
+  function tourActions(index) {
+    if (index >= TOUR_STEPS.length - 1) return [{ id: "close", labelKey: "tour.done", kind: "primary" }];
+    return [
+      { id: "next", labelKey: "tour.next", kind: "primary" },
+      { id: "close", labelKey: "tour.close", kind: "secondary" }
+    ];
+  }
+  var TOUR_CLOSED = { open: false };
+  function tourAfter(state, press) {
+    if (press === "open") return { open: true, index: 0 };
+    if (!state.open) return state;
+    if (press === "next" && state.index < TOUR_STEPS.length - 1) return { open: true, index: state.index + 1 };
+    return TOUR_CLOSED;
+  }
+
   // apps/tv-vega/src/watch/remoteKeys.ts
   var SEEK_STEP_MS = 3e4;
   var END_GUARD_MS = 1e3;
   function playIsTheCards(at) {
-    if (at.card === void 0) return false;
-    return !(at.holdsFilm && at.askedFor === at.card);
+    return at.card !== void 0;
   }
   function playGoesTo(key, context) {
     const reading = context.reading === true;
@@ -1460,7 +1606,45 @@ var WickTv = (() => {
     "seeing.largerOff": "Larger text: off",
     "seeing.contrastOn": "Higher contrast: on",
     "seeing.contrastOff": "Higher contrast: off",
-    "seeing.back": "Back"
+    "seeing.back": "Back",
+    // The redesign (docs/design/DESIGN.md §6). The home screen's films: one she stopped part-way (home/order.ts).
+    "home.carryOn": "Carry on",
+    "home.left": "{minutes} min left",
+    /** Spoken on a film she stopped part-way. */
+    "home.carryOnLabel": "{title}. Carry on where you left it, {minutes} minutes left.",
+    // The pill that opens the tour (tour/tour.ts).
+    "home.tour": "How Wick works",
+    "home.tourLabel": "How Wick works. Press OK for a short tour with examples. Nothing is sent.",
+    // The line that fills while OK is held (watch/hold.ts holdProgress).
+    "hold.keep": "Keep holding to ask {name} to ring you",
+    "hold.keepPlain": "Keep holding to ask for a call",
+    // The film's bar (watch/transport.ts).
+    "watch.time": "{elapsed} of {total}",
+    "watch.left": "{minutes} min left",
+    /** Spoken when the bar comes. */
+    "watch.barLabel": "{title}. {elapsed} of {total}. {minutes} minutes left.",
+    // The words beside the mark of the Play key on a card (read/ReadHint.tsx).
+    "read.chip": "Read aloud",
+    // The tour (tour/tour.ts): an example of each thing Wick does, and nothing sent.
+    "tour.kicker": "How Wick works · {step} of {count}",
+    "tour.example": "Example",
+    "tour.next": "Show me the next",
+    "tour.close": "Close the tour",
+    "tour.done": "Back to the films",
+    /** Who the examples name when nobody is in her circle yet. */
+    "tour.family": "your family",
+    "tour.doorHeadline": "Someone's at the front door.",
+    "tour.doorPicture": "A person with a parcel is at the door.",
+    "tour.doorDetail": "When the doorbell rings, this comes over anything, even another app. One button asks {name} to look.",
+    "tour.noteHeadline": "A note from {name}",
+    "tour.noteText": "Hello! I'll ring you at seven.",
+    "tour.noteDetail": "Notes wait for a quiet moment: a pause, the credits, or a calm point in the film. One button answers.",
+    "tour.holdHeadline": "Hold OK for two seconds",
+    "tour.holdDetail": "Anywhere in Wick, to ask {name} to ring you. A line fills while you hold, and nothing is sent until you say yes.",
+    "tour.readHeadline": "Press Play to hear any card",
+    "tour.readDetail": "Wick reads it aloud, in your language. Press Play again to stop.",
+    "tour.doneHeadline": "That is Wick.",
+    "tour.doneDetail": "Nothing in this tour was sent to anyone. It is here whenever you want it, under How Wick works."
   };
   var es = {
     "home.question": "¿Qué le gustaría ver?",
@@ -1561,7 +1745,36 @@ var WickTv = (() => {
     "seeing.largerOff": "Letra más grande: no",
     "seeing.contrastOn": "Más contraste: sí",
     "seeing.contrastOff": "Más contraste: no",
-    "seeing.back": "Atrás"
+    "seeing.back": "Atrás",
+    "home.carryOn": "Continuar",
+    "home.left": "Faltan {minutes} min",
+    "home.carryOnLabel": "{title}. Continuar donde lo dejó; faltan {minutes} minutos.",
+    "home.tour": "Cómo funciona Wick",
+    "home.tourLabel": "Cómo funciona Wick. Presione OK para ver ejemplos. No se envía nada.",
+    "hold.keep": "Siga pulsando para pedir a {name} que le llame",
+    "hold.keepPlain": "Siga pulsando para pedir una llamada",
+    "watch.time": "{elapsed} de {total}",
+    "watch.left": "Faltan {minutes} min",
+    "watch.barLabel": "{title}. {elapsed} de {total}. Faltan {minutes} minutos.",
+    "read.chip": "Escuchar",
+    "tour.kicker": "Cómo funciona Wick · {step} de {count}",
+    "tour.example": "Ejemplo",
+    "tour.next": "Ver el siguiente",
+    "tour.close": "Cerrar el recorrido",
+    "tour.done": "Volver a las películas",
+    "tour.family": "su familia",
+    "tour.doorHeadline": "Hay alguien en la puerta.",
+    "tour.doorPicture": "Una persona con un paquete está en la puerta.",
+    "tour.doorDetail": "Cuando suena el timbre, esto aparece sobre todo, incluso otra aplicación. Un botón pide a {name} que mire.",
+    "tour.noteHeadline": "Una nota de {name}",
+    "tour.noteText": "¡Hola! Le llamo a las siete.",
+    "tour.noteDetail": "Las notas esperan un momento tranquilo: una pausa, los créditos o un punto tranquilo de la película. Un botón responde.",
+    "tour.holdHeadline": "Mantenga OK dos segundos",
+    "tour.holdDetail": "En cualquier parte de Wick, para pedir a {name} que le llame. Una línea se llena mientras mantiene, y no se envía nada hasta que diga que sí.",
+    "tour.readHeadline": "Presione Play para oír una tarjeta",
+    "tour.readDetail": "Wick la lee en voz alta, en su idioma. Presione Play otra vez para parar.",
+    "tour.doneHeadline": "Eso es Wick.",
+    "tour.doneDetail": "Nada de este recorrido se envió a nadie. Está aquí cuando lo quiera, en Cómo funciona Wick."
   };
   var sayIn = (table) => (key, values) => (
     // Each place is filled once, from the sentence as written: a name that itself looks like a place is left as it is.

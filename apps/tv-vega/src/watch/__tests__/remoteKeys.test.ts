@@ -164,15 +164,9 @@ describe('playIsTheCards — whose the next Play is', () => {
     expect(playIsTheCards({ card: 'door-1', holdsFilm: false, askedFor: 'door-1' })).toBe(true);
   });
 
-  it('is the card’s once, over a film the card is holding: the first Play reads it, and the next is her way back to the film', () => {
+  it('is the card’s over a film the card is holding too, however often it has been pressed: the film goes on only when she answers', () => {
     expect(playIsTheCards({ card: 'note-1', holdsFilm: true, askedFor: null })).toBe(true);
-    expect(playIsTheCards({ card: 'note-1', holdsFilm: true, askedFor: 'note-1' })).toBe(false);
-  });
-
-  it('starts again with reading for another card, and for the same card shown again later', () => {
-    // Another card: what was asked of the last one is not about this one.
+    expect(playIsTheCards({ card: 'note-1', holdsFilm: true, askedFor: 'note-1' })).toBe(true);
     expect(playIsTheCards({ card: 'note-2', holdsFilm: true, askedFor: 'note-1' })).toBe(true);
-    // The same card, after it left the screen: the app forgets the asking when it goes (below).
-    expect(playIsTheCards({ card: 'note-1', holdsFilm: true, askedFor: null })).toBe(true);
   });
 });

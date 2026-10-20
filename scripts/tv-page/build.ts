@@ -86,7 +86,10 @@ const ENGINE_ENTRY = `
 export { BreakController } from './apps/tv-vega/src/break/BreakController.ts';
 export { CALM_POINT_WINDOW_MS, PAUSE_IS_BREAK_MS, SETTLED_AFTER_MS } from './apps/tv-vega/src/break/types.ts';
 export { pressSettle, PRESS_SETTLE_MS } from './apps/tv-vega/src/press/settle.ts';
-export { okHold, HOLD_MS } from './apps/tv-vega/src/watch/hold.ts';
+export { okHold, HOLD_MS, HOLD_SHOWN_FROM_MS, holdProgress } from './apps/tv-vega/src/watch/hold.ts';
+export { TRANSPORT_SHOWN_MS, asksWhereFilmIs, clock, fraction, minutesLeft, transportShown } from './apps/tv-vega/src/watch/transport.ts';
+export { orderProgrammes, partOfDay, counted, readTally, WatchTally } from './apps/tv-vega/src/home/order.ts';
+export { TOUR_STEPS, TOUR_CLOSED, tourActions, tourAfter } from './apps/tv-vega/src/tour/tour.ts';
 export { playIsTheCards, playGoesTo, seekTarget, SEEK_STEP_MS } from './apps/tv-vega/src/watch/remoteKeys.ts';
 export { PlaybackRecorder, toPlaybackDeviceEvent } from './apps/tv-vega/src/watch/playbackRecorder.ts';
 export { FilmPositions } from './apps/tv-vega/src/watch/resume.ts';
