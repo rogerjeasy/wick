@@ -16,7 +16,7 @@
  * Pure, and imports nothing of the platform: the Vega app and the browser
  * television (apps/ops-console/tv.js) draw the same steps.
  */
-import type { WordKey } from '../words/words.js';
+import type { Say, WordKey } from '../words/words.js';
 
 export type TourKind = 'door' | 'note' | 'hold' | 'read' | 'done';
 
@@ -58,4 +58,11 @@ export function tourAfter(state: TourState, press: 'open' | 'next' | 'close' | '
   if (!state.open) return state;
   if (press === 'next' && state.index < TOUR_STEPS.length - 1) return { open: true, index: state.index + 1 };
   return TOUR_CLOSED;
+}
+
+/** What a step says, in her language, with `name` — the first person in her circle, or "your family" — put in. */
+export function stepWords(say: Say, step: TourStep, name: string): { readonly headline: string; readonly example?: string | undefined; readonly detail: string } {
+  // A step's keys are chosen at run time; each names `{name}` or nothing, so `name` is all any of them takes.
+  const loose = say as unknown as (key: WordKey, values: { readonly name: string }) => string;
+  return { headline: loose(step.headlineKey, { name }), example: step.exampleKey ? loose(step.exampleKey, { name }) : undefined, detail: loose(step.detailKey, { name }) };
 }

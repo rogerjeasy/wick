@@ -154,7 +154,8 @@ describe('ResidentApp.tsx — the mantelpiece and the idle screen, in the app', 
 
   it('keeps the home screen out of the remote’s reach while a card, the mantelpiece or the idle screen has it', () => {
     // By the one rule for the home behind whatever is over it (home/behind.ts, tested in home/__tests__/behind.test.ts).
-    expect(app).toMatch(/const behind = homeBehind\(\{ card: card !== null \|\| seeingShown, mantelOpen, idle \}\);/);
+    // The Easier to see card and the tour stand where a card does.
+    expect(app).toMatch(/const behind = homeBehind\(\{ card: card !== null \|\| seeingShown \|\| tourShown, mantelOpen, idle \}\);/);
     expect(app).toMatch(/cardVisible=\{!behind\.reach\}/);
   });
 

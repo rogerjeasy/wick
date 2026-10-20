@@ -77,6 +77,13 @@
  * moment its time is over, and asks the server for her day again when the
  * one it was told has ended or a new card has come (herDayAsker).
  *
+ * How Wick works (tour/tour.ts): a pill on the home screen opens a short
+ * tour, an example of each thing Wick does, drawn as it is drawn and
+ * marked "Example". It is held like a card — its one second, Back closes
+ * it, a card from the server comes over it — and nothing in it is sent:
+ * Play does nothing on it, since the reader reads only a card the server
+ * has.
+ *
  * Her films, in her order (home/order.ts): one she left part-way first,
  * marked "Carry on", then the ones she starts most at this time of day,
  * then the catalogue's. Where she left each film and how often she starts
@@ -144,6 +151,8 @@ import { announcer } from './read/announce.js';
 import { SeeingCard } from './seeing/SeeingCard.js';
 import { useSeeing } from './seeing/SeeingProvider.js';
 import { SEEING_CARD, seeingActions, seeingCardShows } from './seeing/seeing.js';
+import { TOUR_CLOSED, TOUR_STEPS, stepWords, tourActions, tourAfter, type TourState } from './tour/tour.js';
+import { TourScreen } from './tour/TourScreen.js';
 
 const QUEUE_POLL_MS = 1000;
 
@@ -328,8 +337,12 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const seeing = useSeeing();
   const styles = useCalmStyles(makeStyles);
   const seeingShown = seeingCardShows({ open: seeingOpen, card: card !== null, liveOpen: liveFor !== null });
-  // Its one second, like any card's: counted from when it comes on screen, by its name.
-  settle.appeared(card?.id ?? (seeingShown ? SEEING_CARD : null), Date.now());
+  /** How Wick works: the step she is on, or closed. Shown where a card would be, and only when none is. */
+  const [tour, setTour] = React.useState<TourState>(TOUR_CLOSED);
+  const tourShown = tour.open && card === null && liveFor === null && watching === null && !seeingShown;
+  const tourStep = tour.open ? tour.index : -1;
+  // Its one second, like any card's: counted from when it comes on screen, by its name — each step a card of its own.
+  settle.appeared(card?.id ?? (seeingShown ? SEEING_CARD : tourShown ? `tour:${tourStep}` : null), Date.now());
 
   // The card channel lives here, in the process that renders, for as long
   // as Wick is on screen: the one QueueStore instance the render loop reads
@@ -344,7 +357,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   /** What is on screen now, for the look below, which runs between renders. */
   const screenReader = useScreenReaderEnabled();
   const screenNow = React.useRef({ watching: false, mantelOpen: false, liveOpen: false, onScreen: true, seeing: false, screenReader: false });
-  screenNow.current = { watching: watching !== null, mantelOpen, liveOpen: liveFor !== null, onScreen, seeing: seeingShown, screenReader };
+  // The tour is on screen like the Easier to see card: the home is not quiet under it either.
+  screenNow.current = { watching: watching !== null, mantelOpen, liveOpen: liveFor !== null, onScreen, seeing: seeingShown || tourShown, screenReader };
   /** The channel while it is held, for the one thing the app asks on it by itself: its cards again (below). */
   const cardChannel = React.useRef<RunningCardChannel | null>(null);
   /**
@@ -640,6 +654,9 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     setSeeingOpen(true);
   }, []);
 
+  // How Wick works: the pill opens the tour at its first step.
+  const handleOpenTour = React.useCallback(() => setTour((now) => tourAfter(now, 'open')), []);
+
   // OK held for two seconds: ask for the card that offers to have someone ring her.
   const handleHold = React.useCallback(() => {
     const at = Date.now();
@@ -835,15 +852,32 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     [guard, settle, seeing],
   );
 
+  // A press on the tour: held to the step's one second and the hold's thumb like any card's. Nothing is sent.
+  const handleTourAction = React.useCallback(
+    (id: 'next' | 'close') => {
+      const now = Date.now();
+      if (guard.swallows(now)) return;
+      if (blocksHome(idleNow.current)) return;
+      if (!settle.acts(now)) return;
+      setTour((at) => (at.open && tourActions(at.index).some((action) => action.id === id) ? tourAfter(at, id) : at));
+    },
+    [guard, settle],
+  );
+
   // The platform's screen reader is told of each card once, as it comes on screen (read/announce.ts): the words
   // Play would read, in the order it would read them.
   const announcements = React.useMemo(() => announcer(), []);
-  const announced = onScreen && liveFor === null ? (card ? card.id : seeingShown ? SEEING_CARD : null) : null;
+  const announced = onScreen && liveFor === null ? (card ? card.id : seeingShown ? SEEING_CARD : tourShown ? `tour:${tourStep}` : null) : null;
   const announceWords = React.useRef<() => string>(() => '');
   announceWords.current = () => {
     if (card) return speechTextOf(card.card).join(' ');
     if (!language) return '';
     const say = words(language);
+    const step = TOUR_STEPS[tourStep];
+    if (tourShown && step) {
+      const w = stepWords(say, step, say('tour.family'));
+      return [say('tour.kicker', { step: tourStep + 1, count: TOUR_STEPS.length }), say('tour.example'), w.headline, w.example ?? '', w.detail].filter(Boolean).join(' ');
+    }
     return [say('seeing.headline'), say('seeing.detail'), ...seeingActions(seeing.preferences, say).map((action) => action.label)].join(' ');
   };
   React.useEffect(() => {
@@ -868,6 +902,11 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
         setSeeingOpen(false);
         return true;
       }
+      // Back closes the tour, at any step.
+      if (tourShown) {
+        setTour((now) => tourAfter(now, 'back'));
+        return true;
+      }
       if (!backClosesOpened({ openedId: openedId.current, shownId: card?.id ?? null, liveOpen: liveFor !== null })) {
         // A card that came to her (the door over her film, a note at a break): Back is its "Not now", or
         // nothing, and never reaches the film underneath or leaves Wick. The door camera keeps its own Back.
@@ -887,13 +926,13 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       return true;
     });
     return () => sub.remove();
-  }, [card, liveFor, handleAction, seeingShown]);
+  }, [card, liveFor, handleAction, seeingShown, tourShown]);
 
   // Not yet known which language to say it in: a moment, at launch. Nothing is drawn in the wrong one.
   if (language === null) return <View style={styles.unlit} />;
   const say = words(language);
   // The home screen behind whatever is over it (home/behind.ts): while a card is on screen, none of it is drawn.
-  const behind = homeBehind({ card: card !== null || seeingShown, mantelOpen, idle });
+  const behind = homeBehind({ card: card !== null || seeingShown || tourShown, mantelOpen, idle });
   // Her films in her order (home/order.ts), and where she left those she stopped part-way.
   const ordered = kept ? orderProgrammes(CATALOG, { startAt: (id) => kept.positions.startAt(id), tally: kept.tally.get(), hour: new Date().getHours() }) : CATALOG.map((programme) => ({ programme, resumeAtMs: undefined }));
   const resumeAt = Object.fromEntries(ordered.flatMap((film) => (film.resumeAtMs ? [[film.programme.id, film.resumeAtMs] as const] : [])));
@@ -940,6 +979,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           onOpenMantel={handleOpenMantel}
           seeing={say('seeing.entry')}
           onOpenSeeing={handleOpenSeeing}
+          tour={say('home.tour')}
+          onOpenTour={handleOpenTour}
           day={day}
           onHold={handleHold}
           onKeyUp={handleKeyUp}
@@ -978,6 +1019,8 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
           <SeeingCard language={language} focusId={seeingFocus} onAction={handleSeeingAction} />
         </View>
       ) : null}
+      {/* How Wick works: the whole screen, a step at a time. A card from the server comes over it. */}
+      {tourShown ? <TourScreen index={tourStep} language={language} onAction={handleTourAction} /> : null}
       {/* Back returns to the card as it was. */}
       {liveFor ? (
         <LiveView

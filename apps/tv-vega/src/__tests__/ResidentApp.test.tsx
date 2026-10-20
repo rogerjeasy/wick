@@ -27,7 +27,7 @@ import type { PlayerSnapshot } from '../player/PlayerService.js';
 import { CARD_SERVICE_URI } from '../headless/launchCardService.js';
 import { CATALOG } from '../catalog/catalog.js';
 import { SETTLED_AFTER_MS } from '../break/types.js';
-import { moveApp, opened, pressBack, resetPlatform } from './render/platform.js';
+import { moveApp, opened, pressBack, resetPlatform, sendKey } from './render/platform.js';
 import { files, resetFiles } from './render/files.js';
 import { resetMedia } from './render/media.js';
 import { button, buttons, headers, pressOk, render, shows, textOf, type Drawn } from './render/render.js';
@@ -38,6 +38,7 @@ vi.mock('@amazon-devices/kepler-file-system', () => import('./render/files.js'))
 vi.mock('@amazon-devices/react-native-w3cmedia', () => import('./render/media.js'));
 vi.mock('../home/posters.js', () => ({ POSTERS: {} }));
 vi.mock('../icons/iconSources.generated.js', () => import('./render/icons.js'));
+vi.mock('../tour/tourPicture.js', () => ({ TOUR_DOOR_PICTURE: { uri: 'tour:door' } }));
 
 /** The card channel, as far as the app can tell: it is handed the queue, and puts cards in it. */
 const channel = vi.hoisted(() => ({
@@ -398,5 +399,35 @@ describe('her films, in her order (home/order.ts)', () => {
     });
     const tally = JSON.parse(files.get('/data/wick-tally.json')!) as Record<string, Record<string, number>>;
     expect(Object.values(tally.sintel!)).toEqual([1]);
+  });
+});
+
+describe('How Wick works (tour/tour.ts)', () => {
+  const PILL = 'How Wick works. Press OK for a short tour with examples. Nothing is sent.';
+
+  it('opens from its pill, moves on with OK after each step’s second, closes on Back — and sends nothing', async () => {
+    const { root } = await launch();
+    await wait(1_000);
+    await sent();
+    await pressOk(button(root, PILL));
+    expect(shows(root, 'How Wick works · 1 of 5')).toBe(true);
+    // Nothing of the home behind it.
+    expect(shows(root, 'What would you like to watch?')).toBe(false);
+
+    // A press in the step's first second is not taken.
+    await pressOk(button(root, 'Show me the next'));
+    expect(shows(root, 'How Wick works · 1 of 5')).toBe(true);
+    await wait(1_000);
+    await pressOk(button(root, 'Show me the next'));
+    expect(shows(root, 'How Wick works · 2 of 5')).toBe(true);
+
+    // Play reads nothing here: the reader reads only a card the server has.
+    await act(async () => sendKey({ eventType: 'playpause', eventKeyAction: 0 }));
+
+    expect(pressBack()).toBe(true);
+    await wait(1_000);
+    expect(shows(root, 'What would you like to watch?')).toBe(true);
+    // Nothing of the tour's: no press, no reading, no question.
+    expect((await sent()).filter((t) => ['card_action', 'read', 'reach', 'light', 'mantel', 'home'].includes(t))).toEqual([]);
   });
 });
