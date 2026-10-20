@@ -69,6 +69,16 @@
  * A token for another home, or one naming another kind of television, is
  * never taken: this television is then no longer connected to the home it
  * shows, and that is what it is told.
+ *
+ * With one exception, given only to the Vega Virtual Device (`onMoved`):
+ * every simulator has the same id and keeps nothing, so its home is
+ * wherever that id was last paired — and a demo home may bring it in from
+ * the family app, with no code on its screen (services/mcp-server
+ * accounts/apiRouter.ts `/api/televisions/simulator`). A token for the same
+ * television, of the same kind, in another home, is then where it now
+ * belongs: it is told so, and goes there, instead of to the pairing screen
+ * (seen 2026-10-20: taken into a judge's demo home, it showed a new code
+ * nobody needed).
  */
 import type { DeviceToken } from '@wick/contracts';
 import type { RenewResult } from './PairingFlow.js';
@@ -100,6 +110,11 @@ function forThisTelevision(fresh: DeviceToken, held: DeviceToken): boolean {
   return fresh.deviceId === held.deviceId && fresh.householdId === held.householdId && fresh.kind === held.kind;
 }
 
+/** The same television, of the same kind, now in another home. */
+function movedHome(fresh: DeviceToken, held: DeviceToken): boolean {
+  return fresh.deviceId === held.deviceId && fresh.householdId !== held.householdId && fresh.kind === held.kind;
+}
+
 export interface StandingWatch {
   /** Whether Wick is the app on screen. */
   onScreen(onScreen: boolean): void;
@@ -121,6 +136,12 @@ export function standingWatch(deps: {
   readonly held: HeldToken;
   /** A fresh token to use in place of the one held: open the channel again with it. */
   readonly onFresh: (token: DeviceToken) => void;
+  /**
+   * This television now belongs to another home, and here is its token
+   * there. Given only for the Vega Virtual Device (header): without it, a
+   * token for another home is "no longer connected". Called once.
+   */
+  readonly onMoved?: (token: DeviceToken) => void;
 }): StandingWatch {
   let held = deps.held;
   let lastAskedAt = held.since ?? Number.NEGATIVE_INFINITY;
@@ -158,6 +179,12 @@ export function standingWatch(deps: {
       }
       out = false;
       if (over || answer === 'try_later') return;
+      if (answer !== 'not_connected' && deps.onMoved && movedHome(answer.token, held.token)) {
+        over = true;
+        rest();
+        deps.onMoved(answer.token);
+        return;
+      }
       if (answer === 'not_connected' || !forThisTelevision(answer.token, held.token)) return gone();
 
       const answeredAt = Date.now();

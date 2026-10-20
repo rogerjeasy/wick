@@ -148,11 +148,19 @@ export function withNoteSent(cards, toolNames) {
       : c);
 }
 
-/** "Thursday 15 October, 10:00" from the date and time asked for: said in full, so a wrong day is seen before it is sent. */
+/** "18:57" as the rest of the app says a time, "6:57 pm" (surface.js twelveHour); anything else as it is. */
+function onTwelveHours(hhmm) {
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(hhmm ?? ''));
+  if (!m) return hhmm ?? '';
+  const h = Number(m[1]);
+  return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? 'am' : 'pm'}`;
+}
+
+/** "Thursday 15 October, 10:00 am" from the date and time asked for: said in full, so a wrong day is seen before it is sent. */
 function whenAsked(date, time) {
   const at = new Date(`${date}T${time}:00Z`);
   if (Number.isNaN(at.getTime())) return `${date ?? ''} ${time ?? ''}`.trim();
-  return `${at.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}, ${time}`;
+  return `${at.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}, ${onTwelveHours(time)}`;
 }
 
 /** Every argument not already shown, by its own name: nothing is sent that was not on the card. */

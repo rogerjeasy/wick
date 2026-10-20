@@ -410,3 +410,66 @@ describe('demoSessionLabel', () => {
     expect(demoSessionLabel('__-ab')).toBe('AB');
   });
 });
+
+describe('POST /api/televisions/simulator — the Vega Virtual Device, brought into a demo home without a code on its screen', () => {
+  async function withPairing(claimReply: { status: number; body: string }, startReply = { status: 200, body: JSON.stringify({ code: '352524', url: 'x', expiresAt: 1 }) }) {
+    const calls: { claimed?: { accessToken: string; code: string }; started?: true }[] = [];
+    const h = await server({
+      demoAccounts: true,
+      startSimulatorPairing: async () => {
+        calls.push({ started: true });
+        return startReply;
+      },
+      claimTelevision: async (accessToken, code) => {
+        calls.push({ claimed: { accessToken, code } });
+        return claimReply;
+      },
+    });
+    return { h, calls };
+  }
+  const bringIn = (h: Harness, accessToken: string) =>
+    fetch(`${h.base}/api/televisions/simulator`, { method: 'POST', headers: { authorization: `Bearer ${accessToken}` } });
+
+  it('asks for a code for the simulator’s id and enters it as the guest, so the pairing service decides as for a typed one', async () => {
+    const { h, calls } = await withPairing({ status: 200, body: JSON.stringify({ ok: true, deviceId: 'wick-tv' }) });
+    const { tokens } = await demoTokens(h);
+
+    const res = await bringIn(h, tokens.access_token);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ connected: true });
+    expect(calls).toEqual([{ started: true }, { claimed: { accessToken: tokens.access_token, code: '352524' } }]);
+  });
+
+  it('is for a demo home only: a real home is refused before anything is asked', async () => {
+    const { h, calls } = await withPairing({ status: 200, body: '{}' });
+    const sarah = await linkNewOrganiser(h);
+
+    const res = await bringIn(h, sarah.tokens.access_token);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: 'demo_home_only' });
+    expect(calls).toEqual([]);
+  });
+
+  it('says what the pairing service refused, in words', async () => {
+    const { h } = await withPairing({ status: 409, body: 'television_in_another_home' });
+    const { tokens } = await demoTokens(h);
+
+    const res = await bringIn(h, tokens.access_token);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'television_in_another_home' });
+  });
+
+  it('a code the pairing service would not give is "not just now", and nothing it said is passed on', async () => {
+    const { h, calls } = await withPairing({ status: 200, body: '{}' }, { status: 500, body: 'arn:aws:lambda:secret' });
+    const { tokens } = await demoTokens(h);
+
+    const res = await bringIn(h, tokens.access_token);
+
+    expect(res.status).toBe(502);
+    expect(JSON.stringify(await res.json())).not.toContain('arn:aws');
+    expect(calls).toEqual([{ started: true }]);
+  });
+});

@@ -177,7 +177,7 @@ describe('the door card', () => {
   it('says who it looks like until the camera has said who is there — and then the camera wins', async () => {
     const expected = byName('DOOR, expected visitor and a notice').card;
     const drawn = await drawCard({ card: expected, language: 'en' });
-    expect(texts(drawn.root)).toContain('This looks like Maria — expected around now.');
+    expect(texts(drawn.root)).toContain('Maria is expected around now.');
     // The chime's answer is said where a screen reader hears it as it arrives.
     const notice = all(drawn.root, 'Text').find((t) => textOf(t) === 'The hallway chime rang.');
     expect(notice?.props.accessibilityLiveRegion).toBe('polite');
@@ -187,21 +187,21 @@ describe('the door card', () => {
         <CardRenderer card={{ ...expected, description: 'A woman at the door in a green coat.' } as Card} language="en" onAction={() => undefined} />
       </CalmPreferencesProvider>,
     );
-    expect(shows(drawn.root, 'This looks like Maria')).toBe(false);
+    expect(shows(drawn.root, 'Maria is expected')).toBe(false);
     expect(texts(drawn.root)).toContain('A woman at the door in a green coat.');
   });
 });
 
 describe('a visitor the family arranged', () => {
-  it('says who it looks like, and under it who arranged the visit — in her language, the visitor in the member’s words', async () => {
+  it('says the visitor is due, and under it who arranged a visit for about now — in her language, the visitor in the member’s words', async () => {
     const example = byName('DOOR, a visitor the family arranged');
     const english = await drawCard({ card: example.card, language: 'en' });
-    expect(texts(english.root)).toContain('This looks like the plumber — expected around now.');
-    expect(texts(english.root)).toContain('Sarah arranged this visit.');
+    expect(texts(english.root)).toContain('The plumber is expected around now.');
+    expect(texts(english.root)).toContain('Sarah arranged a visit for about now.');
 
     const spanish = await drawCard({ card: example.spanish, language: 'es' });
-    expect(texts(spanish.root)).toContain('Parece ser the plumber — se esperaba su visita ahora.');
-    expect(texts(spanish.root)).toContain('Sarah organizó esta visita.');
+    expect(texts(spanish.root)).toContain('Se espera a the plumber sobre esta hora.');
+    expect(texts(spanish.root)).toContain('Sarah organizó una visita para esta hora.');
   });
 });
 

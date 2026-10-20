@@ -7,6 +7,8 @@ import { createHandler } from '../pair-refresh.mjs';
 import { signJwt, verifyJwt } from '../jwt.mjs';
 // @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
 import { REFRESH_MAX_PER_WINDOW, REFRESH_WINDOW_MS, nextRefreshWindow } from '../pairing-code.mjs';
+// @ts-expect-error — lambda sources are plain .mjs, deployed as-is.
+import { ID_ONLY_HOLD_MS } from '../proof.mjs';
 
 const NOW = 1_790_000_000_000;
 const { privateKey, publicKey } = generateKeyPairSync('rsa', {
@@ -41,6 +43,30 @@ describe('POST /pair/refresh', () => {
     const { token } = JSON.parse(res.body) as { token: { jwt: string; householdId: string } };
     expect(token.householdId).toBe('hh_1');
     expect(verifyJwt(token.jwt, publicKey)).toMatchObject({ deviceId: 'tv-1', householdId: 'hh_1' });
+  });
+
+  it('answers from the id alone only for ID_ONLY_HOLD_MS after the pairing: then it is not paired, and shows a code', async () => {
+    const at = (pairedAt: number) =>
+      world({
+        'HH#hh_1|META': { simulated: { BOOL: true } },
+        'DEV#wick-tv|META': { householdId: { S: 'hh_1' } },
+        'HH#hh_1|DEV#wick-tv': { deviceId: { S: 'wick-tv' }, pairedAt: { N: String(pairedAt) } },
+      });
+
+    expect((await at(NOW - ID_ONLY_HOLD_MS + 60_000)(body({ deviceId: 'wick-tv' }))).statusCode).toBe(200);
+    const lapsed = await at(NOW - ID_ONLY_HOLD_MS - 1)(body({ deviceId: 'wick-tv' }));
+    expect(lapsed).toEqual({ statusCode: 404, body: 'device_not_paired' });
+  });
+
+  it('a television that shows its secret is never run out by the hold', async () => {
+    const secret = 's'.repeat(64);
+    const handler = world({
+      'HH#hh_1|META': { simulated: { BOOL: true } },
+      'DEV#tv-1|META': { householdId: { S: 'hh_1' } },
+      'HH#hh_1|DEV#tv-1': { deviceId: { S: 'tv-1' }, pairedAt: { N: String(NOW - 30 * ID_ONLY_HOLD_MS) }, proofHash: { S: createHash('sha256').update(secret).digest('hex') } },
+    });
+
+    expect((await handler(body({ deviceId: 'tv-1', proof: secret }))).statusCode).toBe(200);
   });
 
   it('INV-8: ignores a household named in the request — a television cannot ask its way into another home', async () => {

@@ -103,7 +103,7 @@ Carrying calm-point timing into the programmes she already watches would need a 
 | **The mantelpiece** | Sarah sends a picture. Margaret can keep it, and kept pictures fill her idle screen. | Tell Sarah whether she kept it. |
 | **Read to me** | Play reads the card on screen aloud, in her language (Amazon Polly). | Speak unless she asks. |
 | **Easier to see** | Larger text, at 40-point minimum, and higher contrast, at 21:1, across every screen. | Shrink a word to make it fit. |
-| **Visit errands** | Sarah says *"The plumber is coming Thursday at ten — let Mum know."* Wick's agent shows her the plan; after her yes, a note waits for Margaret's natural break, the door card later says *"Sarah arranged this visit"*, Margaret is reminded that morning, and Sarah is told when the door rang or that nobody came. | Say the plumber came. It says someone rang around then; whether it was them is Margaret's to say. |
+| **Visit errands** | Sarah says *"The plumber is coming Thursday at ten — let Mum know."* Wick's agent shows her the plan; after her yes, a note waits for Margaret's natural break, the door card later says *"Sarah arranged a visit for about now"*, Margaret is reminded that morning, and Sarah is told when the door rang or that nobody came. | Say the plumber came. It says someone rang around then; whether it was them is Margaret's to say. |
 | **The Sunday brief** | Margaret's week, written by agents from counted facts and checked twice, ends with one thing Sarah could do, with one button: write a note, arrange a visit or watch a film together. | Guess how she feels, or suggest anything the week's facts don't support. |
 
 The family reaches all of it through **25 MCP tools**, and through an agent on
@@ -122,7 +122,9 @@ No account and no hardware are needed.
 5. Press **Ring the stand-in doorbell** in the family app and choose who is there. The door card appears at once and the film waits under it, then the picture and one sentence about it. **Esc** (Back) or *Not now* puts it away and the film goes on; if the card goes by itself while she is at the door, the film stays paused for her. The stand-in doorbell rings at most once every 20 seconds.
 
 The same flow runs on the Vega Virtual Device and on the Fire OS build in the
-Android TV emulator ([docs/SETUP.md](docs/SETUP.md)).
+Android TV emulator ([docs/SETUP.md](docs/SETUP.md)). Every Vega Virtual Device
+has the same id, so one may open in another demo home with no code: in the
+family app, **Connect a television** then **Bring in the Vega Virtual Device**.
 
 ## Screenshots
 

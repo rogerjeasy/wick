@@ -140,6 +140,12 @@ in [`apps/tv-vega/src/config.ts`](../apps/tv-vega/src/config.ts).
 5. The television shows a pairing code. Enter it in the family app (path 1),
    allow yourself on the television, and use it.
 
+   Every Vega Virtual Device has the same id (it keeps nothing on disk,
+   FL-013), so a simulator another demo home paired in the last twelve hours
+   opens straight into that home, with no code. In the family app choose
+   **Connect a television**, then **Bring in the Vega Virtual Device**: it
+   moves to your demo home within a minute, or at its next launch.
+
 Useful while it runs:
 
 ```bash
@@ -158,6 +164,11 @@ five minutes as a LaunchAgent; `npm run vvd:follow:stop` turns it off. The log
 is `~/.wick/vvd-follow/follow.log`. It needs `gh` signed in and the Vega SDK.
 The Vega simulator is told from an Android TV emulator attached beside it by
 its OS release (`VVD_SERIAL` names it if that ever fails).
+
+A ring while another app is in front shows a toast, then a second one with
+the picture. Press **Menu** while a toast is on screen to open Wick on the door
+card: a Vega toast lasts eight seconds at most (`mTimeout` is 4 or 8), and a
+press after it has gone reaches nothing.
 
 Two things the simulator does differently from a Fire TV, both in
 [`FRICTION.md`](../FRICTION.md): it keeps nothing on disk between launches
@@ -184,6 +195,11 @@ $ANDROID_HOME/emulator/emulator -avd wick_tv &   # any Android TV device, API 34
 $ANDROID_HOME/platform-tools/adb install -r android/app/build/outputs/apk/release/app-release.apk
 $ANDROID_HOME/platform-tools/adb shell am start -n com.wick.tv/.MainActivity
 ```
+
+Releases before 1.2.0 were signed with Android's debug key, and 1.2.0 with
+Wick's own, so Android refuses 1.2.0 over an earlier Wick
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`): run `adb uninstall com.wick.tv` first,
+then pair it again.
 
 The build starts an Android foreground service once it is paired, and a door card that arrives while another app is in front becomes one notification. The Android TV emulator draws no third-party notification ([FL-036](../FRICTION.md)): read it with `adb shell dumpsys notification`, or run the same APK on an Android phone emulator to see it drawn.
 

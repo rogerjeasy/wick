@@ -37,6 +37,7 @@ import {
   presentSentPictures,
   scrollTopToShow,
   presentConnected,
+  presentSimulatorConnected,
   presentDoorbell,
   presentInvitation,
   presentLanguage,
@@ -2453,6 +2454,7 @@ function addConnectTelevision({ prefill, wanted } = {}) {
         for (const other of choices) other.button.setAttribute('aria-pressed', String(other.as === as));
         lead.textContent = view.lead[as];
         footnote.textContent = view.footnote[as];
+        if (simulatorPart) simulatorPart.hidden = as === 'family';
         rest.hidden = false;
         input.focus();
       });
@@ -2474,6 +2476,33 @@ function addConnectTelevision({ prefill, wanted } = {}) {
     tv.rel = 'noopener';
     hint.append(tv, ' and enter the code on the television here.');
     rest.appendChild(hint);
+  }
+
+  // A demo home's Vega Virtual Device, which may show no code at all (surface.js presentConnect `simulator`).
+  let simulatorPart;
+  if (view.simulator) {
+    simulatorPart = el('div', 'form');
+    simulatorPart.hidden = as === 'family';
+    const bring = el('button', 'btn quiet', view.simulator.label);
+    bring.type = 'button';
+    const trouble = el('p', 'problem');
+    trouble.setAttribute('role', 'alert');
+    simulatorPart.append(el('p', 'empty', view.simulator.hint), bring, trouble);
+    rest.appendChild(simulatorPart);
+    bring.addEventListener('click', async () => {
+      bring.disabled = true;
+      trouble.textContent = '';
+      try {
+        await api('/api/televisions/simulator', { method: 'POST' });
+      } catch (err) {
+        trouble.textContent = err.message;
+        bring.disabled = false;
+        return;
+      }
+      turn.remove();
+      assistantSays(presentSimulatorConnected(resident));
+      await afterResidentTelevision();
+    });
   }
 
   const form = el('form', 'form');

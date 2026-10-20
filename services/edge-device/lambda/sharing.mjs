@@ -126,9 +126,12 @@ export function buildSharingCard({ householdId, page, policyJson, exclusions, fa
       pages: classes.length + 1,
       headline: item.headline,
       detail: `${index + 1} of ${classes.length}. ${status} ${NEVER_LINE}`,
+      // Next first, and the amber one: where the remote's focus starts, and stays as she pages through. The choice
+      // was first and amber, and with the focus on Next it read as the one chosen (Vega Virtual Device, 2026-10-20) —
+      // and an OK pressed to page on changed what was shared. Changing it is now one deliberate step to the right.
       actions: [
-        { id: 'toggle', label: isPrivate ? 'Share it again' : 'Keep this private', kind: 'primary' },
-        { id: 'next', label: 'Next', kind: 'secondary' },
+        { id: 'next', label: 'Next', kind: 'primary' },
+        { id: 'toggle', label: isPrivate ? 'Share it again' : 'Keep this private', kind: 'secondary' },
         { id: 'done', label: 'Done', kind: 'secondary' },
       ],
     },

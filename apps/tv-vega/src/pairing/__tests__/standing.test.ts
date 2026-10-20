@@ -378,6 +378,39 @@ describe('standingWatch — a television that is still connected takes a fresh t
     expect(tv.gone).toHaveBeenCalledTimes(1);
   });
 
+  it('the Vega Virtual Device, given `onMoved`, goes where its id now belongs — once, and asks no more', async () => {
+    const moved = vi.fn();
+    const gone = vi.fn();
+    let says: RenewResult = { token: minted('there', T0, HOUR, 'h2') };
+    const ask = vi.fn(async () => says);
+    const watch = standingWatch({ ask, onGone: gone, onFresh: vi.fn(), onMoved: moved, held: { token: minted('here', T0, HOUR, 'h1') } });
+
+    watch.onScreen(true);
+    await vi.advanceTimersByTimeAsync(0);
+    says = 'not_connected';
+    await vi.advanceTimersByTimeAsync(5 * STANDING_EVERY_MS);
+
+    expect(moved).toHaveBeenCalledTimes(1);
+    expect(nameOf(moved.mock.calls[0]![0] as DeviceToken)).toBe('there');
+    expect(gone).not.toHaveBeenCalled();
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
+
+  it('with `onMoved`, "not connected" and another kind are still gone: only the same television in another home has moved', async () => {
+    for (const says of ['not_connected' as const, { token: { ...minted('family', T0, HOUR, 'h2'), kind: 'family' as const } }]) {
+      const moved = vi.fn();
+      const gone = vi.fn();
+      const watch = standingWatch({ ask: async () => says, onGone: gone, onFresh: vi.fn(), onMoved: moved, held: { token: minted('here', T0, HOUR, 'h1') } });
+
+      watch.onScreen(true);
+      await vi.advanceTimersByTimeAsync(0);
+      watch.stop();
+
+      expect(moved).not.toHaveBeenCalled();
+      expect(gone).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('nor a token that names a kind this television is not', async () => {
     const tv = launched();
     await vi.advanceTimersByTimeAsync(HOUR);

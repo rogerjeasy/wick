@@ -52,14 +52,14 @@ describe('checkVisitor — the door when she was expected, and her word, kept ap
 
     const result = await checkVisitor(ddb, 'hh-1', 'maria', TUESDAY);
 
-    expect(result).toEqual({ confirmed: false, doorWhenExpected: true, at: NINE, name: 'Maria', expectedToday: true });
+    expect(result).toEqual({ confirmed: false, doorWhenExpected: true, at: NINE, name: 'Maria', expectedToday: true, usualTimeOver: false });
     expect(result).not.toHaveProperty('visited');
   });
 
   it('is confirmed only when the resident said "Yes, that\u2019s right" about that day’s visit', async () => {
     const ddb = { send: table({ atDoor: [doorAt(NINE)], visits: [visitRow(NINE, 'confirmed')] }) } as unknown as DynamoDBClient;
 
-    expect(await checkVisitor(ddb, 'hh-1', 'maria', TUESDAY)).toEqual({ confirmed: true, doorWhenExpected: true, at: NINE, name: 'Maria', expectedToday: true });
+    expect(await checkVisitor(ddb, 'hh-1', 'maria', TUESDAY)).toEqual({ confirmed: true, doorWhenExpected: true, at: NINE, name: 'Maria', expectedToday: true, usualTimeOver: false });
   });
 
   it('is not confirmed by a visit she has not answered, one she said was not right, another visitor’s, or one on another day', async () => {
@@ -73,13 +73,25 @@ describe('checkVisitor — the door when she was expected, and her word, kept ap
   it('reports neither when nothing was noted that day', async () => {
     const ddb = { send: table() } as unknown as DynamoDBClient;
 
-    expect(await checkVisitor(ddb, 'hh-1', 'maria', TUESDAY)).toEqual({ confirmed: false, doorWhenExpected: false, name: 'Maria', expectedToday: true });
+    expect(await checkVisitor(ddb, 'hh-1', 'maria', TUESDAY)).toEqual({ confirmed: false, doorWhenExpected: false, name: 'Maria', expectedToday: true, usualTimeOver: false });
+  });
+
+  it('says her usual time is over once her window has closed that day, and for a day gone by — never before', async () => {
+    const ddb = { send: table() } as unknown as DynamoDBClient;
+    const at = async (askedAt: string) => (await checkVisitor(ddb, 'hh-1', 'maria', TUESDAY, 'UTC', Date.parse(askedAt))).usualTimeOver;
+
+    expect(await at('2023-11-14T09:20:00.000Z')).toBe(false);
+    expect(await at('2023-11-14T09:31:00.000Z')).toBe(true);
+    expect(await at('2023-11-14T18:45:00.000Z')).toBe(true);
+    expect(await at('2023-11-16T08:00:00.000Z')).toBe(true);
+    // Wednesday is not one of her days: nothing is over that was never due.
+    expect((await checkVisitor(ddb, 'hh-1', 'maria', new Date('2023-11-15T00:00:00.000Z'), 'UTC', Date.parse('2023-11-15T18:00:00.000Z'))).usualTimeOver).toBe(false);
   });
 
   it('reports unknown when the person is not on the roster', async () => {
     const ddb = { send: table({ roster: false }) } as unknown as DynamoDBClient;
 
-    expect(await checkVisitor(ddb, 'hh-1', 'ghost', TUESDAY)).toEqual({ confirmed: false, doorWhenExpected: false, name: undefined, expectedToday: false });
+    expect(await checkVisitor(ddb, 'hh-1', 'ghost', TUESDAY)).toEqual({ confirmed: false, doorWhenExpected: false, name: undefined, expectedToday: false, usualTimeOver: false });
   });
 });
 

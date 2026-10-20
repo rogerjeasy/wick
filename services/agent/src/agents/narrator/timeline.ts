@@ -28,6 +28,8 @@ export function toTimelineEntry(item: Record<string, AttributeValue>): TimelineE
 
   switch (item.type?.S) {
     case 'door':
+      // Somebody seen who did not ring is not a caller: the week does not count it, nor say somebody came.
+      if (item.motion?.BOOL === true) return undefined;
       return { at, kind: 'door', summary: 'Someone was at the front door.' };
 
     case 'presence': {

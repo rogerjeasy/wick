@@ -29,7 +29,7 @@ import { QueueStore, readOnly, type FileSystemLike } from './QueueStore.js';
 import { PairingFlow } from '../pairing/PairingFlow.js';
 import { standingWatch } from '../pairing/standing.js';
 import { loadDeviceConfig, type DeviceConfig } from '../config.js';
-import { resolveDeviceId, televisionIdentity } from '../deviceId.js';
+import { SIMULATOR_DEVICE_ID, resolveDeviceId, televisionIdentity } from '../deviceId.js';
 import { createFamilyClient, type Renewed } from '../family/familyClient.js';
 import { televisionMode } from '../family/mode.js';
 import { runWaitingService, type Claimed } from './waitingService.js';
@@ -59,6 +59,8 @@ let running: Pick<RunningCardChannel, 'stop'> | undefined;
 const saidWaiting = new Set<string>();
 /** The pairing service's "a token is required": this is a family member's television, and the way for its service is not open. */
 const TOKEN_REQUIRED = 401;
+/** How often the simulator, with no home, asks whether it has one now (above). */
+export const TAKE_UP_EVERY_MS = 60_000;
 /** Counts starts and stops, so a start that was still waiting for its token knows it was overtaken. */
 let starts = 0;
 
@@ -111,21 +113,29 @@ export async function onStartCardService(): Promise<void> {
       },
     });
     if (starting !== starts) return; // stopped, or started again, while waiting
-    if (token && televisionMode(token) === 'resident') {
-      // A television the family has disconnected is refused this connection
-      // for good, and from here that looks like a network that has gone:
-      // the channel would try again for ever. So its trouble is asked about
-      // (pairing/standing.ts), and "not connected" ends it. The token file
-      // is left alone — it is the app's, which asks the same question when
-      // it is next on screen, and forgets.
-      //
-      // So is a television whose token has run out — an hour after this
-      // service started, where the disk keeps none. This connection is
-      // checked only as it opens, so the hour passes unnoticed until it
-      // next drops; the reconnection is then refused for good, with the
-      // token it was given. The answer to the same question is "connected",
-      // and comes with a fresh token: the connection is let go and held
-      // again with that one. Nothing is written down here either.
+    // The Vega Virtual Device: every simulator has this id, and its home is
+    // wherever the id was last paired (pairing/standing.ts). This process
+    // cannot be started again while it runs — a second launch is not
+    // delivered — so it follows the id itself: to the home that brings the
+    // simulator in, and back to holding one after its binding runs out and a
+    // new code is entered.
+    const simulator = deviceId === SIMULATOR_DEVICE_ID;
+
+    // A television the family has disconnected is refused this connection
+    // for good, and from here that looks like a network that has gone:
+    // the channel would try again for ever. So its trouble is asked about
+    // (pairing/standing.ts), and "not connected" ends it. The token file
+    // is left alone — it is the app's, which asks the same question when
+    // it is next on screen, and forgets.
+    //
+    // So is a television whose token has run out — an hour after this
+    // service started, where the disk keeps none. This connection is
+    // checked only as it opens, so the hour passes unnoticed until it
+    // next drops; the reconnection is then refused for good, with the
+    // token it was given. The answer to the same question is "connected",
+    // and comes with a fresh token: the connection is let go and held
+    // again with that one. Nothing is written down here either.
+    const holdResident = (first: DeviceToken, since?: number): Pick<RunningCardChannel, 'stop'> => {
       const hold = (inUse: DeviceToken): RunningCardChannel =>
         holdCardChannel(
           store,
@@ -147,21 +157,66 @@ export async function onStartCardService(): Promise<void> {
         },
       };
       const standing = standingWatch({
-        held: { token, ...(token.jwt !== before?.jwt ? { since: Date.now() } : {}) },
+        held: { token: first, ...(since !== undefined ? { since } : {}) },
         // Asked by the id the token in use names, never only by the one read when this process began: the app may since have
         // been paired again as a new television (deviceId.ts), and the old id's row is gone.
         ask: (inUse) => pairing.renew(inUse.deviceId, inUse.jwt, { remember: false }),
         onGone: () => {
           held.stop();
-          if (running === held) running = undefined;
+          if (running === held) running = simulator ? waitForHome() : undefined;
         },
         onFresh: (fresh) => {
           channel?.stop();
           channel = hold(fresh);
         },
+        ...(simulator
+          ? {
+              onMoved: (there: DeviceToken) => {
+                held.stop();
+                if (running === held) running = holdResident(there, Date.now());
+              },
+            }
+          : {}),
       });
-      channel = hold(token);
-      running = held;
+      channel = hold(first);
+      // Nothing tells the simulator it was taken into another home, so it asks every minute, as the app does on screen.
+      if (simulator) standing.onScreen(true);
+      return held;
+    };
+
+    /** The simulator with no home: asked again every TAKE_UP_EVERY_MS until it has one, then held. */
+    const waitForHome = (): Pick<RunningCardChannel, 'stop'> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waiting = {
+        stop(): void {
+          if (timer !== undefined) clearTimeout(timer);
+          timer = undefined;
+        },
+      };
+      const again = (): void => {
+        timer = setTimeout(() => {
+          void pairing.loadToken(deviceId, { asService: true }).then(
+            (found) => {
+              if (running !== waiting) return;
+              if (found && televisionMode(found) === 'resident') running = holdResident(found, Date.now());
+              else again();
+            },
+            () => {
+              if (running === waiting) again();
+            },
+          );
+        }, TAKE_UP_EVERY_MS);
+      };
+      again();
+      return waiting;
+    };
+
+    if (token && televisionMode(token) === 'resident') {
+      running = holdResident(token, token.jwt !== before?.jwt ? Date.now() : undefined);
+      return;
+    }
+    if (!token && simulator) {
+      running = waitForHome();
       return;
     }
     // Genuinely unpaired — App.tsx shows the pairing screen; nothing to hold

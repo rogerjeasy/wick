@@ -22,7 +22,7 @@
  * an item attribute that real production rows don't have.
  */
 import { QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { doorWhenExpected, padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk } from '@wick/contracts';
+import { doorWhenExpected, oneLinePerMoment, padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk } from '@wick/contracts';
 import { DEFAULT_POLICY, type HouseholdPolicy } from '@wick/policy';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
@@ -43,13 +43,15 @@ export interface RawTimelineEvent {
   readonly cardId?: string;
   readonly action?: string;
   readonly personName?: string;
+  /** A person seen at the door who did not ring (agent door/presence.ts buildDoorEventItem). */
+  readonly motion?: boolean;
 }
 
 /** The family's sentence for an event, or undefined for anything that is not theirs to see. */
 export function summariseEvent(event: RawTimelineEvent): string | undefined {
   switch (event.type) {
     case 'door':
-      return 'Someone was at the front door.';
+      return event.motion ? 'Movement at the front door, and nobody rang.' : 'Someone was at the front door.';
     case 'presence':
       // Somebody at the door when a regular visitor was expected: when, never who (packages/contracts visit.ts).
       return event.personName ? doorWhenExpected(event.personName) : 'Someone came to the door when a regular visitor was expected.';
@@ -104,17 +106,20 @@ export async function loadTodayEvents(
   const doorShared = isSharedWithFamily('DOOR_EVENT', policy);
   const presenceShared = isSharedWithFamily('PRESENCE', policy);
 
-  const events: TodayEntry[] = [];
+  const said: (TodayEntry & { readonly kind: string })[] = [];
   for (const item of res.Items ?? []) {
     const event: RawTimelineEvent = {
       type: item.type?.S ?? '',
       ...(item.personName?.S !== undefined && { personName: item.personName.S }),
+      ...(item.motion?.BOOL === true && { motion: true }),
     };
     if (event.type === 'door' && !doorShared) continue;
     if (event.type === 'presence' && !presenceShared) continue;
     const summary = summariseEvent(event);
-    if (summary !== undefined) events.push({ at: parseTsFromSk(item.sk?.S ?? ''), summary });
+    if (summary !== undefined) said.push({ at: parseTsFromSk(item.sk?.S ?? ''), summary, kind: event.type });
   }
+  // One line for one moment: a ring when a visitor was expected is said once, not as a ring and again as expected.
+  const events: TodayEntry[] = oneLinePerMoment(said).map(({ at, summary }) => ({ at, summary }));
 
   const keptPrivate = [
     ...(doorShared ? [] : [`When someone comes to the door.${KEPT_PRIVATE}`]),

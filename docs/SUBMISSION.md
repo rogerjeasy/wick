@@ -28,7 +28,7 @@ anyone watching her.
 | Try it (no account, no hardware) | https://d2sbabcft8sm3m.cloudfront.net/tv.html (her television in a browser tab) and https://dmaz25jvryojp.cloudfront.net/ (the family app) |
 | The calm-point map | https://rogerjeasy.github.io/wick/calm-points/ |
 | Product feedback (every tool, and 15 feature requests) | [`docs/PRODUCT-FEEDBACK.md`](PRODUCT-FEEDBACK.md) |
-| Friction log (45 entries) | [`FRICTION.md`](../FRICTION.md) |
+| Friction log (46 entries) | [`FRICTION.md`](../FRICTION.md) |
 | Video | `VIDEO_URL_PLACEHOLDER` |
 
 ---
@@ -99,7 +99,7 @@ Built on those three, each with one button on her remote:
 - **Visit errands**: Sarah says *"The plumber is coming Thursday at ten — let
   Mum know."* Wick's agent shows her the plan and waits for her yes; then a
   note waits for Margaret's natural break, the door is told whom to expect (the
-  card later says "Sarah arranged this visit"), Margaret is reminded that
+  card later says "Sarah arranged a visit for about now"), Margaret is reminded that
   morning, and Sarah is told when the door rang or that nobody came. It runs
   for days as one Step Functions execution, and never claims the plumber came:
   only that someone rang around then.

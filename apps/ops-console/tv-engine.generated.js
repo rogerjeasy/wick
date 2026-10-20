@@ -133,7 +133,7 @@ var WickTv = (() => {
     parcel: visitor("parcel", "A parcel delivery", "button_press"),
     stranger: visitor("stranger", "Somebody she does not know", "button_press"),
     // Ring saw a person move, and the picture shows nobody: the card's headline is corrected (door/index.ts).
-    nobody: visitor("nobody", "Nobody there, only movement", "motion_detected"),
+    nobody: visitor("nobody", "Movement, and nobody rings", "motion_detected"),
     // Whoever a member arranged to come (errand.ts arrange_visit), ringing now: arrange one a few minutes ahead and
     // ring this, and the door matches them by the time as it would anyone expected. A tradesman with a toolbox,
     // as a plumber or a window cleaner would come — not the delivery, which said a parcel had come for a visit.
@@ -555,8 +555,8 @@ var WickTv = (() => {
       // The press is the consent: the picture goes to the people she allows, for this one card (askFamily.ts).
       b("Ask {first} to look", "Pedir a {first} que mire"),
       b("Ring the hallway chime", "Tocar timbre del pasillo"),
-      // A visitor the family arranged (contracts errand.ts): who arranged it, under "This looks like the plumber".
-      s("{first} arranged this visit.", "{first|cap} organizó esta visita.")
+      // A visitor the family arranged (contracts errand.ts): who arranged it, under "The plumber is expected around now".
+      s("{first} arranged a visit for about now.", "{first|cap} organizó una visita para esta hora.")
     ],
     // Her reminder of a visit the family arranged: a note from them in Wick's own words. Who is coming is theirs, and kept.
     "services/agent/src/agents/errand/reminder.ts": [
@@ -586,7 +586,9 @@ var WickTv = (() => {
       s("Someone came to the door in the night, at {time} on {day}.", "Alguien vino a la puerta por la noche, el {day} a {time|las}."),
       s("Nobody had come at night in the {n} weeks before.", "En las {n} semanas anteriores no había venido nadie por la noche."),
       s("Nobody had come to the door by {time} on {day}.", "El {day}, a {time|las}, todavía no había venido nadie a la puerta."),
-      s("By that time on a {day} there are usually about {n}.", "Un {day} a esa hora, lo habitual es alrededor de {n}."),
+      s("By that time on a {day} there are usually about {n} callers.", "Un {day} a esa hora, lo habitual es que vengan unas {n} personas."),
+      s("By that time on a {day} there is usually one caller.", "Un {day} a esa hora, lo habitual es que venga una persona."),
+      s("By that time on a {day} there is usually nobody.", "Un {day} a esa hora, lo habitual es que no venga nadie."),
       s("Fewer people than usual had come to the door by {time} on {day}: {n}.", "El {day}, hasta {time|las}, había venido a la puerta menos gente de lo habitual: {n}."),
       s("The door was busier than usual on {day}: {n} callers by {time}.", "El {day} hubo más movimiento de lo habitual en la puerta: {n} personas hasta {time|las}.")
     ],
@@ -608,7 +610,8 @@ var WickTv = (() => {
       b("Please call me.", "Llámame, por favor."),
       b("I'm fine, thank you.", "Estoy bien, gracias."),
       b("Thinking of you too.", "Yo también pienso en ti."),
-      b("That's lovely to hear.", "Qué alegría saberlo.")
+      b("That's lovely to hear.", "Qué alegría saberlo."),
+      b("Talk to you then.", "Hablamos entonces.")
     ],
     // Watch together: the invitation (invite_to_watch.ts), "… is ready" (join_watch_together.ts), the film called off
     // (withdraw_watch_invitation.ts), and what the family member answered (answer_watch_together.ts). The day and the
@@ -1561,8 +1564,8 @@ var WickTv = (() => {
     "message.headline": "A message from {name}.",
     "message.photoLabel": "{name}'s photo",
     "door.pictureLabel": "Picture from the front door camera",
-    "door.looksLikeExpected": "This looks like {name} — expected around now.",
-    "door.looksLike": "This looks like {name}.",
+    "door.looksLikeExpected": "{name} is expected around now.",
+    "door.looksLike": "{name} often comes around this time.",
     // A demo home's stand-in doorbell (DoorCard.standIn): said beside her sentence, never inside it.
     "door.standIn": "Stand-in doorbell, for the demo",
     // The pairing screen. Shown in English always — see the header.
@@ -1574,6 +1577,9 @@ var WickTv = (() => {
     "pairing.gettingCode": "Getting a code…",
     /** Under "Getting a code…" while the pairing service cannot be reached (pairing/connect.ts). The family screen's own words, word for word. */
     "pairing.stillTrying": "Wick cannot reach the home just now.",
+    // Her "Yes, delete everything", not done (pairing/stop.ts): said on the page instead of nothing.
+    "stop.refused": "This television cannot stop Wick. Nothing was deleted.",
+    "stop.failed": "Wick cannot reach the home just now. Nothing was deleted. Try again in a moment.",
     // A programme, playing (watch/WatchScreen.tsx).
     "watch.failed": "{title} will not play just now. Press Back.",
     "watch.starting": "Starting {title}…",
@@ -1724,8 +1730,8 @@ var WickTv = (() => {
     "message.photoLabel": "Foto de {name}",
     "door.pictureLabel": "Imagen de la cámara de la puerta",
     // "Su visita", so the sentence need not agree with whoever is named.
-    "door.looksLikeExpected": "Parece ser {name} — se esperaba su visita ahora.",
-    "door.looksLike": "Parece ser {name}.",
+    "door.looksLikeExpected": "Se espera a {name} sobre esta hora.",
+    "door.looksLike": "{name} suele venir a esta hora.",
     "door.standIn": "Timbre simulado, para la demostración",
     "pairing.title": "Configurar Wick",
     "pairing.instructions": "Escriba este código en la app familiar de Wick. Allí se indica de quién es este televisor.",
@@ -1733,6 +1739,8 @@ var WickTv = (() => {
     "pairing.scanLabel": "Un código para la cámara de un teléfono. Abre la app familiar de Wick con este código ya escrito.",
     "pairing.gettingCode": "Pidiendo un código…",
     "pairing.stillTrying": "Wick no puede comunicarse con la casa ahora.",
+    "stop.refused": "Este televisor no puede detener Wick. No se borró nada.",
+    "stop.failed": "Wick no puede comunicarse con la casa ahora. No se borró nada. Inténtelo de nuevo en un momento.",
     "watch.failed": "{title} no se puede ver ahora. Presione Atrás.",
     "watch.starting": "Iniciando {title}…",
     "watch.paused": "En pausa — {title}",
@@ -1943,7 +1951,8 @@ var WickTv = (() => {
   function doorDetailText(card, language = DEFAULT_LANGUAGE) {
     if (card.description) return card.description;
     if (card.match) {
-      return words(language)(card.match.expectedToday ? "door.looksLikeExpected" : "door.looksLike", { name: card.match.name });
+      const said = words(language)(card.match.expectedToday ? "door.looksLikeExpected" : "door.looksLike", { name: card.match.name });
+      return said.charAt(0).toUpperCase() + said.slice(1);
     }
     return void 0;
   }

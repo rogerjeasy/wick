@@ -8,6 +8,7 @@ import {
   needsConfirmation,
   presentCircle,
   presentConnect,
+  presentSimulatorConnected,
   presentPairLink,
   presentConnected,
   presentDoorbell,
@@ -225,7 +226,9 @@ describe('presentResult — today', () => {
     });
     const r = presentResult('get_today', raw, {}, at);
     expect(r.say).toBe('Two things so far today. Most recently: someone came to the door.');
-    expect(r.card.items[0]).toEqual({ primary: 'Maria visited.', secondary: 't100' });
+    // Newest first, as the sentence says it: a list cut to a few shows the latest.
+    expect(r.card.items[0]).toEqual({ primary: 'Someone came to the door.', secondary: 't300' });
+    expect(r.card.items[1]).toEqual({ primary: 'Maria visited.', secondary: 't100' });
   });
 
   it('names what is kept private, in the spoken answer and on the card', () => {
@@ -251,6 +254,11 @@ describe('presentResult — did a visitor come', () => {
   it('answers not yet on a usual day', () => {
     const r = presentResult('did_visitor_come', JSON.stringify({ confirmed: false, doorWhenExpected: false, name: 'Maria', expectedToday: true }), {}, at);
     expect(r.say).toBe('Not yet. Maria is usually expected today.');
+  });
+
+  it('never says "not yet" once her usual time is over', () => {
+    const r = presentResult('did_visitor_come', JSON.stringify({ confirmed: false, doorWhenExpected: false, name: 'Maria', expectedToday: true, usualTimeOver: true }), {}, at);
+    expect(r.say).toBe("Nobody came to the door at Maria's usual time today, and no visit has been confirmed.");
   });
 
   it('answers on a day they are not expected', () => {
@@ -364,6 +372,20 @@ describe('presentConnect — whose television it is, asked before the code is se
       as: null,
       lead: { resident: 'Open Wick on the television. It shows a six-digit code.', family: 'Open Wick on your television. It shows a six-digit code.' },
       footnote: { resident: HERS, family: QUIET },
+      simulator: null,
+    });
+  });
+
+  it('in a demo home, offers to bring in the Vega Virtual Device, which may show no code — never for one’s own television', () => {
+    const demo = { ...me('organiser', 'allowed'), household: { ...me('organiser', 'allowed').household, simulated: true } };
+    expect(presentConnect(demo).simulator).toEqual({
+      hint: 'Using the Vega Virtual Device? Every simulator has the same id, so it may open straight into another demo home without showing a code.',
+      label: 'Bring in the Vega Virtual Device',
+    });
+    expect(presentConnect({ ...demo, membership: { role: 'family', status: 'allowed' } }).simulator).toBeNull();
+    expect(presentSimulatorConnected('Margaret')).toEqual({
+      say: 'The Vega Virtual Device is now Margaret’s television. It moves to this home within a minute; if Wick is not open on it, launch it.',
+      tone: 'answer',
     });
   });
 
@@ -384,6 +406,7 @@ describe('presentConnect — whose television it is, asked before the code is se
         as: 'family',
         lead: { resident: 'Open Wick on the television. It shows a six-digit code.', family: 'Open Wick on your television. It shows a six-digit code.' },
         footnote: { resident: HERS, family: QUIET },
+        simulator: null,
       });
     }
   });

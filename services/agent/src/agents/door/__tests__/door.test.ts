@@ -138,9 +138,9 @@ describe('buildPhaseOneCard — M4 Known Visitors', () => {
 
 describe('buildPhaseOneCard — asking the family to look', () => {
   const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' };
-  const withFamily = (family: readonly string[], over: { hallwayChime?: boolean; start?: number; roster?: readonly RosterEntry[] } = {}) =>
+  const withFamily = (family: readonly string[], over: { hallwayChime?: boolean; start?: number; roster?: readonly RosterEntry[]; eventType?: string } = {}) =>
     buildPhaseOneCard({
-      event: { ...event, start: over.start ?? event.start },
+      event: { ...event, start: over.start ?? event.start, ...(over.eventType ? { eventType: over.eventType } : {}) },
       device,
       hallwayChime: over.hallwayChime ?? false,
       householdId: 'hh-1',
@@ -150,7 +150,7 @@ describe('buildPhaseOneCard — asking the family to look', () => {
       ...(over.roster ? { roster: over.roster } : {}),
     });
 
-  it('offers to ask the one person the resident has allowed, by first name, when nobody is expected', () => {
+  it('offers to ask the one person the resident has allowed, by first name', () => {
     const actions = withFamily(['Sarah Whitfield']).actions;
     expect(actions.map((a) => a.id)).toEqual(['watch_live', 'ask_family', 'dismiss']);
     expect(actions[1]).toEqual({ id: 'ask_family', label: 'Ask Sarah to look', kind: 'secondary' });
@@ -169,11 +169,17 @@ describe('buildPhaseOneCard — asking the family to look', () => {
     expect(build(false).actions.map((a) => a.id)).toEqual(['watch_live', 'dismiss']);
   });
 
-  it('offers nothing when the visitor is someone the household expects', () => {
+  it('still offers it when a visitor is expected: the door knows who is due, never who has come', () => {
     // Tuesday 2026-09-15 09:10 UTC — inside Maria's expected window.
     const card = withFamily(['Sarah'], { start: Date.UTC(2026, 8, 15, 9, 10), roster: [maria] });
     expect(card.match?.name).toBe('Maria');
-    expect(card.actions.map((a) => a.id)).toEqual(['watch_live', 'dismiss']);
+    expect(card.actions.map((a) => a.id)).toEqual(['watch_live', 'ask_family', 'dismiss']);
+  });
+
+  it('takes nobody seen who did not ring for the visitor expected', () => {
+    const seen = withFamily(['Sarah'], { start: Date.UTC(2026, 8, 15, 9, 10), roster: [maria], eventType: 'motion_detected' });
+    expect(seen.match).toBeUndefined();
+    expect(seen.actions.map((a) => a.id)).toEqual(['watch_live', 'ask_family', 'dismiss']);
   });
 
   it('takes the middle place from the hallway chime — three buttons, never four', () => {

@@ -41,6 +41,7 @@ export const REPLY_CHOICES = {
   im_fine: "I'm fine, thank you.",
   you_too: 'Thinking of you too.',
   lovely: "That's lovely to hear.",
+  talk_then: 'Talk to you then.',
 };
 
 /**
@@ -528,7 +529,7 @@ export const STAND_IN_VISITORS = [
   { key: 'carer', label: 'Maria, the carer' },
   { key: 'parcel', label: 'A parcel delivery' },
   { key: 'stranger', label: 'Somebody she does not know' },
-  { key: 'nobody', label: 'Nobody there, only movement' },
+  { key: 'nobody', label: 'Movement, and nobody rings' },
   // Rings now for a visit arranged with arrange_visit (errands.js): the door matches it by the time.
   { key: 'arranged', label: 'The visitor you arranged' },
 ];
@@ -827,7 +828,8 @@ function presentToday(today, formatTime, now) {
       kind: 'list',
       title: thisDay ? 'Today' : day,
       meta: '',
-      items: events.map((e) => ({ primary: e.summary, secondary: formatTime(e.at) })),
+      // Newest first, as the sentence above says it: the list is cut to a few, and the latest is the one asked about.
+      items: [...events].reverse().map((e) => ({ primary: e.summary, secondary: formatTime(e.at) })),
       ...(kept.length ? { footnote: kept.join(' ') } : {}),
     },
   };
@@ -856,7 +858,10 @@ function presentVisitor(v, formatTime, now) {
     : v.doorWhenExpected
       ? `Someone came to the door at ${formatTime(v.at)}, when ${v.name} was expected. It has not been confirmed yet that it was ${v.name}.`
       : v.expectedToday
-        ? `Not yet. ${v.name} is usually expected today.`
+        // Once the usual time has passed, "not yet" would be a hope, not an answer (did_visitor_come.ts usualTimeOver).
+        ? v.usualTimeOver
+          ? `Nobody came to the door at ${v.name}'s usual time today, and no visit has been confirmed.`
+          : `Not yet. ${v.name} is usually expected today.`
         : `Today isn't one of ${v.name}'s usual days, and no visit has been confirmed.`;
   return { say, card: null, tone: 'answer' };
 }
@@ -2043,6 +2048,29 @@ export function presentConnect(me, wanted) {
       resident: `${resident} is then asked, on it, whether to allow you.`,
       family: `Your television will show you ${resident}’s light and anything she asks of you. It is never used to reach her.`,
     },
+    // A demo home only (POST /api/televisions/simulator): every Vega Virtual Device has the same id, so one may open
+    // straight into another demo home and never show a code. This brings it here instead. Never for one's own television.
+    simulator: me.household.simulated === true && offer !== 'family'
+      ? {
+          hint: 'Using the Vega Virtual Device? Every simulator has the same id, so it may open straight into another demo home without showing a code.',
+          label: 'Bring in the Vega Virtual Device',
+        }
+      : null,
+  };
+}
+
+/**
+ * Said once the Vega Virtual Device has been brought in (POST
+ * /api/televisions/simulator). The simulator follows its id here by itself
+ * within a minute (apps/tv-vega pairing/standing.ts); one that is not running
+ * Wick finds it at its next launch.
+ *
+ * @param {string} resident
+ */
+export function presentSimulatorConnected(resident) {
+  return {
+    say: `The Vega Virtual Device is now ${resident}’s television. It moves to this home within a minute; if Wick is not open on it, launch it.`,
+    tone: 'answer',
   };
 }
 

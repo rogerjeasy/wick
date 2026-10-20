@@ -128,7 +128,16 @@ per-device cooldown (four in half a minute, `REFRESH_WINDOW_MS`); one simulator 
 one home at a time (`device-owner.mjs`); and the moment a row keeps a secret
 an unproven token is refused everywhere — by `connect.mjs`, the IoT
 authorizer at every re-check, every message on a WebSocket opened with one
-(`route.mjs`) and Watch live (`refusesUnproven`). In a demo home the same
+(`route.mjs`) and Watch live (`refusesUnproven`). And it lasts twelve hours
+from the pairing (`proof.mjs` `ID_ONLY_HOLD_MS`): then the binding answers
+404 `device_not_paired`, the simulator shows a code, and the next pairing
+takes it — one stale demo home no longer holds every simulator in the world.
+A demo home's organiser may also bring the simulator in without a code on its
+screen (`POST /api/televisions/simulator`): the Wick server asks the pairing
+service for a code for `wick-tv` and enters it as the caller, so the claim's
+own rules decide — demo home only, never taken from a real home — and nothing
+is widened, since anybody may ask for that code. The simulator follows its id
+there (`apps/tv-vega` `pairing/standing.ts` `onMoved`). In a demo home the same
 exception covers a television paired before secrets until it enrols one.
 
 Consent presses are **not** refused for an unproven token, and that is a

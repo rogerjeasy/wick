@@ -38,7 +38,7 @@ PERSON: yes   (or: PERSON: no) — whether any person is visible in the frame
 <the description>
 
 Rules for the description, all mandatory:
-- One sentence. Present tense. At most 14 words.
+- One sentence. Present tense. At most 12 words.
 - Only what is visibly there. Never infer intent, mood, purpose or identity.
 - Never use: seems, appears, probably, likely, might, trying, waiting for.
 - Never name anyone.

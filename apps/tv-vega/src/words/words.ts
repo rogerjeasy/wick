@@ -88,8 +88,8 @@ const en = {
   'message.headline': 'A message from {name}.',
   'message.photoLabel': "{name}'s photo",
   'door.pictureLabel': 'Picture from the front door camera',
-  'door.looksLikeExpected': 'This looks like {name} — expected around now.',
-  'door.looksLike': 'This looks like {name}.',
+  'door.looksLikeExpected': '{name} is expected around now.',
+  'door.looksLike': '{name} often comes around this time.',
   // A demo home's stand-in doorbell (DoorCard.standIn): said beside her sentence, never inside it.
   'door.standIn': 'Stand-in doorbell, for the demo',
 
@@ -102,6 +102,10 @@ const en = {
   'pairing.gettingCode': 'Getting a code…',
   /** Under "Getting a code…" while the pairing service cannot be reached (pairing/connect.ts). The family screen's own words, word for word. */
   'pairing.stillTrying': 'Wick cannot reach the home just now.',
+
+  // Her "Yes, delete everything", not done (pairing/stop.ts): said on the page instead of nothing.
+  'stop.refused': 'This television cannot stop Wick. Nothing was deleted.',
+  'stop.failed': 'Wick cannot reach the home just now. Nothing was deleted. Try again in a moment.',
 
   // A programme, playing (watch/WatchScreen.tsx).
   'watch.failed': '{title} will not play just now. Press Back.',
@@ -265,8 +269,8 @@ const es: Readonly<Record<WordKey, string>> = {
   'message.photoLabel': 'Foto de {name}',
   'door.pictureLabel': 'Imagen de la cámara de la puerta',
   // "Su visita", so the sentence need not agree with whoever is named.
-  'door.looksLikeExpected': 'Parece ser {name} — se esperaba su visita ahora.',
-  'door.looksLike': 'Parece ser {name}.',
+  'door.looksLikeExpected': 'Se espera a {name} sobre esta hora.',
+  'door.looksLike': '{name} suele venir a esta hora.',
   'door.standIn': 'Timbre simulado, para la demostración',
 
   'pairing.title': 'Configurar Wick',
@@ -275,6 +279,9 @@ const es: Readonly<Record<WordKey, string>> = {
   'pairing.scanLabel': 'Un código para la cámara de un teléfono. Abre la app familiar de Wick con este código ya escrito.',
   'pairing.gettingCode': 'Pidiendo un código…',
   'pairing.stillTrying': 'Wick no puede comunicarse con la casa ahora.',
+
+  'stop.refused': 'Este televisor no puede detener Wick. No se borró nada.',
+  'stop.failed': 'Wick no puede comunicarse con la casa ahora. No se borró nada. Inténtelo de nuevo en un momento.',
 
   'watch.failed': '{title} no se puede ver ahora. Presione Atrás.',
   'watch.starting': 'Iniciando {title}…',

@@ -95,7 +95,8 @@ describe('the door card (agents/door/index.ts)', () => {
     const maria: RosterEntry = { personId: 'maria', name: 'Maria', expectedPattern: 'FRI 09:00±30m' };
     const card = coverage.spanish(phaseOne({ roster: [maria], family: ['Sarah'], hallwayChime: true }));
     expect(card.match?.name).toBe('Maria');
-    expect(labels(card)).toEqual(['Ver en vivo', 'Tocar timbre del pasillo', 'Ahora no']);
+    // The family's second look stays: the door knows a visitor is due, never who has come.
+    expect(labels(card)).toEqual(['Ver en vivo', 'Pedir a Sarah que mire', 'Ahora no']);
   });
 
   it('for a visitor the family arranged, says who arranged it — the name and the visitor never translated', () => {
@@ -107,10 +108,10 @@ describe('the door card (agents/door/index.ts)', () => {
       arrangedByName: 'Sarah Hughes',
     };
     const english = phaseOne({ roster: [plumber] });
-    expect(english.notice).toBe('Sarah arranged this visit.');
+    expect(english.notice).toBe('Sarah arranged a visit for about now.');
     const card = coverage.spanish(english);
     expect(card.match?.name).toBe('the plumber');
-    expect(card.notice).toBe('Sarah organizó esta visita.');
+    expect(card.notice).toBe('Sarah organizó una visita para esta hora.');
   });
 
   it('corrects the headline when the picture shows nobody, and leaves the description to be translated as free text', () => {
@@ -247,17 +248,17 @@ describe('"Shall I tell Sarah?" (agents/tell/ask.ts, with the detector’s own s
 
   it('a quiet door: nobody, and fewer than usual', async () => {
     expect((await asked(input({ entries: usualFridays(3) })))[0]!.detail).toBe(
-      'El viernes, a las 15:00, todavía no había venido nadie a la puerta. Un viernes a esa hora, lo habitual es alrededor de 3.',
+      'El viernes, a las 15:00, todavía no había venido nadie a la puerta. Un viernes a esa hora, lo habitual es que vengan unas 3 personas.',
     );
     expect((await asked(input({ entries: [...usualFridays(4), door(FRIDAY + 9 * HOUR)] })))[0]!.detail).toBe(
-      'El viernes, hasta las 15:00, había venido a la puerta menos gente de lo habitual: 1. Un viernes a esa hora, lo habitual es alrededor de 4.',
+      'El viernes, hasta las 15:00, había venido a la puerta menos gente de lo habitual: 1. Un viernes a esa hora, lo habitual es que vengan unas 4 personas.',
     );
   });
 
   it('a busy door', async () => {
     const today = [9, 10, 11, 12, 13].map((h) => door(FRIDAY + h * HOUR));
     expect((await asked(input({ entries: [...usualFridays(1), ...today] })))[0]!.detail).toBe(
-      'El viernes hubo más movimiento de lo habitual en la puerta: 5 personas hasta las 15:00. Un viernes a esa hora, lo habitual es alrededor de 1.',
+      'El viernes hubo más movimiento de lo habitual en la puerta: 5 personas hasta las 15:00. Un viernes a esa hora, lo habitual es que venga una persona.',
     );
   });
 

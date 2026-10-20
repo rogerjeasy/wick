@@ -66,8 +66,8 @@ const savedSession = async (): Promise<string> =>
   JSON.stringify(await storage.loadSnapshot({ location: { sessionId: assistantSessionId(HH, MEMBER), scope: 'agent', scopeId: 'wick-assistant' } }));
 
 describe('the Guardrail reads what the agent says, never what the member asks', () => {
-  it('hands the reply to the guard with the tools’ own texts as its grounding, the question as its query, and the house’s time zone', async () => {
-    const seen: { say: string; question?: string; toolTexts: readonly string[]; timeZone?: string }[] = [];
+  it('hands the reply to the guard with the tools’ own texts as its grounding, the question as its query, the house’s time zone, and who is who', async () => {
+    const seen: { say: string; question?: string; toolTexts: readonly string[]; timeZone?: string; who?: unknown }[] = [];
     const { out } = turn(ask('How has my mum been this week?'), [
       { call: [{ name: 'get_today', input: { day: 'today' } }] },
       { say: 'The doorbell went 6 times today.' },
@@ -76,7 +76,7 @@ describe('the Guardrail reads what the agent says, never what the member asks', 
     const result = await out;
 
     expect(result.say).toBe('The doorbell went 6 times today.');
-    expect(seen).toEqual([{ say: 'The doorbell went 6 times today.', question: 'How has my mum been this week?', toolTexts: ['{"dayInWords":"today","doorbell":6,"films":2}'], timeZone: 'Europe/London' }]);
+    expect(seen).toEqual([{ say: 'The doorbell went 6 times today.', question: 'How has my mum been this week?', toolTexts: ['{"dayInWords":"today","doorbell":6,"films":2}'], timeZone: 'Europe/London', who: WHO }]);
   });
 
   it('says nothing of a reply the guard refuses: the Wick server then says the tools’ own sentences', async () => {

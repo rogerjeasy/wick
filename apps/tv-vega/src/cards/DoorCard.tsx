@@ -15,8 +15,8 @@
  *     given. Pressing it keeps the card, and a patch adds the notice saying
  *     whether the chime rang (M1).
  *
- * The detail slot can also carry M4's schedule match ("This looks like
- * Maria — expected around now"), available from Phase 1, before the vision
+ * The detail slot can also carry M4's schedule match ("Maria is expected
+ * around now": when she is due, never who has come), available from Phase 1, before the vision
  * description ever patches in — see doorDetail.ts for the priority between
  * them.
  *

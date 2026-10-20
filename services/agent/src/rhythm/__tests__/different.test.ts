@@ -149,7 +149,7 @@ describe('a day at the door unlike the same weekday usually is', () => {
     const answer = whatsDifferent(input({ roster: [], entries: usualFridays(3) }));
 
     expect(answer.differences.map((d) => [d.kind, d.sentence])).toEqual([
-      ['door_quiet', 'Nobody has come to the door today. By this time on a Friday there are usually about 3.'],
+      ['door_quiet', 'Nobody has come to the door today. By this time on a Friday there are usually about 3 callers.'],
     ]);
   });
 
@@ -158,7 +158,7 @@ describe('a day at the door unlike the same weekday usually is', () => {
     const answer = whatsDifferent(input({ roster: [], entries: [...usualFridays(1), ...today] }));
 
     expect(answer.differences.map((d) => [d.kind, d.sentence])).toEqual([
-      ['door_busy', 'The door has been busier than usual today: 5 callers. By this time on a Friday there are usually about 1.'],
+      ['door_busy', 'The door has been busier than usual today: 5 callers. By this time on a Friday there is usually one caller.'],
     ]);
   });
 
@@ -221,10 +221,10 @@ describe('the lasting wording — the same difference, said so that it is still 
   it('names the day and the hour a quiet door was noticed, in the household’s own time', () => {
     // Two in the afternoon UTC is three in London's summer.
     expect(lasting({ roster: [], entries: usualFridays(3) })).toEqual([
-      'Nobody had come to the door by 3:00 pm on Friday. By that time on a Friday there are usually about 3.',
+      'Nobody had come to the door by 3:00 pm on Friday. By that time on a Friday there are usually about 3 callers.',
     ]);
     expect(lasting({ roster: [], entries: [...usualFridays(4), door(at(FRIDAY, 9))] })).toEqual([
-      'Fewer people than usual had come to the door by 3:00 pm on Friday: 1. By that time on a Friday there are usually about 4.',
+      'Fewer people than usual had come to the door by 3:00 pm on Friday: 1. By that time on a Friday there are usually about 4 callers.',
     ]);
   });
 
@@ -232,7 +232,7 @@ describe('the lasting wording — the same difference, said so that it is still 
     const today = [9, 10, 11, 12, 13].map((h) => door(at(FRIDAY, h)));
 
     expect(lasting({ roster: [], entries: [...usualFridays(1), ...today] })).toEqual([
-      'The door was busier than usual on Friday: 5 callers by 3:00 pm. By that time on a Friday there are usually about 1.',
+      'The door was busier than usual on Friday: 5 callers by 3:00 pm. By that time on a Friday there is usually one caller.',
     ]);
   });
 });
@@ -276,7 +276,7 @@ describe('the doorbell heard — nothing is said from an absence Wick could not 
     const entries = quietFriday().filter((e) => e.at > FRIDAY - 3 * WEEK - DAY);
     const heardLately = heardHours(NOW).filter((h) => h >= FRIDAY - 3 * WEEK - DAY);
     expect(whatsDifferent(input({ roster: [], entries, now: NOW, heard: heardLately })).differences.map((d) => d.sentence)).toEqual([
-      'Nobody has come to the door today. By this time on a Friday there are usually about 3.',
+      'Nobody has come to the door today. By this time on a Friday there are usually about 3 callers.',
     ]);
     // Counted as quiet, the unheard Fridays would have halved the usual, and today would not have been news.
     expect(whatsDifferent(input({ roster: [], entries, now: NOW })).differences).toEqual([]);

@@ -53,7 +53,7 @@ export async function runDescribeGraph(
   const validate = new StepNode(DESCRIBE_NODES.validate, async (ctx) => {
     judged = judgeDescribeReply(ctx.output(DESCRIBE_NODES.describe));
     return judged.reason;
-  }, 'One sentence, ≤14 words, no speculation — or nothing');
+  }, 'One sentence, ≤12 words asked and ≤16 allowed, no speculation — or nothing');
 
   const graph = new Graph({
     id: 'door-describe',

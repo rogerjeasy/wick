@@ -15,7 +15,7 @@ end of its life.
 | `carer.jpg` | the demo home's carer | 4101 |
 | `parcel.jpg` | a parcel delivery | 4102 |
 | `stranger.jpg` | somebody she does not know | 4203 |
-| `nobody.jpg` | nobody: only movement | 4104 |
+| `nobody.jpg` | nobody: movement, and nobody rings | 4104 |
 | `arranged.jpg` | the visitor a family member arranged (made 2026-10-18) | 4106 |
 
 Aspect ratio 16:9, output JPEG. Every prompt began with the frame below, and

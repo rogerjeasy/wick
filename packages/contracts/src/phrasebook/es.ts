@@ -141,8 +141,8 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
     // The press is the consent: the picture goes to the people she allows, for this one card (askFamily.ts).
     b('Ask {first} to look', 'Pedir a {first} que mire'),
     b('Ring the hallway chime', 'Tocar timbre del pasillo'),
-    // A visitor the family arranged (contracts errand.ts): who arranged it, under "This looks like the plumber".
-    s('{first} arranged this visit.', '{first|cap} organizó esta visita.'),
+    // A visitor the family arranged (contracts errand.ts): who arranged it, under "The plumber is expected around now".
+    s('{first} arranged a visit for about now.', '{first|cap} organizó una visita para esta hora.'),
   ],
 
   // Her reminder of a visit the family arranged: a note from them in Wick's own words. Who is coming is theirs, and kept.
@@ -177,7 +177,9 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
     s('Someone came to the door in the night, at {time} on {day}.', 'Alguien vino a la puerta por la noche, el {day} a {time|las}.'),
     s('Nobody had come at night in the {n} weeks before.', 'En las {n} semanas anteriores no había venido nadie por la noche.'),
     s('Nobody had come to the door by {time} on {day}.', 'El {day}, a {time|las}, todavía no había venido nadie a la puerta.'),
-    s('By that time on a {day} there are usually about {n}.', 'Un {day} a esa hora, lo habitual es alrededor de {n}.'),
+    s('By that time on a {day} there are usually about {n} callers.', 'Un {day} a esa hora, lo habitual es que vengan unas {n} personas.'),
+    s('By that time on a {day} there is usually one caller.', 'Un {day} a esa hora, lo habitual es que venga una persona.'),
+    s('By that time on a {day} there is usually nobody.', 'Un {day} a esa hora, lo habitual es que no venga nadie.'),
     s('Fewer people than usual had come to the door by {time} on {day}: {n}.', 'El {day}, hasta {time|las}, había venido a la puerta menos gente de lo habitual: {n}.'),
     s('The door was busier than usual on {day}: {n} callers by {time}.', 'El {day} hubo más movimiento de lo habitual en la puerta: {n} personas hasta {time|las}.'),
   ],
@@ -202,6 +204,7 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
     b("I'm fine, thank you.", 'Estoy bien, gracias.'),
     b('Thinking of you too.', 'Yo también pienso en ti.'),
     b("That's lovely to hear.", 'Qué alegría saberlo.'),
+    b('Talk to you then.', 'Hablamos entonces.'),
   ],
 
   // Watch together: the invitation (invite_to_watch.ts), "… is ready" (join_watch_together.ts), the film called off

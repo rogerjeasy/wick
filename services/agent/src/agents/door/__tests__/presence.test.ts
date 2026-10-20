@@ -47,6 +47,11 @@ describe('buildDoorEventItem', () => {
     expect(item.personId).toBeUndefined();
     expect(item.personName).toBeUndefined();
     expect(item.simulated).toBeUndefined();
+    expect(item.motion).toBeUndefined();
+  });
+
+  it('marks a person seen who did not ring, so nothing counts them as a caller', () => {
+    expect(buildDoorEventItem('hh-1', 1789455093305, 'evt-id-2', { motion: true }).motion).toEqual({ BOOL: true });
   });
 });
 
