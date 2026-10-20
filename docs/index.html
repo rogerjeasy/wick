@@ -1,311 +1,53 @@
 <!doctype html>
+<!--
+  Wick's project page, served by GitHub Pages from docs/. Every number and
+  claim on it is the README's: change one there, change it here.
+  scripts/__tests__/pages.test.ts holds the counts (MCP tools from the code,
+  features from the README's table) so they cannot go stale silently.
+  Styles: assets/site.css. Script: assets/site.js. Font, icons and Motion:
+  assets/vendor (npm run pages:vendor).
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Wick · Care on the screen she already watches</title>
-<meta name="description" content="Wick is a Fire TV app for an older person living alone. The door, the family and the rhythm of her week, on her own television, with her in charge. Fire TV, Ring and Alexa+.">
+<title>Wick · The television as the care surface</title>
+<meta name="description" content="Wick turns the television an older person already watches into the place care reaches her: the door, the family and the rhythm of her week, answered with one button, and she decides what her family sees. Fire TV, Ring and Alexa+.">
 <link rel="icon" href="icons/light-72.png">
-<meta property="og:title" content="Wick · Care on the screen she already watches">
+<meta property="og:title" content="Wick · The television as the care surface">
 <meta property="og:description" content="The television as the care surface for the person being cared for. Fire TV, Ring and Alexa+.">
 <meta property="og:image" content="https://rogerjeasy.github.io/wick/carousel/wick-1.png">
-<meta name="theme-color" content="#12100E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --ground:#12100E; --ground-2:#171512; --raised:#1E1B17; --raised-2:#25211C;
-    --line:#2E2923; --line-2:#3A342C;
-    --ink:#F4F1EA; --ink-dim:#C8C2B6; --ink-faint:#8F887C;
-    --accent:#E8B75D; --accent-ink:#1A1408; --accent-soft:rgba(232,183,93,.12);
-    --radius:16px; --radius-sm:10px;
-    --display:"Fraunces",Georgia,"Times New Roman",serif;
-    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    --shadow:0 30px 80px -30px rgba(0,0,0,.75);
-    --film-ground:#100F0D; --peek:170px;
+<meta name="theme-color" content="#12100E" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#FBF8F2" media="(prefers-color-scheme: light)">
+<link rel="preload" href="assets/vendor/fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+<script>
+  // Reveal on scroll hides blocks until Motion shows them; only when motion is allowed, and never for long.
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    document.documentElement.classList.add('motion-ok');
+    setTimeout(function () { if (!window.__wickReveal) document.documentElement.classList.remove('motion-ok'); }, 2500);
   }
-  *{box-sizing:border-box}
-  html{scroll-behavior:smooth}
-  body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.65 var(--sans);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-  img{max-width:100%;height:auto;display:block}
-  a{color:inherit}
-  :focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:6px}
-  .wrap{width:min(1160px,100% - 40px);margin-inline:auto}
-  .skip{position:absolute;left:-999px;top:12px;background:var(--accent);color:var(--accent-ink);padding:8px 14px;border-radius:8px;z-index:20}
-  .skip:focus{left:12px}
-
-  /* Navigation */
-  .nav{position:sticky;top:0;z-index:10;background:rgba(18,16,14,.78);backdrop-filter:saturate(140%) blur(14px);-webkit-backdrop-filter:saturate(140%) blur(14px);border-bottom:1px solid rgba(46,41,35,.7)}
-  .nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;gap:16px}
-  .brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-family:var(--display);font-size:1.3rem;font-weight:600;letter-spacing:-.01em}
-  .brand img{width:30px;height:30px;border-radius:8px}
-  .nav ul{display:flex;gap:28px;list-style:none;margin:0;padding:0}
-  .nav ul a{text-decoration:none;color:var(--ink-dim);font-size:.94rem;transition:color .2s}
-  .nav ul a:hover{color:var(--ink)}
-  .nav-cta{display:flex;gap:10px;align-items:center}
-
-  /* Buttons */
-  .btn{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 20px;border-radius:999px;font-weight:600;font-size:.95rem;text-decoration:none;border:1px solid var(--line-2);color:var(--ink);background:transparent;transition:background .2s,border-color .2s,color .2s,transform .2s;cursor:pointer;white-space:nowrap}
-  .btn:hover{border-color:var(--ink-faint);background:rgba(255,255,255,.03)}
-  .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-  .btn.primary:hover{background:#F0C474;border-color:#F0C474}
-  .btn svg{width:18px;height:18px}
-  .btn.sm{min-height:38px;padding:0 16px;font-size:.88rem}
-
-  /* Hero: the film, edge to edge */
-  .hero{position:relative;padding:0 0 88px;overflow:hidden}
-  .stage{position:relative;background:var(--film-ground);display:flex;justify-content:center}
-  .stage::after{content:"";position:absolute;inset:auto 0 0 0;height:1px;background:var(--line)}
-  .film{position:relative;width:min(100%,max(560px,calc((100svh - 64px - var(--peek)) * 16 / 9)));aspect-ratio:16/9;background:var(--film-ground)}
-  .film video{display:block;width:100%;height:100%;object-fit:contain;background:var(--film-ground)}
-  .film video::cue{font:500 1.05rem/1.4 var(--sans);background:rgba(10,9,8,.86);color:#fff}
-  .film:fullscreen{width:100%;height:100%;aspect-ratio:auto;background:#000}
-  .film:fullscreen video{background:#000}
-  .film-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:transparent;z-index:1}
-  .film-progress i{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(0);background:var(--accent);opacity:.9}
-  .film-start{position:absolute;inset:0;display:none;place-items:end center;padding-bottom:9%;border:0;background:rgba(16,15,13,.35);cursor:pointer;color:var(--ink)}
-  .film-start span{display:inline-flex;align-items:center;gap:14px;padding:16px 28px 16px 18px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font:600 1.05rem var(--sans);box-shadow:0 18px 50px -12px rgba(0,0,0,.7)}
-  .film-start svg{width:30px;height:30px}
-  .film.still .film-start{display:grid}
-
-  .film-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:14px}
-  .film-controls{display:flex;align-items:center;gap:8px}
-  .film-meta{margin:0;font-size:.86rem;color:var(--ink-faint);display:flex;align-items:center;gap:8px;text-align:right}
-  .film-meta i{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
-  .ctl{display:inline-grid;place-items:center;width:44px;height:44px;border-radius:50%;border:1px solid var(--line-2);background:transparent;color:var(--ink-dim);cursor:pointer;transition:color .2s,border-color .2s,background .2s}
-  .ctl:hover{color:var(--ink);border-color:var(--ink-faint)}
-  .ctl svg{width:18px;height:18px}
-  .ctl[aria-pressed="true"]{color:var(--accent);border-color:rgba(232,183,93,.55);background:var(--accent-soft)}
-  .ctl .cc{font:700 .72rem var(--sans);letter-spacing:.04em}
-  .btn.sound{min-height:44px;font-size:.92rem}
-  .btn.sound .dur{color:var(--ink-faint);font-weight:500;font-variant-numeric:tabular-nums}
-  .btn.sound[aria-pressed="true"]{border-color:rgba(232,183,93,.55);color:var(--accent)}
-  .ctl .when-paused,.ctl[aria-pressed="true"] .when-playing{display:none}
-  .ctl[aria-pressed="true"] .when-paused{display:block}
-
-  .cta-row{display:flex;flex-wrap:wrap;gap:12px}
-  .hero-cta .cta-row{justify-content:center;gap:14px}
-  .hero-cta{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:26px}
-  .hero-cta .btn{min-height:54px;padding:0 30px;font-size:1.02rem}
-  .hero-note{margin:16px 0 0;font-size:.9rem;color:var(--ink-faint)}
-
-  /* The statement under the film */
-  .statement{padding:24px 0 0}
-  .statement-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:72px;align-items:end;padding-top:72px;border-top:1px solid var(--line)}
-  .eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
-  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
-  h1{font-family:var(--display);font-weight:600;font-size:clamp(2.6rem,5.6vw,4.6rem);line-height:1.02;letter-spacing:-.028em;margin:18px 0 0;text-wrap:balance}
-  h1 em{font-style:normal;color:var(--accent)}
-  .lede{font-size:1.2rem;line-height:1.6;color:var(--ink-dim);margin:0;text-wrap:pretty}
-  .lede b{color:var(--ink);font-weight:600}
-  .three{list-style:none;margin:56px 0 0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
-  .three li{display:flex;gap:16px;align-items:flex-start;padding:24px;border-radius:var(--radius);background:var(--raised);border:1px solid var(--line)}
-  .three .icon{margin:0;flex:none}
-  .three b{display:block;font-weight:600;margin-bottom:4px}
-  .three span{color:var(--ink-dim);font-size:.94rem;line-height:1.55}
-
-  /* Two screens */
-  .duo{display:grid;grid-template-columns:.9fr 1.1fr;gap:56px;align-items:center}
-  .duo-steps{list-style:none;margin:28px 0 0;padding:0;display:grid;gap:16px;counter-reset:d}
-  .duo-steps li{display:flex;gap:16px;align-items:flex-start}
-  .duo-steps li::before{counter-increment:d;content:counter(d);flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:.88rem;margin-top:2px}
-  .duo-steps b{display:block;font-weight:600}
-  .duo-steps span{color:var(--ink-dim);font-size:.95rem}
-  .browser{border-radius:14px;overflow:hidden;background:#0E0D0B;border:1px solid var(--line-2);box-shadow:var(--shadow)}
-  .browser-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:#1A1714;border-bottom:1px solid var(--line)}
-  .browser-bar i{width:10px;height:10px;border-radius:50%;background:#3A342C}
-  .browser-bar span{margin-left:10px;flex:1;max-width:320px;font-size:.75rem;color:var(--ink-faint);background:#12100E;border:1px solid var(--line);border-radius:999px;padding:3px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .browser video{display:block;width:100%;height:auto;aspect-ratio:16/10;object-fit:cover;object-position:top;background:#12100E}
-  .media-note{margin-top:14px;font-size:.84rem;color:var(--ink-faint);text-align:center}
-  .tv-stand{width:34%;height:12px;margin:0 auto;background:linear-gradient(180deg,#24201B,#15130F);border-radius:0 0 10px 10px}
-  .tv-caption{margin-top:18px;text-align:center;font-size:.88rem;color:var(--ink-faint)}
-
-  /* Metrics */
-  .metrics{border-block:1px solid var(--line);background:var(--ground-2)}
-  .metrics .wrap{display:grid;grid-template-columns:repeat(4,1fr)}
-  .metric{padding:30px 24px;border-left:1px solid var(--line)}
-  .metric:first-child{border-left:0}
-  .metric b{display:block;font-family:var(--display);font-size:2.2rem;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
-  .metric span{color:var(--ink-dim);font-size:.92rem}
-
-  /* Sections */
-  section{padding:104px 0}
-  .section-head{max-width:46rem;margin-bottom:52px}
-  .section-head.center{margin-inline:auto;text-align:center}
-  .kicker{font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:0 0 14px}
-  h2{font-family:var(--display);font-weight:600;font-size:clamp(1.9rem,3.4vw,2.7rem);line-height:1.12;letter-spacing:-.02em;margin:0 0 16px}
-  .section-head p{color:var(--ink-dim);font-size:1.08rem;margin:0}
-  .section-head p.kicker,.why p.kicker{color:var(--accent);font-size:.8rem;margin:0 0 14px}
-
-  /* Contrast: caregiver vs her */
-  .contrast{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-  .panel{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:34px}
-  .panel h3{margin:0 0 18px;font-size:1.05rem;font-weight:600;display:flex;align-items:center;gap:10px}
-  .panel.muted h3{color:var(--ink-faint)}
-  .panel.her{background:linear-gradient(180deg,rgba(232,183,93,.08),rgba(232,183,93,.02)),var(--raised);border-color:rgba(232,183,93,.35)}
-  .panel.her h3{color:var(--accent)}
-  .panel ul{list-style:none;margin:0;padding:0;display:grid;gap:12px}
-  .panel li{display:flex;gap:12px;color:var(--ink-dim)}
-  .panel li svg{flex:none;width:20px;height:20px;margin-top:3px}
-  .panel.muted li svg{color:var(--ink-faint)}
-  .panel.her li svg{color:var(--accent)}
-
-  /* Pillars */
-  .pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
-  .pillar{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:32px;transition:border-color .25s,transform .25s}
-  .pillar:hover{border-color:var(--line-2);transform:translateY(-2px)}
-  .icon{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);margin-bottom:22px}
-  .icon svg{width:22px;height:22px}
-  .pillar h3{font-size:1.2rem;margin:0 0 10px;font-weight:600}
-  .pillar p{margin:0;color:var(--ink-dim)}
-  .pillar .meta{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:.86rem;color:var(--ink-faint)}
-
-  /* Gallery */
-  .gallery{display:grid;grid-template-columns:repeat(6,1fr);gap:20px}
-  .shot{margin:0;background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
-  .shot img{width:100%;aspect-ratio:16/9;object-fit:contain;background:#0B0A09}
-  .shot figcaption{padding:16px 20px 18px}
-  .shot strong{display:block;font-weight:600;margin-bottom:2px}
-  .shot span{color:var(--ink-faint);font-size:.88rem}
-  .shot.wide{grid-column:span 3}
-  .shot.third{grid-column:span 2}
-
-  /* Features */
-  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
-  .feature{background:var(--ground);padding:28px 28px 30px}
-  .feature h3{font-size:1.02rem;font-weight:600;margin:0 0 8px;display:flex;align-items:center;gap:10px}
-  .feature h3 i{font-style:normal;font-size:.74rem;color:var(--accent);font-weight:600;letter-spacing:.06em}
-  .feature p{margin:0 0 10px;color:var(--ink-dim);font-size:.95rem}
-  .feature .never{margin:0;font-size:.86rem;color:var(--ink-faint)}
-  .feature .never b{color:var(--ink-dim);font-weight:600}
-
-  /* Trust */
-  .trust{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
-  .promise{display:flex;gap:18px;background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:28px}
-  .promise .icon{margin:0;flex:none}
-  .promise h3{margin:0 0 6px;font-size:1.05rem;font-weight:600}
-  .promise p{margin:0;color:var(--ink-dim);font-size:.95rem}
-
-  /* Why Amazon */
-  .why{display:grid;grid-template-columns:1fr 1.15fr;gap:56px;align-items:center}
-  .why p{color:var(--ink-dim)}
-  .compare{width:100%;border-collapse:separate;border-spacing:0;background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;font-size:.95rem}
-  .compare th,.compare td{padding:16px 20px;text-align:left;border-bottom:1px solid var(--line)}
-  .compare tr:last-child td{border-bottom:0}
-  .compare th{color:var(--ink-faint);font-weight:500;font-size:.82rem;letter-spacing:.08em;text-transform:uppercase}
-  .compare tr.us td{background:var(--accent-soft);color:var(--ink);font-weight:600}
-  .compare tr.us td:not(:first-child){color:var(--accent)}
-  .compare td.none{color:var(--ink-faint)}
-
-  /* Architecture */
-  .arch{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:40px}
-  .flow{display:grid;grid-template-columns:1fr auto 1.4fr auto 1fr;gap:18px;align-items:stretch}
-  .node{background:var(--ground);border:1px solid var(--line-2);border-radius:var(--radius-sm);padding:20px}
-  .node h4{margin:0 0 6px;font-size:.98rem;font-weight:600}
-  .node p{margin:0;font-size:.86rem;color:var(--ink-faint)}
-  .node.core{border-color:rgba(232,183,93,.45);background:linear-gradient(180deg,rgba(232,183,93,.07),transparent),var(--ground)}
-  .node.core h4{color:var(--accent)}
-  .node + .node{margin-top:12px}
-  .arrow{display:grid;place-items:center;color:var(--ink-faint)}
-  .arrow svg{width:26px;height:26px}
-  .stack{display:flex;flex-wrap:wrap;gap:8px;margin-top:30px;padding-top:26px;border-top:1px solid var(--line)}
-  .chip{font-size:.82rem;padding:6px 12px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-dim)}
-  .chip.key{border-color:rgba(232,183,93,.45);color:var(--accent)}
-
-  /* Try */
-  .try{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;counter-reset:step}
-  .step{background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:30px;position:relative}
-  .step::before{counter-increment:step;content:counter(step);display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-weight:600;font-size:.92rem;margin-bottom:18px}
-  .step h3{margin:0 0 8px;font-size:1.08rem;font-weight:600}
-  .step p{margin:0 0 18px;color:var(--ink-dim);font-size:.95rem}
-  .keys{display:flex;flex-wrap:wrap;gap:6px;margin-top:-4px}
-  kbd{font:500 .78rem var(--sans);padding:3px 8px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:6px;color:var(--ink-dim);background:var(--ground)}
-  .honest{margin-top:26px;padding:18px 22px;border:1px dashed var(--line-2);border-radius:var(--radius-sm);color:var(--ink-faint);font-size:.9rem}
-  .honest b{color:var(--ink-dim)}
-
-  /* Docs */
-  .docs{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-  .doc{display:block;text-decoration:none;background:var(--raised);border:1px solid var(--line);border-radius:var(--radius);padding:24px;transition:border-color .2s,transform .2s}
-  .doc:hover{border-color:rgba(232,183,93,.5);transform:translateY(-2px)}
-  .doc h3{margin:0 0 6px;font-size:1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-  .doc h3 svg{width:16px;height:16px;color:var(--ink-faint)}
-  .doc p{margin:0;color:var(--ink-faint);font-size:.88rem}
-
-  /* Closing */
-  .closing{text-align:center;padding:96px 0;background:radial-gradient(ellipse at center,rgba(232,183,93,.10),transparent 60%)}
-  .closing h2{max-width:40rem;margin-inline:auto}
-  .closing p{color:var(--ink-dim);max-width:34rem;margin:0 auto 30px}
-  .closing .cta-row{justify-content:center}
-
-  footer{border-top:1px solid var(--line);padding:34px 0 46px;color:var(--ink-faint);font-size:.88rem}
-  footer .wrap{display:flex;flex-wrap:wrap;gap:18px;justify-content:space-between;align-items:center}
-  footer nav{display:flex;flex-wrap:wrap;gap:20px}
-  footer a{text-decoration:none;color:var(--ink-dim)}
-  footer a:hover{color:var(--ink)}
-
-  /* Reveal (only when scripts run, and never under reduced motion) */
-  .js .reveal{opacity:0;transform:translateY(14px);transition:opacity .5s ease-out,transform .5s ease-out}
-  .js .reveal.in{opacity:1;transform:none}
-  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.film-progress{display:none}.js .reveal{opacity:1;transform:none;transition:none}.pillar,.doc,.btn{transition:none}}
-
-  /* Responsive */
-  @media (max-width:1024px){
-    .statement-grid{grid-template-columns:1fr;gap:28px;align-items:start}
-    .three{grid-template-columns:1fr}
-    .why{grid-template-columns:1fr;gap:32px}
-    .duo{grid-template-columns:1fr;gap:36px}
-    .flow{grid-template-columns:1fr}
-    .arrow{transform:rotate(90deg);height:24px}
-    .docs{grid-template-columns:repeat(2,1fr)}
-    .features{grid-template-columns:repeat(2,1fr)}
-  }
-  @media (max-width:860px){
-    .nav ul{display:none}
-    .metrics .wrap{grid-template-columns:repeat(2,1fr)}
-    .metric:nth-child(3){border-left:0}
-    .metric:nth-child(n+3){border-top:1px solid var(--line)}
-    .contrast,.pillars,.trust,.try{grid-template-columns:1fr}
-    .gallery{grid-template-columns:1fr}
-    .shot.wide,.shot.third{grid-column:auto}
-    section{padding:76px 0}
-  }
-  @media (max-width:560px){
-    .features,.docs{grid-template-columns:1fr}
-    .nav-cta .btn:not(.primary){display:none}
-    .hero{padding-bottom:56px}
-    .film-bar{flex-wrap:wrap}
-    .film-meta{text-align:left}
-    .hero-cta .btn{width:100%;justify-content:center}
-    .hero-cta .cta-row{width:100%;flex-direction:column}
-    .film-controls{gap:6px;width:100%}
-    .btn.sound{flex:1;justify-content:center;padding:0 14px}
-    .btn.sound .dur{display:none}
-    .statement-grid{padding-top:52px}
-    .panel,.pillar,.arch,.step{padding:24px}
-    .compare{font-size:.84rem}
-    .compare th,.compare td{padding:11px 8px}
-    .compare th{font-size:.7rem;letter-spacing:.04em}
-  }
-</style>
+</script>
+<script type="module" src="assets/site.js"></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="nav">
   <div class="wrap">
-    <a class="brand" href="#top"><img src="icons/light-72.png" alt="">Wick</a>
+    <a class="brand" href="#top"><img src="icons/light-72.png" alt="" width="30" height="30">Wick</a>
     <nav aria-label="Sections">
       <ul>
-        <li><a href="#how">How it works</a></li>
-        <li><a href="#see">See it</a></li>
+        <li><a href="#what">What it does</a></li>
         <li><a href="#features">Features</a></li>
-        <li><a href="#trust">Privacy</a></li>
-        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#see">See it</a></li>
+        <li><a href="#try">Try it</a></li>
+        <li><a href="#built">How it is built</a></li>
+        <li><a href="#real">Real or simulated</a></li>
       </ul>
     </nav>
-    <div class="nav-cta">
-      <a class="btn sm" href="https://github.com/rogerjeasy/wick">GitHub</a>
+    <div class="nav-links">
+      <a class="btn sm" href="https://github.com/rogerjeasy/wick"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#code-xml"/></svg>Source</a>
       <a class="btn sm primary" href="https://dmaz25jvryojp.cloudfront.net/">Try the demo</a>
     </div>
   </div>
@@ -313,349 +55,401 @@
 
 <main id="main">
 
-  <section class="hero" id="top" aria-label="Wick, in a minute and a half">
-    <div class="stage">
-      <div class="film" id="film">
-        <video id="film-video" muted loop playsinline preload="auto" poster="media/wick-demo-poster.jpg" width="1920" height="1080"
-               aria-label="Wick, recorded live in one take: Sarah pairs Margaret's Vega television from the family app, Margaret allows her with one press, the door comes over her film with a picture, a note waits for a quiet cut in the film, and the door reaches her outside Wick and on Fire OS.">
-          <source src="media/wick-demo-720.mp4" type="video/mp4" media="(max-width: 900px)">
-          <source src="media/wick-demo-1080.mp4" type="video/mp4">
-          <track kind="captions" src="media/wick-demo.en.vtt" srclang="en" label="English">
-        </video>
-        <button class="film-start" type="button" id="film-start" aria-label="Play the film with sound, 1 minute 28">
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4z" fill="currentColor"/></svg>Watch the film · 1:28</span>
-        </button>
-        <div class="film-progress" aria-hidden="true"><i id="film-progress"></i></div>
-      </div>
-    </div>
-
-    <div class="wrap film-bar">
-      <div class="film-controls" role="group" aria-label="Film">
-        <button class="btn sound" type="button" id="film-sound" aria-pressed="false">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7M19 5a10 10 0 010 14"/></svg>
-          <span id="film-sound-label">Watch with sound</span><span class="dur">1:28</span>
-        </button>
-        <button class="ctl" type="button" id="film-pause" aria-pressed="false" aria-label="Pause the film">
-          <span class="when-playing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg></span>
-          <span class="when-paused"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="currentColor"/></svg></span>
-        </button>
-        <button class="ctl" type="button" id="film-cc" aria-pressed="false" aria-label="Captions of the narration"><span class="cc" aria-hidden="true">CC</span></button>
-        <button class="ctl" type="button" id="film-full" aria-label="Watch full screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-      </div>
-      <p class="film-meta"><i aria-hidden="true"></i>Recorded live in one take, on simulators. No hardware.</p>
-    </div>
-
-    <div class="wrap hero-cta">
-      <div class="cta-row">
-        <a class="btn primary" href="https://dmaz25jvryojp.cloudfront.net/">
-          Try the demo
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-        </a>
-        <a class="btn" href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="13" rx="2"/><path d="M17 2l-5 5-5-5"/></svg>
-          Open her television
-        </a>
-      </div>
-      <p class="hero-note">No account and no hardware needed. You will be Sarah, her daughter, in a demo home.</p>
-    </div>
-
-    <div class="wrap statement">
-      <div class="statement-grid">
-        <div>
-          <span class="eyebrow"><span class="dot" aria-hidden="true"></span>Fire TV · Ring · Alexa+</span>
-          <h1>Care that lives on the screen <em>she already watches.</em></h1>
+  <section class="hero" id="top" aria-labelledby="title">
+    <div class="wrap">
+      <div class="hero-copy">
+        <span class="eyebrow"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#flame"/></svg>Fire TV · Ring · Alexa+</span>
+        <h1 id="title">The television as the care surface for <em>the person being cared for.</em></h1>
+        <p class="lede">Wick lives on the one screen an older person already watches for more than four hours a day, and asks her to install nothing, learn nothing and wear nothing. <strong>She answers with one button on the remote she already holds, and the family sees only what she has agreed to share.</strong></p>
+        <div class="cta-row">
+          <a class="btn lg primary" href="media/wick-demo-1080.mp4" data-play-film><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#play"/></svg>Watch the film · 1:28</a>
+          <a class="btn lg" href="https://dmaz25jvryojp.cloudfront.net/"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#smartphone"/></svg>Try the family app</a>
+          <a class="btn lg" href="https://d2sbabcft8sm3m.cloudfront.net/tv.html"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#tv"/></svg>Her television in a browser tab</a>
         </div>
-        <p class="lede">Wick turns an older person's television into a calm companion: who is at the door, a note from her daughter, the shape of her week. <b>She answers with one button, and she decides what her family sees.</b></p>
+        <p class="hero-note">No account and no hardware needed. <em>Try the demo</em> makes you Sarah, her daughter, in a demo home.</p>
       </div>
-      <ul class="three">
-        <li><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21V4a1 1 0 011-1h10a1 1 0 011 1v17"/><path d="M3 21h18"/><circle cx="14.5" cy="12.5" r=".9" fill="currentColor"/></svg></span>
-          <div><b>Who is at the door</b><span>A picture and one plain sentence, over whatever she is watching.</span></div></li>
-        <li><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H8l-5 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>
-          <div><b>A note from her daughter</b><span>It waits for a natural break, and she replies with one press.</span></div></li>
-        <li><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M7.5 14h2M11 14h2M14.5 14h2M7.5 17.5h2"/></svg></span>
-          <div><b>The shape of her week</b><span>Told from counted facts, and only what she agrees to share.</span></div></li>
+
+      <div class="film-frame">
+        <div class="film" id="film">
+          <video id="film-video" muted loop playsinline preload="auto" poster="media/wick-demo-poster.jpg" width="1920" height="1080"
+                 aria-label="Wick, recorded live in one take: Sarah pairs Margaret's Vega television from the family app, Margaret allows her with one press, the door comes over her film with a picture, a note waits for a quiet cut in the film, and the door reaches her outside Wick and on Fire OS.">
+            <source src="media/wick-demo-720.mp4" type="video/mp4" media="(max-width: 900px)">
+            <source src="media/wick-demo-1080.mp4" type="video/mp4">
+            <track kind="captions" src="media/wick-demo.en.vtt" srclang="en" label="English">
+          </video>
+          <button class="film-start" type="button" id="film-start" aria-label="Play the film with sound, 1 minute 28">
+            <span><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#play"/></svg>Watch the film · 1:28</span>
+          </button>
+          <div class="film-progress" aria-hidden="true"><i id="film-progress"></i></div>
+        </div>
+        <div class="film-bar">
+          <div class="film-controls" role="group" aria-label="Film">
+            <button class="btn sound" type="button" id="film-sound" aria-pressed="false">
+              <svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#volume-2"/></svg>
+              <span id="film-sound-label">Watch with sound</span><span class="dur">1:28</span>
+            </button>
+            <button class="ctl" type="button" id="film-pause" aria-pressed="false" aria-label="Pause the film">
+              <svg class="i when-playing" aria-hidden="true"><use href="assets/vendor/icons.svg#pause"/></svg>
+              <svg class="i when-paused" aria-hidden="true"><use href="assets/vendor/icons.svg#play"/></svg>
+            </button>
+            <button class="ctl" type="button" id="film-cc" aria-pressed="false" aria-label="Captions of the narration"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#captions"/></svg></button>
+            <button class="ctl" type="button" id="film-full" aria-label="Watch full screen"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#maximize"/></svg></button>
+          </div>
+          <p class="film-meta"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#badge-check"/></svg>Recorded live in one take, on simulators. No hardware.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="stats" aria-label="Measured against the deployed stack">
+    <dl class="wrap">
+      <div><dt>doorbell to door card <small>median, on the stand-in doorbell</small></dt><dd>2.3 s</dd></div>
+      <div><dt>launch to fully drawn, Vega <small>mean of 10 cold starts</small></dt><dd>722 ms</dd></div>
+      <div><dt>MCP call on an open connection <small>p95, against Alexa+'s 500 ms target</small></dt><dd>230–241 ms</dd></div>
+      <div><dt>MCP tools for the family <small>one agent uses the same tools</small></dt><dd>25</dd></div>
+    </dl>
+  </div>
+
+  <section class="section" id="idea" aria-labelledby="idea-title">
+    <div class="wrap">
+      <div class="section-head center" data-reveal>
+        <p class="kicker">The idea</p>
+        <h2 id="idea-title">Products for ageing at home are built for the caregiver. Wick turns that around.</h2>
+        <p>A phone app full of alerts, checked by a daughter three hundred miles away. Wick lives instead on the screen she already watches for more than four hours a day (<a href="https://www.bls.gov/news.release/atus.t11a.htm">BLS American Time Use Survey, 2025</a>), and she stays in charge.</p>
+      </div>
+      <div class="contrast" data-reveal>
+        <div class="panel muted" data-reveal-item>
+          <h3>Built for the caregiver</h3>
+          <ul>
+            <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#x"/></svg>A phone app full of alerts, checked from far away</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#x"/></svg>Cameras and sensors that watch her</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#x"/></svg>Wearables she forgets to charge</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#x"/></svg>Decisions made about her, not with her</li>
+          </ul>
+        </div>
+        <div class="panel her" data-reveal-item>
+          <h3>Built for her</h3>
+          <ul>
+            <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#check"/></svg>Calm cards on the television she already uses</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#check"/></svg>The front door only; no camera looks inside the home</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#check"/></svg>One button on the remote she already holds</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#check"/></svg>The family sees only what she has agreed to share</li>
+          </ul>
+        </div>
+      </div>
+      <p class="people" data-reveal><strong>The people in the demo.</strong> Margaret lives alone. Sarah, her daughter, lives far away. Maria is her carer. <em>Try the demo</em> makes you Sarah.</p>
+    </div>
+  </section>
+
+  <section class="section tint" id="what" aria-labelledby="what-title">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="kicker">What it does</p>
+        <h2 id="what-title">Three things, done quietly.</h2>
+      </div>
+      <div class="pillars" data-reveal>
+        <article class="pillar" data-reveal-item>
+          <span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#bell"/></svg></span>
+          <h3>The door</h3>
+          <p>A ring at the door puts a card on her television in about two seconds, then the doorbell's picture and one plain sentence about who is there. If another app is in front, Wick still tells her: a system toast on Vega, a notification on Fire OS. Only the door may interrupt.</p>
+        </article>
+        <article class="pillar" data-reveal-item>
+          <span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#message-square"/></svg></span>
+          <h3>The family</h3>
+          <p>Sarah asks Alexa+ <em>"How's Mum been this week?"</em> and gets a short, honest answer. Notes go to Margaret's television and wait for a natural break; she replies with one button.</p>
+        </article>
+        <article class="pillar" data-reveal-item>
+          <span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#activity"/></svg></span>
+          <h3>The rhythm</h3>
+          <p>Wick learns what a normal week looks like in this house, so it stays quiet when nothing is wrong and can say <em>"that's up from last week"</em> and mean it.</p>
+        </article>
+      </div>
+      <p class="aside-note" data-reveal><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#circle-help"/></svg><span><strong>When she is watching another app.</strong> No app can draw over another on Vega or Fire OS, so Wick's cards appear only while Wick is on screen. The door still reaches her over anything: a system toast on Vega, a heads-up on Fire OS. A note never interrupts. On Fire OS it waits quietly in the Notification Center, never over her programme; Vega has no quiet place to leave it, so it waits in Wick. Either way it is on her screen the moment she opens Wick.</span></p>
+    </div>
+  </section>
+
+  <section class="section" id="features" aria-labelledby="features-title">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="kicker">Features</p>
+        <h2 id="features-title">Fifteen features on top. Each one says what it never does.</h2>
+        <p>Every one has a rule that protects her, enforced in code.</p>
+      </div>
+      <ul class="features" data-reveal>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#sunrise"/></svg></span>Her day</h3><p>Her home screen opens on her: <em>"Good morning, Margaret."</em>, the date, and who is coming, such as <em>"Maria usually comes tomorrow at 9 am."</em> The films are under it.</p><p class="never"><b>Never</b> says anyone came, or shows a visit the door has not been told of.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#send"/></svg></span>Ask Sarah to look</h3><p>One button on the door card asks Sarah to look at the same picture. Sarah's answer appears under her name.</p><p class="never"><b>Never</b> shows Sarah the door unless Margaret asks.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#message-circle-question"/></svg></span>Shall I tell Sarah?</h3><p>When a day is unusual, such as the carer not coming, Wick asks Margaret first and shows her the exact sentence it would send.</p><p class="never"><b>Never</b> tells the family anything she keeps to herself.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#circle-pause"/></svg></span>Calm points</h3><p>A note waits for the credits, a pause, or a quiet cut measured in the film itself. The film holds while she reads it. <a href="calm-points/">See the map</a>.</p><p class="never"><b>Never</b> interrupts a scene. No model chooses the moment.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#clapperboard"/></svg></span>Watch together</h3><p>Sarah invites her to a film. When Margaret presses <em>Start the film</em>, Sarah's screen follows hers.</p><p class="never"><b>Never</b> lets anyone else touch her remote.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#flame"/></svg></span>The light in the window</h3><p>Sarah sees one thing about today: whether Margaret's day has begun. Margaret can put it out.</p><p class="never"><b>Never</b> says when, where or what. Her home screen shows who looked in.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#phone"/></svg></span>Hold for Sarah</h3><p>Holding OK for two seconds asks one person to ring her. If they don't answer in three minutes, the next person is asked.</p><p class="never"><b>Never</b> calls anyone itself or raises an alarm.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#clipboard-check"/></svg></span>The visit, witnessed</h3><p>After the carer leaves, the television asks: <em>"Maria was here from 9:02 to 9:47. Is this right?"</em></p><p class="never"><b>Never</b> treats a visit as confirmed until she says so.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#tv"/></svg></span>Sarah's television</h3><p>Sarah can connect her own Fire TV. It shows Margaret's light, door requests, the week and shared films.</p><p class="never"><b>Never</b> becomes Margaret's television or sees more than Sarah may.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#languages"/></svg></span>Her language</h3><p>Sarah can ask for Spanish. Nothing changes until Margaret says yes on her own screen.</p><p class="never"><b>Never</b> machine-translates a sentence she consents by.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#image"/></svg></span>The mantelpiece</h3><p>Sarah sends a picture. Margaret can keep it, and kept pictures fill her idle screen.</p><p class="never"><b>Never</b> tells Sarah whether she kept it.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#volume-2"/></svg></span>Read to me</h3><p>Play reads the card on screen aloud, in her language (Amazon Polly).</p><p class="never"><b>Never</b> speaks unless she asks.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#eye"/></svg></span>Easier to see</h3><p>Larger text, at 40-point minimum, and higher contrast, at 21:1, across every screen.</p><p class="never"><b>Never</b> shrinks a word to make it fit.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#calendar-clock"/></svg></span>Visit errands</h3><p>Sarah says <em>"The plumber is coming Thursday at ten — let Mum know."</em> Wick's agent shows her the plan; after her yes, a note waits for Margaret's natural break, the door card later says <em>"Sarah arranged this visit"</em>, Margaret is reminded that morning, and Sarah is told when the door rang or that nobody came.</p><p class="never"><b>Never</b> says the plumber came. It says someone rang around then; whether it was them is Margaret's to say.</p></li>
+        <li class="feature" data-reveal-item><h3><span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#scroll-text"/></svg></span>The Sunday brief</h3><p>Margaret's week, written by agents from counted facts and checked twice, ends with one thing Sarah could do, with one button: write a note, arrange a visit or watch a film together.</p><p class="never"><b>Never</b> guesses how she feels, or suggests anything the week's facts don't support.</p></li>
+      </ul>
+      <div class="tools-line" data-reveal>
+        <span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#server"/></svg></span>
+        <p>The family reaches all of it through <strong>25 MCP tools</strong>, and through an agent on Amazon Bedrock AgentCore that uses those same tools with the family member's own token and asks before every write. Every call checks again that Margaret still allows that person.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section tint" id="see" aria-labelledby="see-title">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="kicker">See it</p>
+        <h2 id="see-title">On the Vega Virtual Device and the Fire OS build.</h2>
+        <p>Taken against the deployed system. The televisions are simulators and the home is a demo home.</p>
+      </div>
+      <div class="gallery" data-reveal>
+        <figure class="shot wide" data-reveal-item>
+          <a href="screenshots/door-card-over-film-vega.png"><img src="screenshots/door-card-over-film-vega.png" alt="A door card over a playing film, with a picture from the doorbell and one sentence describing it" width="1280" height="625" loading="lazy"></a>
+          <figcaption><strong>The door card, over a film</strong>Vega.</figcaption>
+        </figure>
+        <figure class="shot wide" data-reveal-item>
+          <a href="screenshots/door-toast-over-another-app-vega.png"><img src="screenshots/door-toast-over-another-app-vega.png" alt="A system toast over another Vega app: Someone's at the front door." width="1600" height="855" loading="lazy"></a>
+          <figcaption><strong>The door, while another app is in front</strong>Vega.</figcaption>
+        </figure>
+        <figure class="shot" data-reveal-item>
+          <a href="screenshots/note-at-calm-point-fireos.png"><img src="screenshots/note-at-calm-point-fireos.png" alt="A message from Sarah held at a calm point in Big Buck Bunny, with three replies" width="1600" height="900" loading="lazy"></a>
+          <figcaption><strong>A note at a calm point</strong>Fire OS.</figcaption>
+        </figure>
+        <figure class="shot" data-reveal-item>
+          <a href="calm-points/"><img src="screenshots/calm-point-map.png" alt="The calm-point map for Big Buck Bunny, with three measured calm points" width="1600" height="923" loading="lazy"></a>
+          <figcaption><strong>The calm-point map</strong><a href="calm-points/">Open the live page</a>.</figcaption>
+        </figure>
+        <figure class="shot" data-reveal-item>
+          <a href="screenshots/shall-i-tell-vega.png"><img src="screenshots/shall-i-tell-vega.png" alt="The question Shall I tell Sarah? with Tell Sarah and Keep it to myself" width="1600" height="814" loading="lazy"></a>
+          <figcaption><strong>Shall I tell Sarah?</strong>Vega.</figcaption>
+        </figure>
+        <figure class="shot" data-reveal-item>
+          <a href="screenshots/hold-for-sarah-spanish-vega.png"><img src="screenshots/hold-for-sarah-spanish-vega.png" alt="The hold card in Spanish: ¿Pedir a Sarah que le llame?" width="1600" height="855" loading="lazy"></a>
+          <figcaption><strong>Hold for Sarah, in Spanish</strong>Vega.</figcaption>
+        </figure>
+        <figure class="shot" data-reveal-item>
+          <a href="screenshots/is-this-right-vega.png"><img src="screenshots/is-this-right-vega.png" alt="The question Is this right? Maria was here on Tuesday from 12:22 pm to 1:00 pm, with Yes, that's right and No, that's not right" width="1600" height="855" loading="lazy"></a>
+          <figcaption><strong>The visit, witnessed</strong>Vega.</figcaption>
+        </figure>
+        <figure class="shot" data-reveal-item>
+          <a href="screenshots/watch-together-credits-vega.png"><img src="screenshots/watch-together-credits-vega.png" alt="After a film watched together: That was Big Buck Bunny, with Sarah. What did you think of it?" width="1280" height="651" loading="lazy"></a>
+          <figcaption><strong>Watch together, at the credits</strong>Vega.</figcaption>
+        </figure>
+        <figure class="shot wide" data-reveal-item>
+          <a href="screenshots/family-app-conversation.png"><img src="screenshots/family-app-conversation.png" alt="The family app on a laptop and a phone, with the door's picture and three answers" width="1456" height="829" loading="lazy"></a>
+          <figcaption><strong>The family app</strong>Answering a door request.</figcaption>
+        </figure>
+        <figure class="shot wide" data-reveal-item>
+          <a href="screenshots/easier-to-see-both-on-vega.png"><img src="screenshots/easier-to-see-both-on-vega.png" alt="Easier to see, with Larger text: on and Higher contrast: on, in white on black" width="1600" height="900" loading="lazy"></a>
+          <figcaption><strong>Easier to see</strong>Larger text and higher contrast, both on. Vega.</figcaption>
+        </figure>
+      </div>
+
+      <div class="media-pair">
+        <div data-reveal>
+          <p class="kicker">Her daughter's side</p>
+          <h2>Two screens, one conversation.</h2>
+          <p class="lede">Sarah talks to Wick the way she would talk to Alexa+. Everything she reads comes from Wick's tools, through the Guardian.</p>
+          <ol class="duo-steps">
+            <li><div><b>She asks how Mum's week went</b>A short, honest answer, written from counted facts.</div></li>
+            <li><div><b>She sends a note</b>It waits on Margaret's television for the next natural break.</div></li>
+            <li><div><b>Margaret answers with one press</b>Her reply comes back in Sarah's conversation.</div></li>
+          </ol>
+        </div>
+        <div data-reveal>
+          <div class="browser">
+            <div class="browser-bar" aria-hidden="true"><i></i><i></i><i></i><span>Wick family app</span></div>
+            <video class="autoplay" muted loop playsinline preload="none" poster="media/family-app-poster.jpg" width="1280" height="800" aria-label="The Wick family app, recorded on the live system: Sarah asks how her mother's week went and sees the week as a card, sends a note to the television, and then reads her mother's reply">
+              <source src="media/family-app.mp4" type="video/mp4">
+            </video>
+          </div>
+          <p class="media-note">Recorded on the deployed system, in a demo home. Waits are shown at double speed.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="try" aria-labelledby="try-title">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="kicker">Try it</p>
+        <h2 id="try-title">Five steps, in two browser tabs.</h2>
+        <p>No account and no hardware are needed.</p>
+      </div>
+      <ol class="try" data-reveal>
+        <li data-reveal-item>
+          <h3>Open her television</h3>
+          <p>The keyboard is the remote: arrows move, <kbd>Enter</kbd> is OK, <kbd>Esc</kbd> is Back, <kbd>Space</kbd> is Play/Pause, and <kbd>Enter</kbd> held for two seconds is Hold for Sarah.</p>
+          <a class="btn sm" href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">Her television<svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#arrow-up-right"/></svg></a>
+        </li>
+        <li data-reveal-item>
+          <h3>Become Sarah</h3>
+          <p>In the family app, choose <b>Try the demo</b> and enter the code shown on the television, or point a phone at the QR code beside it. Each press is a new demo session, with six weeks of simulated history.</p>
+          <a class="btn sm primary" href="https://dmaz25jvryojp.cloudfront.net/">Family app<svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#arrow-up-right"/></svg></a>
+        </li>
+        <li data-reveal-item>
+          <h3>Let her allow you</h3>
+          <p>On the television, press <b>Allow Sarah</b> when it appears, about twenty seconds after pairing. Then ask the family app anything, for example <em>"How has my mum been this week?"</em></p>
+        </li>
+        <li data-reveal-item>
+          <h3>Send a note during a film</h3>
+          <p>The note waits. Pause, or let Big Buck Bunny reach its calm point at 1:29, and it appears. <kbd>Space</kbd> reads it aloud; <kbd>Enter</kbd> replies.</p>
+        </li>
+        <li data-reveal-item>
+          <h3>Ring the stand-in doorbell</h3>
+          <p>In the family app, choose who is there. The door card appears at once and the film waits under it, then the picture and one sentence about it.</p>
+        </li>
+      </ol>
+      <p class="try-foot" data-reveal>The same flow runs on the Vega Virtual Device and on the Fire OS build in the Android TV emulator (<a href="https://github.com/rogerjeasy/wick/blob/main/docs/SETUP.md">docs/SETUP.md</a>).</p>
+    </div>
+  </section>
+
+  <section class="section tint" id="built" aria-labelledby="built-title">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="kicker">How it is built</p>
+        <h2 id="built-title">The television renders and never decides.</h2>
+        <p>The edge authenticates and answers Ring within its five-second budget. The agents do the reasoning. All of it is in Terraform, deployed by GitHub Actions over OIDC.</p>
+      </div>
+      <figure class="arch" data-reveal>
+        <a href="architecture/architecture.html">
+          <picture>
+            <source media="(prefers-color-scheme: light)" srcset="architecture/architecture-light.png">
+            <img src="architecture/architecture-dark.png" width="3200" height="2000" loading="lazy" alt="Wick's architecture. Margaret's home: her Fire TV (Vega app or Fire OS build) talks to the edge over AWS IoT Core MQTT or an API Gateway WebSocket; the Ring doorbell sends a signed webhook to API Gateway HTTP. The edge puts events on EventBridge for 26 Lambda functions and one Bedrock AgentCore runtime with three Strands agents (the door graph on Nova Lite, the family assistant, the Sunday brief graph), with Step Functions for visit errands, SQS, EventBridge Scheduler and a Bedrock Guardrail; the agents fetch Ring's frame, live view and chime and send cards out to the television. Sarah's family app, the Alexa+ add-on and her own Fire TV reach the Wick server on App Runner over MCP with OAuth 2.1, through the Guardian. Memory is DynamoDB, S3 and CloudFront, AgentCore Memory and Secrets Manager; models are Amazon Bedrock plus Rekognition, Polly, Translate and Transcribe.">
+          </picture>
+        </a>
+        <figcaption>Every box is in <code>apps/</code>, <code>services/</code> or <code>infra/</code>, and the counts are Terraform's. <a href="architecture/architecture.html">Open the diagram</a>.</figcaption>
+      </figure>
+
+      <div class="built-grid">
+        <div data-reveal>
+          <h3 class="h-sub"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#package"/></svg>Technology</h3>
+          <dl class="tech">
+            <div><dt>Vega OS</dt><dd>The resident's app in React Native for Vega. A headless service shows the door over other apps, media controls make a platform pause count as a natural break, <code>w3cmedia</code> plays the films and the door's live view, and Content Personalization is told what she watches as she watches it.</dd></div>
+            <div><dt>Fire OS</dt><dd>The same source through four small adapters, with an Android foreground service for the door, and her film as Android's <code>MediaSession</code>, so "Alexa, pause" and the remote's media keys go through the same rules as on Vega.</dd></div>
+            <div><dt>Ring Partner API</dt><dd>OAuth link, webhooks, recorded frames and live view (WebRTC bridged to HLS for the television).</dd></div>
+            <div><dt>Alexa+ MCP</dt><dd>An MCP server (spec 2025-11-25, Streamable HTTP, OAuth 2.1) with 25 tools. The add-on surface is partner-only, so a simulated Alexa+ app calls it, as the rules allow.</dd></div>
+            <div><dt>Amazon Bedrock</dt><dd>Nova Lite describes the door's picture in one sentence. Claude Sonnet 4.5 is the family's assistant and writes the Sunday brief from numbers already counted. A Bedrock Guardrail checks both. No model runs inside a tool.</dd></div>
+            <div><dt>AgentCore + Strands</dt><dd>Three agents in AgentCore Runtime: the door's Strands graphs, the family assistant (an MCP client with the member's own token, pausing for their yes, with AgentCore Memory) and the Sunday brief graph: analyst, writer, check, suggester.</dd></div>
+            <div><dt>AWS</dt><dd>Lambda, API Gateway, IoT Core, EventBridge and Scheduler, Step Functions, SQS, App Runner, Cognito, DynamoDB, S3, CloudFront, Secrets Manager, Rekognition, Polly, Translate and Transcribe.</dd></div>
+          </dl>
+        </div>
+        <div class="side-stack">
+          <div data-reveal>
+            <h3 class="h-sub"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#gauge"/></svg>Measured against the deployed stack</h3>
+            <div class="table-scroll">
+              <table class="table measured">
+                <tbody>
+                  <tr><td>Doorbell to door card</td><td>2.3 s median, on the stand-in doorbell (Ring's own webhook hop is extra)</td></tr>
+                  <tr><td>Launch to fully drawn, Vega</td><td>722 ms mean, 632–807 ms, over 10 cold starts on the Vega Virtual Device</td></tr>
+                  <tr><td>Memory on her home screen, Vega</td><td>64 MiB PSS, steady over a minute, on the Vega Virtual Device</td></tr>
+                  <tr><td>MCP server's own work</td><td>18 ms p95</td></tr>
+                  <tr><td>MCP call on an open connection</td><td>230–241 ms p95, against Alexa+'s 500 ms target</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="small-note">New connections are slower because App Runner closes idle connections (<a href="https://github.com/rogerjeasy/wick/issues/47">#47</a>).</p>
+          </div>
+          <div data-reveal>
+            <h3 class="h-sub"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#house"/></svg>Why Amazon</h3>
+            <p class="small-note" style="margin:0 0 12px">Wick needs a trusted screen in the room, a doorbell with a real developer API, and an assistant the family already uses. Only Amazon has all three.</p>
+            <div class="table-scroll">
+              <table class="table why-table">
+                <thead><tr><th scope="col"><span class="visually-hidden">Company</span></th><th scope="col">Screen</th><th scope="col">Doorbell API</th><th scope="col">Assistant</th></tr></thead>
+                <tbody>
+                  <tr class="us"><td>Amazon</td><td>Fire TV</td><td>Ring</td><td>Alexa+</td></tr>
+                  <tr><td>Google</td><td>Google TV</td><td>Nest (limited)</td><td>Gemini</td></tr>
+                  <tr><td>Apple</td><td>Apple TV</td><td class="none">none</td><td>Siri</td></tr>
+                  <tr><td>Roku</td><td>Roku</td><td class="none">none</td><td class="none">none</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="trust" aria-labelledby="trust-title">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="kicker">Privacy and trust</p>
+        <h2 id="trust-title">Privacy is the product, not a compliance section.</h2>
+      </div>
+      <ul class="trust" data-reveal>
+        <li class="promise" data-reveal-item>
+          <span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#eye-off"/></svg></span>
+          <div><h3>No camera looks inside the home</h3><p>Ring is used at the front door only.</p></div>
+        </li>
+        <li class="promise" data-reveal-item>
+          <span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#shield-check"/></svg></span>
+          <div><h3>She sees everything the family sees</h3><p>On her own television, and she can remove it. She reaches it at any time from her light on the home screen, and can stop Wick there: everything it keeps about her home is deleted, and her family's app says so.</p></div>
+        </li>
+        <li class="promise" data-reveal-item>
+          <span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#lock"/></svg></span>
+          <div><h3>Some things never reach the family</h3><p>Health, money, relationships and location. A deterministic content gate, the Guardian, checks every string before a family member reads it, and property tests run it through the real tool paths.</p></div>
+        </li>
+        <li class="promise" data-reveal-item>
+          <span class="icon"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#heart"/></svg></span>
+          <div><h3>No guessing about her</h3><p>No mood detection, no wellness scores, no fall detection, no chatbot on the television. The reasons are in <a href="https://github.com/rogerjeasy/wick/blob/main/docs/WICK.md">docs/WICK.md</a> §6.</p></div>
+        </li>
       </ul>
     </div>
   </section>
 
-  <div class="metrics" aria-label="Measured on the deployed system">
+  <section class="section tint" id="real" aria-labelledby="real-title">
     <div class="wrap">
-      <div class="metric"><b>2.3 s</b><span>from the doorbell to her screen</span></div>
-      <div class="metric"><b>1 button</b><span>for every answer she gives</span></div>
-      <div class="metric"><b>22 tools</b><span>for the family, through MCP</span></div>
-      <div class="metric"><b>0</b><span>cameras inside her home</span></div>
-    </div>
-  </div>
-
-  <section id="why-wick">
-    <div class="wrap">
-      <div class="section-head center reveal">
-        <p class="kicker">The idea</p>
-        <h2>Most care technology is built for the caregiver. Wick is built for her.</h2>
-        <p>People over 75 watch more than four hours of television a day (<a href="https://www.bls.gov/news.release/atus.t11a.htm">BLS, 2025</a>). Wick meets them there, and asks them to install nothing, learn nothing and wear nothing.</p>
+      <div class="section-head" data-reveal>
+        <p class="kicker">What is real, and what is simulated</p>
+        <h2 id="real-title">Built without hardware, which the hackathon allows.</h2>
       </div>
-      <div class="contrast">
-        <div class="panel muted reveal">
-          <h3>Built for the caregiver</h3>
-          <ul>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>A phone app full of alerts, checked from far away</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>Cameras and sensors that watch her</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>Wearables she forgets to charge</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>Decisions made about her, not with her</li>
-          </ul>
-        </div>
-        <div class="panel her reveal">
-          <h3>Built for her</h3>
-          <ul>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Calm cards on the television she already uses</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>The front door only; nothing inside is watched</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>One button on the remote she already holds</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Nothing is shared until she says yes</li>
-          </ul>
+      <div class="real">
+        <ul class="sim-list" data-reveal>
+          <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#tv"/></svg><b>Television</b><span>The Vega Virtual Device and the Fire OS build on the Android TV emulator. A browser version runs the same cards and break rules for judges without either.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#bell"/></svg><b>Doorbell</b><span>Ring's Developer Playground, behind Ring's real API. It sends no webhooks and has no chime, so demo homes use a clearly labelled stand-in doorbell with made-up visitors.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#message-square"/></svg><b>Alexa+</b><span>A simulated surface that signs in with OAuth and calls the real MCP server.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#users"/></svg><b>Household</b><span>A demo home with six weeks of simulated history, marked as simulated everywhere.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#clapperboard"/></svg><b>Films</b><span>Blender Foundation's open films.</span></li>
+        </ul>
+        <div class="card real-card" data-reveal>
+          <h3><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#badge-check"/></svg>Real and deployed</h3>
+          <p>Everything between those ends: the AWS stack, the MCP server, the agents and models, the Guardian, accounts and pairing.</p>
+          <p><strong>Not yet seen on real hardware:</strong> a Fire TV, a Ring doorbell, or a spoken "Alexa, pause".</p>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="how" style="padding-top:0">
+  <section class="section" id="docs" aria-labelledby="docs-title">
     <div class="wrap">
-      <div class="section-head reveal">
-        <p class="kicker">How it works</p>
-        <h2>Three things, done quietly.</h2>
-      </div>
-      <div class="pillars">
-        <article class="pillar reveal">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17"/><circle cx="15" cy="12" r="1"/></svg></div>
-          <h3>The door</h3>
-          <p>A ring puts a card on her television in seconds, then the doorbell's picture and one plain sentence about who is there. Even over another app.</p>
-          <p class="meta">Ring Partner API · Amazon Nova Lite</p>
-        </article>
-        <article class="pillar reveal">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/></svg></div>
-          <h3>The family</h3>
-          <p>Her daughter asks Alexa+ <em>"How's Mum been this week?"</em> and gets an honest answer. Notes wait for a natural break; she replies with one press.</p>
-          <p class="meta">MCP server · Claude Sonnet 4.5 on Bedrock</p>
-        </article>
-        <article class="pillar reveal">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
-          <h3>The rhythm</h3>
-          <p>Wick learns what a normal week looks like in her home, so it stays silent when nothing is wrong, and asks her first when something is.</p>
-          <p class="meta">Counted in code · no model decides</p>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <section id="family-side" style="padding-top:0">
-    <div class="wrap duo">
-      <div class="reveal">
-        <p class="kicker">Her daughter's side</p>
-        <h2>Two screens, one conversation.</h2>
-        <p style="color:var(--ink-dim);font-size:1.08rem;margin:0">Sarah talks to Wick the way she would talk to Alexa+. Everything she reads comes from Wick's tools, through the Guardian.</p>
-        <ol class="duo-steps">
-          <li><div><b>She asks how Mum's week went</b><span>An honest summary, written from counted facts, and a card for each day.</span></div></li>
-          <li><div><b>She sends a note</b><span>It waits on Margaret's television for the next natural break.</span></div></li>
-          <li><div><b>Margaret answers with one press</b><span>Her reply comes back in Sarah's conversation.</span></div></li>
-        </ol>
-      </div>
-      <div class="reveal">
-        <div class="browser">
-          <div class="browser-bar" aria-hidden="true"><i></i><i></i><i></i><span>Wick family app</span></div>
-          <video class="autoplay" muted loop playsinline preload="none" poster="media/family-app-poster.jpg" width="1280" height="800" aria-label="The Wick family app, recorded on the live system: Sarah asks how her mother's week went and sees the week as a card, sends a note to the television, and then reads her mother's reply">
-            <source src="media/family-app.mp4" type="video/mp4">
-          </video>
-        </div>
-        <p class="media-note">Recorded on the deployed system, in a demo home. Waits are shown at double speed.</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="see" style="background:var(--ground-2);border-block:1px solid var(--line)">
-    <div class="wrap">
-      <div class="section-head reveal">
-        <p class="kicker">See it</p>
-        <h2>On the Vega Virtual Device and the Fire OS build.</h2>
-        <p>Taken against the deployed system. The televisions are simulators and the home is a demo home.</p>
-      </div>
-      <div class="gallery">
-        <figure class="shot wide reveal">
-          <img src="screenshots/door-card-over-film-vega.png" alt="A door card over a playing film, with the doorbell's picture and one sentence describing it" width="1280" height="625" loading="lazy">
-          <figcaption><strong>Someone at the door</strong><span>The card comes up over the film, at once.</span></figcaption>
-        </figure>
-        <figure class="shot wide reveal">
-          <img src="screenshots/door-toast-over-another-app-vega.png" alt="A system toast over another app: Someone's at the front door" width="1600" height="855" loading="lazy">
-          <figcaption><strong>Even in another app</strong><span>A system toast on Vega; a notification on Fire OS.</span></figcaption>
-        </figure>
-        <figure class="shot third reveal">
-          <img src="screenshots/shall-i-tell-vega.png" alt="The question Shall I tell Sarah? with Tell Sarah and Keep it to myself" width="1600" height="814" loading="lazy">
-          <figcaption><strong>Shall I tell Sarah?</strong><span>An unusual day is put to her first.</span></figcaption>
-        </figure>
-        <figure class="shot third reveal">
-          <img src="screenshots/hold-for-sarah-spanish-vega.png" alt="The hold card in Spanish: Pedir a Sarah que le llame?" width="1600" height="855" loading="lazy">
-          <figcaption><strong>Hold for Sarah, in Spanish</strong><span>Hold OK to ask someone to ring her.</span></figcaption>
-        </figure>
-        <figure class="shot third reveal">
-          <img src="screenshots/watch-together-credits-vega.png" alt="After a film watched together: That was Big Buck Bunny, with Sarah" width="1280" height="651" loading="lazy">
-          <figcaption><strong>Watch together</strong><span>Sarah's screen follows hers.</span></figcaption>
-        </figure>
-      </div>
-    </div>
-  </section>
-
-  <section id="features">
-    <div class="wrap">
-      <div class="section-head reveal">
-        <p class="kicker">Features</p>
-        <h2>Twelve features. Each one says what it will never do.</h2>
-        <p>Every feature is one button for her, and every one has a rule that protects her, enforced in code.</p>
-      </div>
-      <div class="features reveal">
-        <div class="feature"><h3>Ask Sarah to look</h3><p>One press asks her daughter to look at the same doorbell picture.</p><p class="never"><b>Never</b> shows the door unless she asks.</p></div>
-        <div class="feature"><h3>Shall I tell Sarah?</h3><p>An unusual day is put to her first, with the exact sentence.</p><p class="never"><b>Never</b> tells what she keeps to herself.</p></div>
-        <div class="feature"><h3>Calm points</h3><p>Notes wait for the credits, a pause, or a quiet cut measured in the film.</p><p class="never"><b>Never</b> interrupts a scene.</p></div>
-        <div class="feature"><h3>Watch together</h3><p>Her daughter's screen follows hers, from miles away.</p><p class="never"><b>Never</b> lets anyone touch her remote.</p></div>
-        <div class="feature"><h3>The light in the window</h3><p>The family sees one thing: whether her day has begun.</p><p class="never"><b>Never</b> says when, where or what.</p></div>
-        <div class="feature"><h3>Hold for Sarah</h3><p>Hold OK for two seconds to ask one person to ring her.</p><p class="never"><b>Never</b> calls anyone or raises an alarm.</p></div>
-        <div class="feature"><h3>The visit, witnessed</h3><p>After the carer leaves: <em>"Is this right?"</em></p><p class="never"><b>Never</b> confirms a visit without her.</p></div>
-        <div class="feature"><h3>Sarah's television</h3><p>Her daughter's own Fire TV shows her light and requests.</p><p class="never"><b>Never</b> becomes her television.</p></div>
-        <div class="feature"><h3>Her language</h3><p>Spanish, the moment she says yes on her own screen.</p><p class="never"><b>Never</b> machine-translates her consent.</p></div>
-        <div class="feature"><h3>The mantelpiece</h3><p>Family pictures she can keep on her idle screen.</p><p class="never"><b>Never</b> tells whether she kept one.</p></div>
-        <div class="feature"><h3>Read to me</h3><p>Play reads the card aloud, in her language.</p><p class="never"><b>Never</b> speaks unless she asks.</p></div>
-        <div class="feature"><h3>Easier to see</h3><p>Larger text and higher contrast, everywhere at once.</p><p class="never"><b>Never</b> shrinks a word to make it fit.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="trust" style="padding-top:0">
-    <div class="wrap">
-      <div class="section-head reveal">
-        <p class="kicker">Privacy and trust</p>
-        <h2>Privacy is the product, not a policy page.</h2>
-      </div>
-      <div class="trust">
-        <div class="promise reveal">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><path d="M3 3l18 18"/></svg></div>
-          <div><h3>No camera inside her home</h3><p>Ring is used at the front door, and for the fact that someone arrived. Never to watch her.</p></div>
-        </div>
-        <div class="promise reveal">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
-          <div><h3>Her consent, on her screen</h3><p>Nobody reads her home until she presses Allow, checked again on every request.</p></div>
-        </div>
-        <div class="promise reveal">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
-          <div><h3>Some things never leave</h3><p>Health, money, relationships and location never reach the family. A rules engine checks every word first.</p></div>
-        </div>
-        <div class="promise reveal">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 15h8M9 9h.01M15 9h.01"/></svg></div>
-          <div><h3>No guessing about feelings</h3><p>No mood detection, no wellness scores. Wick reports what happened, never what it thinks she felt.</p></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="amazon" style="background:var(--ground-2);border-block:1px solid var(--line)">
-    <div class="wrap why">
-      <div class="reveal">
-        <p class="kicker">Why Amazon</p>
-        <h2>Only Amazon has all three.</h2>
-        <p>Wick needs a trusted screen in the room, a doorbell with a real developer API, and an assistant the family already uses. Fire TV, Ring and Alexa+ make that possible in one home.</p>
-      </div>
-      <table class="compare reveal">
-        <thead><tr><th scope="col"></th><th scope="col">Screen</th><th scope="col">Doorbell API</th><th scope="col">Assistant</th></tr></thead>
-        <tbody>
-          <tr class="us"><td>Amazon</td><td>Fire TV</td><td>Ring</td><td>Alexa+</td></tr>
-          <tr><td>Google</td><td>Google TV</td><td>Nest, limited</td><td>Gemini</td></tr>
-          <tr><td>Apple</td><td>Apple TV</td><td class="none">none</td><td>Siri</td></tr>
-          <tr><td>Roku</td><td>Roku</td><td class="none">none</td><td class="none">none</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section id="architecture">
-    <div class="wrap">
-      <div class="section-head reveal">
-        <p class="kicker">Architecture</p>
-        <h2>The television shows. The cloud thinks. The family reads through a gate.</h2>
-        <p>Serverless on AWS, all in Terraform, deployed from GitHub over OIDC.</p>
-      </div>
-      <div class="arch reveal">
-        <div class="flow">
-          <div>
-            <div class="node"><h4>Her television</h4><p>Vega app or Fire OS build. Renders and reports; decides nothing.</p></div>
-            <div class="node"><h4>Ring doorbell</h4><p>Signed webhooks, recorded frames, live view.</p></div>
-          </div>
-          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
-          <div>
-            <div class="node core"><h4>Wick on AWS</h4><p>IoT Core and API Gateway at the edge. Agents on Lambda and Bedrock AgentCore. One DynamoDB table.</p></div>
-            <div class="node core"><h4>The Guardian</h4><p>A rules engine on every word bound for the family. No model decides what is private.</p></div>
-          </div>
-          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
-          <div>
-            <div class="node"><h4>The family</h4><p>Alexa+ over a standard MCP server, with OAuth 2.1.</p></div>
-            <div class="node"><h4>Sarah's television</h4><p>Her own view, and nothing more.</p></div>
-          </div>
-        </div>
-        <div class="stack" aria-label="Technologies">
-          <span class="chip key">Vega OS</span><span class="chip key">Fire OS</span><span class="chip key">Ring Partner API</span><span class="chip key">Alexa+ MCP</span>
-          <span class="chip">Amazon Bedrock</span><span class="chip">Nova Lite</span><span class="chip">Claude Sonnet 4.5</span><span class="chip">AgentCore + Strands</span>
-          <span class="chip">Lambda</span><span class="chip">App Runner</span><span class="chip">IoT Core</span><span class="chip">EventBridge</span><span class="chip">DynamoDB</span><span class="chip">Cognito</span>
-          <span class="chip">Rekognition</span><span class="chip">Polly</span><span class="chip">Translate</span><span class="chip">Transcribe</span><span class="chip">Terraform</span>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="try" style="background:var(--ground-2);border-block:1px solid var(--line)">
-    <div class="wrap">
-      <div class="section-head reveal">
-        <p class="kicker">Try it</p>
-        <h2>Five minutes, in two browser tabs.</h2>
-      </div>
-      <div class="try">
-        <div class="step reveal">
-          <h3>Open her television</h3>
-          <p>A full-screen Fire TV in your browser. Your keyboard is the remote.</p>
-          <div class="keys"><kbd>Arrows</kbd><kbd>Enter</kbd><kbd>Esc</kbd><kbd>Space</kbd></div>
-          <p style="margin-top:18px"><a class="btn sm" href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">Open her television</a></p>
-        </div>
-        <div class="step reveal">
-          <h3>Become Sarah</h3>
-          <p>In the family app, choose <b>Try the demo</b> and enter the code on the television. Then press <b>Allow Sarah</b> on the television.</p>
-          <p><a class="btn sm primary" href="https://dmaz25jvryojp.cloudfront.net/">Try the demo</a></p>
-        </div>
-        <div class="step reveal">
-          <h3>Ask, send, ring</h3>
-          <p>Ask <em>"How has my mum been this week?"</em>, send a note during a film, or ring the stand-in doorbell.</p>
-          <p><a class="btn sm" href="https://rogerjeasy.github.io/wick/calm-points/">See the calm-point map</a></p>
-        </div>
-      </div>
-      <p class="honest"><b>What is simulated.</b> Built without hardware, as the hackathon allows: the televisions are the Vega Virtual Device and the Android TV emulator, the doorbell is Ring's Developer Playground or a labelled stand-in, Alexa+ is a simulated surface, and the home is a demo home. Everything between them is real and deployed.</p>
-    </div>
-  </section>
-
-  <section id="docs">
-    <div class="wrap">
-      <div class="section-head reveal">
+      <div class="section-head" data-reveal>
         <p class="kicker">Read more</p>
-        <h2>The documents behind it.</h2>
+        <h2 id="docs-title">The documents behind it.</h2>
       </div>
-      <div class="docs">
-        <a class="doc reveal" href="https://github.com/rogerjeasy/wick/blob/main/docs/WICK.md"><h3>Product overview<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3><p>What it does, who it is for, and the business behind it.</p></a>
-        <a class="doc reveal" href="https://github.com/rogerjeasy/wick/blob/main/docs/WICK-TECHNICAL.md"><h3>Technical document<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3><p>Architecture, figures, security, measurements.</p></a>
-        <a class="doc reveal" href="https://github.com/rogerjeasy/wick/blob/main/FRICTION.md"><h3>Friction log<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3><p>Every platform gap, written when it was hit.</p></a>
-        <a class="doc reveal" href="https://github.com/rogerjeasy/vega-calm-ui"><h3>vega-calm-ui<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></h3><p>Open-source accessible 10-foot components for Vega.</p></a>
-      </div>
+      <ul class="docs" data-reveal>
+        <li data-reveal-item><a href="https://github.com/rogerjeasy/wick/blob/main/docs/WICK.md"><h3>Product overview<svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#arrow-up-right"/></svg></h3><p>What it does, who it is for, and why.</p></a></li>
+        <li data-reveal-item><a href="https://github.com/rogerjeasy/wick/blob/main/docs/WICK-TECHNICAL.md"><h3>Technical document<svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#arrow-up-right"/></svg></h3><p>Architecture, security, the threat model and measurements.</p></a></li>
+        <li data-reveal-item><a href="https://github.com/rogerjeasy/wick/blob/main/docs/SETUP.md"><h3>Setup<svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#arrow-up-right"/></svg></h3><p>Running it locally, on the simulators, or on your own AWS account.</p></a></li>
+        <li data-reveal-item><a href="https://github.com/rogerjeasy/wick/blob/main/FRICTION.md"><h3>Friction log<svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#arrow-up-right"/></svg></h3><p>Every platform gap, written when it was hit.</p></a></li>
+        <li data-reveal-item><a href="https://github.com/rogerjeasy/wick/blob/main/docs/PRODUCT-FEEDBACK.md"><h3>Product feedback<svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#arrow-up-right"/></svg></h3><p>Each tool Wick used, with the evidence from the friction log.</p></a></li>
+        <li data-reveal-item><a href="https://github.com/rogerjeasy/wick/blob/main/docs/SUBMISSION.md"><h3>Submission<svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#arrow-up-right"/></svg></h3><p>The text of the Devpost entry, field by field.</p></a></li>
+        <li data-reveal-item><a href="calm-points/"><h3>The calm-point map<svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#arrow-right"/></svg></h3><p>Where in each film a note may arrive, measured and chosen by rule.</p></a></li>
+        <li data-reveal-item><a href="https://github.com/rogerjeasy/vega-calm-ui"><h3>vega-calm-ui<svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#arrow-up-right"/></svg></h3><p>Accessible 10-foot components for Vega, open source and on npm.</p></a></li>
+      </ul>
     </div>
   </section>
 
-  <section class="closing">
-    <div class="wrap reveal">
-      <h2>She stays in charge. Her family stays close.</h2>
-      <p>Built for the Build, Ship, Shape Amazon Developer Hackathon. Fire TV track, with the AWS Builder and Open Source challenges.</p>
+  <section class="closing" aria-labelledby="closing-title">
+    <div class="wrap" data-reveal>
+      <h2 id="closing-title">She stays in charge. Her family stays close.</h2>
+      <p>Submitted to Build, Ship, Shape, the Amazon Developer Hackathon. Fire TV track, with the AWS Builder and Open Source mini challenges.</p>
       <div class="cta-row">
-        <a class="btn primary" href="https://dmaz25jvryojp.cloudfront.net/">Try the demo</a>
-        <a class="btn" href="https://github.com/rogerjeasy/wick">View the source</a>
+        <a class="btn lg primary" href="https://dmaz25jvryojp.cloudfront.net/">Try the family app</a>
+        <a class="btn lg" href="https://github.com/rogerjeasy/wick"><svg class="i" aria-hidden="true"><use href="assets/vendor/icons.svg#code-xml"/></svg>Read the source</a>
       </div>
     </div>
   </section>
@@ -664,7 +458,7 @@
 
 <footer>
   <div class="wrap">
-    <span>Wick · MIT licensed</span>
+    <span>Wick · MIT licensed · Films by the Blender Foundation, CC BY 3.0</span>
     <nav aria-label="Footer">
       <a href="https://github.com/rogerjeasy/wick">GitHub</a>
       <a href="privacy.html">Privacy</a>
@@ -673,100 +467,5 @@
     </nav>
   </div>
 </footer>
-
-<script>
-  // The film at the top: a silent loop while it is on screen, the narrated cut from the start on request.
-  (function () {
-    var box = document.getElementById('film'), v = document.getElementById('film-video');
-    if (!box || !v) return;
-    var sound = document.getElementById('film-sound'), soundLabel = document.getElementById('film-sound-label');
-    var dur = sound.querySelector('.dur'), pause = document.getElementById('film-pause');
-    var cc = document.getElementById('film-cc'), full = document.getElementById('film-full');
-    var start = document.getElementById('film-start'), bar = document.getElementById('film-progress');
-    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var heard = false, userPaused = still, inView = true;
-    var track = v.textTracks && v.textTracks[0];
-    if (track) track.mode = 'hidden';
-
-    function clock(t) { t = Math.max(0, Math.round(t)); return Math.floor(t / 60) + ':' + ('0' + t % 60).slice(-2); }
-    function showPaused(p) {
-      pause.setAttribute('aria-pressed', p ? 'true' : 'false');
-      pause.setAttribute('aria-label', p ? 'Play the film' : 'Pause the film');
-      box.classList.toggle('still', p && !heard);
-    }
-    function play() { var r = v.play(); if (r && r.catch) r.catch(function () { showPaused(true); }); }
-    function withSound() {
-      if (!heard) { heard = true; v.currentTime = 0; v.loop = false; }
-      v.muted = false; userPaused = false;
-      sound.setAttribute('aria-pressed', 'true'); soundLabel.textContent = 'Sound on';
-      box.classList.remove('still'); play();
-    }
-    function silent() {
-      v.muted = true; sound.setAttribute('aria-pressed', 'false'); soundLabel.textContent = heard ? 'Sound off' : 'Watch with sound';
-    }
-
-    sound.addEventListener('click', function () { (v.muted || v.paused) ? withSound() : silent(); });
-    start.addEventListener('click', withSound);
-    pause.addEventListener('click', function () {
-      if (v.paused) { userPaused = false; play(); } else { userPaused = true; v.pause(); }
-    });
-    cc.addEventListener('click', function () {
-      var on = cc.getAttribute('aria-pressed') !== 'true';
-      cc.setAttribute('aria-pressed', on ? 'true' : 'false');
-      if (track) track.mode = on ? 'showing' : 'hidden';
-    });
-    full.addEventListener('click', function () {
-      if (document.fullscreenElement) return document.exitFullscreen();
-      if (box.requestFullscreen) box.requestFullscreen();
-      else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
-    });
-    v.addEventListener('play', function () { showPaused(false); });
-    v.addEventListener('pause', function () { showPaused(true); });
-    v.addEventListener('ended', function () {
-      // The narrated cut is over: back to the quiet loop, ready to be heard again.
-      heard = false; v.loop = true; silent(); soundLabel.textContent = 'Watch again with sound'; v.currentTime = 0;
-      if (!still && inView) play();
-    });
-    v.addEventListener('timeupdate', function () {
-      if (heard && v.duration) dur.textContent = clock(v.duration - v.currentTime);
-      else dur.textContent = '1:28';
-    });
-    (function tick() {
-      if (v.duration) bar.style.transform = 'scaleX(' + (v.currentTime / v.duration) + ')';
-      requestAnimationFrame(tick);
-    })();
-
-    if (still) { v.preload = 'metadata'; showPaused(true); return; }
-    if (!('IntersectionObserver' in window)) { play(); return; }
-    new IntersectionObserver(function (entries) {
-      inView = entries[0].isIntersecting;
-      if (inView && !userPaused) play();
-      else if (!inView && v.muted && !v.paused) v.pause();   // a film being listened to keeps playing
-    }, { threshold: 0.2 }).observe(box);
-  })();
-  (function () {
-    var videos = document.querySelectorAll('video.autoplay');
-    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    videos.forEach(function (v) {
-      if (still || !('IntersectionObserver' in window)) { v.controls = true; v.preload = 'metadata'; return; }
-      var watch = new IntersectionObserver(function (entries) {
-        entries.forEach(function (e) {
-          if (e.isIntersecting) { var p = v.play(); if (p && p.catch) p.catch(function () { v.controls = true; }); }
-          else v.pause();
-        });
-      }, { threshold: 0.25 });
-      watch.observe(v);
-    });
-  })();
-  (function () {
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce || !('IntersectionObserver' in window)) return;
-    document.documentElement.classList.add('js');
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
-    }, { rootMargin: '0px 0px -8% 0px' });
-    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
-  })();
-</script>
 </body>
 </html>
