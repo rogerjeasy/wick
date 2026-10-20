@@ -191,6 +191,14 @@ function passCard(pass) {
 }
 
 /**
+ * What goes with the link into the visitor's WhatsApp, text or email. The
+ * page's own words, never the server's sentence to the member: a message
+ * the member forwards may be read by anyone, so it names nobody — not her,
+ * not the member, not the visitor — and no place.
+ */
+export const VISITOR_SHARE_TEXT = 'This is the link for your visit. Press On my way, Running late or I’m at the door, so the house knows. It works only around the time of the visit.';
+
+/**
  * Sends the link: the phone's share sheet where there is one (WhatsApp,
  * Messages, email — the member chooses), else the clipboard, else neither
  * and the page shows the link to be copied by hand. Closing the sheet is an
@@ -200,12 +208,12 @@ function passCard(pass) {
  * spent waiting for the server; the link is then copied, and the card keeps
  * a button for the sheet, pressed afresh.
  *
- * @param {{ link: string, said: string }} pass
+ * @param {{ link: string }} pass
  * @param {Navigator | object} nav  the browser's navigator
  * @returns {Promise<'shared' | 'cancelled' | 'copied' | 'shown'>}
  */
 export async function sendVisitLink(pass, nav) {
-  const data = { title: 'Your visit', text: pass.said, url: pass.link };
+  const data = { title: 'Your visit', text: VISITOR_SHARE_TEXT, url: pass.link };
   if (typeof nav?.share === 'function' && (typeof nav.canShare !== 'function' || nav.canShare(data))) {
     try {
       await nav.share(data);

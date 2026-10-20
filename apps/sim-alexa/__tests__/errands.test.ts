@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — a plain browser module, deliberately untyped (no build step).
-import { ARRANGE_NEEDS_ASSISTANT, ERRAND_SUGGESTION, confirmErrand, describeErrandCall, errandNews, passOffer, presentErrand, sendVisitLink, visitLinkWords, withNoteSent } from '../errands.js';
+import { ARRANGE_NEEDS_ASSISTANT, ERRAND_SUGGESTION, confirmErrand, describeErrandCall, errandNews, passOffer, presentErrand, sendVisitLink, VISITOR_SHARE_TEXT, visitLinkWords, withNoteSent } from '../errands.js';
 // @ts-expect-error — the same.
 import { SUGGESTIONS, confirmWrite, describeCall, presentResult, presentTurn, routeUtterance } from '../surface.js';
 
@@ -256,8 +256,16 @@ describe('sendVisitLink — the share sheet where there is one, else the clipboa
   it('opens the share sheet with “Your visit”, the sentence and the link', async () => {
     const { nav, given } = browser({ share: async () => {}, copy: async () => {} });
     expect(await sendVisitLink(pass, nav)).toBe('shared');
-    expect(given.shared).toEqual([{ title: 'Your visit', text: 'Here is your link.', url: pass.link }]);
+    expect(given.shared).toEqual([{ title: 'Your visit', text: VISITOR_SHARE_TEXT, url: pass.link }]);
     expect(given.copied).toEqual([]);
+  });
+
+  it('shares words written for the visitor, naming nobody — never the sentence written for the member', async () => {
+    const { nav, given } = browser({ share: async () => {} });
+    await sendVisitLink({ ...pass, said: 'Send this link to Doctor Rossi for Margaret.', shareText: 'Margaret at 12 Broadway' }, nav);
+    const text = (given.shared[0] as { text: string }).text;
+    expect(text).toBe(VISITOR_SHARE_TEXT);
+    expect(VISITOR_SHARE_TEXT).not.toMatch(/Rossi|Margaret|Sarah|Broadway/);
   });
 
   it('copies nothing when the member closes the sheet: that was their choice', async () => {
