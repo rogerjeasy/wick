@@ -257,7 +257,7 @@ otherwise. The IDs are used in the code and the technical document.
 | **S1** | **The door card** | A ring puts a card on her screen with a still from the doorbell and one plain sentence about who's there. It doesn't cover the screen or make a sound; her film waits under it until she puts it away, because she may get up to answer the door. If another app is in front, Vega shows a system toast and Fire OS a notification, with a button that brings Wick forward. |
 | **M1** | **Ring the hallway chime** | One button rings the Ring Chime once, so the house knows. Built and tested against Ring's contract, but not demonstrated: Ring's simulator has no chime, and the button only appears when a chime exists. |
 | **M2** | **Watch live** | The doorbell camera full screen on her television, about six seconds after the press, for as long as Ring allows. |
-| **M4** | **Known visitors** | The family adds regular visitors and their usual days, and the card can say *"This looks like Maria. She usually comes on Tuesdays."* |
+| **M4** | **Known visitors** | The family adds regular visitors and their usual days, and the card can say *"Maria is expected around now."* — when she is due, never who has come. |
 | | **Ask Sarah to look** | One button asks the family to look at the same picture. They answer with one of three fixed sentences. |
 
 **The hard part is not the card. It is the description.** "Motion detected" is
