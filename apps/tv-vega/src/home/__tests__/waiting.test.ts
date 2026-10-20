@@ -23,7 +23,7 @@ describe('waitingLine — what the home screen says is waiting', () => {
   });
 
   it('says there is a question waiting, without saying what it is about', () => {
-    const tell: Card = { ...base, type: 'TELL', headline: 'Shall I tell Sarah?', detail: 'Maria usually comes on Friday mornings.' };
+    const tell: Card = { ...base, type: 'TELL', headline: 'Shall I tell Sarah?', detail: 'Maria is usually expected on Friday mornings.' };
 
     expect(waitingLine(queued(tell))).toBe('Wick has a question for you.');
   });

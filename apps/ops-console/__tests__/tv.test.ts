@@ -252,7 +252,7 @@ describe('her day at the top — the greeting, the date, who is coming (home/her
 describe('"Shall I tell Sarah?" in a browser tab', () => {
   it('starts on "Keep it to myself", as the card the agent plane builds puts it first', async () => {
     const tv = await atHome();
-    tv.card(buildTellCard({ householdId: 'hh-1', differenceId: 'd_1', who: 'Sarah', sentence: 'There was no visit on Tuesday.', correlationId: 'c-1', now: 0 }));
+    tv.card(buildTellCard({ householdId: 'hh-1', differenceId: 'd_1', who: 'Sarah', sentence: 'Nobody came to the door at that time on Tuesday.', correlationId: 'c-1', now: 0 }));
     tv.advance(SETTLED_AFTER_MS);
 
     expect(shownType(tv)).toBe('TELL');

@@ -153,7 +153,7 @@ const tell: Card = {
   type: 'TELL',
   ...base('tell-d_1'),
   headline: 'Shall I tell Sarah?',
-  detail: 'There was no visit on Tuesday.',
+  detail: 'Nobody came to the door at that time on Tuesday.',
   actions: [
     { id: TELL_ACTIONS.keep, label: 'Keep it to myself', kind: 'dismiss' },
     { id: TELL_ACTIONS.tell, label: 'Tell Sarah', kind: 'secondary' },
