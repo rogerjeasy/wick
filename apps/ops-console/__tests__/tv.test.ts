@@ -369,7 +369,7 @@ describe('the natural break — the Vega app’s own engine, on a film that play
     expect(video.paused).toBe(false);
   });
 
-  it('reads the note at the first Play, and carries on with the film at the next — the note waits for the next break', async () => {
+  it('reads the note on Play and stops the reading on the next — Play never moves the film under a card', async () => {
     const tv = await atHome();
     const video = await watching(tv);
     tv.card(NOTE);
@@ -382,12 +382,9 @@ describe('the natural break — the Vega app’s own engine, on a film that play
     expect(video.paused).toBe(true);
 
     tv.press(' ');
-    expect(video.paused).toBe(false);
-    tv.advance(1000);
-    expect(shownType(tv)).toBe(null);
+    expect(video.paused).toBe(true);
+    expect(shownType(tv)).toBe('MESSAGE');
     expect(tv.sentOf('read')).toHaveLength(1);
-    // Kept, and counted as one of its two showings.
-    expect(tv.run('keptCards.map((q) => q.shownCount)')).toEqual([1]);
   });
 
   it('says which state of a break it is in, as the Vega app does', async () => {

@@ -175,16 +175,16 @@ describe('a note holding the film on a calm point, and the voice', () => {
     expect(tv.look(2_000)).toBeUndefined();
   });
 
-  it('the remote’s Play/Pause through the session reads the note first, like the key', () => {
+  it('the remote’s Play/Pause through the session reads the note, like the key, and never moves the film under it', () => {
     const tv = television(CALM_POINT_MS - 2_000);
     tv.look(0);
     tv.player.currentTime = (CALM_POINT_MS + 500) / 1000;
     tv.look(1_000);
     expect(tv.say('toggle')).toEqual({ reader: 'toggle' });
     expect(tv.player.paused).toBe(true);
-    // The next is the film's again.
-    expect(tv.say('toggle').film).toEqual({ kind: 'toggle' });
-    expect(tv.player.paused).toBe(false);
+    // And the next is the card's again: it stops the reading, and the film waits for her answer.
+    expect(tv.say('toggle').film).toBeUndefined();
+    expect(tv.player.paused).toBe(true);
   });
 
   it('"Alexa, pause" while the note holds the film keeps it paused once the note is answered', () => {

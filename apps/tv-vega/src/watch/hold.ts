@@ -21,6 +21,24 @@ import type { RemoteEventLike } from './remoteKeys.js';
 /** Two seconds: long enough that a press, or a thumb resting on the button, never is one. */
 export const HOLD_MS = 2_000;
 
+/**
+ * When a press that may become a hold starts to show itself
+ * (docs/design/DESIGN.md §6): a line fills from here to HOLD_MS, so she
+ * can see what holding is doing and let go. An ordinary press is over well
+ * before it, and shows nothing.
+ */
+export const HOLD_SHOWN_FROM_MS = 400;
+
+/**
+ * How full the hold line is, `heldMs` after OK went down: null before it
+ * shows (an ordinary press), then from 0 to 1 across the rest of the two
+ * seconds.
+ */
+export function holdProgress(heldMs: number): number | null {
+  if (!Number.isFinite(heldMs) || heldMs < HOLD_SHOWN_FROM_MS) return null;
+  return Math.min(1, (heldMs - HOLD_SHOWN_FROM_MS) / (HOLD_MS - HOLD_SHOWN_FROM_MS));
+}
+
 /** kepler's HWEvent: 0 is key down, 1 is key up. */
 const KEY_DOWN = 0;
 const KEY_UP = 1;
@@ -41,6 +59,10 @@ export function okHold(input: {
   readonly onHold: () => void;
   /** OK came up after a hold — not after a press. */
   readonly onRelease?: (() => void) | undefined;
+  /** OK went down where it may be held: the hold line may begin (holdProgress counts from now). */
+  readonly onBegin?: ((at: number) => void) | undefined;
+  /** The press that might have been a hold is over — let go, cancelled, or become the hold: the line goes. */
+  readonly onEnd?: (() => void) | undefined;
   /** Whether OK is free to be held: not while a card, or the door camera, has the remote. */
   readonly canHold: () => boolean;
 }): OkHold {
@@ -49,8 +71,10 @@ export function okHold(input: {
   let becameHold = false;
 
   const stop = (): void => {
+    const was = timer !== undefined;
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
+    if (was) input.onEnd?.();
   };
 
   return {
@@ -74,8 +98,10 @@ export function okHold(input: {
       if (isDown) return;
       isDown = true;
       if (!input.canHold()) return;
+      input.onBegin?.(Date.now());
       timer = setTimeout(() => {
         timer = undefined;
+        input.onEnd?.();
         // A card may have come in the meantime: then OK is the card's.
         if (!input.canHold()) return;
         becameHold = true;
