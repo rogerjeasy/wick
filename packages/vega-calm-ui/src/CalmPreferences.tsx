@@ -93,3 +93,19 @@ export function CalmText({ children, role = 'body', tone = 'ink', numberOfLines,
     </Text>
   );
 }
+
+const InertContext = React.createContext(false);
+
+/**
+ * Everything under it is drawn and cannot be pressed or focused: a card on
+ * its way off the screen (its last 150ms) shows what it was without taking
+ * the remote from what comes next.
+ */
+export function CalmInert({ children }: { readonly children?: React.ReactNode }): React.JSX.Element {
+  return <InertContext.Provider value={true}>{children}</InertContext.Provider>;
+}
+
+/** Whether this component is drawn inert (CalmInert). */
+export function useCalmInert(): boolean {
+  return React.useContext(InertContext);
+}

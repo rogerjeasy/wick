@@ -25,16 +25,22 @@ export interface CalmPresenceProps {
   readonly rises?: boolean | undefined;
   readonly style?: StyleProp<ViewStyle>;
   readonly pointerEvents?: 'box-none' | 'none' | 'box-only' | 'auto' | undefined;
+  /** Already on the screen when it is first drawn: for something that is only leaving (a card's last 150ms). */
+  readonly startShown?: boolean | undefined;
+  /** It has finished leaving, and is drawn no more. */
+  readonly onGone?: (() => void) | undefined;
   readonly children?: React.ReactNode;
 }
 
 /** The design system's curve, cubic-bezier(0.2, 0, 0, 1). */
 export const calmEasing = (): ((t: number) => number) => Easing.bezier(...motion.easing);
 
-export function CalmPresence({ shown, rises = false, style, pointerEvents, children }: CalmPresenceProps): React.JSX.Element | null {
+export function CalmPresence({ shown, rises = false, style, pointerEvents, startShown = false, onGone, children }: CalmPresenceProps): React.JSX.Element | null {
   const timings = motionTimings(useReduceMotionEnabled());
-  const progress = React.useRef(new Animated.Value(0)).current;
-  const [mounted, setMounted] = React.useState(shown);
+  const progress = React.useRef(new Animated.Value(startShown ? 1 : 0)).current;
+  const [mounted, setMounted] = React.useState(shown || startShown);
+  const gone = React.useRef(onGone);
+  gone.current = onGone;
 
   React.useEffect(() => {
     if (shown) setMounted(true);
@@ -45,7 +51,10 @@ export function CalmPresence({ shown, rises = false, style, pointerEvents, child
       useNativeDriver: true,
     });
     animation.start(({ finished }) => {
-      if (finished && !shown) setMounted(false);
+      if (finished && !shown) {
+        setMounted(false);
+        gone.current?.();
+      }
     });
     return () => animation.stop();
   }, [shown, progress, timings.enterMs, timings.exitMs]);

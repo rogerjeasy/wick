@@ -20,6 +20,7 @@
  */
 import type { Card } from '@wick/contracts';
 import type { CalmTheme } from '@wick/vega-calm-ui';
+import { replyActions } from '../cards/messageActions.js';
 
 /** The cards drawn compact — less card around the words — whose padding is 24dp, not 32 (hint.test.ts holds this to the views). */
 export const COMPACT_CARDS: readonly Card['type'][] = ['DOOR', 'LANGUAGE', 'PHOTO'];
@@ -55,4 +56,56 @@ export function hintPlace(cardType: Card['type'], theme: CalmTheme): { readonly 
     right: CARD_FROM_SIDE_DP + padding,
     bottom: CARD_FROM_BOTTOM_DP + padding + (buttonRowDp(theme) - HINT_MARK.height) / 2,
   };
+}
+
+/*
+ * The read chip (docs/design/DESIGN.md §5): where a card's buttons leave
+ * room at the right-hand end of their row, the mark is the speaker icon
+ * and the words "Read aloud" — what Play does, said on the card. Where they
+ * do not, it is the icon alone, which stands in the last button's margin as
+ * the triangle did, and the screen reader says the sentence. The chip is
+ * drawn over the card, never laid out in it, so it can never push a button
+ * onto another row or the card off the screen.
+ */
+
+/** Around the chip's icon and words. */
+export const READ_CHIP = { paddingHorizontal: 12, paddingVertical: 2, iconGapDp: 8, fromButtonsDp: 16 } as const;
+
+/** CalmCard's buttons (packages/vega-calm-ui theme.ts): padding either side of the words, the gap between them, a letter's width. */
+const BUTTON_PADDING_H_DP = 32;
+const BUTTON_GAP_DP = 16;
+const GLYPH_WIDTH_EM = 0.5;
+
+/** The words on a card's buttons, as the card draws them. */
+export function actionLabelsOf(card: Card): readonly string[] {
+  if (card.type === 'MESSAGE') return replyActions(card.suggestedReplies).map((action) => action.label);
+  return card.actions.map((action) => action.label);
+}
+
+/** The chip's height: a line of body type and its padding. */
+export const readChipHeightDp = (theme: CalmTheme): number => theme.lineHeight('body') + 2 * READ_CHIP.paddingVertical + 2 * theme.cardEdgeDp;
+
+/** The chip's width, with these words. */
+export function readChipWidthDp(theme: CalmTheme, words: string): number {
+  const icon = theme.preferences.largerText ? 40 : 32;
+  return icon + READ_CHIP.iconGapDp + words.length * theme.fontSize('body') * GLYPH_WIDTH_EM + 2 * READ_CHIP.paddingHorizontal + 2 * theme.cardEdgeDp;
+}
+
+/**
+ * Whether "Read aloud" fits beside a card's buttons: they take one row, and
+ * the chip fits after the last of them inside the card. Estimated, and it
+ * errs towards the icon alone.
+ */
+export function readChipFits(theme: CalmTheme, cardType: Card['type'], labels: readonly string[], words: string): boolean {
+  const padding = (COMPACT_CARDS.includes(cardType) ? PADDING_DP.compact : PADDING_DP.ordinary) + theme.cardEdgeDp;
+  const inner = 960 - 2 * CARD_FROM_SIDE_DP - 2 * padding;
+  const ring = 2 * theme.ring().footprintDp;
+  const buttons = labels.reduce((sum, label, i) => sum + (i > 0 ? BUTTON_GAP_DP : 0) + label.length * theme.fontSize('body') * GLYPH_WIDTH_EM + 2 * BUTTON_PADDING_H_DP + ring, 0);
+  return buttons + READ_CHIP.fromButtonsDp + readChipWidthDp(theme, words) <= inner;
+}
+
+/** Where the chip, or the icon alone, stands: at the right-hand end of the buttons' row, centred on it. */
+export function readChipPlace(cardType: Card['type'], theme: CalmTheme, heightDp: number): { readonly right: number; readonly bottom: number } {
+  const padding = (COMPACT_CARDS.includes(cardType) ? PADDING_DP.compact : PADDING_DP.ordinary) + theme.cardEdgeDp;
+  return { right: CARD_FROM_SIDE_DP + padding, bottom: CARD_FROM_BOTTOM_DP + padding + (buttonRowDp(theme) - heightDp) / 2 };
 }

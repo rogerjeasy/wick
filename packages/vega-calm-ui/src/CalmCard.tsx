@@ -18,7 +18,7 @@
 import * as React from 'react';
 import { Pressable, StyleSheet, Text, View } from '@amazon-devices/react-native-kepler';
 import { assertActionLimit, assertCardFits, assertContrast, assertNoAlarmColour } from './constraints.js';
-import { CalmThemeProvider, useCalmTheme } from './CalmPreferences.js';
+import { CalmThemeProvider, useCalmInert, useCalmTheme } from './CalmPreferences.js';
 import { CARD_BUTTON_GAP_DP, CARD_BUTTON_PADDING_DP, CARD_MEDIA_GAP_DP, fitCard, stylesFor, type CalmTheme } from './theme.js';
 import { layout } from './tokens.js';
 
@@ -73,7 +73,7 @@ export interface CalmCardProps {
 }
 
 export function CalmCard(props: CalmCardProps): React.JSX.Element {
-  return renderCalmCard(props, useCalmTheme());
+  return renderCalmCard(props, useCalmTheme(), useCalmInert());
 }
 
 /**
@@ -81,7 +81,7 @@ export function CalmCard(props: CalmCardProps): React.JSX.Element {
  * the theme it is given. Exported so the tree can be read without a
  * renderer (src/__tests__/CalmCard.test.ts).
  */
-export function renderCalmCard(props: CalmCardProps, asked: CalmTheme): React.JSX.Element {
+export function renderCalmCard(props: CalmCardProps, asked: CalmTheme, inert = false): React.JSX.Element {
   const { headline, detail, actions, onAction, initialFocusId, media, mediaSize, children, childWords, childLines, compact, detailLines } = props;
 
   // Throws before anything reaches the screen.
@@ -148,10 +148,12 @@ export function renderCalmCard(props: CalmCardProps, asked: CalmTheme): React.JS
             return (
               <Pressable
                 key={action.id}
-                onPress={() => onAction(action.id)}
+                // Inert (CalmInert): drawn as it was, on its way off the screen, and never pressed or focused.
+                onPress={inert ? undefined : () => onAction(action.id)}
+                focusable={!inert}
                 accessibilityRole="button"
                 accessibilityLabel={action.label}
-                hasTVPreferredFocus={action.id === focusId}
+                hasTVPreferredFocus={!inert && action.id === focusId}
                 style={({ focused }: { focused: boolean }) => [
                   styles.action,
                   { backgroundColor: colours.background },

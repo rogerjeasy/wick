@@ -101,7 +101,7 @@ import { Linking } from 'react-native';
 import { BackHandler, StyleSheet, View, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerFileSystem } from '@amazon-devices/kepler-file-system';
 import type { DeviceEvent, DeviceToken, HomeState, HouseholdLanguage, MantelItem, QueuedCard } from '@wick/contracts';
-import { announce, useCalmStyles, useScreenReaderEnabled, type CalmTheme } from '@wick/vega-calm-ui';
+import { CalmInert, CalmPresence, announce, useCalmStyles, useScreenReaderEnabled, type CalmTheme } from '@wick/vega-calm-ui';
 import { speechTextOf } from '@wick/contracts';
 import { CardRenderer } from './cards/CardRenderer.js';
 import { opensLiveView, removesCard, startsFilm } from './cards/cardActions.js';
@@ -129,6 +129,7 @@ import type { RenewResult } from './pairing/PairingFlow.js';
 import { lightLabel, lookedInLine, unaskedLightCards } from './home/light.js';
 import { backAnswersReach, holdGuard, newestReachCard, reachOffersToPutAway } from './home/reach.js';
 import { ReadHint } from './read/ReadHint.js';
+import { actionLabelsOf } from './read/hintPlace.js';
 import { Reader, type ReadingState } from './read/reading.js';
 import { canRead, createSpeechPlayer } from './read/speechPlayer.js';
 import { lowerFilm, type HasVolume } from './watch/filmVolume.js';
@@ -195,6 +196,12 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
   const breakController = React.useMemo(() => new BreakController({ calmPointsOf }), []);
 
   const [card, setCard] = React.useState<QueuedCard | null>(null);
+  /**
+   * The card that has just left the screen, for the 150ms it takes to fade
+   * (vega-calm-ui CalmPresence): drawn inert, so it never takes a press.
+   */
+  const [leaving, setLeaving] = React.useState<{ readonly card: QueuedCard; readonly overFilm: boolean } | null>(null);
+  const shownCard = React.useRef<{ readonly card: QueuedCard | null; readonly overFilm: boolean }>({ card: null, overFilm: false });
   /** A card that has had its two showings and waits on the home screen to be asked for. */
   const [waiting, setWaiting] = React.useState<QueuedCard | null>(null);
   /** The waiting card the resident opened. A ref as well: the tick below reads it between renders. */
@@ -928,6 +935,13 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
     return () => sub.remove();
   }, [card, liveFor, handleAction, seeingShown, tourShown]);
 
+  // A card has gone, or given way to another: it fades out where it was. Not while the door camera is up.
+  React.useEffect(() => {
+    const was = shownCard.current;
+    shownCard.current = { card, overFilm: watching !== null };
+    if (was.card && was.card.id !== card?.id && liveFor === null) setLeaving({ card: was.card, overFilm: was.overFilm });
+  }, [card, watching, liveFor]);
+
   // Not yet known which language to say it in: a moment, at launch. Nothing is drawn in the wrong one.
   if (language === null) return <View style={styles.unlit} />;
   const say = words(language);
@@ -1006,12 +1020,26 @@ export function ResidentApp({ token, config, standing }: ResidentAppProps): Reac
       {/* Over the programme, at the bottom, never instead of it. */}
       {/* Not while live view is open: a card left underneath keeps the remote's
           focus, and OK then presses "Watch live" again instead of Back. */}
+      {/* A card on its way off the screen: drawn as it was for its last 150ms, fading, and never pressed or focused. */}
+      {leaving && !liveFor ? (
+        <CalmPresence key={`leaving:${leaving.card.id}`} shown={false} startShown style={styles.cardLayer} pointerEvents="none" onGone={() => setLeaving(null)}>
+          <CalmInert>
+            <View style={styles.inert} importantForAccessibility="no-hide-descendants">
+              {leaving.overFilm ? <View style={styles.scrim} /> : null}
+              <CardRenderer card={leaving.card.card} language={language} onAction={() => undefined} />
+            </View>
+          </CalmInert>
+        </CalmPresence>
+      ) : null}
       {card && !liveFor ? (
-        <View style={styles.cardLayer} pointerEvents="box-none">
+        // Arriving: in 200ms, rising 12dp into place — at once with reduced motion (vega-calm-ui CalmPresence).
+        <CalmPresence key={`card:${card.id}`} shown rises style={styles.cardLayer} pointerEvents="box-none">
+          {/* Over a film, the film steps back behind the card: the scrim. */}
+          {watching ? <View style={styles.scrim} pointerEvents="none" /> : null}
           <CardRenderer key={`${card.id}:${returnedFromLive}`} card={card.card} language={language} onAction={handleAction} onPictureFailed={handlePictureFailed} />
           {/* The mark of the Play key: Play reads this card aloud. Only where it can — and not while a screen reader speaks the card already. */}
-          {readable && !screenReader ? <ReadHint cardType={card.card.type} language={language} /> : null}
-        </View>
+          {readable && !screenReader ? <ReadHint cardType={card.card.type} language={language} actionLabels={actionLabelsOf(card.card)} /> : null}
+        </CalmPresence>
       ) : null}
       {/* Easier to see, where any card goes. A card from the server comes over it; it is back when that card has gone. */}
       {seeingShown && !watching ? (
@@ -1055,5 +1083,17 @@ const makeStyles = (t: CalmTheme) =>
       justifyContent: 'flex-end',
       paddingHorizontal: 48,
       paddingBottom: 32,
+    },
+    // A card on its way off: laid out as the card layer lays it, inside it.
+    inert: {
+      flex: 1,
+      justifyContent: 'flex-end',
+    },
+    // Behind a card over a film: the film, stepped back.
+    scrim: {
+      // Absolute: the layer's padding is not its, so it reaches every edge of the screen.
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: t.palette.scrim,
+      opacity: t.scrimOpacity,
     },
   });

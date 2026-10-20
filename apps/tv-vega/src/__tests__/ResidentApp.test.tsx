@@ -27,7 +27,7 @@ import type { PlayerSnapshot } from '../player/PlayerService.js';
 import { CARD_SERVICE_URI } from '../headless/launchCardService.js';
 import { CATALOG } from '../catalog/catalog.js';
 import { SETTLED_AFTER_MS } from '../break/types.js';
-import { moveApp, opened, pressBack, resetPlatform, sendKey } from './render/platform.js';
+import { moveApp, opened, pressBack, resetPlatform, sendKey, timings } from './render/platform.js';
 import { files, resetFiles } from './render/files.js';
 import { resetMedia } from './render/media.js';
 import { button, buttons, headers, pressOk, render, shows, textOf, type Drawn } from './render/render.js';
@@ -429,5 +429,36 @@ describe('How Wick works (tour/tour.ts)', () => {
     expect(shows(root, 'What would you like to watch?')).toBe(true);
     // Nothing of the tour's: no press, no reading, no question.
     expect((await sent()).filter((t) => ['card_action', 'read', 'reach', 'light', 'mantel', 'home'].includes(t))).toEqual([]);
+  });
+});
+
+describe('a card arriving and leaving (vega-calm-ui CalmPresence)', () => {
+  const scrims = (root: Drawn['root']) => root.findAll((n) => typeof n.type === 'string' && (n.props.style as { opacity?: number } | undefined)?.opacity === 0.82);
+
+  it('comes in rising, in 200ms; over a film, the film steps back behind a scrim; and it leaves in 150ms', async () => {
+    const { root } = await launch();
+    await wait(1_000);
+    await pressOk(button(root, 'Big Buck Bunny. 10 minutes'));
+    await filmAt(30_000);
+    timings.length = 0;
+    await deliver(door);
+    await wait(1_000);
+    expect(timings).toContainEqual({ toValue: 1, duration: 200 });
+    expect(scrims(root)).toHaveLength(1);
+    expect(scrims(root)[0]!.props.style).toMatchObject({ backgroundColor: '#12100E' });
+
+    await wait(1_000);
+    await pressOk(button(root, 'Not now'));
+    await wait(1_000);
+    expect(timings).toContainEqual({ toValue: 0, duration: 150 });
+    expect(headers(root)).toEqual([]);
+    expect(scrims(root)).toHaveLength(0);
+  });
+
+  it('has no scrim on the home screen, where nothing is behind a card but the ground', async () => {
+    const { root } = await launch();
+    await deliver(door);
+    await wait(1_000);
+    expect(scrims(root)).toHaveLength(0);
   });
 });
