@@ -1,7 +1,7 @@
 import type { ApplyGuardrailCommandInput } from '@aws-sdk/client-bedrock-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GuardrailReply } from '../../brief/guardrail.js';
-import { guardReplyWith } from '../guard.js';
+import { guardReplyWith, houseFacts } from '../guard.js';
 
 const REF = { id: 'gr-1', version: '1' };
 
@@ -37,6 +37,26 @@ describe('guardReplyWith — the Guardrail on what the assistant says', () => {
     const source = g.asked[0]!.content!.find((c) => c.text?.qualifiers?.includes('grounding_source'))!.text!.text!;
     expect(source).toContain('the week of Monday 5 October 2026');
     expect(source).toContain('Tuesday 6 October 2026, 10:00');
+  });
+
+  it('puts who is who and how a note waits beside the tools’ texts, so a true reply in plain words is grounded', async () => {
+    const g = guardrail({ action: 'NONE', assessments: [] });
+    const who = { memberName: 'Sarah', residentName: 'Margaret', householdName: 'Margaret’s home', simulated: true };
+
+    await guardReplyWith(g.send, REF)('Sent. Margaret will see your note at the next natural break.', { question: 'Send her a note', toolTexts: ['{"sent":true}'], who });
+
+    const source = g.asked[0]!.content!.find((c) => c.text?.qualifiers?.includes('grounding_source'))!.text!.text!;
+    expect(source.split('\n')).toEqual([houseFacts(who), '{"sent":true}']);
+    expect(houseFacts(who)).toContain('A reply to a note is Margaret\'s reply');
+    expect(houseFacts(who)).toContain('next natural break');
+  });
+
+  it('never grounds a reply on that line alone: with no tool text there is still nothing to ground on', async () => {
+    const g = guardrail({ action: 'NONE', assessments: [] });
+
+    await guardReplyWith(g.send, REF)('What time is the plumber coming?', { toolTexts: [], who: { memberName: 'Sarah', residentName: 'Margaret', householdName: 'x', simulated: true } });
+
+    expect(g.asked[0]!.content).toEqual([{ text: { text: 'What time is the plumber coming?', qualifiers: ['guard_content'] } }]);
   });
 
   it('still asks the Guardrail about a reply that called no tool, a clarifying question: its topics and filters read it', async () => {

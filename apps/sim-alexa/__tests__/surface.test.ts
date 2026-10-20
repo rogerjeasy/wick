@@ -256,6 +256,11 @@ describe('presentResult — did a visitor come', () => {
     expect(r.say).toBe('Not yet. Maria is usually expected today.');
   });
 
+  it('never says "not yet" once her usual time is over', () => {
+    const r = presentResult('did_visitor_come', JSON.stringify({ confirmed: false, doorWhenExpected: false, name: 'Maria', expectedToday: true, usualTimeOver: true }), {}, at);
+    expect(r.say).toBe("Nobody came to the door at Maria's usual time today, and no visit has been confirmed.");
+  });
+
   it('answers on a day they are not expected', () => {
     const r = presentResult('did_visitor_come', JSON.stringify({ confirmed: false, doorWhenExpected: false, name: 'Maria', expectedToday: false }), {}, at);
     expect(r.say).toBe("Today isn't one of Maria's usual days, and no visit has been confirmed.");

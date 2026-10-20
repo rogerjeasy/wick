@@ -202,6 +202,7 @@ export const ES_CATALOGUE: Readonly<Record<string, readonly Entry[]>> = {
     b("I'm fine, thank you.", 'Estoy bien, gracias.'),
     b('Thinking of you too.', 'Yo también pienso en ti.'),
     b("That's lovely to hear.", 'Qué alegría saberlo.'),
+    b('Talk to you then.', 'Hablamos entonces.'),
   ],
 
   // Watch together: the invitation (invite_to_watch.ts), "… is ready" (join_watch_together.ts), the film called off

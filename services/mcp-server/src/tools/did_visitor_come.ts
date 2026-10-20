@@ -25,7 +25,7 @@
  */
 import { z } from 'zod';
 import { GetItemCommand, QueryCommand, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { localDayCode, padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk, type RosterEntry } from '@wick/contracts';
+import { localDayCode, localDayStart, localMinuteOfDay, padTimestamp as padTs, parseTimestampFromSortKey as parseTsFromSk, type RosterEntry } from '@wick/contracts';
 import { visitStore, type VisitSend } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
@@ -46,6 +46,29 @@ export interface VisitorCheckResult {
   readonly at?: number;
   readonly name: string | undefined;
   readonly expectedToday: boolean;
+  /**
+   * The visitor was expected that day and their usual time is over, by the
+   * house's clock, when asked: "not yet" is no longer the answer (seen
+   * 2026-10-20: at a quarter to seven in the evening, "Not yet. Maria is
+   * usually expected today." about her morning visit).
+   */
+  readonly usualTimeOver: boolean;
+}
+
+/** The end of a pattern's window, in minutes of the day: "TUE,FRI 09:00±30m" ends at 09:30. */
+function windowEndMinute(pattern: string | undefined): number | undefined {
+  const m = /^\S+\s+(\d{2}):(\d{2})±(\d+)m$/.exec(pattern?.trim() ?? '');
+  return m ? Number(m[1]) * 60 + Number(m[2]) + Number(m[3]) : undefined;
+}
+
+/** Whether, asked at `askedAt`, a visitor expected on the day that starts at `dayStart` has had their usual time. */
+export function usualTimeOver(pattern: string | undefined, dayStart: Date, askedAt: number, timeZone: string): boolean {
+  if (!expectedToday(pattern, dayStart, timeZone)) return false;
+  const end = windowEndMinute(pattern);
+  if (end === undefined) return false;
+  // A day before today is over; today is over once the window has closed.
+  if (localDayStart(askedAt, timeZone) > localDayStart(dayStart.getTime(), timeZone)) return true;
+  return localMinuteOfDay(askedAt, timeZone) > end;
 }
 
 /** Whether the pattern's days include the day `now` is where the house is (`timeZone`; issue #84). */
@@ -62,13 +85,14 @@ export async function checkVisitor(
   personId: string,
   now: Date,
   timeZone = 'UTC',
+  askedAt: number = now.getTime(),
 ): Promise<VisitorCheckResult> {
   const rosterRes = await ddb.send(new GetItemCommand({
     TableName: TABLE,
     Key: { pk: { S: `HH#${householdId}` }, sk: { S: `PER#${personId}` } },
   }));
   const raw = rosterRes.Item?.data?.S;
-  if (!raw) return { confirmed: false, doorWhenExpected: false, name: undefined, expectedToday: false };
+  if (!raw) return { confirmed: false, doorWhenExpected: false, name: undefined, expectedToday: false, usualTimeOver: false };
   const roster = JSON.parse(raw) as RosterEntry;
 
   // The day where the house is, from its midnight to the next.
@@ -107,6 +131,7 @@ export async function checkVisitor(
     name: roster.name,
     // `now` is the start of the day asked, where the house is (when.ts): its weekday is read there.
     expectedToday: expectedToday(roster.expectedPattern, now, timeZone),
+    usualTimeOver: usualTimeOver(roster.expectedPattern, now, askedAt, timeZone),
   };
 }
 
@@ -117,6 +142,7 @@ const OUTPUT = answerSchema({
   at: z.number().optional().describe('Milliseconds since the epoch: the confirmed visit, else when somebody came to the door when they were expected. Absent when neither.'),
   name: z.string().optional().describe('Absent for an id this household does not know.'),
   expectedToday: z.boolean().describe('Whether that day is one of their usual days.'),
+  usualTimeOver: z.boolean().describe('They were expected that day and their usual time has passed: "not yet" is no longer the answer. With neither `confirmed` nor `doorWhenExpected`, nobody came to the door at their usual time.'),
   date: z.string().describe('The day answered for, YYYY-MM-DD.'),
   dayInWords: z.string(),
 });
@@ -134,6 +160,7 @@ export function registerDidVisitorCome(
       description:
         'Checks a specific regular visitor on a given day — today unless one is named: whether the resident confirmed on their television that the visitor came (`confirmed`), whether somebody came to the door when the visitor was expected (`doorWhenExpected`, which says when, never who), and whether that is one of their usual days (`expectedToday`). ' +
         'Say the visitor came only when `confirmed` is true. With only `doorWhenExpected`, say somebody came to the door at that time and that the resident has not confirmed it was them. ' +
+        'With neither, say "not yet" only while `usualTimeOver` is false; once it is true, say nobody came to the door at their usual time. ' +
         'Takes the `personId` from list_regular_visitors; `name` comes back empty for an id this household does not know. ' +
         'For "on Tuesday" or "yesterday" pass `day`; the answer says which day it is for (`dayInWords`).',
       inputSchema: {
@@ -156,7 +183,7 @@ export function registerDidVisitorCome(
       const timeZone = zoneOf(allowed.household);
       const resolved = resolveRecentDay({ day, date }, now(), timeZone);
       if (!resolved.ok) return say(resolved.say);
-      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date(resolved.day.start), timeZone);
+      const result = await checkVisitor(ddb, ctx.householdId, personId, new Date(resolved.day.start), timeZone, now().getTime());
       return data({ ...result, date: resolved.day.date, dayInWords: resolved.day.inWords });
     })),
   );

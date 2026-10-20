@@ -361,7 +361,8 @@ var ES_CATALOGUE = {
     b("Please call me.", "Llámame, por favor."),
     b("I'm fine, thank you.", "Estoy bien, gracias."),
     b("Thinking of you too.", "Yo también pienso en ti."),
-    b("That's lovely to hear.", "Qué alegría saberlo.")
+    b("That's lovely to hear.", "Qué alegría saberlo."),
+    b("Talk to you then.", "Hablamos entonces.")
   ],
   // Watch together: the invitation (invite_to_watch.ts), "… is ready" (join_watch_together.ts), the film called off
   // (withdraw_watch_invitation.ts), and what the family member answered (answer_watch_together.ts). The day and the

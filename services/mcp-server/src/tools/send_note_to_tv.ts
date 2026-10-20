@@ -76,6 +76,7 @@ export const REPLY_CHOICES = {
   im_fine: "I'm fine, thank you.",
   you_too: 'Thinking of you too.',
   lovely: "That's lovely to hear.",
+  talk_then: 'Talk to you then.',
 } as const;
 export type ReplyChoice = keyof typeof REPLY_CHOICES;
 
@@ -209,7 +210,9 @@ export function registerSendNoteToTv(
         `A third is added: "${DECLINE_REPLY}" when either reply answers a question or a plan (${ANSWERING_REPLIES.join(', ')}), otherwise one more kind word. ` +
         'Without two keys from the list the standing three are used. Replies cannot be written, only chosen. ' +
         'The answer says which replies were offered (`replies`). ' +
-        'The note waits for a natural break, so say any time in it as a clock time on a 12-hour clock ("at 2 pm", "at 11:15 am"), never counted from now ("in five minutes"): such a note is refused. A 24-hour time ("14:00") is said on her television as "2 pm". ' +
+        'A note that says the member will ring or come at a time is best answered talk_then and thank_you. ' +
+        'Send the member\'s own words. The note waits for a natural break, so a time counted from now ("in five minutes") is refused: ask for the clock time instead. ' +
+        'A time already given as a clock time stays as the member said it ("tonight at seven", "at 2 pm"); a 24-hour time ("14:00") is said on her television as "2 pm". ' +
         'Sending the same note again within two minutes does not send it twice: the answer is the first one, with `repeated`. ' +
         'A client that retries may pass `idempotencyKey`, the same for every try of one note.',
       inputSchema: {

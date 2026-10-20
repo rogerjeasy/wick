@@ -94,6 +94,7 @@ describe('a note’s replies (tools/send_note_to_tv.ts)', () => {
     "I'm fine, thank you.": 'Estoy bien, gracias.',
     'Thinking of you too.': 'Yo también pienso en ti.',
     "That's lovely to hear.": 'Qué alegría saberlo.',
+    'Talk to you then.': 'Hablamos entonces.',
   };
   const note = (replies?: readonly ReplyChoice[]): MessageCard =>
     cardOf(buildMessageCard({ householdId: 'hh-1', correlationId: 'corr-1', fromName: 'Sarah Hughes', message: 'Shall I come on Saturday?', replies, now: NOW }), 'MESSAGE');

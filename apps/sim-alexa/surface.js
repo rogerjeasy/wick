@@ -41,6 +41,7 @@ export const REPLY_CHOICES = {
   im_fine: "I'm fine, thank you.",
   you_too: 'Thinking of you too.',
   lovely: "That's lovely to hear.",
+  talk_then: 'Talk to you then.',
 };
 
 /**
@@ -857,7 +858,10 @@ function presentVisitor(v, formatTime, now) {
     : v.doorWhenExpected
       ? `Someone came to the door at ${formatTime(v.at)}, when ${v.name} was expected. It has not been confirmed yet that it was ${v.name}.`
       : v.expectedToday
-        ? `Not yet. ${v.name} is usually expected today.`
+        // Once the usual time has passed, "not yet" would be a hope, not an answer (did_visitor_come.ts usualTimeOver).
+        ? v.usualTimeOver
+          ? `Nobody came to the door at ${v.name}'s usual time today, and no visit has been confirmed.`
+          : `Not yet. ${v.name} is usually expected today.`
         : `Today isn't one of ${v.name}'s usual days, and no visit has been confirmed.`;
   return { say, card: null, tone: 'answer' };
 }
