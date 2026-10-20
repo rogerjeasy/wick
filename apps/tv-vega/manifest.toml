@@ -13,8 +13,8 @@ schema-version = 1
 [package]
 id           = "com.wick.tv"
 title        = "Wick"
-version      = "1.2.0"
-build_number = 3
+version      = "1.2.1"
+build_number = 4
 icon         = "@image/Wick.png"
 
 [os.version]

@@ -82,8 +82,8 @@ android {
         applicationId "com.wick.tv"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.2.0"
+        versionCode 4
+        versionName "1.2.1"
     }
     // No keystore is checked in. The release key is read from four values, as
     // Gradle properties (-P, or ~/.gradle/gradle.properties) or environment
