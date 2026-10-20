@@ -86,6 +86,15 @@ describe('what stays closed', () => {
     }
   });
 
+  it('a role word is not a name for having a mark or a hyphen inside it, or a name word beside it', () => {
+    const dressed = ['до\u0301ктор', 'док-тор', "док'тор", 'до.ктор', 'бан\u0301к', 'γιά\u0301τρος', 'Иван-доктор', 'Мария-врач', 'Анна.банк'];
+    for (const word of dressed) {
+      expect(isForeignNameWord(word), word).toBe(false);
+      expect(clearNameForFamily(word), word).toBe(false);
+      expect(cleared(`${word} visited.`, [word]), word).toBe(false);
+    }
+  });
+
   it('a person whose name says doctor is not set aside, however it is spelt: nothing in her words is', () => {
     expect(cleared('李医生 visited.', ['李医生'])).toBe(false);
     expect(cleared('Доктор Иванов visited.', ['Доктор Иванов'])).toBe(false);

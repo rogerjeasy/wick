@@ -135,10 +135,25 @@ function scriptOf(word: string): Script | undefined {
   return SCRIPTS.find((script) => [...letters].every((char) => script.letter.test(char)));
 }
 
+/**
+ * Marks that decorate a letter without changing the word: accents and
+ * diacritics, Hebrew points, Arabic vowel signs. A marked "до́ктор" is still
+ * "доктор". The marks that make a letter another letter (Indic vowel signs,
+ * Thai vowels) are not in this list.
+ */
+const DECORATION = /[\u0300-\u036f\u0591-\u05c7\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed]/gu;
+
+/** A word as the role lists read it: lower case, undecorated. */
+function fold(text: string): string {
+  return text.normalize('NFKD').replace(DECORATION, '').normalize('NFKC').toLowerCase();
+}
+
+/** Whether a word says a role, whatever its marks or hyphens: whole, with its punctuation closed up, or any one part of it. */
 function says(script: Script, word: string): boolean {
-  const lower = word.normalize('NFKC').toLowerCase();
-  const found = (stem: string): boolean => (script.find === 'start' ? lower.startsWith(stem) : lower.includes(stem));
-  return script.health.some(found) || script.money.some(found);
+  const stems = [...script.health, ...script.money].map(fold);
+  const found = (text: string, stem: string): boolean => (script.find === 'start' ? text.startsWith(stem) : text.includes(stem));
+  const texts = [fold(word), fold(word.replace(NAME_PUNCTUATION, '')), ...word.split(NAME_PUNCTUATION).map(fold)];
+  return texts.some((text) => stems.some((stem) => found(text, stem)));
 }
 
 /**
