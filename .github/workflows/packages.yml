@@ -1,0 +1,162 @@
+name: packages
+
+# What a release publishes to GitHub Packages, built from the release's own tag:
+#
+#   ghcr.io/rogerjeasy/wick-server        the Wick server (MCP, OAuth, the family app's API), linux/amd64
+#   ghcr.io/rogerjeasy/wick-agents        the agents for Bedrock AgentCore Runtime, linux/arm64
+#   ghcr.io/rogerjeasy/wick-live-bridge   the door's live view bridge, linux/arm64
+#   @rogerjeasy/strands-agentcore-session AgentCore Memory session storage for Strands TypeScript (npm)
+#
+# The images are the ones the deployed stack runs, from the same Dockerfiles; they carry no credential
+# (AGENTS.md, Credential rules) and are mirrored here so anyone can run or inspect them. Each one gets a
+# build-provenance attestation. The deploys themselves still go through ECR (deploy-agent.yml).
+#
+# A release that is published runs this. For a release made before this file existed, run it by hand
+# with that release's tag: the workflow comes from main, the code from the tag.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The release tag to publish, for example v1.2.0'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packages-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  OWNER: rogerjeasy
+
+jobs:
+  images:
+    name: image ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: wick-server
+            dockerfile: services/mcp-server/Dockerfile
+            platform: linux/amd64
+            runner: ubuntu-latest
+            description: The Wick server — MCP (spec 2025-11-25, Streamable HTTP), OAuth 2.1, the family app's API and the Guardian.
+          - name: wick-agents
+            dockerfile: services/agent/Dockerfile
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            description: Wick's agents for Amazon Bedrock AgentCore Runtime — the door, the family assistant and the Sunday brief (Strands).
+          - name: wick-live-bridge
+            dockerfile: services/agent/bridge.Dockerfile
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            description: Wick's live view bridge — Ring's WebRTC (WHEP) to HLS for the television.
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: The version, from the tag
+        id: version
+        run: |
+          set -euo pipefail
+          case "$TAG" in v[0-9]*) ;; *) echo "::error::Not a release tag: $TAG"; exit 1 ;; esac
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          build-args: WICK_COMMIT=${{ steps.version.outputs.commit }}
+          tags: |
+            ghcr.io/${{ env.OWNER }}/${{ matrix.name }}:${{ steps.version.outputs.version }}
+            ghcr.io/${{ env.OWNER }}/${{ matrix.name }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.version.outputs.commit }}
+          annotations: |
+            index:org.opencontainers.image.description=${{ matrix.description }}
+            manifest:org.opencontainers.image.description=${{ matrix.description }}
+          provenance: false
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/${{ env.OWNER }}/${{ matrix.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  npm:
+    name: npm @rogerjeasy/strands-agentcore-session
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@rogerjeasy'
+      - run: npm ci --ignore-scripts
+      - name: Build
+        run: npx tsc -p packages/strands-agentcore-session --declaration --outDir packages/strands-agentcore-session/dist
+      # The workspace names it @wick/…, private, pointing at its TypeScript source; what is published is the built
+      # JavaScript, under the owner's scope that GitHub Packages requires.
+      - name: Name it for GitHub Packages
+        working-directory: packages/strands-agentcore-session
+        run: |
+          node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            delete p.private;
+            p.name = "@rogerjeasy/strands-agentcore-session";
+            p.main = "./dist/index.js";
+            p.types = "./dist/index.d.ts";
+            p.exports = { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } };
+            p.files = ["dist", "README.md"];
+            p.repository = { type: "git", url: "git+https://github.com/rogerjeasy/wick.git", directory: "packages/strands-agentcore-session" };
+            p.homepage = "https://github.com/rogerjeasy/wick/tree/main/packages/strands-agentcore-session#readme";
+            p.keywords = ["strands-agents", "bedrock-agentcore", "agentcore-memory", "session", "aws", "typescript"];
+            p.publishConfig = { registry: "https://npm.pkg.github.com" };
+            fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
+          '
+          find dist -name '*.test.*' -delete
+          rm -rf dist/__tests__
+      - name: Publish, unless this version is already there
+        working-directory: packages/strands-agentcore-session
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./package.json").version')"
+          if npm view "@rogerjeasy/strands-agentcore-session@$version" version >/dev/null 2>&1; then
+            echo "@rogerjeasy/strands-agentcore-session@$version is already published." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            npm publish
+            echo "Published @rogerjeasy/strands-agentcore-session@$version." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
