@@ -96,8 +96,9 @@ jobs:
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.revision=${{ steps.version.outputs.commit }}
+          # A single-platform image has no index to annotate: the description goes on its manifest, which is where
+          # GitHub Packages reads it from.
           annotations: |
-            index:org.opencontainers.image.description=${{ matrix.description }}
             manifest:org.opencontainers.image.description=${{ matrix.description }}
           provenance: false
       - uses: actions/attest-build-provenance@v2
