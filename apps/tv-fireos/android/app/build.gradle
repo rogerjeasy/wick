@@ -85,16 +85,60 @@ android {
         versionCode 1
         versionName "1.0"
     }
-    // No keystore is checked in. Both build types are signed with the debug
-    // key Android's own tooling makes for each machine (~/.android/debug.keystore),
-    // which is all an emulator needs. A build for the Amazon Appstore needs a
-    // real key, kept out of the repository — that build is not part of this work.
+    // No keystore is checked in. The release key is read from four values, as
+    // Gradle properties (-P, or ~/.gradle/gradle.properties) or environment
+    // variables — the second is what CI uses, from repository secrets:
+    //
+    //   WICK_RELEASE_STORE_FILE      path to the keystore
+    //   WICK_RELEASE_STORE_PASSWORD
+    //   WICK_RELEASE_KEY_ALIAS
+    //   WICK_RELEASE_KEY_PASSWORD
+    //
+    // With all four, the release build is signed with that key: one key for
+    // every build of Wick, so an installed one is updated in place and an
+    // Appstore upload can be made from it. Without them the release build
+    // falls back to the debug key Android's own tooling makes for each machine
+    // (~/.android/debug.keystore), which is all an emulator needs, and says so
+    // loudly — and with WICK_REQUIRE_RELEASE_KEY=true (the release workflow)
+    // it does not build at all, so an APK signed with a debug key can never
+    // be published by mistake. docs/SETUP.md says how to make the key.
+    def releaseSetting = { String name -> (project.findProperty(name) ?: System.getenv(name))?.toString() }
+    def releaseKey = [
+        storeFile    : releaseSetting('WICK_RELEASE_STORE_FILE'),
+        storePassword: releaseSetting('WICK_RELEASE_STORE_PASSWORD'),
+        keyAlias     : releaseSetting('WICK_RELEASE_KEY_ALIAS'),
+        keyPassword  : releaseSetting('WICK_RELEASE_KEY_PASSWORD'),
+    ]
+    def hasReleaseKey = releaseKey.values().every { it != null && !it.isEmpty() }
+    def requireReleaseKey = releaseSetting('WICK_REQUIRE_RELEASE_KEY') == 'true'
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            release {
+                storeFile file(releaseKey.storeFile)
+                storePassword releaseKey.storePassword
+                keyAlias releaseKey.keyAlias
+                keyPassword releaseKey.keyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.debug
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            } else if (requireReleaseKey) {
+                throw new GradleException(
+                    "WICK_REQUIRE_RELEASE_KEY is true but the release key is not set: give WICK_RELEASE_STORE_FILE, " +
+                    "WICK_RELEASE_STORE_PASSWORD, WICK_RELEASE_KEY_ALIAS and WICK_RELEASE_KEY_PASSWORD (docs/SETUP.md).")
+            } else {
+                logger.warn("WARNING: the release build is signed with the DEBUG key (no WICK_RELEASE_* key given). " +
+                    "Fine for an emulator; never publish it. Another build, on another machine, will have another key.")
+                signingConfig signingConfigs.debug
+            }
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
