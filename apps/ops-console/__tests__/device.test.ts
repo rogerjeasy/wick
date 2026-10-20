@@ -24,7 +24,7 @@ import {
   isFamilyTvQuietPress,
 } from '../../../packages/contracts/src/familyTelevision.js';
 import { MAX_CARD_ACTIONS, type Card } from '../../../packages/contracts/src/card.js';
-import { LANGUAGES, LANGUAGE_ACTIONS, LANGUAGE_NAMES, languageCardId, languageQuestion } from '../../../packages/contracts/src/language.js';
+import { LANGUAGES, LANGUAGE_ACTIONS, languageCardId, languageQuestion } from '../../../packages/contracts/src/language.js';
 import { MAX_MANTEL, MANTEL_FULL_NOTICE, PHOTO_ACTIONS, photoCardId, photoCardWords, readMantelItems } from '../../../packages/contracts/src/mantel.js';
 import { WORDS } from '../../tv-vega/src/words/words.js';
 import { STANDING_EVERY_MS, STANDING_MIN_GAP_MS } from '../../tv-vega/src/pairing/standing.js';
@@ -765,22 +765,11 @@ describe('the browser television’s own words (the television’s are apps/tv-v
     }
   });
 
-  it('keeps the English it had before there was a table', () => {
+  it('keeps the English it had before there was a table — a card’s own words are the Vega app’s now (parity.test.ts)', () => {
     expect(table.en).toMatchObject({
       empty: 'No card currently shown.',
       lightOn: 'Light on',
       lightOut: 'Light out',
-      doorPicture: 'Door camera still',
-      message: 'Message from {name}',
-      messageUnheard: 'Tap to hear the message',
-      week: 'Your week — {week}',
-      circle: 'Your family circle',
-      sharing: 'What your family sees',
-      tell: 'Something is different',
-      watch: 'Watching together',
-      light: 'Your light in the window',
-      reach: 'You held OK',
-      visit: 'A visit',
       filmBack: 'Back',
       filmWith: '{name} is watching with you.',
     });
@@ -834,7 +823,7 @@ describe('the browser television — the language comes from the home message, a
 
     tv.card(NOTE('Nos vemos el domingo.'));
 
-    expect(tv.says()).toEqual(['Mensaje de Sarah', 'Nos vemos el domingo.']);
+    expect(tv.says()).toEqual(['Un mensaje de Sarah.', 'Nos vemos el domingo.']);
   });
 
   it('asks for its cards again, once, when the language changes — not when it first learns it', () => {
@@ -856,13 +845,13 @@ describe('the browser television — the language comes from the home message, a
     const tv = television();
     tv.home({});
     tv.card(NOTE('See you on Sunday.'));
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
 
     tv.home({ language: 'es' });
     // Its own label at once; the note's words when the server sends the note again.
-    expect(tv.says()).toEqual(['Mensaje de Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['Un mensaje de Sarah.', 'See you on Sunday.']);
     tv.card(NOTE('Nos vemos el domingo.'));
-    expect(tv.says()).toEqual(['Mensaje de Sarah', 'Nos vemos el domingo.']);
+    expect(tv.says()).toEqual(['Un mensaje de Sarah.', 'Nos vemos el domingo.']);
   });
 
   it('leaves a family member’s own television in English: none of its words come from this table', () => {
@@ -882,7 +871,6 @@ describe('the browser television — the question that asks which language', () 
 
     // Every word of the detail, in the order the server wrote it: the language asked for first, each in a paragraph of its own.
     expect(tv.says()).toEqual([
-      'English · español',
       '¿Quiere que Wick le hable en español?',
       'Sarah ha pedido que este televisor le hable en español. Solo cambia si usted dice que sí.',
       'Sarah asks whether this television should use Spanish. Nothing changes unless you say yes.',
@@ -891,12 +879,6 @@ describe('the browser television — the question that asks which language', () 
     ]);
     expect(tv.buttons()).toEqual(['Sí, en español', 'No, keep English']);
     expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'card_shown', cardId: 'language-es' }]);
-  });
-
-  it('names both languages the same way the contract does', () => {
-    const tv = television();
-
-    expect(tv.evaluate('TV_LANGUAGE_KICKER')).toBe(LANGUAGES.map((language) => LANGUAGE_NAMES[language].own).join(' · '));
   });
 
   it('sends her yes, puts the card away, and speaks Spanish when the home says so — then asks for its cards again', () => {
@@ -1067,7 +1049,6 @@ describe('the browser television — the two languages of the question, a paragr
     tv.card(queuedCard(questionCard('en', 'Sarah')));
 
     expect(tv.says()).toEqual([
-      'English · español',
       'Shall Wick speak English again?',
       'Sarah asks whether this television should go back to English. Nothing changes unless you say yes.',
       'Sarah pregunta si este televisor debe volver al inglés. Solo cambia si usted dice que sí.',
@@ -1098,7 +1079,7 @@ describe('the browser television — the two languages of the question, a paragr
 
     tv.card(queuedCard(questionCard('es', 'Sarah', { detail: 'Sarah would like the television to speak Spanish.' })));
 
-    expect(tv.says()).toEqual(['English · español', '¿Quiere que Wick le hable en español?', 'Sarah would like the television to speak Spanish.', 'Sí, en español', 'No, keep English']);
+    expect(tv.says()).toEqual(['¿Quiere que Wick le hable en español?', 'Sarah would like the television to speak Spanish.', 'Sí, en español', 'No, keep English']);
     expect(tv.paragraphs()).toEqual([{ lang: undefined, className: 'body-text', text: 'Sarah would like the television to speak Spanish.' }]);
   });
 
@@ -1109,7 +1090,7 @@ describe('the browser television — the two languages of the question, a paragr
 
     tv.card(queuedCard({ id: 'tell-1', type: 'TELL', headline: 'Shall I tell Sarah?', detail }));
 
-    expect(tv.says()).toEqual(['Something is different', 'Shall I tell Sarah?', detail]);
+    expect(tv.says()).toEqual(['Shall I tell Sarah?', detail]);
   });
 });
 
@@ -1142,13 +1123,13 @@ describe('the browser television — its own words follow the language while the
   });
   const HINT = { en: 'Press P to hear this.', es: 'Presione P para oír esto.' };
   const plainCard = (type: string, over: Record<string, unknown> = {}) => queuedCard({ id: `${type.toLowerCase()}-1`, type, headline: 'A headline.', detail: 'A detail.', ...over });
-  /** A card with a kicker of this page's own, the server's two lines under it, and the mark that reads it. */
-  const labelled = (type: string, key: string) => ({
-    name: `the ${type} card’s label, and what its mark is called`,
-    keys: [[key], ['readHint']] as Array<[string, Record<string, unknown>?]>,
+  /** A card whose every word is the server's, as on the Vega card (no label of this page's own), and the mark that reads it. */
+  const labelled = (type: string) => ({
+    name: `the ${type} card: the server’s words as they came, and what its mark is called`,
+    keys: [['readHint']] as Array<[string, Record<string, unknown>?]>,
     on: (tv: ReturnType<typeof television>) => tv.card(plainCard(type)),
-    en: { says: [table.en[key]!, 'A headline.', 'A detail.'], marks: [HINT.en] },
-    es: { says: [table.es[key]!, 'A headline.', 'A detail.'], marks: [HINT.es] },
+    en: { says: ['A headline.', 'A detail.'], marks: [HINT.en] },
+    es: { says: ['A headline.', 'A detail.'], marks: [HINT.es] },
   });
 
   const SCENES: Array<{
@@ -1199,14 +1180,14 @@ describe('the browser television — its own words follow the language while the
     },
     {
       name: 'the film, under a note that came while it played',
-      keys: [['filmBack'], ['filmWith', { name: 'Sarah' }], ['message', { name: 'Sarah' }], ['readHint']],
+      keys: [['filmBack'], ['filmWith', { name: 'Sarah' }], ['readHint']],
       on: (tv) => {
         tv.card(FILM);
         tv.press('Start the film');
         tv.card(NOTE('See you on Sunday.'));
       },
-      en: { says: ['Back', 'Sarah is watching with you.', 'Message from Sarah', 'See you on Sunday.'], marks: [HINT.en] },
-      es: { says: ['Atrás', 'Sarah ve la película con usted.', 'Mensaje de Sarah', 'See you on Sunday.'], marks: [HINT.es] },
+      en: { says: ['Back', 'Sarah is watching with you.', 'A message from Sarah.', 'See you on Sunday.'], marks: [HINT.en] },
+      es: { says: ['Atrás', 'Sarah ve la película con usted.', 'Un mensaje de Sarah.', 'See you on Sunday.'], marks: [HINT.es] },
       off: (tv) => tv.press('Back'),
     },
     {
@@ -1251,54 +1232,54 @@ describe('the browser television — its own words follow the language while the
       es: { says: ['La foto no se puede mostrar ahora.', 'De Sarah · 1 de 1', 'Anterior', 'Siguiente', 'Atrás'] },
     },
     {
-      name: 'a picture’s card: its label, what the picture is called, and its mark',
-      keys: [['photo'], ['photoPicture', { name: 'Sarah' }], ['readHint']],
+      name: 'a picture’s card: what the picture is called, and its mark',
+      keys: [['photoPicture', { name: 'Sarah' }], ['readHint']],
       on: (tv) => tv.card(PHOTO()),
-      en: { says: ['A picture', 'A picture from Sarah.', 'Keep it', 'Thank you'], pictures: ['A picture from Sarah'], marks: [HINT.en] },
-      es: { says: ['Una foto', 'A picture from Sarah.', 'Keep it', 'Thank you'], pictures: ['Una foto de Sarah'], marks: [HINT.es] },
+      en: { says: ['A picture from Sarah.', 'Keep it', 'Thank you'], pictures: ['A picture from Sarah'], marks: [HINT.en] },
+      es: { says: ['A picture from Sarah.', 'Keep it', 'Thank you'], pictures: ['Una foto de Sarah'], marks: [HINT.es] },
     },
     {
       name: 'a picture’s card with no picture to show: the calm line in its place',
-      keys: [['photo'], ['photoUnavailable'], ['readHint']],
+      keys: [['photoUnavailable'], ['readHint']],
       on: (tv) => tv.card(PHOTO({ photoUrl: undefined })),
-      en: { says: ['A picture', 'A picture from Sarah.', 'The picture cannot be shown just now.', 'Keep it', 'Thank you'], marks: [HINT.en] },
-      es: { says: ['Una foto', 'A picture from Sarah.', 'La foto no se puede mostrar ahora.', 'Keep it', 'Thank you'], marks: [HINT.es] },
+      en: { says: ['The picture cannot be shown just now.', 'A picture from Sarah.', 'Keep it', 'Thank you'], marks: [HINT.en] },
+      es: { says: ['La foto no se puede mostrar ahora.', 'A picture from Sarah.', 'Keep it', 'Thank you'], marks: [HINT.es] },
     },
     {
-      name: 'the door’s card: its label, what its picture is called, and its mark',
-      keys: [['doorPicture'], ['readHint']],
+      name: 'the door’s card: what its picture is called (the Vega app’s words), and its mark',
+      keys: [['readHint']],
       on: (tv) => tv.card(queuedCard({ id: 'door-1', type: 'DOOR', line: 'Someone is at the front door.', imageRef: 'https://ring.example/still.jpg' }, 'DOOR')),
-      en: { says: ['Someone is at the front door.'], pictures: ['Door camera still'], marks: [HINT.en] },
-      es: { says: ['Someone is at the front door.'], pictures: ['Imagen fija de la cámara de la puerta'], marks: [HINT.es] },
+      en: { says: ['Someone is at the front door.'], pictures: ['Picture from the front door camera'], marks: [HINT.en] },
+      es: { says: ['Someone is at the front door.'], pictures: ['Imagen de la cámara de la puerta'], marks: [HINT.es] },
     },
     {
-      name: 'a stand-in doorbell’s card: its small label above her sentence, never inside it',
-      keys: [['standIn'], ['readHint']],
+      name: 'a stand-in doorbell’s card: its quiet line after her sentence, never inside it (DoorCard.tsx)',
+      keys: [['readHint']],
       on: (tv) => tv.card(queuedCard({ id: 'door-2', type: 'DOOR', line: "Someone's at the front door.", standIn: true }, 'DOOR')),
-      en: { says: ['Stand-in doorbell, for the demo', "Someone's at the front door."], marks: [HINT.en] },
-      es: { says: ['Timbre simulado, para la demostración', "Someone's at the front door."], marks: [HINT.es] },
+      en: { says: ["Someone's at the front door.", 'Stand-in doorbell, for the demo'], marks: [HINT.en] },
+      es: { says: ["Someone's at the front door.", 'Timbre simulado, para la demostración'], marks: [HINT.es] },
     },
     {
-      name: 'a note not yet heard: its label and the line in place of its words',
-      keys: [['message', { name: 'Sarah' }], ['messageUnheard'], ['readHint']],
+      name: 'a note with no words yet: who it is from, and nothing in place of its words (MessageCard.tsx)',
+      keys: [['readHint']],
       on: (tv) => tv.card(queuedCard({ id: 'note-2', type: 'MESSAGE', fromName: 'Sarah', suggestedReplies: [] })),
-      en: { says: ['Message from Sarah', 'Tap to hear the message'], marks: [HINT.en] },
-      es: { says: ['Mensaje de Sarah', 'Toque para oír el mensaje'], marks: [HINT.es] },
+      en: { says: ['A message from Sarah.'], marks: [HINT.en] },
+      es: { says: ['Un mensaje de Sarah.'], marks: [HINT.es] },
     },
     {
-      name: 'the week’s card: its label, with the week in it',
-      keys: [['week', { week: '2026-W41' }], ['readHint']],
+      name: 'the week’s card: the Vega app’s headline over the server’s words',
+      keys: [['readHint']],
       on: (tv) => tv.card(queuedCard({ id: 'week-1', type: 'WEEK', isoWeek: '2026-W41', text: 'A quiet week.' })),
-      en: { says: ['Your week — 2026-W41', 'A quiet week.'], marks: [HINT.en] },
-      es: { says: ['Su semana — 2026-W41', 'A quiet week.'], marks: [HINT.es] },
+      en: { says: ['Your week.', 'A quiet week.'], marks: [HINT.en] },
+      es: { says: ['Su semana.', 'A quiet week.'], marks: [HINT.es] },
     },
-    labelled('CIRCLE', 'circle'),
-    labelled('SHARING', 'sharing'),
-    labelled('TELL', 'tell'),
-    labelled('WATCH', 'watch'),
-    labelled('LIGHT', 'light'),
-    labelled('REACH', 'reach'),
-    labelled('VISIT', 'visit'),
+    labelled('CIRCLE'),
+    labelled('SHARING'),
+    labelled('TELL'),
+    labelled('WATCH'),
+    labelled('LIGHT'),
+    labelled('REACH'),
+    labelled('VISIT'),
   ];
 
   for (const scene of SCENES) {
@@ -1399,7 +1380,7 @@ describe('the browser television — its own words follow the language while the
     expect(tv.pictures()).toEqual([{ src: PICTURE, alt: 'Una foto de Sarah' }]);
     tv.failPicture();
 
-    expect(tv.says()).toEqual(['Una foto', 'A picture from Sarah.', 'La foto no se puede mostrar ahora.', 'Keep it', 'Thank you']);
+    expect(tv.says()).toEqual(['La foto no se puede mostrar ahora.', 'A picture from Sarah.', 'Keep it', 'Thank you']);
     expect(tv.says()).not.toContain('The picture cannot be shown just now.');
   });
 
@@ -1637,7 +1618,7 @@ describe('the browser television — nothing on the screen is ever cut off', () 
     tv.press('No, not now');
 
     // The note under it is back, and fits: as written, on a screen of sixteen by nine.
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
     expect(tv.shownClasses()).toEqual(['tv-card', 'urgency-deferred']);
     expect(tv.screenClasses()).not.toContain('grown');
   });
@@ -1837,7 +1818,7 @@ describe('the browser television — a card of a kind it does not know', () => {
     tv.card(null);
     tv.card({ id: 'x' });
 
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
     expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'card_shown', cardId: 'note-1' }]);
   });
 
@@ -1864,7 +1845,7 @@ describe('the browser television — a picture from the family', () => {
 
     tv.card(PHOTO());
 
-    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'Keep it', 'Thank you']);
+    expect(tv.says()).toEqual(['A picture from Sarah.', 'Keep it', 'Thank you']);
     expect(tv.pictures()).toEqual([{ src: PICTURE, alt: 'A picture from Sarah' }]);
     expect(tv.buttons()).toEqual(['Keep it', 'Thank you']);
     expect(tv.sent()).toEqual([{ t: 'reconcile' }, { t: 'card_shown', cardId: 'photo-p1' }]);
@@ -1878,7 +1859,7 @@ describe('the browser television — a picture from the family', () => {
       tv.card(PHOTO({ photoUrl }));
 
       expect(tv.pictures(), String(photoUrl)).toEqual([]);
-      expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'The picture cannot be shown just now.', 'Keep it', 'Thank you']);
+      expect(tv.says()).toEqual(['The picture cannot be shown just now.', 'A picture from Sarah.', 'Keep it', 'Thank you']);
       tv.press('Thank you');
       expect(tv.sent().slice(2)).toEqual([{ t: 'card_action', cardId: 'photo-p1', action: PHOTO_ACTIONS.thanks }]);
     }
@@ -1892,7 +1873,7 @@ describe('the browser television — a picture from the family', () => {
     tv.failPicture();
 
     expect(tv.pictures()).toEqual([]);
-    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'The picture cannot be shown just now.', 'Keep it', 'Thank you']);
+    expect(tv.says()).toEqual(['The picture cannot be shown just now.', 'A picture from Sarah.', 'Keep it', 'Thank you']);
     expect(tv.buttons()).toEqual(['Keep it', 'Thank you']);
   });
 
@@ -1917,7 +1898,7 @@ describe('the browser television — a picture from the family', () => {
 
     tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
 
-    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
+    expect(tv.says()).toEqual(['A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
     expect(tv.pictures()).toHaveLength(1);
     expect(tv.sent().slice(2)).toEqual([{ t: 'card_action', cardId: 'photo-p1', action: 'keep' }, { t: 'card_shown', cardId: 'photo-p1' }]);
   });
@@ -1928,7 +1909,7 @@ describe('the browser television — a picture from the family', () => {
 
     tv.card(PHOTO({ photoUrl: undefined, headline: 'Una foto de Sarah.' }));
 
-    expect(tv.says().slice(0, 3)).toEqual(['Una foto', 'Una foto de Sarah.', 'La foto no se puede mostrar ahora.']);
+    expect(tv.says().slice(0, 2)).toEqual(['La foto no se puede mostrar ahora.', 'Una foto de Sarah.']);
   });
 });
 
@@ -2074,7 +2055,7 @@ describe('the browser television — her mantelpiece', () => {
 
     tv.card(NOTE('See you on Sunday.'));
 
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
     // And the mantelpiece is not what is underneath when the card is gone.
     tv.control({ t: 'revoke', cardId: 'note-1' });
     expect(tv.says()).toEqual(['No card currently shown.', 'Light on', 'Mantelpiece']);
@@ -2262,7 +2243,7 @@ describe('the browser television — read to me', () => {
     const tv = withNote();
     expect(tv.marks()).toEqual(['Press P to hear this.']);
     expect(tv.buttons()).toEqual([]);
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
 
     const spanish = withNote({ language: 'es' });
     expect(spanish.marks()).toEqual(['Presione P para oír esto.']);
@@ -2673,7 +2654,7 @@ describe('the browser television — learning that it has been disconnected', ()
     standingAsks(tv)[0]!.answer(200, { token: { jwt: 'fresh.token', deviceId: 'ops-console-7', householdId: 'hh-1', expiresAt: 1 } });
     await tv.settle();
 
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
     expect(tv.badge()).toBe('connected');
     expect(JSON.parse(tv.tab.get('wick_virtual_television')!)).toEqual({ kind: 'resident', jwt: 'a.b.c', deviceId: 'ops-console-7' });
     expect(tv.socket.closed).toBe(0);
@@ -2689,7 +2670,7 @@ describe('the browser television — learning that it has been disconnected', ()
       expect(standingAsks(tv)).toHaveLength(asks);
       answer(standingAsks(tv).at(-1)!);
       await tv.settle();
-      expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+      expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
       expect(tv.badge()).toBe('connected');
       expect(tv.tab.has('wick_virtual_television')).toBe(true);
     }
@@ -3137,7 +3118,7 @@ describe('the browser television — the cards it keeps, and her language', () =
     tv.press('Sí, en español');
 
     // Her answer finishes the question; the note it covered is back, and is said to be shown again.
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
     expect(tv.sent().slice(3)).toEqual([
       { t: 'card_action', cardId: 'language-es', action: LANGUAGE_ACTIONS.yes },
       { t: 'card_shown', cardId: 'note-1' },
@@ -3145,11 +3126,11 @@ describe('the browser television — the cards it keeps, and her language', () =
 
     // The home says Spanish: the page's own label at once, and the cards asked for again, once.
     tv.home({ light: 'on', language: 'es' });
-    expect(tv.says()).toEqual(['Mensaje de Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['Un mensaje de Sarah.', 'See you on Sunday.']);
 
     // The note sent again takes the place of the one kept under its id.
     tv.card(NOTE('Nos vemos el domingo.'));
-    expect(tv.says()).toEqual(['Mensaje de Sarah', 'Nos vemos el domingo.']);
+    expect(tv.says()).toEqual(['Un mensaje de Sarah.', 'Nos vemos el domingo.']);
     expect(tv.sent().slice(5)).toEqual([{ t: 'reconcile' }]);
     expect(tv.evaluate('keptCards.map((queued) => queued.card.id)')).toEqual(['note-1']);
   });
@@ -3162,7 +3143,7 @@ describe('the browser television — the cards it keeps, and her language', () =
 
     tv.press('No, keep English');
 
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
     expect(tv.evaluate('keptCards.map((queued) => queued.card.id)')).toEqual(['note-1']);
   });
 
@@ -3199,12 +3180,12 @@ describe('the browser television — a picture among the cards it keeps', () => 
 
     tv.press('Keep it');
     // Her answer finishes the picture's card; the note it covered is back, and said to be shown again.
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
     expect(keptIds(tv)).toEqual(['note-1']);
 
     tv.card(PHOTO({ notice: MANTEL_FULL_NOTICE }));
 
-    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
+    expect(tv.says()).toEqual(['A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
     expect(keptIds(tv)).toEqual(['note-1', 'photo-p1']);
     expect(tv.sent().slice(3)).toEqual([
       { t: 'card_action', cardId: 'photo-p1', action: PHOTO_ACTIONS.keep },
@@ -3214,7 +3195,7 @@ describe('the browser television — a picture among the cards it keeps', () => 
 
     // "Thank you" then puts it away for good, and the note is still there under it.
     tv.press('Thank you');
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
     expect(keptIds(tv)).toEqual(['note-1']);
   });
 
@@ -3229,7 +3210,7 @@ describe('the browser television — a picture among the cards it keeps', () => 
 
     // One copy, the one with the line that says so, and it is the one on screen.
     expect(keptIds(tv)).toEqual(['note-1', 'photo-p1']);
-    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
+    expect(tv.says()).toEqual(['A picture from Sarah.', MANTEL_FULL_NOTICE, 'Keep it', 'Thank you']);
     expect(tv.sent().slice(1)).toEqual([
       { t: 'card_shown', cardId: 'photo-p1' },
       { t: 'card_shown', cardId: 'note-1' },
@@ -3250,10 +3231,10 @@ describe('the browser television — a picture among the cards it keeps', () => 
 
     tv.card(NOTE('See you on Sunday.'));
     tv.card(PHOTO());
-    expect(tv.says()).toEqual(['A picture', 'A picture from Sarah.', 'Keep it', 'Thank you']);
+    expect(tv.says()).toEqual(['A picture from Sarah.', 'Keep it', 'Thank you']);
 
     tv.press('Thank you');
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
 
     tv.control({ t: 'revoke', cardId: 'note-1' });
     expect(tv.says()).toEqual(['No card currently shown.', 'Light on', 'Mantelpiece']);
@@ -3297,7 +3278,7 @@ describe('the browser television — a reading, and the cards it keeps', () => {
 
     tv.press('No, keep English');
 
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
     expect(tv.sounds[0]!.paused).toBe(1);
     // The film's sound is put back exactly, and nothing is asked or played for the card that came back.
     expect(tv.evaluate('film.video.volume')).toBe(0.8);
@@ -3332,7 +3313,7 @@ describe('the browser television — a reading, and the cards it keeps', () => {
 
     tv.press('Thank you');
 
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Sunday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Sunday.']);
     expect(tv.sounds).toHaveLength(1);
     expect(asked(tv)).toEqual([{ t: 'read', cardId: 'note-1' }]);
     // She can ask again, for the note that is back.
@@ -3345,12 +3326,12 @@ describe('the browser television — a reading, and the cards it keeps', () => {
 
     tv.control({ t: 'patch', patch: { cardId: 'note-1', transcript: 'See you on Monday.' } });
     expect(tv.sounds[0]!.paused).toBe(0);
-    expect(tv.says()[0]).toBe('English · español');
+    expect(tv.says()[0]).toBe('¿Quiere que Wick le hable en español?');
 
     tv.control({ t: 'revoke', cardId: 'language-es' });
     expect(tv.sounds[0]!.paused).toBe(1);
     // The note, as the patch left it while it was covered.
-    expect(tv.says()).toEqual(['Message from Sarah', 'See you on Monday.']);
+    expect(tv.says()).toEqual(['A message from Sarah.', 'See you on Monday.']);
 
     const other = readingOverANote();
     other.control({ t: 'revoke', cardId: 'note-1' });

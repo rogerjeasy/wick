@@ -808,47 +808,23 @@ function cardToShow(kept, now) {
 }
 
 /**
- * A card's buttons. A note's are its replies — each sends `reply_<n>`, and
- * the words come from the server's own copy of the card (edge-device
- * note-reply.mjs) — exactly as the television's own app draws them
- * (apps/tv-vega/src/cards/messageActions.ts): the first one first, never
- * more than three.
+ * A card's buttons: the server's, and a note's are its replies — each sends `reply_<n>`, the first one first,
+ * never more than three — by the television's own rule (apps/tv-vega/src/cards/messageActions.ts replyActions).
  */
 function cardButtons(card) {
   if (card.type !== 'MESSAGE') return card.actions ?? [];
-  return (Array.isArray(card.suggestedReplies) ? card.suggestedReplies : [])
-    .slice(0, 3)
-    .map((label, i) => ({ id: `reply_${i}`, label, kind: i === 0 ? 'primary' : 'secondary' }));
+  return WickTv.replyActions(Array.isArray(card.suggestedReplies) ? card.suggestedReplies : []);
 }
 
 /**
- * Whether a press finishes its card, from the screen's point of view — the
- * television's own rule (apps/tv-vega/src/cards/cardActions.ts removesCard;
- * keep the two in step): on a door card only "Not now" does; "What Sarah
- * sees" opens over the week card, and only Done finishes the sharing card;
- * on the card her hold brings, "Yes, ask …" and "Just say hello" leave it
- * where it is, for who was asked to be written onto it. The question about
- * her language is finished by either answer, and so is a picture's card by
- * either of its two. Any other press on any other card is its answer, and
- * the card is done.
+ * Whether a press finishes its card, from the screen's point of view: the television's own rule, the very
+ * function (apps/tv-vega/src/cards/cardActions.ts removesCard). On a door card only "Not now" does; "What Sarah
+ * sees" opens over the week card, and only Done finishes the sharing card; on the card her hold brings, "Yes,
+ * ask …" and "Just say hello" leave it where it is, for who was asked to be written onto it. Any other press on
+ * any other card is its answer, and the card is done.
  */
 function finishesCard(card, actionId) {
-  switch (card.type) {
-    case 'DOOR':
-      return actionId === 'dismiss';
-    case 'WEEK':
-      return actionId !== 'sharing';
-    case 'SHARING':
-      return actionId === 'done';
-    case 'REACH':
-      return !REACH_KEEPS_CARD.includes(actionId);
-    case 'LANGUAGE':
-      return true;
-    case 'PHOTO':
-      return true;
-    default:
-      return true;
-  }
+  return WickTv.removesCard(card, actionId);
 }
 
 /**
@@ -958,7 +934,10 @@ const TV_LANGUAGES = ['en', 'es'];
  * plain, to usted, and with no sentence that would have to agree with a
  * name's gender. A value is named in braces.
  *
- * Everything else on a card is the server's, and comes in her language. The
+ * A card's own few words — who a note is from, the week's headline, the
+ * stand-in doorbell — are not here: they are the Vega app's (WickTv.words),
+ * as the card is the Vega app's (renderCard). Everything else on a card is
+ * the server's, and comes in her language. The
  * pairing screen, the page around the television and a family member's own
  * television are not in this table: they stay English.
  */
@@ -967,22 +946,9 @@ const TV_WORDS = {
     empty: 'No card currently shown.',
     lightOn: 'Light on',
     lightOut: 'Light out',
-    doorPicture: 'Door camera still',
-    standIn: 'Stand-in doorbell, for the demo',
-    message: 'Message from {name}',
-    messageUnheard: 'Tap to hear the message',
-    week: 'Your week — {week}',
-    circle: 'Your family circle',
-    sharing: 'What your family sees',
-    tell: 'Something is different',
-    watch: 'Watching together',
-    light: 'Your light in the window',
-    reach: 'You held OK',
-    visit: 'A visit',
     filmBack: 'Back',
     filmWith: '{name} is watching with you.',
     // The mantelpiece (packages/contracts mantel.ts).
-    photo: 'A picture',
     photoUnavailable: 'The picture cannot be shown just now.',
     photoPicture: 'A picture from {name}',
     mantel: 'Mantelpiece',
@@ -1001,22 +967,9 @@ const TV_WORDS = {
     empty: 'No hay ninguna tarjeta en pantalla.',
     lightOn: 'Luz encendida',
     lightOut: 'Luz apagada',
-    doorPicture: 'Imagen fija de la cámara de la puerta',
-    standIn: 'Timbre simulado, para la demostración',
-    message: 'Mensaje de {name}',
-    messageUnheard: 'Toque para oír el mensaje',
-    week: 'Su semana — {week}',
-    circle: 'Su círculo familiar',
-    sharing: 'Lo que ve su familia',
-    tell: 'Hay algo distinto',
-    watch: 'Una película en compañía',
-    light: 'Su luz en la ventana',
-    reach: 'Mantuvo presionado OK',
-    visit: 'Una visita',
     filmBack: 'Atrás',
     filmWith: '{name} ve la película con usted.',
     // "Repisa": the shelf where the family's pictures stand.
-    photo: 'Una foto',
     photoUnavailable: 'La foto no se puede mostrar ahora.',
     photoPicture: 'Una foto de {name}',
     mantel: 'Repisa',
@@ -1031,13 +984,6 @@ const TV_WORDS = {
     readHint: 'Presione P para oír esto.',
   },
 };
-
-/**
- * Over the question that asks which language: each language by its own name
- * (packages/contracts language.ts LANGUAGE_NAMES), so it reads the same
- * whichever of them she reads.
- */
-const TV_LANGUAGE_KICKER = 'English · español';
 
 /**
  * The sentence each language's half of that question closes with
@@ -1106,7 +1052,7 @@ function tvSay(key, values = {}) {
 }
 
 /** The kinds of card this page can draw (packages/contracts card.ts `Card`; tv-vega cards/knownCards.ts). */
-const TV_CARD_TYPES = ['DOOR', 'MESSAGE', 'WEEK', 'SHARING', 'CIRCLE', 'TELL', 'WATCH', 'LIGHT', 'REACH', 'VISIT', 'LANGUAGE', 'PHOTO'];
+const TV_CARD_TYPES = [...WickTv.KNOWN_CARD_TYPES];
 
 /** Whether this is a card, of a kind this page has a drawing for. Anything else is dropped, never drawn. */
 function isKnownCard(queued) {
@@ -1400,101 +1346,109 @@ function drawQr(url) {
   return figure;
 }
 
-/** The Reach card's two buttons that ask (packages/contracts reach.ts REACH_ACTIONS): after either, the card stays. */
-const REACH_KEEPS_CARD = ['ring_me', 'say_hello'];
-
+/**
+ * A card, drawn as the Vega app's CardRenderer draws it (apps/tv-vega/src/cards, through vega-calm-ui's
+ * CalmCard), and held to it by __tests__/parity.test.ts: the same words in the same order, the same buttons.
+ *
+ *   [what the card shows beside its words]  headline
+ *                                            detail
+ *                                            what a press led to, and a quiet line under it
+ *   [first button, amber] [second] [third]
+ *
+ * Nearly every word is the server's, already in her language. The few that are the television's own — who a
+ * note is from, the week's headline, the stand-in doorbell's line, who the door looks like — are the Vega app's
+ * own sentences (WickTv.words, words/words.ts), not a table of this page's.
+ */
 function renderCard(queuedCard) {
   // Never a card of a kind this page does not know: there is nothing to draw, so its buttons are not drawn either.
   if (!isKnownCard(queuedCard)) return;
   const card = queuedCard.card;
   // A reading of any other card is over: this one has the screen now.
   if (reading && reading.cardId !== card.id) stopRead();
+  const say = WickTv.words(tvLanguage());
   const urgencyClass = queuedCard.urgency === 'DOOR' ? 'urgency-door' : 'urgency-deferred';
   const wrapper = el('div', `tv-card ${urgencyClass}`);
-  // The mark of the key that reads this card aloud. Not one of the card's buttons, and it has no words: what it
-  // is called is said in her language to whoever cannot see it (apps/tv-vega/src/read/ReadHint.tsx).
+  wrapper.dataset.cardId = card.id;
+  wrapper.dataset.type = card.type.toLowerCase();
+  // The mark of the key that reads this card aloud (read/ReadHint.tsx). Not one of the card's buttons: what it is
+  // called is said in her language to whoever cannot see it, and the page that draws it may show a word beside it.
   const mark = el('span', 'tv-read');
   mark.title = tvSay('readHint');
   mark.setAttribute('role', 'img');
   mark.setAttribute('aria-label', mark.title);
+  mark.dataset.chip = say('read.chip');
+  if (typeof WickIcons !== 'undefined') mark.appendChild(WickIcons.icon('volume-2'));
   mark.addEventListener('click', toggleRead);
   wrapper.appendChild(mark);
 
+  const body = el('div', 'card-body');
+  const words = el('div', 'card-words');
+  const headline = (text) => {
+    const line = el('div', 'headline', text);
+    line.setAttribute('role', 'heading');
+    line.setAttribute('aria-level', '2');
+    words.appendChild(line);
+  };
+  /** A line under the headline, when there is one: absent means absent, never a placeholder (CalmCard). */
+  const line = (text, className = 'body-text') => {
+    if (typeof text === 'string' && text !== '') words.appendChild(el('div', className, text));
+  };
+  /** What the card shows beside its words, on the left, as CalmCard's `media`. */
+  let media = null;
+
   if (card.type === 'DOOR') {
-    // No kicker of the line: it is the headline, as on Vega's DoorCard, so it is not said twice. A demo home's
-    // stand-in doorbell has a small label of its own above it, never words inside her sentence (DoorCard.standIn).
-    if (card.standIn) wrapper.appendChild(el('div', 'kicker', tvSay('standIn')));
-    wrapper.appendChild(el('div', 'headline', card.line));
     if (card.imageRef) {
-      // How tall it may be is the stylesheet's (.tv-still): a share of the screen, less at each smaller size.
-      // And it takes no room until it has come; a patch to this card keeps the picture it has (pictureOf).
-      const { img } = pictureOf(`still|${card.id}|${card.imageRef}`, card.imageRef, 'tv-still', tvSay('doorPicture'));
-      wrapper.insertBefore(img, wrapper.firstChild);
+      // A 16:9 frame (DoorCard.tsx FRAME). It takes no room until it has come; a patch keeps the picture (pictureOf).
+      media = el('div', 'card-media card-frame');
+      media.appendChild(pictureOf(`still|${card.id}|${card.imageRef}`, card.imageRef, 'tv-still', say('door.pictureLabel')).img);
     }
-    if (card.description) wrapper.appendChild(el('div', 'body-text', card.description));
-    // What a press led to, as the television's own DoorCard shows it: whether
-    // the chime rang, who was asked to look, and what they answered.
-    if (card.notice) wrapper.appendChild(el('div', 'body-text notice', card.notice));
+    headline(card.line);
+    // What a press led to: whether the chime rang, who was asked to look, and what they answered.
+    line(card.notice, 'body-text notice');
+    // A demo home's stand-in doorbell, said in a quiet line of its own, after her sentence and never inside it.
+    if (card.standIn) line(say('door.standIn'), 'body-text quiet');
+    // Then the door's description, or who it looks like — the television's own sentence around a name
+    // (doorDetail.ts) — in the place TwoPhaseCard keeps for it under the rest, so its arriving moves nothing.
+    line(WickTv.doorDetailText(card, tvLanguage()), 'body-text door-detail');
   } else if (card.type === 'MESSAGE') {
-    wrapper.appendChild(el('div', 'kicker', tvSay('message', { name: card.fromName })));
+    const photo = httpsUrl(card.fromPhotoRef);
+    if (photo) {
+      media = el('div', 'card-media card-sender');
+      media.appendChild(pictureOf(`sender|${photo}`, photo, 'tv-sender', say('message.photoLabel', { name: card.fromName })).img);
+    }
+    headline(say('message.headline', { name: card.fromName }));
     // Its replies are its buttons, below (cardButtons).
-    wrapper.appendChild(el('div', 'headline', card.transcript ?? tvSay('messageUnheard')));
+    line(card.transcript);
   } else if (card.type === 'WEEK') {
-    wrapper.appendChild(el('div', 'kicker', tvSay('week', { week: card.isoWeek })));
-    wrapper.appendChild(el('div', 'body-text', card.text));
-  } else if (card.type === 'SHARING' || card.type === 'CIRCLE') {
-    // The server wrote every word of these (sharing.mjs, accounts/circle.ts).
-    wrapper.appendChild(el('div', 'kicker', tvSay(card.type === 'CIRCLE' ? 'circle' : 'sharing')));
-    wrapper.appendChild(el('div', 'headline', card.headline));
-    wrapper.appendChild(el('div', 'body-text', card.detail));
-  } else if (card.type === 'TELL') {
-    // "Shall I tell Sarah?" — the sentence shown is the one the family would be told (services/agent rhythm/tell.ts).
-    wrapper.appendChild(el('div', 'kicker', tvSay('tell')));
-    wrapper.appendChild(el('div', 'headline', card.headline));
-    wrapper.appendChild(el('div', 'body-text', card.detail));
-  } else if (card.type === 'WATCH') {
-    // Watch together: the server wrote every word (mcp-server tools, edge-device watch-together.mjs).
-    wrapper.appendChild(el('div', 'kicker', tvSay('watch')));
-    wrapper.appendChild(el('div', 'headline', card.headline));
-    if (card.detail) wrapper.appendChild(el('div', 'body-text', card.detail));
-  } else if (card.type === 'LIGHT') {
-    // Her own light in the window: the server wrote every word (edge-device light.mjs).
-    wrapper.appendChild(el('div', 'kicker', tvSay('light')));
-    wrapper.appendChild(el('div', 'headline', card.headline));
-    wrapper.appendChild(el('div', 'body-text', card.detail));
-  } else if (card.type === 'REACH') {
-    // Hold for Sarah: the offer her hold brings, then who was asked and what they answered.
-    // The server wrote every word (edge-device reach.mjs, services/agent agents/reach).
-    wrapper.appendChild(el('div', 'kicker', tvSay('reach')));
-    wrapper.appendChild(el('div', 'headline', card.headline));
-    if (card.detail) wrapper.appendChild(el('div', 'body-text', card.detail));
-  } else if (card.type === 'VISIT') {
-    // The visit, witnessed: what the door noted of a regular visitor's visit, and whether it is right.
-    // The server wrote every word (services/agent agents/visit, packages/contracts visit.ts).
-    wrapper.appendChild(el('div', 'kicker', tvSay('visit')));
-    wrapper.appendChild(el('div', 'headline', card.headline));
-    wrapper.appendChild(el('div', 'body-text', card.detail));
-  } else if (card.type === 'PHOTO') {
-    // A picture someone in the family sent (packages/contracts mantel.ts). The server wrote the headline, the two
-    // buttons and — when "Keep it" found her mantelpiece full — the notice; the picture carries no words of theirs.
-    wrapper.appendChild(el('div', 'kicker', tvSay('photo')));
-    wrapper.appendChild(el('div', 'headline', card.headline));
-    wrapper.appendChild(tvPicture(card.photoId ?? card.id, card.photoUrl, card.fromName));
-    if (card.notice) wrapper.appendChild(el('div', 'body-text notice', card.notice));
+    headline(say('week.headline'));
+    line(card.text);
   } else if (card.type === 'LANGUAGE') {
-    // The television speaks her language: the organiser has asked for another, and it is put to her in both at
-    // once. The server wrote every word (packages/contracts language.ts languageQuestion) — the question and the
-    // first button in the language asked for — so nothing here is from this page's own table but the two names.
-    wrapper.appendChild(el('div', 'kicker', TV_LANGUAGE_KICKER));
-    wrapper.appendChild(el('div', 'headline', card.headline));
-    // One paragraph for each language, so the one she reads is found at a glance — every word still the server's,
-    // in the server's order (languageParagraphs). Each says which language it is in, for whatever reads it aloud.
+    // Every word the server's (packages/contracts language.ts languageQuestion), in both languages at once. One
+    // paragraph for each, so the one she reads is found at a glance, each saying which language it is in for
+    // whatever reads it aloud — the same words, in the same order, as the Vega card's one detail.
+    headline(card.headline);
     languageParagraphs(card).forEach((paragraph, i) => {
       const node = el('div', i === 0 ? 'body-text' : 'body-text next-language', paragraph.text);
       if (paragraph.language) node.lang = paragraph.language;
-      wrapper.appendChild(node);
+      words.appendChild(node);
     });
+  } else if (card.type === 'PHOTO') {
+    // A picture someone in the family sent (packages/contracts mantel.ts): the picture beside the words, or the
+    // calm line in its place. The server wrote the headline, the two buttons and — when "Keep it" found her
+    // mantelpiece full — the notice.
+    media = tvPicture(card.photoId ?? card.id, card.photoUrl, card.fromName);
+    media.classList.add('card-media');
+    headline(card.headline);
+    line(card.notice, 'body-text notice');
+  } else {
+    // SHARING, CIRCLE, TELL, WATCH, LIGHT, REACH, VISIT: the server wrote every word, a headline and a detail.
+    headline(card.headline);
+    line(card.detail);
   }
+
+  if (media) body.appendChild(media);
+  body.appendChild(words);
+  wrapper.appendChild(body);
 
   const buttons = cardButtons(card);
   if (buttons.length) {
@@ -1517,12 +1471,9 @@ function renderCard(queuedCard) {
         // "Start the film" opens it, and from here this television says where it is (cardActions.ts startsFilm).
         if (card.type === 'WATCH' && action.id === 'start' && card.programmeId) startFilm(card);
         // A press that is the card's answer finishes it, as on the television (finishesCard), and the newest
-        // card still open — her question at the credits, under the card that said what the family thought —
-        // comes back. On the card her hold brought, "Yes, ask …" and "Just say hello" leave it where it is:
-        // who was asked is written onto that same card a moment later. Her yes or her no to another language
-        // finishes its card like any other answer: what a yes changes comes afterwards, on the home message.
-        // And "Keep it" or "Thank you" on a picture: both put it away. If her mantelpiece was full the server sends
-        // the card again with a line that says so, and it is kept and drawn again like any card that arrives.
+        // card still open comes back. On the card her hold brought, "Yes, ask …" and "Just say hello" leave it
+        // where it is: who was asked is written onto that same card a moment later. If her mantelpiece was full
+        // the server sends a picture's card again with a line that says so, and it is drawn again like any card.
         if (finished) {
           keptCards = dropCard(keptCards, card.id);
           showKeptCard();
