@@ -72,6 +72,8 @@ export interface StandInBase {
   readonly now: () => number;
   /** The household's clock (store/household.ts loadHouseholdTimeZone): the stand-in carer is matched on it, as a real visitor is. */
   readonly timeZoneOf: (householdId: string) => Promise<string>;
+  /** The stand-in was heard, as a real doorbell is (store/heard.ts), marked simulated. */
+  readonly heard?: (householdId: string, at: number) => Promise<void>;
 }
 
 /** Reads a stand-in visitor's picture from a directory: docs/demo-door, copied beside the bundle (scripts/build-lambda.mjs). */
@@ -139,5 +141,12 @@ export async function routeDemoDoorEvent(detail: unknown, routing: DemoRouting):
     occurred_at: ring.occurredAt,
     correlationId: ring.correlationId,
   };
+  if (routing.base.heard) {
+    try {
+      await routing.base.heard(ring.householdId, ring.occurredAt);
+    } catch (err) {
+      console.error(JSON.stringify({ level: 'error', msg: 'record_heard_failed', err: err instanceof Error ? err.message : String(err) }));
+    }
+  }
   return routeRingEvent(ringShaped, standInRouteDeps(ring.householdId, visitor, routing.base, await routing.base.timeZoneOf(ring.householdId)));
 }

@@ -14,7 +14,7 @@
  * o'clock" in UTC. That was 600 characters, and it pushed the card's one
  * button off the screen.
  */
-import { MAX_NARRATIVE_CHARS, type RhythmDelta, type TimelineEntry } from '@wick/contracts';
+import { MAX_NARRATIVE_CHARS, fromLocalWallClock, unheardDayStarts, type RhythmDelta, type TimelineEntry } from '@wick/contracts';
 import type { WeekRange } from './isoWeek.js';
 import { checkComparisons, comparisonNumbers, comparisonSentences, visibleDeltas } from './comparisons.js';
 import { spokenTimes, times } from './words.js';
@@ -45,6 +45,12 @@ export interface WeekFacts {
   /** The visits the resident confirmed on her television, by visitor: the only count of who came. */
   readonly confirmed: readonly NamedVisits[];
   /**
+   * The days of the week, by name, the doorbell was not heard at all
+   * (packages/contracts heard.ts). Nothing is said of who came on them, and
+   * the week is not called quiet.
+   */
+  readonly unheardDays: readonly string[];
+  /**
    * False when the narrative is written with the week still under way —
    * true from Sunday evening on (TOLD_AS_THE_WEEK_MS), not only after
    * midnight.
@@ -58,11 +64,26 @@ export interface SummariseOptions {
   readonly timeZone: string;
   readonly range: WeekRange;
   readonly now: number;
+  /** The hours the doorbell was heard, as hour starts; with `trackedSince`, the first of them ever. */
+  readonly heard?: readonly number[];
+  readonly trackedSince?: number;
+  /** A week already counted says which days were unheard (WeekNarrative.unheardDays): that list stands. */
+  readonly unheardDays?: readonly string[];
+}
+
+/** The local midnights of the week's seven days, Monday first. */
+function localDayStarts(range: WeekRange, timeZone: string): number[] {
+  return Array.from({ length: 7 }, (_, d) => fromLocalWallClock(range.startMs + d * 86_400_000, timeZone));
+}
+
+/** Which of the week's days, by name, the doorbell was not heard on. */
+export function unheardDaysOf(range: WeekRange, timeZone: string, now: number, heard: readonly number[], trackedSince: number | undefined): string[] {
+  return unheardDayStarts(heard, localDayStarts(range, timeZone), now, trackedSince).map((start) => localDayAndHour(start, timeZone).day);
 }
 
 export type NarrativeCheck =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: 'empty' | 'too_long' | 'unsupported_number' | 'unsupported_comparison' | 'unconfirmed_visit'; readonly detail?: string };
+  | { readonly ok: false; readonly reason: 'empty' | 'too_long' | 'unsupported_number' | 'unsupported_comparison' | 'unconfirmed_visit' | 'unheard_absence'; readonly detail?: string };
 
 function localDayAndHour(at: number, timeZone: string): { day: string; hour: number } {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'long', hour: 'numeric', hourCycle: 'h23' }).formatToParts(new Date(at));
@@ -122,7 +143,8 @@ export function summariseWeek(entries: readonly TimelineEntry[], options: Summar
   // A whole week ends on its Sunday by definition; the range's last instant
   // is already Monday morning east of Greenwich.
   const throughDay = weekComplete ? 'Sunday' : localDayAndHour(Math.max(range.startMs, now), timeZone).day;
-  return { doorVisits, doorTimes, whenExpected, confirmed, weekComplete, throughDay };
+  const unheardDays = options.unheardDays ?? (options.heard ? unheardDaysOf(range, timeZone, now, options.heard, options.trackedSince) : []);
+  return { doorVisits, doorTimes, whenExpected, confirmed, unheardDays, weekComplete, throughDay };
 }
 
 /** The only facts the model is shown. Every number it may use is here. */
@@ -137,8 +159,14 @@ export function factLines(facts: WeekFacts): string[] {
   for (const v of facts.whenExpected) lines.push(`Someone came to the door ${times(v.count)} when ${v.name} was expected. That alone does not say who it was.`);
   for (const v of facts.confirmed) lines.push(`The resident confirmed on the television that ${v.name} came ${times(v.count)}.`);
   for (const v of unconfirmedVisitors(facts)) lines.push(`Nobody has confirmed that ${v} came this week. Never write that ${v} came or visited.`);
+  if (facts.unheardDays.length > 0) {
+    lines.push(`Wick heard nothing from the doorbell on ${list(facts.unheardDays)}: it cannot say who came then. Do not call the week quiet, or say anyone did not come.`);
+  }
   return lines;
 }
+
+/** Said of a week with days the doorbell was not heard: what Wick cannot see is never a quiet week. */
+const UNHEARD_ABSENCE = /\b(?:quiet(?:er)?|fewer|nothing (?:was |is )?unusual|nobody (?:came|has come|visited)|no ?one (?:came|has come|visited)|did not (?:come|visit)|didn['’]t (?:come|visit))\b/i;
 
 /** Per visitor: confirmed visits, and the times the door was answered when they were expected that nobody confirmed. */
 function visitorCounts(facts: WeekFacts): { name: string; confirmed: number; unconfirmed: number }[] {
@@ -210,6 +238,15 @@ export function checkNarrative(text: string, facts: WeekFacts, deltas: readonly 
 
   const claim = unconfirmedClaim(trimmed, facts);
   if (claim) return { ok: false, reason: 'unconfirmed_visit', detail: claim };
+
+  if (facts.unheardDays.length > 0) {
+    // A sentence about what Wick heard is the hedge itself ("on the days Wick heard the doorbell").
+    for (const sentence of trimmed.split(/(?<=[.!?;:])\s+/)) {
+      if (/\bheard\b/i.test(sentence)) continue;
+      const absence = UNHEARD_ABSENCE.exec(sentence);
+      if (absence) return { ok: false, reason: 'unheard_absence', detail: absence[0] };
+    }
+  }
   return { ok: true };
 }
 
@@ -224,6 +261,8 @@ export function refusalReason(check: Extract<NarrativeCheck, { ok: false }>): st
       return `Your draft used "${check.detail}", a number that is not in the facts. Use only the numbers given.`;
     case 'unsupported_comparison':
       return `Your draft said "${check.detail}", which the facts do not support. Compare with last week, or with what is usual, only where the facts do.`;
+    case 'unheard_absence':
+      return `Your draft said "${check.detail}", but the doorbell was not heard on some days of the week. Do not call the week quiet or say anyone did not come.`;
     case 'unconfirmed_visit':
       return `Your draft said "${check.detail}", but nobody confirmed who came. Say that someone came to the door when they were expected, as the facts do.`;
     case 'too_long':
@@ -252,11 +291,18 @@ function compose(
   tail: readonly string[] = [],
   comparisons: readonly string[] = [],
 ): string[] {
-  const fits = (sentences: readonly string[]) => [...sentences, ...tail].join(' ').length <= MAX_NARRATIVE_CHARS;
+  const unheard = facts.unheardDays.length > 0;
+  // The days the doorbell went unheard are said first after the door, and claim their room before anything else.
+  // With the door kept private they are not said at all — they are about the door — but the week is still never called quiet.
+  const notHeard = unheard && include.door ? [`Wick heard nothing from the doorbell on ${list(facts.unheardDays)}, so it cannot say who came then.`] : [];
+  const fits = (sentences: readonly string[]) => [...notHeard, ...sentences, ...tail].join(' ').length <= MAX_NARRATIVE_CHARS;
 
   let door: string | undefined;
   if (include.door) {
-    if (facts.doorVisits === 0) {
+    if (facts.doorVisits === 0 && unheard) {
+      // Not a quiet week: a week Wick could not fully see.
+      door = 'Nobody came to the front door on the days Wick heard the doorbell.';
+    } else if (facts.doorVisits === 0) {
       door = facts.weekComplete ? 'A quiet week. Nobody came to the front door.' : 'A quiet week so far. Nobody has come to the front door since Monday.';
     } else {
       door = `Someone came to the front door ${spokenTimes(facts.doorVisits)} ${facts.weekComplete ? 'this week' : 'so far this week'}.`;
@@ -300,12 +346,12 @@ function compose(
     if (fits([detailed, ...named, ...compared])) door = detailed;
   }
 
-  return [...(door ? [door] : []), ...named, ...compared, ...tail];
+  return [...(door ? [door] : []), ...notHeard, ...named, ...compared, ...tail];
 }
 
 /** The week from the facts alone — no model, nothing invented. Always passes checkNarrative. */
 export function fallbackNarrative(facts: WeekFacts, deltas: readonly RhythmDelta[] = []): string {
-  return compose(facts, { door: true, visits: true }, [], comparisonSentences(deltas, facts.weekComplete)).join(' ');
+  return compose(facts, { door: true, visits: true }, [], comparisonSentences(deltas, facts.weekComplete, { unheard: facts.unheardDays.length > 0 })).join(' ');
 }
 
 /**
@@ -323,6 +369,6 @@ export function privateNarrative(
   if (!include.door && !include.visits) return 'This week is kept private.';
   // Only what is still shared is compared, and never the week as a whole:
   // "nothing unusual" would speak for the part being kept back.
-  const comparisons = comparisonSentences(visibleDeltas(deltas, hidden), facts.weekComplete, { wholeWeek: false });
+  const comparisons = comparisonSentences(visibleDeltas(deltas, hidden), facts.weekComplete, { wholeWeek: false, unheard: facts.unheardDays.length > 0 });
   return compose(facts, include, ['Some of this week is kept private.'], comparisons).join(' ');
 }

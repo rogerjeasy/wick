@@ -186,3 +186,12 @@ describe('visibleDeltas — what the family may be told when the resident keeps 
     expect(visibleDeltas([usualDoor, usualMaria], { door: false, visits: false })).toEqual([usualDoor, usualMaria]);
   });
 });
+
+describe('a week with days the doorbell was not heard', () => {
+  it('leaves out every comparison an absence would make, and never says nothing was unusual', () => {
+    expect(comparisonLines([usualDoor, absentMaria], true, true)).not.toEqual(expect.arrayContaining([expect.stringMatching(/fewer|Nobody came/)]));
+    expect(comparisonLines([usualDoor, usualMaria], true, true)).not.toContain('Nothing unusual this week.');
+    expect(comparisonSentences([usualDoor, absentMaria], true, { unheard: true })).toEqual([]);
+    expect(comparisonSentences([usualDoor, usualMaria], true, { unheard: true })).toEqual([]);
+  });
+});

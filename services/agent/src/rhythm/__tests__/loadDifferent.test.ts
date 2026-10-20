@@ -23,8 +23,20 @@ const sixWeeksOfMaria: Item[] = [
 ];
 const maria: Item = { sk: { S: 'PER#maria' }, data: { S: JSON.stringify({ personId: 'maria', name: 'Maria', expectedPattern: 'TUE,FRI 09:00±30m' }) } };
 
+/** The doorbell heard every hour of every day from `from` to `to` (packages/contracts heard.ts), but not the hours `silent` covers. */
+function heardRows(from: number, to: number, silent?: { from: number; to: number }): Item[] {
+  const rows: Item[] = [];
+  for (let day = Math.floor(from / DAY) * DAY; day <= to; day += DAY) {
+    const hours = Array.from({ length: 24 }, (_, h) => h)
+      .filter((h) => day + h * HOUR < to)
+      .filter((h) => !silent || day + h * HOUR + HOUR <= silent.from || day + h * HOUR >= silent.to);
+    if (hours.length) rows.push({ pk: { S: 'HH#hh-1' }, sk: { S: `HEARD#${new Date(day).toISOString().slice(0, 10)}` }, hours: { NS: hours.map(String) } });
+  }
+  return rows;
+}
+
 /** A table that answers the reads the loader makes, and notes which they were. */
-function table(events: Item[], { exclusions = [] as string[], firstAt = FRIDAY - 8 * WEEK } = {}) {
+function table(events: Item[], { exclusions = [] as string[], firstAt = FRIDAY - 8 * WEEK, heard = heardRows(FRIDAY - 8 * WEEK, NOW) } = {}) {
   const reads: string[] = [];
   const send = vi.fn().mockImplementation((cmd: { constructor: { name: string }; input: { ExpressionAttributeValues?: Record<string, AttributeValue> } }) => {
     if (cmd.constructor.name === 'GetItemCommand') {
@@ -40,7 +52,12 @@ function table(events: Item[], { exclusions = [] as string[], firstAt = FRIDAY -
       reads.push('first');
       return Promise.resolve({ Items: [evt(firstAt, { type: { S: 'door' } })] });
     }
-    reads.push(`timeline from ${cmd.input.ExpressionAttributeValues?.[':from']?.S}`);
+    const from = cmd.input.ExpressionAttributeValues?.[':from']?.S ?? '';
+    if (from.startsWith('HEARD#')) {
+      reads.push('heard');
+      return Promise.resolve({ Items: heard });
+    }
+    reads.push(`timeline from ${from}`);
     return Promise.resolve({ Items: events });
   });
   return { ddb: { send } as unknown as DynamoDBClient, reads };
@@ -56,6 +73,15 @@ describe('loadShareableDifferences — what the resident could be asked about', 
     expect(found.differences.map((d) => [d.kind, d.lasting])).toEqual([
       ['missed_visit', 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.'],
     ]);
+  });
+
+  it('says nothing of a visitor’s window the doorbell was not heard around — and says the doorbell has gone quiet', async () => {
+    // Nothing heard from Thursday 03:00 to now: the doorbell, its link or Ring was down through Maria's window.
+    const outage = heardRows(FRIDAY - 8 * WEEK, NOW, { from: FRIDAY - 21 * HOUR, to: NOW });
+    const found = (await load(table(sixWeeksOfMaria, { heard: outage }).ddb))!;
+
+    expect(found.differences).toEqual([]);
+    expect(found.doorUnheard).toEqual({ lastHeardAt: FRIDAY - 21 * HOUR });
   });
 
   it('finds nothing on a usual day, and nothing before three weeks', async () => {

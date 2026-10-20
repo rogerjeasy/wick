@@ -48,6 +48,10 @@ describe('householdRows — one household’s rows, as the brief reads them', ()
     expect(t.asked).toContainEqual(expect.objectContaining({
       ExpressionAttributeValues: { ':pk': { S: 'HH#h' }, ':from': { S: 'VISIT#000000000001000' }, ':to': { S: 'VISIT#000000000001999#￿' } },
     }));
+    // And the hours the doorbell was heard, by UTC day (packages/contracts heard.ts).
+    expect(t.asked).toContainEqual(expect.objectContaining({
+      ExpressionAttributeValues: { ':pk': { S: 'HH#h' }, ':from': { S: 'HEARD#1970-01-01' }, ':to': { S: 'HEARD#1970-01-01' } },
+    }));
   });
 
   it('finds the household’s first event from the oldest EVT# key', async () => {

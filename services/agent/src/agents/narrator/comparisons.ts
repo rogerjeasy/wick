@@ -83,14 +83,22 @@ function visitorLines(d: RhythmDelta, weekComplete: boolean): string[] {
   return lines;
 }
 
+/**
+ * A week with days the doorbell was not heard (packages/contracts heard.ts)
+ * cannot be called quieter than usual, and nobody can be said not to have
+ * come in it: those comparisons are left out, and so is "nothing unusual".
+ */
+const judgedIn = (deltas: readonly RhythmDelta[], unheard: boolean): readonly RhythmDelta[] =>
+  unheard ? deltas.filter((d) => d.verdict !== 'fewer' && !(isVisit(d) && d.thisWeek === 0)) : deltas;
+
 /** The only comparisons the model is shown. Every number it may use from them is in comparisonNumbers. */
-export function comparisonLines(deltas: readonly RhythmDelta[], weekComplete: boolean): string[] {
-  const lines = deltas
+export function comparisonLines(deltas: readonly RhythmDelta[], weekComplete: boolean, unheard = false): string[] {
+  const lines = judgedIn(deltas, unheard)
     .filter(worthMentioning)
     .flatMap((d) => (isDoor(d) ? doorLines(d, weekComplete) : visitorLines(d, weekComplete)));
 
   if (!hasUsualWeek(deltas)) lines.push('There is not enough history yet to know what a usual week is.');
-  else if (deltas.every((d) => d.verdict === 'usual')) lines.push(`Nothing unusual ${weekComplete ? 'this week' : 'so far this week'}.`);
+  else if (!unheard && deltas.every((d) => d.verdict === 'usual')) lines.push(`Nothing unusual ${weekComplete ? 'this week' : 'so far this week'}.`);
   return lines;
 }
 
@@ -142,13 +150,14 @@ export function checkComparisons(text: string, deltas: readonly RhythmDelta[]): 
  * unusual" is a claim about the whole week, and is not made for a part.
  */
 export function comparisonSentences(
-  deltas: readonly RhythmDelta[],
+  all: readonly RhythmDelta[],
   weekComplete: boolean,
-  options: { readonly wholeWeek?: boolean } = {},
+  options: { readonly wholeWeek?: boolean; readonly unheard?: boolean } = {},
 ): string[] {
+  const deltas = judgedIn(all, options.unheard === true);
   const doorDelta = deltas.find(isDoor);
 
-  if (!hasUsualWeek(deltas)) {
+  if (!hasUsualWeek(all)) {
     if (doorDelta?.lastWeek === undefined) return [];
     const lastWeek = weekComplete ? 'Last week' : 'By this point last week';
     if (doorDelta.lastWeek === 0) return [`${lastWeek} nobody ${weekComplete ? 'came' : 'had come'}.`];
@@ -156,7 +165,7 @@ export function comparisonSentences(
   }
 
   if (deltas.every((d) => d.verdict === 'usual')) {
-    return options.wholeWeek === false ? [] : [`Nothing unusual ${weekComplete ? 'this week' : 'so far this week'}.`];
+    return options.wholeWeek === false || options.unheard ? [] : [`Nothing unusual ${weekComplete ? 'this week' : 'so far this week'}.`];
   }
 
   const visitors = deltas.filter(isVisit);

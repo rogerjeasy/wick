@@ -26,6 +26,19 @@ const field = (detail: Detail, snake: string, camel: string): unknown => detail[
  * 11: no confident guessing). Absent sub_type is refused for the same
  * reason: better silent than wrong.
  */
+/**
+ * Any event from a doorbell — a press, or motion of any kind. Each one says
+ * the doorbell could be heard at that moment (packages/contracts heard.ts),
+ * door-worthy or not: a car going past proves the feed is alive as well as a
+ * visitor does.
+ */
+export function isDoorbellEvent(detail: Detail): boolean {
+  const type = field(detail, 'event_type', 'type');
+  const deviceId = field(detail, 'device_id', 'deviceId');
+  const occurredAt = field(detail, 'occurred_at', 'occurredAt');
+  return (type === 'button_press' || type === 'motion_detected') && typeof deviceId === 'string' && deviceId !== '' && typeof occurredAt === 'number';
+}
+
 export function isDoorWorthy(detail: Detail): boolean {
   const type = field(detail, 'event_type', 'type');
   if (type === 'button_press') return true;

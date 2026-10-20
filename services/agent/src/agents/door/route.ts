@@ -10,7 +10,7 @@
 import type { RingDevice, RingHistoryEvent } from '@wick/ring';
 import type { DoorRangDetail, QueuedCard, RosterEntry, VisitorMatch } from '@wick/contracts';
 import { handleDoorEvent } from './handle.js';
-import { isDoorWorthy, toRingHistoryEvent } from './parseEvent.js';
+import { isDoorWorthy, isDoorbellEvent, toRingHistoryEvent } from './parseEvent.js';
 import { matchVisitor } from './roster.js';
 import type { Phase2Outcome } from './phase2.js';
 
@@ -208,6 +208,8 @@ export interface HouseholdRouting {
   /** The household that holds this Ring device (store/ringDevices.ts). */
   readonly householdOf: (ringDeviceId: string) => Promise<string | undefined>;
   readonly depsFor: (householdId: string) => RouteDeps | Promise<RouteDeps>;
+  /** The doorbell was heard (store/heard.ts). Best effort: a ring is never lost for it. */
+  readonly heard?: (householdId: string, at: number) => Promise<void>;
 }
 
 /**
@@ -221,12 +223,23 @@ export interface HouseholdRouting {
  */
 export async function routeDoorEvent(detail: Record<string, unknown>, routing: HouseholdRouting): Promise<RouteResult> {
   // Before the lookup, for the same reason routeRingEvent gates before its
-  // own: most events on the bus are not doorbell events.
-  if (!isDoorWorthy(detail)) return 'skipped';
+  // own: most events on the bus are not doorbell events. An event from a
+  // doorbell that is not worth a card — a car, an animal — is still looked
+  // up, once, to note that the doorbell was heard (packages/contracts heard.ts).
+  if (!isDoorbellEvent(detail)) return 'skipped';
 
-  const { deviceId } = toRingHistoryEvent(detail, '');
+  const { deviceId, start } = toRingHistoryEvent(detail, '');
   const householdId = await routing.householdOf(deviceId);
   if (!householdId) return 'unclaimed_device';
+
+  if (routing.heard) {
+    try {
+      await routing.heard(householdId, start);
+    } catch (err) {
+      console.error(JSON.stringify({ level: 'error', msg: 'record_heard_failed', err: err instanceof Error ? err.message : String(err) }));
+    }
+  }
+  if (!isDoorWorthy(detail)) return 'skipped';
 
   return routeRingEvent(detail, await routing.depsFor(householdId));
 }

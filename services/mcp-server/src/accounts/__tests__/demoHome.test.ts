@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
-import { MAX_NARRATIVE_CHARS, VISIT_ASK_WITHIN_MS, localWallClock, VISIT_SETTLED_MS, VISIT_SK_PREFIX, currentIsoWeek, parseTimestampFromSortKey, readyToAsk, type RosterEntry, type Visit, type WeekNarrative } from '@wick/contracts';
+import { MAX_NARRATIVE_CHARS, VISIT_ASK_WITHIN_MS, localWallClock, VISIT_SETTLED_MS, VISIT_SK_PREFIX, currentIsoWeek, heardHoursOf, parseTimestampFromSortKey, readyToAsk, type RosterEntry, type Visit, type WeekNarrative } from '@wick/contracts';
 import { factsWeekNarrative, isoWeekRange, toTimelineEntry, visitFromItem, whatsDifferent } from '@wick/agent';
 import { DEMO_HISTORY_TTL_MS, DEMO_HISTORY_WEEKS, DEMO_VISITOR, DEMO_VISIT_RECORD_DAYS, demoHomeItems, newestDemoWeek, requestDemoBrief, seedDemoHome } from '../demoHome.js';
 
@@ -26,6 +26,17 @@ describe('the demo home — a history to ask about, from the first minute', () =
   it('files every row under the demo home and no other', () => {
     expect(items.length).toBeGreaterThan(40);
     expect(new Set(items.map((i) => i.pk!.S))).toEqual(new Set([`HH#${HH}`]));
+  });
+
+  it('has its stand-in doorbell heard every hour from its first event to now, marked simulated — so its weeks are whole and its story can say so', () => {
+    const heard = items.filter((i) => i.sk!.S!.startsWith('HEARD#'));
+    const hours = heard.flatMap((i) => heardHoursOf(i.sk!.S, i.hours!.NS));
+    expect(heard.every((i) => i.simulated?.BOOL === true)).toBe(true);
+    expect(hours[0]).toBeLessThanOrEqual(at(events[0]!));
+    expect(hours.at(-1)).toBeGreaterThanOrEqual(NOW - 3_600_000);
+    expect(hours.length).toBe(new Set(hours).size);
+    const weeks = items.filter((i) => i.sk!.S!.startsWith('NARR#')).map((i) => JSON.parse(i.data!.S!) as WeekNarrative);
+    expect(weeks.every((w) => w.unheardDays === undefined)).toBe(true);
   });
 
   it('puts Maria on the roster, with the days she comes', () => {

@@ -59,6 +59,7 @@ import { agentCoreTarget, invokeRuntime, type RuntimeTarget } from '../../runtim
 import { sendToDevice as realSendToDevice, sendPatchToDevice as realSendPatchToDevice } from '../../egress.js';
 import { createRhythmWriter } from '../../rhythm/writeClient.js';
 import { devicesOfHousehold, ringDeviceOwners, type DdbSend } from '../../store/ringDevices.js';
+import { heardStore, type HeardSend } from '../../store/heard.js';
 import { lookStore, type LookSend } from '../../store/looks.js';
 import { buildDoorActivityKey, buildPresenceKey } from '../../rhythm/records.js';
 
@@ -107,6 +108,7 @@ const TABLE = process.env.TABLE_NAME ?? '';
 // is DynamoDB rather than Timestream.
 const rhythmWriter = createRhythmWriter(ddb, TABLE);
 const ringDevices = ringDeviceOwners((cmd) => ddb.send(cmd as never) as ReturnType<DdbSend>, TABLE);
+const heard = heardStore((cmd) => ddb.send(cmd as never) as ReturnType<HeardSend>, TABLE);
 const visits = visitStore((cmd) => ddb.send(cmd as never) as ReturnType<VisitSend>, TABLE);
 
 async function loadRoster(householdId: string): Promise<readonly RosterEntry[]> {
@@ -205,6 +207,7 @@ function standInBase(): StandInBase {
     now: Date.now,
     // Each home's own clock: a regular visitor's "09:00" is read on it.
     timeZoneOf: (householdId) => loadHouseholdTimeZone(ddb, TABLE, householdId),
+    heard: (householdId, at) => heard.record(householdId, at, { simulated: true }),
   };
 }
 
@@ -258,5 +261,5 @@ async function routeRing(detail: Record<string, unknown>): Promise<RouteResult> 
     };
   };
 
-  return routeDoorEvent(detail, { householdOf: ringDevices.householdOf, depsFor });
+  return routeDoorEvent(detail, { householdOf: ringDevices.householdOf, depsFor, heard: (householdId, at) => heard.record(householdId, at) });
 }

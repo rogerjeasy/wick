@@ -313,3 +313,48 @@ describe('privateNarrative — the family’s week when the resident keeps part 
     );
   });
 });
+
+// A week Wick could not fully see is not a quiet week (packages/contracts heard.ts).
+describe('the days the doorbell was not heard', () => {
+  const HOUR = 3_600_000;
+  /** Every hour of 2026-W40 and the day before it, heard, except Tuesday 29 September, London time. */
+  const heardButTuesday = (): number[] => {
+    const out: number[] = [];
+    const tuesday = { from: Date.parse('2026-09-28T23:00:00Z'), to: Date.parse('2026-09-29T23:00:00Z') };
+    for (let h = range.startMs - 24 * HOUR; h < range.endMs; h += HOUR) if (h + HOUR <= tuesday.from || h >= tuesday.to) out.push(h);
+    return out;
+  };
+  const counted = (heard: number[]) => summariseWeek([door('2026-09-30T18:10:00Z')], { timeZone: LONDON, range, now: afterTheWeek, heard, trackedSince: heard[0]! });
+
+  it('names them, in the household’s own days', () => {
+    expect(counted(heardButTuesday()).unheardDays).toEqual(['Tuesday']);
+    expect(summariseWeek([], { timeZone: LONDON, range, now: afterTheWeek, heard: [], trackedSince: range.startMs - 30 * 24 * HOUR }).unheardDays).toHaveLength(7);
+  });
+
+  it('judges no day before Wick was listening, and no day still under way', () => {
+    expect(summariseWeek([], { timeZone: LONDON, range, now: afterTheWeek, heard: [] }).unheardDays).toEqual([]);
+    const wednesdayNoon = Date.parse('2026-09-30T11:00:00Z');
+    expect(summariseWeek([], { timeZone: LONDON, range, now: wednesdayNoon, heard: heardButTuesday().filter((h) => h < wednesdayNoon - 10 * HOUR), trackedSince: range.startMs - 24 * HOUR }).unheardDays).toEqual(['Tuesday']);
+  });
+
+  it('tells the model, and the week says it — never a quiet week', () => {
+    const facts = summariseWeek([], { timeZone: LONDON, range, now: afterTheWeek, heard: heardButTuesday(), trackedSince: range.startMs - 24 * HOUR });
+    expect(factLines(facts)).toContain('Wick heard nothing from the doorbell on Tuesday: it cannot say who came then. Do not call the week quiet, or say anyone did not come.');
+    const text = fallbackNarrative(facts);
+    expect(text).toBe('Nobody came to the front door on the days Wick heard the doorbell. Wick heard nothing from the doorbell on Tuesday, so it cannot say who came then.');
+    expect(text).not.toMatch(/quiet/i);
+    expect(checkNarrative(text, facts)).toEqual({ ok: true });
+  });
+
+  it('refuses a draft that calls such a week quiet, or says somebody did not come', () => {
+    const facts = counted(heardButTuesday());
+    for (const draft of ['A quiet week at the front door.', 'Nothing unusual this week.', 'Maria did not come on Tuesday.', 'Fewer callers than usual.']) {
+      expect(checkNarrative(draft, facts), draft).toMatchObject({ ok: false, reason: expect.stringMatching(/unheard_absence|unconfirmed_visit|unsupported_comparison/) });
+    }
+    expect(checkNarrative('A quiet week at the front door.', facts)).toMatchObject({ ok: false, reason: 'unheard_absence' });
+  });
+
+  it('keeps a week already counted to the days it named', () => {
+    expect(summariseWeek([], { timeZone: LONDON, range, now: afterTheWeek, unheardDays: ['Friday'] }).unheardDays).toEqual(['Friday']);
+  });
+});

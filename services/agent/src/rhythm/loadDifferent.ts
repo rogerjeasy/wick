@@ -21,6 +21,10 @@
 import { QueryCommand, type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { padTimestamp, parseTimestampFromSortKey, type TimelineEntry } from '@wick/contracts';
 import { toTimelineEntry } from '../agents/narrator/timeline.js';
+import { heardStore, type HeardSend } from '../store/heard.js';
+
+/** The six weeks of the baseline, today, and a day either side for the hours around a window. */
+const HEARD_LOOKBACK_MS = 7 * 7 * 86_400_000;
 import { isSharedWithFamily, loadHouseholdPolicy, loadRoster } from '../store/household.js';
 import { whatsDifferent, type Difference } from './different.js';
 
@@ -33,6 +37,8 @@ export interface ShareableDifferences {
   readonly weeksObserved: number;
   /** Most worth knowing first. Empty on a usual day. */
   readonly differences: readonly Difference[];
+  /** The doorbell has not been heard for six hours or more (different.ts): an empty list says nothing about today. */
+  readonly doorUnheard?: { readonly lastHeardAt?: number };
 }
 
 async function loadEntries(ddb: DynamoDBClient, table: string, householdId: string, now: number): Promise<TimelineEntry[]> {
@@ -84,16 +90,19 @@ export async function loadShareableDifferences(
   const doorShared = isSharedWithFamily('DOOR_EVENT', policy);
   const presenceShared = isSharedWithFamily('PRESENCE', policy);
 
-  const [entries, observedSince, roster] = await Promise.all([
+  const [entries, observedSince, roster, heard] = await Promise.all([
     loadEntries(ddb, table, householdId, now),
     firstEventAt(ddb, table, householdId),
     // Not read at all when visitors are private: nothing about them is to be worked out, let alone asked about.
     presenceShared ? loadRoster(ddb, table, householdId) : Promise.resolve([]),
+    // When the doorbell was heard (packages/contracts heard.ts): nothing is said from an absence it was not heard around.
+    heardStore((command) => ddb.send(command as never) as ReturnType<HeardSend>, table).hours(householdId, now - HEARD_LOOKBACK_MS, now),
   ]);
 
-  const counted = whatsDifferent({ entries, roster, now, observedSince, timeZone });
+  const counted = whatsDifferent({ entries, roster, now, observedSince, timeZone, heard });
   return {
     weeksObserved: counted.weeksObserved,
     differences: counted.differences.filter((d) => (d.factClass === 'PRESENCE' ? presenceShared : doorShared)),
+    ...(counted.doorUnheard ? { doorUnheard: counted.doorUnheard } : {}),
   };
 }

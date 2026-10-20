@@ -173,3 +173,44 @@ describe('factsWeekNarrative — a week written with no model at all', () => {
     error.mockRestore();
   });
 });
+
+describe('a week counted with the doorbell heard (packages/contracts heard.ts)', () => {
+  const HOUR = 3_600_000;
+  /** HEARD# rows for every hour from `from` to `to`, except those from `silentFrom` to `silentTo`. */
+  const heardItems = (from: number, to: number, silentFrom = Infinity, silentTo = Infinity): Record<string, AttributeValue>[] => {
+    const byDay = new Map<string, string[]>();
+    for (let h = from; h < to; h += HOUR) {
+      if (h + HOUR > silentFrom && h < silentTo) continue;
+      const day = `HEARD#${new Date(h).toISOString().slice(0, 10)}`;
+      byDay.set(day, [...(byDay.get(day) ?? []), String(new Date(h).getUTCHours())]);
+    }
+    return [...byDay].map(([sk, hours]) => ({ pk: { S: 'HH#hh-1' }, sk: { S: sk }, hours: { NS: hours } }));
+  };
+  const events = [...doorsInWeek(0, 4), ...doorsInWeek(1, 4), ...doorsInWeek(2, 4), ...doorsInWeek(3, 4), ...doorsInWeek(4, 4)];
+  const when = { now: AFTER_W38, timeZone: 'Europe/London', observedSince: W38_START - 4 * WEEK };
+
+  it('keeps the days it was not heard with the week, and tells the week from what it could see', () => {
+    // Nothing heard on Tuesday of W38, London time.
+    const heard = heardItems(W38_START - 5 * WEEK, AFTER_W38, W38_START + 23 * HOUR, W38_START + 47 * HOUR);
+    const week = factsWeekNarrative('hh-1', '2026-W38', [...events, ...heard], when);
+
+    expect(week.unheardDays).toEqual(['Tuesday']);
+    expect(week.text).toContain('Wick heard nothing from the doorbell on Tuesday, so it cannot say who came then.');
+    expect(week.text).not.toMatch(/Nothing unusual|quiet/i);
+  });
+
+  it('leaves a past week the doorbell was not heard out of the usual', () => {
+    // The whole of the week before last went unheard.
+    const heard = heardItems(W38_START - 5 * WEEK, AFTER_W38, W38_START - 2 * WEEK - HOUR, W38_START - WEEK - HOUR);
+    const week = factsWeekNarrative('hh-1', '2026-W38', [...events, ...heard], when);
+
+    expect(week.unheardDays).toBeUndefined();
+    expect(week.deltas[0]).toMatchObject({ metric: 'door', baselineWeeks: 3 });
+  });
+
+  it('says nothing of unheard days in a house where every day was heard', () => {
+    const week = factsWeekNarrative('hh-1', '2026-W38', [...events, ...heardItems(W38_START - 5 * WEEK, AFTER_W38)], when);
+    expect(week.unheardDays).toBeUndefined();
+    expect(week.deltas[0]).toMatchObject({ baselineWeeks: 4 });
+  });
+});

@@ -232,6 +232,12 @@ var WickTv = (() => {
   var VISIT_SETTLED_MS = 10 * 6e4;
   var VISIT_ASK_WITHIN_MS = 24 * 60 * 6e4;
 
+  // packages/contracts/src/heard.ts
+  var HOUR_MS2 = 36e5;
+  var HEARD_REACH_MS = 12 * HOUR_MS2;
+  var HEARD_SLACK_MS = 3 * HOUR_MS2;
+  var NOT_HEARD_AFTER_MS = 6 * HOUR_MS2;
+
   // packages/contracts/src/familyTelevision.ts
   var FAMILY_TV_SERVICE_SESSION_MS = 7 * 24 * 60 * 6e4;
   var CARD_PREFIX = "ftv-";

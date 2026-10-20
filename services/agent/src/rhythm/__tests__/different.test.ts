@@ -236,3 +236,53 @@ describe('the lasting wording — the same difference, said so that it is still 
     ]);
   });
 });
+
+// A day with no event is a quiet day or a day Wick could not see (packages/contracts heard.ts).
+describe('the doorbell heard — nothing is said from an absence Wick could not see', () => {
+  /** Every hour from eight weeks back to `until`, heard, except those from `silentFrom` to `silentTo`. */
+  const heardHours = (until: number, silentFrom = Infinity, silentTo = Infinity): number[] => {
+    const out: number[] = [];
+    for (let h = FRIDAY - 8 * WEEK; h < until; h += HOUR) if (h + HOUR <= silentFrom || h >= silentTo) out.push(h);
+    return out;
+  };
+  const NOW = at(FRIDAY, 14);
+  const quietFriday = () => [1, 2, 3, 4, 5, 6].flatMap((k) => [door(at(FRIDAY - k * WEEK, 9)), door(at(FRIDAY - k * WEEK, 10)), door(at(FRIDAY - k * WEEK, 11))]);
+
+  it('says Maria’s window had nobody at the door only when the doorbell was heard on both sides of it', () => {
+    const heard = whatsDifferent(input({ timeZone: 'UTC', entries: mariaCame(6), now: NOW, heard: heardHours(NOW) }));
+    expect(heard.differences.map((d) => d.kind)).toEqual(['missed_visit']);
+    expect(heard.doorUnheard).toBeUndefined();
+  });
+
+  it('says nothing of her window when the doorbell went unheard through it — and says the doorbell is unheard', () => {
+    const outage = whatsDifferent(input({ timeZone: 'UTC', entries: mariaCame(6), now: NOW, heard: heardHours(NOW, at(FRIDAY, 6)) }));
+    expect(outage.differences).toEqual([]);
+    expect(outage.doorUnheard).toEqual({ lastHeardAt: at(FRIDAY, 6) });
+  });
+
+  it('says nothing of her window when the doorbell came back only after it, without a word before', () => {
+    const backAfter = whatsDifferent(input({ timeZone: 'UTC', entries: mariaCame(6), now: NOW, heard: heardHours(NOW, at(FRIDAY - DAY, 12), at(FRIDAY, 13)) }));
+    expect(backAfter.differences.map((d) => d.kind)).not.toContain('missed_visit');
+  });
+
+  it('calls the door quiet only when the doorbell was heard through the day', () => {
+    const entries = quietFriday();
+    expect(whatsDifferent(input({ entries, now: NOW, heard: heardHours(NOW) })).differences.map((d) => d.kind)).toEqual(['door_quiet']);
+    expect(whatsDifferent(input({ entries, now: NOW, heard: heardHours(NOW, at(FRIDAY, 1)) })).differences).toEqual([]);
+  });
+
+  it('counts the usual only from the weeks the doorbell was heard: three unheard Fridays are not three quiet ones', () => {
+    // Three callers on each of the last three Fridays; the three before were unheard, and nobody has come today.
+    const entries = quietFriday().filter((e) => e.at > FRIDAY - 3 * WEEK - DAY);
+    const heardLately = heardHours(NOW).filter((h) => h >= FRIDAY - 3 * WEEK - DAY);
+    expect(whatsDifferent(input({ roster: [], entries, now: NOW, heard: heardLately })).differences.map((d) => d.sentence)).toEqual([
+      'Nobody has come to the door today. By this time on a Friday there are usually about 3.',
+    ]);
+    // Counted as quiet, the unheard Fridays would have halved the usual, and today would not have been news.
+    expect(whatsDifferent(input({ roster: [], entries, now: NOW })).differences).toEqual([]);
+  });
+
+  it('keeps today’s rule for a caller that does not say what was heard', () => {
+    expect(whatsDifferent(input({ timeZone: 'UTC', entries: mariaCame(6), now: NOW })).differences.map((d) => d.kind)).toEqual(['missed_visit']);
+  });
+});
