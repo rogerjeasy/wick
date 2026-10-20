@@ -50,6 +50,16 @@ and asks her to install nothing, learn nothing and wear nothing. She stays in
 charge: the family sees only what she has agreed to share, and everything is
 answered with one button on the remote she already holds.
 
+> **A real door, October 2026.** She is 79 and lives with memory loss. Her
+> television is on most mornings, much of the afternoon and every evening.
+> When she is ill, a different doctor comes each time. At the door she doesn't
+> recognise them, sometimes the door stays shut, and the doctor phones her
+> daughter in Italy to sort it out. Her daughter, 56, liked two things in Wick
+> most: the door card and the notes.
+>
+> <sub>From a conversation with a woman and her daughter, October 2026. Told in
+> our words; names withheld for privacy.</sub>
+
 **The people in the demo.** Margaret lives alone. Sarah, her daughter, lives
 far away. Maria is her carer. *Try the demo* makes you Sarah.
 
