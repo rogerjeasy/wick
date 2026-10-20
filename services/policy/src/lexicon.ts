@@ -142,7 +142,8 @@ export const LEXICON: readonly Marker[] = [
       'am', 'pm', 'a\\.m', 'p\\.m', "o'?clock", 'noon', 'midnight', 'sharp', 'ish', 'past', 'till', 'until', 'thirty', 'fifteen', 'forty', 'fifty', 'quarter', 'half',
       'seconds?', 'minutes?', 'mins?', 'hours?', 'hrs?', 'days?', 'weeks?', 'months?', 'years?', 'times?', 'percent', 'per', 'degrees?', 'people', 'more', 'less',
       'tomorrow', 'today', 'tonight', 'this', 'next', 'last', 'the', 'in', 'on', 'at', 'of', 'or', 'and', 'to', 'for', 'with', 'then',
-      'st', 'nd', 'rd', 'th', 'jan\\w*', 'feb\\w*', 'mar\\w*', 'apr\\w*', 'may', 'jun\\w*', 'jul\\w*', 'aug\\w*', 'sep\\w*', 'oct\\w*', 'nov\\w*', 'dec\\w*',
+      // Months by their own spellings only: "Marlborough" and "Market" are streets.
+      'st', 'nd', 'rd', 'th', 'jan(?:uary)?', 'feb(?:ruary)?', 'mar(?:ch)?', 'apr(?:il)?', 'may', 'june?', 'july?', 'aug(?:ust)?', 'sept?(?:ember)?', 'oct(?:ober)?', 'nov(?:ember)?', 'dec(?:ember)?',
     ])})\\b)[a-z][a-z'-]{2,}\\b`),
     examples: ['She is at 12 Broadway.', 'He went to 10 Downing', 'a parcel from 7 Larchmont', 'at number 4 Kingsway'],
   },
