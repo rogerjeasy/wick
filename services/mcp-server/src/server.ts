@@ -83,6 +83,7 @@ import { registerGetPictures } from './tools/get_pictures.js';
 import { registerArrangeVisit } from './tools/arrange_visit.js';
 import { registerGetErrands } from './tools/get_errands.js';
 import { registerCancelErrand } from './tools/cancel_errand.js';
+import { registerMakeVisitPass } from './tools/make_visit_pass.js';
 import type { ErrandMachine } from './tools/errands.js';
 import { closeWhenDraining, createLifecycle, healthRoute, type About, type Lifecycle } from './lifecycle.js';
 import { authChecked, startTiming, timingOf } from './timing.js';
@@ -144,6 +145,7 @@ export function createMcpServer(
   registerArrangeVisit(mcpServer, ddb, ctx, options.errands);
   registerGetErrands(mcpServer, ddb, ctx);
   registerCancelErrand(mcpServer, ddb, ctx, options.errands);
+  registerMakeVisitPass(mcpServer, ddb, ctx);
   // The list is the same for every request and every person — no tool's
   // name, description or schema depends on who asks — and making it turns
   // forty-four Zod schemas into JSON Schema. So it is made once per process,
