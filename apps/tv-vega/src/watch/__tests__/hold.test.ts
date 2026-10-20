@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HOLD_MS, okHold } from '../hold.js';
+import { HOLD_MS, HOLD_SHOWN_FROM_MS, holdProgress, okHold } from '../hold.js';
 
 const down = (eventType: string) => ({ eventType, eventKeyAction: 0 });
 const up = (eventType: string) => ({ eventType, eventKeyAction: 1 });
@@ -126,5 +126,55 @@ describe('okHold — holding OK for two seconds', () => {
     hold.cancel();
     vi.advanceTimersByTime(HOLD_MS);
     expect(onHold).not.toHaveBeenCalled();
+  });
+});
+
+describe('holdProgress — the line that shows a press becoming a hold', () => {
+  it('shows nothing for an ordinary press', () => {
+    expect(holdProgress(0)).toBeNull();
+    expect(holdProgress(HOLD_SHOWN_FROM_MS - 1)).toBeNull();
+    expect(holdProgress(Number.NaN)).toBeNull();
+  });
+
+  it('fills from empty to full across the rest of the two seconds, and no further', () => {
+    expect(holdProgress(HOLD_SHOWN_FROM_MS)).toBe(0);
+    expect(holdProgress((HOLD_SHOWN_FROM_MS + HOLD_MS) / 2)).toBeCloseTo(0.5);
+    expect(holdProgress(HOLD_MS)).toBe(1);
+    expect(holdProgress(HOLD_MS * 3)).toBe(1);
+  });
+});
+
+describe('okHold — the hold line begins and ends with the press', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('begins when OK goes down where it may be held, and ends when it is let go early', () => {
+    const begin = vi.fn();
+    const end = vi.fn();
+    const hold = okHold({ onHold: vi.fn(), canHold: () => true, onBegin: begin, onEnd: end });
+    hold.onEvent({ eventType: 'select', eventKeyAction: 0 });
+    expect(begin).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(HOLD_MS / 2);
+    hold.onEvent({ eventType: 'select', eventKeyAction: 1 });
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
+  it('ends once when the press becomes the hold, and not again when the key comes up', () => {
+    const end = vi.fn();
+    const onHold = vi.fn();
+    const hold = okHold({ onHold, canHold: () => true, onEnd: end });
+    hold.onEvent({ eventType: 'select', eventKeyAction: 0 });
+    vi.advanceTimersByTime(HOLD_MS);
+    expect(onHold).toHaveBeenCalledTimes(1);
+    expect(end).toHaveBeenCalledTimes(1);
+    hold.onEvent({ eventType: 'select', eventKeyAction: 1 });
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
+  it('never begins where OK cannot be held', () => {
+    const begin = vi.fn();
+    const hold = okHold({ onHold: vi.fn(), canHold: () => false, onBegin: begin });
+    hold.onEvent({ eventType: 'select', eventKeyAction: 0 });
+    expect(begin).not.toHaveBeenCalled();
   });
 });
