@@ -16,6 +16,7 @@ import { padTimestamp, parseTimestampFromSortKey, type RosterEntry } from '@wick
 import { loadRoster as loadRosterFrom, visitStore, type VisitSend } from '@wick/agent';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { gated, type ToolContext } from './context.js';
+import { errandVisitorForFamily, isErrandPerson } from './errandNames.js';
 import { expectedToday } from './did_visitor_come.js';
 import { withFriendlyErrors } from './errors.js';
 import { FAMILY_REFUSAL_TEXT, isSharedWithFamily, loadHouseholdPolicy } from './get_resident_shared_view.js';
@@ -118,7 +119,12 @@ export async function loadVisitors(ddb: DynamoDBClient, householdId: string, now
     });
 
   const expected = roster
-    .flatMap((p) => (p.expectedOnce ? [{ name: p.name, at: p.expectedOnce.at, until: p.expectedOnce.at + p.expectedOnce.windowMin * 60_000 }] : []))
+    // An errand's visitor is named in the arranging member's words: said as "a visitor Sarah arranged" where the gate cannot clear them (errandNames.ts).
+    .flatMap((p) => (p.expectedOnce ? [{
+      name: isErrandPerson(p.personId) ? errandVisitorForFamily(p.name, p.arrangedByName) : p.name,
+      at: p.expectedOnce.at,
+      until: p.expectedOnce.at + p.expectedOnce.windowMin * 60_000,
+    }] : []))
     .filter((v) => v.until >= now.getTime())
     .sort((a, b) => a.at - b.at)
     .map(({ name, at }) => ({ name, at }));

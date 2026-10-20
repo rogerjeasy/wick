@@ -292,6 +292,9 @@ resource "aws_apprunner_service" "mcp_server" {
             WICK_BRIEF_QUEUE_URL = aws_sqs_queue.brief.url
           },
           var.mcp_issuer_url != "" ? { MCP_ISSUER_URL = var.mcp_issuer_url } : {},
+          # Where a visit pass's link points (tools/make_visit_pass.ts). Unset,
+          # make_visit_pass says it cannot make links yet. See local.family_app_url.
+          local.family_app_url != "" ? { FAMILY_APP_URL = local.family_app_url } : {},
         )
       }
     }
@@ -324,4 +327,24 @@ resource "aws_apprunner_service" "mcp_server" {
   lifecycle {
     prevent_destroy = true
   }
+}
+
+# ---------------------------------------------------------------------------
+# The family app's address, for the visit pass's link (make_visit_pass).
+#
+# Not aws_cloudfront_distribution.sim_alexa.domain_name: that distribution's
+# response headers policy names this App Runner service in its CSP
+# (sim-alexa.tf sim_alexa_csp), so the service cannot name the distribution
+# back without a dependency cycle. It is given instead: the `sim_alexa_url`
+# output, once, or the shorter domain already set as pairing_url_base.
+# ---------------------------------------------------------------------------
+
+variable "family_app_url" {
+  description = "The family app's origin, e.g. the sim_alexa_url output (https://<id>.cloudfront.net), no trailing slash. A visit pass's link is <this>/visit.html#<token>. Empty means pairing_url_base, and when that is empty too, the Wick server cannot make visit links."
+  type        = string
+  default     = ""
+}
+
+locals {
+  family_app_url = var.family_app_url != "" ? var.family_app_url : var.pairing_url_base
 }

@@ -13,6 +13,12 @@
  * named once in `keptPrivate` instead, whether or not anything in it
  * happened today, so the answer reveals nothing about the day.
  *
+ * A visitor's name the gate cannot clear is left out of its line, not the
+ * whole answer withheld: an arranged visitor is named in the words of the
+ * member who arranged them ("Doctor Rossi"), theirs to read and a fact about
+ * her health to everyone else. "Someone came to the door when a visitor was
+ * expected." is what the rest of the family is told.
+ *
  * Deterministic formatting only, no model call, matching §9.3's latency budget.
  *
  * route.mjs (services/edge-device/lambda/route.mjs) never writes a separate
@@ -31,6 +37,8 @@ import { withFriendlyErrors } from './errors.js';
 import { answerSchema, READS, data, say } from './result.js';
 import { DAY_ARGUMENT, localDayBounds, resolveRecentDay } from './when.js';
 import { zoneOf } from '../accounts/types.js';
+import { familyTextKnowing } from '../guardian.js';
+import { UNNAMED_VISITOR, errandVisitorForFamily, isErrandPerson } from './errandNames.js';
 
 export { DAY_NOT_A_DATE_TEXT, DAY_NOT_YET_TEXT, DAY_TOO_OLD_TEXT } from './when.js';
 import { z } from 'zod';
@@ -77,13 +85,20 @@ export interface TodayAnswer {
 
 const KEPT_PRIVATE = ' That is something the resident keeps to themselves.';
 
+/** A presence line whose visitor's name the gate cannot clear: when, and not who. */
+export const VISITOR_EXPECTED_UNNAMED = 'Someone came to the door when a visitor was expected.';
+
 export async function loadTodayEvents(
   ddb: DynamoDBClient,
   householdId: string,
   now: Date,
   policy: HouseholdPolicy = DEFAULT_POLICY,
   timeZone = 'UTC',
+  /** The household's own people, asked for only when a visitor's name would otherwise be left out (people.ts). */
+  people?: () => Promise<readonly string[]>,
 ): Promise<TodayAnswer> {
+  let known: Promise<readonly string[]> | undefined;
+  const once = people ? () => (known ??= people()) : undefined;
   // The day where the house is, from its midnight to the next.
   const bounds = localDayBounds(now.getTime(), timeZone);
   const startOfDay = bounds.start;
@@ -108,14 +123,20 @@ export async function loadTodayEvents(
 
   const said: (TodayEntry & { readonly kind: string })[] = [];
   for (const item of res.Items ?? []) {
+    // An errand's visitor, in the arranging member's words, is read by the gate alone, never cleared by the household's people (errandNames.ts).
+    const errand = isErrandPerson(item.personId?.S);
+    const personName = item.personName?.S === undefined ? undefined : errand ? errandVisitorForFamily(item.personName.S) : item.personName.S;
     const event: RawTimelineEvent = {
       type: item.type?.S ?? '',
-      ...(item.personName?.S !== undefined && { personName: item.personName.S }),
+      ...(personName !== undefined && personName !== UNNAMED_VISITOR && { personName }),
       ...(item.motion?.BOOL === true && { motion: true }),
     };
     if (event.type === 'door' && !doorShared) continue;
     if (event.type === 'presence' && !presenceShared) continue;
-    const summary = summariseEvent(event);
+    let summary = summariseEvent(event);
+    // For the family, through the Guardian: a name it cannot clear is left out of the line, not the day withheld.
+    if (event.type === 'presence' && personName === UNNAMED_VISITOR) summary = VISITOR_EXPECTED_UNNAMED;
+    else if (summary !== undefined && event.personName !== undefined) summary = (await familyTextKnowing(summary, 'today.presence', errand ? undefined : once)) ?? VISITOR_EXPECTED_UNNAMED;
     if (summary !== undefined) said.push({ at: parseTsFromSk(item.sk?.S ?? ''), summary, kind: event.type });
   }
   // One line for one moment: a ring when a visitor was expected is said once, not as a ring and again as expected.
@@ -163,7 +184,7 @@ export function registerGetToday(
       if (!resolved.ok) return say(resolved.say);
 
       const policy = await loadHouseholdPolicy(ddb, ctx.householdId);
-      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(resolved.day.start), policy, timeZone);
+      const answer = await loadTodayEvents(ddb, ctx.householdId, new Date(resolved.day.start), policy, timeZone, ctx.people ? () => ctx.people!() : undefined);
       return data({ date: resolved.day.date, dayInWords: resolved.day.inWords, ...answer });
     }, { looksIn: true })),
   );

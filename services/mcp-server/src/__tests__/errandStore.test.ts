@@ -137,3 +137,30 @@ describe('errandStore.list, setExecution, forgetRoster', () => {
     expect(table.rows(`HH#${HH}`).map((r) => r.sk!.S)).toEqual([`ERRAND#${errand.errandId}`]);
   });
 });
+
+describe('errandStore — the visit pass on an errand (packages/contracts visitPass.ts)', () => {
+  const keep = async (table: ReturnType<typeof setup>['table'], attributes: Record<string, { S: string }>) => {
+    const [row] = table.rows(`HH#${HH}`).filter((r) => r.sk!.S!.startsWith('ERRAND#'));
+    table.put({ ...row!, ...attributes });
+  };
+
+  it('reads the pass’s hash and the visitor’s last word, from get and from list', async () => {
+    const { table, store } = setup();
+    await store.create(errand);
+    await keep(table, { passHash: { S: 'a'.repeat(64) }, visitorWord: { S: JSON.stringify({ says: 'late', at: AT - 600_000, lateMinutes: 15 }) } });
+
+    expect(await store.get(HH, errand.errandId)).toMatchObject({ passHash: 'a'.repeat(64), visitorWord: { says: 'late', at: AT - 600_000, lateMinutes: 15 } });
+    expect((await store.list(HH))[0]).toMatchObject({ passHash: 'a'.repeat(64), visitorWord: { says: 'late', at: AT - 600_000, lateMinutes: 15 } });
+  });
+
+  it('reads no word from one it cannot read: the errand is still the errand', async () => {
+    const { table, store } = setup();
+    await store.create(errand);
+
+    for (const raw of ['not json', JSON.stringify({ says: 'come_in', at: AT }), JSON.stringify({ says: 'late', at: AT })]) {
+      await keep(table, { visitorWord: { S: raw } });
+      const held = await store.get(HH, errand.errandId);
+      expect(held, raw).toEqual(errand);
+    }
+  });
+});

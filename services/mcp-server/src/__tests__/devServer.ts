@@ -170,6 +170,8 @@ const API_PORT = Number(process.env.WICK_DEV_API_PORT ?? 3300);
 const APP_PORT = Number(process.env.WICK_DEV_APP_PORT ?? 4173);
 // The family app's player fetches the films through this server here (see /dev/programmes below).
 process.env.WICK_PROGRAMMES_ORIGIN ??= `http://127.0.0.1:${API_PORT}/dev/programmes`;
+// Where a visit pass's link points (tools/make_visit_pass.ts): the family app this dev server serves.
+process.env.FAMILY_APP_URL ??= `http://127.0.0.1:${APP_PORT}`;
 const store = createMemoryStore();
 const table = createMemoryTable();
 const cards: QueuedCard[] = [];
@@ -879,6 +881,8 @@ const FAMILY_APP_CSP =
         .trim()
         .replace(/\$\{wick_server\}/g, `http://127.0.0.1:${API_PORT}`)
         .replace(/\$\{films\}/g, new URL(process.env.WICK_PROGRAMMES_ORIGIN!).origin)
+        // The edge's API (a visit pass's page, visit.html): there is no edge here, so this server, which says 404 to /visit/*.
+        .replace(/\$\{edge_api\}/g, `http://127.0.0.1:${API_PORT}`)
         .replace(/\n/g, ' ');
 /** The rest of what CloudFront says about the page (infra/sim-alexa.tf); no HSTS over plain HTTP. */
 const FAMILY_APP_HEADERS: Record<string, string> = {
@@ -897,7 +901,7 @@ createServer(async (req, res) => {
   try {
     let body: Buffer | string = await readFile(file === 'addon.json' ? ADDON_MANIFEST : join(appDir, file));
     // The default server, as infra/sim-alexa.tf rewrites it for the deployed copy.
-    if (file === 'index.html') body = body.toString('utf8').replace('http://127.0.0.1:3300', `http://127.0.0.1:${API_PORT}`);
+    if (file === 'index.html' || file === 'visit.html') body = body.toString('utf8').replace('http://127.0.0.1:3300', `http://127.0.0.1:${API_PORT}`);
     res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store', ...FAMILY_APP_HEADERS });
     res.end(body);
   } catch {

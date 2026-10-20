@@ -18,8 +18,10 @@
  * errand is marked failed and the door is not told.
  *
  * Who is coming is the member's own words, trimmed, at most forty
- * characters, and must clear the Guardian: those words come back to the
- * family in get_errands and on the door card. The day and the time are read
+ * characters, and must clear the Guardian — as text, as a name, or with a
+ * general clinician's title set aside ("Doctor Rossi", policy's
+ * clearVisitorForFamily): those words come back to the member in
+ * get_errands, marked as their own, and go on her door card. The day and the time are read
  * as expect_visit reads them, in the household's time zone, with its limits
  * — and a visit may be as soon as two minutes ahead, so that a judge can
  * arrange one "in five minutes" and watch the whole errand run.
@@ -39,7 +41,6 @@ import { callKey, claimOnce } from './once.js';
 import { localToUtc } from './when.js';
 import { EXPECT_VISIT_BAD_TIME_TEXT, EXPECT_VISIT_PAST_TEXT, EXPECT_VISIT_TOO_FAR_TEXT } from './expect_visit.js';
 import { IDEMPOTENCY_KEY_WINDOW_MS, SAME_NOTE_WINDOW_MS } from './send_note_to_tv.js';
-import { familyName, familyText } from '../guardian.js';
 import {
   ARRANGE_BAD_WHO_TEXT,
   ARRANGE_TOO_MANY_TEXT,
@@ -49,6 +50,8 @@ import {
   ERRANDS_UNAVAILABLE_TEXT,
   errandView,
   errandsOf,
+  toItsAuthor,
+  visitorWordsClear,
   type ErrandMachine,
 } from './errands.js';
 import { zoneOf } from '../accounts/types.js';
@@ -115,8 +118,8 @@ export function registerArrangeVisit(
       const who = args.who.trim().replace(/\s+/g, ' ');
       if (who.length === 0 || who.length > ERRAND_LIMITS.whoMaxChars) return say(ARRANGE_BAD_WHO_TEXT);
       // The errand's words reach the family again, so they are cleared once, here. Who is coming may be a name
-      // ("Иван the plumber"): read as a name when it is not clear as a sentence (policy's foreign.ts).
-      if (!familyText(who, 'errand.who') && !familyName(who, 'errand.who')) return say(ARRANGE_WHO_NOT_SHARED_TEXT);
+      // ("Иван the plumber", policy's foreign.ts), or a doctor ("Doctor Rossi": the visit a family most needs to arrange).
+      if (!visitorWordsClear(who)) return say(ARRANGE_WHO_NOT_SHARED_TEXT);
 
       const timeZone = zoneOf(allowed.household);
       const at = localToUtc(args.date, args.time, timeZone);
@@ -145,7 +148,8 @@ export function registerArrangeVisit(
         if (args.idempotencyKey !== undefined && !claim.sameCall) return say(ARRANGE_KEY_ALREADY_USED_TEXT);
         const first = claim.answer ? await errands.get(ctx.householdId, claim.answer.errandId) : undefined;
         if (!first) return say(ARRANGE_ON_ITS_WAY_TEXT);
-        return data({ arranged: true, errand: errandView(first, residentName, timeZone), repeated: true });
+        const view = errandView(first, residentName, timeZone);
+        return toItsAuthor(data({ arranged: true, errand: view, repeated: true }), ctx.userId, [{ errand: first, view }]);
       }
 
       try {
@@ -187,7 +191,8 @@ export function registerArrangeVisit(
         await claim.keep({ errandId: errand.errandId }).catch((err: unknown) =>
           console.error(JSON.stringify({ level: 'error', msg: 'once_not_kept', tool: 'arrange_visit', err: err instanceof Error ? err.name : 'unknown' })));
         console.log(JSON.stringify({ level: 'info', msg: 'errand_arranged', errandId: errand.errandId, reminder, tellMe }));
-        return data({ arranged: true, errand: errandView(errand, residentName, timeZone) });
+        const view = errandView(errand, residentName, timeZone);
+        return toItsAuthor(data({ arranged: true, errand: view }), ctx.userId, [{ errand, view }]);
       } catch (err) {
         // Not arranged, so a retry must be able to arrange it.
         await claim.release().catch(() => {});
