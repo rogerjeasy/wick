@@ -9,7 +9,7 @@
  * for either.
  */
 import { QueryCommand, ScanCommand, type AttributeValue } from '@aws-sdk/client-dynamodb';
-import { ERRAND_SK_PREFIX, padTimestamp, parseTimestampFromSortKey } from '@wick/contracts';
+import { ERRAND_SK_PREFIX, VISIT_SK_PREFIX, padTimestamp, parseTimestampFromSortKey } from '@wick/contracts';
 import { householdsWithTelevision } from '../narrator/everyHousehold.js';
 import type { WeekRange } from '../narrator/isoWeek.js';
 
@@ -55,18 +55,27 @@ export function householdRows(send: PagedSend, table: string, householdId: strin
   }));
 
   return {
-    /** The EVT# rows in `range` — for a week, its six before it too (rhythm/baseline.ts baselineWindow). */
-    loadEvents: (range: WeekRange) => allPages(send, (startKey) => new QueryCommand({
-      TableName: table,
-      KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
-      ExpressionAttributeValues: {
-        ':pk': pk,
-        ':from': { S: `EVT#${padTimestamp(range.startMs)}` },
-        // range.endMs is exclusive; the sentinel sorts after any id suffix at that millisecond.
-        ':to': { S: `EVT#${padTimestamp(range.endMs - 1)}#￿` },
-      },
-      ...(startKey ? { ExclusiveStartKey: startKey } : {}),
-    })),
+    /**
+     * The EVT# rows in `range` — for a week, its six before it too
+     * (rhythm/baseline.ts baselineWindow) — and the VISIT# rows of visits
+     * that began in it: a confirmed visit is the only row that says who came
+     * (packages/contracts visit.ts).
+     */
+    loadEvents: async (range: WeekRange) => {
+      const between = (prefix: string) => allPages(send, (startKey) => new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
+        ExpressionAttributeValues: {
+          ':pk': pk,
+          ':from': { S: `${prefix}${padTimestamp(range.startMs)}` },
+          // range.endMs is exclusive; the sentinel sorts after any id suffix at that millisecond.
+          ':to': { S: `${prefix}${padTimestamp(range.endMs - 1)}#￿` },
+        },
+        ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+      }));
+      const [events, visits] = await Promise.all([between('EVT#'), between(VISIT_SK_PREFIX)]);
+      return [...events, ...visits];
+    },
 
     /** The oldest EVT# row: sort keys are zero-padded timestamps, so the first is the first event. */
     async firstEventAt(): Promise<number | undefined> {

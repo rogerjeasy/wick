@@ -19,14 +19,35 @@ describe('toTimelineEntry', () => {
     expect(entry?.at).toBe(1789455093305);
   });
 
-  it('maps a presence event to kind "visit" — the narrative-level term the seed script already models', () => {
+  it('maps a presence row to somebody at the door when the visitor was expected — never "Maria visited": the door does not know who rang', () => {
     const entry = toTimelineEntry(item({ type: { S: 'presence' }, personId: { S: 'maria' }, personName: { S: 'Maria' } }));
-    expect(entry).toMatchObject({ kind: 'visit', summary: 'Maria visited.', personId: 'maria' });
+    expect(entry).toEqual({ at: 1789455093305, kind: 'presence', summary: 'Someone came to the door when Maria was expected.', personId: 'maria', name: 'Maria' });
+    expect(entry?.summary).not.toMatch(/Maria (visited|came)/);
   });
 
   it('falls back to a generic summary for a presence row with no personName', () => {
     const entry = toTimelineEntry(item({ type: { S: 'presence' }, personId: { S: 'x' } }));
-    expect(entry?.summary).toBe('Someone visited.');
+    expect(entry?.summary).toBe('Someone came to the door when a regular visitor was expected.');
+  });
+
+  describe('a visit the resident answered (VISIT#, packages/contracts visit.ts)', () => {
+    const visitRow = (answer?: string): Record<string, AttributeValue> => ({
+      pk: { S: 'HH#hh-1' },
+      sk: { S: 'VISIT#001789455093305#maria' },
+      personId: { S: 'maria' },
+      name: { S: 'Maria' },
+      arrivedAt: { N: '1789455093305' },
+      ...(answer ? { answer: { S: answer } } : {}),
+    });
+
+    it('is the one entry that says who came, once she confirmed it', () => {
+      expect(toTimelineEntry(visitRow('confirmed'))).toEqual({ at: 1789455093305, kind: 'visit', summary: 'Maria came, as confirmed on the television.', personId: 'maria', name: 'Maria' });
+    });
+
+    it('is nothing while she has not answered, or when she said it was not right', () => {
+      expect(toTimelineEntry(visitRow())).toBeUndefined();
+      expect(toTimelineEntry(visitRow('disputed'))).toBeUndefined();
+    });
   });
 
   it('ignores card_shown/card_action — too granular for a weekly narrative, and not what a family member is asking about', () => {

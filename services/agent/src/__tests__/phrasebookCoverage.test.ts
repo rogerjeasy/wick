@@ -181,7 +181,7 @@ describe('the door card (agents/door/index.ts)', () => {
 });
 
 describe('"Shall I tell Sarah?" (agents/tell/ask.ts, with the detector’s own sentences from rhythm/different.ts)', () => {
-  const visit = (when: number, personId: string, name: string): TimelineEntry => ({ at: when, kind: 'visit', summary: `${name} visited.`, personId });
+  const visit = (when: number, personId: string, name: string): TimelineEntry => ({ at: when, kind: 'presence', summary: `Someone came to the door when ${name} was expected.`, personId, name });
   const door = (when: number): TimelineEntry => ({ at: when, kind: 'door', summary: 'Someone was at the front door.' });
   const input = (over: Partial<DifferentInput>): DifferentInput => ({ entries: [], roster: [], now: NOW, observedSince: FRIDAY - 8 * WEEK, timeZone: LONDON, ...over });
 
@@ -207,7 +207,7 @@ describe('"Shall I tell Sarah?" (agents/tell/ask.ts, with the detector’s own s
 
     expect(card).toMatchObject({
       headline: '¿Se lo digo a Sarah?',
-      detail: 'Maria suele venir los viernes por la mañana. El viernes no hubo visita.',
+      detail: 'A Maria se le suele esperar los viernes por la mañana. El viernes no vino nadie a la puerta a esa hora.',
     });
     expect(labels(card!)).toEqual(['Me lo guardo', 'Decírselo a Sarah']);
   });
@@ -229,7 +229,7 @@ describe('"Shall I tell Sarah?" (agents/tell/ask.ts, with the detector’s own s
         const who: RosterEntry = { personId: 'dr-patel', name: 'Dr. Patel', expectedPattern: `${codes[d]} ${String(hour).padStart(2, '0')}:00±30m` };
         const entries = [1, 2, 3, 4, 5, 6].map((k) => visit(day - k * WEEK + hour * HOUR, 'dr-patel', 'Dr. Patel'));
         const cards = await asked(input({ roster: [who], entries, now: day + (hour + 3) * HOUR, observedSince: day - 8 * WEEK }));
-        expect(cards.map((card) => card.detail), `${codes[d]} ${hour}`).toEqual([`Dr. Patel suele venir ${days[d]} ${part}. ${on[d]} no hubo visita.`]);
+        expect(cards.map((card) => card.detail), `${codes[d]} ${hour}`).toEqual([`A Dr. Patel se le suele esperar ${days[d]} ${part}. ${on[d]} no vino nadie a la puerta a esa hora.`]);
       }
     }
   });

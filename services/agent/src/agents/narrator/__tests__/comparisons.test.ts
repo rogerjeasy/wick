@@ -35,9 +35,9 @@ describe('comparisonLines — the only comparisons the model is shown', () => {
       'Last week: 3 times at the front door.',
       'In a usual week: about 4 times at the front door.',
       'The front door this week: about the usual.',
-      'Last week: Maria visited 2 times.',
-      'In a usual week: Maria visits about 2 times.',
-      'Maria this week: about the usual.',
+      'Last week: someone came to the door when Maria was expected, 2 times.',
+      'In a usual week: someone comes to the door when Maria is expected, about 2 times.',
+      'The door when Maria was expected, this week: about the usual.',
       'Nothing unusual this week.',
     ]);
   });
@@ -45,8 +45,8 @@ describe('comparisonLines — the only comparisons the model is shown', () => {
   it('says so in plain words when someone who usually comes did not', () => {
     const lines = comparisonLines([usualDoor, absentMaria], true);
 
-    expect(lines).toContain('Maria did not visit this week.');
-    expect(lines).toContain('Maria this week: fewer visits than usual.');
+    expect(lines).toContain('Nobody came to the door when Maria was expected this week.');
+    expect(lines).toContain('The door when Maria was expected, this week: fewer times than usual.');
     expect(lines).not.toContain('Nothing unusual this week.');
   });
 
@@ -79,13 +79,13 @@ describe('comparisonLines — the only comparisons the model is shown', () => {
       'By this point last week: nobody had come to the front door.',
       'By this point in a usual week: nobody has come to the front door.',
       'The front door so far this week: about the usual.',
-      'Maria has not visited so far this week.',
-      'By this point last week: Maria had not visited.',
-      'By this point in a usual week: Maria has visited about 1 time.',
-      'Maria so far this week: about the usual.',
+      'Nobody has come to the door when Maria was expected so far this week.',
+      'By this point last week: nobody had come to the door when Maria was expected.',
+      'By this point in a usual week: someone has come to the door when Maria is expected, about 1 time.',
+      'The door when Maria was expected, so far this week: about the usual.',
       'Nothing unusual so far this week.',
     ]);
-    expect(comparisonLines([quiet, someMaria], false)).toContain('By this point last week: Maria had visited 2 times.');
+    expect(comparisonLines([quiet, someMaria], false)).toContain('By this point last week: someone had come to the door when Maria was expected, 2 times.');
   });
 
   it('leaves out a visitor who came once, long ago, and is not expected', () => {
@@ -132,7 +132,7 @@ describe('comparisonSentences — the comparisons, without a model', () => {
 
   it('leads with whoever usually comes and did not', () => {
     expect(comparisonSentences([usualDoor, absentMaria], true)).toEqual([
-      'Maria did not visit, and usually comes about twice a week.',
+      'Nobody came to the door when Maria was expected; usually someone does, about twice a week.',
     ]);
   });
 
@@ -144,8 +144,8 @@ describe('comparisonSentences — the comparisons, without a model', () => {
 
     expect(comparisonSentences([busyDoor], true)).toEqual(['The front door had more callers than usual.']);
     expect(comparisonSentences([quietDoor], true)).toEqual(['The front door was quieter than usual.']);
-    expect(comparisonSentences([usualDoor, fewerMaria], true)).toEqual(['Maria usually visits about four times a week.']);
-    expect(comparisonSentences([usualDoor, moreMaria], true)).toEqual(['Maria visited more than usual.']);
+    expect(comparisonSentences([usualDoor, fewerMaria], true)).toEqual(['Usually someone comes to the door when Maria is expected about four times a week.']);
+    expect(comparisonSentences([usualDoor, moreMaria], true)).toEqual(['Someone came to the door when Maria was expected more often than usual.']);
   });
 
   it('speaks of a week that is not over as not over', () => {
@@ -154,9 +154,9 @@ describe('comparisonSentences — the comparisons, without a model', () => {
     const fewerMaria = maria({ thisWeek: 1, lastWeek: 4, baseline: 4, baselineWeeks: 4, zScore: -3, verdict: 'fewer' });
     const moreMaria = maria({ thisWeek: 6, lastWeek: 2, baseline: 2, baselineWeeks: 4, zScore: 4, verdict: 'more' });
 
-    expect(comparisonSentences([usualDoor, absentMaria], false)).toEqual(['Maria has not visited so far, and has usually come about twice by now.']);
-    expect(comparisonSentences([usualDoor, fewerMaria], false)).toEqual(['Maria has usually visited about four times by now.']);
-    expect(comparisonSentences([usualDoor, moreMaria], false)).toEqual(['Maria has visited more than usual so far.']);
+    expect(comparisonSentences([usualDoor, absentMaria], false)).toEqual(['Nobody has come to the door when Maria was expected so far; usually someone has, about twice by now.']);
+    expect(comparisonSentences([usualDoor, fewerMaria], false)).toEqual(['Usually someone has come to the door when Maria was expected about four times by now.']);
+    expect(comparisonSentences([usualDoor, moreMaria], false)).toEqual(['Someone has come to the door when Maria was expected more often than usual so far.']);
     expect(comparisonSentences([busyDoor], false)).toEqual(['The front door has had more callers than usual so far.']);
     expect(comparisonSentences([quietDoor], false)).toEqual(['The front door has been quieter than usual so far.']);
   });
@@ -170,7 +170,7 @@ describe('comparisonSentences — the comparisons, without a model', () => {
   it('can leave out the verdict on the whole week, for when part of the week is not being told', () => {
     expect(comparisonSentences([usualDoor, usualMaria], true, { wholeWeek: false })).toEqual([]);
     expect(comparisonSentences([usualDoor, absentMaria], true, { wholeWeek: false })).toEqual([
-      'Maria did not visit, and usually comes about twice a week.',
+      'Nobody came to the door when Maria was expected; usually someone does, about twice a week.',
     ]);
   });
 

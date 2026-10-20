@@ -4,12 +4,15 @@ import { householdRows, scanHouseholdsWithTelevision, type PagedSend } from '../
 
 type Item = Record<string, AttributeValue>;
 
-/** A table that answers in pages of `pageSize`, and records every request. */
-function pagedTable(items: Item[], pageSize = 2) {
+/** A table that answers in pages of `pageSize`, and records every request. A range is answered with the rows of its own prefix. */
+function pagedTable(all: Item[], pageSize = 2) {
   const asked: Record<string, unknown>[] = [];
   const send: PagedSend = async (cmd) => {
     const input = cmd.input as unknown as Record<string, unknown>;
     asked.push(input);
+    const rangeFrom = (input.ExpressionAttributeValues as Record<string, { S?: string }> | undefined)?.[':from']?.S;
+    const prefix = rangeFrom?.replace(/\d.*$/, '');
+    const items = prefix === undefined ? all : all.filter((item) => item.sk?.S?.startsWith(prefix));
     const start = (input.ExclusiveStartKey as { n?: { N: string } } | undefined)?.n?.N;
     const from = start === undefined ? 0 : Number(start);
     const page = items.slice(from, from + pageSize);
@@ -32,16 +35,19 @@ describe('scanHouseholdsWithTelevision — the homes a week is written for, ever
 });
 
 describe('householdRows — one household’s rows, as the brief reads them', () => {
-  it('loads the week’s events by their sort-key range, every page', async () => {
-    const t = pagedTable([row('HH#h', 'EVT#1'), row('HH#h', 'EVT#2'), row('HH#h', 'EVT#3')]);
+  it('loads the week’s events, and the visits that began in it, by their sort-key ranges, every page', async () => {
+    const t = pagedTable([row('HH#h', 'EVT#1'), row('HH#h', 'EVT#2'), row('HH#h', 'EVT#3'), row('HH#h', 'VISIT#1#maria'), row('HH#h', 'VISIT#2#maria'), row('HH#h', 'VISIT#3#maria')]);
 
     const items = await householdRows(t.send, 'wick', 'h').loadEvents({ startMs: 1000, endMs: 2000 });
 
-    expect(items).toHaveLength(3);
-    expect(t.asked[0]).toMatchObject({
+    expect(items.map((item) => item.sk?.S)).toEqual(['EVT#1', 'EVT#2', 'EVT#3', 'VISIT#1#maria', 'VISIT#2#maria', 'VISIT#3#maria']);
+    expect(t.asked).toContainEqual(expect.objectContaining({
       KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
       ExpressionAttributeValues: { ':pk': { S: 'HH#h' }, ':from': { S: 'EVT#000000000001000' }, ':to': { S: 'EVT#000000000001999#￿' } },
-    });
+    }));
+    expect(t.asked).toContainEqual(expect.objectContaining({
+      ExpressionAttributeValues: { ':pk': { S: 'HH#h' }, ':from': { S: 'VISIT#000000000001000' }, ':to': { S: 'VISIT#000000000001999#￿' } },
+    }));
   });
 
   it('finds the household’s first event from the oldest EVT# key', async () => {

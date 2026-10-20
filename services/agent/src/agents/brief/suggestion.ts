@@ -71,7 +71,7 @@ export const SUGGESTER_SYSTEM_PROMPT = `You help a distant family member decide 
 
 You are given the week's facts, the paragraph already written from them, and the actions this week allows. Choose exactly one of the allowed actions:
 - send_note: send a short note to her television.
-- arrange_visit: arrange a visit (only offered when someone who usually visits came less than usual).
+- arrange_visit: arrange a visit (only offered when somebody came to the door less often than usual when a regular visitor was expected).
 - watch_together: invite her to watch a film together (only offered when she watched a film this week).
 - nothing: the week needs nothing more than reading it.
 

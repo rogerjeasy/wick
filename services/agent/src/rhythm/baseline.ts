@@ -36,7 +36,6 @@ export const UNUSUAL_Z = 2;
 const MIN_SPREAD = 1;
 
 const WEEK_MS = 7 * 86_400_000;
-const VISITED = /^(.+) visited\.$/;
 
 export const DOOR_METRIC = 'door';
 export const VISIT_METRIC_PREFIX = 'visit:';
@@ -84,11 +83,17 @@ export interface RhythmWindow {
   readonly observedSince: number | undefined;
 }
 
+/**
+ * A visitor's metric counts the door when they were expected (`presence`),
+ * the one signal every week has: how often somebody came then, never who.
+ * Its words say so (comparisons.ts). A confirmed visit is told on its own
+ * (weekFacts.ts), not counted twice here.
+ */
 function metricOf(entry: TimelineEntry): { metric: string; label: string } | undefined {
   if (entry.kind === 'door') return { metric: DOOR_METRIC, label: 'the front door' };
-  if (entry.kind !== 'visit') return undefined;
-  const name = VISITED.exec(entry.summary)?.[1];
-  if (!name || name === 'Someone') return undefined;
+  if (entry.kind !== 'presence') return undefined;
+  const name = entry.name;
+  if (!name) return undefined;
   return { metric: `${VISIT_METRIC_PREFIX}${entry.personId ?? name}`, label: name };
 }
 

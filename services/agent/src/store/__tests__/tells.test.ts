@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { tellStore, type TellSend } from '../tells.js';
 
-const row = { householdId: 'hh-1', differenceId: 'missed_visit-maria-2026-10-09', kind: 'missed_visit', factClass: 'PRESENCE', sentence: 'Maria usually comes on Friday mornings. There was no visit on Friday.', at: 1, askedAt: 2_000_000, weeksObserved: 6 } as const;
+const row = { householdId: 'hh-1', differenceId: 'missed_visit-maria-2026-10-09', kind: 'missed_visit', factClass: 'PRESENCE', sentence: 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.', at: 1, askedAt: 2_000_000, weeksObserved: 6 } as const;
 const failing = (name: string) => vi.fn<TellSend>(async () => { throw Object.assign(new Error(name), { name }); });
 
 describe('tellStore.claimOnce', () => {

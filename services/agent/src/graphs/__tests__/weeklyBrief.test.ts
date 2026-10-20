@@ -73,7 +73,7 @@ function setup(options: {
   sendWeekCard?: () => Promise<void>;
 }) {
   const writer = new TurnsModel(options.writer);
-  const suggester = new TurnsModel(options.suggester ?? [suggest('arrange_visit', 'Maria did not visit this week.')]);
+  const suggester = new TurnsModel(options.suggester ?? [suggest('arrange_visit', 'Nobody came to the door when Maria was expected this week.')]);
   const guard = options.guard ?? guardrail();
   const saved: WeekNarrative[] = [];
   const cards: WeekNarrative[] = [];
@@ -110,7 +110,7 @@ describe('the Sunday brief — analyst → writer → check → suggester → va
     const run = await s.run();
 
     expect(run.path).toEqual([BRIEF_NODES.analyst, BRIEF_NODES.writer, BRIEF_NODES.check, BRIEF_NODES.suggester, BRIEF_NODES.validate, BRIEF_NODES.store]);
-    expect(run.result).toEqual({ status: 'written', textSource: 'agents', suggestion: { action: 'arrange_visit', reason: 'Maria did not visit this week.' }, attempts: 1 });
+    expect(run.result).toEqual({ status: 'written', textSource: 'agents', suggestion: { action: 'arrange_visit', reason: 'Nobody came to the door when Maria was expected this week.' }, attempts: 1 });
     expect(s.saved).toHaveLength(1);
     expect(s.saved[0]).toMatchObject({ householdId: 'hh-1', isoWeek: '2026-W38', text: GOOD_DRAFT, textSource: 'agents', generatedAt: SUNDAY_EVENING });
     expect(s.saved[0]!.residentSeenAt).toBeUndefined();
@@ -135,7 +135,7 @@ describe('the Sunday brief — analyst → writer → check → suggester → va
     await s.run();
 
     expect(s.writer.seen[0]).toContain('Someone came to the front door 3 times.');
-    expect(s.writer.seen[0]).toContain('Maria did not visit this week.');
+    expect(s.writer.seen[0]).toContain('Nobody came to the door when Maria was expected this week.');
     expect(s.writer.seen[0]).not.toMatch(/\d{10,}/);
     expect(s.writer.options[0]?.toolSpecs ?? []).toEqual([]);
 
@@ -149,7 +149,7 @@ describe('the Sunday brief — analyst → writer → check → suggester → va
     await s.run();
 
     const guarded = s.guard.asked.map((a) => a.content!.find((c) => c.text?.qualifiers?.includes('guard_content'))!.text!.text);
-    expect(guarded).toEqual([GOOD_DRAFT, 'Maria did not visit this week.']);
+    expect(guarded).toEqual([GOOD_DRAFT, 'Nobody came to the door when Maria was expected this week.']);
     const source = s.guard.asked[0]!.content!.find((c) => c.text?.qualifiers?.includes('grounding_source'))!.text!.text!;
     expect(source).toContain('Someone came to the front door 3 times.');
     // The reason is checked against the question it answers: why this action.
@@ -192,7 +192,7 @@ describe('the check — back to the writer once with the reason, then the facts 
     expect(s.saved[0]!.text).toMatch(/^Someone came to the front door three times this week/);
     expect(s.saved[0]!.textSource).toBe('facts');
     // The week still has its one suggestion: the facts did not change.
-    expect(s.saved[0]!.suggestion).toEqual({ action: 'arrange_visit', reason: 'Maria did not visit this week.' });
+    expect(s.saved[0]!.suggestion).toEqual({ action: 'arrange_visit', reason: 'Nobody came to the door when Maria was expected this week.' });
   });
 
   it('sends a draft the Guardrail finds ungrounded back, with its reason', async () => {

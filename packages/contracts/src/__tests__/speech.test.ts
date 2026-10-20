@@ -16,7 +16,7 @@ describe('what is read aloud when she asks to hear a card', () => {
       ...base,
       type: 'TELL',
       headline: 'Shall I tell Sarah?',
-      detail: 'Maria usually comes on Friday mornings. There was no visit on Friday.',
+      detail: 'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.',
       actions: [
         { id: 'tell', label: 'Tell Sarah', kind: 'primary' },
         { id: 'keep', label: 'Keep it to myself', kind: 'secondary' },
@@ -24,7 +24,7 @@ describe('what is read aloud when she asks to hear a card', () => {
     };
     expect(speechTextOf(card)).toEqual([
       'Shall I tell Sarah?',
-      'Maria usually comes on Friday mornings. There was no visit on Friday.',
+      'Maria is usually expected on Friday mornings. Nobody came to the door at that time on Friday.',
       'Tell Sarah.',
       'Keep it to myself.',
     ]);
