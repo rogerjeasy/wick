@@ -43,7 +43,7 @@ import { isExpired, DEVICE_TOKEN_TTL_SEC } from './pairing-code.mjs';
 import { accessTokenKey, bearerToken, grantFromItem, mayConnectOwnTelevision, mayConnectTelevision, membershipKey } from './wick-auth.mjs';
 import { FAMILY_KIND, familyClaims, familyTelevisionKey, kindAskedFor, publicKeyItem } from './family-television.mjs';
 import { claimDeviceOwner, deviceOwnerKey, householdOfDevice } from './device-owner.mjs';
-import { PROVEN_BY_PAIRING, SIMULATOR_DEVICE_ID, newProof, proofHashOf } from './proof.mjs';
+import { PROVEN_BY_PAIRING, SIMULATOR_DEVICE_ID, isDemoHome, newProof, proofHashOf } from './proof.mjs';
 
 /**
  * What the family app may call a television by (`televisionRef` on its row):
@@ -99,6 +99,17 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
     const residents = { pk: { S: `HH#${householdId}` }, sk: { S: `DEV#${deviceId}` } };
     if (asFamily && (await get(residents, { ConsistentRead: true }))) return { statusCode: 409, body: 'already_the_residents_television' };
     if (!asFamily && (await get(familyTelevisionKey(householdId, deviceId), { ConsistentRead: true }))) return { statusCode: 409, body: 'already_a_family_television' };
+
+    // Her own television will keep a secret, or it joins a demo home only.
+    // One that keeps nothing (the Vega Virtual Device, FL-013) is answered
+    // from its id alone at every refresh (pair-refresh.mjs), and an id is no
+    // proof: so it is never connected to a home a real person lives in.
+    // A family member's television is never answered from its id, so it is
+    // not asked. Refused before anything is written.
+    const willKeepSecret = Boolean(item.proofHash?.S) || (item.keeps?.BOOL === true && deviceId !== SIMULATOR_DEVICE_ID);
+    if (!asFamily && !willKeepSecret && !isDemoHome(await get({ pk: { S: `HH#${householdId}` }, sk: { S: 'META' } }, { ConsistentRead: true }))) {
+      return { statusCode: 403, body: 'television_cannot_prove_itself' };
+    }
 
     // A television belongs to one household. Claimed before anything else is
     // written, so a refusal here leaves no trace.

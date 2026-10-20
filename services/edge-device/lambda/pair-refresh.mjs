@@ -34,16 +34,19 @@
  *     enrol one, so whoever minted it cannot take the television over or
  *     lock it out. Enrolled in the conditional write that counts the
  *     refresh, so two enrolments cannot both win.
- *   - A resident's row with no proof is still answered from the id alone:
- *     the KNOWN ACCEPTED EXCEPTION (AGENTS.md INV-1). It exists for the Vega
+ *   - A resident's row with no proof, IN A DEMO HOME, is still answered
+ *     from the id alone: the KNOWN ACCEPTED EXCEPTION (AGENTS.md INV-1). In
+ *     a real home it is refused (401 `proof_required`), and pair-claim.mjs
+ *     never connects such a television to one. It exists for the Vega
  *     Virtual Device, whose disk keeps nothing (FRICTION.md FL-013/FL-014):
  *     its separate CardService process has no other way to learn it is
  *     paired, and a secret it made would be gone at the next launch. Such a
  *     token says `proof: 'none'`, and is refused everywhere the moment the
  *     row takes a proof (proof.mjs `refusesUnproven`). Bounded, not
  *     eliminated: REFRESH_TOKEN_TTL_SEC (an hour) and the per-device
- *     cooldown. Anyone who knows such a television's id can still mint its
- *     token; for the simulator that id is public.
+ *     cooldown, and demo homes only. Anyone who knows such a television's
+ *     id can still mint its token; for the simulator that id is public, and
+ *     the home it reaches has nobody in it.
  *
  * A family member's own television is not under that exception: its token
  * is minted only for one that shows the token it held (below), and the
@@ -155,7 +158,7 @@ import { signJwt, verifyJwt } from './jwt.mjs';
 import { REFRESH_TOKEN_TTL_SEC, nextRefreshWindow } from './pairing-code.mjs';
 import { deviceOwnerKey, householdOfDevice } from './device-owner.mjs';
 import { FAMILY_KIND, SERVICE_SESSION_MAX_MS, SERVICE_WINDOW_MS, WAITING_SCOPE, familyClaims, familyTelevisionKey } from './family-television.mjs';
-import { PROVEN_BY_SECRET, UNPROVEN, isProof, isUnproven, proofHashOf, proofMatches } from './proof.mjs';
+import { PROVEN_BY_SECRET, UNPROVEN, isDemoHome, isProof, isUnproven, proofHashOf, proofMatches } from './proof.mjs';
 import { isResidentsToken } from './device-standing.mjs';
 
 /** The bearer token of a request, whatever case the header arrived in. */
@@ -257,6 +260,12 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
     let storedHash;
     let proven = false;
     let enrols = false;
+    // Whether this home is a demo home, read once and only when it matters.
+    let isDemo;
+    const demoHome = async () => {
+      if (isDemo === undefined) isDemo = isDemoHome((await send(new GetItemCommand({ TableName: table, Key: { pk: { S: `HH#${householdId}` }, sk: { S: 'META' } } }))).Item);
+      return isDemo;
+    };
 
     // Counted on the binding row, and written only if the row still says
     // what was read: the app and its card service ask a second apart, and
@@ -280,7 +289,7 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
           // that proves itself another way: a token of its own, minted with
           // proof and not run out. An unproven token proves nothing, so it
           // can never enrol a secret — and without that, the request is
-          // answered under the exception, exactly as before.
+          // answered under the exception, in a demo home only (below).
           const heldToken = bearer(event.headers);
           let held;
           try {
@@ -293,6 +302,12 @@ export function createHandler({ send, privateKey, publicKey, now, table }) {
             enrols = true;
           }
         }
+        // Answered from the id alone only in a demo home (proof.mjs): its
+        // rows are made up, and nobody lives there. A real home's television
+        // shows its secret, or the token it was paired with, or nothing is
+        // minted — an id was shown to the family and written in logs, and
+        // knowing it must never be enough to speak for her television.
+        if (!proven && !(await demoHome())) return { statusCode: 401, body: 'proof_required' };
       } else {
         familyUserId = item.userId?.S;
         if (!familyUserId) return { statusCode: 404, body: 'device_not_paired' };

@@ -276,6 +276,7 @@ describe('POST /api/televisions — connecting a television with its six-digit c
     [409, 'already_claimed', 'That code has already been used.'],
     [409, 'television_in_another_home', 'That television belongs to another home. It has to be disconnected there first.'],
     [403, 'only_the_organiser_can_connect_a_television', 'Only the person who set this home up can connect a television.'],
+    [403, 'television_cannot_prove_itself', 'That television cannot keep the secret a real home needs, so it can only join a demo home. Use a Fire TV or the browser television.'],
   ])('says what went wrong in words: %i %s', async (status, body, message) => {
     const { h } = await serverWithPairing({ status, body });
     const sarah = await linkNewOrganiser(h);

@@ -41,7 +41,11 @@ const tokenItem = (householdId = 'hh_1'): Item => ({
   expiresAt: { N: String(NOW + 60_000) },
 });
 const member = (role: string, status: string): Item => ({ role: { S: role }, status: { S: status } });
-const pairingCode: Item = { deviceId: { S: 'tv-1' }, claimed: { BOOL: false }, expiresAt: { N: String(NOW + 60_000) } };
+/** A code a television asked for with its secret, as Fire OS, the browser television and a paired Vega television do (pair-start.mjs). */
+const TV_SECRET = 'p'.repeat(64);
+const pairingCode: Item = { deviceId: { S: 'tv-1' }, claimed: { BOOL: false }, expiresAt: { N: String(NOW + 60_000) }, proofHash: { S: proofHashOf(TV_SECRET) } };
+/** A demo home (proof.mjs isDemoHome): the only kind a television that keeps no secret joins. */
+const DEMO_HOME: Record<string, Item> = { 'HH#hh_1|META': { simulated: { BOOL: true } } };
 
 function world(over: Record<string, Item | undefined> = {}, failing: string[] = []) {
   const items: Record<string, Item> = {
@@ -251,7 +255,8 @@ describe('POST /pair/claim — the television’s proof, its name for the family
   });
 
   it('makes a secret for a television that asked for one, keeps only its hash on the row, and leaves the secret for the poll alone', async () => {
-    const { handler, writes } = world({ 'PAIR#123456|META': { ...pairingCode, keeps: { BOOL: true } } });
+    const { proofHash: _own, ...asked } = pairingCode;
+    const { handler, writes } = world({ 'PAIR#123456|META': { ...asked, keeps: { BOOL: true } } });
 
     expect((await handler(event({ code: '123456' }))).statusCode).toBe(200);
 
@@ -264,8 +269,9 @@ describe('POST /pair/claim — the television’s proof, its name for the family
   });
 
   it('never makes one for the simulator’s id, nor over a secret the television made itself', async () => {
-    const simulator = world({ 'PAIR#123456|META': { ...pairingCode, deviceId: { S: 'wick-tv' }, keeps: { BOOL: true } } });
-    await simulator.handler(event({ code: '123456' }));
+    const { proofHash: _own, ...asked } = pairingCode;
+    const simulator = world({ ...DEMO_HOME, 'PAIR#123456|META': { ...asked, deviceId: { S: 'wick-tv' }, keeps: { BOOL: true } } });
+    expect((await simulator.handler(event({ code: '123456' }))).statusCode).toBe(200);
     expect((writeTo(simulator.writes, 'PAIR#123456|META') as UpdateItemCommand).input.ExpressionAttributeValues).not.toHaveProperty(':proof');
     expect(binding(simulator.writes, 'HH#hh_1|DEV#wick-tv').input.UpdateExpression).toMatch(/ REMOVE proofHash$/);
 
@@ -275,13 +281,34 @@ describe('POST /pair/claim — the television’s proof, its name for the family
     expect(binding(own.writes).input.ExpressionAttributeValues![':proofHash']).toEqual({ S: SECRET_HASH });
   });
 
-  it('leaves a television paired without a proof with none — even over a row that had one', async () => {
-    const { handler, writes } = world();
+  it('leaves a television paired without a proof with none, in a demo home — even over a row that had one', async () => {
+    const { proofHash: _own, ...asked } = pairingCode;
+    const { handler, writes } = world({ ...DEMO_HOME, 'PAIR#123456|META': asked });
 
-    await handler(event({ code: '123456' }));
+    expect((await handler(event({ code: '123456' }))).statusCode).toBe(200);
 
     expect(binding(writes).input.UpdateExpression).toMatch(/ REMOVE proofHash$/);
     expect(binding(writes).input.ExpressionAttributeValues).not.toHaveProperty(':proofHash');
+  });
+
+  it('never connects a television that will keep no secret to a real home — nor the simulator — and writes nothing', async () => {
+    const { proofHash: _own, ...asked } = pairingCode;
+    const codes: Item[] = [asked, { ...asked, deviceId: { S: 'wick-tv' } }, { ...asked, deviceId: { S: 'wick-tv' }, keeps: { BOOL: true } }];
+    for (const meta of [undefined, { simulated: { BOOL: false } }]) {
+      for (const code of codes) {
+        const { handler, writes } = world({ 'PAIR#123456|META': code, ...(meta ? { 'HH#hh_1|META': meta } : {}) });
+        const res = await handler(event({ code: '123456' }));
+        expect(res.statusCode).toBe(403);
+        expect(res.body).toBe('television_cannot_prove_itself');
+        expect(writes).toEqual([]);
+      }
+    }
+  });
+
+  it('connects a family member’s own television without a secret: it is never answered from its id', async () => {
+    const { proofHash: _own, ...asked } = pairingCode;
+    const { handler } = world({ 'HH#hh_1|MEM#u_sarah': member('family', 'allowed'), 'PAIR#123456|META': asked });
+    expect((await handler(event({ code: '123456', as: 'family' }))).statusCode).toBe(200);
   });
 
   it('gives the television a random name for the family app, and keeps the one a row already has', async () => {
@@ -379,7 +406,9 @@ describe('POST /pair/claim — the simulator, whose one id every Vega Virtual De
     const items: Record<string, Item> = {
       [keyOf(accessTokenKey(TOKEN))]: tokenItem(),
       'HH#hh_1|MEM#u_sarah': member('organiser', 'pending'),
-      'PAIR#123456|META': { ...pairingCode, deviceId: { S: 'wick-tv' } },
+      // The simulator asks with no secret (it keeps nothing), so the home it joins is a demo home too.
+      'PAIR#123456|META': { deviceId: { S: 'wick-tv' }, claimed: { BOOL: false }, expiresAt: { N: String(NOW + 60_000) } },
+      'HH#hh_1|META': { simulated: { BOOL: true } },
       'DEV#wick-tv|META': { householdId: { S: owner }, claimedAt: { N: '1' } },
       [`HH#${owner}|DEV#wick-tv`]: { deviceId: { S: 'wick-tv' } },
       ...(ownerMeta ? { [`HH#${owner}|META`]: ownerMeta } : {}),

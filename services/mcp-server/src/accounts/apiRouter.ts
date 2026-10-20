@@ -75,6 +75,7 @@ const PAIRING_REFUSALS: Readonly<Record<string, string | ((resident: string) => 
   code_expired: 'That code has expired. The television is showing a new one.',
   already_claimed: 'That code has already been used.',
   television_in_another_home: 'That television belongs to another home. It has to be disconnected there first.',
+  television_cannot_prove_itself: 'That television cannot keep the secret a real home needs, so it can only join a demo home. Use a Fire TV or the browser television.',
   only_the_organiser_can_connect_a_television: 'Only the person who set this home up can connect a television.',
   not_allowed_yet: ownTelevisionOnceAllowed,
   bad_kind: 'This Wick cannot connect a television of that kind.',
