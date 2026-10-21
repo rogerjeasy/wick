@@ -245,12 +245,12 @@ footer a:hover{color:var(--ink);text-decoration:underline}
 
 /* Measured strip */
 .stats{border-block:1px solid var(--line);background:var(--ground-2)}
-.stats dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0}
+.stats dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-block:0}
 .stats div{padding:clamp(20px,3vw,30px) clamp(14px,2vw,24px);border-left:1px solid var(--line);min-width:0}
 .stats div:first-child{border-left:0}
 .stats dt{color:var(--ink-dim);font-size:.9375rem;line-height:1.45}
 .stats dd{margin:0 0 6px;order:-1;font-weight:800;font-size:clamp(1.6rem,2.4vw + .6rem,2.4rem);letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.1}
-.stats div{display:flex;flex-direction:column}
+.stats div{display:flex;flex-direction:column;align-items:center;text-align:center}
 .stats small{display:block;color:var(--ink-faint);font-size:.875rem;margin-top:4px}
 
 /* The idea: built for the caregiver / built for her */
