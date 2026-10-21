@@ -993,7 +993,7 @@ One deployed stack, used for every live check. It holds only test and demo homes
 | Replies written by a model | Replies are chosen from sentences Wick wrote |
 | A model in the Guardian | Rules only, by design |
 | Face matching for visitors | Rejected: schedule only |
-| Testing on Fire TV hardware | No hardware; the simulators are the evidence |
+| Testing on Fire TV hardware | The simulators, then a real Fire TV Stick 4K Select (Vega OS) |
 
 ---
 

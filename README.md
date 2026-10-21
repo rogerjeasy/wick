@@ -20,7 +20,7 @@
 <p align="center">
   <strong><a href="https://youtu.be/hekdQBD0KDU">Watch the demo on YouTube (3:04)</a></strong> ·
   <strong><a href="https://dmaz25jvryojp.cloudfront.net/">Try the family app</a></strong> ·
-  <a href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">Her television in a browser tab</a> ·
+  <a href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">Her television in a browser tab (quick testing)</a> ·
   <a href="https://rogerjeasy.github.io/wick/calm-points/">The calm-point map</a>
 </p>
 
@@ -29,8 +29,7 @@
   <a href="docs/WICK-TECHNICAL.md">Technical document</a> ·
   <a href="docs/SETUP.md">Setup</a> ·
   <a href="FRICTION.md">Friction log</a> ·
-  <a href="docs/PRODUCT-FEEDBACK.md">Product feedback</a> ·
-  <a href="docs/SUBMISSION.md">Submission</a>
+  <a href="docs/PRODUCT-FEEDBACK.md">Product feedback</a>
 </p>
 
 > **Submitted to:** Build, Ship, Shape — Amazon Developer Hackathon · **Track:** Fire TV
@@ -126,14 +125,16 @@ allows that person.
 
 No account and no hardware are needed.
 
-1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html). The keyboard is the remote: arrows move, **Enter** is OK, **Esc** is Back, **Space** is Play/Pause, and **Enter** held for two seconds is Hold for Sarah. On a phone or tablet, use the remote drawn beside the screen. *How Wick works*, on its home screen, shows an example of everything below without the family app.
+> **Disclaimer:** her television in a browser tab is for quick testing only. Wick is a Fire TV app: judge it on the Vega Virtual Device or the Fire OS build in the Android TV emulator, as we did ([docs/SETUP.md](docs/SETUP.md)), or on a Fire TV. We ran it on a real Fire TV Stick 4K Select.
+
+1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html), for quick testing. The keyboard is the remote: arrows move, **Enter** is OK, **Esc** is Back, **Space** is Play/Pause, and **Enter** held for two seconds is Hold for Sarah. On a phone or tablet, use the remote drawn beside the screen. *How Wick works*, on its home screen, shows an example of everything below without the family app.
 2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose **Try the demo** and enter the code shown on the television (or point a phone at the QR code beside it). You are Sarah, in a demo home with six weeks of simulated history. Every press of **Try the demo** is a new demo session: a fresh key, its own guest and its own home, so nothing from anyone else's session (or your own earlier one) is ever shown. The header names the session, for example *Demo home K7F2QX*.
 3. On the television, press **Allow Sarah** when it appears, about twenty seconds after pairing. Then ask the family app anything, for example *"How has my mum been this week?"*
 4. Start a film, then ask the family app to *send a note to her television*. The note waits. Pause, or let Big Buck Bunny reach its calm point at 1:29, and it appears. **Space** reads it aloud; **Enter** replies.
 5. Press **Ring the stand-in doorbell** in the family app and choose who is there. The door card appears at once and the film waits under it, then the picture and one sentence about it. **Esc** (Back) or *Not now* puts it away and the film goes on; if the card goes by itself while she is at the door, the film stays paused for her. The stand-in doorbell rings at most once every 20 seconds.
 
 The same flow runs on the Vega Virtual Device and on the Fire OS build in the
-Android TV emulator ([docs/SETUP.md](docs/SETUP.md)). Every Vega Virtual Device
+Android TV emulator ([docs/SETUP.md](docs/SETUP.md)), which is how to judge Wick as a Fire TV app. Every Vega Virtual Device
 has the same id, so one may open in another demo home with no code: in the
 family app, **Connect a television** then **Bring in the Vega Virtual Device**.
 
@@ -251,11 +252,11 @@ Privacy is the product, not a compliance section.
 
 ## What is real, and what is simulated
 
-Wick was built without hardware, which the hackathon allows.
+Wick was built on Amazon's simulators, which the hackathon allows, and then run on a real Fire TV Stick 4K Select.
 
 | | In this submission |
 |---|---|
-| **Television** | The Vega Virtual Device and the Fire OS build on the Android TV emulator. A browser version runs the same cards and break rules for judges without either. |
+| **Television** | The Vega app on a real Fire TV Stick 4K Select (Vega OS), as the demo video shows, and on the Vega Virtual Device; the Fire OS build on the Android TV emulator. A browser version runs the same cards and break rules, for quick testing only. |
 | **Doorbell** | Ring's Developer Playground, behind Ring's real API. It sends no webhooks and has no chime, so demo homes use a clearly labelled stand-in doorbell with made-up visitors ([FL-027](FRICTION.md)). |
 | **Alexa+** | A simulated surface that signs in with OAuth and calls the real MCP server ([FL-001](FRICTION.md)). |
 | **Household** | A demo home with six weeks of simulated history, marked as simulated everywhere. |
@@ -263,7 +264,7 @@ Wick was built without hardware, which the hackathon allows.
 
 Everything between those ends is real and deployed: the AWS stack, the MCP
 server, the agents and models, the Guardian, accounts and pairing. Not yet
-seen on real hardware: a Fire TV, a Ring doorbell, or a spoken "Alexa, pause".
+seen on real hardware: a Ring doorbell, or a spoken "Alexa, pause".
 
 ## Repository layout
 
