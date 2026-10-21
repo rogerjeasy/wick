@@ -34,7 +34,7 @@ watches is the screen, and she doesn't install, learn or wear anything.
 | **Price** | The door card is free. *Family* is £14.99 / $16.99 a month. Agencies pay per client. |
 | **Cost to run** | About $1.55–3.75 per household a month at 300 homes, and $1.65–4.22 at 100, before live video and support (§9.2). |
 | **Distribution** | The Fire TV and Ring app stores, into homes that already own the devices. |
-| **Status** | Built and deployed on AWS. Tested on Amazon's simulators with a demo home. No older adult or family has used it yet, so every claim about its effect is a hypothesis (§15). |
+| **Status** | Built and deployed on AWS. Tested on Amazon's simulators and on a real Fire TV Stick 4K Select, with a demo home. No older adult or family has used it yet, so every claim about its effect is a hypothesis (§15). |
 
 **Why it can only be Amazon.** Wick needs a trusted screen in the room, a
 doorbell with a developer API, and an assistant the family already owns. Only
@@ -233,7 +233,9 @@ The resident does nothing. Her family sets Wick up once:
 
 No account and no hardware are needed.
 
-1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html).
+> **Disclaimer:** her television in a browser tab is for quick testing only. Wick is a Fire TV app: judge it on the Vega Virtual Device or the Fire OS build in the Android TV emulator, as we did ([SETUP.md](SETUP.md)), or on a Fire TV. We ran it on a real Fire TV Stick 4K Select.
+
+1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html), for quick testing.
    The keyboard is the remote: arrows move, Enter is OK, Esc is Back, Space is
    Play/Pause.
 2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose **Try the

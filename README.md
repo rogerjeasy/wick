@@ -123,7 +123,9 @@ allows that person.
 
 ## Try it
 
-No account and no hardware are needed. The browser television is for quick testing only. Wick is a Fire TV app: to see it as Margaret does, run it on the Vega Virtual Device or the Fire OS build in the Android TV emulator, as we did ([docs/SETUP.md](docs/SETUP.md)), or on a Fire TV. We ran it on a Fire TV Stick 4K Select.
+No account and no hardware are needed.
+
+> **Disclaimer:** her television in a browser tab is for quick testing only. Wick is a Fire TV app: judge it on the Vega Virtual Device or the Fire OS build in the Android TV emulator, as we did ([docs/SETUP.md](docs/SETUP.md)), or on a Fire TV. We ran it on a real Fire TV Stick 4K Select.
 
 1. Open [her television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html), for quick testing. The keyboard is the remote: arrows move, **Enter** is OK, **Esc** is Back, **Space** is Play/Pause, and **Enter** held for two seconds is Hold for Sarah. On a phone or tablet, use the remote drawn beside the screen. *How Wick works*, on its home screen, shows an example of everything below without the family app.
 2. Open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose **Try the demo** and enter the code shown on the television (or point a phone at the QR code beside it). You are Sarah, in a demo home with six weeks of simulated history. Every press of **Try the demo** is a new demo session: a fresh key, its own guest and its own home, so nothing from anyone else's session (or your own earlier one) is ever shown. The header names the session, for example *Demo home K7F2QX*.

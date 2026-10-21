@@ -6,7 +6,7 @@ second, not the rest.
 
 | Path | Needs | What you get |
 |---|---|---|
-| [1. Try the hosted demo](#1-try-the-hosted-demo) | A browser | The deployed stack, a demo home, a television in a browser tab |
+| [1. Try the hosted demo](#1-try-the-hosted-demo) | A browser | The deployed stack, a demo home, a television in a browser tab (quick testing; judge Wick on the simulators) |
 | [2. Run the tests](#2-run-the-tests) | Node | Every test, the type checks, the lint rules and the no-mocks guard |
 | [3. Run it locally, without AWS](#3-run-it-locally-without-aws) | Node | The family app and the real server on your laptop, with stand-ins for the television and the doorbell |
 | [4. The Vega app](#4-the-vega-app-on-the-vega-virtual-device) | The Vega SDK | Wick on the Vega Virtual Device, against the deployed stack |
@@ -34,6 +34,8 @@ No account and no hardware. The README's [Try it](../README.md#try-it) has the
 steps: open the [family app](https://dmaz25jvryojp.cloudfront.net/), choose
 **Try the demo**, open [a television in a browser tab](https://d2sbabcft8sm3m.cloudfront.net/tv.html),
 pair it, allow yourself on it, and ask.
+
+> **Disclaimer:** her television in a browser tab is for quick testing only. Wick is a Fire TV app: judge it on the Vega Virtual Device or the Fire OS build in the Android TV emulator, as we did ([§4](#4-the-vega-app-on-the-vega-virtual-device) and [§5](#5-the-fire-os-build-on-the-android-tv-emulator)), or on a Fire TV. We ran it on a real Fire TV Stick 4K Select.
 
 ---
 
