@@ -1,7 +1,6 @@
 # Devpost submission: Wick
 
-The text for each field of the Devpost form, ready to paste. Placeholders
-still to fill are marked **`VIDEO_URL_PLACEHOLDER`**.
+The text for each field of the Devpost form, ready to paste.
 
 ---
 
@@ -29,7 +28,7 @@ anyone watching her.
 | The calm-point map | https://rogerjeasy.github.io/wick/calm-points/ |
 | Product feedback (every tool, and 15 feature requests) | [`docs/PRODUCT-FEEDBACK.md`](PRODUCT-FEEDBACK.md) |
 | Friction log (46 entries) | [`FRICTION.md`](../FRICTION.md) |
-| Video | `VIDEO_URL_PLACEHOLDER` |
+| Video | https://youtu.be/hekdQBD0KDU |
 
 ---
 
@@ -414,38 +413,26 @@ also records which platform reports which setting.
 
 ## Video
 
-**URL:** `VIDEO_URL_PLACEHOLDER`
+**URL:** https://youtu.be/hekdQBD0KDU (3:04). The same video plays, with
+captions, on the [project page](https://rogerjeasy.github.io/wick/).
 
 The rules: under three minutes, in English, public on YouTube or Vimeo, and it
 must show the project running on a Fire TV device or the Fire TV/Vega
-simulator. Judges need not watch past three minutes.
+simulator. Judges need not watch past three minutes; everything Wick does is
+shown before 3:00, and the last seconds are the film playing on both screens.
 
-**One story, Margaret first.** Not a tour of features: one evening at her
-house, told from her armchair, with Sarah's side cut in only when Margaret
-hands something to her. The Vega Virtual Device is in the first frame.
+| Time | Part | What it shows |
+|---|---|---|
+| 0:00–0:20 | The problem | 1 in 6 people 60+ by 2030 (WHO); 28% of Americans 65+ live alone (ACL); 871,000 deaths a year linked to loneliness (WHO); 63 million US family caregivers and $600 billion of unpaid care (AARP); the idea; the real family; 250M+ Fire TV devices (Amazon). Every figure has its source on screen. |
+| 0:20–1:05 | How it is built | The project page's architecture diagram, zoomed part by part: her home, the edge, the agent plane, the Wick server and the Guardian, models, memory, Sarah's side. |
+| 1:05–1:21 | Real hardware | A Fire TV Stick 4K Select out of the box, first boot, Wick installed, Wick's home screen. |
+| 1:21–3:04 | Wick end to end | Sarah's family app (left, a quarter of the screen) beside the real Fire TV Stick (right): pairing and Allow, her week, a note at a natural break and her reply, a note held for a pause in the film, the stand-in doorbell (Maria, a parcel, movement, a stranger) and Ask Sarah to look, a picture from Sarah, a visit pass (on my way, late, at the door), watching together, Hold for Sarah, her light, Spanish and back. |
 
-| Time | Shot | What it shows | Caption on screen |
-|---|---|---|---|
-| 0:00–0:10 | **Vega Virtual Device**, full screen: Wick's home screen, then Big Buck Bunny starting | Her television, on the required simulator, from the first frame | "Vega Virtual Device · demo home, simulated history · no hardware" |
-| 0:10–0:20 | The film playing. Voice: "Margaret is 78 and lives alone. Care technology is built for her daughter's phone. Wick is built for her." | The idea, in one sentence | "Big Buck Bunny © Blender Foundation, CC BY 3.0" (kept while any film is on screen) |
-| 0:20–0:55 | A ring at the door → the door card over the film, which waits for her → the picture → the sentence → **Ask Sarah to look** → cut to Sarah's family app: the same picture, three answers → Sarah picks *"Please don't open the door. I'll ring you now."* → back on the VVD, it appears under Sarah's name | The door, and the one moment Margaret chooses to bring Sarah in | "Stand-in doorbell (Ring's Developer Playground sends no webhooks, FL-027) · vision: Amazon Nova Lite" |
-| 0:55–1:25 | Sarah asks the family app to send a note → the agent shows the note and asks for her yes → back on the VVD, the film plays on and nothing appears → at 1:29 in the film, a quiet cut: the film holds, the note comes up → **Play** reads it aloud → **OK** sends her reply → Sarah's app shows it | Notes wait for a natural break: a calm point measured in the film itself | "Calm point measured with Amazon Rekognition and ffmpeg · read aloud by Amazon Polly" |
-| 1:25–1:55 | On the VVD: *"Shall I tell Sarah? Maria usually comes on Friday mornings. There was no visit on Friday."* → Margaret presses **Tell Sarah** → Sarah asks *"Is everything alright at Mum's?"* → *"Margaret asked Wick to tell you: …"* | Nothing about her reaches the family unless she says so | "If she keeps it to herself, Sarah sees exactly what she would see if nothing had happened." |
-| 1:55–2:15 | Another app in front on the VVD → the system toast *"Someone's at the front door."* → **Open Wick** → the card. Three seconds of the Fire OS build on the Android TV emulator: the same card | Outside Wick, only the door interrupts. One source, both Fire TV platforms | "A note never interrupts another app: it waits, quietly, until she opens Wick." |
-| 2:15–2:35 | The architecture diagram, built up in three steps: television ↔ IoT Core / WebSocket; Ring webhook → Lambda → AgentCore (Strands, Nova Lite); family app → MCP server (26 tools) → the same agents | How it works, in twenty seconds | "Bedrock AgentCore · Strands · Guardrail · Step Functions · all Terraform" |
-| 2:35–2:50 | A single line of montage, about one second each: Hold for Sarah, Watch together, the visit witnessed, her language, Easier to see. Close on her home screen | Everything else, once | "Wick. For the person being cared for." |
-
-Total: 2:50. Rules for the edit:
-
-- Every shot of a film keeps its attribution on screen. Before recording,
-  confirm at office hours #2 (Monday 19 October, 09:00 PT) that CC BY Blender
-  films with attribution are acceptable.
-- No Alexa+ logo (forum topic 45450). The family app is "a simulated Alexa+
-  surface", in those words.
-- Every simulated thing is labelled where it appears: the stand-in doorbell,
-  the demo home's history, the family app.
-- Voice-over in English, plain, at the pace of the cards. Let the door card
-  and the calm point sit on screen long enough to read.
+Labelled as such in the video: the stand-in doorbell, the demo home's
+simulated history, and the family app as a simulated Alexa+ surface. Films:
+Big Buck Bunny, Sintel and Tears of Steel, © Blender Foundation, CC BY 3.0.
+Narration: Amazon Polly. The phone footage of the television is silent; the
+waiting between presses is cut, and nothing else is staged.
 
 ## Built with
 

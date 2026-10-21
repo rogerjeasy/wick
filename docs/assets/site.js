@@ -119,7 +119,7 @@ function film() {
     if (!still && inSight) play();
   });
   v.addEventListener('timeupdate', () => {
-    dur.textContent = heard && v.duration ? clock(v.duration - v.currentTime) : '1:28';
+    dur.textContent = heard && v.duration ? clock(v.duration - v.currentTime) : '3:04';
     if (v.duration) bar.style.transform = `scaleX(${v.currentTime / v.duration})`;
   });
 

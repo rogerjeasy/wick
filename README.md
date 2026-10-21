@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <strong><a href="https://rogerjeasy.github.io/wick/media/wick-demo-1080.mp4">Watch the film (1:28)</a></strong> ·
+  <strong><a href="https://youtu.be/hekdQBD0KDU">Watch the demo on YouTube (3:04)</a></strong> ·
   <strong><a href="https://dmaz25jvryojp.cloudfront.net/">Try the family app</a></strong> ·
   <a href="https://d2sbabcft8sm3m.cloudfront.net/tv.html">Her television in a browser tab</a> ·
   <a href="https://rogerjeasy.github.io/wick/calm-points/">The calm-point map</a>
@@ -64,11 +64,11 @@ answered with one button on the remote she already holds.
 far away. Maria is her carer. *Try the demo* makes you Sarah.
 
 <p align="center">
-  <a href="https://rogerjeasy.github.io/wick/media/wick-demo-1080.mp4">
-    <img src="docs/media/wick-demo-readme.jpg" width="900" alt="Wick in 88 seconds: on the left Sarah's family app, on the right Margaret's Vega television with a door card over her film showing the doorbell's picture, a one-sentence description, and the buttons Ask Sarah to look and Not now. Click to play the film.">
+  <a href="https://youtu.be/hekdQBD0KDU">
+    <img src="docs/media/wick-demo-readme.jpg" width="900" alt="The Wick demo, 3 minutes 4 seconds: Wick's logo, She stays in charge. Her family stays close., and 250M+ Fire TV devices sold worldwide, with a play button. Click to watch on YouTube.">
   </a>
   <br>
-  <sub>Recorded live in one take. Click to play with sound, or watch it with captions on the <a href="https://rogerjeasy.github.io/wick/">project page</a>.</sub>
+  <sub>The problem, how Wick is built, and Wick end to end on a real Fire TV Stick 4K Select beside Sarah's family app. Click to watch on YouTube, or with captions on the <a href="https://rogerjeasy.github.io/wick/">project page</a>.</sub>
 </p>
 
 ## What it does

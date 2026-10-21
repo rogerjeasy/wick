@@ -1,65 +1,110 @@
 WEBVTT
 
 1
-00:00:00.500 --> 00:00:03.300
-Margaret is seventy-eight, and lives alone.
+00:00:00.100 --> 00:00:04.396
+By 2030, one in six of us will be over sixty. Many live alone.
 
 2
-00:00:03.300 --> 00:00:06.800
-Wick cares for her through the screen she already watches.
+00:00:04.500 --> 00:00:07.999
+Loneliness is linked to nearly nine hundred thousand deaths a year.
 
 3
-00:00:07.150 --> 00:00:10.600
-Her daughter Sarah opens the Wick family app, a simulated Alexa+ surface,
+00:00:08.100 --> 00:00:12.719
+Wick turns the TV she already watches into care: one button, her rules.
 
 4
-00:00:10.600 --> 00:00:14.900
-and enters the code on Margaret's Vega TV.
+00:00:12.820 --> 00:00:15.872
+Shaped by a real mother of seventy-nine, and her daughter.
 
 5
-00:00:17.320 --> 00:00:20.000
-Nothing is shared until Margaret allows it.
+00:00:15.970 --> 00:00:19.559
+Made for Fire TV: over two hundred and fifty million sold.
 
 6
-00:00:20.000 --> 00:00:23.500
-And when her week looks different, Wick asks her first.
+00:00:20.400 --> 00:00:23.880
+This is Wick's project site. Here is how it is built.
 
 7
-00:00:26.250 --> 00:00:28.000
-Then Sarah just asks.
+00:00:26.400 --> 00:00:29.376
+The television renders, and never decides.
 
 8
-00:00:28.000 --> 00:00:35.000
-Agents on Amazon Bedrock AgentCore answer through Wick's MCP server, from counted facts only.
+00:00:29.876 --> 00:00:34.508
+Her Fire TV only draws cards. One button answers each.
 
 9
-00:00:37.150 --> 00:00:42.600
-A ring at the door puts a card over her film: a picture, and one sentence from Amazon Nova.
+00:00:34.908 --> 00:00:39.564
+The edge checks every television, and answers Ring within five seconds.
 
 10
-00:00:42.600 --> 00:00:47.800
-One press asks Sarah to look, and her answer appears on screen.
+00:00:39.964 --> 00:00:43.540
+Strands agents on Bedrock AgentCore do the reasoning.
 
 11
-00:00:53.650 --> 00:00:56.000
-Sarah hands Wick an errand.
+00:00:43.940 --> 00:00:49.892
+The MCP server gives Alexa plus twenty-six tools. The Guardian checks every word.
 
 12
-00:00:56.000 --> 00:00:59.800
-The agent arranges the visit and the note, asking before each step.
+00:00:50.292 --> 00:00:53.220
+Bedrock describes the door in one sentence.
 
 13
-00:00:59.800 --> 00:01:05.000
-The note waits for a quiet cut in the film, and Margaret replies with one button.
+00:00:53.620 --> 00:00:57.028
+DynamoDB and S3 keep the home's story.
 
 14
-00:01:12.050 --> 00:01:16.800
-Outside Wick, the door still gets through, on Vega OS and Fire OS alike.
+00:00:57.428 --> 00:01:00.356
+Sarah sees only what her mother agreed to share.
 
 15
-00:01:16.800 --> 00:01:20.400
-And Sarah's errand closes itself.
+00:01:00.606 --> 00:01:04.182
+All in Terraform, deployed by GitHub Actions.
 
 16
-00:01:23.530 --> 00:01:26.600
-Wick. Built for the person being cared for.
+00:01:05.400 --> 00:01:13.440
+This is a real Fire TV Stick 4K Select, fresh out of the box. I installed Wick on it, and it opens on her home screen.
+
+17
+00:01:21.500 --> 00:01:26.204
+Sarah types the code on her TV. Margaret allows her with one press.
+
+18
+00:01:29.000 --> 00:01:33.272
+Sarah asks how her mum is. Wick answers from counted facts.
+
+19
+00:01:37.000 --> 00:01:41.416
+Her note waits for a natural break. Margaret answers with one button.
+
+20
+00:01:47.000 --> 00:01:49.904
+A second note appears the moment the film pauses.
+
+21
+00:01:54.700 --> 00:02:04.516
+When someone rings, a card appears over the film. Maria, a parcel, movement, or a stranger. Ask Sarah to look sends her the picture.
+
+22
+00:02:12.200 --> 00:02:15.872
+Sarah sends a picture. It arrives at a quiet moment.
+
+23
+00:02:18.200 --> 00:02:25.520
+She arranges the window cleaner's visit. Their phone says on the way, late, at the door, and her TV says so.
+
+24
+00:02:32.200 --> 00:02:37.384
+Watch together. Margaret says yes, and Sarah sits down to the same film.
+
+25
+00:02:45.200 --> 00:02:48.992
+Hold OK for two seconds, and Sarah is asked to ring.
+
+26
+00:02:51.950 --> 00:02:54.206
+Her light shows her day has begun.
+
+27
+00:02:55.700 --> 00:03:01.556
+Sarah asks for Spanish, and Margaret says yes on her TV. Then back to English.
+
